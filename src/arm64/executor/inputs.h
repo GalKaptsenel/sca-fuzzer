@@ -33,11 +33,15 @@ struct input_node {
 	struct rb_node node;
 };
 
-int initialize_inputs_db();
-void free_inputs_db();
-int insert_input(input_t *input);
-input_t* find_input(int id);
+#define USER_CONTROLLED_INPUT_LENGTH	(MAIN_REGION_SIZE + FAULTY_REGION_SIZE + sizeof(registers_t))
+
+void initialize_inputs_db(void);
+int allocate_input(void);
+int load_input(input_t *input);
+measurement_t* get_measurement(int id);
+input_t* get_input(int id);
 void remove_input(int id);
+u64 get_number_of_inputs(void);
 void destroy_inputs_db(void);
 
 #endif // ARM64_EXECUTOR_INPUTS_H

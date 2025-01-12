@@ -73,7 +73,7 @@ init_failed_execution:
 }
 
 static void __nocfi __exit my_module_exit(void) {
-	module_err("Module unloaded.\n");
+	module_err("executor unloaded.\n");
 
 	if(executor.tracing_error) {
 		module_err("Failed to unload the module due to corrupted state\n");
@@ -90,5 +90,5 @@ module_exit(my_module_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Gal Kaptsenel");
-MODULE_DESCRIPTION("Example to call kallsyms_lookup_name using inline assembly on AArch64");
+MODULE_DESCRIPTION("AArch64 implementation of Revisor's executor");
 

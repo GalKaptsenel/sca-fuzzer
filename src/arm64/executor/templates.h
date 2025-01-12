@@ -6,9 +6,9 @@
 #define TEMPLATE_RETURN 0x00003333
 
 enum Templates {
-	UNSET,
-	PRIME_AND_PROBE,
-	FLUSH_AND_RELOAD,
+	UNSET_TEMPLATE,
+	PRIME_AND_PROBE_TEMPLATE,
+	FLUSH_AND_RELOAD_TEMPLATE,
 };
 
 int load_template(size_t tc_size);

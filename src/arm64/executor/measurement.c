@@ -95,7 +95,7 @@ static void loag_registers_from_input(input_t* input) {
 	((registers_t*)executor.sandbox.upper_overflow)->sp = (u64)executor.sandbox.main_region + sizeof(executor.sandbox.main_region) - 8;
 }
 
-static void load_input(input_t* input) {
+static void load_input_to_sandbox(input_t* input) {
 	
 	load_memory_from_input(input);
 
@@ -125,21 +125,38 @@ static void measure(measurement_t* measurement) {
 static void run_experiments(void) {
 	uint64_t rounds = executor.number_of_inputs;
 	unsigned long flags = 0;
+	struct rb_node* current_input_node = NULL;
+
+	if(0 >= executor.number_of_inputs){
+		BUG_ON(0 > executor.number_of_inputs);
+		module_err("No inputs were set!\n");
+		return;
+	}
 
 	get_cpu(); // pin the current task to the current cpu
 	raw_local_irq_save(flags); // disable local interrupts and save current state
 	
+	current_input_node = rb_first(&executor.inputs_root);
+	BUG_ON(NULL == current_input_node);
+
 	// Zero-initialize the region of memory used by Prime+Probe
 	memset(executor.sandbox.eviction_region, 0, sizeof(executor.sandbox.eviction_region));
 	
-	for (long i = -executor.config.uarch_reset_rounds; i < rounds; i++) {
+	for (long i = -executor.config.uarch_reset_rounds; i < rounds; ++i) {
+
+		struct input_node* current_input = NULL;
+		
 		// ignore "warm-up" runs (i<0)uarch_reset_rounds
-		uint64_t experiment_number = (i < 0) ? 0 : i;
-		input_t* current_input = executor.inputs + experiment_number;
+		if(0 < i) {
+			current_input_node = rb_next(current_input_node);
+			BUG_ON(NULL == current_input_node);
+		}
+
+		current_input = rb_entry(current_input_node, struct input_node, node);
 
 		initalize_overflow_pages();
 		
-		load_input(current_input);
+		load_input_to_sandbox(&current_input->input);
 	
 		// flush some of the uarch state
 		if (1 == executor.config.pre_run_flush) {
@@ -149,7 +166,7 @@ static void run_experiments(void) {
 		// execute
 		((void(*)(void*))executor.measurement_code)(&executor.sandbox);
 
-		measure(executor.measurements + experiment_number);
+		measure(&current_input->measurement);
 	}
 
 	raw_local_irq_restore(flags); // enable local interrupts with previously saved state

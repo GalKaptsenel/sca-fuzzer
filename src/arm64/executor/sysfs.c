@@ -33,17 +33,17 @@ static ssize_t enable_pre_run_flush_show(struct kobject *kobj, struct kobj_attri
 }
 
 static ssize_t measurement_mode_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
-
-	if ('F' == buf[0]) {
-		executor.config.measurement_template = FLUSH_AND_RELOAD;
-	}
-	else if ('P' == buf[0]) {
-		executor.config.measurement_template = PRIME_AND_PROBE;
-	}
-	else {
-		module_err("Neither l1d_flush_reload nor l1d_prime_probe is enabled.\n");
-		executor.config.measurement_template = UNSET;
-		return -1;
+	switch(buf[0]) {
+		case 'F':
+			executor.config.measurement_template = FLUSH_AND_RELOAD_TEMPLATE;
+			break;
+		case 'P':
+			executor.config.measurement_template = PRIME_AND_PROBE_TEMPLATE;
+			break;
+		default:
+			module_err("Invalid measurement mode.. Clearing the measurement method, please chose an existing one!.\n");
+			executor.config.measurement_template = UNSET_TEMPLATE;
+			return -1;
 	}
 
     return count;
@@ -53,10 +53,10 @@ static ssize_t measurement_mode_show(struct kobject *kobj, struct kobj_attribute
 	int result = 0;
 
 	switch(executor.config.measurement_template) {
-		case FLUSH_AND_RELOAD:
+		case FLUSH_AND_RELOAD_TEMPLATE:
 			result = sprintf(buf, "Flush and Reload (F+L)\n");	
 			break;
-		case PRIME_AND_PROBE:
+		case PRIME_AND_PROBE_TEMPLATE:
 			result = sprintf(buf, "Prime and Probe (P+P)\n");	
 			break;
 		default:

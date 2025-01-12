@@ -360,8 +360,8 @@ MEASUREMENT_METHOD(template_l1d_flush_reload)
 // clang-format on
 
 static struct measurement_method methods[] = {
-	{PRIME_AND_PROBE,	template_l1d_prime_probe},
-	{FLUSH_AND_RELOAD,	template_l1d_flush_reload},
+	{PRIME_AND_PROBE_TEMPLATE,	template_l1d_prime_probe},
+	{FLUSH_AND_RELOAD_TEMPLATE,	template_l1d_flush_reload},
 };
 
 static measurement_template map_to_template(enum Templates required_template) {
@@ -382,7 +382,7 @@ int load_template(size_t tc_size)
 	size_t template_ptr = 0;
 	const u64 MAX_SIZE_OF_TEMPLATE = MAX_MEASUREMENT_CODE_SIZE - 4; // garantee that there is enough space for "ret" instruction
 
-	if(UNSET == executor.config.measurement_template) {
+	if(UNSET_TEMPLATE == executor.config.measurement_template) {
 		module_err("Template is not set!");
 		return -5;
 	}

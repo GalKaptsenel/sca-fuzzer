@@ -1,6 +1,6 @@
 #include "main.h"
 
-static long load_input_id(long* p_input_id, void __user* arg) {
+static int load_input_id(int* p_input_id, void __user* arg) {
 
 	if(NULL == p_input_id) {
 
@@ -8,24 +8,24 @@ static long load_input_id(long* p_input_id, void __user* arg) {
 		return -1;
 	}
 
-	memcpy(p_input_id, arg, sizeof(long)); 
+	memcpy(p_input_id, arg, sizeof(int)); 
 
 	if(0 > *p_input_id) {
-		module_err("Invalid input id! (got input id: %d)\n", *input_id);
+		module_err("Invalid input id! (got input id: %d)\n", *p_input_id);
 	}
 
 	return *p_input_id;
 }
 
-static void inner_checkout_into_input_id(void __user* arg) {
+static void checkout_into_input_id(void __user* arg) {
 
-	long input_id = -1;
+	int input_id = -1;
 
 	if(0 <= load_input_id(&input_id, arg)) {
 
-		input_t* current = get_input(input_id);
+		input_t* current_input = get_input(input_id);
 
-		if(NULL != current) {
+		if(NULL != current_input) {
 			executor.checkedout_region = input_id;
 
 		} else {
@@ -35,22 +35,55 @@ static void inner_checkout_into_input_id(void __user* arg) {
 	}
 }
 
-static void inner_free_input_id(void __user* arg) {
+static void measurements_became_unavailable(void) {
+	module_info("Measurements became unavailable!\n");
+}
 
-	long input_id = -1;
+static void reset_state_and_region_after_unloading_all_inputs(void) {
 
-	if(0 <= load_input_id(&input_id, (void __user*)arg)) { 
+	module_info("all inputs were unloaded, checking out into TEST_REGION\n");
+	executor.checkedout_region = TEST_REGION;
+
+	switch(executor.state) {
+		case TRACED_STATE:
+			measurements_became_unavailable();
+		case READY_STATE:
+			executor.state = LOADED_TEST_STATE;
+			break;
+		case LOADED_INPUTS_STATE:
+		       executor.state = CONFIGURATION_STATE;	
+		       break;
+		default:
+		       break;
+	}
+}
+
+static void free_input_id(void __user* arg) {
+
+	int input_id = -1;
+
+	if(0 <= load_input_id(&input_id, (void __user*)arg)) {
 
 		if(input_id == executor.checkedout_region) {
 			module_info("Freeing the currently checkedout input, checking out into TEST_REGION.\n");
 			executor.checkedout_region = TEST_REGION;
 		}
 		
-		unload_input(input_id);
+		remove_input(input_id);
+
+		if(0 == get_number_of_inputs()) {
+			reset_state_and_region_after_unloading_all_inputs();
+		}
 	}
 }
 
-static void inner_measure_input_id(void __user* arg) {
+static void clear_all_inputs(void) {
+	destroy_inputs_db();
+	initialize_inputs_db();
+	reset_state_and_region_after_unloading_all_inputs();
+}
+
+static void measure_input_id(void __user* arg) {
 
 	if(TRACED_STATE != executor.state) {
 		module_err("Measurements are available only after performing a trace!\n");
@@ -60,15 +93,65 @@ static void inner_measure_input_id(void __user* arg) {
 
 	} else {
 
-		input_t* current = get_input(executor.checkedout_region);
-		if(NULL != current) {
-			memcpy(arg, &(current->measurement), sizeof(input->measurement));
-		}
-		else {
-			module_alert("Unexpected error at REVISOR_MEASUREMENT_CONSTANT\n");
-		}
+		measurement_t* current_measurement = get_measurement(executor.checkedout_region);
+		BUG_ON(NULL == current_measurement);
+		memcpy(arg, current_measurement, sizeof(measurement_t));
 	}
 }
+
+static void unload_test_and_update_state(void) {
+	memset(executor.test_case, 0, MAX_TEST_CASE_SIZE);
+	memset(executor.measurement_code, 0, MAX_MEASUREMENT_CODE_SIZE); 
+	executor.test_case_length = 0;
+
+	switch(executor.state) {
+		case TRACED_STATE:
+			measurements_became_unavailable();
+		case READY_STATE:
+		      executor.state = LOADED_INPUTS_STATE;
+		      break;
+		case LOADED_TEST_STATE:
+		      executor.state = CONFIGURATION_STATE;
+		      break;
+		default:
+		      break;
+	}
+}
+
+static void update_state_after_writing_test(void) {
+	switch(executor.state) {
+		case CONFIGURATION_STATE:
+			executor.state = LOADED_TEST_STATE;
+			break;
+		case LOADED_INPUTS_STATE:
+			executor.state = READY_STATE;
+			break;
+		default:
+			break;
+	}
+}
+
+static int load_test_and_update_state(const char __user* test, size_t length) {
+	u64 full_test_case_size = 0;
+
+	if (MAX_TEST_CASE_SIZE < length) {
+		return -ENOMEM;
+	}
+
+	memcpy(executor.test_case, test, length);
+	full_test_case_size = load_template(length);
+	if(full_test_case_size < 0) {
+		module_err("Failed to load test case (code: %d)\n", full_test_case_size);
+		return full_test_case_size;
+	}
+
+	executor.test_case_length = length;
+
+	update_state_after_writing_test();
+
+	return full_test_case_size;
+}
+
 
 static int trace(void) {
 
@@ -79,13 +162,13 @@ static int trace(void) {
 
 	executor.state = TRACED_STATE;
 
-	execute();
+	return execute();
 }
 
-static void inner_get_test_length(void __user* arg) {
+static void get_test_length(void __user* arg) {
 	u64 size = -1;
 
-	if(LOADED_TEST_STATE == executor.state || READY_TEST_STATE == executor.state || TRACED_STATE == executor.state) {
+	if(LOADED_TEST_STATE == executor.state || READY_STATE == executor.state || TRACED_STATE == executor.state) {
 		size = executor.test_case_length;
 		memcpy(arg, &size, sizeof(size));
 	} else {
@@ -103,12 +186,12 @@ static long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg
 	
 	switch(_IOC_NR(cmd)) {
 
-		case REVISOR_CHECKOUT_TEST:
+		case REVISOR_CHECKOUT_TEST_CONSTANT:
 			executor.checkedout_region = TEST_REGION;
 			break;
 
 		case REVISOR_UNLOAD_TEST_CONSTANT:
-			unload_test();
+			unload_test_and_update_state();
 			break;
 
 		case REVISOR_GET_NUMBER_OF_INPUTS_CONSTANT:
@@ -116,8 +199,8 @@ static long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg
 			memcpy((void __user*)arg, &result, sizeof(result)); 
 			break;
 
-		case REVISOR_CHECKOUT_INPUT:
-			inner_checkout_into_input_id((void __user*)arg);
+		case REVISOR_CHECKOUT_INPUT_CONSTANT:
+			checkout_into_input_id((void __user*)arg);
 			break;
 
 		case REVISOR_ALLOCATE_INPUT_CONSTANT:
@@ -126,11 +209,11 @@ static long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg
 			break;
 
 		case REVISOR_FREE_INPUT_CONSTANT:
-			inner_free_input_id((void __user*)arg);
+			free_input_id((void __user*)arg);
 			break;
 
 		case REVISOR_MEASUREMENT_CONSTANT:
-			inner_measure_input_id((void __user*)arg);
+			measure_input_id((void __user*)arg);
 			break;
 
 		case REVISOR_TRACE_CONSTANT:
@@ -141,16 +224,18 @@ static long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg
 			clear_all_inputs();
 			break;	
 		case REVISOR_GET_TEST_LENGTH_CONSTANT:
-			inner_get_test_length((void __user* arg)arg);
+			get_test_length((void __user*)arg);
 			break;
 		default:
 			module_err("Invalid IOCTL!\n");
 			return -ENOTTY;
 	}
+
+	return 0;
 }
 
 static ssize_t revisor_read(struct file* File, char __user* user_buffer, size_t count, loff_t* off) {
-	int number_of_byted_to_copy  = 0;
+	int number_of_bytes_to_copy  = 0;
 	void* from_buffer = NULL;
 
 	if(NULL == user_buffer) {
@@ -160,35 +245,20 @@ static ssize_t revisor_read(struct file* File, char __user* user_buffer, size_t 
 
 	if(TEST_REGION == executor.checkedout_region) {
 
-		number_of_byted_to_copy = min(count, executor.test_case_length);
+		number_of_bytes_to_copy = min(count, executor.test_case_length);
 		from_buffer = executor.test_case;
 
 	} else {
 
-		number_of_byted_to_copy = min(count, sizeof(input_t));
+		number_of_bytes_to_copy = min(count, sizeof(input_t));
 		from_buffer = get_input(executor.checkedout_region);
-
 	}
 
-	if(NULL == from_buffer) {
-		module_alert("read callback - failed to locate the source buffer inside the kernel! This is an unexpected behaviour!\n");
-		return -EIO;
-	}
+	BUG_ON(NULL == from_buffer);
 
 	memcpy(user_buffer, from_buffer, number_of_bytes_to_copy);
 
 	return 0; // return EOF
-}
-
-static void update_state_after_writing_test(void) {
-	switch(executor.state) {
-		case CONFIGURATION_STATE:
-			executor.state = LOADED_TEST_STATE;
-			break;
-		case LOAD_INPUTS_STATE:
-			executor.state = READY_STATE;
-			break;
-	}
 }
 
 static void update_state_after_writing_input(void) {
@@ -199,49 +269,109 @@ static void update_state_after_writing_input(void) {
 		case LOADED_TEST_STATE:
 			executor.state = READY_STATE;
 			break;
+		default:
+			break;
 	}
 }
 
-static ssize_t revisor_write(struct file* File, char __user* user_buffer, size_t count, loff_t* off) {
+static void copy_input_from_user_and_update_state(const char __user* user_buffer, size_t count) {
 
-	int number_of_bytes_to_copy = 0;
-	void* to_buffer = NULL;
+	if(USER_CONTROLLED_INPUT_LENGTH == count) {
+		void* to_buffer = get_input(executor.checkedout_region);
+		BUG_ON(NULL == to_buffer);
+
+		memcpy(to_buffer, user_buffer, USER_CONTROLLED_INPUT_LENGTH);
+
+		update_state_after_writing_input();
+
+	} else {
+		module_err("write callback - input must be exactly of length USER_CONTROLLED_INPUT_LENGTH(=%d)!\n", USER_CONTROLLED_INPUT_LENGTH);
+
+	}
+}
+
+static ssize_t revisor_write(struct file* File, const char __user* user_buffer, size_t count, loff_t* off) {
 
 	if(NULL == user_buffer) {
 		module_err("write callback - got NULL inside user_buffer!\n");
-		return -EINVAL;
+		return -1;
 	}
 
 	if(TEST_REGION == executor.checkedout_region) {
-		number_of_bytes_to_copy = min(count, MAX_TEST_CASE_SIZE);
-		to_buffer = executor.test_case;
 
-	} else {
-
-		if(sizeof(input_t) != count) {
-			module_err("write callback - input must be of sizeof(input_t)(=%d)!\n", sizeof(input_t));
-			return -EINVAL;
+		if(0 > load_test_and_update_state(user_buffer, count)) {
+			return -1;
 		}
 
-		number_of_bytes_to_copy = count; 
-		to_buffer = get_input(executor.checkedout_region);
-	}
-
-	if(NULL == to_buffer) {
-		module_alert("write callback - failed to locate the deestination buffer inside the kernel! This is an unexpected behaviour!\n");
-		return -EIO;
-	}
-
-	memcpy(to_buffer, user_buffer, number_of_bytes_to_copy);
-
-	if(TEST_REGION == executor.checkedout_region) {
-		update_state_after_writing_test();
-		executor.test_case_length = number_of_bytes_to_copy;
-
 	} else {
-		update_state_after_writing_input();
+
+		BUG_ON(0 > executor.checkedout_region);
+		copy_input_from_user_and_update_state(user_buffer, count);
 	}
 
-	return number_of_bytes_to_copy;
+	return count;
 }
+
+static struct file_operations fops = {
+    .owner = THIS_MODULE,
+    .unlocked_ioctl = revisor_ioctl,
+    .read = revisor_read,
+    .write = revisor_write,
+};
+
+
+int initialize_device_interface(void) { 
+	int status = 0;
+
+	status = alloc_chrdev_region(&executor.device_mgmt.device_number, 0, 1, REVISOR_DEVICE_NAME);
+	if(status < 0) {
+		module_err("Unable to allocate character device number! Error code: %d\n", status);
+		goto initialize_cleanup_exit_with_error;
+	}
+
+	cdev_init(&executor.device_mgmt.character_device, &fops);
+	executor.device_mgmt.character_device.owner = THIS_MODULE;
+
+	status = cdev_add(&executor.device_mgmt.character_device, executor.device_mgmt.device_number, 1);
+	if(status < 0) {
+		module_err("Unable to add character device to the system! Error code: %d\n", status);
+		goto initialize_cleanup_allocated_device_numbers;
+	}
+
+	executor.device_mgmt.device_class = class_create(THIS_MODULE, REVISOR_DEVICE_CLASS_NAME);
+	if (IS_ERR(executor.device_mgmt.device_class)) {
+		module_err("Unable to create device class\n");
+		status = PTR_ERR(executor.device_mgmt.device_class);
+		goto initialize_cleanup_cdev_del;
+	}
+
+	if (!device_create(executor.device_mgmt.device_class, NULL, executor.device_mgmt.device_number, NULL, REVISOR_DEVICE_NODE_NAME)) {
+		module_err("Unable to create device node\n");
+		status = -EINVAL;
+		goto initialize_cleanup_class_destroy;
+	}
+
+	module_info("Registered device number MAJOR: %d, MINOR: %d and created cdev\n", MAJOR(executor.device_mgmt.device_number), MINOR(executor.device_mgmt.device_number));
+
+	return 0;
+
+initialize_cleanup_class_destroy:
+	class_destroy(executor.device_mgmt.device_class);
+initialize_cleanup_cdev_del:
+	cdev_del(&executor.device_mgmt.character_device);
+initialize_cleanup_allocated_device_numbers:
+	unregister_chrdev_region(executor.device_mgmt.device_number, 1);
+initialize_cleanup_exit_with_error:
+	return status;
+}
+
+void free_device_interface(void) {
+	device_destroy(executor.device_mgmt.device_class, executor.device_mgmt.device_number);
+	class_destroy(executor.device_mgmt.device_class);
+	cdev_del(&executor.device_mgmt.character_device);
+	unregister_chrdev_region(executor.device_mgmt.device_number, 1);
+	module_info("Unregistered device number MAJOR: %d, MINOR: %d and deleted cdev\n", MAJOR(executor.device_mgmt.device_number), MINOR(executor.device_mgmt.device_number));
+}
+
+
 

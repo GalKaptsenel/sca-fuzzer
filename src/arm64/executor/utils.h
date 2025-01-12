@@ -9,9 +9,9 @@
 #define _str(s) 	str(s)
 #define str(s) 		#s
 
-#define KB		(1024)
-#define MB		(1024 * (KB))
-#define PAGESIZE	(4 * (KB))
+#define KB		(1024UL)
+#define MB		(1024UL * (KB))
+#define PAGESIZE	(4UL * (KB))
 
 // MACROS
 #define module_msg(printer_fn, format, ...)             printer_fn(kernel_module_name ": " format, ##__VA_ARGS__)

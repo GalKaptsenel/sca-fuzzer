@@ -10,6 +10,12 @@
 #include <linux/io.h>
 #include <linux/vmalloc.h>
 #include <linux/kprobes.h>
+#include <linux/bug.h>
+#include <linux/minmax.h>
+#include <linux/device.h>
+#include <linux/fs.h>
+#include <linux/uaccess.h>
+#include <linux/cdev.h>
 
 #include "pagewalk.h"
 #include "utils.h"
@@ -20,6 +26,7 @@
 #include "measurement.h"
 #include "sandbox.h"
 #include "inputs.h"
+#include "chardevice.h"
 #include "executor.h"
 
 #define DEBUG 0

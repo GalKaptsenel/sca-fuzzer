@@ -1,3 +1,6 @@
+#include "main.h"
+#include <linux/rbtree.h>
+
 void initialize_inputs_db(void) {
 	executor.inputs_root = RB_ROOT;
 	executor.number_of_inputs = 0;
@@ -15,7 +18,7 @@ int load_input(input_t *from_input) {
 		return -2;
 	}
 
-	input_t* to_input = find_input(executor.checkedout_region);
+	input_t* to_input = get_input(executor.checkedout_region);
 
 	if(NULL == to_input) {
 		module_err("to_input is NULL!\n");
@@ -26,7 +29,7 @@ int load_input(input_t *from_input) {
 	return 0;
 }
 
-int allocate_input() {
+int allocate_input(void) {
 	static int input_id = 0;
 
 	struct input_node* new_node = NULL;
@@ -41,9 +44,8 @@ int allocate_input() {
 	}
 
 	new_node->id = input_id;
-	memset(&(new__node->input), 0, sizeof(input_t)); 
+	memset(&(new_node->input), 0, sizeof(input_t)); 
 	initialize_measurement(&(new_node->measurement));
-	rb_init_node(&(new_node->node));
 	
 	while(*link) {
 		parent = *link;
@@ -63,7 +65,7 @@ int allocate_input() {
 	return new_node->id;
 }
 
-static struct input_node* find_input_node(int id) {
+static struct input_node* get_input_node(int id) {
 	struct rb_node* node = executor.inputs_root.rb_node;
 
 	while(node) {
@@ -83,16 +85,28 @@ static struct input_node* find_input_node(int id) {
 	return NULL;
 }
 
-input_t* find_input(int id) {
-	struct input_node* node = find_input_node(id);
+measurement_t* get_measurement(int id) {
+	struct input_node* node = get_input_node(id);
+
+	if(NULL == node) return NULL;
+
+	return &node->measurement;
+}
+
+input_t* get_input(int id) {
+	struct input_node* node = get_input_node(id);
 
 	if (NULL == node) return NULL;
 
 	return &(node->input);
 }
 
+u64 get_number_of_inputs(void) {
+	return executor.number_of_inputs;
+}
+
 void remove_input(int id) {
-	struct input_node* node_to_remove = find_input_node(id);
+	struct input_node* node_to_remove = get_input_node(id);
 	if(NULL == node_to_remove) return;
 	rb_erase(&(node_to_remove->node), &(executor.inputs_root));
 	vfree(node_to_remove);
@@ -112,3 +126,4 @@ void destroy_inputs_db(void) {
 	executor.inputs_root.rb_node = NULL;
 	executor.number_of_inputs = 0;
 }
+
