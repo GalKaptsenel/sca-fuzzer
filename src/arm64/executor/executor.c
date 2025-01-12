@@ -1,14 +1,14 @@
 #include "main.h"
 
 // Globals
-executor_t executor	=	{ 0 }; 
+executor_t executor	=	{ 0 };
 
 static void init_executor_defaults(void) {
 	executor.config.uarch_reset_rounds = UARCH_RESET_ROUNDS_DEFAULT;
 	executor.config.enable_faulty_page = ENABLE_FAULTY_DEFAULT;
 	executor.config.pre_run_flush = PRE_RUN_FLUSH_DEFAULT;
 	executor.config.measurement_template = MEASUREMENT_TEMPLATE_DEFAULT;
-	executor.checkedout_region = TEST_REGION;
+	executor.checkout_region = TEST_REGION;
 }
 
 int initialize_executor(set_memory_t set_memory_x, set_memory_t set_memory_nx) {
@@ -24,7 +24,7 @@ int initialize_executor(set_memory_t set_memory_x, set_memory_t set_memory_nx) {
 	}
 
 	executor.test_case_length = 0;
-	
+
 	err = set_memory_x((unsigned long)executor.measurement_code, sizeof(executor.measurement_code) / PAGESIZE);
 	if(err) {
 		module_err("Failed to make executor.measurement_code executable\n");
@@ -32,7 +32,7 @@ int initialize_executor(set_memory_t set_memory_x, set_memory_t set_memory_nx) {
 	}
 
 	initialize_inputs_db();
-	
+
 	err = initialize_device_interface();
 	if(0 > err) {
 

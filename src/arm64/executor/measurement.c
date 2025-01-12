@@ -71,39 +71,37 @@ static inline int setup_environment(void) {
 }
 
 static void load_memory_from_input(input_t* input) {
-	
+
 	// - sandbox: main and faulty regions
 	for (int j = 0; j < (sizeof(executor.sandbox.main_region) / sizeof(uint64_t)); ++j) {
 	        ((uint64_t*)executor.sandbox.main_region)[j] = ((uint64_t*)(input->main_region))[j];
 	}
-	
+
 	for (int j = 0; j < (sizeof(executor.sandbox.faulty_region) / sizeof(uint64_t)); ++j) {
 	        ((uint64_t*)executor.sandbox.faulty_region)[j] = ((uint64_t*)(input->faulty_region))[j];
 	}
 }
 
-static void loag_registers_from_input(input_t* input) {
-	
-	// Initial register values (the registers will be set to these values in template.c)
-	
+static void load_registers_from_input(input_t* input) {
+
+	// Initial register values
 	*((registers_t*)executor.sandbox.upper_overflow) = input->regs;
-	
+
 	// - flags
 	((registers_t*)executor.sandbox.upper_overflow)->flags <<= 28;
-	
+
 	// - RSP and RBP
-	((registers_t*)executor.sandbox.upper_overflow)->sp = (u64)executor.sandbox.main_region + sizeof(executor.sandbox.main_region) - 8;
+	((registers_t*)executor.sandbox.upper_overflow)->sp = (size_t)executor.sandbox.main_region + sizeof(executor.sandbox.main_region) - 8;
 }
 
 static void load_input_to_sandbox(input_t* input) {
-	
-	load_memory_from_input(input);
 
-	loag_registers_from_input(input);
+	load_memory_from_input(input);
+	load_registers_from_input(input);
 }
 
-static void initalize_overflow_pages(void) {
-	
+static void initialize_overflow_pages(void) {
+
 	// Initialize memory:
 	// NOTE: memset is not used intentionally! somehow, it messes up with P+P measurements
 	// - overflows are initialized with zeroes
@@ -114,7 +112,7 @@ static void initalize_overflow_pages(void) {
 }
 
 static void measure(measurement_t* measurement) {
-	
+
 	// store the measurement results
 	measurement->htrace[0] = executor.sandbox.latest_measurement.htrace[0];
 	measurement->pfc[0] = executor.sandbox.latest_measurement.pfc[0];
@@ -135,17 +133,17 @@ static void run_experiments(void) {
 
 	get_cpu(); // pin the current task to the current cpu
 	raw_local_irq_save(flags); // disable local interrupts and save current state
-	
+
 	current_input_node = rb_first(&executor.inputs_root);
 	BUG_ON(NULL == current_input_node);
 
 	// Zero-initialize the region of memory used by Prime+Probe
 	memset(executor.sandbox.eviction_region, 0, sizeof(executor.sandbox.eviction_region));
-	
+
 	for (long i = -executor.config.uarch_reset_rounds; i < rounds; ++i) {
 
 		struct input_node* current_input = NULL;
-		
+
 		// ignore "warm-up" runs (i<0)uarch_reset_rounds
 		if(0 < i) {
 			current_input_node = rb_next(current_input_node);
@@ -154,15 +152,15 @@ static void run_experiments(void) {
 
 		current_input = rb_entry(current_input_node, struct input_node, node);
 
-		initalize_overflow_pages();
-		
+		initialize_overflow_pages();
+
 		load_input_to_sandbox(&current_input->input);
-	
+
 		// flush some of the uarch state
 		if (1 == executor.config.pre_run_flush) {
 			// TBD
 		}
-		
+
 		// execute
 		((void(*)(void*))executor.measurement_code)(&executor.sandbox);
 

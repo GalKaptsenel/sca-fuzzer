@@ -1,3 +1,7 @@
+#include <linux/device.h>
+#include <linux/fs.h>
+#include <linux/uaccess.h>
+#include <linux/cdev.h>
 #include "main.h"
 
 static int load_input_id(int* p_input_id, void __user* arg) {
@@ -8,7 +12,7 @@ static int load_input_id(int* p_input_id, void __user* arg) {
 		return -1;
 	}
 
-	memcpy(p_input_id, arg, sizeof(int)); 
+	memcpy(p_input_id, arg, sizeof(int));
 
 	if(0 > *p_input_id) {
 		module_err("Invalid input id! (got input id: %d)\n", *p_input_id);
@@ -26,11 +30,11 @@ static void checkout_into_input_id(void __user* arg) {
 		input_t* current_input = get_input(input_id);
 
 		if(NULL != current_input) {
-			executor.checkedout_region = input_id;
+			executor.checkout_region = input_id;
 
 		} else {
 			module_err("Checkedout an input id that does not exist! (requested input id: %d)\n", input_id);
-		
+
 		}
 	}
 }
@@ -42,7 +46,7 @@ static void measurements_became_unavailable(void) {
 static void reset_state_and_region_after_unloading_all_inputs(void) {
 
 	module_info("all inputs were unloaded, checking out into TEST_REGION\n");
-	executor.checkedout_region = TEST_REGION;
+	executor.checkout_region = TEST_REGION;
 
 	switch(executor.state) {
 		case TRACED_STATE:
@@ -51,7 +55,7 @@ static void reset_state_and_region_after_unloading_all_inputs(void) {
 			executor.state = LOADED_TEST_STATE;
 			break;
 		case LOADED_INPUTS_STATE:
-		       executor.state = CONFIGURATION_STATE;	
+		       executor.state = CONFIGURATION_STATE;
 		       break;
 		default:
 		       break;
@@ -64,11 +68,11 @@ static void free_input_id(void __user* arg) {
 
 	if(0 <= load_input_id(&input_id, (void __user*)arg)) {
 
-		if(input_id == executor.checkedout_region) {
+		if(input_id == executor.checkout_region) {
 			module_info("Freeing the currently checkedout input, checking out into TEST_REGION.\n");
-			executor.checkedout_region = TEST_REGION;
+			executor.checkout_region = TEST_REGION;
 		}
-		
+
 		remove_input(input_id);
 
 		if(0 == get_number_of_inputs()) {
@@ -88,12 +92,12 @@ static void measure_input_id(void __user* arg) {
 	if(TRACED_STATE != executor.state) {
 		module_err("Measurements are available only after performing a trace!\n");
 
-	} else if(TEST_REGION == executor.checkedout_region) {
-		module_err("Checkout into the desired input!\n"); 
+	} else if(TEST_REGION == executor.checkout_region) {
+		module_err("Checkout into the desired input!\n");
 
 	} else {
 
-		measurement_t* current_measurement = get_measurement(executor.checkedout_region);
+		measurement_t* current_measurement = get_measurement(executor.checkout_region);
 		BUG_ON(NULL == current_measurement);
 		memcpy(arg, current_measurement, sizeof(measurement_t));
 	}
@@ -101,7 +105,7 @@ static void measure_input_id(void __user* arg) {
 
 static void unload_test_and_update_state(void) {
 	memset(executor.test_case, 0, MAX_TEST_CASE_SIZE);
-	memset(executor.measurement_code, 0, MAX_MEASUREMENT_CODE_SIZE); 
+	memset(executor.measurement_code, 0, MAX_MEASUREMENT_CODE_SIZE);
 	executor.test_case_length = 0;
 
 	switch(executor.state) {
@@ -132,7 +136,7 @@ static void update_state_after_writing_test(void) {
 }
 
 static int load_test_and_update_state(const char __user* test, size_t length) {
-	u64 full_test_case_size = 0;
+	uint64_t full_test_case_size = 0;
 
 	if (MAX_TEST_CASE_SIZE < length) {
 		return -ENOMEM;
@@ -166,7 +170,7 @@ static int trace(void) {
 }
 
 static void get_test_length(void __user* arg) {
-	u64 size = -1;
+	uint64_t size = -1;
 
 	if(LOADED_TEST_STATE == executor.state || READY_STATE == executor.state || TRACED_STATE == executor.state) {
 		size = executor.test_case_length;
@@ -178,16 +182,16 @@ static void get_test_length(void __user* arg) {
 
 static long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
 
-	u64 result = 0;
+	uint64_t result = 0;
 
 	if(REVISOR_IOC_MAGIC != _IOC_TYPE(cmd)) {
 		return -ENOTTY;
 	}
-	
+
 	switch(_IOC_NR(cmd)) {
 
 		case REVISOR_CHECKOUT_TEST_CONSTANT:
-			executor.checkedout_region = TEST_REGION;
+			executor.checkout_region = TEST_REGION;
 			break;
 
 		case REVISOR_UNLOAD_TEST_CONSTANT:
@@ -196,7 +200,7 @@ static long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg
 
 		case REVISOR_GET_NUMBER_OF_INPUTS_CONSTANT:
 			result = get_number_of_inputs();
-			memcpy((void __user*)arg, &result, sizeof(result)); 
+			memcpy((void __user*)arg, &result, sizeof(result));
 			break;
 
 		case REVISOR_CHECKOUT_INPUT_CONSTANT:
@@ -205,7 +209,7 @@ static long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg
 
 		case REVISOR_ALLOCATE_INPUT_CONSTANT:
 			result = allocate_input();
-			memcpy((void __user*)arg, &result, sizeof(result)); 
+			memcpy((void __user*)arg, &result, sizeof(result));
 			break;
 
 		case REVISOR_FREE_INPUT_CONSTANT:
@@ -222,7 +226,7 @@ static long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg
 
 		case REVISOR_CLEAR_ALL_INPUTS_CONSTANT:
 			clear_all_inputs();
-			break;	
+			break;
 		case REVISOR_GET_TEST_LENGTH_CONSTANT:
 			get_test_length((void __user*)arg);
 			break;
@@ -243,7 +247,7 @@ static ssize_t revisor_read(struct file* File, char __user* user_buffer, size_t 
 		return -EINVAL;
 	}
 
-	if(TEST_REGION == executor.checkedout_region) {
+	if(TEST_REGION == executor.checkout_region) {
 
 		number_of_bytes_to_copy = min(count, executor.test_case_length);
 		from_buffer = executor.test_case;
@@ -251,7 +255,7 @@ static ssize_t revisor_read(struct file* File, char __user* user_buffer, size_t 
 	} else {
 
 		number_of_bytes_to_copy = min(count, sizeof(input_t));
-		from_buffer = get_input(executor.checkedout_region);
+		from_buffer = get_input(executor.checkout_region);
 	}
 
 	BUG_ON(NULL == from_buffer);
@@ -277,7 +281,7 @@ static void update_state_after_writing_input(void) {
 static void copy_input_from_user_and_update_state(const char __user* user_buffer, size_t count) {
 
 	if(USER_CONTROLLED_INPUT_LENGTH == count) {
-		void* to_buffer = get_input(executor.checkedout_region);
+		void* to_buffer = get_input(executor.checkout_region);
 		BUG_ON(NULL == to_buffer);
 
 		memcpy(to_buffer, user_buffer, USER_CONTROLLED_INPUT_LENGTH);
@@ -297,7 +301,7 @@ static ssize_t revisor_write(struct file* File, const char __user* user_buffer, 
 		return -1;
 	}
 
-	if(TEST_REGION == executor.checkedout_region) {
+	if(TEST_REGION == executor.checkout_region) {
 
 		if(0 > load_test_and_update_state(user_buffer, count)) {
 			return -1;
@@ -305,7 +309,7 @@ static ssize_t revisor_write(struct file* File, const char __user* user_buffer, 
 
 	} else {
 
-		BUG_ON(0 > executor.checkedout_region);
+		BUG_ON(0 > executor.checkout_region);
 		copy_input_from_user_and_update_state(user_buffer, count);
 	}
 
@@ -320,7 +324,7 @@ static struct file_operations fops = {
 };
 
 
-int initialize_device_interface(void) { 
+int initialize_device_interface(void) {
 	int status = 0;
 
 	status = alloc_chrdev_region(&executor.device_mgmt.device_number, 0, 1, REVISOR_DEVICE_NAME);

@@ -6,14 +6,14 @@
 #define REG_INITIALIZATION_REGION_SIZE_ALIGNED			(4 * KB)
 
 typedef struct registers {
-	u64 x0;
-	u64 x1;
-	u64 x2;
-	u64 x3;
-	u64 x4;
-	u64 x5;
-	u64 flags;
-	u64 sp;
+	uint64_t x0;
+	uint64_t x1;
+	uint64_t x2;
+	uint64_t x3;
+	uint64_t x4;
+	uint64_t x5;
+	uint64_t flags;
+	uint64_t sp;
 } registers_t;
 
 typedef struct Input {
@@ -41,7 +41,7 @@ int load_input(input_t *input);
 measurement_t* get_measurement(int id);
 input_t* get_input(int id);
 void remove_input(int id);
-u64 get_number_of_inputs(void);
+uint64_t get_number_of_inputs(void);
 void destroy_inputs_db(void);
 
 #endif // ARM64_EXECUTOR_INPUTS_H

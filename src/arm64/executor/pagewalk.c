@@ -2,21 +2,21 @@
 
 static struct mm_struct *init_mm_ptr	=	NULL;
 
-static void __nocfi load_init_mm(void) { 
+static void __nocfi load_init_mm(void) {
 	load_global_symbol(kallsyms_lookup_name_fn, struct mm_struct *, init_mm_ptr, init_mm);
 }
 
-static void decode_entry(u64 entry, const char *level) {
-	u64 present_bit = 0;
-	u64 entry_type = 0;
-	u64 accessed_flag = 0;
-	u64 access_permissions = 0;
-	u64 attr_index = 0;
-	u64 sharability = 0;
-	u64 dirty_bit = 0;
-	u64 uxn_bit = 0;
-	u64 pxn_bit = 0;
-	u64 software_defined = 0;
+static void decode_entry(uint64_t entry, const char *level) {
+	uint64_t present_bit = 0;
+	uint64_t entry_type = 0;
+	uint64_t accessed_flag = 0;
+	uint64_t access_permissions = 0;
+	uint64_t attr_index = 0;
+	uint64_t sharability = 0;
+	uint64_t dirty_bit = 0;
+	uint64_t uxn_bit = 0;
+	uint64_t pxn_bit = 0;
+	uint64_t software_defined = 0;
 
 	module_err("Decoding %s entry: 0x%016llx\n", level, entry);
 
@@ -41,7 +41,7 @@ static void decode_entry(u64 entry, const char *level) {
 
 	// Accessed Flag
 	accessed_flag = (entry >> 10) & 0x1;
-	if (accessed_flag) { 
+	if (accessed_flag) {
 		module_err("%s: Has already been used [AF=1]\n", level);
 	}
 	else {
@@ -65,7 +65,7 @@ static void decode_entry(u64 entry, const char *level) {
 			module_err("%s: Read-Only for EL0 and Read-Only for EL1/2/3", level);
 			break;
 	}
-	
+
 	// Attributes
 	attr_index = (entry >> 2) & 0x7;
 	module_err("%s: Memory Attributes Index: %llu\n", level, attr_index);
@@ -90,13 +90,13 @@ static void decode_entry(u64 entry, const char *level) {
 
 	// Dirty Bit
 	dirty_bit = (entry >> 55) & 0x1;
-	if (dirty_bit) { 
+	if (dirty_bit) {
 		module_err("%s: Dirty\n", level);
 	}
-	
+
 	// UXN Bit
 	uxn_bit = (entry >> 54) & 0x1;
-	if (uxn_bit) { 
+	if (uxn_bit) {
 		module_err("%s: EL0 cannot execute code [UXN=1]\n", level);
 	}
 	else {
@@ -105,7 +105,7 @@ static void decode_entry(u64 entry, const char *level) {
 
 	// PXN Bit
 	pxn_bit = (entry >> 53) & 0x1;
-	if (pxn_bit) { 
+	if (pxn_bit) {
 		module_err("%s: EL1/2/3 cannot execute code [PXN=1]\n", level);
 	}
 	else {
@@ -141,9 +141,7 @@ static void decode_pte(pte_t pte) {
     decode_entry(pte_val(pte), "PTE");
 }
 
-void page_walk_decoder(void *addr) {
-	
-	//struct mm_struct *mm = current->mm; // Current process's memory descriptor
+void page_walk_explorer(void *addr) {
 	pgd_t *pgd = NULL;
 	p4d_t *p4d = NULL;
 	pud_t *pud = NULL;

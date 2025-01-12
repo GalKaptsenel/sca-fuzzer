@@ -1,5 +1,5 @@
-#include "main.h"
 #include <linux/rbtree.h>
+#include "main.h"
 
 void initialize_inputs_db(void) {
 	executor.inputs_root = RB_ROOT;
@@ -13,12 +13,12 @@ int load_input(input_t *from_input) {
 	       	return -1;
 	}
 
-	if(TEST_REGION == executor.checkedout_region) {
+	if(TEST_REGION == executor.checkout_region) {
 		module_err("cannot insert input because TEST_REGION is checked out!\n");
 		return -2;
 	}
 
-	input_t* to_input = get_input(executor.checkedout_region);
+	input_t* to_input = get_input(executor.checkout_region);
 
 	if(NULL == to_input) {
 		module_err("to_input is NULL!\n");
@@ -44,9 +44,9 @@ int allocate_input(void) {
 	}
 
 	new_node->id = input_id;
-	memset(&(new_node->input), 0, sizeof(input_t)); 
+	memset(&(new_node->input), 0, sizeof(input_t));
 	initialize_measurement(&(new_node->measurement));
-	
+
 	while(*link) {
 		parent = *link;
 		if(new_node->id < rb_entry(parent, struct input_node, node)->id) {
@@ -61,7 +61,7 @@ int allocate_input(void) {
 	rb_insert_color(&(new_node->node), &executor.inputs_root);
 	++executor.number_of_inputs;
 	++input_id;
-	
+
 	return new_node->id;
 }
 
@@ -70,7 +70,7 @@ static struct input_node* get_input_node(int id) {
 
 	while(node) {
 		struct input_node* data = rb_entry(node, struct input_node, node);
-		
+
 		if(id < data->id) {
 			node = node->rb_left;
 		}
@@ -81,7 +81,7 @@ static struct input_node* get_input_node(int id) {
 			return data;
 		}
 	}
-	
+
 	return NULL;
 }
 
@@ -101,7 +101,7 @@ input_t* get_input(int id) {
 	return &(node->input);
 }
 
-u64 get_number_of_inputs(void) {
+uint64_t get_number_of_inputs(void) {
 	return executor.number_of_inputs;
 }
 

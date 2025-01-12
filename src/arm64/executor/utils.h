@@ -1,9 +1,6 @@
 #ifndef ARM64_EXECUTOR_UTILS_H
 #define ARM64_EXECUTOR_UTILS_H
 
-// Define the offset
-#define OFFSETTO(type, member) ((size_t)&(((type*)0)->member))
-
 #define xxstr(s) 	xstr(s)
 #define xstr(s) 	_str(s)
 #define _str(s) 	str(s)

@@ -12,5 +12,4 @@ struct pfc_config {
     unsigned int inv;
 };
 
-
 #endif // ARM64_EXECUTOR_PFC_H

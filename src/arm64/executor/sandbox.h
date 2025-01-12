@@ -3,16 +3,15 @@
 
 #include "main.h"
 
-// Configuration 
-#define WORKING_MEMORY_SIZE		MB
-#define MAIN_REGION_SIZE		PAGESIZE
-#define FAULTY_REGION_SIZE		PAGESIZE
-#define MEMORY_INPUT_SIZE		(MAIN_REGION_SIZE + FAULTY_REGION_SIZE)
-#define OVERFLOW_REGION_SIZE		PAGESIZE
+// Configuration
+#define MAIN_REGION_SIZE		        PAGESIZE
+#define FAULTY_REGION_SIZE		        PAGESIZE
+#define MEMORY_INPUT_SIZE		        (MAIN_REGION_SIZE + FAULTY_REGION_SIZE)
+#define OVERFLOW_REGION_SIZE	        PAGESIZE
 #define REG_INITIALIZATION_REGION_SIZE	64
-#define EVICT_REGION_SIZE		L1D_SIZE // TODO What is it? why is it like this?
+#define EVICT_REGION_SIZE               L1D_SIZE
 
-typedef struct sandbox {
+typedef __attribute__((packed)) struct sandbox {
     char eviction_region[EVICT_REGION_SIZE];   // region used in Prime+Probe for priming
     char lower_overflow[OVERFLOW_REGION_SIZE]; // zero-initialized region for accidental overflows
     char main_region[MAIN_REGION_SIZE];        // first input page. does not cause faults

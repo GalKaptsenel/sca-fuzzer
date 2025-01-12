@@ -54,10 +54,10 @@ static ssize_t measurement_mode_show(struct kobject *kobj, struct kobj_attribute
 
 	switch(executor.config.measurement_template) {
 		case FLUSH_AND_RELOAD_TEMPLATE:
-			result = sprintf(buf, "Flush and Reload (F+L)\n");	
+			result = sprintf(buf, "Flush and Reload (F+L)\n");
 			break;
 		case PRIME_AND_PROBE_TEMPLATE:
-			result = sprintf(buf, "Prime and Probe (P+P)\n");	
+			result = sprintf(buf, "Prime and Probe (P+P)\n");
 			break;
 		default:
 			result = sprintf(buf, "Measurement mode is unset!\n");
@@ -76,10 +76,10 @@ static struct kobj_attribute measurement_mode_attribute = __ATTR(measurement_mod
 static struct attribute *sysfs_attributes[] = {
 	&number_of_inputs_attribute.attr,
 	&warmups_attribute.attr,
-	&print_sandbox_base_attribute.attr, 
-	&print_code_base_attribute.attr, 
-	&enable_pre_run_flush_attribute.attr, 
-	&measurement_mode_attribute.attr, 
+	&print_sandbox_base_attribute.attr,
+	&print_code_base_attribute.attr,
+	&enable_pre_run_flush_attribute.attr,
+	&measurement_mode_attribute.attr,
 	NULL, /* need to NULL terminate the list of attributes */
 };
 
@@ -96,7 +96,6 @@ int initialize_sysfs(void) {
 		goto sysfs_init_failed_execution;
 	}
 
-
 	{
 		// Create the files associated with this kobject
 		// int retval = sysfs_create_group(kobj_interface, &attr_group);
@@ -104,7 +103,7 @@ int initialize_sysfs(void) {
 		struct attribute *attr = NULL;
 		int i = 0;
 		for (i = 0, attr = sysfs_attributes[i];
-			       	(!err) && attr; 
+			       	(!err) && attr;
 				++i, attr = sysfs_attributes[i]) {
 			err = sysfs_create_file(kobj_interface, attr);
 		}

@@ -2,7 +2,7 @@
 #define ARM64_EXECUTOR_MEASUREMENT_H
 
 #define HTRACE_WIDTH	(1)
-#define NUM_PFC		(3)
+#define NUM_PFC		    (3)
 
 typedef struct measurement {
     uint64_t htrace[HTRACE_WIDTH];

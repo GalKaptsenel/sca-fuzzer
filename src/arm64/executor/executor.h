@@ -15,17 +15,17 @@ enum State {
 };
 
 // Executor Configuration Interface
-#define UARCH_RESET_ROUNDS_DEFAULT	(1)
-#define ENABLE_FAULTY_DEFAULT		(0)
-#define PRE_RUN_FLUSH_DEFAULT		(1)
-#define NUMBER_OF_INPUTS_DEFAULT	(1)
+#define UARCH_RESET_ROUNDS_DEFAULT	    1
+#define ENABLE_FAULTY_DEFAULT		    0
+#define PRE_RUN_FLUSH_DEFAULT		    1
+#define NUMBER_OF_INPUTS_DEFAULT	    1
 #define MEASUREMENT_TEMPLATE_DEFAULT	(FLUSH_AND_RELOAD_TEMPLATE)
-#define REGION_DEFFAULT			(TEST_REGION)
+#define REGION_DEFFAULT			        (TEST_REGION)
 
 #define MAX_TEST_CASE_SIZE              PAGESIZE        // must be exactly 1 page to detect sysfs buffering
 #define MAX_MEASUREMENT_CODE_SIZE       (PAGESIZE * 2)
 
-#define TEST_REGION				(-1)
+#define TEST_REGION				        (-1)
 
 typedef struct executor_config {
 	long uarch_reset_rounds;
@@ -43,12 +43,12 @@ typedef struct device_managment {
 typedef struct executor {
 	executor_config_t config;
 	sandbox_t sandbox;
-	volatile u64 number_of_inputs;
-	char* test_case; // It is NOT embeded inside the struct because we require that it wll be continuous within physival memory, and therefore it should be acquired by kmalloc
+	volatile uint64_t number_of_inputs;
+	char* test_case; // It is NOT embedded inside the struct because we require that it wll be continuous within physical memory, and therefore it should be acquired by kmalloc
 	size_t test_case_length;
 	char measurement_code[MAX_MEASUREMENT_CODE_SIZE];
 	struct rb_root inputs_root;
-	long checkedout_region;
+	long checkout_region;
 	int tracing_error;
 	enum State state;
 	device_management_t device_mgmt;
