@@ -372,4 +372,3 @@ void free_device_interface(void) {
 	unregister_chrdev_region(executor.device_mgmt.device_number, 1);
 	module_info("Unregistered device number MAJOR: %d, MINOR: %d and deleted cdev\n", MAJOR(executor.device_mgmt.device_number), MINOR(executor.device_mgmt.device_number));
 }
-
