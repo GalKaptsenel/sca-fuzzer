@@ -1,7 +1,3 @@
-#include <linux/device.h>
-#include <linux/fs.h>
-#include <linux/uaccess.h>
-#include <linux/cdev.h>
 #include "main.h"
 
 static int load_input_id(int* p_input_id, void __user* arg) {
@@ -376,6 +372,4 @@ void free_device_interface(void) {
 	unregister_chrdev_region(executor.device_mgmt.device_number, 1);
 	module_info("Unregistered device number MAJOR: %d, MINOR: %d and deleted cdev\n", MAJOR(executor.device_mgmt.device_number), MINOR(executor.device_mgmt.device_number));
 }
-
-
 

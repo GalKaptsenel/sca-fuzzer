@@ -62,7 +62,7 @@ static int  __init executor_init(void) {
 		goto init_cleanup_executor;
 	}
 
-	err = initialize_device_interface(void);
+	err = initialize_device_interface();
 	if(err) {
         module_err("Unable to initialize character device interface\n");
 		goto init_cleanup_sysfs;

@@ -12,6 +12,7 @@
 #include <linux/kprobes.h>
 #include <linux/bug.h>
 #include <linux/minmax.h>
+#include <linux/cdev.h>
 
 #include "pagewalk.h"
 #include "utils.h"
