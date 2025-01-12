@@ -11,7 +11,7 @@
 #define REG_INITIALIZATION_REGION_SIZE	64
 #define EVICT_REGION_SIZE               L1D_SIZE
 
-typedef __attribute__((packed)) struct sandbox {
+typedef struct __attribute__((packed)) sandbox {
     char eviction_region[EVICT_REGION_SIZE];   // region used in Prime+Probe for priming
     char lower_overflow[OVERFLOW_REGION_SIZE]; // zero-initialized region for accidental overflows
     char main_region[MAIN_REGION_SIZE];        // first input page. does not cause faults
