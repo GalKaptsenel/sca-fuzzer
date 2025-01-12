@@ -56,7 +56,7 @@ typedef struct executor {
 
 extern executor_t executor;
 
-int initialize_executor(set_memory_t, set_memory_t);
-void free_executor(set_memory_t);
+int __nocfi initialize_executor(set_memory_t, set_memory_t);
+void __nocfi free_executor(set_memory_t);
 
 #endif // ARM64_EXECUTOR_EXECUTOR_H

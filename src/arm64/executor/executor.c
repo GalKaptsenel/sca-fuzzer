@@ -11,7 +11,7 @@ static void init_executor_defaults(void) {
 	executor.checkout_region = TEST_REGION;
 }
 
-int initialize_executor(set_memory_t set_memory_x, set_memory_t set_memory_nx) {
+int __nocfi initialize_executor(set_memory_t set_memory_x, set_memory_t set_memory_nx) {
 	int err = 0;
 
 	init_executor_defaults();
@@ -47,6 +47,7 @@ int initialize_executor(set_memory_t set_memory_x, set_memory_t set_memory_nx) {
 
 executor_init_cleanup_destroy_inputs_db:
 	destroy_inputs_db();
+    set_memory_nx((unsigned long)executor.measurement_code, sizeof(executor.measurement_code) / PAGESIZE);
 
 executor_init_cleanup_free_test_case:
 	kfree(executor.test_case);
@@ -56,7 +57,7 @@ executor_init_failed_execution:
 	return err;
 }
 
-void free_executor(set_memory_t set_memory_nx) {
+void __nocfi free_executor(set_memory_t set_memory_nx) {
 
 	free_device_interface();
 
