@@ -5,7 +5,7 @@
 #undef VERIFY_OCTAL_PERMISSIONS
 #define VERIFY_OCTAL_PERMISSIONS(perms) (perms)
 
-#define SYSFS_DIRNAME           kernel_module_name
+#define SYSFS_DIRNAME           kernel_module_name"_configuration"
 
 int initialize_sysfs(void);
 void free_sysfs(void);

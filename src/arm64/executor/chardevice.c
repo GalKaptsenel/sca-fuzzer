@@ -366,9 +366,18 @@ initialize_cleanup_exit_with_error:
 }
 
 void free_device_interface(void) {
-	device_destroy(executor.device_mgmt.device_class, executor.device_mgmt.device_number);
-	class_destroy(executor.device_mgmt.device_class);
-	cdev_del(&executor.device_mgmt.character_device);
-	unregister_chrdev_region(executor.device_mgmt.device_number, 1);
-	module_info("Unregistered device number MAJOR: %d, MINOR: %d and deleted cdev\n", MAJOR(executor.device_mgmt.device_number), MINOR(executor.device_mgmt.device_number));
+    if (executor.device_mgmt.device_class) {
+        device_destroy(executor.device_mgmt.device_class, executor.device_mgmt.device_number);
+        class_destroy(executor.device_mgmt.device_class);
+    }
+
+    if (executor.device_mgmt.character_device.dev) {
+        cdev_del(&executor.device_mgmt.character_device);
+    }
+
+    if (executor.device_mgmt.device_number) {
+        unregister_chrdev_region(executor.device_mgmt.device_number, 1);
+    }
+
+    module_info("Unregistered device number MAJOR: %d, MINOR: %d and deleted cdev\n", MAJOR(executor.device_mgmt.device_number), MINOR(executor.device_mgmt.device_number));
 }
