@@ -1,6 +1,27 @@
 #include "main.h"
 
+static unsigned long copy_to_user_with_access_check(void __user* user_buffer, const void* from_buffer, size_t size) {
+
+	if(!access_ok(user_buffer, size)) {
+		module_err("Unable to access user buffer for writing!\n");
+		return -EFAULT;
+	}
+
+	return copy_to_user(user_buffer, from_buffer, size);
+}
+
+static unsigned long copy_from_user_with_access_check(void* to_buffer, const void __user* user_buffer, size_t size) {
+
+	if(!access_ok(user_buffer, size)) {
+		module_err("Unable to access user buffer for reading!\n");
+		return -EFAULT;
+	}
+
+	return copy_from_user(to_buffer, user_buffer, size);
+}
+
 static int load_input_id(int* p_input_id, void __user* arg) {
+	unsigned long not_read = 0;
 
 	if(NULL == p_input_id) {
 
@@ -8,20 +29,22 @@ static int load_input_id(int* p_input_id, void __user* arg) {
 		return -1;
 	}
 
-	memcpy(p_input_id, arg, sizeof(int));
+	not_read = copy_from_user_with_access_check(p_input_id, arg, sizeof(int));
 
 	if(0 > *p_input_id) {
 		module_err("Invalid input id! (got input id: %d)\n", *p_input_id);
 	}
 
-	return *p_input_id;
+	return sizeof(int) - not_read;
 }
 
 static void checkout_into_input_id(void __user* arg) {
 
 	int input_id = -1;
 
-	if(0 <= load_input_id(&input_id, arg)) {
+	load_input_id(&input_id, arg);
+
+	if(0 <= input_id) {
 
 		input_t* current_input = get_input(input_id);
 
@@ -62,7 +85,9 @@ static void free_input_id(void __user* arg) {
 
 	int input_id = -1;
 
-	if(0 <= load_input_id(&input_id, (void __user*)arg)) {
+	load_input_id(&input_id, (void __user*)arg);
+
+	if(0 <= input_id) {
 
 		if(input_id == executor.checkout_region) {
 			module_info("Freeing the currently checkedout input, checking out into TEST_REGION.\n");
@@ -95,7 +120,7 @@ static void measure_input_id(void __user* arg) {
 
 		measurement_t* current_measurement = get_measurement(executor.checkout_region);
 		BUG_ON(NULL == current_measurement);
-		memcpy(arg, current_measurement, sizeof(measurement_t));
+		copy_to_user_with_access_check(arg, current_measurement, sizeof(measurement_t));
 	}
 }
 
@@ -132,13 +157,14 @@ static void update_state_after_writing_test(void) {
 }
 
 static int load_test_and_update_state(const char __user* test, size_t length) {
-	uint64_t full_test_case_size = 0;
+	int full_test_case_size = 0;
 
 	if (MAX_TEST_CASE_SIZE < length) {
 		return -ENOMEM;
 	}
+	
+	copy_from_user_with_access_check(executor.test_case, test, length);
 
-	memcpy(executor.test_case, test, length);
 	full_test_case_size = load_template(length);
 	if(full_test_case_size < 0) {
 		module_err("Failed to load test case (code: %d)\n", full_test_case_size);
@@ -149,13 +175,15 @@ static int load_test_and_update_state(const char __user* test, size_t length) {
 
 	update_state_after_writing_test();
 
+	module_err("written %u bytes!\n", full_test_case_size);
+
 	return full_test_case_size;
 }
 
 
 static int trace(void) {
 
-	if(READY_STATE != executor.state) {
+	if(READY_STATE != executor.state && TRACED_STATE != executor.state) {
 		module_err("In order to trace, please load inputs and test case.\n");
 		return -EINVAL;
 	}
@@ -165,12 +193,14 @@ static int trace(void) {
 	return execute();
 }
 
+
+
 static void get_test_length(void __user* arg) {
 	uint64_t size = -1;
 
 	if(LOADED_TEST_STATE == executor.state || READY_STATE == executor.state || TRACED_STATE == executor.state) {
 		size = executor.test_case_length;
-		memcpy(arg, &size, sizeof(size));
+		copy_to_user_with_access_check(arg, &size, sizeof(size));
 	} else {
 		module_err("Test has not been loaded!\n");
 	}
@@ -180,55 +210,72 @@ static long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg
 
 	uint64_t result = 0;
 
+	module_err("Entering ioctl..\n");
+	module_err("expected magic: %c, cmd magic: %c\n", REVISOR_IOC_MAGIC, _IOC_TYPE(cmd));
+	module_err("cmd number: %u\n", _IOC_NR(cmd));
+
+
 	if(REVISOR_IOC_MAGIC != _IOC_TYPE(cmd)) {
 		return -ENOTTY;
 	}
 
-	module_err("Entering ioctl..\n");
+	module_err("Entering ioctl - passed magic check..\n");
 
 	switch(_IOC_NR(cmd)) {
 
 		case REVISOR_CHECKOUT_TEST_CONSTANT:
+			module_err("Entering 1..\n");
 			executor.checkout_region = TEST_REGION;
 			break;
 
 		case REVISOR_UNLOAD_TEST_CONSTANT:
+			module_err("Entering 2..\n");
 			unload_test_and_update_state();
 			break;
 
 		case REVISOR_GET_NUMBER_OF_INPUTS_CONSTANT:
+			module_err("Entering 3..\n");
 			result = get_number_of_inputs();
-			memcpy((void __user*)arg, &result, sizeof(result));
+			result = copy_to_user_with_access_check((void __user*)arg, &result, sizeof(result));
 			break;
 
 		case REVISOR_CHECKOUT_INPUT_CONSTANT:
+			module_err("Entering 4..\n");
 			checkout_into_input_id((void __user*)arg);
 			break;
 
 		case REVISOR_ALLOCATE_INPUT_CONSTANT:
+			module_err("Entering 5..\n");
 			result = allocate_input();
-			memcpy((void __user*)arg, &result, sizeof(result));
+			result = copy_to_user_with_access_check((void __user*)arg, &result, sizeof(result));
 			break;
 
 		case REVISOR_FREE_INPUT_CONSTANT:
+			module_err("Entering 6..\n");
 			free_input_id((void __user*)arg);
 			break;
 
 		case REVISOR_MEASUREMENT_CONSTANT:
+			module_err("Entering 7..\n");
 			measure_input_id((void __user*)arg);
 			break;
 
 		case REVISOR_TRACE_CONSTANT:
+			module_err("Entering 8..\n");
 			trace();
 			break;
 
 		case REVISOR_CLEAR_ALL_INPUTS_CONSTANT:
+			module_err("Entering 9..\n");
 			clear_all_inputs();
 			break;
+
 		case REVISOR_GET_TEST_LENGTH_CONSTANT:
+			module_err("Entering 10..\n");
 			get_test_length((void __user*)arg);
 			break;
 		default:
+			module_err("Entering default..\n");
 			module_err("Invalid IOCTL!\n");
 			return -ENOTTY;
 	}
@@ -238,6 +285,8 @@ static long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg
 
 static ssize_t revisor_read(struct file* File, char __user* user_buffer, size_t count, loff_t* off) {
 	int number_of_bytes_to_copy  = 0;
+	int not_copied = 0;
+	uint64_t total_size = 0;
 	void* from_buffer = NULL;
 	module_err("Entering read..\n");
 
@@ -248,20 +297,30 @@ static ssize_t revisor_read(struct file* File, char __user* user_buffer, size_t 
 
 	if(TEST_REGION == executor.checkout_region) {
 
-		number_of_bytes_to_copy = min(count, executor.test_case_length);
+		number_of_bytes_to_copy = min(count, (size_t)(executor.test_case_length - *off));
 		from_buffer = executor.test_case;
+		total_size = executor.test_case_length;
 
 	} else {
 
-		number_of_bytes_to_copy = min(count, sizeof(input_t));
+		number_of_bytes_to_copy = min(count, (size_t)(sizeof(input_t) - *off));
 		from_buffer = get_input(executor.checkout_region);
+		total_size = sizeof(input_t);
+	}
+
+	module_err("read was called with offset of: %u, total size is %u.\n", *off, total_size);
+
+	if(total_size <= *off) {
+		return 0; // return EOF
 	}
 
 	BUG_ON(NULL == from_buffer);
 
-	memcpy(user_buffer, from_buffer, number_of_bytes_to_copy);
+	not_copied = copy_to_user_with_access_check(user_buffer + *off, from_buffer + *off, number_of_bytes_to_copy);
 
-	return 0; // return EOF
+	*off += (number_of_bytes_to_copy - not_copied);
+
+	return number_of_bytes_to_copy - not_copied; 
 }
 
 static void update_state_after_writing_input(void) {
@@ -283,7 +342,7 @@ static void copy_input_from_user_and_update_state(const char __user* user_buffer
 		void* to_buffer = get_input(executor.checkout_region);
 		BUG_ON(NULL == to_buffer);
 
-		memcpy(to_buffer, user_buffer, USER_CONTROLLED_INPUT_LENGTH);
+		copy_from_user_with_access_check(to_buffer, user_buffer, USER_CONTROLLED_INPUT_LENGTH);
 
 		update_state_after_writing_input();
 

@@ -280,9 +280,9 @@ inline void epilogue(void) {
  OUTPUT of the function is an address A s.t. exists c>=0 s.t. *(A+c)==TEMPLATE_ENTER */
 #define MEASUREMENT_METHOD(func_name, ...)									                    \
 	static void func_name(size_t* MEASUREMENT_METHOD_func_address, ##__VA_ARGS__)	{			\
+		size_t MEASUREMENT_METHOD_value = *MEASUREMENT_METHOD_func_address;				\
 		asm volatile ("adr %[output], .": [output]"=r"(*MEASUREMENT_METHOD_func_address));		\
-		BUG_ON(0 == *MEASUREMENT_METHOD_func_address);                                          \
-		if(*MEASUREMENT_METHOD_func_address) return;
+		if(0 == MEASUREMENT_METHOD_value) return;
 
 MEASUREMENT_METHOD(template_l1d_prime_probe)
 	asm volatile(".long "xstr(TEMPLATE_ENTER));
@@ -374,8 +374,7 @@ static measurement_template map_to_template(enum Templates required_template) {
 	return NULL;
 }
 
-int load_template(size_t tc_size)
-{
+int load_template(size_t tc_size) {
 	unsigned template_pos = 0;
 	unsigned code_pos = 0;
 	size_t template_ptr = 0;
@@ -389,52 +388,62 @@ int load_template(size_t tc_size)
 	map_to_template(executor.config.measurement_template)(&template_ptr);
 
 	// skip until the beginning of the template
-	for (;	TEMPLATE_ENTER != ((uint64_t*)(template_ptr))[template_pos];
+	for (;	TEMPLATE_ENTER != ((uint32_t*)(template_ptr))[template_pos];
 			++template_pos) {
 
-		if (MAX_SIZE_OF_TEMPLATE <= template_pos) {
+		size_t current_offset = sizeof(uint32_t) * template_pos;
+		if (MAX_SIZE_OF_TEMPLATE <= current_offset) {
+			module_err("load template 1!");
 			return -1;
 		}
+
 	}
 
-	template_pos += 4; // skip TEMPLATE_ENTER
+	template_pos += (4/sizeof(uint32_t)); // skip TEMPLATE_ENTER
 
 	// copy the first part of the template
-	for (;	TEMPLATE_INSERT_TC != ((uint64_t*)(template_ptr))[template_pos];
+	for (;	TEMPLATE_INSERT_TC != ((uint32_t*)(template_ptr))[template_pos];
 			++template_pos, ++code_pos) {
 
-	    if (MAX_SIZE_OF_TEMPLATE <= template_pos)
-	        return -1;
+		size_t current_offset = sizeof(uint32_t) * template_pos;
+	    if (MAX_SIZE_OF_TEMPLATE <= current_offset) {
+		module_err("load template 2!");
+	 	return -1;
+	    }
 
-	    executor.measurement_code[code_pos] = ((char*)template_ptr)[template_pos];
+	    ((uint32_t*)executor.measurement_code)[code_pos] = ((uint32_t*)template_ptr)[template_pos];
 	}
 
-	template_pos += 4; // skip TEMPLATE_INSERT_TC
+	template_pos += (4/sizeof(uint32_t)); // skip TEMPLATE_INSERT_TC
 
 	// copy the test case into the template
-	memcpy(executor.measurement_code + code_pos, executor.test_case, tc_size);
-	code_pos += tc_size;
+	memcpy((uint32_t*)executor.measurement_code + code_pos, executor.test_case, tc_size);
+	code_pos += (tc_size/sizeof(uint32_t));
 
 	// write the rest of the template
-	for (;	TEMPLATE_RETURN != ((uint64_t*)(template_ptr))[template_pos];
+	for (;	TEMPLATE_RETURN != ((uint32_t*)(template_ptr))[template_pos];
 			++template_pos, ++code_pos) {
+		size_t current_offset = sizeof(uint32_t) * template_pos;
 
-	    if (MAX_SIZE_OF_TEMPLATE <= template_pos) {
+	    if (MAX_SIZE_OF_TEMPLATE <= current_offset) {
+		module_err("load template 3!");
 	        return -2;
 	    }
 
-	    if (TEMPLATE_INSERT_TC == ((uint64_t*)(template_ptr))[template_pos]) {
+	    if (TEMPLATE_INSERT_TC == ((uint32_t*)(template_ptr))[template_pos]) {
+		module_err("load template 4!");
 	        return -3;
 	    }
 
-	    executor.measurement_code[code_pos] = ((char*)template_ptr)[template_pos];
+	    ((uint32_t*)executor.measurement_code)[code_pos] = ((uint32_t*)template_ptr)[template_pos];
 	}
 
+	module_err("load template finished loading!");
     // RET encoding: 0xd65f03c0
-    executor.measurement_code[code_pos + 0] = '\xc0';
-    executor.measurement_code[code_pos + 1] = '\x03';
-    executor.measurement_code[code_pos + 2] = '\x5f';
-    executor.measurement_code[code_pos + 3] = '\xd6';
+    ((uint32_t*)executor.measurement_code)[code_pos] = 0xd65f03c0;
+    code_pos += 1;
+	module_err("load template outputs: %px!", code_pos*sizeof(uint32_t));
 
-    return code_pos + 4;
+    return (sizeof(uint32_t) * code_pos);
 }
+

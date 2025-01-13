@@ -120,28 +120,33 @@ static void measure(measurement_t* measurement) {
 	measurement->pfc[2] = executor.sandbox.latest_measurement.pfc[2];
 }
 
-static void run_experiments(void) {
-	uint64_t rounds = executor.number_of_inputs;
+static void __nocfi run_experiments(void) {
+	int64_t rounds = (int64_t)executor.number_of_inputs;
 	unsigned long flags = 0;
 	struct rb_node* current_input_node = NULL;
 
+	module_err("in run experiment 1!\n");
 	if(0 >= executor.number_of_inputs){
 		BUG_ON(0 > executor.number_of_inputs);
 		module_err("No inputs were set!\n");
 		return;
 	}
 
+	module_err("in run experiment 2!\n");
 	get_cpu(); // pin the current task to the current cpu
 	raw_local_irq_save(flags); // disable local interrupts and save current state
 
+	module_err("in run experiment 3!\n");
 	current_input_node = rb_first(&executor.inputs_root);
 	BUG_ON(NULL == current_input_node);
 
+	module_err("in run experiment 4!\n");
 	// Zero-initialize the region of memory used by Prime+Probe
 	memset(executor.sandbox.eviction_region, 0, sizeof(executor.sandbox.eviction_region));
 
-	for (long i = -executor.config.uarch_reset_rounds; i < rounds; ++i) {
+	for (int64_t i = -executor.config.uarch_reset_rounds; i < rounds; ++i) {
 
+		module_err("in run experiment 5!\n");
 		struct input_node* current_input = NULL;
 
 		// ignore "warm-up" runs (i<0)uarch_reset_rounds
@@ -150,11 +155,14 @@ static void run_experiments(void) {
 			BUG_ON(NULL == current_input_node);
 		}
 
+		module_err("in run experiment 6!\n");
+
 		current_input = rb_entry(current_input_node, struct input_node, node);
 
 		initialize_overflow_pages();
 
 		load_input_to_sandbox(&current_input->input);
+		module_err("in run experiment 7!\n");
 
 		// flush some of the uarch state
 		if (1 == executor.config.pre_run_flush) {
@@ -162,13 +170,19 @@ static void run_experiments(void) {
 		}
 
 		// execute
+		module_err("Before execution!\n");
 		((void(*)(void*))executor.measurement_code)(&executor.sandbox);
+		module_err("After execution!\n");
 
 		measure(&current_input->measurement);
+		module_err("in run experiment 8!\n");
 	}
+
+	module_err("in run experiment 9!\n");
 
 	raw_local_irq_restore(flags); // enable local interrupts with previously saved state
 	put_cpu(); // free the current task from the current cpu
+	module_err("in run experiment 10!\n");
 }
 
 int execute(void) {
