@@ -50,7 +50,7 @@ static int  __init executor_init(void) {
 		goto init_failed_execution;
 	}
 
-	err = initialize_executor(set_memory_x, set_memory_nx);
+	err = initialize_executor(set_memory_x);
 	if(err) {
 	    module_err("Unable to initialize executor\n");
 	    goto init_failed_execution;
@@ -64,7 +64,7 @@ static int  __init executor_init(void) {
 
 	err = initialize_device_interface();
 	if(err) {
-        module_err("Unable to initialize character device interface\n");
+        module_err("Unable to initialize character device interface (error code: %d)\n", err);
 		goto init_cleanup_sysfs;
 	}
 
