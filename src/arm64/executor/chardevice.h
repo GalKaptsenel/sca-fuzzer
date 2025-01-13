@@ -27,7 +27,7 @@
 
 #define REVISOR_DEVICE_NAME		        kernel_module_name
 #define REVISOR_DEVICE_CLASS_NAME	    "revisor_device_class"
-#define REVISOR_DEVICE_NODE_NAME	    REVISOR_DEVICE_NAME"_control"
+#define REVISOR_DEVICE_NODE_NAME	    REVISOR_DEVICE_NAME
 
 int initialize_device_interface(void);
 void free_device_interface(void);
