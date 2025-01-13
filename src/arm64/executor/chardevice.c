@@ -184,6 +184,8 @@ static long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg
 		return -ENOTTY;
 	}
 
+	module_err("Entering ioctl..\n");
+
 	switch(_IOC_NR(cmd)) {
 
 		case REVISOR_CHECKOUT_TEST_CONSTANT:
@@ -237,6 +239,7 @@ static long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg
 static ssize_t revisor_read(struct file* File, char __user* user_buffer, size_t count, loff_t* off) {
 	int number_of_bytes_to_copy  = 0;
 	void* from_buffer = NULL;
+	module_err("Entering read..\n");
 
 	if(NULL == user_buffer) {
 		module_err("read callback - got NULL inside user_buffer!\n");
@@ -291,6 +294,7 @@ static void copy_input_from_user_and_update_state(const char __user* user_buffer
 }
 
 static ssize_t revisor_write(struct file* File, const char __user* user_buffer, size_t count, loff_t* off) {
+	module_err("Entering write..\n");
 
 	if(NULL == user_buffer) {
 		module_err("write callback - got NULL inside user_buffer!\n");

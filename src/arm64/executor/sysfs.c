@@ -1,15 +1,15 @@
 #include "main.h"
 
 static ssize_t number_of_inputs_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
-    return sprintf(buf, "%ld\n", executor.number_of_inputs);
+    return sprintf(buf, "%lu\n", executor.number_of_inputs);
 }
 
 static ssize_t warmups_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
-    return sprintf(buf, "%ld\n", executor.config.uarch_reset_rounds);
+    return sprintf(buf, "%lu\n", executor.config.uarch_reset_rounds);
 }
 
 static ssize_t warmups_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
-    sscanf(buf, "%ld", &executor.config.uarch_reset_rounds);
+    sscanf(buf, "%lu", &executor.config.uarch_reset_rounds);
     return count;
 }
 
@@ -22,7 +22,7 @@ static ssize_t print_code_base_show(struct kobject *kobj, struct kobj_attribute 
 }
 
 static ssize_t enable_pre_run_flush_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
-    unsigned value = 0;
+    unsigned int value = 0;
     sscanf(buf, "%u", &value);
     executor.config.pre_run_flush = (0 == value) ? 0 : 1;
     return count;
@@ -54,7 +54,7 @@ static ssize_t measurement_mode_show(struct kobject *kobj, struct kobj_attribute
 
 	switch(executor.config.measurement_template) {
 		case FLUSH_AND_RELOAD_TEMPLATE:
-			result = sprintf(buf, "Flush and Reload (F+L)\n");
+			result = sprintf(buf, "Flush and Reload (F+R)\n");
 			break;
 		case PRIME_AND_PROBE_TEMPLATE:
 			result = sprintf(buf, "Prime and Probe (P+P)\n");
