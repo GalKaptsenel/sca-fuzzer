@@ -43,17 +43,17 @@ static int config_pfc(void) {
     asm volatile("msr pmcr_el0, %0" :: "r" (val | 0x3));
     asm volatile("isb\n");
     // debug prints (view via 'sudo dmesg')
-    // val = 0;
-    // asm volatile("mrs %0, pmuserenr_el0" : "=r" (val));
-    // printk(KERN_ERR "%-24s 0x%0llx\n", "PMUSERENR_EL0:", val);
-    // asm volatile("mrs %0, pmcr_el0" : "=r" (val));
-    // printk(KERN_ERR "%-24s 0x%0llx\n", "PMCR_EL0:", val);
-    // asm volatile("mrs %0, pmselr_el0" : "=r" (val));
-    // printk(KERN_ERR "%-24s 0x%0llx\n", "PMSELR_EL0:", val);
-    // asm volatile("mrs %0, pmevtyper0_el0" : "=r" (val));
-    // printk(KERN_ERR "%-24s 0x%0llx\n", "PMEVTYPER0_EL0:", val);
-    // asm volatile("mrs %0, pmcntenset_el0" : "=r" (val));
-    // printk(KERN_ERR "%-24s 0x%0llx\n", "PMCNTENSET_EL0:", val);
+     val = 0;
+     asm volatile("mrs %0, pmuserenr_el0" : "=r" (val));
+     printk(KERN_ERR "%-24s 0x%0llx\n", "PMUSERENR_EL0:", val);
+     asm volatile("mrs %0, pmcr_el0" : "=r" (val));
+     printk(KERN_ERR "%-24s 0x%0llx\n", "PMCR_EL0:", val);
+     asm volatile("mrs %0, pmselr_el0" : "=r" (val));
+     printk(KERN_ERR "%-24s 0x%0llx\n", "PMSELR_EL0:", val);
+     asm volatile("mrs %0, pmevtyper0_el0" : "=r" (val));
+     printk(KERN_ERR "%-24s 0x%0llx\n", "PMEVTYPER0_EL0:", val);
+     asm volatile("mrs %0, pmcntenset_el0" : "=r" (val));
+     printk(KERN_ERR "%-24s 0x%0llx\n", "PMCNTENSET_EL0:", val);
 
     return 0;
 }
@@ -82,6 +82,15 @@ static void load_memory_from_input(input_t* input) {
 	}
 }
 
+// RSP must be alligned to 16 bytes boundtry, according to documentation of AARCH64, TODO better documentation and supply a link or something!
+static size_t get_stack_base(void) {
+	return (size_t)executor.sandbox.main_region + sizeof(executor.sandbox.main_region) - 0x58;
+}
+
+static size_t get_stack_top(void) {
+	return (size_t)executor.sandbox.main_region - 0x1000*4 - 8;
+}
+
 static void load_registers_from_input(input_t* input) {
 
 	// Initial register values
@@ -91,7 +100,7 @@ static void load_registers_from_input(input_t* input) {
 	((registers_t*)executor.sandbox.upper_overflow)->flags <<= 28;
 
 	// - RSP and RBP
-	((registers_t*)executor.sandbox.upper_overflow)->sp = (size_t)executor.sandbox.main_region + sizeof(executor.sandbox.main_region) - 16; // RSP must be alligned to 16 bytes boundtry, according to documentation of AARCH64, TODO better documentation and supply a link or something!
+	((registers_t*)executor.sandbox.upper_overflow)->sp = get_stack_base(); 
 	module_err("Input regs: %llx, %llx, %llx %llx, %llx, %llx, %llx, %llx\n", 
 			*(uint64_t*)executor.sandbox.upper_overflow,
 			*((uint64_t*)executor.sandbox.upper_overflow+1),
@@ -139,6 +148,9 @@ static void __nocfi run_experiments(void) {
 	int64_t rounds = (int64_t)executor.number_of_inputs;
 	unsigned long flags = 0;
 	struct rb_node* current_input_node = NULL;
+	void* old_stack = NULL;
+	size_t old_top = 0;
+	size_t stack_base = 0;
 
 	if(0 >= executor.number_of_inputs){
 		BUG_ON(0 > executor.number_of_inputs);
@@ -148,6 +160,7 @@ static void __nocfi run_experiments(void) {
 
 	get_cpu(); // pin the current task to the current cpu
 	raw_local_irq_save(flags); // disable local interrupts and save current state
+	preempt_disable();	// disable preemption
 
 	current_input_node = rb_first(&executor.inputs_root);
 	BUG_ON(NULL == current_input_node);
@@ -179,17 +192,37 @@ static void __nocfi run_experiments(void) {
 		}
 
 		// execute
-		((void(*)(void*))executor.measurement_code)(&executor.sandbox);
+		old_stack = current->stack;
+		current->stack = (void*)(get_stack_top());
+		stack_base = get_stack_base();
+		//((void(*)(void*))executor.measurement_code)(&executor.sandbox);
 
+		asm volatile("mov %[current_top], sp\n"
+				: [current_top] "=r"(old_top)
+				:
+				:);
+
+		asm volatile("mov sp, %[stack]\n"
+				:
+				: [stack] "r"(stack_base)
+				:);
+		asm volatile("stp x0, x1, [sp]\n");
+		module_err("Passed!\n");
+		asm volatile("mov sp, %[stack]\n"
+			:
+			: [stack] "r"(old_top)
+			:);
+
+		current->stack = old_stack;
 		measure(&current_input->measurement);
 	}
 
-
+	preempt_enable();	// enable preemption
 	raw_local_irq_restore(flags); // enable local interrupts with previously saved state
 	put_cpu(); // free the current task from the current cpu
 }
 
-int execute(void) {
+noinline int execute(void) {
 
     if (setup_environment()) {
         return -1;

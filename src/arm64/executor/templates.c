@@ -61,7 +61,7 @@ inline void prologue(void)
 	"mov x0, sp\n"
     );
 	ADJUST_REGISTER_TO("x30", sandbox_t, stored_rsp);
-    asm volatile("str x16, [x30, x17]\n");
+    asm volatile("str x0, [x30]\n");
 	ADJUST_REGISTER_FROM("x30", sandbox_t, stored_rsp);
 }
 
@@ -101,7 +101,7 @@ inline void epilogue(void) {
     "ldp x4, x5, ["TMP"], #16\n"						            \
     "ldp x6, x7, ["TMP"], #16\n"						            \
     "msr nzcv, x6\n"							                \
-    "mov x7, x7\n"							                    \
+    "mov sp, x7\n"							                    \
 	:								                            \
 	: [upper_overflow] "i"(offsetof(sandbox_t, upper_overflow))	\
 	:								                            \
@@ -295,7 +295,7 @@ MEASUREMENT_METHOD(template_l1d_prime_probe)
 	prologue();
 
 	// Initialize registers
-	SET_REGISTER_FROM_INPUT("x8");
+	SET_REGISTER_FROM_INPUT("sp");
 
 	PRIME("x30", "x1", "x2", "x3", "x4", "x5", "32");
 
@@ -326,7 +326,7 @@ MEASUREMENT_METHOD(template_l1d_flush_reload)
 	prologue();
 
 	// Initialize registers
-	SET_REGISTER_FROM_INPUT("x8");
+	SET_REGISTER_FROM_INPUT("sp");
 
 	FLUSH("x30", "x16", "x17");
 

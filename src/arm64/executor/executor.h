@@ -42,11 +42,11 @@ typedef struct device_managment {
 
 typedef struct executor {
 	executor_config_t config;
+	char measurement_code[MAX_MEASUREMENT_CODE_SIZE];
 	sandbox_t sandbox;
 	volatile uint64_t number_of_inputs;
 	char* test_case; // It is NOT embedded inside the struct because we require that it wll be continuous within physical memory, and therefore it should be acquired by kmalloc
 	size_t test_case_length;
-	char measurement_code[MAX_MEASUREMENT_CODE_SIZE];
 	struct rb_root inputs_root;
 	long checkout_region;
 	int tracing_error;
