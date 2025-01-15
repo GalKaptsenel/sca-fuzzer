@@ -165,17 +165,17 @@ static int load_test_and_update_state(const char __user* test, size_t length) {
 	
 	copy_from_user_with_access_check(executor.test_case, test, length);
 
+	executor.test_case_length = length;
+
 	full_test_case_size = load_template(length);
 	if(full_test_case_size < 0) {
 		module_err("Failed to load test case (code: %d)\n", full_test_case_size);
 		return full_test_case_size;
 	}
 
-	executor.test_case_length = length;
-
 	update_state_after_writing_test();
 
-	module_err("written %u bytes!\n", full_test_case_size);
+	module_err("%u bytes were written!\n", full_test_case_size);
 
 	return full_test_case_size;
 }
@@ -210,16 +210,9 @@ static long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg
 
 	uint64_t result = 0;
 
-	module_err("Entering ioctl..\n");
-	module_err("expected magic: %c, cmd magic: %c\n", REVISOR_IOC_MAGIC, _IOC_TYPE(cmd));
-	module_err("cmd number: %u\n", _IOC_NR(cmd));
-
-
 	if(REVISOR_IOC_MAGIC != _IOC_TYPE(cmd)) {
 		return -ENOTTY;
 	}
-
-	module_err("Entering ioctl - passed magic check..\n");
 
 	switch(_IOC_NR(cmd)) {
 
@@ -307,8 +300,6 @@ static ssize_t revisor_read(struct file* File, char __user* user_buffer, size_t 
 		from_buffer = get_input(executor.checkout_region);
 		total_size = sizeof(input_t);
 	}
-
-	module_err("read was called with offset of: %u, total size is %u.\n", *off, total_size);
 
 	if(total_size <= *off) {
 		return 0; // return EOF

@@ -14,6 +14,31 @@
 // =================================================================================================
 // Template building blocks
 // =================================================================================================
+
+#define load_imm32(name, imm)	\
+    asm volatile(""										\
+		 "mov "name", %[low32]\n"							\
+		 "movk "name", %[high32], lsl 16\n"						\
+		 :										\
+		 : [low32] "i"((uint16_t)(imm & 0xFFFF)),					\
+		 [high32] "i"((uint16_t)(imm >> 16))				\
+		 :										\
+		)
+
+#define ADJUST_REGISTER_TO(BASE, type, field) asm volatile(""	\
+    "add "BASE", "BASE", #%[offset]\n"				            \
+	:                                                           \
+	: [offset] "i"(offsetof(type, field))			            \
+	:							                                \
+	)
+
+#define ADJUST_REGISTER_FROM(BASE, type, field) asm volatile(""	\
+    "sub "BASE", "BASE", #%[offset]\n"				            \
+	:							                                \
+	: [offset] "i"(offsetof(type, field))			            \
+	:							                                \
+	)
+
 inline void prologue(void)
 {
     // As we don't use a compiler to track clobbering,
@@ -34,31 +59,29 @@ inline void prologue(void)
 	// stored_rsp <- sp
 	// "str sp, [x30, #"xstr(offsetof(sandbox_t, stored_rsp))"]\n"
 	"mov x0, sp\n"
-	"ldr x0, =%[stored_rsp]\n"
-	"add x0, x30, x0\n"
-	"str x0, [x0]\n"
-       :
-       : [stored_rsp] "i"(offsetof(sandbox_t, stored_rsp))
-       :
     );
+	ADJUST_REGISTER_TO("x30", sandbox_t, stored_rsp);
+    asm volatile("str x16, [x30, x17]\n");
+	ADJUST_REGISTER_FROM("x30", sandbox_t, stored_rsp);
 }
 
 inline void epilogue(void) {
+
+	load_imm32("x16", offsetof(sandbox_t, latest_measurement));
+	load_imm32("x0", offsetof(sandbox_t, stored_rsp));
+
     asm volatile(""
         // store the hardware trace (x15) and pfc readings (x20-x22)
-        "ldr x16, =%[latest_measurement]\n"
         "add x16, x16, x30\n"
         "stp x15, x20, [x16]\n"
         "stp x21, x22, [x16, #16]\n"
 
         // rsp <- stored_rsp
-        "ldr x0, =%[stored_rsp]\n"
-        "add x0, x30, x0\n"
-        "ldr x0, [x0]\n"
+        "ldr x0, [x30, x0]\n"
         "mov sp, x0\n"
 
         // restore registers
-        "ldr x30, [sp], #16\n"
+       "ldr x30, [sp], #16\n"
         "ldp x28, x29, [sp], #16\n"
         "ldp x26, x27, [sp], #16\n"
         "ldp x24, x25, [sp], #16\n"
@@ -66,35 +89,19 @@ inline void epilogue(void) {
         "ldp x20, x21, [sp], #16\n"
         "ldp x18, x19, [sp], #16\n"
         "ldp x16, x17, [sp], #16\n"
-	:
-	: [latest_measurement] "i"(offsetof(sandbox_t, latest_measurement)),
-	[stored_rsp] "i"(offsetof(sandbox_t, stored_rsp))
-	:
     );
 }
 
-#define ADJUST_REGISTER_TO(BASE, type, field) asm volatile(""	\
-    "add "BASE", "BASE", #%[offset]\n"				            \
-	:                                                           \
-	: [offset] "i"(offsetof(type, field))			            \
-	:							                                \
-	)
 
-#define ADJUST_REGISTER_FROM(BASE, type, field) asm volatile(""	\
-    "sub "BASE", "BASE", #%[offset]\n"				            \
-	:							                                \
-	: [offset] "i"(offsetof(type, field))			            \
-	:							                                \
-	)
 
-#define SET_REGISTER_FROM_INPUT() asm volatile(""			    \
-    "add sp, x30, #%[upper_overflow]\n"					        \
-    "ldp x0, x1, [sp], #16\n"						            \
-    "ldp x2, x3, [sp], #16\n"						            \
-    "ldp x4, x5, [sp], #16\n"						            \
-    "ldp x6, x7, [sp], #16\n"						            \
+#define SET_REGISTER_FROM_INPUT(TMP) asm volatile(""			    \
+    "add "TMP", x30, #%[upper_overflow]\n"					        \
+    "ldp x0, x1, ["TMP"], #16\n"						            \
+    "ldp x2, x3, ["TMP"], #16\n"						            \
+    "ldp x4, x5, ["TMP"], #16\n"						            \
+    "ldp x6, x7, ["TMP"], #16\n"						            \
     "msr nzcv, x6\n"							                \
-    "mov sp, x7\n"							                    \
+    "mov x7, x7\n"							                    \
 	:								                            \
 	: [upper_overflow] "i"(offsetof(sandbox_t, upper_overflow))	\
 	:								                            \
@@ -295,7 +302,7 @@ MEASUREMENT_METHOD(template_l1d_prime_probe)
 	PRIME("x30", "x1", "x2", "x3", "x4", "x5", "32");
 
 	// Initialize registers
-	SET_REGISTER_FROM_INPUT();
+	SET_REGISTER_FROM_INPUT("x8");
 
 	ADJUST_REGISTER_TO("x30", sandbox_t, main_region);
 
@@ -326,7 +333,7 @@ MEASUREMENT_METHOD(template_l1d_flush_reload)
 	FLUSH("x30", "x16", "x17");
 
 	// Initialize registers
-	SET_REGISTER_FROM_INPUT();
+	SET_REGISTER_FROM_INPUT("x8");
 
 	ADJUST_REGISTER_TO("x30", sandbox_t, main_region);
 
@@ -379,13 +386,22 @@ int load_template(size_t tc_size) {
 	unsigned code_pos = 0;
 	size_t template_ptr = 0;
 	const uint64_t MAX_SIZE_OF_TEMPLATE = MAX_MEASUREMENT_CODE_SIZE - 4; // guarantee that there is enough space for "ret" instruction
+	size_t print_pos = 0;
 
+	
 	if(UNSET_TEMPLATE == executor.config.measurement_template) {
 		module_err("Template is not set!");
 		return -5;
 	}
 
 	map_to_template(executor.config.measurement_template)(&template_ptr);
+	switch(executor.config.measurement_template) {
+		case PRIME_AND_PROBE_TEMPLATE: module_err("loading prime and probe!\n");
+					       break;
+		case FLUSH_AND_RELOAD_TEMPLATE: module_err("loading flush and reload!\n");
+					       break;
+		default: module_err("loading tamplate unset!\n");
+	}
 
 	// skip until the beginning of the template
 	for (;	TEMPLATE_ENTER != ((uint32_t*)(template_ptr))[template_pos];
@@ -393,7 +409,6 @@ int load_template(size_t tc_size) {
 
 		size_t current_offset = sizeof(uint32_t) * template_pos;
 		if (MAX_SIZE_OF_TEMPLATE <= current_offset) {
-			module_err("load template 1!");
 			return -1;
 		}
 
@@ -407,7 +422,6 @@ int load_template(size_t tc_size) {
 
 		size_t current_offset = sizeof(uint32_t) * template_pos;
 	    if (MAX_SIZE_OF_TEMPLATE <= current_offset) {
-		module_err("load template 2!");
 	 	return -1;
 	    }
 
@@ -426,24 +440,23 @@ int load_template(size_t tc_size) {
 		size_t current_offset = sizeof(uint32_t) * template_pos;
 
 	    if (MAX_SIZE_OF_TEMPLATE <= current_offset) {
-		module_err("load template 3!");
 	        return -2;
 	    }
 
 	    if (TEMPLATE_INSERT_TC == ((uint32_t*)(template_ptr))[template_pos]) {
-		module_err("load template 4!");
 	        return -3;
 	    }
 
 	    ((uint32_t*)executor.measurement_code)[code_pos] = ((uint32_t*)template_ptr)[template_pos];
 	}
 
-	module_err("load template finished loading!");
     // RET encoding: 0xd65f03c0
     ((uint32_t*)executor.measurement_code)[code_pos] = 0xd65f03c0;
     code_pos += 1;
-	module_err("load template outputs: %px!", code_pos*sizeof(uint32_t));
 
+    for(; print_pos < code_pos; ++print_pos) {
+	    module_err("%px -> %lx\n", ((uint32_t*)executor.measurement_code) + print_pos, ((uint32_t*)executor.measurement_code)[print_pos]);
+    }
     return (sizeof(uint32_t) * code_pos);
 }
 
