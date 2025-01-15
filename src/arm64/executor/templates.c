@@ -243,22 +243,17 @@ inline void epilogue(void) {
 )
 
 // clobber: -
-#define RELOAD(BASE, OFFSET, TMP, TMP2, ACC, DEST) asm volatile("" \
+#define RELOAD(BASE, OFFSET, TMP, ACC, DEST) asm volatile("" \
     "eor "OFFSET", "OFFSET", "OFFSET"					        \n"	\
-    "eor "TMP", "TMP", "TMP"						            \n"	\
-    "eor "TMP2", "TMP2", "TMP2"						            \n"	\
-    "eor "ACC", "ACC", "ACC"						            \n"	\
     "eor "DEST", "DEST", "DEST"						            \n"	\
     										                        \
     "_arm64_executor_reload_loop:					            \n"	\
-    "	isb; dsb SY							                    \n"	\
-    "	eor "TMP", "TMP", "TMP"						            \n"	\
-    "	mrs "ACC", pmevcntr0_el0					            \n"	\
-    "	isb; dsb SY							                    \n"	\
-                                                           			\
     "	add "TMP", "BASE",  #%[main_region]				        \n"	\
-    "	add "TMP", "TMP", "OFFSET"					            \n"	\
-    "	ldr "TMP2", ["TMP", #0]						            \n"	\
+    "	isb; dsb SY							                    \n"	\
+    "	mrs "ACC", pmevcntr0_el0					            \n"	\
+                                                           			\
+    "	isb; dsb SY							                    \n"	\
+    "	ldr "TMP", ["TMP", "OFFSET"]   			                \n"	\
     "	isb; dsb SY							                    \n"	\
     										                        \
     "	mrs "TMP", pmevcntr0_el0					            \n"	\
@@ -299,10 +294,10 @@ MEASUREMENT_METHOD(template_l1d_prime_probe)
 
 	prologue();
 
-	PRIME("x30", "x1", "x2", "x3", "x4", "x5", "32");
-
 	// Initialize registers
 	SET_REGISTER_FROM_INPUT("x8");
+
+	PRIME("x30", "x1", "x2", "x3", "x4", "x5", "32");
 
 	ADJUST_REGISTER_TO("x30", sandbox_t, main_region);
 
@@ -330,10 +325,10 @@ MEASUREMENT_METHOD(template_l1d_flush_reload)
 
 	prologue();
 
-	FLUSH("x30", "x16", "x17");
-
 	// Initialize registers
 	SET_REGISTER_FROM_INPUT("x8");
+
+	FLUSH("x30", "x16", "x17");
 
 	ADJUST_REGISTER_TO("x30", sandbox_t, main_region);
 
@@ -351,7 +346,7 @@ MEASUREMENT_METHOD(template_l1d_flush_reload)
 	ADJUST_REGISTER_FROM("x30", sandbox_t, main_region);
 
 	// Reload and store the resulting eviction bitmap map into x15
-	RELOAD("x30", "x16", "x17", "x18", "x19", "x15");
+	RELOAD("x30", "x16", "x17", "x18", "x15");
 
 	epilogue();
 	asm volatile(".long "xstr(TEMPLATE_RETURN));
@@ -388,7 +383,7 @@ int load_template(size_t tc_size) {
 	const uint64_t MAX_SIZE_OF_TEMPLATE = MAX_MEASUREMENT_CODE_SIZE - 4; // guarantee that there is enough space for "ret" instruction
 	size_t print_pos = 0;
 
-	
+
 	if(UNSET_TEMPLATE == executor.config.measurement_template) {
 		module_err("Template is not set!");
 		return -5;
