@@ -101,7 +101,7 @@ inline void epilogue(void) {
     "ldp x4, x5, ["TMP"], #16\n"						            \
     "ldp x6, x7, ["TMP"], #16\n"						            \
     "msr nzcv, x6\n"							                \
-    "mov sp, x7\n"							                    \
+    "mov x7, x7\n"							                    \
 	:								                            \
 	: [upper_overflow] "i"(offsetof(sandbox_t, upper_overflow))	\
 	:								                            \
@@ -295,7 +295,7 @@ MEASUREMENT_METHOD(template_l1d_prime_probe)
 	prologue();
 
 	// Initialize registers
-	SET_REGISTER_FROM_INPUT("sp");
+	SET_REGISTER_FROM_INPUT("x8");
 
 	PRIME("x30", "x1", "x2", "x3", "x4", "x5", "32");
 
@@ -326,7 +326,7 @@ MEASUREMENT_METHOD(template_l1d_flush_reload)
 	prologue();
 
 	// Initialize registers
-	SET_REGISTER_FROM_INPUT("sp");
+	SET_REGISTER_FROM_INPUT("x8");
 
 	FLUSH("x30", "x16", "x17");
 

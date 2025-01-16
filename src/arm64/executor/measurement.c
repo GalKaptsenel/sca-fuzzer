@@ -83,12 +83,23 @@ static void load_memory_from_input(input_t* input) {
 }
 
 // RSP must be alligned to 16 bytes boundtry, according to documentation of AARCH64, TODO better documentation and supply a link or something!
-static size_t get_stack_base(void) {
-	return (size_t)executor.sandbox.main_region + sizeof(executor.sandbox.main_region) - 0x58;
+static size_t get_stack_address(void) {
+	size_t address = ((size_t)executor.sandbox.main_region + sizeof(executor.sandbox.main_region)) - THREAD_SIZE;
+	module_err("Planned address was: %llx\n", address);
+
+//	return PTR_ALIGN(address, THREAD_SIZE);
+	return PTR_ALIGN(address, 16); // Technically, it should be alligned to THREAD_SIZE, for example to be able to access the thread_indo structure
+}
+
+static void initialize_stack(void) {
+	struct thread_info* new_ti = (struct thread_info*)get_stack_address();
+	struct thread_info* old_ti = current_thread_info();
+
+	memcpy(new_ti, old_ti, sizeof(struct thread_info));
 }
 
 static size_t get_stack_top(void) {
-	return (size_t)executor.sandbox.main_region - 0x1000*4 - 8;
+	return get_stack_address() + THREAD_SIZE - 16;
 }
 
 static void load_registers_from_input(input_t* input) {
@@ -100,7 +111,7 @@ static void load_registers_from_input(input_t* input) {
 	((registers_t*)executor.sandbox.upper_overflow)->flags <<= 28;
 
 	// - RSP and RBP
-	((registers_t*)executor.sandbox.upper_overflow)->sp = get_stack_base(); 
+	((registers_t*)executor.sandbox.upper_overflow)->sp = get_stack_top(); 
 	module_err("Input regs: %llx, %llx, %llx %llx, %llx, %llx, %llx, %llx\n", 
 			*(uint64_t*)executor.sandbox.upper_overflow,
 			*((uint64_t*)executor.sandbox.upper_overflow+1),
@@ -150,7 +161,9 @@ static void __nocfi run_experiments(void) {
 	struct rb_node* current_input_node = NULL;
 	void* old_stack = NULL;
 	size_t old_top = 0;
-	size_t stack_base = 0;
+	void* new_stack = (void*)get_stack_address();
+	size_t new_top = get_stack_top();
+	initialize_stack();
 
 	if(0 >= executor.number_of_inputs){
 		BUG_ON(0 > executor.number_of_inputs);
@@ -193,21 +206,25 @@ static void __nocfi run_experiments(void) {
 
 		// execute
 		old_stack = current->stack;
-		current->stack = (void*)(get_stack_top());
-		stack_base = get_stack_base();
-		//((void(*)(void*))executor.measurement_code)(&executor.sandbox);
+		module_err("old stack base was: %px\n", old_stack);
+		module_err("new stack base is: %px\n", new_stack);
 
 		asm volatile("mov %[current_top], sp\n"
 				: [current_top] "=r"(old_top)
 				:
 				:);
+		module_err("old stack top was: %llx\n", old_top);
+		module_err("new stack top is: %llx\n", new_top);
 
+		current->stack = (void*)new_stack;
 		asm volatile("mov sp, %[stack]\n"
 				:
-				: [stack] "r"(stack_base)
+				: [stack] "r"(new_top)
 				:);
+
+		((void(*)(void*))executor.measurement_code)(&executor.sandbox);
+
 		asm volatile("stp x0, x1, [sp]\n");
-		module_err("Passed!\n");
 		asm volatile("mov sp, %[stack]\n"
 			:
 			: [stack] "r"(old_top)
