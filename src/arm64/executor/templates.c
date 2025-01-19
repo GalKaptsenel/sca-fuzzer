@@ -110,9 +110,9 @@ inline void epilogue(void) {
 // clobber: -
 // dest: x20, x21, x22
 #define READ_PFC_START() asm volatile(""                        \
-    "mov x20, #0 \n"		                                    \
-    "mov x21, #0 \n"		                                    \
-    "mov x22, #0 \n"		                                    \
+    "eor x20, x20, x20\n"		                                    \
+    "eor x21, x21, x21\n"		                                    \
+    "eor x22, x22, x22\n"		                                    \
     "isb; dsb SY \n"		                                    \
     "mrs x20, pmevcntr1_el0 \n"                                 \
     "mrs x21, pmevcntr2_el0 \n"	                                \
@@ -222,7 +222,7 @@ inline void epilogue(void) {
     "isb; dsb SY							                    \n"	\
     "eor "OFFSET", "OFFSET", "OFFSET"					        \n"	\
     										                        \
-    "_arm64_executor_flush_loop:					            \n"	\
+    "_arm64_executor_flush_loop_%=:					            \n"	\
     "	add "TMP", "BASE",  #%[main_region]				        \n"	\
     "	add "TMP", "TMP", "OFFSET"					            \n"	\
     										                        \
@@ -232,9 +232,9 @@ inline void epilogue(void) {
     										                        \
     "	add "OFFSET", "OFFSET", #64					            \n"	\
     										                        \
-    "	mov "TMP", #"xstr(MEMORY_INPUT_SIZE)"				    \n"	\
+    "	mov "TMP", #4096				    \n"	\
     "	cmp "TMP", "OFFSET"						                \n"	\
-    "	b.gt _arm64_executor_flush_loop					        \n"	\
+    "	b.gt _arm64_executor_flush_loop_%=					        \n"	\
     										                        \
     "isb; dsb SY							                    \n"	\
 	:									                            \
@@ -247,29 +247,29 @@ inline void epilogue(void) {
     "eor "OFFSET", "OFFSET", "OFFSET"					        \n"	\
     "eor "DEST", "DEST", "DEST"						            \n"	\
     										                        \
-    "_arm64_executor_reload_loop:					            \n"	\
+    "_arm64_executor_reload_loop_%=:					            \n"	\
     "	add "TMP", "BASE",  #%[main_region]				        \n"	\
     "	isb; dsb SY							                    \n"	\
-    "	mrs "ACC", pmevcntr0_el0					            \n"	\
+    "	mrs "ACC", pmevcntr3_el0					            \n"	\
                                                            			\
     "	isb; dsb SY							                    \n"	\
     "	ldr "TMP", ["TMP", "OFFSET"]   			                \n"	\
     "	isb; dsb SY							                    \n"	\
     										                        \
-    "	mrs "TMP", pmevcntr0_el0					            \n"	\
+    "	mrs "TMP", pmevcntr3_el0					            \n"	\
     "	lsl "DEST", "DEST", #1						            \n"	\
     "	cmp "ACC", "TMP"						                \n"	\
-    "	b.ne _arm64_executor_reload_failed				        \n"	\
+    "	b.ne _arm64_executor_reload_failed_%=				        \n"	\
 										                            \
     "	orr "DEST", "DEST", #1						            \n"	\
 										                            \
-    "_arm64_executor_reload_failed:					            \n"	\
+    "_arm64_executor_reload_failed_%=:					            \n"	\
     "	add "OFFSET", "OFFSET", #64					            \n"	\
-    "	mov "TMP", #"xstr(MAIN_REGION_SIZE)"				    \n"	\
+    "	mov "TMP", #%[main_region_size]				    \n"	\
     "	cmp "TMP", "OFFSET"						                \n"	\
-    "	b.gt _arm64_executor_reload_loop				        \n"	\
+    "	b.gt _arm64_executor_reload_loop_%=				        \n"	\
 	:									                            \
-	: [main_region] "i"(offsetof(sandbox_t, main_region))			\
+	: [main_region] "i"(offsetof(sandbox_t, main_region)), [main_region_size] "i"(sizeof(executor.sandbox.main_region))			\
 	:									                            \
 )
 
@@ -295,7 +295,7 @@ MEASUREMENT_METHOD(template_l1d_prime_probe)
 	prologue();
 
 	// Initialize registers
-	SET_REGISTER_FROM_INPUT("x8");
+	SET_REGISTER_FROM_INPUT("sp");
 
 	PRIME("x30", "x1", "x2", "x3", "x4", "x5", "32");
 
@@ -326,7 +326,7 @@ MEASUREMENT_METHOD(template_l1d_flush_reload)
 	prologue();
 
 	// Initialize registers
-	SET_REGISTER_FROM_INPUT("x8");
+	SET_REGISTER_FROM_INPUT("sp");
 
 	FLUSH("x30", "x16", "x17");
 

@@ -32,9 +32,14 @@ static int config_pfc(void) {
     // 3. Instruction speculatively executed (0x1b)
     asm volatile("msr pmevtyper2_el0, %0" :: "r" ((uint64_t)0x1b));
     asm volatile("isb\n");
+    
+    // 3. Instruction speculatively executed (0x1b)
+    asm volatile("msr pmevtyper3_el0, %0" :: "r" ((uint64_t)0x3));
+    asm volatile("isb\n");
+ 
     // enable counting
     val = 0;
-    asm volatile("msr pmcntenset_el0, %0" :: "r" ((uint64_t)0b111));
+    asm volatile("msr pmcntenset_el0, %0" :: "r" ((uint64_t)0b1111));
     asm volatile("isb\n");
 
     // enable PMU counters and reset the counters (using two bits)
@@ -83,23 +88,10 @@ static void load_memory_from_input(input_t* input) {
 }
 
 // RSP must be alligned to 16 bytes boundtry, according to documentation of AARCH64, TODO better documentation and supply a link or something!
-static size_t get_stack_address(void) {
-	size_t address = ((size_t)executor.sandbox.main_region + sizeof(executor.sandbox.main_region)) - THREAD_SIZE;
-	module_err("Planned address was: %llx\n", address);
-
+static size_t get_stack_base_address(void) {
+	size_t address = ((size_t)executor.sandbox.main_region + sizeof(executor.sandbox.main_region));
 //	return PTR_ALIGN(address, THREAD_SIZE);
-	return PTR_ALIGN(address, 16); // Technically, it should be alligned to THREAD_SIZE, for example to be able to access the thread_indo structure
-}
-
-static void initialize_stack(void) {
-	struct thread_info* new_ti = (struct thread_info*)get_stack_address();
-	struct thread_info* old_ti = current_thread_info();
-
-	memcpy(new_ti, old_ti, sizeof(struct thread_info));
-}
-
-static size_t get_stack_top(void) {
-	return get_stack_address() + THREAD_SIZE - 16;
+	return PTR_ALIGN(address, 16); // Technically, it should be alligned to THREAD_SIZE, for example to be able to access the thread_indo structure. But it is fine to just align to 16 bytes, due to hardware only checks this constraint.
 }
 
 static void load_registers_from_input(input_t* input) {
@@ -111,7 +103,7 @@ static void load_registers_from_input(input_t* input) {
 	((registers_t*)executor.sandbox.upper_overflow)->flags <<= 28;
 
 	// - RSP and RBP
-	((registers_t*)executor.sandbox.upper_overflow)->sp = get_stack_top(); 
+	((registers_t*)executor.sandbox.upper_overflow)->sp = get_stack_base_address(); 
 	module_err("Input regs: %llx, %llx, %llx %llx, %llx, %llx, %llx, %llx\n", 
 			*(uint64_t*)executor.sandbox.upper_overflow,
 			*((uint64_t*)executor.sandbox.upper_overflow+1),
@@ -159,11 +151,6 @@ static void __nocfi run_experiments(void) {
 	int64_t rounds = (int64_t)executor.number_of_inputs;
 	unsigned long flags = 0;
 	struct rb_node* current_input_node = NULL;
-	void* old_stack = NULL;
-	size_t old_top = 0;
-	void* new_stack = (void*)get_stack_address();
-	size_t new_top = get_stack_top();
-	initialize_stack();
 
 	if(0 >= executor.number_of_inputs){
 		BUG_ON(0 > executor.number_of_inputs);
@@ -191,46 +178,21 @@ static void __nocfi run_experiments(void) {
 			BUG_ON(NULL == current_input_node);
 		}
 
-
 		current_input = rb_entry(current_input_node, struct input_node, node);
 
 		initialize_overflow_pages();
 
 		load_input_to_sandbox(&current_input->input);
 
-
 		// flush some of the uarch state
 		if (1 == executor.config.pre_run_flush) {
 			// TBD
 		}
 
+		
 		// execute
-		old_stack = current->stack;
-		module_err("old stack base was: %px\n", old_stack);
-		module_err("new stack base is: %px\n", new_stack);
-
-		asm volatile("mov %[current_top], sp\n"
-				: [current_top] "=r"(old_top)
-				:
-				:);
-		module_err("old stack top was: %llx\n", old_top);
-		module_err("new stack top is: %llx\n", new_top);
-
-		current->stack = (void*)new_stack;
-		asm volatile("mov sp, %[stack]\n"
-				:
-				: [stack] "r"(new_top)
-				:);
-
 		((void(*)(void*))executor.measurement_code)(&executor.sandbox);
 
-		asm volatile("stp x0, x1, [sp]\n");
-		asm volatile("mov sp, %[stack]\n"
-			:
-			: [stack] "r"(old_top)
-			:);
-
-		current->stack = old_stack;
 		measure(&current_input->measurement);
 	}
 
