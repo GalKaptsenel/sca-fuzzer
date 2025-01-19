@@ -232,13 +232,13 @@ inline void epilogue(void) {
     										                        \
     "	add "OFFSET", "OFFSET", #64					            \n"	\
     										                        \
-    "	mov "TMP", #4096				    \n"	\
+    "	mov "TMP", #%[main_region_size]				    \n"	\
     "	cmp "TMP", "OFFSET"						                \n"	\
     "	b.gt _arm64_executor_flush_loop_%=					        \n"	\
     										                        \
     "isb; dsb SY							                    \n"	\
 	:									                            \
-	: [main_region] "i"(offsetof(sandbox_t, main_region))			\
+	: [main_region] "i"(offsetof(sandbox_t, main_region)), [main_region_size] "i"(sizeof(executor.sandbox.main_region))			\
 	:									                            \
 )
 
@@ -249,7 +249,6 @@ inline void epilogue(void) {
     										                        \
     "_arm64_executor_reload_loop_%=:					            \n"	\
     "	add "TMP", "BASE",  #%[main_region]				        \n"	\
-    "	isb; dsb SY							                    \n"	\
     "	mrs "ACC", pmevcntr3_el0					            \n"	\
                                                            			\
     "	isb; dsb SY							                    \n"	\
@@ -257,6 +256,7 @@ inline void epilogue(void) {
     "	isb; dsb SY							                    \n"	\
     										                        \
     "	mrs "TMP", pmevcntr3_el0					            \n"	\
+    "	isb; dsb SY							                    \n"	\
     "	lsl "DEST", "DEST", #1						            \n"	\
     "	cmp "ACC", "TMP"						                \n"	\
     "	b.ne _arm64_executor_reload_failed_%=				        \n"	\
@@ -301,12 +301,16 @@ MEASUREMENT_METHOD(template_l1d_prime_probe)
 
 	ADJUST_REGISTER_TO("x30", sandbox_t, main_region);
 
+	READ_PFC_START();
+
 	// Execute the test case
 	asm(
 		"\nisb; dsb SY\n"
 		".long "xstr(TEMPLATE_INSERT_TC)" \n"
 		"isb; dsb SY\n"
 	);
+
+	READ_PFC_END();
 
 	ADJUST_REGISTER_FROM("x30", sandbox_t, main_region);
 
