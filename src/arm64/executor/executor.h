@@ -22,8 +22,8 @@ enum State {
 #define MEASUREMENT_TEMPLATE_DEFAULT	(FLUSH_AND_RELOAD_TEMPLATE)
 #define REGION_DEFFAULT			        (TEST_REGION)
 
-#define MAX_TEST_CASE_SIZE              PAGESIZE        // must be exactly 1 page to detect sysfs buffering
-#define MAX_MEASUREMENT_CODE_SIZE       (PAGESIZE * 2)
+#define MAX_TEST_CASE_SIZE              PAGESIZE 
+#define MAX_MEASUREMENT_CODE_SIZE       (PAGESIZE * 4)
 
 #define TEST_REGION				        (-1)
 
