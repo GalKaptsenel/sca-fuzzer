@@ -19,7 +19,7 @@
     "and "NEXT_SET", "SOURCE", #0xFFFF      \n"  \
     "ror "SOURCE", "SOURCE", #16            \n"  \
 
-#define ADD_VALUES_STR(number, value) xstr((number) + (value))
+#define COMBINE_TO_LABEL(number, value) #number"_"#value
 
 #define load_imm32(name, imm)	                    \
     asm volatile(""								    \
@@ -314,7 +314,7 @@ inline void epilogue(void) {
 #error "Unexpected associativity"
 #endif
 
-#define SETS_PROBE_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, NUM)                \
+#define SETS_PROBE_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, LABEL_NUM)                \
     "   lsl "DEST", "DEST", #1                                                  \n" \
     "	add "TMP", "BASE", #%[eviction_region]				                    \n"	\
         GET_NEXT_SET(OFFSET, OFFSETS)                                               \
@@ -327,100 +327,100 @@ inline void epilogue(void) {
     "   mrs "TMP", pmevcntr3_el0                                                \n" \
     "   isb; dsb SY                                                             \n" \
     "   cmp "ACC", "TMP"                                                        \n" \
-    "   b.eq _arm64_executor_probe_failed_"NUM"                                 \n" \
+    "   b.eq _arm64_executor_probe_failed_"LABEL_NUM"                                 \n" \
                                                                                     \
     "   orr "DEST", "DEST", #1                                                  \n" \
                                                                                     \
-    "_arm64_executor_probe_failed_"NUM":                                        \n" \
+    "_arm64_executor_probe_failed_"LABEL_NUM":                                        \n" \
 
-#define SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, NUM)                        \
-    SETS_PROBE_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, ADD_VALUES_STR(NUM, 0))   \
-    SETS_PROBE_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, ADD_VALUES_STR(NUM, 1))   \
-    SETS_PROBE_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, ADD_VALUES_STR(NUM, 2))   \
-    SETS_PROBE_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, ADD_VALUES_STR(NUM, 3))   \
+#define SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, INIT_LABEL_NUM)                        \
+    SETS_PROBE_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 0))   \
+    SETS_PROBE_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 1))   \
+    SETS_PROBE_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 2))   \
+    SETS_PROBE_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 3))   \
 
 // clobber: -
 #define PROBE_SCATTERED(BASE, OFFSET, OFFSETS, TMP, ACC, DEST) asm volatile (""	\
     "eor "DEST", "DEST", "DEST"                                                \n" \
     "movz "OFFSETS", #128                                                      \n" \
-    "movk "OFFSETS", #3456  lsl #16                                            \n" \
-    "movk "OFFSETS", #1728  lsl #32                                            \n" \
-    "movk "OFFSETS", #1408  lsl #48                                            \n" \
+    "movk "OFFSETS", #3456,  lsl #16                                            \n" \
+    "movk "OFFSETS", #1728,  lsl #32                                            \n" \
+    "movk "OFFSETS", #1408,  lsl #48                                            \n" \
     SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 0)                           \
     "movz "OFFSETS", #320                                                      \n" \
-    "movk "OFFSETS", #2240  lsl #16                                            \n" \
-    "movk "OFFSETS", #3072  lsl #32                                            \n" \
-    "movk "OFFSETS", #1600  lsl #48                                            \n" \
+    "movk "OFFSETS", #2240,  lsl #16                                            \n" \
+    "movk "OFFSETS", #3072,  lsl #32                                            \n" \
+    "movk "OFFSETS", #1600,  lsl #48                                            \n" \
     SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 4)                           \
     "movz "OFFSETS", #2688                                                     \n" \
-    "movk "OFFSETS", #512   lsl #16                                            \n" \
-    "movk "OFFSETS", #3712  lsl #32                                            \n" \
-    "movk "OFFSETS", #832   lsl #48                                            \n" \
+    "movk "OFFSETS", #512 ,  lsl #16                                            \n" \
+    "movk "OFFSETS", #3712,  lsl #32                                            \n" \
+    "movk "OFFSETS", #832 ,  lsl #48                                            \n" \
     SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 8)                           \
     "movz "OFFSETS", #640                                                      \n" \
-    "movk "OFFSETS", #1984  lsl #16                                            \n" \
-    "movk "OFFSETS", #3968  lsl #32                                            \n" \
-    "movk "OFFSETS", #2304  lsl #48                                            \n" \
+    "movk "OFFSETS", #1984,  lsl #16                                            \n" \
+    "movk "OFFSETS", #3968,  lsl #32                                            \n" \
+    "movk "OFFSETS", #2304,  lsl #48                                            \n" \
     SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 12)                          \
     "movz "OFFSETS", #2944                                                     \n" \
-    "movk "OFFSETS", #1280  lsl #16                                            \n" \
-    "movk "OFFSETS", #0     lsl #32                                            \n" \
-    "movk "OFFSETS", #1920  lsl #48                                            \n" \
+    "movk "OFFSETS", #1280,  lsl #16                                            \n" \
+    "movk "OFFSETS", #0   ,  lsl #32                                            \n" \
+    "movk "OFFSETS", #1920,  lsl #48                                            \n" \
     SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 16)                          \
     "movz "OFFSETS", #2752                                                     \n" \
-    "movk "OFFSETS", #2816  lsl #16                                            \n" \
-    "movk "OFFSETS", #896   lsl #32                                            \n" \
-    "movk "OFFSETS", #3328  lsl #48                                            \n" \
+    "movk "OFFSETS", #2816,  lsl #16                                            \n" \
+    "movk "OFFSETS", #896 ,  lsl #32                                            \n" \
+    "movk "OFFSETS", #3328,  lsl #48                                            \n" \
     SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 20)                          \
     "movz "OFFSETS", #1024                                                     \n" \
-    "movk "OFFSETS", #448   lsl #16                                            \n" \
-    "movk "OFFSETS", #384   lsl #32                                            \n" \
-    "movk "OFFSETS", #2624 lsl #48                                             \n" \
+    "movk "OFFSETS", #448 ,  lsl #16                                            \n" \
+    "movk "OFFSETS", #384 ,  lsl #32                                            \n" \
+    "movk "OFFSETS", #2624,  lsl #48                                             \n" \
     SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 24)                          \
     "movz "OFFSETS", #1152                                                     \n" \
-    "movk "OFFSETS", #3136  lsl #16                                            \n" \
-    "movk "OFFSETS", #768   lsl #32                                            \n" \
-    "movk "OFFSETS", #2880  lsl #48                                            \n" \
+    "movk "OFFSETS", #3136,  lsl #16                                            \n" \
+    "movk "OFFSETS", #768 ,  lsl #32                                            \n" \
+    "movk "OFFSETS", #2880,  lsl #48                                            \n" \
     SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 28)                          \
     "movz "OFFSETS", #256                                                      \n" \
-    "movk "OFFSETS", #2432  lsl #16                                            \n" \
-    "movk "OFFSETS", #64    lsl #32                                            \n" \
-    "movk "OFFSETS", #1664  lsl #48                                            \n" \
+    "movk "OFFSETS", #2432,  lsl #16                                            \n" \
+    "movk "OFFSETS", #64  ,  lsl #32                                            \n" \
+    "movk "OFFSETS", #1664,  lsl #48                                            \n" \
     SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 32)                          \
     "movz "OFFSETS", #1792                                                     \n" \
-    "movk "OFFSETS", #1856  lsl #16                                            \n" \
-    "movk "OFFSETS", #4032  lsl #32                                            \n" \
-    "movk "OFFSETS", #1344 lsl #48                                             \n" \
+    "movk "OFFSETS", #1856,  lsl #16                                            \n" \
+    "movk "OFFSETS", #4032,  lsl #32                                            \n" \
+    "movk "OFFSETS", #1344,  lsl #48                                             \n" \
     SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 36)                          \
     "movz "OFFSETS", #3840                                                     \n" \
-    "movk "OFFSETS", #1536  lsl #16                                            \n" \
-    "movk "OFFSETS", #1472  lsl #32                                            \n" \
-    "movk "OFFSETS", #3008  lsl #48                                            \n" \
+    "movk "OFFSETS", #1536,  lsl #16                                            \n" \
+    "movk "OFFSETS", #1472,  lsl #32                                            \n" \
+    "movk "OFFSETS", #3008,  lsl #48                                            \n" \
     SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 40)                          \
     "movz "OFFSETS", #3392                                                     \n" \
-    "movk "OFFSETS", #1216  lsl #16                                            \n" \
-    "movk "OFFSETS", #3904  lsl #32                                            \n" \
-    "movk "OFFSETS", #3776  lsl #48                                            \n" \
+    "movk "OFFSETS", #1216,  lsl #16                                            \n" \
+    "movk "OFFSETS", #3904,  lsl #32                                            \n" \
+    "movk "OFFSETS", #3776,  lsl #48                                            \n" \
     SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 44)                          \
     "movz "OFFSETS", #2176                                                     \n" \
-    "movk "OFFSETS", #3520  lsl #16                                            \n" \
-    "movk "OFFSETS", #2048  lsl #32                                            \n" \
-    "movk "OFFSETS", #576   lsl #48                                            \n" \
+    "movk "OFFSETS", #3520,  lsl #16                                            \n" \
+    "movk "OFFSETS", #2048,  lsl #32                                            \n" \
+    "movk "OFFSETS", #576 ,  lsl #48                                            \n" \
     SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 48)                          \
     "movz "OFFSETS", #3584                                                     \n" \
-    "movk "OFFSETS", #960   lsl #16                                            \n" \
-    "movk "OFFSETS", #1088  lsl #32                                            \n" \
-    "movk "OFFSETS", #3264  lsl #48                                            \n" \
+    "movk "OFFSETS", #960 ,  lsl #16                                            \n" \
+    "movk "OFFSETS", #1088,  lsl #32                                            \n" \
+    "movk "OFFSETS", #3264,  lsl #48                                            \n" \
     SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 52)                          \
     "movz "OFFSETS", #2496                                                     \n" \
-    "movk "OFFSETS", #3200  lsl #16                                            \n" \
-    "movk "OFFSETS", #2560  lsl #32                                            \n" \
-    "movk "OFFSETS", #192   lsl #48                                            \n" \
+    "movk "OFFSETS", #3200,  lsl #16                                            \n" \
+    "movk "OFFSETS", #2560,  lsl #32                                            \n" \
+    "movk "OFFSETS", #192 ,  lsl #48                                            \n" \
     SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 56)                          \
     "movz "OFFSETS", #704                                                      \n" \
-    "movk "OFFSETS", #3648  lsl #16                                            \n" \
-    "movk "OFFSETS", #2112  lsl #32                                            \n" \
-    "movk "OFFSETS", #2368  lsl #48                                            \n" \
+    "movk "OFFSETS", #3648,  lsl #16                                            \n" \
+    "movk "OFFSETS", #2112,  lsl #32                                            \n" \
+    "movk "OFFSETS", #2368,  lsl #48                                            \n" \
     SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 60)                          \
 	:									                                           \
 	: [eviction_region] "i"(offsetof(sandbox_t, eviction_region))		           \
@@ -470,100 +470,100 @@ inline void epilogue(void) {
     "   mrs "TMP", pmevcntr3_el0                                                \n" \
     "   isb; dsb SY                                                             \n" \
     "   cmp "ACC", "TMP"                                                        \n" \
-    "   b.eq _arm64_executor_reload_failed_"NUM"                                \n" \
+    "   b.ne _arm64_executor_reload_failed_"LABEL_NUM"                                \n" \
                                                                                     \
     "   orr "DEST", "DEST", #1                                                  \n" \
                                                                                     \
     "_arm64_executor_reload_failed_"LABEL_NUM":                                 \n" \
 
-#define SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, NUM)                        \
-    SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, ADD_VALUES_STR(NUM, 0))   \
-    SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, ADD_VALUES_STR(NUM, 1))   \
-    SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, ADD_VALUES_STR(NUM, 2))   \
-    SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, ADD_VALUES_STR(NUM, 3))   \
+#define SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, INIT_LABEL_NUM)                        \
+    SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 0))   \
+    SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 1))   \
+    SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 2))   \
+    SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 3))   \
 
 // clobber: -
 #define RELOAD_SCATTERED(BASE, OFFSET, OFFSETS, TMP, ACC, DEST) asm volatile (""	\
     "eor "DEST", "DEST", "DEST"                                                \n" \
     "movz "OFFSETS", #128                                                      \n" \
-    "movk "OFFSETS", #3456  lsl #16                                            \n" \
-    "movk "OFFSETS", #1728  lsl #32                                            \n" \
-    "movk "OFFSETS", #1408  lsl #48                                            \n" \
+    "movk "OFFSETS", #3456,  lsl #16                                            \n" \
+    "movk "OFFSETS", #1728,  lsl #32                                            \n" \
+    "movk "OFFSETS", #1408,  lsl #48                                            \n" \
     SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 0)                          \
     "movz "OFFSETS", #320                                                      \n" \
-    "movk "OFFSETS", #2240  lsl #16                                            \n" \
-    "movk "OFFSETS", #3072  lsl #32                                            \n" \
-    "movk "OFFSETS", #1600  lsl #48                                            \n" \
+    "movk "OFFSETS", #2240,  lsl #16                                            \n" \
+    "movk "OFFSETS", #3072,  lsl #32                                            \n" \
+    "movk "OFFSETS", #1600,  lsl #48                                            \n" \
     SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 4)                          \
     "movz "OFFSETS", #2688                                                     \n" \
-    "movk "OFFSETS", #512   lsl #16                                            \n" \
-    "movk "OFFSETS", #3712  lsl #32                                            \n" \
-    "movk "OFFSETS", #832   lsl #48                                            \n" \
+    "movk "OFFSETS", #512 ,  lsl #16                                            \n" \
+    "movk "OFFSETS", #3712,  lsl #32                                            \n" \
+    "movk "OFFSETS", #832 ,  lsl #48                                            \n" \
     SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 8)                          \
     "movz "OFFSETS", #640                                                      \n" \
-    "movk "OFFSETS", #1984  lsl #16                                            \n" \
-    "movk "OFFSETS", #3968  lsl #32                                            \n" \
-    "movk "OFFSETS", #2304  lsl #48                                            \n" \
+    "movk "OFFSETS", #1984,  lsl #16                                            \n" \
+    "movk "OFFSETS", #3968,  lsl #32                                            \n" \
+    "movk "OFFSETS", #2304,  lsl #48                                            \n" \
     SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 12)                         \
     "movz "OFFSETS", #2944                                                     \n" \
-    "movk "OFFSETS", #1280  lsl #16                                            \n" \
-    "movk "OFFSETS", #0     lsl #32                                            \n" \
-    "movk "OFFSETS", #1920  lsl #48                                            \n" \
+    "movk "OFFSETS", #1280,  lsl #16                                            \n" \
+    "movk "OFFSETS", #0   ,  lsl #32                                            \n" \
+    "movk "OFFSETS", #1920,  lsl #48                                            \n" \
     SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 16)                         \
     "movz "OFFSETS", #2752                                                     \n" \
-    "movk "OFFSETS", #2816  lsl #16                                            \n" \
-    "movk "OFFSETS", #896   lsl #32                                            \n" \
-    "movk "OFFSETS", #3328  lsl #48                                            \n" \
+    "movk "OFFSETS", #2816,  lsl #16                                            \n" \
+    "movk "OFFSETS", #896 ,  lsl #32                                            \n" \
+    "movk "OFFSETS", #3328,  lsl #48                                            \n" \
     SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 20)                         \
     "movz "OFFSETS", #1024                                                     \n" \
-    "movk "OFFSETS", #448   lsl #16                                            \n" \
-    "movk "OFFSETS", #384   lsl #32                                            \n" \
-    "movk "OFFSETS", #2624 lsl #48                                             \n" \
+    "movk "OFFSETS", #448 ,  lsl #16                                            \n" \
+    "movk "OFFSETS", #384 ,  lsl #32                                            \n" \
+    "movk "OFFSETS", #2624,  lsl #48                                             \n" \
     SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 24)                         \
     "movz "OFFSETS", #1152                                                     \n" \
-    "movk "OFFSETS", #3136  lsl #16                                            \n" \
-    "movk "OFFSETS", #768   lsl #32                                            \n" \
-    "movk "OFFSETS", #2880  lsl #48                                            \n" \
+    "movk "OFFSETS", #3136,  lsl #16                                            \n" \
+    "movk "OFFSETS", #768 ,  lsl #32                                            \n" \
+    "movk "OFFSETS", #2880,  lsl #48                                            \n" \
     SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 28)                         \
     "movz "OFFSETS", #256                                                      \n" \
-    "movk "OFFSETS", #2432  lsl #16                                            \n" \
-    "movk "OFFSETS", #64    lsl #32                                            \n" \
-    "movk "OFFSETS", #1664  lsl #48                                            \n" \
+    "movk "OFFSETS", #2432,  lsl #16                                            \n" \
+    "movk "OFFSETS", #64  ,  lsl #32                                            \n" \
+    "movk "OFFSETS", #1664,  lsl #48                                            \n" \
     SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 32)                         \
     "movz "OFFSETS", #1792                                                     \n" \
-    "movk "OFFSETS", #1856  lsl #16                                            \n" \
-    "movk "OFFSETS", #4032  lsl #32                                            \n" \
-    "movk "OFFSETS", #1344 lsl #48                                             \n" \
+    "movk "OFFSETS", #1856,  lsl #16                                            \n" \
+    "movk "OFFSETS", #4032,  lsl #32                                            \n" \
+    "movk "OFFSETS", #1344,  lsl #48                                             \n" \
     SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 36)                         \
     "movz "OFFSETS", #3840                                                     \n" \
-    "movk "OFFSETS", #1536  lsl #16                                            \n" \
-    "movk "OFFSETS", #1472  lsl #32                                            \n" \
-    "movk "OFFSETS", #3008  lsl #48                                            \n" \
+    "movk "OFFSETS", #1536,  lsl #16                                            \n" \
+    "movk "OFFSETS", #1472,  lsl #32                                            \n" \
+    "movk "OFFSETS", #3008,  lsl #48                                            \n" \
     SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 40)                         \
     "movz "OFFSETS", #3392                                                     \n" \
-    "movk "OFFSETS", #1216  lsl #16                                            \n" \
-    "movk "OFFSETS", #3904  lsl #32                                            \n" \
-    "movk "OFFSETS", #3776  lsl #48                                            \n" \
+    "movk "OFFSETS", #1216,  lsl #16                                            \n" \
+    "movk "OFFSETS", #3904,  lsl #32                                            \n" \
+    "movk "OFFSETS", #3776,  lsl #48                                            \n" \
     SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 44)                         \
     "movz "OFFSETS", #2176                                                     \n" \
-    "movk "OFFSETS", #3520  lsl #16                                            \n" \
-    "movk "OFFSETS", #2048  lsl #32                                            \n" \
-    "movk "OFFSETS", #576   lsl #48                                            \n" \
+    "movk "OFFSETS", #3520,  lsl #16                                            \n" \
+    "movk "OFFSETS", #2048,  lsl #32                                            \n" \
+    "movk "OFFSETS", #576 ,  lsl #48                                            \n" \
     SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 48)                         \
     "movz "OFFSETS", #3584                                                     \n" \
-    "movk "OFFSETS", #960   lsl #16                                            \n" \
-    "movk "OFFSETS", #1088  lsl #32                                            \n" \
-    "movk "OFFSETS", #3264  lsl #48                                            \n" \
+    "movk "OFFSETS", #960 ,  lsl #16                                            \n" \
+    "movk "OFFSETS", #1088,  lsl #32                                            \n" \
+    "movk "OFFSETS", #3264,  lsl #48                                            \n" \
     SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 52)                         \
     "movz "OFFSETS", #2496                                                     \n" \
-    "movk "OFFSETS", #3200  lsl #16                                            \n" \
-    "movk "OFFSETS", #2560  lsl #32                                            \n" \
-    "movk "OFFSETS", #192   lsl #48                                            \n" \
+    "movk "OFFSETS", #3200,  lsl #16                                            \n" \
+    "movk "OFFSETS", #2560,  lsl #32                                            \n" \
+    "movk "OFFSETS", #192 ,  lsl #48                                            \n" \
     SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 56)                         \
     "movz "OFFSETS", #704                                                      \n" \
-    "movk "OFFSETS", #3648  lsl #16                                            \n" \
-    "movk "OFFSETS", #2112  lsl #32                                            \n" \
-    "movk "OFFSETS", #2368  lsl #48                                            \n" \
+    "movk "OFFSETS", #3648, lsl #16                                            \n" \
+    "movk "OFFSETS", #2112, lsl #32                                            \n" \
+    "movk "OFFSETS", #2368, lsl #48                                            \n" \
     SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 60)                         \
    )
 
