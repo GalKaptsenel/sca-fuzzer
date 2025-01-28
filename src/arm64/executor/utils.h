@@ -1,7 +1,6 @@
 #ifndef ARM64_EXECUTOR_UTILS_H
 #define ARM64_EXECUTOR_UTILS_H
 
-#define xxstr(s) 	xstr(s)
 #define xstr(s) 	_str(s)
 #define _str(s) 	str(s)
 #define str(s) 		#s

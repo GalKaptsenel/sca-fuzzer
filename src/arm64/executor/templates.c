@@ -11,181 +11,41 @@
 
 // clang-format off
 
-// Helper functions:
+// =================================================================================================
+// Helpers
+// =================================================================================================
 
-#define RANDOM_PERMUTATION(TMP0, TMP1, TMP2, TMP3, TMP4, TMP7, TMP8, TMP9) asm volatile("" \
-		"movi v0.16b, 0							\n"	\
-		"movi v1.16b, 16						\n"	\
-		"movi v2.16b, 32						\n"	\
-		"movi v3.16b, 48						\n"	\
-											\
-		"mov "TMP0", #63						\n"	\
-											\
-		"random_permutation_loop:					\n"	\
-		"mrs "TMP1", RNDR						\n"	\
-		"udiv "TMP2", "TMP1", "TMP0"					\n"	\
-		"msub "TMP1", "TMP2", "TMP0", "TMP1"				\n"	\
-											\
-		"lsr "TMP5", "TMP0", #0x4					\n"	\
-		"lsr "TMP6", "TMP1", #0x4					\n"	\
-		"and "TMP3", "TMP0", #0xF					\n"	\
-		"and "TMP4", "TMP1", #0xF					\n"	\
-											\
-		"mov "TMP7", random_permutation_jump_table			\n"	\
-		"lsl "TMP5", "TMP5", #0x5					\n"	\
-		"lsl "TMP6", "TMP6", #0x3					\n"	\
-		"add "TMP7", "TMP7", "TMP5"					\n"	\
-		"add "TMP7", "TMP7", "TMP6"					\n"	\
-		"mov "TMP7", random_permutation_jump_table			\n"	\
-		"ldr "TMP7", ["TMP7"]						\n"	\
-		"br "TMP7"							\n"	\
-		"random_permutation_continue_loop:				\n"	\
-											\
-		"sub "TMP0", "TMP0", 1						\n"	\
-		"cbnz "TMP0", random_permutation_loop				\n"	\
-		"b random_permutation_skip_jump_table				\n"	\
-		"random_permutation_jump_table:					\n"	\
-		".quad swap_v0_v0						\n"	\
-		".quad swap_v0_v1						\n"	\
-		".quad swap_v0_v2						\n"	\
-		".quad swap_v0_v3						\n"	\
-		".quad swap_v1_v0						\n"	\
-		".quad swap_v1_v1						\n"	\
-		".quad swap_v1_v2						\n"	\
-		".quad swap_v1_v3						\n"	\
-		".quad swap_v2_v0						\n"	\
-		".quad swap_v2_v1						\n"	\
-		".quad swap_v2_v2						\n"	\
-		".quad swap_v2_v3						\n"	\
-		".quad swap_v3_v0						\n"	\
-		".quad swap_v3_v1						\n"	\
-		".quad swap_v3_v2						\n"	\
-		".quad swap_v3_v3						\n"	\
-											\
-		"swap_v0_v0:							\n"	\
-		"	eor v0.b[x3], v0.b[x4]					\n"	\
-		"	eor v0.b[x4], v0.b[x3]					\n"	\
-		"	eor v0.b[x3], v0.b[x4]					\n"	\
-		"	b random_permutation_continue_loop			\n"	\
-											\
-		"swap_v0_v1:							\n"	\
-		"	eor v0.b[x3], v1.b[x4]					\n"	\
-		"	eor v1.b[x4], v0.b[x3]					\n"	\
-		"	eor v0.b[x3], v1.b[x4]					\n"	\
-		"	b random_permutation_continue_loop			\n"	\
-											\
-		"swap_v0_v2:							\n"	\
-		"	eor v0.b[x3], v2.b[x4]					\n"	\
-		"	eor v2.b[x4], v0.b[x3]					\n"	\
-		"	eor v0.b[x3], v2.b[x4]					\n"	\
-		"	b random_permutation_continue_loop			\n"	\
-											\
-		"swap_v0_v3:							\n"	\
-		"	eor v0.b[x3], v3.b[x4]					\n"	\
-		"	eor v3.b[x4], v0.b[x3]					\n"	\
-		"	eor v0.b[x3], v3.b[x4]					\n"	\
-		"	b random_permutation_continue_loop			\n"	\
-											\
-		"swap_v1_v0:							\n"	\
-		"	eor v1.b[x3], v0.b[x4]					\n"	\
-		"	eor v0.b[x4], v1.b[x3]					\n"	\
-		"	eor v1.b[x3], v0.b[x4]					\n"	\
-		"	b random_permutation_continue_loop			\n"	\
-											\
-		"swap_v1_v1:							\n"	\
-		"	eor v1.b[x3], v1.b[x4]					\n"	\
-		"	eor v1.b[x4], v1.b[x3]					\n"	\
-		"	eor v1.b[x3], v1.b[x4]					\n"	\
-		"	b random_permutation_continue_loop			\n"	\
-											\
-		"swap_v1_v2:							\n"	\
-		"	eor v1.b[x3], v2.b[x4]					\n"	\
-		"	eor v2.b[x4], v1.b[x3]					\n"	\
-		"	eor v1.b[x3], v2.b[x4]					\n"	\
-		"	b random_permutation_continue_loop			\n"	\
-											\
-		"swap_v1_v3:							\n"	\
-		"	eor v1.b[x3], v3.b[x4]					\n"	\
-		"	eor v3.b[x4], v1.b[x3]					\n"	\
-		"	eor v1.b[x3], v3.b[x4]					\n"	\
-		"	b random_permutation_continue_loop			\n"	\
-											\
-		"swap_v2_v0:							\n"	\
-		"	eor v2.b[x3], v0.b[x4]					\n"	\
-		"	eor v0.b[x4], v2.b[x3]					\n"	\
-		"	eor v2.b[x3], v0.b[x4]					\n"	\
-		"	b random_permutation_continue_loop			\n"	\
-											\
-		"swap_v2_v1:							\n"	\
-		"	eor v2.b[x3], v1.b[x4]					\n"	\
-		"	eor v1.b[x4], v2.b[x3]					\n"	\
-		"	eor v2.b[x3], v1.b[x4]					\n"	\
-		"	b random_permutation_continue_loop			\n"	\
-											\
-		"swap_v2_v2:							\n"	\
-		"	eor v2.b[x3], v2.b[x4]					\n"	\
-		"	eor v2.b[x4], v2.b[x3]					\n"	\
-		"	eor v2.b[x3], v2.b[x4]					\n"	\
-		"	b random_permutation_continue_loop			\n"	\
-											\
-		"swap_v2_v3:							\n"	\
-		"	eor v2.b[x3], v3.b[x4]					\n"	\
-		"	eor v3.b[x4], v2.b[x3]					\n"	\
-		"	eor v2.b[x3], v3.b[x4]					\n"	\
-		"	b random_permutation_continue_loop			\n"	\
-											\
-		"swap_v3_v0:							\n"	\
-		"	eor v3.b[x3], v0.b[x4]					\n"	\
-		"	eor v0.b[x4], v3.b[x3]					\n"	\
-		"	eor v3.b[x3], v0.b[x4]					\n"	\
-		"	b random_permutation_continue_loop			\n"	\
-											\
-		"swap_v3_v1:							\n"	\
-		"	eor v3.b[x3], v1.b[x4]					\n"	\
-		"	eor v1.b[x4], v3.b[x3]					\n"	\
-		"	eor v3.b[x3], v1.b[x4]					\n"	\
-		"	b random_permutation_continue_loop			\n"	\
-											\
-		"swap_v3_v2:							\n"	\
-		"	eor v3.b[x3], v2.b[x4]					\n"	\
-		"	eor v2.b[x4], v3.b[x3]					\n"	\
-		"	eor v3.b[x3], v2.b[x4]					\n"	\
-		"	b random_permutation_continue_loop			\n"	\
-											\
-		"swap_v3_v3:							\n"	\
-		"	eor v3.b[x3], v3.b[x4]					\n"	\
-		"	eor v3.b[x4], v3.b[x3]					\n"	\
-		"	eor v3.b[x3], v3.b[x4]					\n"	\
-		"	b random_permutation_continue_loop			\n"	\
-											\
-		"								\n"	\
-		"random_permutation_skip_jump_table:				\n"	\
+#define GET_NEXT_SET(NEXT_SET, SOURCE) \
+    "and "NEXT_SET", "SOURCE", #0xFFFF      \n"  \
+    "ror "SOURCE", "SOURCE", #16            \n"  \
+
+#define ADD_VALUES_STR(number, value) xstr((number) + (value))
+
+#define load_imm32(name, imm)	                    \
+    asm volatile(""								    \
+		 "mov "name", %[low32]              \n"	    \
+		 "movk "name", %[high32], lsl 16    \n"	    \
+		 :										    \
+		 : [low32] "i"((uint16_t)(imm & 0xFFFF)),	\
+		 [high32] "i"((uint16_t)(imm >> 16))		\
+		 :										    \
 		)
-
 
 // =================================================================================================
 // Template building blocks
 // =================================================================================================
 
-#define load_imm32(name, imm)	\
-    asm volatile(""										\
-		 "mov "name", %[low32]\n"							\
-		 "movk "name", %[high32], lsl 16\n"						\
-		 :										\
-		 : [low32] "i"((uint16_t)(imm & 0xFFFF)),					\
-		 [high32] "i"((uint16_t)(imm >> 16))				\
-		 :										\
-		)
+
 
 #define ADJUST_REGISTER_TO(BASE, type, field) asm volatile(""	\
-    "add "BASE", "BASE", #%[offset]\n"				            \
+    "add "BASE", "BASE", #%[offset]                         \n"	\
 	:                                                           \
 	: [offset] "i"(offsetof(type, field))			            \
 	:							                                \
 	)
 
 #define ADJUST_REGISTER_FROM(BASE, type, field) asm volatile(""	\
-    "sub "BASE", "BASE", #%[offset]\n"				            \
+    "sub "BASE", "BASE", #%[offset]                         \n" \
 	:							                                \
 	: [offset] "i"(offsetof(type, field))			            \
 	:							                                \
@@ -281,7 +141,6 @@ inline void epilogue(void) {
     "mrs x1, pmevcntr3_el0 \n"	                                \
     "sub x22, x1, x22 \n");
 
-
 // =================================================================================================
 // L1D Prime+Probe
 // =================================================================================================
@@ -320,1172 +179,252 @@ inline void epilogue(void) {
 	:									                                        \
 )
 
+#if L1D_SIZE == 16
+
+#define AGGREGATE_ONE_SET(BASE, OFFSET)         \
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"
+
+#elif L1D_SIZE == 32
+
+#define AGGREGATE_ONE_SET(BASE, OFFSET)         \
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"
+
+#elif L1D_SIZE == 64
+#define AGGREGATE_ONE_SET(BASE, OFFSET)         \
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"
+
+#elif L1D_SIZE == 128
+
+#define AGGREGATE_ONE_SET(BASE, OFFSET)         \
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n" \
+	"add "OFFSET", "OFFSET", #4096		    \n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"
+
+#else
+#error "Unexpected associativity"
+#endif
+
+#define SETS_PROBE_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, NUM)                \
+    "   lsl "DEST", "DEST", #1                                                  \n" \
+    "	add "TMP", "BASE", #%[eviction_region]				                    \n"	\
+        GET_NEXT_SET(OFFSET, OFFSETS)                                               \
+    "   mrs "ACC", pmevcntr3_el0                                                \n" \
+                                                                                    \
+    "   isb; dsb SY                                                             \n" \
+	    AGGREGATE_ONE_SET(TMP, OFFSET)						                        \
+    "   isb; dsb SY                                                             \n" \
+                                                                                    \
+    "   mrs "TMP", pmevcntr3_el0                                                \n" \
+    "   isb; dsb SY                                                             \n" \
+    "   cmp "ACC", "TMP"                                                        \n" \
+    "   b.eq _arm64_executor_probe_failed_"NUM"                                 \n" \
+                                                                                    \
+    "   orr "DEST", "DEST", #1                                                  \n" \
+                                                                                    \
+    "_arm64_executor_probe_failed_"NUM":                                        \n" \
+
+#define SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, NUM) asm volatile (""	      \
+    SETS_PROBE_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, ADD_VALUES_STR(NUM, 0))   \
+    SETS_PROBE_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, ADD_VALUES_STR(NUM, 1))   \
+    SETS_PROBE_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, ADD_VALUES_STR(NUM, 2))   \
+    SETS_PROBE_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, ADD_VALUES_STR(NUM, 3))
+
 // clobber: -
-#define PROBE(BASE, OFFSET, TMP, ASSOC_CTR, ACC, DEST) asm volatile(""	\
-    "eor "DEST", "DEST", "DEST"						                        \n"	\
-    "mov "OFFSET", #"xstr(L1D_CONFLICT_DISTANCE)"			                \n"	\
-										                                        \
-    "_arm64_executor_probe_loop:					                        \n"	\
-    "	isb; dsb SY							                                \n"	\
-    "	sub "OFFSET", "OFFSET", #64					                        \n"	\
-    "	mov "ASSOC_CTR", "xstr(L1D_ASSOCIATIVITY)"			                \n"	\
-										                                        \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-    "	add "TMP", "TMP", "OFFSET"					                        \n"	\
-    "	mrs "ACC", pmevcntr0_el0					                        \n"	\
-    										                                    \
-    "_arm64_executor_probe_inner_assoc:					                    \n"	\
-    "	isb; dsb SY							                                \n"	\
-    "	ldr xzr, ["TMP"]						                        \n"	\
-    "	isb; dsb SY							                                \n"	\
-    "	sub "ASSOC_CTR", "ASSOC_CTR", #1				                    \n"	\
-    "	add "TMP", "TMP", #"xstr(L1D_CONFLICT_DISTANCE)"		            \n"	\
-    "	cbnz "ASSOC_CTR", _arm64_executor_probe_inner_assoc				    \n"	\
-    "	isb; dsb SY							                                \n"	\
-										                                        \
-    "	mrs "TMP", pmevcntr0_el0					                        \n"	\
-    "	lsl "DEST", "DEST", #1						                        \n"	\
-    "	cmp "ACC", "TMP"						                            \n"	\
-    "	b.eq _arm64_executor_probe_failed				                    \n"	\
-    										                                    \
-    "	orr "DEST", "DEST", #1						                        \n"	\
-    										                                    \
-    "_arm64_executor_probe_failed:					                        \n"	\
-    "	cbnz "OFFSET", _arm64_executor_probe_loop					        \n"	\
-	:									                                        \
-	: [eviction_region] "i"(offsetof(sandbox_t, eviction_region))		        \
-	:									                                        \
-)
-
-#define PRIME_ONE_SET(BASE, OFFSET)	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-
-
-
-#define PROBE_UNROLL(BASE, OFFSET, TMP, ACC, DEST) asm volatile (""	\
-    "eor "OFFSET", "OFFSET", "OFFSET"                                           \n"     \
-    "eor "DEST", "DEST", "DEST"                                                     \n" \
-        "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #128														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_0                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_0:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #3456														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_1                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_1:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #1728														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_2                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_2:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #1408														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_3                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_3:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #320														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_4                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_4:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #2240														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_5                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_5:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #3072														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_6                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_6:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #1600														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_7                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_7:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #2688														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_8                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_8:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #512														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_9                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_9:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #3712														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_10                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_10:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #832														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_11                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_11:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #640														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_12                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_12:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #1984														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_13                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_13:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #3968														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_14                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_14:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #2304														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_15                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_15:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #2944														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_16                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_16:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #1280														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_17                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_17:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #0														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_18                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_18:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #1920														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_19                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_19:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #2752														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_20                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_20:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #2816														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_21                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_21:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #896														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_22                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_22:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #3328														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_23                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_23:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #1024														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_24                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_24:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #448														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_25                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_25:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #384														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_26                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_26:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #2624														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_27                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_27:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #1152														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_28                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_28:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #3136														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_29                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_29:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #768														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_30                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_30:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #2880														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_31                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_31:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #256														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_32                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_32:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #2432														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_33                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_33:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #64														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_34                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_34:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #1664														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_35                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_35:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #1792														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_36                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_36:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #1856														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_37                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_37:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #4032														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_38                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_38:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #1344														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_39                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_39:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #3840														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_40                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_40:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #1536														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_41                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_41:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #1472														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_42                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_42:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #3008														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_43                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_43:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #3392														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_44                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_44:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #1216														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_45                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_45:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #3904														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_46                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_46:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #3776														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_47                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_47:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #2176														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_48                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_48:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #3520														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_49                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_49:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #2048														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_50                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_50:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #576														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_51                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_51:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #3584														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_52                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_52:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #960														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_53                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_53:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #1088														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_54                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_54:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #3264														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_55                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_55:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #2496														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_56                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_56:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #3200														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_57                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_57:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #2560														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_58                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_58:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #192														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_59                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_59:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #704														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_60                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_60:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #3648														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_61                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_61:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #2112														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_62                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_62:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "	add "TMP", "BASE", #%[eviction_region]				                \n"	\
-	"	mov "OFFSET", #2368														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-	PRIME_ONE_SET(TMP, OFFSET)						\
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.eq _arm64_executor_probe_failed_63                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_probe_failed_63:                                              \n" \
-	:									                                        \
-	: [eviction_region] "i"(offsetof(sandbox_t, eviction_region))		        \
-	:										\
+#define PROBE_SCATTERED(BASE, OFFSET, OFFSETS, TMP, ACC, DEST) asm volatile (""	\
+    "eor "DEST", "DEST", "DEST"                                                \n" \
+    "movz "OFFSETS", #128                                                      \n" \
+    "movk "OFFSETS", #3456  lsl #16                                            \n" \
+    "movk "OFFSETS", #1728  lsl #32                                            \n" \
+    "movk "OFFSETS", #1408  lsl #48                                            \n" \
+    SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 0)                           \
+    "movz "OFFSETS", #320                                                      \n" \
+    "movk "OFFSETS", #2240  lsl #16                                            \n" \
+    "movk "OFFSETS", #3072  lsl #32                                            \n" \
+    "movk "OFFSETS", #1600  lsl #48                                            \n" \
+    SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 4)                           \
+    "movz "OFFSETS", #2688                                                     \n" \
+    "movk "OFFSETS", #512   lsl #16                                            \n" \
+    "movk "OFFSETS", #3712  lsl #32                                            \n" \
+    "movk "OFFSETS", #832   lsl #48                                            \n" \
+    SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 8)                           \
+    "movz "OFFSETS", #640                                                      \n" \
+    "movk "OFFSETS", #1984  lsl #16                                            \n" \
+    "movk "OFFSETS", #3968  lsl #32                                            \n" \
+    "movk "OFFSETS", #2304  lsl #48                                            \n" \
+    SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 12)                          \
+    "movz "OFFSETS", #2944                                                     \n" \
+    "movk "OFFSETS", #1280  lsl #16                                            \n" \
+    "movk "OFFSETS", #0     lsl #32                                            \n" \
+    "movk "OFFSETS", #1920  lsl #48                                            \n" \
+    SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 16)                          \
+    "movz "OFFSETS", #2752                                                     \n" \
+    "movk "OFFSETS", #2816  lsl #16                                            \n" \
+    "movk "OFFSETS", #896   lsl #32                                            \n" \
+    "movk "OFFSETS", #3328  lsl #48                                            \n" \
+    SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 20)                          \
+    "movz "OFFSETS", #1024                                                     \n" \
+    "movk "OFFSETS", #448   lsl #16                                            \n" \
+    "movk "OFFSETS", #384   lsl #32                                            \n" \
+    "movk "OFFSETS", #2624 lsl #48                                             \n" \
+    SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 24)                          \
+    "movz "OFFSETS", #1152                                                     \n" \
+    "movk "OFFSETS", #3136  lsl #16                                            \n" \
+    "movk "OFFSETS", #768   lsl #32                                            \n" \
+    "movk "OFFSETS", #2880  lsl #48                                            \n" \
+    SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 28)                          \
+    "movz "OFFSETS", #256                                                      \n" \
+    "movk "OFFSETS", #2432  lsl #16                                            \n" \
+    "movk "OFFSETS", #64    lsl #32                                            \n" \
+    "movk "OFFSETS", #1664  lsl #48                                            \n" \
+    SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 32)                          \
+    "movz "OFFSETS", #1792                                                     \n" \
+    "movk "OFFSETS", #1856  lsl #16                                            \n" \
+    "movk "OFFSETS", #4032  lsl #32                                            \n" \
+    "movk "OFFSETS", #1344 lsl #48                                             \n" \
+    SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 36)                          \
+    "movz "OFFSETS", #3840                                                     \n" \
+    "movk "OFFSETS", #1536  lsl #16                                            \n" \
+    "movk "OFFSETS", #1472  lsl #32                                            \n" \
+    "movk "OFFSETS", #3008  lsl #48                                            \n" \
+    SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 40)                          \
+    "movz "OFFSETS", #3392                                                     \n" \
+    "movk "OFFSETS", #1216  lsl #16                                            \n" \
+    "movk "OFFSETS", #3904  lsl #32                                            \n" \
+    "movk "OFFSETS", #3776  lsl #48                                            \n" \
+    SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 44)                          \
+    "movz "OFFSETS", #2176                                                     \n" \
+    "movk "OFFSETS", #3520  lsl #16                                            \n" \
+    "movk "OFFSETS", #2048  lsl #32                                            \n" \
+    "movk "OFFSETS", #576   lsl #48                                            \n" \
+    SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 48)                          \
+    "movz "OFFSETS", #3584                                                     \n" \
+    "movk "OFFSETS", #960   lsl #16                                            \n" \
+    "movk "OFFSETS", #1088  lsl #32                                            \n" \
+    "movk "OFFSETS", #3264  lsl #48                                            \n" \
+    SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 52)                          \
+    "movz "OFFSETS", #2496                                                     \n" \
+    "movk "OFFSETS", #3200  lsl #16                                            \n" \
+    "movk "OFFSETS", #2560  lsl #32                                            \n" \
+    "movk "OFFSETS", #192   lsl #48                                            \n" \
+    SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 56)                          \
+    "movz "OFFSETS", #704                                                      \n" \
+    "movk "OFFSETS", #3648  lsl #16                                            \n" \
+    "movk "OFFSETS", #2112  lsl #32                                            \n" \
+    "movk "OFFSETS", #2368  lsl #48                                            \n" \
+    SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 60)                          \
+	:									                                           \
+	: [eviction_region] "i"(offsetof(sandbox_t, eviction_region))		           \
+	:										                                       \
    )
 
 
@@ -1519,1129 +458,113 @@ inline void epilogue(void) {
 	:									                            \
 )
 
-// clobber: -
-#define RELOAD(BASE, OFFSET, TMP, ACC, DEST) asm volatile("" \
-    "eor "OFFSET", "OFFSET", "OFFSET"					        \n"	\
-    "eor "DEST", "DEST", "DEST"						            \n"	\
-    										                        \
-    "_arm64_executor_reload_loop:					            \n"	\
-    "	lsl "DEST", "DEST", #1						            \n"	\
-    "	mov "TMP", "BASE"						        \n"	\
-    "	mrs "ACC", pmevcntr3_el0					            \n"	\
-                                                           			\
-    "	isb; dsb SY							                    \n"	\
-    "	ldr xzr, ["TMP", "OFFSET"]   			                \n"	\
-    "	isb; dsb SY							                    \n"	\
-    										                        \
-    "	mrs "TMP", pmevcntr3_el0					            \n"	\
-    "	isb; dsb SY							                    \n"	\
-    "	cmp "ACC", "TMP"						                \n"	\
-    "	b.ne _arm64_executor_reload_failed				        \n"	\
-										                            \
-    "	orr "DEST", "DEST", #1						            \n"	\
-										                            \
-    "_arm64_executor_reload_failed:					            \n"	\
-    "	add "OFFSET", "OFFSET", #64					            \n"	\
-    "	mov "TMP", #%[main_region_size]				    \n"	\
-    "	cmp "TMP", "OFFSET"						                \n"	\
-    "	b.gt _arm64_executor_reload_loop				        \n"	\
-	:									                            \
-	: [main_region_size] "i"(sizeof(executor.sandbox.main_region))			\
-	:									                            \
-)
+#define SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, LABEL_NUM)         \
+    "   lsl "DEST", "DEST", #1                                                  \n" \
+        GET_NEXT_SET(OFFSET, OFFSETS)                                               \
+    "   mrs "ACC", pmevcntr3_el0                                                \n" \
+                                                                                    \
+    "   isb; dsb SY                                                             \n" \
+    "   ldr xzr, ["BASE", "OFFSET"]                                             \n" \
+    "   isb; dsb SY                                                             \n" \
+                                                                                    \
+    "   mrs "TMP", pmevcntr3_el0                                                \n" \
+    "   isb; dsb SY                                                             \n" \
+    "   cmp "ACC", "TMP"                                                        \n" \
+    "   b.eq _arm64_executor_reload_failed_"NUM"                                \n" \
+                                                                                    \
+    "   orr "DEST", "DEST", #1                                                  \n" \
+                                                                                    \
+    "_arm64_executor_reload_failed_"LABEL_NUM":                                 \n" \
 
-#define RELOAD_UNROLL(BASE, OFFSET, TMP, ACC, DEST) asm volatile (""	\
-    "eor "OFFSET", "OFFSET", "OFFSET"                                           \n"     \
-    "eor "DEST", "DEST", "DEST"                                                     \n" \
-    										                        \
-        "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #128														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_0                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_0:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #3456														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_1                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_1:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #1728														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_2                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_2:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #1408														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_3                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_3:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #320														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_4                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_4:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #2240														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_5                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_5:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #3072														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_6                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_6:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #1600														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_7                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_7:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #2688														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_8                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_8:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #512														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_9                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_9:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #3712														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_10                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_10:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #832														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_11                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_11:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #640														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_12                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_12:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #1984														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_13                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_13:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #3968														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_14                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_14:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #2304														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_15                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_15:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #2944														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_16                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_16:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #1280														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_17                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_17:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #0														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_18                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_18:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #1920														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_19                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_19:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #2752														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_20                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_20:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #2816														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_21                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_21:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #896														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_22                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_22:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #3328														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_23                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_23:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #1024														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_24                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_24:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #448														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_25                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_25:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #384														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_26                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_26:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #2624														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_27                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_27:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #1152														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_28                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_28:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #3136														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_29                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_29:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #768														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_30                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_30:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #2880														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_31                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_31:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #256														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_32                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_32:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #2432														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_33                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_33:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #64														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_34                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_34:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #1664														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_35                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_35:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #1792														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_36                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_36:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #1856														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_37                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_37:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #4032														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_38                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_38:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #1344														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_39                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_39:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #3840														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_40                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_40:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #1536														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_41                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_41:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #1472														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_42                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_42:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #3008														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_43                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_43:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #3392														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_44                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_44:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #1216														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_45                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_45:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #3904														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_46                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_46:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #3776														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_47                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_47:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #2176														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_48                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_48:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #3520														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_49                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_49:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #2048														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_50                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_50:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #576														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_51                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_51:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #3584														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_52                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_52:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #960														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_53                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_53:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #1088														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_54                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_54:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #3264														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_55                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_55:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #2496														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_56                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_56:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #3200														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_57                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_57:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #2560														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_58                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_58:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #192														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_59                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_59:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #704														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_60                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_60:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #3648														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_61                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_61:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #2112														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_62                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_62:                                              \n" \
-    "   lsl "DEST", "DEST", #1                                                      \n" \
-    "   mov "TMP", "BASE"                                                       \n"     \
-	"	mov "OFFSET", #2368														\n"		\
-    "   mrs "ACC", pmevcntr3_el0                                                    \n" \
-                                                                                \
-    "   isb; dsb SY                                                                         \n" \
-    "   ldr xzr, ["TMP", "OFFSET"]                                      \n"     \
-    "   isb; dsb SY                                                                         \n" \
-                                                                                                        \
-    "   mrs "TMP", pmevcntr3_el0                                                    \n" \
-    "   isb; dsb SY                                                                         \n" \
-    "   cmp "ACC", "TMP"                                                                \n"     \
-    "   b.ne _arm64_executor_reload_failed_63                                   \n"     \
-                                                                                                            \
-    "   orr "DEST", "DEST", #1                                                      \n" \
-                                                                                                            \
-    "_arm64_executor_reload_failed_63:                                              \n" \
+#define SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, NUM) asm volatile (""	   \
+    SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, ADD_VALUES_STR(NUM, 0))   \
+    SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, ADD_VALUES_STR(NUM, 1))   \
+    SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, ADD_VALUES_STR(NUM, 2))   \
+    SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, ADD_VALUES_STR(NUM, 3))
+
+// clobber: -
+#define RELOAD_SCATTERED(BASE, OFFSET, OFFSETS, TMP, ACC, DEST) asm volatile (""	\
+    "eor "DEST", "DEST", "DEST"                                                \n" \
+    "movz "OFFSETS", #128                                                      \n" \
+    "movk "OFFSETS", #3456  lsl #16                                            \n" \
+    "movk "OFFSETS", #1728  lsl #32                                            \n" \
+    "movk "OFFSETS", #1408  lsl #48                                            \n" \
+    SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 0)                          \
+    "movz "OFFSETS", #320                                                      \n" \
+    "movk "OFFSETS", #2240  lsl #16                                            \n" \
+    "movk "OFFSETS", #3072  lsl #32                                            \n" \
+    "movk "OFFSETS", #1600  lsl #48                                            \n" \
+    SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 4)                          \
+    "movz "OFFSETS", #2688                                                     \n" \
+    "movk "OFFSETS", #512   lsl #16                                            \n" \
+    "movk "OFFSETS", #3712  lsl #32                                            \n" \
+    "movk "OFFSETS", #832   lsl #48                                            \n" \
+    SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 8)                          \
+    "movz "OFFSETS", #640                                                      \n" \
+    "movk "OFFSETS", #1984  lsl #16                                            \n" \
+    "movk "OFFSETS", #3968  lsl #32                                            \n" \
+    "movk "OFFSETS", #2304  lsl #48                                            \n" \
+    SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 12)                         \
+    "movz "OFFSETS", #2944                                                     \n" \
+    "movk "OFFSETS", #1280  lsl #16                                            \n" \
+    "movk "OFFSETS", #0     lsl #32                                            \n" \
+    "movk "OFFSETS", #1920  lsl #48                                            \n" \
+    SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 16)                         \
+    "movz "OFFSETS", #2752                                                     \n" \
+    "movk "OFFSETS", #2816  lsl #16                                            \n" \
+    "movk "OFFSETS", #896   lsl #32                                            \n" \
+    "movk "OFFSETS", #3328  lsl #48                                            \n" \
+    SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 20)                         \
+    "movz "OFFSETS", #1024                                                     \n" \
+    "movk "OFFSETS", #448   lsl #16                                            \n" \
+    "movk "OFFSETS", #384   lsl #32                                            \n" \
+    "movk "OFFSETS", #2624 lsl #48                                             \n" \
+    SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 24)                         \
+    "movz "OFFSETS", #1152                                                     \n" \
+    "movk "OFFSETS", #3136  lsl #16                                            \n" \
+    "movk "OFFSETS", #768   lsl #32                                            \n" \
+    "movk "OFFSETS", #2880  lsl #48                                            \n" \
+    SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 28)                         \
+    "movz "OFFSETS", #256                                                      \n" \
+    "movk "OFFSETS", #2432  lsl #16                                            \n" \
+    "movk "OFFSETS", #64    lsl #32                                            \n" \
+    "movk "OFFSETS", #1664  lsl #48                                            \n" \
+    SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 32)                         \
+    "movz "OFFSETS", #1792                                                     \n" \
+    "movk "OFFSETS", #1856  lsl #16                                            \n" \
+    "movk "OFFSETS", #4032  lsl #32                                            \n" \
+    "movk "OFFSETS", #1344 lsl #48                                             \n" \
+    SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 36)                         \
+    "movz "OFFSETS", #3840                                                     \n" \
+    "movk "OFFSETS", #1536  lsl #16                                            \n" \
+    "movk "OFFSETS", #1472  lsl #32                                            \n" \
+    "movk "OFFSETS", #3008  lsl #48                                            \n" \
+    SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 40)                         \
+    "movz "OFFSETS", #3392                                                     \n" \
+    "movk "OFFSETS", #1216  lsl #16                                            \n" \
+    "movk "OFFSETS", #3904  lsl #32                                            \n" \
+    "movk "OFFSETS", #3776  lsl #48                                            \n" \
+    SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 44)                         \
+    "movz "OFFSETS", #2176                                                     \n" \
+    "movk "OFFSETS", #3520  lsl #16                                            \n" \
+    "movk "OFFSETS", #2048  lsl #32                                            \n" \
+    "movk "OFFSETS", #576   lsl #48                                            \n" \
+    SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 48)                         \
+    "movz "OFFSETS", #3584                                                     \n" \
+    "movk "OFFSETS", #960   lsl #16                                            \n" \
+    "movk "OFFSETS", #1088  lsl #32                                            \n" \
+    "movk "OFFSETS", #3264  lsl #48                                            \n" \
+    SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 52)                         \
+    "movz "OFFSETS", #2496                                                     \n" \
+    "movk "OFFSETS", #3200  lsl #16                                            \n" \
+    "movk "OFFSETS", #2560  lsl #32                                            \n" \
+    "movk "OFFSETS", #192   lsl #48                                            \n" \
+    SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 56)                         \
+    "movz "OFFSETS", #704                                                      \n" \
+    "movk "OFFSETS", #3648  lsl #16                                            \n" \
+    "movk "OFFSETS", #2112  lsl #32                                            \n" \
+    "movk "OFFSETS", #2368  lsl #48                                            \n" \
+    SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 60)                         \
    )
 
 
@@ -2687,7 +610,7 @@ MEASUREMENT_METHOD(template_l1d_prime_probe)
 	ADJUST_REGISTER_FROM("x30", sandbox_t, main_region);
 
 	// Probe and store the resulting eviction bitmap map into x15
-	PROBE_UNROLL("x30", "x16", "x17", "x18", "x15");
+	PROBE_SCATTERED("x30", "x16", "x17", "x18", "x19", "x15");
 
 	epilogue();
 	asm volatile(".long "xstr(TEMPLATE_RETURN));
@@ -2720,7 +643,7 @@ MEASUREMENT_METHOD(template_l1d_flush_reload)
 	READ_PFC_END();
 
 	// Reload and store the resulting eviction bitmap map into x15
-	RELOAD_UNROLL("x30", "x16", "x17", "x18", "x15");
+	RELOAD_SCATTERED("x30", "x16", "x17", "x18", "x19", "x15");
 
 	ADJUST_REGISTER_FROM("x30", sandbox_t, main_region);
 
