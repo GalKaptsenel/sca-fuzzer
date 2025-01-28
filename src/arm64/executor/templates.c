@@ -179,7 +179,7 @@ inline void epilogue(void) {
 	:									                                        \
 )
 
-#if L1D_SIZE == 16
+#if L1D_SIZE_K == 16
 
 #define AGGREGATE_ONE_SET(BASE, OFFSET)         \
 	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
@@ -188,28 +188,10 @@ inline void epilogue(void) {
 	"add "OFFSET", "OFFSET", #4096			\n"	\
 	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
 	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"
+	"ldr xzr, ["BASE", "OFFSET"]			\n" \
 
-#elif L1D_SIZE == 32
+#elif L1D_SIZE_K == 32
 
-#define AGGREGATE_ONE_SET(BASE, OFFSET)         \
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"
-
-#elif L1D_SIZE == 64
 #define AGGREGATE_ONE_SET(BASE, OFFSET)         \
 	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
 	"add "OFFSET", "OFFSET", #4096			\n"	\
@@ -225,25 +207,43 @@ inline void epilogue(void) {
 	"add "OFFSET", "OFFSET", #4096			\n"	\
 	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
 	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
-	"add "OFFSET", "OFFSET", #4096			\n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"
+	"ldr xzr, ["BASE", "OFFSET"]			\n" \
 
-#elif L1D_SIZE == 128
+#elif L1D_SIZE_K == 64
+#define AGGREGATE_ONE_SET(BASE, OFFSET)         \
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
+	"add "OFFSET", "OFFSET", #4096			\n"	\
+	"ldr xzr, ["BASE", "OFFSET"]			\n" \
+
+#elif L1D_SIZE_K == 128
 
 #define AGGREGATE_ONE_SET(BASE, OFFSET)         \
 	"ldr xzr, ["BASE", "OFFSET"]			\n"	\
@@ -308,7 +308,7 @@ inline void epilogue(void) {
 	"add "OFFSET", "OFFSET", #4096			\n"	\
 	"ldr xzr, ["BASE", "OFFSET"]			\n" \
 	"add "OFFSET", "OFFSET", #4096		    \n"	\
-	"ldr xzr, ["BASE", "OFFSET"]			\n"
+	"ldr xzr, ["BASE", "OFFSET"]			\n" \
 
 #else
 #error "Unexpected associativity"
@@ -333,11 +333,11 @@ inline void epilogue(void) {
                                                                                     \
     "_arm64_executor_probe_failed_"NUM":                                        \n" \
 
-#define SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, NUM) asm volatile (""	      \
+#define SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, NUM)                        \
     SETS_PROBE_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, ADD_VALUES_STR(NUM, 0))   \
     SETS_PROBE_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, ADD_VALUES_STR(NUM, 1))   \
     SETS_PROBE_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, ADD_VALUES_STR(NUM, 2))   \
-    SETS_PROBE_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, ADD_VALUES_STR(NUM, 3))
+    SETS_PROBE_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, ADD_VALUES_STR(NUM, 3))   \
 
 // clobber: -
 #define PROBE_SCATTERED(BASE, OFFSET, OFFSETS, TMP, ACC, DEST) asm volatile (""	\
@@ -476,11 +476,11 @@ inline void epilogue(void) {
                                                                                     \
     "_arm64_executor_reload_failed_"LABEL_NUM":                                 \n" \
 
-#define SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, NUM) asm volatile (""	   \
+#define SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, NUM)                        \
     SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, ADD_VALUES_STR(NUM, 0))   \
     SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, ADD_VALUES_STR(NUM, 1))   \
     SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, ADD_VALUES_STR(NUM, 2))   \
-    SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, ADD_VALUES_STR(NUM, 3))
+    SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, ADD_VALUES_STR(NUM, 3))   \
 
 // clobber: -
 #define RELOAD_SCATTERED(BASE, OFFSET, OFFSETS, TMP, ACC, DEST) asm volatile (""	\
