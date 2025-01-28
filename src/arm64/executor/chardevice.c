@@ -90,7 +90,7 @@ static void free_input_id(void __user* arg) {
 	if(0 <= input_id) {
 
 		if(input_id == executor.checkout_region) {
-			module_info("Freeing the currently checkedout input, checking out into TEST_REGION.\n");
+			module_info("Freeing the currently checked out input, checking out into TEST_REGION.\n");
 			executor.checkout_region = TEST_REGION;
 		}
 
@@ -162,7 +162,7 @@ static int load_test_and_update_state(const char __user* test, size_t length) {
 	if (MAX_TEST_CASE_SIZE < length) {
 		return -ENOMEM;
 	}
-	
+
 	copy_from_user_with_access_check(executor.test_case, test, length);
 
 	executor.test_case_length = length;
@@ -175,7 +175,7 @@ static int load_test_and_update_state(const char __user* test, size_t length) {
 
 	update_state_after_writing_test();
 
-	module_err("%u bytes were written!\n", full_test_case_size);
+	module_info("%u bytes were written into test memory!\n", full_test_case_size);
 
 	return full_test_case_size;
 }
@@ -217,54 +217,54 @@ static long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg
 	switch(_IOC_NR(cmd)) {
 
 		case REVISOR_CHECKOUT_TEST_CONSTANT:
-			module_err("Entering 1..\n");
+			module_debug("Checking out test memory..\n");
 			executor.checkout_region = TEST_REGION;
 			break;
 
 		case REVISOR_UNLOAD_TEST_CONSTANT:
-			module_err("Entering 2..\n");
+			module_debug("Unloading test case..\n");
 			unload_test_and_update_state();
 			break;
 
 		case REVISOR_GET_NUMBER_OF_INPUTS_CONSTANT:
-			module_err("Entering 3..\n");
+			module_debug("Querying number of inputs configured..\n");
 			result = get_number_of_inputs();
 			result = copy_to_user_with_access_check((void __user*)arg, &result, sizeof(result));
 			break;
 
 		case REVISOR_CHECKOUT_INPUT_CONSTANT:
-			module_err("Entering 4..\n");
+			module_debug("Checking out an input..\n");
 			checkout_into_input_id((void __user*)arg);
 			break;
 
 		case REVISOR_ALLOCATE_INPUT_CONSTANT:
-			module_err("Entering 5..\n");
+			module_debug("Allocating new input..\n");
 			result = allocate_input();
 			result = copy_to_user_with_access_check((void __user*)arg, &result, sizeof(result));
 			break;
 
 		case REVISOR_FREE_INPUT_CONSTANT:
-			module_err("Entering 6..\n");
+			module_debug("Freeing input..\n");
 			free_input_id((void __user*)arg);
 			break;
 
 		case REVISOR_MEASUREMENT_CONSTANT:
-			module_err("Entering 7..\n");
+			module_debug("Querying measurement..\n");
 			measure_input_id((void __user*)arg);
 			break;
 
 		case REVISOR_TRACE_CONSTANT:
-			module_err("Entering 8..\n");
+			module_debug("Beginning trace..\n");
 			trace();
 			break;
 
 		case REVISOR_CLEAR_ALL_INPUTS_CONSTANT:
-			module_err("Entering 9..\n");
+			module_debug("Clearing all inputs..\n");
 			clear_all_inputs();
 			break;
 
 		case REVISOR_GET_TEST_LENGTH_CONSTANT:
-			module_err("Entering 10..\n");
+			module_debug("Querying test case length..\n");
 			get_test_length((void __user*)arg);
 			break;
 		default:
@@ -281,7 +281,6 @@ static ssize_t revisor_read(struct file* File, char __user* user_buffer, size_t 
 	int not_copied = 0;
 	uint64_t total_size = 0;
 	void* from_buffer = NULL;
-	module_err("Entering read..\n");
 
 	if(NULL == user_buffer) {
 		module_err("read callback - got NULL inside user_buffer!\n");
@@ -311,7 +310,7 @@ static ssize_t revisor_read(struct file* File, char __user* user_buffer, size_t 
 
 	*off += (number_of_bytes_to_copy - not_copied);
 
-	return number_of_bytes_to_copy - not_copied; 
+	return number_of_bytes_to_copy - not_copied;
 }
 
 static void update_state_after_writing_input(void) {
@@ -344,7 +343,6 @@ static void copy_input_from_user_and_update_state(const char __user* user_buffer
 }
 
 static ssize_t revisor_write(struct file* File, const char __user* user_buffer, size_t count, loff_t* off) {
-	module_err("Entering write..\n");
 
 	if(NULL == user_buffer) {
 		module_err("write callback - got NULL inside user_buffer!\n");

@@ -690,11 +690,11 @@ int load_template(size_t tc_size) {
 
 	map_to_template(executor.config.measurement_template)(&template_ptr);
 	switch(executor.config.measurement_template) {
-		case PRIME_AND_PROBE_TEMPLATE: module_err("loading prime and probe!\n");
+		case PRIME_AND_PROBE_TEMPLATE: module_debug("loading prime and probe!\n");
 					       break;
-		case FLUSH_AND_RELOAD_TEMPLATE: module_err("loading flush and reload!\n");
+		case FLUSH_AND_RELOAD_TEMPLATE: module_debug("loading flush and reload!\n");
 					       break;
-		default: module_err("loading tamplate unset!\n");
+		default: module_debug("loading tamplate unset!\n");
 	}
 
 	// skip until the beginning of the template
@@ -749,7 +749,7 @@ int load_template(size_t tc_size) {
     code_pos += 1;
 
     for(; print_pos < code_pos; ++print_pos) {
-	    module_err("%px -> %lx\n", ((uint32_t*)executor.measurement_code) + print_pos, ((uint32_t*)executor.measurement_code)[print_pos]);
+	    module_debug("%px -> %lx\n", ((uint32_t*)executor.measurement_code) + print_pos, ((uint32_t*)executor.measurement_code)[print_pos]);
     }
     return (sizeof(uint32_t) * code_pos);
 }

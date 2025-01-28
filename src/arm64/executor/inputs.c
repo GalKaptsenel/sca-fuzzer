@@ -10,11 +10,11 @@ int load_input(input_t *from_input) {
 
 	if(NULL == from_input) {
 		module_err("from_input is NULL!\n");
-	       	return -1;
+	    return -1;
 	}
 
 	if(TEST_REGION == executor.checkout_region) {
-		module_err("cannot insert input because TEST_REGION is checked out!\n");
+		module_err("cannot load input because TEST_REGION is checked out!\n");
 		return -2;
 	}
 

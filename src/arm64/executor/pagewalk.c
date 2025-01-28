@@ -18,34 +18,34 @@ static void decode_entry(uint64_t entry, const char *level) {
 	uint64_t pxn_bit = 0;
 	uint64_t software_defined = 0;
 
-	module_err("Decoding %s entry: 0x%016llx\n", level, entry);
+	module_info("Decoding %s entry: 0x%016llx\n", level, entry);
 
 	// Present Bit
 	present_bit = entry & 0x1;
 	if (present_bit) {
-		module_err("%s: Present\n", level);
+		module_info("%s: Present\n", level);
 	}
 	else {
-		module_err("%s: Not Present\n", level);
+		module_info("%s: Not Present\n", level);
 		return;
 	}
 
 	// Page Type
 	entry_type = (entry >> 1) & 0x1;
 	if (entry_type) {
-		module_err("%s: Table descriptor(levels 0, 1 and 2)/Table entry(levels 1 and 2)\n", level);
+		module_info("%s: Table descriptor(levels 0, 1 and 2)/Table entry(levels 1 and 2)\n", level);
 	}
 	else {
-		module_err("%s: Block entry(levels 1 and 2)\n", level);
+		module_info("%s: Block entry(levels 1 and 2)\n", level);
 	}
 
 	// Accessed Flag
 	accessed_flag = (entry >> 10) & 0x1;
 	if (accessed_flag) {
-		module_err("%s: Has already been used [AF=1]\n", level);
+		module_info("%s: Has already been used [AF=1]\n", level);
 	}
 	else {
-		module_err("%s: Has not yet been used [AF=0]\n", level);
+		module_info("%s: Has not yet been used [AF=0]\n", level);
 	}
 
 	// Access Permissions
@@ -53,71 +53,71 @@ static void decode_entry(uint64_t entry, const char *level) {
 	switch(access_permissions) {
 
 		case 0:
-			module_err("%s: No access for EL0 and RW for EL1/2/3", level);
+			module_info("%s: No access for EL0 and RW for EL1/2/3", level);
 			break;
 		case 1:
-			module_err("%s: RW for EL0 and RW for EL1/2/3", level);
+			module_info("%s: RW for EL0 and RW for EL1/2/3", level);
 			break;
 		case 2:
-			module_err("%s: No access for EL0 and Read-Only for EL1/2/3", level);
+			module_info("%s: No access for EL0 and Read-Only for EL1/2/3", level);
 			break;
 		case 3:
-			module_err("%s: Read-Only for EL0 and Read-Only for EL1/2/3", level);
+			module_info("%s: Read-Only for EL0 and Read-Only for EL1/2/3", level);
 			break;
 	}
 
 	// Attributes
 	attr_index = (entry >> 2) & 0x7;
-	module_err("%s: Memory Attributes Index: %llu\n", level, attr_index);
+	module_info("%s: Memory Attributes Index: %llu\n", level, attr_index);
 
 	// Shareability
 	sharability = (entry >> 8) & 0x3;
 	switch (sharability) {
 
 		case 0:
-			module_err("%s: Non-shareable\n", level);
+			module_info("%s: Non-shareable\n", level);
 			break;
 		case 1:
-			module_err("%s: Unpredictable shareability\n", level);
+			module_info("%s: Unpredictable shareability\n", level);
 			break;
 		case 2:
-			module_err("%s: Outer shareable\n", level);
+			module_info("%s: Outer shareable\n", level);
 			break;
 		case 3:
-			module_err("%s: Inner shareable\n", level);
+			module_info("%s: Inner shareable\n", level);
 			break;
 	}
 
 	// Dirty Bit
 	dirty_bit = (entry >> 55) & 0x1;
 	if (dirty_bit) {
-		module_err("%s: Dirty\n", level);
+		module_info("%s: Dirty\n", level);
 	}
 
 	// UXN Bit
 	uxn_bit = (entry >> 54) & 0x1;
 	if (uxn_bit) {
-		module_err("%s: EL0 cannot execute code [UXN=1]\n", level);
+		module_info("%s: EL0 cannot execute code [UXN=1]\n", level);
 	}
 	else {
-		module_err("%s: EL0 can execute code [UXN=0]\n", level);
+		module_info("%s: EL0 can execute code [UXN=0]\n", level);
 	}
 
 	// PXN Bit
 	pxn_bit = (entry >> 53) & 0x1;
 	if (pxn_bit) {
-		module_err("%s: EL1/2/3 cannot execute code [PXN=1]\n", level);
+		module_info("%s: EL1/2/3 cannot execute code [PXN=1]\n", level);
 	}
 	else {
-		module_err("%s: EL1/2/3 can execute code [PXN=0]\n", level);
+		module_info("%s: EL1/2/3 can execute code [PXN=0]\n", level);
 	}
 
 	// Software bits (optional, custom implementation-defined)
 	software_defined = (entry >> 55);
-	module_err("%s: Software-defined bits: 0x%llx\n", level, software_defined);
+	module_info("%s: Software-defined bits: 0x%llx\n", level, software_defined);
 
-	module_err("| P\t|Type\t|AF\t|AP\t|AttrIndx\t|SH\t|PXN\t|UXN\t| D\t|SW-defined\t");
-	module_err("  %d\t  %d\t  %d\t  %d\t  %d\t\t %d\t  %d\t  %d\t  %d\t  %d\t", present_bit, entry_type, accessed_flag, access_permissions, attr_index,sharability, pxn_bit, uxn_bit, dirty_bit, software_defined);
+	module_info("| P\t|Type\t|AF\t|AP\t|AttrIndx\t|SH\t|PXN\t|UXN\t| D\t|SW-defined\t");
+	module_info("  %d\t  %d\t  %d\t  %d\t  %d\t\t %d\t  %d\t  %d\t  %d\t  %d\t", present_bit, entry_type, accessed_flag, access_permissions, attr_index,sharability, pxn_bit, uxn_bit, dirty_bit, software_defined);
 }
 
 // Functions to decode entries

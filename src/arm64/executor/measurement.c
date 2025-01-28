@@ -32,11 +32,11 @@ static int config_pfc(void) {
     // 3. Instruction speculatively executed (0x1b)
     asm volatile("msr pmevtyper2_el0, %0" :: "r" ((uint64_t)0x1b));
     asm volatile("isb\n");
-    
+
     // 3. Instruction speculatively executed (0x1b)
     asm volatile("msr pmevtyper3_el0, %0" :: "r" ((uint64_t)0x3));
     asm volatile("isb\n");
- 
+
     // enable counting
     val = 0;
     asm volatile("msr pmcntenset_el0, %0" :: "r" ((uint64_t)0b1111));
@@ -48,17 +48,17 @@ static int config_pfc(void) {
     asm volatile("msr pmcr_el0, %0" :: "r" (val | 0x3));
     asm volatile("isb\n");
     // debug prints (view via 'sudo dmesg')
-     val = 0;
-     asm volatile("mrs %0, pmuserenr_el0" : "=r" (val));
-     printk(KERN_ERR "%-24s 0x%0llx\n", "PMUSERENR_EL0:", val);
-     asm volatile("mrs %0, pmcr_el0" : "=r" (val));
-     printk(KERN_ERR "%-24s 0x%0llx\n", "PMCR_EL0:", val);
-     asm volatile("mrs %0, pmselr_el0" : "=r" (val));
-     printk(KERN_ERR "%-24s 0x%0llx\n", "PMSELR_EL0:", val);
-     asm volatile("mrs %0, pmevtyper0_el0" : "=r" (val));
-     printk(KERN_ERR "%-24s 0x%0llx\n", "PMEVTYPER0_EL0:", val);
-     asm volatile("mrs %0, pmcntenset_el0" : "=r" (val));
-     printk(KERN_ERR "%-24s 0x%0llx\n", "PMCNTENSET_EL0:", val);
+//     val = 0;
+//     asm volatile("mrs %0, pmuserenr_el0" : "=r" (val));
+//     printk(KERN_ERR "%-24s 0x%0llx\n", "PMUSERENR_EL0:", val);
+//     asm volatile("mrs %0, pmcr_el0" : "=r" (val));
+//     printk(KERN_ERR "%-24s 0x%0llx\n", "PMCR_EL0:", val);
+//     asm volatile("mrs %0, pmselr_el0" : "=r" (val));
+//     printk(KERN_ERR "%-24s 0x%0llx\n", "PMSELR_EL0:", val);
+//     asm volatile("mrs %0, pmevtyper0_el0" : "=r" (val));
+//     printk(KERN_ERR "%-24s 0x%0llx\n", "PMEVTYPER0_EL0:", val);
+//     asm volatile("mrs %0, pmcntenset_el0" : "=r" (val));
+//     printk(KERN_ERR "%-24s 0x%0llx\n", "PMCNTENSET_EL0:", val);
 
     return 0;
 }
@@ -103,8 +103,8 @@ static void load_registers_from_input(input_t* input) {
 	((registers_t*)executor.sandbox.upper_overflow)->flags <<= 28;
 
 	// - RSP and RBP
-	((registers_t*)executor.sandbox.upper_overflow)->sp = get_stack_base_address(); 
-	module_err("Input regs: %llx, %llx, %llx %llx, %llx, %llx, %llx, %llx\n", 
+	((registers_t*)executor.sandbox.upper_overflow)->sp = get_stack_base_address();
+	module_debug("Input regs: x0:%llx, x1:%llx, x2:%llx x3:%llx, x4:%llx, x5:%llx, flags:%llx, sp:%llx\n",
 			*(uint64_t*)executor.sandbox.upper_overflow,
 			*((uint64_t*)executor.sandbox.upper_overflow+1),
 			*((uint64_t*)executor.sandbox.upper_overflow+2),
@@ -189,7 +189,7 @@ static void __nocfi run_experiments(void) {
 			// TBD
 		}
 
-		
+
 		// execute
 		((void(*)(void*))executor.measurement_code)(&executor.sandbox);
 
