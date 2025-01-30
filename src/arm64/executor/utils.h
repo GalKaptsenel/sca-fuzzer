@@ -21,10 +21,10 @@
 #define module_info(format, ...)                        module_msg(pr_info, format, ##__VA_ARGS__)
 #define module_debug(format, ...)                       module_msg(pr_debug, format, ##__VA_ARGS__)
 #define module_devel(format, ...)                       module_msg(pr_devel, format, ##__VA_ARGS__)
-#define load_global_symbol(lookup_fn, type, local_symbol, symbol) \
-       do { \
-                local_symbol = (type)lookup_fn(#symbol); \
-                module_err("%s = (%s)%s(\"%s\") = %px", #local_symbol, #type, #lookup_fn, #symbol, local_symbol); \
+#define load_global_symbol(lookup_fn, type, local_symbol, symbol)                                                   \
+       do {                                                                                                         \
+                local_symbol = (type)lookup_fn(#symbol);                                                            \
+                module_err("%s = (%s)%s(\"%s\") = %px", #local_symbol, #type, #lookup_fn, #symbol, local_symbol);   \
        } while(0)
 
 // TYPEDEFS

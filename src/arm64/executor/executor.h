@@ -22,7 +22,7 @@ enum State {
 #define MEASUREMENT_TEMPLATE_DEFAULT	(FLUSH_AND_RELOAD_TEMPLATE)
 #define REGION_DEFFAULT			        (TEST_REGION)
 
-#define MAX_TEST_CASE_SIZE              PAGESIZE 
+#define MAX_TEST_CASE_SIZE              PAGESIZE
 #define MAX_MEASUREMENT_CODE_SIZE       (PAGESIZE * 4)
 
 #define TEST_REGION				        (-1)
@@ -45,7 +45,7 @@ typedef struct executor {
 	char measurement_code[MAX_MEASUREMENT_CODE_SIZE];
 	sandbox_t sandbox;
 	volatile uint64_t number_of_inputs;
-	char* test_case; // It is NOT embedded inside the struct because we require that it wll be continuous within physical memory, and therefore it should be acquired by kmalloc
+	char* test_case; // The member test_case is NOT embedded inside the struct (as opposed to measurement_code member) because we require that it wll be continuous within physical memory, and therefore it should be acquired by kmalloc
 	size_t test_case_length;
 	struct rb_root inputs_root;
 	long checkout_region;

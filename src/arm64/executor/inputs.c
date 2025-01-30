@@ -21,7 +21,7 @@ int load_input(input_t *from_input) {
 	input_t* to_input = get_input(executor.checkout_region);
 
 	if(NULL == to_input) {
-		module_err("to_input is NULL!\n");
+		module_err("load_input: to_input argument is NULL!\n");
 		return -3;
 	}
 
@@ -126,4 +126,3 @@ void destroy_inputs_db(void) {
 	executor.inputs_root.rb_node = NULL;
 	executor.number_of_inputs = 0;
 }
-

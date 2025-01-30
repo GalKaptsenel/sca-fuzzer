@@ -33,7 +33,7 @@ static int config_pfc(void) {
     asm volatile("msr pmevtyper2_el0, %0" :: "r" ((uint64_t)0x1b));
     asm volatile("isb\n");
 
-    // 3. Instruction speculatively executed (0x1b)
+    // 4. L1D cache refills (0x3)
     asm volatile("msr pmevtyper3_el0, %0" :: "r" ((uint64_t)0x3));
     asm volatile("isb\n");
 
@@ -48,17 +48,18 @@ static int config_pfc(void) {
     asm volatile("msr pmcr_el0, %0" :: "r" (val | 0x3));
     asm volatile("isb\n");
     // debug prints (view via 'sudo dmesg')
-//     val = 0;
-//     asm volatile("mrs %0, pmuserenr_el0" : "=r" (val));
-//     printk(KERN_ERR "%-24s 0x%0llx\n", "PMUSERENR_EL0:", val);
-//     asm volatile("mrs %0, pmcr_el0" : "=r" (val));
-//     printk(KERN_ERR "%-24s 0x%0llx\n", "PMCR_EL0:", val);
-//     asm volatile("mrs %0, pmselr_el0" : "=r" (val));
-//     printk(KERN_ERR "%-24s 0x%0llx\n", "PMSELR_EL0:", val);
-//     asm volatile("mrs %0, pmevtyper0_el0" : "=r" (val));
-//     printk(KERN_ERR "%-24s 0x%0llx\n", "PMEVTYPER0_EL0:", val);
-//     asm volatile("mrs %0, pmcntenset_el0" : "=r" (val));
-//     printk(KERN_ERR "%-24s 0x%0llx\n", "PMCNTENSET_EL0:", val);
+
+     val = 0;
+     asm volatile("mrs %0, pmuserenr_el0" : "=r" (val));
+     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMUSERENR_EL0:", val);
+     asm volatile("mrs %0, pmcr_el0" : "=r" (val));
+     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMCR_EL0:", val);
+     asm volatile("mrs %0, pmselr_el0" : "=r" (val));
+     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMSELR_EL0:", val);
+     asm volatile("mrs %0, pmevtyper0_el0" : "=r" (val));
+     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMEVTYPER0_EL0:", val);
+     asm volatile("mrs %0, pmcntenset_el0" : "=r" (val));
+     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMCNTENSET_EL0:", val);
 
     return 0;
 }
@@ -87,11 +88,11 @@ static void load_memory_from_input(input_t* input) {
 	}
 }
 
-// RSP must be alligned to 16 bytes boundtry, according to documentation of AARCH64, TODO better documentation and supply a link or something!
+// RSP must be aligned to 16 bytes boundary, according to documentation of AARCH64
 static size_t get_stack_base_address(void) {
 	size_t address = ((size_t)executor.sandbox.main_region + sizeof(executor.sandbox.main_region));
 //	return PTR_ALIGN(address, THREAD_SIZE);
-	return PTR_ALIGN(address, 16); // Technically, it should be alligned to THREAD_SIZE, for example to be able to access the thread_indo structure. But it is fine to just align to 16 bytes, due to hardware only checks this constraint.
+	return PTR_ALIGN(address, 16); // Technically, kernel stack should be aligned to THREAD_SIZE, for example it allows access the thread_indo structure. But it is fine to just align to 16 bytes, due to hardware only checks this constraint.
 }
 
 static void load_registers_from_input(input_t* input) {
@@ -116,7 +117,6 @@ static void load_registers_from_input(input_t* input) {
 }
 
 static void load_input_to_sandbox(input_t* input) {
-
 	load_memory_from_input(input);
 	load_registers_from_input(input);
 }
@@ -188,7 +188,6 @@ static void __nocfi run_experiments(void) {
 		if (1 == executor.config.pre_run_flush) {
 			// TBD
 		}
-
 
 		// execute
 		((void(*)(void*))executor.measurement_code)(&executor.sandbox);

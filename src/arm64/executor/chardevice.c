@@ -1,6 +1,7 @@
 #include "main.h"
 
-static unsigned long copy_to_user_with_access_check(void __user* user_buffer, const void* from_buffer, size_t size) {
+static unsigned long copy_to_user_with_access_check(void __user* user_buffer,
+ const void* from_buffer, size_t size) {
 
 	if(!access_ok(user_buffer, size)) {
 		module_err("Unable to access user buffer for writing!\n");
@@ -10,7 +11,8 @@ static unsigned long copy_to_user_with_access_check(void __user* user_buffer, co
 	return copy_to_user(user_buffer, from_buffer, size);
 }
 
-static unsigned long copy_from_user_with_access_check(void* to_buffer, const void __user* user_buffer, size_t size) {
+static unsigned long copy_from_user_with_access_check(void* to_buffer,
+ const void __user* user_buffer, size_t size) {
 
 	if(!access_ok(user_buffer, size)) {
 		module_err("Unable to access user buffer for reading!\n");
@@ -39,7 +41,6 @@ static int load_input_id(int* p_input_id, void __user* arg) {
 }
 
 static void checkout_into_input_id(void __user* arg) {
-
 	int input_id = -1;
 
 	load_input_id(&input_id, arg);
@@ -52,7 +53,8 @@ static void checkout_into_input_id(void __user* arg) {
 			executor.checkout_region = input_id;
 
 		} else {
-			module_err("Checkedout an input id that does not exist! (requested input id: %d)\n", input_id);
+			module_err("Checkedout an input id that does not exist! (requested input id: %d)\n",
+			 input_id);
 
 		}
 	}
@@ -169,13 +171,13 @@ static int load_test_and_update_state(const char __user* test, size_t length) {
 
 	full_test_case_size = load_template(length);
 	if(full_test_case_size < 0) {
-		module_err("Failed to load test case (code: %d)\n", full_test_case_size);
+		module_err("Failed to load test case (error code: %d)\n", full_test_case_size);
 		return full_test_case_size;
 	}
 
 	update_state_after_writing_test();
 
-	module_info("%u bytes were written into test memory!\n", full_test_case_size);
+	module_debug("%u bytes were written into test memory!\n", full_test_case_size);
 
 	return full_test_case_size;
 }
@@ -196,9 +198,11 @@ static int trace(void) {
 
 
 static void get_test_length(void __user* arg) {
-	uint64_t size = -1;
+	uint64_t size = (uint64_t)-1;
 
-	if(LOADED_TEST_STATE == executor.state || READY_STATE == executor.state || TRACED_STATE == executor.state) {
+	if(LOADED_TEST_STATE == executor.state ||
+	 READY_STATE == executor.state ||
+	  TRACED_STATE == executor.state) {
 		size = executor.test_case_length;
 		copy_to_user_with_access_check(arg, &size, sizeof(size));
 	} else {
@@ -207,7 +211,6 @@ static void get_test_length(void __user* arg) {
 }
 
 static long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
-
 	uint64_t result = 0;
 
 	if(REVISOR_IOC_MAGIC != _IOC_TYPE(cmd)) {
@@ -217,66 +220,67 @@ static long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg
 	switch(_IOC_NR(cmd)) {
 
 		case REVISOR_CHECKOUT_TEST_CONSTANT:
-			module_debug("Checking out test memory..\n");
+			module_debug("Checking out test memory (cmd: %d)..\n", REVISOR_CHECKOUT_TEST_CONSTANT);
 			executor.checkout_region = TEST_REGION;
 			break;
 
 		case REVISOR_UNLOAD_TEST_CONSTANT:
-			module_debug("Unloading test case..\n");
+			module_debug("Unloading test case (cmd: %d)..\n", REVISOR_UNLOAD_TEST_CONSTANT);
 			unload_test_and_update_state();
 			break;
 
 		case REVISOR_GET_NUMBER_OF_INPUTS_CONSTANT:
-			module_debug("Querying number of inputs configured..\n");
+			module_debug("Querying number of inputs configured (cmd: %d)..\n",
+			 REVISOR_GET_NUMBER_OF_INPUTS_CONSTANT);
 			result = get_number_of_inputs();
 			result = copy_to_user_with_access_check((void __user*)arg, &result, sizeof(result));
 			break;
 
 		case REVISOR_CHECKOUT_INPUT_CONSTANT:
-			module_debug("Checking out an input..\n");
+			module_debug("Checking out an input (cmd: %d)..\n", REVISOR_CHECKOUT_INPUT_CONSTANT);
 			checkout_into_input_id((void __user*)arg);
 			break;
 
 		case REVISOR_ALLOCATE_INPUT_CONSTANT:
-			module_debug("Allocating new input..\n");
+			module_debug("Allocating new input (cmd: %d)..\n", REVISOR_CHECKOUT_INPUT_CONSTANT);
 			result = allocate_input();
 			result = copy_to_user_with_access_check((void __user*)arg, &result, sizeof(result));
 			break;
 
 		case REVISOR_FREE_INPUT_CONSTANT:
-			module_debug("Freeing input..\n");
+			module_debug("Freeing input (cmd: %d)..\n", REVISOR_FREE_INPUT_CONSTANT);
 			free_input_id((void __user*)arg);
 			break;
 
 		case REVISOR_MEASUREMENT_CONSTANT:
-			module_debug("Querying measurement..\n");
+			module_debug("Querying measurement (cmd: %d)..\n", REVISOR_MEASUREMENT_CONSTANT);
 			measure_input_id((void __user*)arg);
 			break;
 
 		case REVISOR_TRACE_CONSTANT:
-			module_debug("Beginning trace..\n");
+			module_debug("Beginning trace (cmd: %d)..\n", REVISOR_TRACE_CONSTANT);
 			trace();
 			break;
 
 		case REVISOR_CLEAR_ALL_INPUTS_CONSTANT:
-			module_debug("Clearing all inputs..\n");
+			module_debug("Clearing all inputs (cmd: %d)..\n", REVISOR_CLEAR_ALL_INPUTS_CONSTANT);
 			clear_all_inputs();
 			break;
 
 		case REVISOR_GET_TEST_LENGTH_CONSTANT:
-			module_debug("Querying test case length..\n");
+			module_debug("Querying test case length (cmd: %d)..\n", REVISOR_GET_TEST_LENGTH_CONSTANT);
 			get_test_length((void __user*)arg);
 			break;
 		default:
-			module_err("Entering default..\n");
-			module_err("Invalid IOCTL!\n");
+			module_err("Invalid IOCTL! Entered default case..\n");
 			return -ENOTTY;
 	}
 
 	return 0;
 }
 
-static ssize_t revisor_read(struct file* File, char __user* user_buffer, size_t count, loff_t* off) {
+static ssize_t revisor_read(struct file* File, char __user* user_buffer,
+ size_t count, loff_t* off) {
 	int number_of_bytes_to_copy  = 0;
 	int not_copied = 0;
 	uint64_t total_size = 0;
@@ -306,7 +310,8 @@ static ssize_t revisor_read(struct file* File, char __user* user_buffer, size_t 
 
 	BUG_ON(NULL == from_buffer);
 
-	not_copied = copy_to_user_with_access_check(user_buffer + *off, from_buffer + *off, number_of_bytes_to_copy);
+	not_copied = copy_to_user_with_access_check(user_buffer + *off, from_buffer + *off,
+	 number_of_bytes_to_copy);
 
 	*off += (number_of_bytes_to_copy - not_copied);
 
@@ -337,12 +342,14 @@ static void copy_input_from_user_and_update_state(const char __user* user_buffer
 		update_state_after_writing_input();
 
 	} else {
-		module_err("write callback - input must be exactly of length USER_CONTROLLED_INPUT_LENGTH(=%d)!\n", USER_CONTROLLED_INPUT_LENGTH);
+		module_err("write callback - input must be exactly of length USER_CONTROLLED_INPUT_LENGTH(=%d)!\n",
+		 USER_CONTROLLED_INPUT_LENGTH);
 
 	}
 }
 
-static ssize_t revisor_write(struct file* File, const char __user* user_buffer, size_t count, loff_t* off) {
+static ssize_t revisor_write(struct file* File, const char __user* user_buffer,
+ size_t count, loff_t* off) {
 
 	if(NULL == user_buffer) {
 		module_err("write callback - got NULL inside user_buffer!\n");
@@ -397,13 +404,15 @@ int initialize_device_interface(void) {
 		goto initialize_cleanup_cdev_del;
 	}
 
-	if (!device_create(executor.device_mgmt.device_class, NULL, executor.device_mgmt.device_number, NULL, REVISOR_DEVICE_NODE_NAME)) {
+	if (!device_create(executor.device_mgmt.device_class, NULL, executor.device_mgmt.device_number,
+	 NULL, REVISOR_DEVICE_NODE_NAME)) {
 		module_err("Unable to create device node\n");
 		status = -EINVAL;
 		goto initialize_cleanup_class_destroy;
 	}
 
-	module_info("Registered device number MAJOR: %d, MINOR: %d and created cdev\n", MAJOR(executor.device_mgmt.device_number), MINOR(executor.device_mgmt.device_number));
+	module_info("Registered device number MAJOR: %d, MINOR: %d and created cdev\n",
+	 MAJOR(executor.device_mgmt.device_number), MINOR(executor.device_mgmt.device_number));
 
 	return 0;
 
@@ -418,6 +427,7 @@ initialize_cleanup_exit_with_error:
 }
 
 void free_device_interface(void) {
+
     if (executor.device_mgmt.device_class) {
         device_destroy(executor.device_mgmt.device_class, executor.device_mgmt.device_number);
         class_destroy(executor.device_mgmt.device_class);
@@ -431,5 +441,6 @@ void free_device_interface(void) {
         unregister_chrdev_region(executor.device_mgmt.device_number, 1);
     }
 
-    module_info("Unregistered device number MAJOR: %d, MINOR: %d and deleted cdev\n", MAJOR(executor.device_mgmt.device_number), MINOR(executor.device_mgmt.device_number));
+    module_info("Unregistered device number MAJOR: %d, MINOR: %d and deleted cdev\n",
+     MAJOR(executor.device_mgmt.device_number), MINOR(executor.device_mgmt.device_number));
 }
