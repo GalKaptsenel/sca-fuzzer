@@ -89,9 +89,9 @@ static void decode_entry(uint64_t entry, const char *level) {
 	}
 
 	// Dirty Bit
-	dirty_bit = (entry >> 55) & 0x1;
-	if (dirty_bit) {
-		module_info("%s: Dirty\n", level);
+	dirty_bit_modifier = (entry >> 51) & 0x1;
+	if (dirty_bit_modifier) {
+		module_info("%s: Dirty bit modifier\n", level);
 	}
 
 	// UXN Bit
@@ -116,10 +116,10 @@ static void decode_entry(uint64_t entry, const char *level) {
 	software_defined = (entry >> 55);
 	module_info("%s: Software-defined bits: 0x%llx\n", level, software_defined);
 
-	module_info("| P\t|Type\t|AF\t|AP\t|AttrIndx\t|SH\t|PXN\t|UXN\t| D\t|SW-defined\t");
+	module_info("| P\t|Type\t|AF\t|AP/Dirty\t|AttrIndx\t|SH\t|PXN\t|UXN\t| D Modifier\t|SW-defined\t");
 	module_info("  %d\t  %d\t  %d\t  %d\t  %d\t\t %d\t  %d\t  %d\t  %d\t  %d\t",
 	 present_bit, entry_type, accessed_flag, access_permissions,
-	  attr_index,sharability, pxn_bit, uxn_bit, dirty_bit, software_defined);
+	  attr_index,sharability, pxn_bit, uxn_bit, dirty_bit_modifier, software_defined);
 }
 
 // Functions to decode entries

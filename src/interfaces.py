@@ -1182,7 +1182,7 @@ class Executor(ABC):
     @abstractmethod
     def set_ignore_list(self, ignore_list: List[int]):
         """ Sets a list of inputs IDs that should be ignored by the executor.
-        The executor will executed the inputs with these IDs as normal (in case they are
+        The executor will execute the inputs with these IDs as normal (in case they are
         necessary for priming the uarch state), but their htraces will be set to zero """
         pass
 
