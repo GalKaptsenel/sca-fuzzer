@@ -97,9 +97,6 @@ int initialize_sysfs(void) {
 	}
 
 	{
-		// Create the files associated with this kobject
-		// int retval = sysfs_create_group(kobj_interface, &attr_group);
-
 		struct attribute *attr = NULL;
 		int i = 0;
 		for (i = 0, attr = sysfs_attributes[i];

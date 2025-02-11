@@ -8,7 +8,6 @@ static void init_executor_defaults(void) {
 	executor.config.enable_faulty_page = ENABLE_FAULTY_DEFAULT;
 	executor.config.pre_run_flush = PRE_RUN_FLUSH_DEFAULT;
 	executor.config.measurement_template = MEASUREMENT_TEMPLATE_DEFAULT;
-	executor.checkout_region = TEST_REGION;
 }
 
 int __nocfi initialize_executor(set_memory_t set_memory_x) {
@@ -35,6 +34,7 @@ int __nocfi initialize_executor(set_memory_t set_memory_x) {
 
 	executor.tracing_error = 0;
 	executor.state = CONFIGURATION_STATE;
+	executor.checkout_region = TEST_REGION;
 
 	return 0;
 

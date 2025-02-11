@@ -91,7 +91,6 @@ static void load_memory_from_input(input_t* input) {
 // RSP must be aligned to 16 bytes boundary, according to documentation of AARCH64
 static size_t get_stack_base_address(void) {
 	size_t address = ((size_t)executor.sandbox.main_region + sizeof(executor.sandbox.main_region));
-//	return PTR_ALIGN(address, THREAD_SIZE);
 	return PTR_ALIGN(address, 16); // Technically, kernel stack should be aligned to THREAD_SIZE, for example it allows access the thread_indo structure. But it is fine to just align to 16 bytes, due to hardware only checks this constraint.
 }
 

@@ -96,6 +96,6 @@ module_init(executor_init);
 module_exit(executor_exit);
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Gal Kaptsenel");
+MODULE_AUTHOR("ACSL - Gal Kaptsenel");
 MODULE_DESCRIPTION("AArch64 implementation of Revisor's executor");
 

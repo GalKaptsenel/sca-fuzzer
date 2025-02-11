@@ -6,29 +6,6 @@ void initialize_inputs_db(void) {
 	executor.number_of_inputs = 0;
 }
 
-int load_input(input_t *from_input) {
-
-	if(NULL == from_input) {
-		module_err("from_input is NULL!\n");
-	    return -1;
-	}
-
-	if(TEST_REGION == executor.checkout_region) {
-		module_err("cannot load input because TEST_REGION is checked out!\n");
-		return -2;
-	}
-
-	input_t* to_input = get_input(executor.checkout_region);
-
-	if(NULL == to_input) {
-		module_err("load_input: to_input argument is NULL!\n");
-		return -3;
-	}
-
-	memcpy(to_input, from_input, sizeof(input_t));
-	return 0;
-}
-
 int allocate_input(void) {
 	static int input_id = 0;
 
@@ -85,24 +62,12 @@ static struct input_node* get_input_node(int id) {
 	return NULL;
 }
 
-measurement_t* get_measurement(int id) {
-	struct input_node* node = get_input_node(id);
-
-	if(NULL == node) return NULL;
-
-	return &node->measurement;
-}
-
 input_t* get_input(int id) {
 	struct input_node* node = get_input_node(id);
 
 	if (NULL == node) return NULL;
 
 	return &(node->input);
-}
-
-uint64_t get_number_of_inputs(void) {
-	return executor.number_of_inputs;
 }
 
 void remove_input(int id) {

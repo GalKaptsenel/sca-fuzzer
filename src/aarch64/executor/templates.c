@@ -590,21 +590,23 @@ MEASUREMENT_METHOD(template_l1d_flush_reload)
 
 // clang-format on
 
-typedef void (*measurement_template)(size_t*);
-struct measurement_method {
-	enum Templates type;
-	measurement_template wrapper;
-};
-
-static struct measurement_method methods[] = {
-	{PRIME_AND_PROBE_TEMPLATE,	template_l1d_prime_probe},
-	{FLUSH_AND_RELOAD_TEMPLATE,	template_l1d_flush_reload},
-};
-
 static measurement_template map_to_template(enum Templates required_template) {
+
+    typedef void (*measurement_template)(size_t*);
+    struct measurement_method {
+	    enum Templates type;
+	    measurement_template wrapper;
+	    const char* name;
+    };
+
+    struct measurement_method methods[] = {
+        {PRIME_AND_PROBE_TEMPLATE,	template_l1d_prime_probe, "prime and probe"},
+        {FLUSH_AND_RELOAD_TEMPLATE,	template_l1d_flush_reload, "flush and reload"},
+    };
 
 	for(int i = 0; i < (sizeof(methods) / sizeof(methods[0])); ++i) {
 		if(required_template == methods[i].type) {
+		    module_debug("loading %s!\n", methods[i].name);
 			return methods[i].wrapper;
 		}
 	}
@@ -615,10 +617,8 @@ static measurement_template map_to_template(enum Templates required_template) {
 int load_template(size_t tc_size) {
 	unsigned template_pos = 0;
 	unsigned code_pos = 0;
-	size_t template_ptr = 0;
+	uint32_t* template_ptr = 0;
 	const uint64_t max_size_of_template = MAX_MEASUREMENT_CODE_SIZE - 4; // guarantee enough memory for "ret" instruction
-	size_t print_pos = 0;
-
 
 	if(UNSET_TEMPLATE == executor.config.measurement_template) {
 		module_err("Template is not set!");
@@ -626,68 +626,62 @@ int load_template(size_t tc_size) {
 	}
 
 	map_to_template(executor.config.measurement_template)(&template_ptr);
-	switch(executor.config.measurement_template) {
-		case PRIME_AND_PROBE_TEMPLATE: module_debug("loading prime and probe!\n");
-					       break;
-		case FLUSH_AND_RELOAD_TEMPLATE: module_debug("loading flush and reload!\n");
-					       break;
-		default: module_debug("loading tamplate unset!\n");
-	}
 
 	// skip until the beginning of the template
-	for (;	TEMPLATE_ENTER != ((uint32_t*)(template_ptr))[template_pos];
-			++template_pos) {
+	for (;	TEMPLATE_ENTER != template_ptr[template_pos]; ++template_pos) {
 
 		size_t current_offset = sizeof(uint32_t) * template_pos;
 		if (max_size_of_template <= current_offset) {
 			return -1;
 		}
-
 	}
 
-	template_pos += (4/sizeof(uint32_t)); // skip TEMPLATE_ENTER
+	++template_pos; // skip TEMPLATE_ENTER
 
 	// copy the first part of the template
-	for (;	TEMPLATE_INSERT_TC != ((uint32_t*)(template_ptr))[template_pos];
-			++template_pos, ++code_pos) {
+	for (;	TEMPLATE_INSERT_TC != template_ptr[template_pos]; ++template_pos, ++code_pos) {
 
 		size_t current_offset = sizeof(uint32_t) * template_pos;
 	    if (max_size_of_template <= current_offset) {
-	 	return -1;
+	        return -1;
 	    }
 
-	    ((uint32_t*)executor.measurement_code)[code_pos] = ((uint32_t*)template_ptr)[template_pos];
+	    ((uint32_t*)executor.measurement_code)[code_pos] = template_ptr[template_pos];
 	}
 
-	template_pos += (4/sizeof(uint32_t)); // skip TEMPLATE_INSERT_TC
+	++template_pos; // skip TEMPLATE_INSERT_TC
 
 	// copy the test case into the template
 	memcpy((uint32_t*)executor.measurement_code + code_pos, executor.test_case, tc_size);
 	code_pos += (tc_size/sizeof(uint32_t));
 
 	// write the rest of the template
-	for (;	TEMPLATE_RETURN != ((uint32_t*)(template_ptr))[template_pos];
-			++template_pos, ++code_pos) {
-		size_t current_offset = sizeof(uint32_t) * template_pos;
+	for (;	TEMPLATE_RETURN != template_ptr[template_pos]; ++template_pos, ++code_pos) {
 
+		size_t current_offset = sizeof(uint32_t) * template_pos;
 	    if (max_size_of_template <= current_offset) {
 	        return -2;
 	    }
 
-	    if (TEMPLATE_INSERT_TC == ((uint32_t*)(template_ptr))[template_pos]) {
+	    if (TEMPLATE_INSERT_TC == template_ptr[template_pos]) {
 	        return -3;
 	    }
 
-	    ((uint32_t*)executor.measurement_code)[code_pos] = ((uint32_t*)template_ptr)[template_pos];
+	    ((uint32_t*)executor.measurement_code)[code_pos] = template_ptr[template_pos];
 	}
 
     // RET encoding: 0xd65f03c0
     ((uint32_t*)executor.measurement_code)[code_pos] = 0xd65f03c0;
     code_pos += 1;
 
-    for(; print_pos < code_pos; ++print_pos) {
-	    module_debug("%px -> %lx\n", ((uint32_t*)executor.measurement_code) + print_pos,
-	     ((uint32_t*)executor.measurement_code)[print_pos]);
+    {
+    	size_t print_pos = 0;
+    	for(; print_pos < code_pos; ++print_pos) {
+
+	        module_debug("%px -> %lx\n", ((uint32_t*)executor.measurement_code) + print_pos,
+	        ((uint32_t*)executor.measurement_code)[print_pos]);
+        }
     }
+
     return (sizeof(uint32_t) * code_pos);
 }

@@ -37,11 +37,9 @@ struct input_node {
 
 void initialize_inputs_db(void);
 int allocate_input(void);
-int load_input(input_t *input);
 measurement_t* get_measurement(int id);
 input_t* get_input(int id);
 void remove_input(int id);
-uint64_t get_number_of_inputs(void);
 void destroy_inputs_db(void);
 
 #endif // ARM64_EXECUTOR_INPUTS_H

@@ -25,11 +25,7 @@ static unsigned long copy_from_user_with_access_check(void* to_buffer,
 static int load_input_id(int* p_input_id, void __user* arg) {
 	unsigned long not_read = 0;
 
-	if(NULL == p_input_id) {
-
-		module_err("load_input_id - got NULL as output argument!\n");
-		return -1;
-	}
+	BUG_ON(NULL == p_input_id);
 
 	not_read = copy_from_user_with_access_check(p_input_id, arg, sizeof(int));
 
@@ -84,10 +80,9 @@ static void reset_state_and_region_after_unloading_all_inputs(void) {
 }
 
 static void free_input_id(void __user* arg) {
-
 	int input_id = -1;
 
-	load_input_id(&input_id, (void __user*)arg);
+	load_input_id(&input_id, arg);
 
 	if(0 <= input_id) {
 
@@ -98,7 +93,7 @@ static void free_input_id(void __user* arg) {
 
 		remove_input(input_id);
 
-		if(0 == get_number_of_inputs()) {
+		if(0 == executor.number_of_inputs) {
 			reset_state_and_region_after_unloading_all_inputs();
 		}
 	}
@@ -123,6 +118,7 @@ static void measure_input_id(void __user* arg) {
 		measurement_t* current_measurement = get_measurement(executor.checkout_region);
 		BUG_ON(NULL == current_measurement);
 		copy_to_user_with_access_check(arg, current_measurement, sizeof(measurement_t));
+
 	}
 }
 
@@ -167,14 +163,6 @@ static int load_test_and_update_state(const char __user* test, size_t length) {
 
 	copy_from_user_with_access_check(executor.test_case, test, length);
 
-	executor.test_case_length = length;
-
-	full_test_case_size = load_template(length);
-	if(full_test_case_size < 0) {
-		module_err("Failed to load test case (error code: %d)\n", full_test_case_size);
-		return full_test_case_size;
-	}
-
 	update_state_after_writing_test();
 
 	module_debug("%u bytes were written into test memory!\n", full_test_case_size);
@@ -190,12 +178,16 @@ static int trace(void) {
 		return -EINVAL;
 	}
 
+	full_test_case_size = load_template(executor.test_case_length);
+	if(full_test_case_size < 0) {
+		module_err("Failed to load test case (error code: %d)\n", full_test_case_size);
+		return full_test_case_size;
+	}
+
 	executor.state = TRACED_STATE;
 
 	return execute();
 }
-
-
 
 static void get_test_length(void __user* arg) {
 	uint64_t size = (uint64_t)-1;
@@ -203,8 +195,10 @@ static void get_test_length(void __user* arg) {
 	if(LOADED_TEST_STATE == executor.state ||
 	 READY_STATE == executor.state ||
 	  TRACED_STATE == executor.state) {
+
 		size = executor.test_case_length;
 		copy_to_user_with_access_check(arg, &size, sizeof(size));
+
 	} else {
 		module_err("Test has not been loaded!\n");
 	}
@@ -232,8 +226,8 @@ static long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg
 		case REVISOR_GET_NUMBER_OF_INPUTS_CONSTANT:
 			module_debug("Querying number of inputs configured (cmd: %d)..\n",
 			 REVISOR_GET_NUMBER_OF_INPUTS_CONSTANT);
-			result = get_number_of_inputs();
-			result = copy_to_user_with_access_check((void __user*)arg, &result, sizeof(result));
+			result = copy_to_user_with_access_check((void __user*)arg, &executor.number_of_inputs,
+			            sizeof(result));
 			break;
 
 		case REVISOR_CHECKOUT_INPUT_CONSTANT:
@@ -286,10 +280,7 @@ static ssize_t revisor_read(struct file* File, char __user* user_buffer,
 	uint64_t total_size = 0;
 	void* from_buffer = NULL;
 
-	if(NULL == user_buffer) {
-		module_err("read callback - got NULL inside user_buffer!\n");
-		return -EINVAL;
-	}
+	BUG_ON(NULL == user_buffer);
 
 	if(TEST_REGION == executor.checkout_region) {
 
@@ -333,28 +324,23 @@ static void update_state_after_writing_input(void) {
 
 static void copy_input_from_user_and_update_state(const char __user* user_buffer, size_t count) {
 
-	if(USER_CONTROLLED_INPUT_LENGTH == count) {
-		void* to_buffer = get_input(executor.checkout_region);
-		BUG_ON(NULL == to_buffer);
-
-		copy_from_user_with_access_check(to_buffer, user_buffer, USER_CONTROLLED_INPUT_LENGTH);
-
-		update_state_after_writing_input();
-
-	} else {
-		module_err("write callback - input must be exactly of length USER_CONTROLLED_INPUT_LENGTH(=%d)!\n",
-		 USER_CONTROLLED_INPUT_LENGTH);
-
+	if(USER_CONTROLLED_INPUT_LENGTH != count) {
+	    module_err("Input must be exactly of length USER_CONTROLLED_INPUT_LENGTH(=%d)!\n",
+	    USER_CONTROLLED_INPUT_LENGTH);
 	}
+
+	void* to_buffer = get_input(executor.checkout_region);
+	BUG_ON(NULL == to_buffer);
+
+	copy_from_user_with_access_check(to_buffer, user_buffer, USER_CONTROLLED_INPUT_LENGTH);
+
+	update_state_after_writing_input();
 }
 
 static ssize_t revisor_write(struct file* File, const char __user* user_buffer,
  size_t count, loff_t* off) {
 
-	if(NULL == user_buffer) {
-		module_err("write callback - got NULL inside user_buffer!\n");
-		return -1;
-	}
+	BUN_ON(NULL == user_buffer);
 
 	if(TEST_REGION == executor.checkout_region) {
 
@@ -363,7 +349,6 @@ static ssize_t revisor_write(struct file* File, const char __user* user_buffer,
 		}
 
 	} else {
-
 		BUG_ON(0 > executor.checkout_region);
 		copy_input_from_user_and_update_state(user_buffer, count);
 	}
@@ -377,7 +362,6 @@ static struct file_operations fops = {
     .read = revisor_read,
     .write = revisor_write,
 };
-
 
 int initialize_device_interface(void) {
 	int status = 0;
