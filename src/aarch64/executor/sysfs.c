@@ -128,5 +128,6 @@ void free_sysfs(void) {
 
 	if(kobj_interface) {
 		kobject_put(kobj_interface);
+		kobj_interface = NULL;
 	}
 }
