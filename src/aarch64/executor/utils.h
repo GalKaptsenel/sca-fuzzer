@@ -24,7 +24,7 @@
 #define load_global_symbol(lookup_fn, type, local_symbol, symbol)                                                   \
        do {                                                                                                         \
                 local_symbol = (type)lookup_fn(#symbol);                                                            \
-                module_err("%s = (%s)%s(\"%s\") = %px", #local_symbol, #type, #lookup_fn, #symbol, local_symbol);   \
+                module_info("%s = (%s)%s(\"%s\") = %px", #local_symbol, #type, #lookup_fn, #symbol, local_symbol);   \
        } while(0)
 
 // TYPEDEFS
