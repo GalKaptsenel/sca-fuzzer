@@ -11,8 +11,10 @@
 kallsyms_lookup_name_t kallsyms_lookup_name_fn	    =	NULL;
 
 // STATICS
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
 static int (*set_memory_x)(unsigned long, int)		=	NULL;
 static int (*set_memory_nx)(unsigned long, int)		=	NULL;
+#endif
 
 static size_t __nocfi kprobe_trick(char* function_symbol) {
 	size_t address = 0;
@@ -24,13 +26,19 @@ static size_t __nocfi kprobe_trick(char* function_symbol) {
 }
 
 static bool __nocfi load_set_memory_permissions_handling(void) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
 	load_global_symbol(kallsyms_lookup_name_fn, set_memory_t, set_memory_x, set_memory_x);
 	load_global_symbol(kallsyms_lookup_name_fn, set_memory_t, set_memory_nx, set_memory_nx);
+#endif
 	return set_memory_x && set_memory_nx;
 }
 
 static bool load_kallsyms_lookup_name(void) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 7, 0)
 	load_global_symbol(kprobe_trick, kallsyms_lookup_name_t, kallsyms_lookup_name_fn, kallsyms_lookup_name);
+#else
+	kallsyms_lookup_name_fn = kallsyms_lookup_name;
+#endif
 	return kallsyms_lookup_name_fn;
 }
 
@@ -45,7 +53,7 @@ static int  __init executor_init(void) {
 	int err = 0;
 
 	if(!load_globals()) {
-        module_err("Unable to load global kernel exports\n");
+		module_err("Unable to load global kernel exports\n");
 		err = -ENOENT;
 		goto init_failed_execution;
 	}
@@ -58,13 +66,13 @@ static int  __init executor_init(void) {
 
 	err = initialize_sysfs();
 	if(err) {
-        module_err("Unable to initialize sysfs\n");
+		module_err("Unable to initialize sysfs\n");
 		goto init_cleanup_executor;
 	}
 
 	err = initialize_device_interface();
 	if(err) {
-        module_err("Unable to initialize character device interface (error code: %d)\n", err);
+		module_err("Unable to initialize character device interface (error code: %d)\n", err);
 		goto init_cleanup_sysfs;
 	}
 

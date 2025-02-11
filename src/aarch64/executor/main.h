@@ -5,6 +5,7 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/init.h>
+#include <linux/version.h>
 #include <linux/types.h>
 #include <linux/mm.h>
 #include <linux/io.h>
@@ -15,7 +16,10 @@
 #include <linux/cdev.h>
 #include <linux/uaccess.h>
 
-#include "pagewalk.h"
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0)
+#include <linux/set_memory.h>
+#endif
+
 #include "utils.h"
 #include "sysfs.h"
 #include "pfc.h"
@@ -28,6 +32,10 @@
 #include "executor.h"
 
 #define DEBUG 0
+
+#if DEBUG
+#include "pagewalk.h"
+#endif
 
 #define kernel_module_name	"executor"
 
