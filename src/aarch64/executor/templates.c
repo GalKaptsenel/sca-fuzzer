@@ -393,7 +393,7 @@ inline void epilogue(void) {
     SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 56)				\
     :									                                                        \
 	: [eviction_region] "i"(offsetof(sandbox_t, eviction_region))		                        \
-	:
+	:                                                               \
    )
 
 
