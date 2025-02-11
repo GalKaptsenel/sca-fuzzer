@@ -373,7 +373,7 @@ inline void epilogue(void) {
     SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 24)				\
     "movz "OFFSETS", #0x2604								\n" \
     "movk "OFFSETS", #0x1A01,	lsl #16						\n" \
-    "movk "OFFSETS", #0x1D1C	lsl #32						\n" \
+    "movk "OFFSETS", #0x1D1C,	lsl #32						\n" \
     "movk "OFFSETS", #0x153F,	lsl #48						\n" \
     SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 32)				\
     "movz "OFFSETS", #0x183C								\n" \
@@ -484,7 +484,7 @@ inline void epilogue(void) {
     SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 24)				\
     "movz "OFFSETS", #0x2604								\n" \
     "movk "OFFSETS", #0x1A01,	lsl #16						\n" \
-    "movk "OFFSETS", #0x1D1C	lsl #32						\n" \
+    "movk "OFFSETS", #0x1D1C,	lsl #32						\n" \
     "movk "OFFSETS", #0x153F,	lsl #48						\n" \
     SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 32)				\
     "movz "OFFSETS", #0x183C								\n" \
