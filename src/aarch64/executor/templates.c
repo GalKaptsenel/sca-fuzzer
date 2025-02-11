@@ -391,6 +391,9 @@ inline void epilogue(void) {
     "movk "OFFSETS", #0x390B,	lsl #32						\n" \
     "movk "OFFSETS", #0x2521,	lsl #48 					\n" \
     SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 56)				\
+    :									                                                        \
+	: [eviction_region] "i"(offsetof(sandbox_t, eviction_region))		                        \
+	:
    )
 
 
