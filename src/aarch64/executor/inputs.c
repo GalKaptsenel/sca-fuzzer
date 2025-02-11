@@ -62,6 +62,14 @@ static struct input_node* get_input_node(int id) {
 	return NULL;
 }
 
+measurement_t* get_measurement(int id) {
+	struct input_node* node = get_input_node(id);
+
+	if(NULL == node) return NULL;
+
+	return &(node->measurement);
+}
+
 input_t* get_input(int id) {
 	struct input_node* node = get_input_node(id);
 

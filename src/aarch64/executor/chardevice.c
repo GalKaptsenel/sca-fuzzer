@@ -155,7 +155,6 @@ static void update_state_after_writing_test(void) {
 }
 
 static int load_test_and_update_state(const char __user* test, size_t length) {
-	int full_test_case_size = 0;
 
 	if (MAX_TEST_CASE_SIZE < length) {
 		return -ENOMEM;
@@ -163,15 +162,18 @@ static int load_test_and_update_state(const char __user* test, size_t length) {
 
 	copy_from_user_with_access_check(executor.test_case, test, length);
 
+	executor.test_case_length = length;
+
 	update_state_after_writing_test();
 
-	module_debug("%u bytes were written into test memory!\n", full_test_case_size);
+	module_debug("%u bytes were written into test case memory!\n", length);
 
-	return full_test_case_size;
+	return executor.test_case_length;
 }
 
 
 static int trace(void) {
+	int full_test_case_size = 0;
 
 	if(READY_STATE != executor.state && TRACED_STATE != executor.state) {
 		module_err("In order to trace, please load inputs and test case.\n");
@@ -183,6 +185,8 @@ static int trace(void) {
 		module_err("Failed to load test case (error code: %d)\n", full_test_case_size);
 		return full_test_case_size;
 	}
+
+	module_debug("%u bytes were written into measurement memory!\n", full_test_case_size);
 
 	executor.state = TRACED_STATE;
 
@@ -225,8 +229,9 @@ static long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg
 
 		case REVISOR_GET_NUMBER_OF_INPUTS_CONSTANT:
 			module_debug("Querying number of inputs configured (cmd: %d)..\n",
-			 REVISOR_GET_NUMBER_OF_INPUTS_CONSTANT);
-			result = copy_to_user_with_access_check((void __user*)arg, &executor.number_of_inputs,
+			REVISOR_GET_NUMBER_OF_INPUTS_CONSTANT);
+			result = executor.number_of_inputs;
+			result = copy_to_user_with_access_check((void __user*)arg, &result,
 			            sizeof(result));
 			break;
 
@@ -340,13 +345,11 @@ static void copy_input_from_user_and_update_state(const char __user* user_buffer
 static ssize_t revisor_write(struct file* File, const char __user* user_buffer,
  size_t count, loff_t* off) {
 
-	BUN_ON(NULL == user_buffer);
+	BUG_ON(NULL == user_buffer);
 
 	if(TEST_REGION == executor.checkout_region) {
 
-		if(0 > load_test_and_update_state(user_buffer, count)) {
-			return -1;
-		}
+		load_test_and_update_state(user_buffer, count);
 
 	} else {
 		BUG_ON(0 > executor.checkout_region);

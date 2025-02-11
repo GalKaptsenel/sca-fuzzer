@@ -590,9 +590,9 @@ MEASUREMENT_METHOD(template_l1d_flush_reload)
 
 // clang-format on
 
+typedef void (*measurement_template)(size_t*);
 static measurement_template map_to_template(enum Templates required_template) {
 
-    typedef void (*measurement_template)(size_t*);
     struct measurement_method {
 	    enum Templates type;
 	    measurement_template wrapper;
@@ -625,7 +625,7 @@ int load_template(size_t tc_size) {
 		return -5;
 	}
 
-	map_to_template(executor.config.measurement_template)(&template_ptr);
+	map_to_template(executor.config.measurement_template)((size_t*)(&template_ptr));
 
 	// skip until the beginning of the template
 	for (;	TEMPLATE_ENTER != template_ptr[template_pos]; ++template_pos) {
