@@ -13,7 +13,7 @@ static void decode_entry(uint64_t entry, const char *level) {
 	uint64_t access_permissions = 0;
 	uint64_t attr_index = 0;
 	uint64_t sharability = 0;
-	uint64_t dirty_bit = 0;
+	uint64_t dirty_bit_modifier = 0;
 	uint64_t uxn_bit = 0;
 	uint64_t pxn_bit = 0;
 	uint64_t software_defined = 0;
