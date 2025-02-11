@@ -332,7 +332,7 @@ inline void epilogue(void) {
     "   b.eq _arm64_executor_probe_failed_"LABEL_NUM"                                 \n" \
                                                                                     \
     "   mov "TMP", #1								\n" \
-    "   rsl "OFFSET", "OFFSET", #6                                              \n" \
+    "   lsr "OFFSET", "OFFSET", #6                                              \n" \
     "   lsl "OFFSET", "TMP", "OFFSET"                                              \n" \
     "   orr "DEST", "DEST", "OFFSET"                                                  \n" \
                                                                                     \
@@ -443,7 +443,7 @@ inline void epilogue(void) {
     "   b.ne _arm64_executor_reload_failed_"LABEL_NUM"                                \n" \
                                                                                     \
     "   mov "TMP", #1								\n" \
-    "   rsl "OFFSET", "OFFSET", #6                                              \n" \
+    "   lsr "OFFSET", "OFFSET", #6                                              \n" \
     "   lsl "OFFSET", "TMP", "OFFSET"                                              \n" \
     "   orr "DEST", "DEST", "OFFSET"                                                  \n" \
                                                                                     \
