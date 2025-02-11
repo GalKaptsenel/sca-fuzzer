@@ -606,7 +606,7 @@ static measurement_template map_to_template(enum Templates required_template) {
 
 	for(int i = 0; i < (sizeof(methods) / sizeof(methods[0])); ++i) {
 		if(required_template == methods[i].type) {
-		    module_debug("loading %s!\n", methods[i].name);
+			module_info("loading %s!\n", methods[i].name);
 			return methods[i].wrapper;
 		}
 	}
