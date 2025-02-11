@@ -17,7 +17,7 @@
 
 #define GET_NEXT_SET(NEXT_SET, SOURCE) \
     "and "NEXT_SET", "SOURCE", #0xFF                                                        \n" \
-    "ror "SOURCE", "SOURCE", #08                                                            \n" \
+    "ror "SOURCE", "SOURCE", #8                                                            \n" \
 
 #define COMBINE_TO_LABEL(number, value) #number"_"#value
 
