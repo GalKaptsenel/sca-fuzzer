@@ -93,6 +93,7 @@ void destroy_inputs_db(void) {
 	while(rb_node) {
 		node = rb_entry(rb_node, struct input_node, node);
 		rb_node = rb_next(rb_node);
+		rb_erase(&node->node, &executor.inputs_root);
 		vfree(node);
 	}
 
