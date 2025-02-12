@@ -34,7 +34,7 @@ struct input_node {
 };
 
 struct input_and_id_pair {
-    input_t* input;
+    input_t input;
     ssize_t id;
 };
 

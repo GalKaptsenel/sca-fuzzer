@@ -264,7 +264,8 @@ static uint64_t handle_batch(void __user* arg) {
 
 	    BUG_ON(NULL == to_buffer);
 
-        if(copy_from_user_with_access_check(to_buffer, input_and_id_array[i].input, USER_CONTROLLED_INPUT_LENGTH)) {
+//        if(copy_from_user_with_access_check(to_buffer, input_and_id_array[i].input, USER_CONTROLLED_INPUT_LENGTH)) {
+        if(memcpy(to_buffer, &input_and_id_array[i].input, USER_CONTROLLED_INPUT_LENGTH)) {
             remove_input(input_and_id_array[i].id);
             input_and_id_array[i].id = -1;
         } else {
