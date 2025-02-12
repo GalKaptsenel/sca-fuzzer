@@ -33,6 +33,16 @@ struct input_node {
 	struct rb_node node;
 };
 
+struct input_and_id_pair {
+    input_t* input;
+    ssize_t id;
+}
+
+struct input_batch {
+    uint64_t size;
+    input_and_id_pair array[];
+};
+
 #define USER_CONTROLLED_INPUT_LENGTH	(MAIN_REGION_SIZE + FAULTY_REGION_SIZE + sizeof(registers_t))
 
 void initialize_inputs_db(void);

@@ -208,6 +208,81 @@ static void get_test_length(void __user* arg) {
 	}
 }
 
+static uint64_t handle_batch(void __user* arg) {
+    uint64_t err = 0;
+    uint64_t i = 0;
+    struct input_batch batch;
+    struct input_and_id_pair* input_and_id_array;
+
+    if (copy_from_user_with_access_check(&batch,  arg, sizeof(struct input_batch))) {
+        err = -EFAULT;
+        goto handle_batch_error;
+    }
+
+    input_and_id_array = kmalloc_array(batch.size, sizeof(struct input_and_id_pair), GFP_KERNEL);
+    if(NULL == input_and_id_array) {
+        err = -ENOMEM;
+        goto handle_batch_error;
+    }
+
+    module_info("Loading a batch of %lu inputs", batch.size);
+
+    if (copy_from_user_with_access_check(input_and_id_array,  batch.array, batch.size * sizeof(input_and_id_pair)) {
+        err = -EFAULT;
+        goto handle_batch_free_array;
+    }
+
+    for(; i < batch.size; ++i) {
+        input_and_id_array[i].id = -1;
+    }
+
+    for(; i < batch.size; ++i) {
+        void* to_buffer = NULL;
+        int chosen_id = allocate_input();
+
+        if (0 > chosen_id) {
+            err = chosen_id;
+            goto handle_batch_free_all_inputs;
+        }
+
+        input_and_id_array[i].id = chosen_id;
+        to_buffer = get_input(input_and_id_array[i].id);
+
+	    BUG_ON(NULL == to_buffer);
+
+        if(copy_from_user_with_access_check(to_buffer, input_and_id_array[i].input, USER_CONTROLLED_INPUT_LENGTH)) {
+            remove_input(input_and_id_array[i].id);
+            input_and_id_array[i].id = -1;
+        } else {
+            update_state_after_writing_input();
+        }
+    }
+
+    if (copy_to_user_with_access_check(batch.array,  input_and_id_array, batch.size * sizeof(input_and_id_pair)) {
+        err = -EFAULT;
+        goto handle_batch_free_all_inputs;
+    }
+
+    kfree(input_and_id_array);
+    return 0;
+
+handle_batch_free_all_inputs:
+    for(; i < batch.size; ++i) {
+        if(-1 != input_and_id_array[i].id) {
+            remove_input(input_and_id_array[i].id);
+        }
+    }
+
+    if(0 == executor.number_of_inputs) {
+        reset_state_and_region_after_unloading_all_inputs();
+    }
+
+handle_batch_free_array:
+    kfree(input_and_id_array);
+handle_batch_error:
+    return err;
+}
+
 static long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
 	uint64_t result = 0;
 
@@ -270,6 +345,12 @@ static long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg
 			module_debug("Querying test case length (cmd: %d)..\n", REVISOR_GET_TEST_LENGTH_CONSTANT);
 			get_test_length((void __user*)arg);
 			break;
+
+		case REVISOR_BATCHED_INPUTS_CONSTANT:
+			module_debug("Batch of inputs (cmd: %d)..\n", REVISOR_BATCHED_INPUTS_CONSTANT);
+            handle_batch((void __user*)arg);
+		    break;
+
 		default:
 			module_err("Invalid IOCTL! Entered default case..\n");
 			return -ENOTTY;
