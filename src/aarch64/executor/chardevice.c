@@ -208,13 +208,27 @@ static void get_test_length(void __user* arg) {
 	}
 }
 
+static void update_state_after_writing_input(void) {
+	switch(executor.state) {
+		case CONFIGURATION_STATE:
+			executor.state = LOADED_INPUTS_STATE;
+			break;
+		case LOADED_TEST_STATE:
+			executor.state = READY_STATE;
+			break;
+		default:
+			break;
+	}
+}
+
 static uint64_t handle_batch(void __user* arg) {
     uint64_t err = 0;
     uint64_t i = 0;
-    struct input_batch batch;
-    struct input_and_id_pair* input_and_id_array;
+    struct input_batch batch = { 0 };
+    struct input_and_id_pair* input_and_id_array = NULL;
+    struct input_batch* user_batch = (struct input_batch*)arg;
 
-    if (copy_from_user_with_access_check(&batch,  arg, sizeof(struct input_batch))) {
+    if (copy_from_user_with_access_check(&batch,  user_batch, sizeof(struct input_batch))) {
         err = -EFAULT;
         goto handle_batch_error;
     }
@@ -227,16 +241,16 @@ static uint64_t handle_batch(void __user* arg) {
 
     module_info("Loading a batch of %lu inputs", batch.size);
 
-    if (copy_from_user_with_access_check(input_and_id_array,  batch.array, batch.size * sizeof(input_and_id_pair)) {
+    if (copy_from_user_with_access_check(input_and_id_array,  user_batch->array, batch.size * sizeof(struct input_and_id_pair))) {
         err = -EFAULT;
         goto handle_batch_free_array;
     }
 
-    for(; i < batch.size; ++i) {
+    for(i = 0; i < batch.size; ++i) {
         input_and_id_array[i].id = -1;
     }
 
-    for(; i < batch.size; ++i) {
+    for(i = 0; i < batch.size; ++i) {
         void* to_buffer = NULL;
         int chosen_id = allocate_input();
 
@@ -258,7 +272,7 @@ static uint64_t handle_batch(void __user* arg) {
         }
     }
 
-    if (copy_to_user_with_access_check(batch.array,  input_and_id_array, batch.size * sizeof(input_and_id_pair)) {
+    if (copy_to_user_with_access_check(user_batch->array,  input_and_id_array, batch.size * sizeof(struct input_and_id_pair))) {
         err = -EFAULT;
         goto handle_batch_free_all_inputs;
     }
@@ -267,7 +281,7 @@ static uint64_t handle_batch(void __user* arg) {
     return 0;
 
 handle_batch_free_all_inputs:
-    for(; i < batch.size; ++i) {
+    for(i = 0; i < batch.size; ++i) {
         if(-1 != input_and_id_array[i].id) {
             remove_input(input_and_id_array[i].id);
         }
@@ -348,7 +362,7 @@ static long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg
 
 		case REVISOR_BATCHED_INPUTS_CONSTANT:
 			module_debug("Batch of inputs (cmd: %d)..\n", REVISOR_BATCHED_INPUTS_CONSTANT);
-            handle_batch((void __user*)arg);
+			handle_batch((void __user*)arg);
 		    break;
 
 		default:
@@ -395,18 +409,7 @@ static ssize_t revisor_read(struct file* File, char __user* user_buffer,
 	return number_of_bytes_to_copy - not_copied;
 }
 
-static void update_state_after_writing_input(void) {
-	switch(executor.state) {
-		case CONFIGURATION_STATE:
-			executor.state = LOADED_INPUTS_STATE;
-			break;
-		case LOADED_TEST_STATE:
-			executor.state = READY_STATE;
-			break;
-		default:
-			break;
-	}
-}
+
 
 static void copy_input_from_user_and_update_state(const char __user* user_buffer, size_t count) {
 
