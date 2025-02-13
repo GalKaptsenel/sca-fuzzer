@@ -22,22 +22,22 @@ static unsigned long copy_from_user_with_access_check(void* to_buffer,
 	return copy_from_user(to_buffer, user_buffer, size);
 }
 
-static int load_input_id(int* p_input_id, void __user* arg) {
+static int load_input_id(int64_t* p_input_id, void __user* arg) {
 	unsigned long not_read = 0;
 
 	BUG_ON(NULL == p_input_id);
 
-	not_read = copy_from_user_with_access_check(p_input_id, arg, sizeof(int));
+	not_read = copy_from_user_with_access_check(p_input_id, arg, sizeof(int64_t));
 
 	if(0 > *p_input_id) {
 		module_err("Invalid input id! (got input id: %d)\n", *p_input_id);
 	}
 
-	return sizeof(int) - not_read;
+	return sizeof(int64_t) - not_read;
 }
 
 static void checkout_into_input_id(void __user* arg) {
-	int input_id = -1;
+	int64_t input_id = -1;
 
 	load_input_id(&input_id, arg);
 
@@ -80,7 +80,7 @@ static void reset_state_and_region_after_unloading_all_inputs(void) {
 }
 
 static void free_input_id(void __user* arg) {
-	int input_id = -1;
+	int64_t input_id = -1;
 
 	load_input_id(&input_id, arg);
 
@@ -221,85 +221,99 @@ static void update_state_after_writing_input(void) {
 	}
 }
 
-static uint64_t handle_batch(void __user* arg) {
-    uint64_t err = 0;
-    uint64_t i = 0;
-    struct input_batch batch = { 0 };
-    struct input_and_id_pair* input_and_id_array = NULL;
-    struct input_batch* user_batch = (struct input_batch*)arg;
+static int64_t handle_batch(void __user* arg) {
+	uint64_t err = 0;
+	uint64_t i = 0;
+	struct input_batch batch = { 0 };
+	struct input_and_id_pair* input_and_id_array = NULL;
+	struct input_batch* user_batch = (struct input_batch*)arg;
+	
+	if (copy_from_user_with_access_check(&batch,  user_batch, sizeof(struct input_batch))) {
+		err = -EFAULT;
+		goto handle_batch_end;
+	}
+	
+	input_and_id_array = vmalloc_array(batch.size, sizeof(struct input_and_id_pair));
+	if(NULL == input_and_id_array) {
+		err = -ENOMEM;
+		goto handle_batch_end;
+	}
+	
+	module_info("Loading a batch of %lu inputs", batch.size);
+	
+	if (copy_from_user_with_access_check(input_and_id_array,  user_batch->array, batch.size * sizeof(struct input_and_id_pair))) {
+		err = -EFAULT;
+		goto handle_batch_free_array;
+	}
+	
+	for(i = 0; i < batch.size; ++i) {
+		input_and_id_array[i].id = -1;
+	}
 
-    if (copy_from_user_with_access_check(&batch,  user_batch, sizeof(struct input_batch))) {
-        err = -EFAULT;
-        goto handle_batch_error;
-    }
+	for(i = 0; i < batch.size; ++i) {
+		void* to_buffer = NULL;
+		int64_t chosen_iid = allocate_input();
 
-    input_and_id_array = kmalloc_array(batch.size, sizeof(struct input_and_id_pair), GFP_KERNEL);
-    if(NULL == input_and_id_array) {
-        err = -ENOMEM;
-        goto handle_batch_error;
-    }
+		if (0 > chosen_iid) {
+			err = chosen_iid; 
+			goto handle_batch_free_all_inputs;
+		}
 
-    module_info("Loading a batch of %lu inputs", batch.size);
+		to_buffer = get_input(chosen_iid);
+		BUG_ON(NULL == to_buffer);
 
-    if (copy_from_user_with_access_check(input_and_id_array,  user_batch->array, batch.size * sizeof(struct input_and_id_pair))) {
-        err = -EFAULT;
-        goto handle_batch_free_array;
-    }
+		memcpy(to_buffer, &input_and_id_array[i].input, USER_CONTROLLED_INPUT_LENGTH);
+/*
+		if(copy_from_user_with_access_check(to_buffer, input_and_id_array[i].input, USER_CONTROLLED_INPUT_LENGTH)) {
+			remove_input(chosen_iid);
+			chosen_iid = -1;
+		} 
+*/
+		input_and_id_array[i].id = chosen_iid;
 
-    for(i = 0; i < batch.size; ++i) {
-        input_and_id_array[i].id = -1;
-    }
+		if (copy_to_user_with_access_check(&user_batch->array[i].id,  &input_and_id_array[i].id, sizeof(int64_t))) {
+			int64_t failed_value = -1;
+			remove_input(chosen_iid);
+			input_and_id_array[i].id = -1;
+			chosen_iid = -1;
+			copy_to_user_with_access_check(&user_batch->array[i].id,  &failed_value, sizeof(int64_t)); // Try to notify the user about invalid iid
+		}
 
-    for(i = 0; i < batch.size; ++i) {
-        void* to_buffer = NULL;
-        int chosen_id = allocate_input();
+		if(-1 < input_and_id_array[i].id) {
 
-        if (0 > chosen_id) {
-            err = chosen_id;
-            goto handle_batch_free_all_inputs;
-        }
+			update_state_after_writing_input();
 
-        input_and_id_array[i].id = chosen_id;
-        to_buffer = get_input(input_and_id_array[i].id);
+		}
+	}
 
-	    BUG_ON(NULL == to_buffer);
+	vfree(input_and_id_array);
 
-//        if(copy_from_user_with_access_check(to_buffer, input_and_id_array[i].input, USER_CONTROLLED_INPUT_LENGTH)) {
-        if(memcpy(to_buffer, &input_and_id_array[i].input, USER_CONTROLLED_INPUT_LENGTH)) {
-            remove_input(input_and_id_array[i].id);
-            input_and_id_array[i].id = -1;
-        } else {
-            update_state_after_writing_input();
-        }
-    }
-
-    if (copy_to_user_with_access_check(user_batch->array,  input_and_id_array, batch.size * sizeof(struct input_and_id_pair))) {
-        err = -EFAULT;
-        goto handle_batch_free_all_inputs;
-    }
-
-    kfree(input_and_id_array);
-    return 0;
+	return 0;
 
 handle_batch_free_all_inputs:
-    for(i = 0; i < batch.size; ++i) {
-        if(-1 != input_and_id_array[i].id) {
-            remove_input(input_and_id_array[i].id);
-        }
-    }
+	for(i = 0; i < batch.size; ++i) {
+		int64_t failed_value = -1;
+		if(-1 != input_and_id_array[i].id) {
+			remove_input(input_and_id_array[i].id);
+			input_and_id_array[i].id = -1;
+		}
 
-    if(0 == executor.number_of_inputs) {
-        reset_state_and_region_after_unloading_all_inputs();
-    }
+		copy_to_user_with_access_check(&user_batch->array[i].id,  &failed_value, sizeof(int64_t));
+	}
+
+	if(0 == executor.number_of_inputs) {
+		reset_state_and_region_after_unloading_all_inputs();
+	}
 
 handle_batch_free_array:
-    kfree(input_and_id_array);
-handle_batch_error:
-    return err;
+	vfree(input_and_id_array);
+
+handle_batch_end:
+	return err;
 }
 
 static long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
-	uint64_t result = 0;
+	int64_t result = 0;
 
 	if(REVISOR_IOC_MAGIC != _IOC_TYPE(cmd)) {
 		return -ENOTTY;

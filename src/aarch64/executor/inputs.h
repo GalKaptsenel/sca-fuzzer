@@ -27,7 +27,7 @@ typedef struct Input {
 } input_t;
 
 struct input_node {
-	int id;
+	int64_t id;
 	input_t input;
 	measurement_t measurement;
 	struct rb_node node;
@@ -35,7 +35,7 @@ struct input_node {
 
 struct input_and_id_pair {
     input_t input;
-    ssize_t id;
+    int64_t id;
 };
 
 struct input_batch {
@@ -46,10 +46,10 @@ struct input_batch {
 #define USER_CONTROLLED_INPUT_LENGTH	(MAIN_REGION_SIZE + FAULTY_REGION_SIZE + sizeof(registers_t))
 
 void initialize_inputs_db(void);
-int allocate_input(void);
-measurement_t* get_measurement(int id);
-input_t* get_input(int id);
-void remove_input(int id);
+int64_t allocate_input(void);
+measurement_t* get_measurement(int64_t id);
+input_t* get_input(int64_t id);
+void remove_input(int64_t id);
 void destroy_inputs_db(void);
 
 #endif // ARM64_EXECUTOR_INPUTS_H

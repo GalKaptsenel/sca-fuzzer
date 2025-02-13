@@ -48,7 +48,7 @@ typedef struct executor {
 	char* test_case; // The member test_case is NOT embedded inside the struct (as opposed to measurement_code member) because we require that it wll be continuous within physical memory, and therefore it should be acquired by kmalloc
 	size_t test_case_length;
 	struct rb_root inputs_root;
-	long checkout_region;
+	int64_t checkout_region;
 	int tracing_error;
 	enum State state;
 	device_management_t device_mgmt;

@@ -6,8 +6,8 @@ void initialize_inputs_db(void) {
 	executor.number_of_inputs = 0;
 }
 
-int allocate_input(void) {
-	static int input_id = 0;
+int64_t allocate_input(void) {
+	static int64_t input_id = 0;
 
 	struct input_node* new_node = NULL;
 	struct rb_node **link = &(executor.inputs_root.rb_node);
@@ -42,7 +42,7 @@ int allocate_input(void) {
 	return new_node->id;
 }
 
-static struct input_node* get_input_node(int id) {
+static struct input_node* get_input_node(int64_t id) {
 	struct rb_node* node = executor.inputs_root.rb_node;
 
 	while(node) {
@@ -62,7 +62,7 @@ static struct input_node* get_input_node(int id) {
 	return NULL;
 }
 
-measurement_t* get_measurement(int id) {
+measurement_t* get_measurement(int64_t id) {
 	struct input_node* node = get_input_node(id);
 
 	if(NULL == node) return NULL;
@@ -70,7 +70,7 @@ measurement_t* get_measurement(int id) {
 	return &(node->measurement);
 }
 
-input_t* get_input(int id) {
+input_t* get_input(int64_t id) {
 	struct input_node* node = get_input_node(id);
 
 	if (NULL == node) return NULL;
@@ -78,7 +78,7 @@ input_t* get_input(int id) {
 	return &(node->input);
 }
 
-void remove_input(int id) {
+void remove_input(int64_t id) {
 	struct input_node* node_to_remove = get_input_node(id);
 	if(NULL == node_to_remove) return;
 	rb_erase(&(node_to_remove->node), &(executor.inputs_root));
