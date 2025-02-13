@@ -154,7 +154,7 @@ static void update_state_after_writing_test(void) {
 	}
 }
 
-static int load_test_and_update_state(const char __user* test, size_t length) {
+static size_t load_test_and_update_state(const char __user* test, size_t length) {
 
 	if (MAX_TEST_CASE_SIZE < length) {
 		return -ENOMEM;
@@ -227,25 +227,25 @@ static int64_t handle_batch(void __user* arg) {
 	struct input_batch batch = { 0 };
 	struct input_and_id_pair* input_and_id_array = NULL;
 	struct input_batch* user_batch = (struct input_batch*)arg;
-	
+
 	if (copy_from_user_with_access_check(&batch,  user_batch, sizeof(struct input_batch))) {
 		err = -EFAULT;
 		goto handle_batch_end;
 	}
-	
+
 	input_and_id_array = vmalloc_array(batch.size, sizeof(struct input_and_id_pair));
 	if(NULL == input_and_id_array) {
 		err = -ENOMEM;
 		goto handle_batch_end;
 	}
-	
+
 	module_info("Loading a batch of %lu inputs", batch.size);
-	
+
 	if (copy_from_user_with_access_check(input_and_id_array,  user_batch->array, batch.size * sizeof(struct input_and_id_pair))) {
 		err = -EFAULT;
 		goto handle_batch_free_array;
 	}
-	
+
 	for(i = 0; i < batch.size; ++i) {
 		input_and_id_array[i].id = -1;
 	}
@@ -255,7 +255,7 @@ static int64_t handle_batch(void __user* arg) {
 		int64_t chosen_iid = allocate_input();
 
 		if (0 > chosen_iid) {
-			err = chosen_iid; 
+			err = chosen_iid;
 			goto handle_batch_free_all_inputs;
 		}
 
@@ -267,7 +267,7 @@ static int64_t handle_batch(void __user* arg) {
 		if(copy_from_user_with_access_check(to_buffer, input_and_id_array[i].input, USER_CONTROLLED_INPUT_LENGTH)) {
 			remove_input(chosen_iid);
 			chosen_iid = -1;
-		} 
+		}
 */
 		input_and_id_array[i].id = chosen_iid;
 
