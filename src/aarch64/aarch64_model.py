@@ -9,7 +9,7 @@ import numpy as np
 import copy
 from typing import Tuple, Dict, List, Set, NamedTuple, Callable
 
-import unicorn.x86_const as ucc  # type: ignore
+import unicorn.arm64_const as ucc  # type: ignore
 from unicorn import Uc, UcError, UC_MEM_WRITE, UC_ARCH_X86, UC_MODE_64, UC_PROT_READ, \
     UC_PROT_NONE, UC_ERR_WRITE_PROT, UC_ERR_NOMEM, UC_ERR_EXCEPTION, UC_ERR_INSN_INVALID
 
@@ -21,8 +21,9 @@ from ..model import UnicornModel, UnicornTracer, UnicornSpec, UnicornSeq, BaseTa
     MacroInterpreter
 from ..util import BLUE, COL_RESET, Logger, stable_hash_bytes
 from ..config import CONF
-from .aarch64_target_desc import X86UnicornTargetDesc, X86TargetDesc
+from .aarch64_target_desc import Aarch64UnicornTargetDesc, Aarch64TargetDesc
 
+# TODO: convert to aarch64 -> should I use cpsr or nzcv register?
 FLAGS_CF = 0b000000000001
 FLAGS_PF = 0b000000000100
 FLAGS_AF = 0b000000010000
@@ -36,7 +37,7 @@ FLAGS_OF = 0b100000000000
 CRITICAL_ERROR = UC_ERR_NOMEM  # the model never handles this error, hence it will always crash
 
 
-class X86MacroInterpreter(MacroInterpreter):
+class Aarch64MacroInterpreter(MacroInterpreter):
     pseudo_lstar: int
     curr_guest_target: int = 0
     curr_user_target: int = 0
@@ -44,8 +45,7 @@ class X86MacroInterpreter(MacroInterpreter):
 
     def __init__(self, model: UnicornSeq):
         self.model = model
-        self.is_intel = True if model.target_desc.cpu_desc.vendor == "Intel" else False
-        self.is_amd = True if model.target_desc.cpu_desc.vendor == "AMD" else False
+        self.is_arm = (model.target_desc.cpu_desc.vendor.lower() == "arm")
 
     def load_test_case(self, test_case: TestCase):
         self.test_case = test_case

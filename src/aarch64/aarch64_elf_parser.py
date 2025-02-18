@@ -11,7 +11,7 @@ from elftools.elf.elffile import ELFFile, SymbolTableSection  # type: ignore
 from ..interfaces import ElfSection, Symbol, TestCase, Instruction, ActorID, MacroSpec, ActorPL, \
     ActorMode
 from ..util import Logger
-from .aarch64_target_desc import X86TargetDesc
+from .aarch64_target_desc import Aarch64TargetDesc
 
 # ==================================================================================================
 #  Custom Data Types
@@ -45,14 +45,14 @@ class FunctionMetadata:
 
 def elf_parser_error(msg: str) -> NoReturn:
     logger = Logger()
-    logger.error("[X86ElfParser] Error while parsing assembly\n"
+    logger.error("[Aarch64ElfParser] Error while parsing assembly\n"
                  f"       Issue: {msg}",
                  print_last_tb=True)
 
 
-class X86ElfParser:
+class Aarch64ElfParser:
 
-    def __init__(self, target_desc: X86TargetDesc) -> None:
+    def __init__(self, target_desc: Aarch64TargetDesc) -> None:
         self.target_desc = target_desc
         self.LOG = Logger()
 
@@ -243,7 +243,7 @@ class X86ElfParser:
                                 test_case: TestCase) -> Symbol:
         """
         Convert a macro instruction to a symbol table entry by parsing its symbolic arguments
-        according to the macro specification (see aarch64_target_desc.py).
+        according to the macro specification (see x86_target_desc.py).
 
         Example:
         - Input (macro instruction): MACRO 1, .main.function_1

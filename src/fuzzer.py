@@ -171,7 +171,7 @@ class FuzzerGeneric(Fuzzer):
     def fuzzing_round(self,
                       test_case: TestCase,
                       inputs: List[Input],
-                      ignore_list: List[int] = []) -> Optional[Violation]:
+                      ignore_list: List[int] = []) -> Optional[Violation]: # BUG: list is mutable between executtions!
         """
         Run a single fuzzing round: collect contract and hardware traces for the given test
         case and inputs, and check for contract violations.

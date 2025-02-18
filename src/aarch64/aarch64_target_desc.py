@@ -1,18 +1,18 @@
 """
-File: x86-specific constants and lists
+File: aarch64-specific constants and lists
 
 Copyright (C) Microsoft Corporation
 SPDX-License-Identifier: MIT
 """
 from typing import List
 import re
-import unicorn.x86_const as ucc  # type: ignore
+import unicorn.arm64_const as ucc
 
 from ..interfaces import Instruction, TargetDesc, MacroSpec, CPUDesc
 from ..model import UnicornTargetDesc
 from ..config import CONF
 
-class X86TargetDesc(TargetDesc):
+class Aarch64TargetDesc(TargetDesc):
     register_sizes = {
         **{f"x{i}": 64 for i in range(31)},
         **{f"w{i}": 32 for i in range(31)},
@@ -22,25 +22,36 @@ class X86TargetDesc(TargetDesc):
         **{f"s{i}": 32 for i in range(32)},
         **{f"h{i}": 16 for i in range(32)},
         **{f"b{i}": 8 for i in range(32)},
-        "sp": 64, "wsp": 32, "xzr": 64, "wzr": 32,
+        **{f"SP_EL{i}": 64 for i in range(4)},
+        **{f"ELR_EL{i}": 64 for i in range(1, 4)},
+        "pc": 64,
+        "xzr": 64, "wzr": 32,
     }  # yapf: disable
+
     reg_normalized = {
-        **{f"x{i}": f"X{i}" for i in range(31)},
-        **{f"w{i}": f"X{i}" for i in range(31)},
+        **{f"x{i}": f"{i}" for i in range(31)},
+        **{f"w{i}": f"{i}" for i in range(31)},
         **{f"v{i}": f"V{i}" for i in range(32)},
         **{f"q{i}": f"V{i}" for i in range(32)},
         **{f"d{i}": f"V{i}" for i in range(32)},
         **{f"s{i}": f"V{i}" for i in range(32)},
         **{f"h{i}": f"V{i}" for i in range(32)},
         **{f"b{i}": f"V{i}" for i in range(32)},
+        **{f"SP_EL{i}": "SP" for i in range(4)}, "sp": "SP",
+        **{f"ELR_EL{i}": "ELR" for i in range(1, 4)},
 
         "nzcv": "FLAGS", "cpsr": "FLAGS", "fpsr": "FLAGS",
-        "NF": "NF", "ZF": "ZF", "CF": "CF", "VF": "VF",
-        "IF": "IF", "FF": "FF", "MF": "MF", "AF": "AF",
+        "NF": "NF", "ZF": "ZF", "CF": "CF", "VF": "VF", "QF": "QF",
+        "IRQFLAG": "IRQFLAG", "FIQFLAG": "FIQFLAG", "PEMODE": "PEMODE", "AFLAG": "AFLAG", "EFLAG": "EFLAG",
+        "SSBSFLAG": "SSBSFLAG", "PANFLAG": "PANFLAG", "DITFLAG": "DITFLAG", "GEFLAGS": "GEFLAGS",
         "pc": "PC",
-        "sp": "SP", "wsp": "SP",
         "xzr": "ZERO", "wzr": "ZERO",
         "fpcr": "FPCR",
+
+        **{f"dbgbvr{i}": f"DBGBVR{i}" for i in range(16)},
+        **{f"dbgbcr{i}": f"DBGBCR{i}" for i in range(16)},
+        **{f"dbgwvr{i}": f"DBGWVR{i}" for i in range(16)},
+        **{f"dbgwcr{i}": f"DBGWCR{i}" for i in range(16)},
 
         **{f"sctlr_el{i}": f"SCTLR_EL{i}" for i in range(1, 4)},
         "ttbr0_el1": "TTBR0_EL1", "ttbr1_el1": "TTBR1_EL1",
@@ -50,10 +61,7 @@ class X86TargetDesc(TargetDesc):
         "spsr_el1": "SPSR_EL1", "elr_el1": "ELR_EL1",
         **{f"tpidr_el{i}": f"TPIDR_EL{i}" for i in range(3)},
         "tpidrro_el0": "TPIDRRO_EL0",
-        **{f"dbgbvr{i}": f"DBGBVR{i}" for i in range(16)},
-        **{f"dbgbcr{i}": f"DBGBCR{i}" for i in range(16)},
-        **{f"dbgwvr{i}": f"DBGWVR{i}" for i in range(16)},
-        **{f"dbgwcr{i}": f"DBGWCR{i}" for i in range(16)},
+
         "daif": "DAIF", "esr_el1": "ESR_EL1", "esr_el2": "ESR_EL2",
         "far_el1": "FAR_EL1", "far_el2": "FAR_EL2",
         "icc_ctlr_el1": "ICC_CTLR_EL1", "icc_iar1_el1": "ICC_IAR1_EL1",
@@ -62,7 +70,7 @@ class X86TargetDesc(TargetDesc):
 
     }  # yapf: disable
     reg_denormalized = {
-        **{f"X{i}": {64: f"x{i}", 32: f"w{i}"} for i in range(31)},
+        **{f"{i}": {64: f"x{i}", 32: f"w{i}"} for i in range(31)},
         **{f"V{i}": {128: f"v{i}", 64: f"d{i}", 32: f"s{i}", 16: f"h{i}", 8: f"b{i}"}
            for i in range(31)},
         "SP": {64: "sp", 32: "wsp"},
@@ -72,8 +80,8 @@ class X86TargetDesc(TargetDesc):
     registers = {
         8:      [f"b{i}" for i in range(32)],
         16:     [f"h{i}" for i in range(32)],
-        32:     [*[f"s{i}" for i in range(32)], *[f"w{i}" for i in range(31)]],
-        64:     [*[f"d{i}" for i in range(32)], *[f"x{i}" for i in range(31)]],
+        32:     [*[f"s{i}" for i in range(32)], *[f"w{i}" for i in range(31)], "wsp", "wzr"],
+        64:     [*[f"d{i}" for i in range(32)], *[f"x{i}" for i in range(31)], "sp", "xzr"],
         128:    [f"v{i}" for i in range(32)],
     }  # yapf: disable
 
@@ -122,34 +130,34 @@ class X86TargetDesc(TargetDesc):
             MacroSpec(2, "measurement_end", ("", "", "", "")),
         "fault_handler":
             MacroSpec(3, "fault_handler", ("", "", "", "")),
-        "switch":
-            MacroSpec(4, "switch", ("actor_id", "function_id", "", "")),
-        "set_k2u_target":
-            MacroSpec(5, "set_k2u_target", ("actor_id", "function_id", "", "")),
-        "switch_k2u":
-            MacroSpec(6, "switch_k2u", ("actor_id", "", "", "")),
-        "set_u2k_target":
-            MacroSpec(7, "set_u2k_target", ("actor_id", "function_id", "", "")),
-        "switch_u2k":
-            MacroSpec(8, "switch_u2k", ("actor_id", "", "", "")),
-        "set_h2g_target":
-            MacroSpec(9, "set_h2g_target", ("actor_id", "function_id", "", "")),
-        "switch_h2g":
-            MacroSpec(10, "switch_h2g", ("actor_id", "", "", "")),
-        "set_g2h_target":
-            MacroSpec(11, "set_g2h_target", ("actor_id", "function_id", "", "")),
-        "switch_g2h":
-            MacroSpec(12, "switch_g2h", ("actor_id", "", "", "")),
-        "landing_k2u":
-            MacroSpec(13, "landing_k2u", ("", "", "", "")),
-        "landing_u2k":
-            MacroSpec(14, "landing_u2k", ("", "", "", "")),
-        "landing_h2g":
-            MacroSpec(15, "landing_h2g", ("", "", "", "")),
-        "landing_g2h":
-            MacroSpec(16, "landing_g2h", ("", "", "", "")),
-        "set_data_permissions":
-            MacroSpec(18, "set_data_permissions", ("actor_id", "int", "int", ""))
+        # "switch":
+        #     MacroSpec(4, "switch", ("actor_id", "function_id", "", "")),
+        # "set_k2u_target":
+        #     MacroSpec(5, "set_k2u_target", ("actor_id", "function_id", "", "")),
+        # "switch_k2u":
+        #     MacroSpec(6, "switch_k2u", ("actor_id", "", "", "")),
+        # "set_u2k_target":
+        #     MacroSpec(7, "set_u2k_target", ("actor_id", "function_id", "", "")),
+        # "switch_u2k":
+        #     MacroSpec(8, "switch_u2k", ("actor_id", "", "", "")),
+        # "set_h2g_target":
+        #     MacroSpec(9, "set_h2g_target", ("actor_id", "function_id", "", "")),
+        # "switch_h2g":
+        #     MacroSpec(10, "switch_h2g", ("actor_id", "", "", "")),
+        # "set_g2h_target":
+        #     MacroSpec(11, "set_g2h_target", ("actor_id", "function_id", "", "")),
+        # "switch_g2h":
+        #     MacroSpec(12, "switch_g2h", ("actor_id", "", "", "")),
+        # "landing_k2u":
+        #     MacroSpec(13, "landing_k2u", ("", "", "", "")),
+        # "landing_u2k":
+        #     MacroSpec(14, "landing_u2k", ("", "", "", "")),
+        # "landing_h2g":
+        #     MacroSpec(15, "landing_h2g", ("", "", "", "")),
+        # "landing_g2h":
+        #     MacroSpec(16, "landing_g2h", ("", "", "", "")),
+        # "set_data_permissions":
+        #     MacroSpec(18, "set_data_permissions", ("actor_id", "int", "int", ""))
     }
 
     def __init__(self):
@@ -166,175 +174,249 @@ class X86TargetDesc(TargetDesc):
         # identify the CPU model we are running on
         with open("/proc/cpuinfo", "r") as f:
             cpuinfo = f.read()
-            if 'Intel' in cpuinfo:
-                vendor = 'Intel'
-            elif 'AMD' in cpuinfo:
-                vendor = 'AMD'
-            else:
-                vendor = 'Unknown'
 
-            family_match = re.search(r"cpu family\s+:\s+(.*)", cpuinfo)
+            vendor_match = re.search(r"CPU implementer\s+:\s+(.*)", cpuinfo)
+            assert vendor_match, "Failed to find vendor in /proc/cpuinfo"
+            vendor = vendor_match.group(1)
+
+            family_match = "not applicable"  # TODO: not applicable for aarch64
             assert family_match, "Failed to find family in /proc/cpuinfo"
             family = family_match.group(1)
 
-            model_match = re.search(r"model\s+:\s+(.*)", cpuinfo)
+            model_match = re.search(r"CPU part\s+:\s+(.*)", cpuinfo)
             assert model_match, "Failed to find model name in /proc/cpuinfo"
             model = model_match.group(1)
 
-            stepping_match = re.search(r"stepping\s+:\s+(.*)", cpuinfo)
+            stepping_match = re.search(r"CPU revision\s+:\s+(.*)", cpuinfo)
             assert stepping_match, "Failed to find stepping in /proc/cpuinfo"
             stepping = stepping_match.group(1)
 
-        self.cpu_desc = CPUDesc(vendor, model, family, stepping)
+            vendor = "arm"
+            model = "0xd46" # todo: manually added for now
+            stepping = "1"
 
-        # select EPT/NPT bits based on the CPU vendor
-        self.epte_bits = self.epte_bits_intel if vendor == 'Intel' else self.npte_bits_amd
+        self.cpu_desc = CPUDesc(vendor, model, family, stepping)
 
     @staticmethod
     def is_unconditional_branch(inst: Instruction) -> bool:
-        return inst.category == "BASE-UNCOND_BR"
+        return inst.name in ["B"]
 
     @staticmethod
     def is_call(inst: Instruction) -> bool:
-        return inst.category == "BASE-CALL"
+        return inst.name in ["BL"]
 
 
-class X86UnicornTargetDesc(UnicornTargetDesc):
+class Aarch64UnicornTargetDesc(UnicornTargetDesc):
     reg_str_to_constant = {
-        "al": ucc.UC_X86_REG_AL,
-        "bl": ucc.UC_X86_REG_BL,
-        "cl": ucc.UC_X86_REG_CL,
-        "dl": ucc.UC_X86_REG_DL,
-        "dil": ucc.UC_X86_REG_DIL,
-        "sil": ucc.UC_X86_REG_SIL,
-        "spl": ucc.UC_X86_REG_SPL,
-        "bpl": ucc.UC_X86_REG_BPL,
-        "ah": ucc.UC_X86_REG_AH,
-        "bh": ucc.UC_X86_REG_BH,
-        "ch": ucc.UC_X86_REG_CH,
-        "dh": ucc.UC_X86_REG_DH,
-        "ax": ucc.UC_X86_REG_AX,
-        "bx": ucc.UC_X86_REG_BX,
-        "cx": ucc.UC_X86_REG_CX,
-        "dx": ucc.UC_X86_REG_DX,
-        "di": ucc.UC_X86_REG_DI,
-        "si": ucc.UC_X86_REG_SI,
-        "sp": ucc.UC_X86_REG_SP,
-        "bp": ucc.UC_X86_REG_BP,
-        "eax": ucc.UC_X86_REG_EAX,
-        "ebx": ucc.UC_X86_REG_EBX,
-        "ecx": ucc.UC_X86_REG_ECX,
-        "edx": ucc.UC_X86_REG_EDX,
-        "edi": ucc.UC_X86_REG_EDI,
-        "esi": ucc.UC_X86_REG_ESI,
-        "esp": ucc.UC_X86_REG_ESP,
-        "ebp": ucc.UC_X86_REG_EBP,
-        "rax": ucc.UC_X86_REG_RAX,
-        "rbx": ucc.UC_X86_REG_RBX,
-        "rcx": ucc.UC_X86_REG_RCX,
-        "rdx": ucc.UC_X86_REG_RDX,
-        "rdi": ucc.UC_X86_REG_RDI,
-        "rsi": ucc.UC_X86_REG_RSI,
-        "rsp": ucc.UC_X86_REG_RSP,
-        "rbp": ucc.UC_X86_REG_RBP,
-        "xmm0": ucc.UC_X86_REG_XMM0,
-        "xmm1": ucc.UC_X86_REG_XMM1,
-        "xmm2": ucc.UC_X86_REG_XMM2,
-        "xmm3": ucc.UC_X86_REG_XMM3,
-        "xmm4": ucc.UC_X86_REG_XMM4,
-        "xmm5": ucc.UC_X86_REG_XMM5,
-        "xmm6": ucc.UC_X86_REG_XMM6,
-        "xmm7": ucc.UC_X86_REG_XMM7,
-        "xmm8": ucc.UC_X86_REG_XMM8,
-        "xmm9": ucc.UC_X86_REG_XMM9,
-        "xmm10": ucc.UC_X86_REG_XMM10,
-        "xmm11": ucc.UC_X86_REG_XMM11,
-        "xmm12": ucc.UC_X86_REG_XMM12,
-        "xmm14": ucc.UC_X86_REG_XMM14,
-        "xmm15": ucc.UC_X86_REG_XMM15,
+        "x0": ucc.UC_ARM64_REG_X0,
+        "x1": ucc.UC_ARM64_REG_X1,
+        "x2": ucc.UC_ARM64_REG_X2,
+        "x3": ucc.UC_ARM64_REG_X3,
+        "x4": ucc.UC_ARM64_REG_X4,
+        "x5": ucc.UC_ARM64_REG_X5,
+        "x6": ucc.UC_ARM64_REG_X6,
+        "x7": ucc.UC_ARM64_REG_X7,
+        "x8": ucc.UC_ARM64_REG_X8,
+        "x9": ucc.UC_ARM64_REG_X9,
+        "x10": ucc.UC_ARM64_REG_X10,
+        "x11": ucc.UC_ARM64_REG_X11,
+        "x12": ucc.UC_ARM64_REG_X12,
+        "x13": ucc.UC_ARM64_REG_X13,
+        "x14": ucc.UC_ARM64_REG_X14,
+        "x15": ucc.UC_ARM64_REG_X15,
+        "x16": ucc.UC_ARM64_REG_X16,
+        "x17": ucc.UC_ARM64_REG_X17,
+        "x18": ucc.UC_ARM64_REG_X18,
+        "x19": ucc.UC_ARM64_REG_X19,
+        "x20": ucc.UC_ARM64_REG_X20,
+        "x21": ucc.UC_ARM64_REG_X21,
+        "x22": ucc.UC_ARM64_REG_X22,
+        "x23": ucc.UC_ARM64_REG_X23,
+        "x24": ucc.UC_ARM64_REG_X24,
+        "x25": ucc.UC_ARM64_REG_X25,
+        "x26": ucc.UC_ARM64_REG_X26,
+        "x27": ucc.UC_ARM64_REG_X27,
+        "x28": ucc.UC_ARM64_REG_X28,
+        "x29": ucc.UC_ARM64_REG_X29,
+        "x30": ucc.UC_ARM64_REG_X30,
+        "v0": ucc.UC_ARM64_REG_V0,
+        "v1": ucc.UC_ARM64_REG_V1,
+        "v2": ucc.UC_ARM64_REG_V2,
+        "v3": ucc.UC_ARM64_REG_V3,
+        "v4": ucc.UC_ARM64_REG_V4,
+        "v5": ucc.UC_ARM64_REG_V5,
+        "v6": ucc.UC_ARM64_REG_V6,
+        "v7": ucc.UC_ARM64_REG_V7,
+        "v8": ucc.UC_ARM64_REG_V8,
+        "v9": ucc.UC_ARM64_REG_V9,
+        "v10": ucc.UC_ARM64_REG_V10,
+        "v11": ucc.UC_ARM64_REG_V11,
+        "v12": ucc.UC_ARM64_REG_V12,
+        "v13": ucc.UC_ARM64_REG_V13,
+        "v14": ucc.UC_ARM64_REG_V14,
+        "v15": ucc.UC_ARM64_REG_V15,
+        "v16": ucc.UC_ARM64_REG_V16,
+        "v17": ucc.UC_ARM64_REG_V17,
+        "v18": ucc.UC_ARM64_REG_V18,
+        "v19": ucc.UC_ARM64_REG_V19,
+        "v20": ucc.UC_ARM64_REG_V20,
+        "v21": ucc.UC_ARM64_REG_V21,
+        "v22": ucc.UC_ARM64_REG_V22,
+        "v23": ucc.UC_ARM64_REG_V23,
+        "v24": ucc.UC_ARM64_REG_V24,
+        "v25": ucc.UC_ARM64_REG_V25,
+        "v26": ucc.UC_ARM64_REG_V26,
+        "v27": ucc.UC_ARM64_REG_V27,
+        "v28": ucc.UC_ARM64_REG_V28,
+        "v29": ucc.UC_ARM64_REG_V29,
+        "v30": ucc.UC_ARM64_REG_V30,
+        "v31": ucc.UC_ARM64_REG_V31,
+
+        "fp": ucc.UC_ARM64_REG_FP,
+        "lr": ucc.UC_ARM64_REG_FP,
+
+        "nzcv": ucc.UC_ARM64_REG_NZCV,
+        "sp": ucc.UC_ARM64_REG_SP,
+        "wsp": ucc.UC_ARM64_REG_WSP,
+        "xzr": ucc.UC_ARM64_REG_XZR,
+        "wzr": ucc.UC_ARM64_REG_WZR,
     }
 
     reg_decode = {
-        "A": ucc.UC_X86_REG_RAX,
-        "B": ucc.UC_X86_REG_RBX,
-        "C": ucc.UC_X86_REG_RCX,
-        "D": ucc.UC_X86_REG_RDX,
-        "DI": ucc.UC_X86_REG_RDI,
-        "SI": ucc.UC_X86_REG_RSI,
-        "SP": ucc.UC_X86_REG_RSP,
-        "BP": ucc.UC_X86_REG_RBP,
-        "8": ucc.UC_X86_REG_R8,
-        "9": ucc.UC_X86_REG_R9,
-        "10": ucc.UC_X86_REG_R10,
-        "11": ucc.UC_X86_REG_R11,
-        "12": ucc.UC_X86_REG_R12,
-        "13": ucc.UC_X86_REG_R13,
-        "14": ucc.UC_X86_REG_R14,
-        "15": ucc.UC_X86_REG_R15,
-        "FLAGS": ucc.UC_X86_REG_EFLAGS,
-        "CF": ucc.UC_X86_REG_EFLAGS,
-        "PF": ucc.UC_X86_REG_EFLAGS,
-        "AF": ucc.UC_X86_REG_EFLAGS,
-        "ZF": ucc.UC_X86_REG_EFLAGS,
-        "SF": ucc.UC_X86_REG_EFLAGS,
-        "TF": ucc.UC_X86_REG_EFLAGS,
-        "IF": ucc.UC_X86_REG_EFLAGS,
-        "DF": ucc.UC_X86_REG_EFLAGS,
-        "OF": ucc.UC_X86_REG_EFLAGS,
-        "AC": ucc.UC_X86_REG_EFLAGS,
-        "XMM0": ucc.UC_X86_REG_XMM0,
-        "XMM1": ucc.UC_X86_REG_XMM1,
-        "XMM2": ucc.UC_X86_REG_XMM2,
-        "XMM3": ucc.UC_X86_REG_XMM3,
-        "XMM4": ucc.UC_X86_REG_XMM4,
-        "XMM5": ucc.UC_X86_REG_XMM5,
-        "XMM6": ucc.UC_X86_REG_XMM6,
-        "XMM7": ucc.UC_X86_REG_XMM7,
-        "XMM8": ucc.UC_X86_REG_XMM8,
-        "XMM9": ucc.UC_X86_REG_XMM9,
-        "XMM10": ucc.UC_X86_REG_XMM10,
-        "XMM11": ucc.UC_X86_REG_XMM11,
-        "XMM12": ucc.UC_X86_REG_XMM12,
-        "XMM14": ucc.UC_X86_REG_XMM14,
-        "XMM15": ucc.UC_X86_REG_XMM15,
-        "RIP": -1,
-        "RSP": -1,
-        "CR0": -1,
-        "CR2": -1,
-        "CR3": -1,
-        "CR4": -1,
-        "CR8": -1,
-        "XCR0": -1,
-        "DR0": -1,
-        "DR1": -1,
-        "DR2": -1,
-        "DR3": -1,
-        "DR6": -1,
-        "DR7": -1,
-        "GDTR": -1,
-        "IDTR": -1,
-        "LDTR": -1,
-        "TR": -1,
-        "FSBASE": -1,
-        "GSBASE": -1,
+        "0": ucc.UC_ARM64_REG_X0,
+        "1": ucc.UC_ARM64_REG_X1,
+        "2": ucc.UC_ARM64_REG_X2,
+        "3": ucc.UC_ARM64_REG_X3,
+        "4": ucc.UC_ARM64_REG_X4,
+        "5": ucc.UC_ARM64_REG_X5,
+        "6": ucc.UC_ARM64_REG_X6,
+        "7": ucc.UC_ARM64_REG_X7,
+        "8": ucc.UC_ARM64_REG_X8,
+        "9": ucc.UC_ARM64_REG_X9,
+        "10": ucc.UC_ARM64_REG_X10,
+        "11": ucc.UC_ARM64_REG_X11,
+        "12": ucc.UC_ARM64_REG_X12,
+        "13": ucc.UC_ARM64_REG_X13,
+        "14": ucc.UC_ARM64_REG_X14,
+        "15": ucc.UC_ARM64_REG_X15,
+        "16": ucc.UC_ARM64_REG_X16,
+        "17": ucc.UC_ARM64_REG_X17,
+        "18": ucc.UC_ARM64_REG_X18,
+        "19": ucc.UC_ARM64_REG_X19,
+        "20": ucc.UC_ARM64_REG_X20,
+        "21": ucc.UC_ARM64_REG_X21,
+        "22": ucc.UC_ARM64_REG_X22,
+        "23": ucc.UC_ARM64_REG_X23,
+        "24": ucc.UC_ARM64_REG_X24,
+        "25": ucc.UC_ARM64_REG_X25,
+        "26": ucc.UC_ARM64_REG_X26,
+        "27": ucc.UC_ARM64_REG_X27,
+        "28": ucc.UC_ARM64_REG_X28,
+        "29": ucc.UC_ARM64_REG_X29,
+        "30": ucc.UC_ARM64_REG_X30,
+
+        "V0": ucc.UC_ARM64_REG_V0,
+        "V1": ucc.UC_ARM64_REG_V1,
+        "V2": ucc.UC_ARM64_REG_V2,
+        "V3": ucc.UC_ARM64_REG_V3,
+        "V4": ucc.UC_ARM64_REG_V4,
+        "V5": ucc.UC_ARM64_REG_V5,
+        "V6": ucc.UC_ARM64_REG_V6,
+        "V7": ucc.UC_ARM64_REG_V7,
+        "V8": ucc.UC_ARM64_REG_V8,
+        "V9": ucc.UC_ARM64_REG_V9,
+        "V10": ucc.UC_ARM64_REG_V10,
+        "V11": ucc.UC_ARM64_REG_V11,
+        "V12": ucc.UC_ARM64_REG_V12,
+        "V13": ucc.UC_ARM64_REG_V13,
+        "V14": ucc.UC_ARM64_REG_V14,
+        "V15": ucc.UC_ARM64_REG_V15,
+        "V16": ucc.UC_ARM64_REG_V16,
+        "V17": ucc.UC_ARM64_REG_V17,
+        "V18": ucc.UC_ARM64_REG_V18,
+        "V19": ucc.UC_ARM64_REG_V19,
+        "V20": ucc.UC_ARM64_REG_V20,
+        "V21": ucc.UC_ARM64_REG_V21,
+        "V22": ucc.UC_ARM64_REG_V22,
+        "V23": ucc.UC_ARM64_REG_V23,
+        "V24": ucc.UC_ARM64_REG_V24,
+        "V25": ucc.UC_ARM64_REG_V25,
+        "V26": ucc.UC_ARM64_REG_V26,
+        "V27": ucc.UC_ARM64_REG_V27,
+        "V28": ucc.UC_ARM64_REG_V28,
+        "V29": ucc.UC_ARM64_REG_V29,
+        "V30": ucc.UC_ARM64_REG_V30,
+        "V31": ucc.UC_ARM64_REG_V31,
+
+        "FLAGS": ucc.UC_ARM64_REG_NZCV,
+        "GEFLAGS": ucc.UC_ARM64_REG_NZCV,
+        "NF": ucc.UC_ARM64_REG_NZCV,
+        "ZF": ucc.UC_ARM64_REG_NZCV,
+        "CF": ucc.UC_ARM64_REG_NZCV,
+        "VF": ucc.UC_ARM64_REG_NZCV,
+        "QF": ucc.UC_ARM64_REG_NZCV,
+        "EFLAG": ucc.UC_ARM64_REG_NZCV,
+        "AFLAG": ucc.UC_ARM64_REG_NZCV,
+        "IRQFLAG": ucc.UC_ARM64_REG_NZCV,
+        "FIQFLAG": ucc.UC_ARM64_REG_NZCV,
+        "PEMODE": ucc.UC_ARM64_REG_NZCV,
+        "SSBSFLAG": ucc.UC_ARM64_REG_NZCV,
+        "PANFALG": ucc.UC_ARM64_REG_NZCV,
+        "DITFLAG": ucc.UC_ARM64_REG_NZCV,
+
+        "PC": ucc.UC_ARM64_REG_PC, # pseudo register
+        "SP": ucc.UC_ARM64_REG_SP,
+        "TPIDR_EL0": ucc.UC_ARM64_REG_CP_REG,
+        "TPIDRRO_EL0": ucc.UC_ARM64_REG_CP_REG,
+        "TPIDR_EL1": ucc.UC_ARM64_REG_CP_REG,
+        "PSTATE": ucc.UC_ARM64_REG_CP_REG,
+        "ELR_EL0": ucc.UC_ARM64_REG_CP_REG,
+        "ELR_EL1": ucc.UC_ARM64_REG_CP_REG,
+        "ELR_EL2": ucc.UC_ARM64_REG_CP_REG,
+        "ELR_EL3": ucc.UC_ARM64_REG_CP_REG,
+        "SP_EL0": ucc.UC_ARM64_REG_CP_REG,
+        "SP_EL1": ucc.UC_ARM64_REG_CP_REG,
+        "SP_EL2": ucc.UC_ARM64_REG_CP_REG,
+        "SP_EL3": ucc.UC_ARM64_REG_CP_REG,
+        "TTBR0_EL1": ucc.UC_ARM64_REG_CP_REG,
+        "TTBR1_EL1": ucc.UC_ARM64_REG_CP_REG,
+        "ESR_EL0": ucc.UC_ARM64_REG_CP_REG,
+        "ESR_EL1": ucc.UC_ARM64_REG_CP_REG,
+        "ESR_EL2": ucc.UC_ARM64_REG_CP_REG,
+        "ESR_EL3": ucc.UC_ARM64_REG_CP_REG,
+        "FAR_EL0": ucc.UC_ARM64_REG_CP_REG,
+        "FAR_EL1": ucc.UC_ARM64_REG_CP_REG,
+        "FAR_EL2": ucc.UC_ARM64_REG_CP_REG,
+        "PAR_EL1": ucc.UC_ARM64_REG_CP_REG,
+        "MAIR_EL1": ucc.UC_ARM64_REG_CP_REG,
+        "VBAR_EL0": ucc.UC_ARM64_REG_CP_REG,
+        "VBAR_EL1": ucc.UC_ARM64_REG_CP_REG,
+        "VBAR_EL2": ucc.UC_ARM64_REG_CP_REG,
+        "VBAR_EL3": ucc.UC_ARM64_REG_CP_REG,
+        "CP_REG": ucc.UC_ARM64_REG_CP_REG,
+
+        "FPCR": ucc.UC_ARM64_REG_FPCR,
+        "FPSR": ucc.UC_ARM64_REG_FPSR,
+
         "MSRS": -1,
-        "X87CONTROL": -1,
-        "TSC": -1,
-        "TSCAUX": -1,
     }
 
     registers: List[int] = [
-        ucc.UC_X86_REG_RAX, ucc.UC_X86_REG_RBX, ucc.UC_X86_REG_RCX, ucc.UC_X86_REG_RDX,
-        ucc.UC_X86_REG_RSI, ucc.UC_X86_REG_RDI, ucc.UC_X86_REG_EFLAGS, ucc.UC_X86_REG_RSP
+        ucc.UC_ARM64_REG_X0, ucc.UC_ARM64_REG_X1, ucc.UC_ARM64_REG_X2, ucc.UC_ARM64_REG_X3,
+        ucc.UC_ARM64_REG_X4, ucc.UC_ARM64_REG_X5, ucc.UC_ARM64_REG_NZCV, ucc.UC_ARM64_REG_SP
     ]
     simd128_registers: List[int] = [
-        ucc.UC_X86_REG_XMM0, ucc.UC_X86_REG_XMM1, ucc.UC_X86_REG_XMM2, ucc.UC_X86_REG_XMM3,
-        ucc.UC_X86_REG_XMM4, ucc.UC_X86_REG_XMM5, ucc.UC_X86_REG_XMM6, ucc.UC_X86_REG_XMM7,
-        ucc.UC_X86_REG_XMM8, ucc.UC_X86_REG_XMM9, ucc.UC_X86_REG_XMM10, ucc.UC_X86_REG_XMM11,
-        ucc.UC_X86_REG_XMM12, ucc.UC_X86_REG_XMM13, ucc.UC_X86_REG_XMM14, ucc.UC_X86_REG_XMM15
+        ucc.UC_ARM64_REG_V0, ucc.UC_ARM64_REG_V1, ucc.UC_ARM64_REG_V2, ucc.UC_ARM64_REG_V3,
+        ucc.UC_ARM64_REG_V4, ucc.UC_ARM64_REG_V5, ucc.UC_ARM64_REG_V6, ucc.UC_ARM64_REG_V7,
+        ucc.UC_ARM64_REG_V8, ucc.UC_ARM64_REG_V9, ucc.UC_ARM64_REG_V10, ucc.UC_ARM64_REG_V11,
+        ucc.UC_ARM64_REG_V12, ucc.UC_ARM64_REG_V13, ucc.UC_ARM64_REG_V14, ucc.UC_ARM64_REG_V15,
+        ucc.UC_ARM64_REG_V16, ucc.UC_ARM64_REG_V17, ucc.UC_ARM64_REG_V18, ucc.UC_ARM64_REG_V19,
+        ucc.UC_ARM64_REG_V20, ucc.UC_ARM64_REG_V21, ucc.UC_ARM64_REG_V22, ucc.UC_ARM64_REG_V23,
+        ucc.UC_ARM64_REG_V24, ucc.UC_ARM64_REG_V25, ucc.UC_ARM64_REG_V26, ucc.UC_ARM64_REG_V27,
+        ucc.UC_ARM64_REG_V28, ucc.UC_ARM64_REG_V29, ucc.UC_ARM64_REG_V30, ucc.UC_ARM64_REG_V31
     ]
-    barriers: List[str] = ['mfence', 'lfence']
-    flags_register: int = ucc.UC_X86_REG_EFLAGS
-    pc_register: int = ucc.UC_X86_REG_RIP
-    actor_base_register: int = ucc.UC_X86_REG_R14
-    sp_register: int = ucc.UC_X86_REG_RSP
+    barriers: List[str] = ['DMB', 'DSB', 'ISB', 'PSSBB', 'SB',
+                           'LDAR', 'STLR', 'LDAXR', 'STLXR'] # One-way barrier
+    flags_register: int = ucc.UC_ARM64_REG_NZCV
+    pc_register: int = ucc.UC_ARM64_REG_PC
+    sp_register: int = ucc.UC_ARM64_REG_SP

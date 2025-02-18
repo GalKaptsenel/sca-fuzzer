@@ -2,10 +2,12 @@
 Copyright (C) Microsoft Corporation
 SPDX-License-Identifier: MIT
 """
-
+import glob
 import json
+import os
+import re
 import subprocess
-from typing import List
+from typing import List, Optional
 from xml.etree import ElementTree as ET
 
 
@@ -63,8 +65,8 @@ class ParseFailed(Exception):
     pass
 
 
-class aarch64Transformer:
-    tree: ET.Element
+class Aarch64Transformer:
+    tree: ET.ElementTree
     instructions: List[InstructionSpec]
     current_spec: InstructionSpec
     reg_sizes = {
@@ -104,75 +106,315 @@ class aarch64Transformer:
     def __init__(self) -> None:
         self.instructions = []
 
-    def load_files(self, filename: str):
-        parser = ET.ElementTree()
-        tree = parser.parse(filename)
+    def load_files(self, files: List[str]):
+        # get the data from all files
+        tree = ET.parse("_root.xml")
+        root = tree.getroot()
+        for filename in files:
+            data = ET.parse(filename).getroot()
+            root.append(data)
         if not tree:
             print("No input. Exiting")
             exit(1)
         self.tree = tree
 
-    def parse_tree(self, extensions: List[str]):
-        self._check_extension_list(extensions)
-
-        for instruction_node in self.tree.iter('instruction'):
-            if instruction_node.attrib.get('sae', '') == '1' or \
-               instruction_node.attrib.get('roundc', '') == '1' or \
-               instruction_node.attrib.get('zeroing', '') == '1':
+    def parse_tree(self):
+        for instruction_node in self.tree.iter('instructionsection'):
+            if instruction_node.attrib['type'] != "instruction":
                 continue
 
-            if extensions and instruction_node.attrib['extension'] not in extensions:
+            # remove those instruction types/forms that are not yet supported
+            docvars = instruction_node.find("docvars")
+            if not docvars:
+                continue  # empty spec?
+            address_form = ""
+            category = ""
+            for op_node in docvars.iter("docvar"):
+                if op_node.attrib["key"] == "instr-class":
+                    category = op_node.attrib["value"]
+                elif op_node.attrib["key"] == "address-form":
+                    address_form = op_node.attrib["value"]
+            if category != "general":
                 continue
 
-            self.instruction = InstructionSpec()
-            self.instruction.category = instruction_node.attrib['extension'] \
-                + "-" \
-                + instruction_node.attrib['category']
+            flags_op = self.get_flags_from_asl(instruction_node)
 
-            # clean up the name
-            name = instruction_node.attrib['asm']
-            name = name.removeprefix("{load} ")
-            name = name.removeprefix("{store} ")
-            name = name.removeprefix("{disp32} ")
-            name = name.lower()
-            self.instruction.name = name
+            # get all asm variants of the instructions
+            for variant in instruction_node.findall("classes/iclass/encoding"):
+                self.current_spec = InstructionSpec()
 
-            try:
-                for op_node in instruction_node.iter('operand'):
-                    op_type = op_node.attrib['type']
-                    if op_type == 'reg':
-                        parsed_op = self.parse_reg_operand(op_node)
-                        text = getattr(op_node, 'text', '').lower()
-                        if text == "rip" and name not in self.not_control_flow:
-                            self.instruction.control_flow = True
-                    elif op_type == 'mem':
-                        parsed_op = self.parse_mem_operand(op_node)
-                    elif op_type == 'agen':
-                        op_node.text = instruction_node.attrib['agen']
-                        parsed_op = self.parse_agen_operand(op_node)
-                    elif op_type == 'imm':
-                        parsed_op = self.parse_imm_operand(op_node)
-                    elif op_type == 'relbr':
-                        parsed_op = self.parse_label_operand(op_node)
-                        self.instruction.control_flow = True
-                    elif op_type == 'flags':
-                        parsed_op = self.parse_flags_operand(op_node)
-                    else:
-                        raise Exception("Unknown operand type " + op_type)
+                # instruction info
+                docvars = variant.find("docvars")
+                assert docvars
+                for op_node in docvars.iter("docvar"):
+                    if op_node.attrib["key"] == "instr-class":
+                        self.current_spec.category = op_node.attrib["value"]
+                    elif op_node.attrib["key"] == "branch-offset":
+                        self.current_spec.control_flow = True
+                    elif op_node.attrib["key"] == "address-form":
+                        address_form = op_node.attrib["value"]
+                    elif op_node.attrib["key"] == "datatype":
+                        self.current_spec.datasize = int(op_node.attrib["value"])
 
-                    if op_node.attrib.get('implicit', '0') == '1':
-                        parsed_op.magic = True
+                if address_form not in ["literal", "base-register", "post-indexed", ""]:
+                    continue
 
-                    if op_node.attrib.get('suppressed', '0') == '1':
-                        self.instruction.implicit_operands.append(parsed_op)
-                    else:
-                        self.instruction.operands.append(parsed_op)
+                self.current_spec.name = variant.find("asmtemplate/text").text.split(" ")[0]
 
-            except ParseFailed as e:
-                print(f"WARN: Skipping instruction {self.instruction.name} due to `{e}`")
+                # implicit PC operand
+                if self.current_spec.control_flow:
+                    op_pc = OperandSpec()
+                    op_pc.values = ["PC"]
+                    op_pc.type_ = "REG"
+                    op_pc.width = 64
+                    op_pc.src = True
+                    op_pc.dest = False
+                    self.current_spec.implicit_operands.append(op_pc)
+
+                # implicit flags operand
+                if flags_op:
+                    self.current_spec.implicit_operands.append(flags_op)
+
+                # explicit operands
+                op_type_hint = ""
+                optional_depth = 0
+                try:
+                    for op_node in variant.find("asmtemplate").iter():
+                        if op_node.tag == "a" and optional_depth == 0:
+                            hover_text = op_node.attrib["hover"].lower().strip()
+                            op = self.parse_hover_text(hover_text, op_type_hint)
+                            self.current_spec.operands.append(op)
+
+                        text = op_node.text
+                        if text:
+                            op_type_hint, modifier = self.parse_asm_template_text(text)
+                            optional_depth += modifier
+
+                except ParseFailed:
+                    continue
+
+                self.instructions.append(self.current_spec)
+
+    def get_flags_from_asl(self, element: ET.Element) -> Optional[OperandSpec]:
+        """ look through the ASL code of the instruction to find if it reads/writes the flags """
+        flag_values = {k: [False, False] for k in ["N", "Z", "C", "V", ""]}
+        uses_flags = False
+        for line in element.find("ps_section/ps/pstext").itertext():
+            match = re.search(r"(=?) *PSTATE\.<?([NZCV,]+)>? *(=?)", line)
+            if match:
+                affected_flags = match.group(2).split(",")
+                is_read = (match.group(1) == "=")
+                is_write = (match.group(3) == "=")
+                if not is_read and not is_write:
+                    continue
+
+                uses_flags = True
+                for f in affected_flags:
+                    flag_values[f][0] |= is_read
+                    flag_values[f][1] |= is_write
+        if uses_flags:
+            flag_op = OperandSpec()
+            flag_op.type_ = "FLAGS"
+            flag_op.width = 0
+            flag_op.src = False
+            flag_op.dest = False
+            flag_op.values = []
+
+            # the loop maps aarch64 flags to x86 eflags, which is the basis for out flags data structure
+            for f in ["C", "", "", "Z", "N", "", "", "", "V"]:
+                if flag_values[f][0] and flag_values[f][1]:
+                    flag_op.values.append("r/w")
+                elif flag_values[f][0] and not flag_values[f][1]:
+                    flag_op.values.append("r")
+                elif not flag_values[f][0] and flag_values[f][1]:
+                    flag_op.values.append("w")
+                else:
+                    flag_op.values.append("")
+        else:
+            flag_op = None
+        return flag_op
+
+    def parse_asm_template_text(self, text: str):
+        op_type_hint = ""
+        optional_depth = 0
+        for word in text.split(" "):
+            if not word:
                 continue
 
-            self.instructions.append(self.instruction)
+            if word == self.current_spec.name:
+                continue
+
+            # operand name
+            if word[0] == "<":
+                assert word[-1] == ">"
+                continue
+
+            # indexing modes - not yet supported
+            if "!" in word:
+                raise ParseFailed()
+
+            # multivariant operands - not yet supported
+            if "|" in word or "(" in word:
+                raise ParseFailed()
+
+            # optional value
+            if "{" in word:
+                optional_depth += 1
+                continue
+
+            if "}" in word:
+                optional_depth -= 1
+                continue
+
+            # immediate value
+            if word == "#":
+                op_type_hint = "IMM"
+                continue
+
+            # memory address - start
+            if word == "[":
+                op_type_hint = "MEM"
+                continue
+
+            # memory address - end
+            if word == "]":
+                op_type_hint = ""
+                continue
+
+            if word == "LSL":
+                op_type_hint = "LSL"
+                continue
+
+            if word in [",", "],"]:
+                op_type_hint = ""
+                continue
+            assert False, f"Unknown keyword: {word} in {self.current_spec.name}"
+
+        return op_type_hint, optional_depth
+
+    def parse_hover_text(self, text: str, type_hint: str) -> OperandSpec:
+        text = text.removeprefix("first ")
+        text = text.removeprefix("second ")
+        text = text.removeprefix("third ")
+
+        op = OperandSpec()
+        op.dest = ("destination" in text)
+        op.src = ("source" in text)
+        op.comment = text
+
+        if "MEM" == type_hint:
+            return self.parse_mem_operand(op, text)
+
+        if "IMM" == type_hint:
+            op.type_ = "IMM"
+            op.src = True
+            op.dest = False
+
+            range_match = re.search(r"\[-?\d+-\d+\]", text)
+            if range_match:
+                op.values = [range_match.group(0)]
+                op.width = 0
+            elif "bit " in text:
+                if "five" in text and "positive" in text:
+                    op.values = ["[0-31]"]
+                    op.width = 5
+                else:
+                    assert False, f"{self.current_spec.name} {text}"
+            elif "bitmask immediate" in text:
+                op.values = ["bitmask"]
+                op.width = self.current_spec.operands[0].width
+            else:
+                assert False, f"{self.current_spec.name} {text}"
+            assert "register" not in text and "label" not in text, \
+                f"{self.current_spec.name} {text}"
+            return op
+
+        if "register" in text:
+            return self.parse_reg_operand(op, text, type_hint)
+
+        if "label" in text:
+            op.type_ = "LABEL"
+            op.values = []
+            op.width = 0
+            op.src = True
+            return op
+
+        if "standard condition" in text:
+            return self.parse_cond_operand(op, text)
+
+        raise ParseFailed()
+
+    def parse_cond_operand(self, op, text: str):
+        op.type_ = "COND"
+        op.values = []
+        op.width = 0
+        if "except" not in text:
+            return op
+
+        raise ParseFailed()
+
+    def parse_mem_operand(self, op, text: str):
+        op.type_ = "MEM"
+        op.width = 32 if "32-bit" in text else 64
+        assert "base" in text or "address" in text, f"{self.current_spec.name} {text}"
+        assert op.width == 32 or "64-bit" in text or "-bit" not in text, \
+            f"{self.current_spec.name} {text}"
+
+        if op.dest or op.src:
+            return op
+
+        if self.current_spec.name[:3] == "LDR":
+            op.src = True
+            return op
+
+        if self.current_spec.name[:3] == "STR":
+            op.dest = True
+            return op
+
+        raise ParseFailed()
+
+    def parse_reg_operand(self, op, text: str, type_hint):
+        if "to be branched" in text:
+            raise ParseFailed()
+
+        op.type_ = "REG"
+        op.width = 32 if "32-bit" in text else 64
+        op.values = ["GPR"]
+        if " wsp" in text or " sp" in text:
+            op.values.append("SP")
+        if "zr" in text:
+            op.values.append("ZR")
+        assert type_hint == "", f"{self.current_spec.name} {text}"
+        assert "general-purpose" in text, f"{self.current_spec.name} {text}"
+        assert op.width == 32 or "64-bit" in text or "-bit" not in text, \
+            f"{self.current_spec.name} {text}"
+
+        if op.dest or op.src:
+            return op
+
+        op.dest = ("stored" in text)
+        op.src = ("loaded" in text)
+        if op.dest or op.src:
+            return op
+
+        op.dest = ("output" in text)
+        op.src = ("input" in text)
+        if op.dest or op.src:
+            return op
+
+        if "tested" in text:
+            op.src = True
+            return op
+
+        if self.current_spec.name[:3] == "LDR":
+            op.dest = True
+            return op
+
+        if self.current_spec.name[:3] == "STR":
+            op.src = True
+            return op
+
+        raise ParseFailed()
 
     def save(self, filename: str):
         json_str = "[\n" + ",\n".join([i.to_json() for i in self.instructions]) + "\n]"
@@ -180,238 +422,36 @@ class aarch64Transformer:
         with open(filename, "w+") as f:
             f.write(json_str)
 
-    def parse_reg_operand(self, op):
-        spec = OperandSpec()
-        spec.type_ = "REG"
-        spec.values = op.text.lower().split(',')
-        spec.src = True if op.attrib.get('r', "0") == "1" else False
-        spec.dest = True if op.attrib.get('w', "0") == "1" else False
-        spec.width = int(op.attrib.get('width', 0))
-        if spec.width == 0:
-            if spec.values[0] in self.reg_sizes:
-                spec.width = self.reg_sizes[spec.values[0]]
-            else:
-                raise ParseFailed(f"Unsupported register operand {spec.values[0]}")
-        return spec
-
-    @staticmethod
-    def parse_mem_operand(op):
-        # asserts are for unsupported instructions
-        if op.attrib.get('VSIB', '0') != '0':
-            raise ParseFailed("Vector SIB memory addressing is not supported")
-        # assert op.attrib.get('VSIB', '0') == '0'  # asm += '[' + op.attrib.get('VSIB') + '0]'
-        if op.attrib.get('memory-suffix', '') != '':
-            raise ParseFailed(f"Unsupported memory suffix {op.attrib.get('memory-suffix', '')}")
-
-        choices = []
-        if op.attrib.get('base', ''):
-            choices = [op.attrib.get('base', '')]
-
-        spec = OperandSpec()
-        spec.type_ = "MEM"
-        spec.values = choices
-        spec.src = True if op.attrib.get('r', "0") == "1" else False
-        spec.dest = True if op.attrib.get('w', "0") == "1" else False
-        spec.width = int(op.attrib.get('width'))
-        return spec
-
-    @staticmethod
-    def parse_agen_operand(op):
-        spec = OperandSpec()
-        spec.type_ = "AGEN"
-        spec.values = []
-        spec.src = True
-        spec.dest = False
-        spec.width = 64
-        return spec
-
-    @staticmethod
-    def parse_imm_operand(op):
-        spec = OperandSpec()
-        spec.type_ = "IMM"
-        if op.attrib.get('implicit', '0') == '1':
-            spec.values = [op.text]
-        else:
-            spec.values = []
-        spec.src = True
-        spec.dest = False
-        spec.width = int(op.attrib.get('width'))
-        if op.attrib.get('s', '1') == '0':
-            spec.signed = False
-        return spec
-
-    @staticmethod
-    def parse_label_operand(_):
-        spec = OperandSpec()
-        spec.type_ = "LABEL"
-        spec.values = []
-        spec.src = True
-        spec.dest = False
-        spec.width = 0
-        return spec
-
-    @staticmethod
-    def parse_flags_operand(op):
-        spec = OperandSpec()
-        spec.type_ = "FLAGS"
-        spec.values = [
-            op.attrib.get("flag_CF", ""),
-            op.attrib.get("flag_PF", ""),
-            op.attrib.get("flag_AF", ""),
-            op.attrib.get("flag_ZF", ""),
-            op.attrib.get("flag_SF", ""),
-            op.attrib.get("flag_TF", ""),
-            op.attrib.get("flag_IF", ""),
-            op.attrib.get("flag_DF", ""),
-            op.attrib.get("flag_OF", ""),
-        ]
-        spec.src = False
-        spec.dest = False
-        spec.width = 0
-        return spec
-
-    def add_missing(self, extensions):
-        """ adds the instructions specs that are missing from the XML file we use """
-        if not extensions or "CLFSH" in extensions:
-            for width in [8, 16, 32, 64]:
-                inst = InstructionSpec()
-                inst.name = "clflush"
-                inst.category = "CLFSH-MISC"
-                inst.control_flow = False
-                op = OperandSpec()
-                op.type_ = "MEM"
-                op.values = []
-                op.src = True
-                op.dest = False
-                op.width = width
-                inst.operands = [op]
-                self.instructions.append(inst)
-
-        if not extensions or "CLFLUSHOPT" in extensions:
-            for width in [8, 16, 32, 64]:
-                inst = InstructionSpec()
-                inst.name = "clflushopt"
-                inst.category = "CLFLUSHOPT-CLFLUSHOPT"
-                inst.control_flow = False
-                op = OperandSpec()
-                op.type_ = "MEM"
-                op.values = []
-                op.src = True
-                op.dest = False
-                op.width = width
-                inst.operands = [op]
-                self.instructions.append(inst)
-
-        if not extensions or "BASE" in extensions:
-            inst = InstructionSpec()
-            inst.name = "int1"
-            inst.category = "BASE-INTERRUPT"
-            inst.control_flow = False
-            op1 = OperandSpec()
-            op1.type_, op1.src, op1.dest, op1.width = "REG", False, True, 64
-            op1.values = ["rip"]
-            op2 = OperandSpec()
-            op2.type_, op2.src, op2.dest, op2.width = "FLAGS", False, False, 0
-            op2.values = ["", "", "", "", "", "w", "w", "", ""]
-            inst.implicit_operands = [op1, op2]
-            self.instructions.append(inst)
-
-        if not extensions or "MPX" in extensions:
-            for name in ["bndcl", "bndcu"]:
-                inst = InstructionSpec()
-                inst.name = name
-                inst.category = "MPX-MPX"
-                inst.control_flow = False
-                op1 = OperandSpec()
-                op1.type_, op1.src, op1.dest, op1.width = "REG", True, False, 128
-                op1.values = ["bnd0", "bnd1", "bnd2", "bnd3"]
-                op2 = OperandSpec()
-                op2.type_, op2.src, op2.dest, op2.width = "MEM", True, False, 64
-                op2.values = []
-                inst.operands = [op1, op2]
-                self.instructions.append(inst)
-
-    def _check_extension_list(self, extensions: List[str]):
-        # get a list of all available extensions
-        available_extensions = set()
-        for instruction_node in self.tree.iter('instruction'):
-            available_extensions.add(instruction_node.attrib['extension'])
-
-        # check if the requested extensions are available
-        for ext in extensions:
-            if ext not in available_extensions:
-                print(f"ERROR: Unknown extension {ext}")
-                print("\nAvailable extensions:")
-                print(list(available_extensions))
-
-
-SAFE_EXTENSIONS = [
-    "BASE",
-    "SSE",
-    "SSE2",
-    "SSE3",
-    "SSE4",
-    "SSE4a",
-    "CLFLUSHOPT",
-    "CLFSH",
-    "MPX",
-    "SSE",
-    "RDTSCP",
-    "LONGMODE",
-]
-
-ALL_EXTENSIONS = SAFE_EXTENSIONS + [
-    "VTX",
-    "SVM",
-    "SMX",
-    "WBNOINVD",
-    "XSAVE",
-    "XSAVEOPT",
-    "XSAVES",
-    "SGX",
-    "ENQCMD",
-    "INVPCID",
-    "KEYLOCKER",
-    "MONITOR",
-    "PAUSE",
-    "RDRAND",
-    "RDSEED",
-    "RDWRFSGS",
-    "HRESET",
-    "SYSRET",
-    "SMAP",
-    "AMD_INVLPGB",
-    "SNP",
-]
-
 
 class Downloader:
-
-    def __init__(self, extensions: List[str], out_file: str) -> None:
-        if "ALL_SUPPORTED" in extensions:
-            extensions.extend(SAFE_EXTENSIONS)
-            extensions = list(set(extensions))
-        elif "ALL_AND_UNSAFE" in extensions:
-            extensions.extend(ALL_EXTENSIONS)
-            extensions = list(set(extensions))
-        self.extensions = extensions
+    def __init__(self, out_file: str) -> None:
         self.out_file = out_file
 
     def run(self):
         print("> Downloading complete instruction spec...")
         subprocess.run(
-            "curl -L -o x86_instructions.xml "
-            "https://github.com/microsoft/sca-fuzzer/releases/download/v1.2.4/x86_instructions.xml",
+            "wget "
+            "https://developer.arm.com/-/cdn-downloads/permalink/Exploration-Tools-A64-ISA/ISA_A64/ISA_A64_xml_A_profile-2024-12.tar.gz",
             shell=True,
             check=True)
 
+        subprocess.run("mkdir -p all", shell=True, check=True)
+        subprocess.run("mkdir -p instructions", shell=True, check=True)
+        subprocess.run("tar xf ISA_A64_xml_A_profile-2022-03.tar.gz -C all", shell=True, check=True)
+        subprocess.run(
+            "mv all/ISA_A64_xml_A_profile-2022-03/*.xml instructions/", shell=True, check=True)
+        subprocess.run("rm ISA_A64_xml_A_profile-2022-03.tar.gz*", shell=True, check=True)
+        os.remove("instructions/encodingindex.xml")
+        os.remove("instructions/onebigfile.xml")
+        subprocess.run("rm -r all", shell=True, check=True)
+
+        files = glob.glob("instructions/*.xml")
+
         print("\n> Filtering and transforming the instruction spec...")
-        try:
-            transformer = X86Transformer()
-            transformer.load_files("x86_instructions.xml")
-            transformer.parse_tree(self.extensions)
-            transformer.add_missing(self.extensions)
-            print(f"Produced base.json with {len(transformer.instructions)} instructions")
-            transformer.save(self.out_file)
-        finally:
-            subprocess.run("rm x86_instructions.xml", shell=True, check=True)
+        transformer = Aarch64Transformer()
+        transformer.load_files(files)
+        transformer.parse_tree()
+        print(f"Produced base.json with {len(transformer.instructions)} instructions")
+        transformer.save("base.json")
+        subprocess.run("rm -r instructions", shell=True, check=True)
+

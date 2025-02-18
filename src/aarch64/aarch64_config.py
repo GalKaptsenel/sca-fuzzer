@@ -6,79 +6,57 @@ SPDX-License-Identifier: MIT
 """
 from typing import List
 
-
 def try_get_cpu_vendor():
-    with open('/proc/cpuinfo', 'r') as f:
-        for line in f:
-            if 'AuthenticAMD' in line:
-                return 'x86-64-amd'
-            if 'GenuineIntel' in line:
-                return 'x86-64-intel'
-        else:
-            return 'x86-64-intel'
-
+    return "aarch64"
 
 _option_values = {
     'executor': [
-        'x86-64-intel',
-        'x86-64-amd',
+        'aarch64',
     ],
     'executor_mode': [
         'P+P',
         'F+R',
-        'E+R',
-        'PP+P',
-        'TSC',
-        # 'GPR' is intentionally left out
     ],
     'generator_faults_allowlist': [
-        'div-by-zero',
-        'div-overflow',
-        'opcode-undefined',
-        'bounds-range-exceeded',
-        'breakpoint',
-        'debug-register',
-        'non-canonical-access',
-        'user-to-kernel-access',
     ],
     'actor': [
-        'name',
-        'mode',
-        'privilege_level',
-        'data_properties',
-        'data_ept_properties',
-        'observer',
-        'instruction_blocklist',
-        'fault_blocklist',
+        # 'name',
+        # 'mode',
+        # 'privilege_level',
+        # 'data_properties',
+        # 'data_ept_properties',
+        # 'observer',
+        # 'instruction_blocklist',
+        # 'fault_blocklist',
     ],
     "actor_mode": [
-        'host',
-        'guest',
+        # 'host',
+        # 'guest',
     ],
     "actor_privilege_level": [
-        'kernel',
-        'user',
+        # 'kernel',
+        # 'user',
     ],
     "actor_data_properties": [
-        'present',
-        'writable',
-        'user',
-        'write-through',
-        'cache-disable',
-        'accessed',
-        'dirty',
-        'executable',
-        'reserved_bit',
-        'randomized',
+        # 'present',
+        # 'writable',
+        # 'user',
+        # 'write-through',
+        # 'cache-disable',
+        # 'accessed',
+        # 'dirty',
+        # 'executable',
+        # 'reserved_bit',
+        # 'randomized',
     ],
     "actor_data_ept_properties": [
-        "present",
-        "writable",
-        "executable",
-        "accessed",
-        "dirty",
-        'reserved_bit',
-        'randomized',
+        # "present",
+        # "writable",
+        # "executable",
+        # "accessed",
+        # "dirty",
+        # 'reserved_bit',
+        # 'randomized',
     ],
     'instruction_categories': [
         # Base x86 - user instructions
@@ -150,19 +128,19 @@ _option_values = {
 }
 
 # by default, we always handle page faults
-_handled_faults: List[str] = ["PF"]
+# _handled_faults: List[str] = ["PF"]
 
-x86_executor_enable_prefetcher: bool = False
+aarch64_executor_enable_prefetcher: bool = False
 """ x86_executor_enable_prefetcher: enable all prefetchers"""
-x86_executor_enable_ssbp_patch: bool = True
+aarch64_executor_enable_ssbp_patch: bool = True
 """ x86_executor_enable_ssbp_patch: enable a patch against Speculative Store Bypass"""
-x86_enable_hpa_gpa_collisions: bool = False
-""" x86_enable_hpa_gpa_collisions: enable collisions between HPA and GPA;
-useful for testing Foreshadow-like leaks"""
-x86_disable_div64: bool = True
+# x86_enable_hpa_gpa_collisions: bool = False
+# """ x86_enable_hpa_gpa_collisions: enable collisions between HPA and GPA;
+# useful for testing Foreshadow-like leaks"""
+aarch64_disable_div64: bool = True
 """ x86_disable_div64: do not generate 64-bit division instructions """
-x86_generator_align_locks: bool = True
-""" x86_generator_align_locks: align all generated locks to 8 bytes """
+# x86_generator_align_locks: bool = True
+# """ x86_generator_align_locks: align all generated locks to 8 bytes """
 
 # Overwrite executor
 executor: str = try_get_cpu_vendor()
@@ -172,63 +150,52 @@ instruction_categories: List[str] = ["BASE-BINARY", "BASE-BITBYTE", "BASE-COND_B
 """ instruction_categories: a default list of tested instruction categories """
 
 _buggy_instructions: List[str] = [
-    "sti",  # enables interrupts
-    "cli",  # disables interrupts; blocked just in case
-    "xlat",  # requires support of segment registers
-    "xlatb",  # requires support of segment registers
-    "cmpxchg8b",  # known bug: doesn't execute the mem. access hook
-    "lock cmpxchg8b",  # https://github.com/unicorn-engine/unicorn/issues/990
-    "cmpxchg16b",  # known bug: doesn't execute the mem. access hook
-    "lock cmpxchg16b",  # https://github.com/unicorn-engine/unicorn/issues/990
-    "cpuid",  # causes false positives: the model and the CPU will likely have different values
-    "cmpps",  # causes crash
-    "cmpss",  # causes crash
-    'cmppd',  # causes crash
-    'cmpsd',  # causes crash
-    "movq2dq",  # requires MMX
-    'movdq2q',  # requires MMX
-    "rcpps",  # incorrect emulation
-    "rcpss",  # incorrect emulation
-    "maskmovdqu",  # incorrect emulation
+    # "sti",  # enables interrupts
+    # "cli",  # disables interrupts; blocked just in case
+    # "xlat",  # requires support of segment registers
+    # "xlatb",  # requires support of segment registers
+    # "cmpxchg8b",  # known bug: doesn't execute the mem. access hook
+    # "lock cmpxchg8b",  # https://github.com/unicorn-engine/unicorn/issues/990
+    # "cmpxchg16b",  # known bug: doesn't execute the mem. access hook
+    # "lock cmpxchg16b",  # https://github.com/unicorn-engine/unicorn/issues/990
+    # "cpuid",  # causes false positives: the model and the CPU will likely have different values
+    # "cmpps",  # causes crash
+    # "cmpss",  # causes crash
+    # 'cmppd',  # causes crash
+    # 'cmpsd',  # causes crash
+    # "movq2dq",  # requires MMX
+    # 'movdq2q',  # requires MMX
+    # "rcpps",  # incorrect emulation
+    # "rcpss",  # incorrect emulation
+    # "maskmovdqu",  # incorrect emulation
 ]
 
 instruction_blocklist: List[str] = [
-    # Hard to fix:
-    # - Requires complex instrumentation
-    "enterw", "enter", "leavew", "leave",
-    # - requires support of all possible interrupts
-    "int",
-    # - system management instruction
-    "encls", "vmxon", "stgi", "skinit", "ldmxcsr", "stmxcsr",
-
-    # - not supported
-    "lfence", "mfence", "sfence", "clflush", "clflushopt",
-
-    # - under construction
-    # -- trigger FPVI (we have neither a contract nor an instrumentation for it yet)
-    "divps", "divss", 'divpd', 'divsd',
-    "mulss", "mulps", 'mulpd', 'mulsd',
-    "rsqrtps", "rsqrtss", "sqrtps", "sqrtss", 'sqrtpd', 'sqrtsd',
-    'addps', 'addss', 'addpd', 'addsd',
-    'subps', 'subss', 'subpd', 'subsd',
-    'addsubpd', 'addsubps', 'haddpd', 'haddps', 'hsubpd', 'hsubps',
+    # # Hard to fix:
+    # # - Requires complex instrumentation
+    # "enterw", "enter", "leavew", "leave",
+    # # - requires support of all possible interrupts
+    # "int",
+    # # - system management instruction
+    # "encls", "vmxon", "stgi", "skinit", "ldmxcsr", "stmxcsr",
+    #
+    # # - not supported
+    # "lfence", "mfence", "sfence", "clflush", "clflushopt",
+    #
+    # # - under construction
+    # # -- trigger FPVI (we have neither a contract nor an instrumentation for it yet)
+    # "divps", "divss", 'divpd', 'divsd',
+    # "mulss", "mulps", 'mulpd', 'mulsd',
+    # "rsqrtps", "rsqrtss", "sqrtps", "sqrtss", 'sqrtpd', 'sqrtsd',
+    # 'addps', 'addss', 'addpd', 'addsd',
+    # 'subps', 'subss', 'subpd', 'subsd',
+    # 'addsubpd', 'addsubps', 'haddpd', 'haddps', 'hsubpd', 'hsubps',
 ]  # yapf: disable
 instruction_blocklist.extend(_buggy_instructions)
 
-# x86 executor internally uses R8...R15, RSP, RBP and, thus, they are excluded
-# segment registers are also excluded as we don't support their handling so far
-# same for CR* and DR*
+# aarch64 executor internally uses x15...x22, x30, SP, thus, they are excluded
 register_blocklist: List[str] = [
-    # free - rax, rbx, rcx, rdx, rdi, rsi
-    'r8', 'r9', 'r10', 'r11', 'r12', 'r13', 'r14', 'r15', 'rsp', 'rbp',
-    'r8d', 'r9d', 'r10d', 'r11d', 'r12d', 'r13d', 'r14d', 'r15d', 'esp', 'ebp',
-    'r8w', 'r9w', 'r10w', 'r11w', 'r12w', 'r13w', 'r14w', 'r15w', 'sp', 'bp',
-    'r8b', 'r9b', 'r10b', 'r11b', 'r12b', 'r13b', 'r14b', 'r15b', 'spl', 'bpl',
-    'es', 'cs', 'ss', 'ds', 'fs', 'gs',
-    'cr0', 'cr2', 'cr3', 'cr4', 'cr8',
-    'dr0', 'dr1', 'dr2', 'dr3', 'dr4', 'dr5', 'dr6', 'dr7',
-    "xcr0", "gdtr", "ldtr", "idtr", "tr", "fsbase", "gsbase", "msrs", "x87control", "tsc", "tscaux",
-
-    # XMM8-15 are somehow broken in Unicorn
-    "xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13", "xmm14", "xmm15",
+    # free - x0 - x14, x23-x29
+    *[f'x{number}' for number in range(15, 23)], 'x30', 'sp',
+    *[f'w{number}' for number in range(15, 23)], 'w30', 'wsp',
 ]  # yapf: disable

@@ -15,62 +15,15 @@ from ..interfaces import TestCase, Input, InstructionSetAbstract, Violation, Mea
     HTrace, HardwareTracingError, CTrace
 from ..util import STAT, Logger
 from ..config import CONF
-from .aarch64_config import _buggy_instructions
-from .aarch64_executor import X86Executor, X86IntelExecutor
+from .aarch64_executor import Aarch64Executor
 
 
 # ==================================================================================================
 # Helper functions
 # ==================================================================================================
-def update_instruction_list():
-    """
-    Remove those instructions that trigger unhandled exceptions.
-    This functionality is implemented as a module-level function
-    to avoid code duplication between X86Fuzzer and X86ArchitecturalFuzzer
-    """
-    if 'opcode-undefined' not in CONF.generator_faults_allowlist:
-        CONF.instruction_blocklist.extend(["ud", "ud2"])
-    if 'bounds-range-exceeded' not in CONF.generator_faults_allowlist:
-        CONF.instruction_blocklist.extend(['bound', 'bndcl', 'bndcu'])
-    if 'breakpoint' not in CONF.generator_faults_allowlist:
-        CONF.instruction_blocklist.extend(["int3"])
-    if 'debug-register' not in CONF.generator_faults_allowlist:
-        CONF.instruction_blocklist.extend(["int1"])
-
-
-def check_instruction_list(instruction_set: InstructionSetAbstract):
-    LOG = Logger()
-
-    # Check if the instruction set contains the instructions required for the faults
-    cpu_flags = run("grep 'flags' /proc/cpuinfo", shell=True, capture_output=True).stdout.decode()
-    all_instruction_names = set([i.name for i in instruction_set.instructions])
-    if 'div-by-zero' in CONF.generator_faults_allowlist:
-        if 'div' not in all_instruction_names and 'idiv' not in all_instruction_names:
-            LOG.warning("fuzzer", "div-by-zero enabled, but DIV/IDIV instructions are missing")
-    if 'div-overflow' in CONF.generator_faults_allowlist:
-        if 'div' not in all_instruction_names and 'idiv' not in all_instruction_names:
-            LOG.warning("fuzzer", "div-overflow enabled, but DIV/IDIV instructions are missing")
-    if 'bounds-range-exceeded' in CONF.generator_faults_allowlist:
-        if "bndcu" not in all_instruction_names:
-            LOG.warning("fuzzer", "bounds-range-exceeded enabled, but BNDCU instruction is missing")
-        assert "mpx" in cpu_flags
-    if 'breakpoint' in CONF.generator_faults_allowlist:
-        if 'int3' not in all_instruction_names:
-            LOG.warning("fuzzer", "breakpoint enabled, but INT3 instruction is missing")
-    if 'debug-register' in CONF.generator_faults_allowlist:
-        if 'int1' not in all_instruction_names:
-            LOG.warning("fuzzer", "debug-register enabled, but INT1 instruction is missing")
-
-    # Print a warning if the instruction set contains instructions that are known to be problematic
-    for inst_name in _buggy_instructions:
-        if inst_name in all_instruction_names and not CONF._no_generation:
-            LOG.warning(
-                "fuzzer", f"Instruction {inst_name} is known to cause false positives\n"
-                "Consider adding it to instruction_blocklist")
-
 
 @contextmanager
-def quick_and_dirty_mode(executor: X86Executor) -> Generator[None, None, None]:
+def quick_and_dirty_mode(executor: Aarch64Executor) -> Generator[None, None, None]:
     """
     Context manager that enables us to use quick and dirty mode in the form of `with` statement
     """
@@ -104,17 +57,8 @@ def create_fenced_test_case(test_case: TestCase, fenced_name: str, asm_parser) -
 # ==================================================================================================
 # Fuzzer classes
 # ==================================================================================================
-class X86Fuzzer(FuzzerGeneric):
-    executor: X86IntelExecutor
-
-    def _adjust_config(self, existing_test_case):
-        super()._adjust_config(existing_test_case)
-        update_instruction_list()
-
-    def _start(self, num_test_cases: int, num_inputs: int, timeout: int, nonstop: bool,
-               save_violations: bool) -> bool:
-        check_instruction_list(self.instruction_set)
-        return super()._start(num_test_cases, num_inputs, timeout, nonstop, save_violations)
+class Aarch64Fuzzer(FuzzerGeneric):
+    executor: Aarch64Executor
 
     def filter(self, test_case: TestCase, inputs: List[Input]) -> bool:
         """
@@ -181,29 +125,10 @@ class X86Fuzzer(FuzzerGeneric):
             return False
 
 
-class X86ArchitecturalFuzzer(ArchitecturalFuzzer):
-
-    def _adjust_config(self, existing_test_case):
-        super()._adjust_config(existing_test_case)
-        update_instruction_list()
-
-    def _start(self, num_test_cases: int, num_inputs: int, timeout: int, nonstop: bool,
-               save_violations: bool) -> bool:
-        check_instruction_list(self.instruction_set)
-        return super()._start(num_test_cases, num_inputs, timeout, nonstop, save_violations)
-
-
-class X86ArchDiffFuzzer(FuzzerGeneric):
-    executor: X86IntelExecutor
-
-    def _adjust_config(self, existing_test_case):
-        super()._adjust_config(existing_test_case)
-        update_instruction_list()
-
-    def _start(self, num_test_cases: int, num_inputs: int, timeout: int, nonstop: bool,
-               save_violations: bool) -> bool:
-        check_instruction_list(self.instruction_set)
-        return super()._start(num_test_cases, num_inputs, timeout, nonstop, save_violations)
+class Aarch64ArchitecturalFuzzer(ArchitecturalFuzzer):
+    pass
+class Aarch64ArchDiffFuzzer(FuzzerGeneric):
+    executor: Aarch64Executor
 
     def _build_dummy_ecls(self) -> Violation:
         inputs = [Input()]
@@ -215,7 +140,10 @@ class X86ArchDiffFuzzer(FuzzerGeneric):
     def fuzzing_round(self,
                       test_case: TestCase,
                       inputs: List[Input],
-                      _: List[int] = []) -> Optional[Violation]:
+                      _: List[int] = None) -> Optional[Violation]:
+        if _ is None:
+            _ = []
+
         with quick_and_dirty_mode(self.executor):
             # collect non-fenced traces
             self.arch_executor.load_test_case(test_case)

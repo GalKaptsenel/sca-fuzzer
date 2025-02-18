@@ -8,11 +8,15 @@ SPDX-License-Identifier: MIT
 from typing import Tuple, Dict, Type, List, Callable
 
 from . import input_generator, analyser, postprocessor, interfaces, model
-from .x86 import x86_model, x86_executor, x86_fuzzer, x86_generator, x86_asm_parser, get_spec
+from .x86 import (x86_model, x86_executor, x86_fuzzer, x86_generator, x86_asm_parser,
+                  get_spec as x86_get_spec)
+from .aarch64 import (aarch64_model, aarch64_executor, aarch64_fuzzer, aarch64_generator, aarch64_asm_parser,
+                      get_spec as aarch64_get_spec)
 from .config import CONF, ConfigException
 
 GENERATORS: Dict[str, Type[interfaces.Generator]] = {
-    "x86-64-random": x86_generator.X86RandomGenerator
+    "x86-64-random": x86_generator.X86RandomGenerator,
+    "aarch64-random": aarch64_generator.Aarch64RandomGenerator,
 }
 
 INPUT_GENERATORS: Dict[str, Type[interfaces.InputGenerator]] = {
@@ -63,6 +67,7 @@ X86_EXECUTION_CLAUSES: Dict[str, Type[x86_model.UnicornModel]] = {
 EXECUTORS = {
     'x86-64-intel': x86_executor.X86IntelExecutor,
     'x86-64-amd': x86_executor.X86AMDExecutor,
+    'aarch64': aarch64_executor.Aarch64Executor,
 }
 
 ANALYSERS: Dict[str, Type[interfaces.Analyser]] = {
@@ -77,11 +82,13 @@ MINIMIZERS: Dict[str, Type[interfaces.Minimizer]] = {
 }
 
 SPEC_DOWNLOADERS: Dict[str, Type] = {
-    'x86-64': get_spec.Downloader,
+    'x86-64': x86_get_spec.Downloader,
+    'aarch64': aarch64_get_spec.Downloader,
 }
 
 ASM_PARSERS: Dict[str, Type] = {
     'x86-64': x86_asm_parser.X86AsmParser,
+    'aarch64': aarch64_asm_parser.Aarch64AsmParser,
 }
 
 
@@ -109,6 +116,8 @@ def get_fuzzer(instruction_set, working_directory, testcase, inputs):
     elif CONF.fuzzer == "basic":
         if CONF.instruction_set == "x86-64":
             return x86_fuzzer.X86Fuzzer(instruction_set, working_directory, testcase, inputs)
+        elif CONF.instruction_set == "aarch64":
+            return aarch64_fuzzer.Aarch64Fuzzer(instruction_set, working_directory, testcase, inputs)
         raise ConfigException("ERROR: unknown value of `instruction_set` configuration option")
     raise ConfigException("ERROR: unknown value of `fuzzer` configuration option")
 

@@ -15,7 +15,7 @@ from typing import List, Tuple, Set, Generator
 from ..interfaces import HTrace, Input, TestCase, Executor, HardwareTracingError
 from ..config import CONF
 from ..util import Logger, STAT
-from .aarch64_target_desc import X86TargetDesc
+from .aarch64_target_desc import Aarch64TargetDesc
 
 
 # ==================================================================================================
@@ -451,26 +451,13 @@ class X86Executor(Executor):
 # ==================================================================================================
 # Vendor-specific executors
 # ==================================================================================================
-class X86IntelExecutor(X86Executor):
+class Aarch64Executor(X86Executor):
 
     def __init__(self, *args):
         super().__init__(*args)
-        if self.target_desc.cpu_desc.vendor != "Intel":
+        if self.target_desc.cpu_desc.vendor.lower() != "arm": # Technically ARM currently does not produce ARM processors, and other vendors do produce ARM processors
             self.LOG.error(
-                "Attempting to run Intel executor on a non-Intel CPUs!\n"
-                "Change the `executor` configuration option to the appropriate vendor value.")
-
-    def set_vendor_specific_features(self):
-        km_write("1" if "BR" in CONF._handled_faults else "0", "/sys/x86_executor/enable_mpx")
-
-
-class X86AMDExecutor(X86Executor):
-
-    def __init__(self, *args):
-        super().__init__(*args)
-        if self.target_desc.cpu_desc.vendor != "AMD":
-            self.LOG.error(
-                "Attempting to run AMD executor on a non-AMD CPUs!\n"
+                "Attempting to run ARM executor on a non-ARM CPUs!\n"
                 "Change the `executor` configuration option to the appropriate vendor value.")
 
     def set_vendor_specific_features(self):
