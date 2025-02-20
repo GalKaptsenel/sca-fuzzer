@@ -84,7 +84,7 @@ class ConfigurableGenerator(Generator, abc.ABC):
             self.load_instruction = []
             self.store_instructions = []
 
-    def set_seed(self, seed: int) -> None:
+    def set_seed(self, seed: int) -> None: # TODO: Identical to parent class implementation!
         self._state = seed
 
     def update_seed(self) -> None:
@@ -195,7 +195,7 @@ class ConfigurableGenerator(Generator, abc.ABC):
             return msg
 
         try:
-            out = run(f"as {asm_file} -o {obj_file}", shell=True, check=True, capture_output=True)
+            out = run(f"aarch64-linux-gnu-as {asm_file} -o {obj_file}", shell=True, check=True, capture_output=True) # TODO: extract assembler to configuration
         except CalledProcessError as e:
             error_msg = e.stderr.decode()
             if "Assembler messages:" in error_msg:
@@ -238,7 +238,7 @@ class ConfigurableGenerator(Generator, abc.ABC):
                 for bit_name in bits:
                     if bits[bit_name][1] != properties[bit_name]:
                         count_non_default += 1
-                probability_of_default = count_non_default / len(properties)
+                probability_of_default = count_non_default / len(properties) # TODO: what is the reasoning between this probability computation?
 
             # create the mask
             mask = 0
@@ -483,8 +483,12 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
                 range_ = range_[1:]
                 range_[0] = "-" + range_[0]
             assert len(range_) == 2
-            value = str(random.randint(int(range_[0]), int(range_[1])))
-            ImmediateOperand(value, spec.width)
+            num0 = int(range_[0]) - 1
+            num1 = int(range_[1]) - 1
+            smaller = min(num0, num1)
+            bigger = max(num0, num1)
+            value = str(random.randint(smaller, bigger))
+            return ImmediateOperand(value, spec.width)
 
         # generate from width
         if spec.signed:

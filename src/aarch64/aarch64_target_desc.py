@@ -13,6 +13,26 @@ from ..model import UnicornTargetDesc
 from ..config import CONF
 
 class Aarch64TargetDesc(TargetDesc):
+
+    branch_conditions = {
+    "EQ": ["", "", "", "r", "", "", "", "", ""],
+    "NE": ["", "", "", "r", "", "", "", "", ""],
+    "CS": ["r", "", "", "", "", "", "", "", ""],
+    "CC": ["r", "", "", "", "", "", "", "", ""],
+    "MI": ["", "", "", "", "r", "", "", "", ""],
+    "PL": ["", "", "", "", "r", "", "", "", ""],
+    "VS": ["", "", "", "", "", "", "", "", "r"],
+    "VC": ["", "", "", "", "", "", "", "", "r"],
+    "HI": ["r", "", "", "r", "", "", "", "", ""],
+    "LS": ["r", "", "", "r", "", "", "", "", ""],
+    "GE": ["", "", "", "", "r", "", "", "", "r"],
+    "LT": ["", "", "", "", "r", "", "", "", "r"],
+    "GT": ["", "", "", "r", "r", "", "", "", "r"],
+    "LE": ["", "", "", "r", "r", "", "", "", "r"],
+    "AL": ["", "", "", "", "", "", "", "", ""]
+    }
+
+ 
     register_sizes = {
         **{f"x{i}": 64 for i in range(31)},
         **{f"w{i}": 32 for i in range(31)},
@@ -78,11 +98,8 @@ class Aarch64TargetDesc(TargetDesc):
         "PC": {64: "pc", 32: "pc", 16: "pc", 8: "pc"},
     }  # yapf: disable
     registers = {
-        8:      [f"b{i}" for i in range(32)],
-        16:     [f"h{i}" for i in range(32)],
-        32:     [*[f"s{i}" for i in range(32)], *[f"w{i}" for i in range(31)], "wsp", "wzr"],
-        64:     [*[f"d{i}" for i in range(32)], *[f"x{i}" for i in range(31)], "sp", "xzr"],
-        128:    [f"v{i}" for i in range(32)],
+        32:     [*[f"w{i}" for i in range(31)], "wzr"],
+        64:     [*[f"x{i}" for i in range(31)], "xzr"],
     }  # yapf: disable
 
     simd_registers = {
@@ -92,6 +109,9 @@ class Aarch64TargetDesc(TargetDesc):
         64:     [f"d{i}" for i in range(32)],
         128:    [f"v{i}" for i in range(32)],
     }  # yapf: disable
+
+    sve_scalable_vector_registers = [f"z{i}" for i in range(32)]
+    sve_predicate_registers = [f"p{i}" for i in range(8)] # There are actually 16 of them, but some instruction only accept the lower half, for now I left it like this
 
     pte_bits = {
         # NAME: (position, default value)
@@ -160,6 +180,36 @@ class Aarch64TargetDesc(TargetDesc):
         #     MacroSpec(18, "set_data_permissions", ("actor_id", "int", "int", ""))
     }
 
+
+
+  
+    def __init__(self):
+        super().__init__()
+        # remove blocked registers
+        filtered_decoding = {}
+        for size, registers in self.registers.items():
+            filtered_decoding[size] = []
+            for register in registers:
+                if register not in CONF.register_blocklist or register in CONF.register_allowlist:
+                    filtered_decoding[size].append(register)
+        self.registers = filtered_decoding
+
+        vendor = "arm"
+        model = "0xd46" # todo: manually added for now
+        stepping = "1"
+
+        self.cpu_desc = CPUDesc(vendor, model, family, stepping)
+
+    @staticmethod
+    def is_unconditional_branch(inst: Instruction) -> bool:
+        return inst.name in ["B"]
+
+    @staticmethod
+    def is_call(inst: Instruction) -> bool:
+        return inst.name in ["BL"]
+
+
+
     def __init__(self):
         super().__init__()
         # remove blocked registers
@@ -172,29 +222,29 @@ class Aarch64TargetDesc(TargetDesc):
         self.registers = filtered_decoding
 
         # identify the CPU model we are running on
-        with open("/proc/cpuinfo", "r") as f:
-            cpuinfo = f.read()
+   #     with open("/proc/cpuinfo", "r") as f:
+   #         cpuinfo = f.read()
 
-            vendor_match = re.search(r"CPU implementer\s+:\s+(.*)", cpuinfo)
-            assert vendor_match, "Failed to find vendor in /proc/cpuinfo"
-            vendor = vendor_match.group(1)
+   #         vendor_match = re.search(r"CPU implementer\s+:\s+(.*)", cpuinfo)
+   #         assert vendor_match, "Failed to find vendor in /proc/cpuinfo"
+   #         vendor = vendor_match.group(1)
 
-            family_match = "not applicable"  # TODO: not applicable for aarch64
-            assert family_match, "Failed to find family in /proc/cpuinfo"
-            family = family_match.group(1)
+   #         family_match = "not applicable"  # TODO: not applicable for aarch64
+   #         assert family_match, "Failed to find family in /proc/cpuinfo"
+        family = "0x1" #family_match.group(1)
 
-            model_match = re.search(r"CPU part\s+:\s+(.*)", cpuinfo)
-            assert model_match, "Failed to find model name in /proc/cpuinfo"
-            model = model_match.group(1)
+   #         model_match = re.search(r"CPU part\s+:\s+(.*)", cpuinfo)
+   #         assert model_match, "Failed to find model name in /proc/cpuinfo"
+   #         model = model_match.group(1)
 
-            stepping_match = re.search(r"CPU revision\s+:\s+(.*)", cpuinfo)
-            assert stepping_match, "Failed to find stepping in /proc/cpuinfo"
-            stepping = stepping_match.group(1)
+   #         stepping_match = re.search(r"CPU revision\s+:\s+(.*)", cpuinfo)
+   #         assert stepping_match, "Failed to find stepping in /proc/cpuinfo"
+   #         stepping = stepping_match.group(1)
 
-            vendor = "arm"
-            model = "0xd46" # todo: manually added for now
-            stepping = "1"
-
+        vendor = "arm"
+        model = "0xd46" # todo: manually added for now
+        stepping = "1"
+        
         self.cpu_desc = CPUDesc(vendor, model, family, stepping)
 
     @staticmethod
@@ -366,37 +416,34 @@ class Aarch64UnicornTargetDesc(UnicornTargetDesc):
 
         "PC": ucc.UC_ARM64_REG_PC, # pseudo register
         "SP": ucc.UC_ARM64_REG_SP,
-        "TPIDR_EL0": ucc.UC_ARM64_REG_CP_REG,
-        "TPIDRRO_EL0": ucc.UC_ARM64_REG_CP_REG,
-        "TPIDR_EL1": ucc.UC_ARM64_REG_CP_REG,
-        "PSTATE": ucc.UC_ARM64_REG_CP_REG,
-        "ELR_EL0": ucc.UC_ARM64_REG_CP_REG,
-        "ELR_EL1": ucc.UC_ARM64_REG_CP_REG,
-        "ELR_EL2": ucc.UC_ARM64_REG_CP_REG,
-        "ELR_EL3": ucc.UC_ARM64_REG_CP_REG,
-        "SP_EL0": ucc.UC_ARM64_REG_CP_REG,
-        "SP_EL1": ucc.UC_ARM64_REG_CP_REG,
-        "SP_EL2": ucc.UC_ARM64_REG_CP_REG,
-        "SP_EL3": ucc.UC_ARM64_REG_CP_REG,
-        "TTBR0_EL1": ucc.UC_ARM64_REG_CP_REG,
-        "TTBR1_EL1": ucc.UC_ARM64_REG_CP_REG,
-        "ESR_EL0": ucc.UC_ARM64_REG_CP_REG,
-        "ESR_EL1": ucc.UC_ARM64_REG_CP_REG,
-        "ESR_EL2": ucc.UC_ARM64_REG_CP_REG,
-        "ESR_EL3": ucc.UC_ARM64_REG_CP_REG,
-        "FAR_EL0": ucc.UC_ARM64_REG_CP_REG,
-        "FAR_EL1": ucc.UC_ARM64_REG_CP_REG,
-        "FAR_EL2": ucc.UC_ARM64_REG_CP_REG,
-        "PAR_EL1": ucc.UC_ARM64_REG_CP_REG,
-        "MAIR_EL1": ucc.UC_ARM64_REG_CP_REG,
-        "VBAR_EL0": ucc.UC_ARM64_REG_CP_REG,
-        "VBAR_EL1": ucc.UC_ARM64_REG_CP_REG,
-        "VBAR_EL2": ucc.UC_ARM64_REG_CP_REG,
-        "VBAR_EL3": ucc.UC_ARM64_REG_CP_REG,
-        "CP_REG": ucc.UC_ARM64_REG_CP_REG,
-
-        "FPCR": ucc.UC_ARM64_REG_FPCR,
-        "FPSR": ucc.UC_ARM64_REG_FPSR,
+        "TPIDR_EL0": ucc.UC_ARM64_REG_TPIDR_EL0,
+        "TPIDRRO_EL0": ucc.UC_ARM64_REG_TPIDRRO_EL0,
+        "TPIDR_EL1": ucc.UC_ARM64_REG_TPIDR_EL1,
+        "PSTATE": ucc.UC_ARM64_REG_PSTATE,
+        "ELR_EL0": ucc.UC_ARM64_REG_ELR_EL0,
+        "ELR_EL1": ucc.UC_ARM64_REG_ELR_EL1,
+        "ELR_EL2": ucc.UC_ARM64_REG_ELR_EL2,
+        "ELR_EL3": ucc.UC_ARM64_REG_ELR_EL3,
+        "SP_EL0": ucc.UC_ARM64_REG_SP_EL0,
+        "SP_EL1": ucc.UC_ARM64_REG_SP_EL1,
+        "SP_EL2": ucc.UC_ARM64_REG_SP_EL2,
+        "SP_EL3": ucc.UC_ARM64_REG_SP_EL3,
+        "TTBR0_EL1": ucc.UC_ARM64_REG_TTBR0_EL1,
+        "TTBR1_EL1": ucc.UC_ARM64_REG_TTBR1_EL1,
+        "ESR_EL0": ucc.UC_ARM64_REG_ESR_EL0,
+        "ESR_EL1": ucc.UC_ARM64_REG_ESR_EL1,
+        "ESR_EL2": ucc.UC_ARM64_REG_ESR_EL2,
+        "ESR_EL3": ucc.UC_ARM64_REG_ESR_EL3,
+        "FAR_EL0": ucc.UC_ARM64_REG_FAR_EL0,
+        "FAR_EL1": ucc.UC_ARM64_REG_FAR_EL1,
+        "FAR_EL2": ucc.UC_ARM64_REG_FAR_EL2,
+        "FAR_EL3": ucc.UC_ARM64_REG_FAR_EL3,
+        "PAR_EL1": ucc.UC_ARM64_REG_PAR_EL1,
+        "MAIR_EL1": ucc.UC_ARM64_REG_MAIR_EL1,
+        "VBAR_EL0": ucc.UC_ARM64_REG_VBAR_EL0,
+        "VBAR_EL1": ucc.UC_ARM64_REG_VBAR_EL1,
+        "VBAR_EL2": ucc.UC_ARM64_REG_VBAR_EL2,
+        "VBAR_EL3": ucc.UC_ARM64_REG_VBAR_EL3,
 
         "MSRS": -1,
     }

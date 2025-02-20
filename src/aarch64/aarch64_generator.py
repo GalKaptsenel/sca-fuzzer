@@ -202,9 +202,9 @@ class Aarch64Printer(Printer):
 
         operands = ", ".join([self.operand_to_str(op) for op in inst.operands])
         if inst.is_instrumentation:
-            comment = "# instrumentation"
+            comment = "// instrumentation"
         elif inst.is_noremove:
-            comment = "# noremove"
+            comment = "// noremove"
         else:
             comment = ""
         return f"{inst.name} {operands} {comment}"

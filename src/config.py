@@ -10,6 +10,7 @@ from copy import deepcopy
 from typing import List, Dict, IO, Any
 from collections import OrderedDict
 from .x86 import x86_config
+from .aarch64 import aarch64_config
 
 
 # ==================================================================================================
@@ -394,6 +395,10 @@ class Conf:
 
         if self.instruction_set == "x86-64":
             config = x86_config
+
+        elif self.instruction_set == "aarch64":
+            config = aarch64_config
+
         else:
             raise ConfigException(f"Unknown architecture {self.instruction_set}")
 

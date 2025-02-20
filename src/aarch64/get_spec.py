@@ -6,13 +6,16 @@ import glob
 import json
 import os
 import re
+import copy
 import subprocess
-from typing import List, Optional
+from typing import List, Optional, Tuple
+import numpy as np
 from xml.etree import ElementTree as ET
-
+from .aarch64_target_desc import Aarch64TargetDesc
 
 class OperandSpec:
     values: List[str]
+    name: str
     type_: str
     width: int
     signed: bool = True
@@ -35,6 +38,8 @@ class InstructionSpec:
     control_flow: bool = False
     operands: List[OperandSpec]
     implicit_operands: List[OperandSpec]
+    template: str = ""
+    datatype: str = ""
 
     def __init__(self) -> None:
         self.operands = []
@@ -57,6 +62,8 @@ class InstructionSpec:
             s += '\n  ]'
         else:
             s += '  "implicit_operands": []'
+        s += ", \n"
+        s += f'"template": "{self.template}"'
         s += "\n}"
         return s
 
@@ -103,99 +110,449 @@ class Aarch64Transformer:
     """ a list of instructions that have RIP as an operand but should
     not be considered as control-flow instructions by the generator"""
 
-    def __init__(self) -> None:
+    def __init__(self, files) -> None:
         self.instructions = []
+        self.tree = self.load_files(files)
 
     def load_files(self, files: List[str]):
         # get the data from all files
-        tree = ET.parse("_root.xml")
-        root = tree.getroot()
+        root = ET.Element("root")
+        tree = ET.ElementTree(root)
+
         for filename in files:
             data = ET.parse(filename).getroot()
             root.append(data)
-        if not tree:
-            print("No input. Exiting")
-            exit(1)
-        self.tree = tree
 
-    def parse_tree(self):
-        for instruction_node in self.tree.iter('instructionsection'):
-            if instruction_node.attrib['type'] != "instruction":
+        return tree
+
+    @staticmethod
+    def parse_instruction_docvars(docvars_element: ET.Element) -> Tuple[str, str]:
+        address_form = ""
+        category = ""
+        for op_node in docvars_element.iter("docvar"):
+            if op_node.attrib["key"] == "instr-class":
+                category = op_node.attrib["value"]
+            elif op_node.attrib["key"] == "address-form":
+                address_form = op_node.attrib["value"]
+
+        return category, address_form
+
+
+    @staticmethod
+    def parse_explanations(mnemonic: str, explanations: ET.Element, variant_name: str, variable: str, hint: str) -> OperandSpec:
+        def set_if_memory_access(mnemonic: str, hint: str) -> Tuple[Optional[str], Optional[str]]:
+            def is_store(mnemonic: str, hint: str) -> bool:
+                store_prefixes = ["str", "stg", "stp", "st2", "stl", "stn", "sts", "stt", "stu", "stx", "stz"]
+                return mnemonic[:3].lower() in store_prefixes
+            
+            def is_load(mnemonic: str, hint: str) -> bool:
+                load_prefixes = ["ldr", "ldg", "ldn", "ldp", "ldt", "ldu", "ldx"]
+                return mnemonic[:3].lower() in load_prefixes
+            
+            if is_store(mnemonic, hint):
+                src = "MEM" != hint
+                dst = "MEM" == hint
+            elif is_load(mnemonic, hint):
+                src = "MEM" == hint
+                dst = "MEM" != hint
+            else:
+                src = None
+                dst = None
+            return src, dst
+
+
+
+        def get_full_text(element):
+            text = element.text or ""
+            for child in element:
+                text += (child.text or "")
+                text += (child.tail or "")
+            return text
+
+        def is_correct_explanation_clause(explnation: ET.Element, variant_name: str, variable: str) -> bool:
+
+            if not any(variant_name.strip() == item.strip() for item in enclist_value.split(",")):
+                return False
+
+            if not any(variable in symbol.text for symbol in explanation.findall(".//symbol")):
+                return False
+
+            return True
+        
+
+        def handle_table(table: ET.Element) -> Tuple[List[str], str, str, str]:
+            tbody = table.findall('.//tbody')
+            table_intro= explanation.findall('.//intro')
+            assert table_intro and len(table_intro) == 1, "Each <explanation> assumed to contain a single table intro"
+            intro = table_intro[0]
+            
+            hint = "IMM"
+            src = True
+            dst = False
+
+            if "standard conditions" in intro.text:
+                hint = "COND"
+                src = False
+                dst = False
+
+            assert len(tbody) == 1, "Each <explanation> assumed to contain a single table body"
+            
+            entries = tbody[0].findall('.//entry[@class="symbol"]')
+
+            values = []
+            
+            for entry in entries:
+                if entry.text == "RESERVED":
+                    continue
+                values.append(entry.text)
+
+            return values, hint, src, dst
+
+        def handle_account(account: ET.Element, hint: str, src: Optional[str], dst: Optional[str]) -> Tuple[List[str], str, str, str, str, str]:
+
+                account_text = get_full_text(account.find(".//para"))
+                src = any(word in account_text for word in ["loaded", "source"]) if src is None else src
+                dst = any(word in account_text for word in ["stored", "destination"]) if dst is None else dst
+                values = []
+                signed = False
+                width = 0
+                number_of_bits = re.search(r"(\d+)-bit", account_text)
+                match_range = re.search(r"\[([+-]?\d+)-([+-]?\d+)\]", account_text)
+                if number_of_bits:
+                    width = int(number_of_bits.group(1))
+                elif "the number" in account_text:
+                    if not match_range:
+                        raise ParseFailed("Unavailable options for numbers")
+                    hint = "IMM"
+                    src = True
+                    dst = False
+                    a, b = map(int, match_range.groups())
+                    values = list([str(i) for i in range(a, b+1)])
+                    signed = a < 0
+                    width = int(np.log2(len(values)))
+                    return values, hint, src, dst, width, signed
+
+                if "label" in account_text:
+                    hint = "LABEL"
+                    src = True
+                    dst = False
+                elif "general-purpose" in account_text and width > 0:
+                    assert "register" in account_text
+                    assert number_of_bits 
+                    assert width in Aarch64TargetDesc.registers
+                    hint = "REG"
+                    values = Aarch64TargetDesc.registers[width]
+                    if " wsp" in account_text:
+                        values.append("wsp")
+                    if " sp" in account_text:
+                        values.append("sp")
+
+                elif "SIMD" in account_text and width > 0:
+                    assert number_of_bits 
+                    assert width in Aarch64TargetDesc.simd_registers
+                    hint = "REG"
+                    values = Aarch64TargetDesc.simd_registers[width]
+
+                elif "scalable vector" in account_text:
+                    hint = "REG"
+                    values = Aarch64TargetDesc.sve_scalable_vector_registers
+                    width = 0 # it is implementation specific
+
+                elif "scalable predicate" in account_text:
+                    hint = "REG"
+                    values = Aarch64TargetDesc.sve_predicate_registers
+                    width = 0 # it is implementation specific
+
+                elif "IMM" == hint:
+                    range_match = re.search(r"([+-]?\d+) to ([+-]?\d+)", account_text)
+                    if range_match:
+                        a, b = map(int, range_match.groups())
+                        signed = a < 0
+                        values = list([str(i) for i in range(a, b+1)])
+                        width = int(np.log2(len(values)))
+                    else:
+                        raise ParseFailed(
+                                f"Unexpected Error Parsing Explanation Fields of {variant_name}:{variable}")
+                    signed = "unsigned" not in account_text
+                    src = True
+                    dst = False
+                else:
+                    raise ParseFailed(
+                                f"Unexpected Error Parsing Explanation Fields of {variant_name}:{variable}")
+
+                return values, hint, src, dst, width, signed
+        
+        width = 0
+        src, dst = set_if_memory_access(mnemonic, hint)
+        values = []
+        signed = False
+        for explanation in explanations.findall(".//explanation"):
+            enclist_value = explanation.get("enclist", "")
+
+            if not is_correct_explanation_clause(explanation, variant_name, variable):
                 continue
 
-            # remove those instruction types/forms that are not yet supported
-            docvars = instruction_node.find("docvars")
-            if not docvars:
-                continue  # empty spec?
-            address_form = ""
-            category = ""
+            account_elements = explanation.findall('.//account')
+            table_elements = explanation.findall('.//table')
+
+            assert len(account_elements) + len(
+                table_elements) == 1, "Each <explanation> assumed to contain either an <account> or a <table>"
+
+            if len(table_elements) == 1:
+                table = table_elements[0]
+                values, hint, src, dst = handle_table(table)
+
+            elif len(account_elements) == 1:
+                account = account_elements[0]
+                values, hint, src, dst, width, signed = handle_account(account, hint, src, dst)
+
+            else:
+                raise ParseFailed(f"Unexpected Error Parsing Explanation Fields of {variant_name}:{variable}")
+
+        operand = OperandSpec()
+        operand.name = variable
+        operand.type_ = hint
+        operand.values = values
+        operand.src = src
+        operand.dst = dst
+        operand.width = width
+        operand.signed = signed
+        return operand
+
+        if " wsp" in text or " sp" in text:
+            op.values.append("SP")
+        if "zr" in text:
+            op.values.append("ZR")
+        assert type_hint == "", f"{self.current_spec.name} {text}"
+        assert "general-purpose" in text, f"{self.current_spec.name} {text}"
+        assert op.width == 32 or "64-bit" in text or "-bit" not in text, \
+            f"{self.current_spec.name} {text}"
+
+        if op.dest or op.src:
+            return op
+
+        op.dest = ("stored" in text)
+        op.src = ("loaded" in text)
+        if op.dest or op.src:
+            return op
+
+        op.dest = ("output" in text)
+        op.src = ("input" in text)
+        if op.dest or op.src:
+            return op
+
+        if "tested" in text:
+            op.src = True
+            return op
+
+        if self.current_spec.name[:3] == "LDR":
+            op.dest = True
+            return op
+
+        if self.current_spec.name[:3] == "STR":
+            op.src = True
+            return op
+
+        raise ParseFailed()
+
+    @staticmethod
+    def parse_instruction_variant(instruction_variant_element: ET.Element, instruction_spec: InstructionSpec, explanations: ET.Element) -> InstructionSpec:
+        asmtemplate = instruction_variant_element.findall(".//asmtemplate/*")
+        if asmtemplate is None:
+            return
+
+        asmtemplate_data = ""
+        for word in asmtemplate:
+            asmtemplate_data += word.text
+
+        return Aarch64Transformer.parse_instruction_variant_inner(instruction_variant_element.get("name"),
+                                                                  asmtemplate_data,
+                                                                  instruction_spec, 0, explanations, 0)
+
+    @staticmethod
+    def parse_instruction_variant_inner(variant_name: str, template: str, current_instruction: InstructionSpec, recursive: int, explanations: ET.Element, index: int) -> InstructionSpec:
+
+        def first_occurrence(s: str, chars: str) -> Optional[int]:
+            return next((i for i, c in enumerate(s) if c in chars), None)
+
+        def find_closing_bracket(s: str, index: int) -> Optional[int]:
+            bracket_map = {'(': ')', '{': '}', '[': ']', "<": ">"}
+
+            if index < 0 or index >= len(s) or s[index] not in bracket_map:
+                return None
+
+            stack = []
+
+            for i in range(index, len(s)):
+                char = s[i]
+
+                if char in bracket_map:
+                    stack.append(char)
+
+                elif char in bracket_map.values():
+                    if not stack:
+                        return None
+                    last_open = stack.pop()
+                    if bracket_map[last_open] == char:
+                        if not stack:
+                            return i
+
+            return None
+
+        if index == len(template):
+            return [current_instruction]
+
+        special_characters = "<>!|(){}#[]"
+
+        hint = ""
+        
+        while index < len(template):
+            ch = template[index]
+            if ch not in special_characters:
+                current_instruction.template += ch
+                index += 1
+            else:
+                if ch in "<":
+                    
+                    closing_bracket_index = find_closing_bracket(template, index)
+                    variable = template[index+1:closing_bracket_index]
+                    current_instruction.template += f"{{{variable}}}"
+                    operand = Aarch64Transformer.parse_explanations(current_instruction.name, explanations, variant_name,
+                                                                   variable, hint)
+                    current_instruction.operands.append(operand)
+                    index = closing_bracket_index + 1
+                    hint = "" if recursive == 0 else hint
+                elif ch in "{(":
+                    closing_bracket_index = find_closing_bracket(template, index)
+                    if closing_bracket_index is None:
+                        raise ParseFailed(f"Did not close opening bracket: {template}")
+                    assert closing_bracket_index < len(template)
+                    if ch == "{":
+                        template_inst1 = (template[:index] + template[index+1:closing_bracket_index] +
+                                          template[closing_bracket_index + 1:])
+                        template_inst2 = template[:index] + template[closing_bracket_index + 1:]
+                        inst1 = Aarch64Transformer.parse_instruction_variant_inner(variant_name,
+                                                                                   template_inst1,
+                                                                                   copy.deepcopy(current_instruction),
+                                                                                   recursive,
+                                                                                   explanations, index)
+                        inst2 = Aarch64Transformer.parse_instruction_variant_inner(variant_name,
+                                                                                   template_inst2,
+                                                                                   copy.deepcopy(current_instruction),
+                                                                                   recursive,
+                                                                                   explanations, index)
+                        return inst1 + inst2
+                    if ch == "(":
+                        template_inner = template[index + 1:closing_bracket_index]
+                        values = []
+                        for option in template_inner.split("|"):
+                            new_template = template[:index] + option.strip() + template[closing_bracket_index + 1:]
+                            values += (Aarch64Transformer.parse_instruction_variant_inner(
+                                variant_name, new_template, copy.deepcopy(current_instruction), recursive, explanations, index))
+                        return values
+
+                elif ch in "})|":
+                    raise ParseFailed(f"Unexpected symbol: '{ch}' in {template}")
+                elif ch == "!":
+                    current_instruction.template += "!"
+                    index += 1
+                elif ch == "[":
+                    current_instruction.template += "["
+                    hint = "MEM"
+                    recursive += 1
+                    index += 1
+                elif ch == "]":
+                    current_instruction.template += "]"
+
+                    if recursive <= 0:
+                        raise ParseFailed(f"Unexpected symbol: '{ch}' in {template}")
+
+                    recursive -= 1
+
+                    if recursive == 0:
+                        hint = ""
+                    index += 1
+                elif ch == "#":
+                    current_instruction.template += "#"
+                    hint = "IMM"
+                    index += 1
+                else:
+                    raise ParseFailed(f"Unexpected character: {template}")
+
+
+        return [current_instruction]
+
+
+
+    def parse_instruction(self, instruction_node, explanations: ET.Element) -> List[InstructionSpec]:
+
+        docvars = instruction_node.find("docvars")
+        if not docvars:
+            return []
+
+        category, address_form = Aarch64Transformer.parse_instruction_docvars(docvars)
+        flags_op = Aarch64Transformer.get_flags_from_asl(instruction_node)
+
+        current_spec = InstructionSpec()
+
+        variants = []
+        # get all asm variants of the instructions
+        for variant in instruction_node.findall("classes/iclass/encoding"):
+            current_spec = InstructionSpec()
+
+            # instruction info
+            docvars = variant.find("docvars")
+            assert docvars
             for op_node in docvars.iter("docvar"):
                 if op_node.attrib["key"] == "instr-class":
-                    category = op_node.attrib["value"]
+                    current_spec.category = op_node.attrib["value"]
+                elif op_node.attrib["key"] == "branch-offset":
+                    current_spec.control_flow = True
                 elif op_node.attrib["key"] == "address-form":
                     address_form = op_node.attrib["value"]
-            if category != "general":
+                elif op_node.attrib["key"] == "datatype":
+                    current_spec.datatype = op_node.attrib["value"]
+
+            if address_form not in ["literal", "base-register", "post-indexed", ""]:
                 continue
 
-            flags_op = self.get_flags_from_asl(instruction_node)
+            current_spec.name = variant.find("asmtemplate/text").text.split(" ")[0]
 
-            # get all asm variants of the instructions
-            for variant in instruction_node.findall("classes/iclass/encoding"):
-                self.current_spec = InstructionSpec()
+            # implicit PC operand
+            if current_spec.control_flow:
+                op_pc = OperandSpec()
+                op_pc.values = ["PC"]
+                op_pc.type_ = "REG"
+                op_pc.width = 64
+                op_pc.src = True
+                op_pc.dest = False
+                current_spec.implicit_operands.append(op_pc)
 
-                # instruction info
-                docvars = variant.find("docvars")
-                assert docvars
-                for op_node in docvars.iter("docvar"):
-                    if op_node.attrib["key"] == "instr-class":
-                        self.current_spec.category = op_node.attrib["value"]
-                    elif op_node.attrib["key"] == "branch-offset":
-                        self.current_spec.control_flow = True
-                    elif op_node.attrib["key"] == "address-form":
-                        address_form = op_node.attrib["value"]
-                    elif op_node.attrib["key"] == "datatype":
-                        self.current_spec.datasize = int(op_node.attrib["value"])
+            # implicit flags operand
+            if flags_op:
+                current_spec.implicit_operands.append(flags_op)
 
-                if address_form not in ["literal", "base-register", "post-indexed", ""]:
-                    continue
+            try:
+                encoding = Aarch64Transformer.parse_instruction_variant(variant, current_spec, explanations)
+                variants += encoding
+            except ParseFailed:
+                continue
 
-                self.current_spec.name = variant.find("asmtemplate/text").text.split(" ")[0]
+        return variants
 
-                # implicit PC operand
-                if self.current_spec.control_flow:
-                    op_pc = OperandSpec()
-                    op_pc.values = ["PC"]
-                    op_pc.type_ = "REG"
-                    op_pc.width = 64
-                    op_pc.src = True
-                    op_pc.dest = False
-                    self.current_spec.implicit_operands.append(op_pc)
+    def parse_tree(self):
+       for instruction_node in self.tree.iter('instructionsection'):
+            if instruction_node.attrib['type'] != "instruction":
+                continue
+            explanations = instruction_node.find(".//explanations")
+            if explanations is None:
+                continue
+ 
+            encodings = self.parse_instruction(instruction_node, explanations)
+            self.instructions.extend(encodings)
 
-                # implicit flags operand
-                if flags_op:
-                    self.current_spec.implicit_operands.append(flags_op)
-
-                # explicit operands
-                op_type_hint = ""
-                optional_depth = 0
-                try:
-                    for op_node in variant.find("asmtemplate").iter():
-                        if op_node.tag == "a" and optional_depth == 0:
-                            hover_text = op_node.attrib["hover"].lower().strip()
-                            op = self.parse_hover_text(hover_text, op_type_hint)
-                            self.current_spec.operands.append(op)
-
-                        text = op_node.text
-                        if text:
-                            op_type_hint, modifier = self.parse_asm_template_text(text)
-                            optional_depth += modifier
-
-                except ParseFailed:
-                    continue
-
-                self.instructions.append(self.current_spec)
-
-    def get_flags_from_asl(self, element: ET.Element) -> Optional[OperandSpec]:
+    @staticmethod
+    def get_flags_from_asl(element: ET.Element) -> Optional[OperandSpec]:
         """ look through the ASL code of the instruction to find if it reads/writes the flags """
         flag_values = {k: [False, False] for k in ["N", "Z", "C", "V", ""]}
         uses_flags = False
@@ -234,222 +591,39 @@ class Aarch64Transformer:
             flag_op = None
         return flag_op
 
-    def parse_asm_template_text(self, text: str):
-        op_type_hint = ""
-        optional_depth = 0
-        for word in text.split(" "):
-            if not word:
-                continue
-
-            if word == self.current_spec.name:
-                continue
-
-            # operand name
-            if word[0] == "<":
-                assert word[-1] == ">"
-                continue
-
-            # indexing modes - not yet supported
-            if "!" in word:
-                raise ParseFailed()
-
-            # multivariant operands - not yet supported
-            if "|" in word or "(" in word:
-                raise ParseFailed()
-
-            # optional value
-            if "{" in word:
-                optional_depth += 1
-                continue
-
-            if "}" in word:
-                optional_depth -= 1
-                continue
-
-            # immediate value
-            if word == "#":
-                op_type_hint = "IMM"
-                continue
-
-            # memory address - start
-            if word == "[":
-                op_type_hint = "MEM"
-                continue
-
-            # memory address - end
-            if word == "]":
-                op_type_hint = ""
-                continue
-
-            if word == "LSL":
-                op_type_hint = "LSL"
-                continue
-
-            if word in [",", "],"]:
-                op_type_hint = ""
-                continue
-            assert False, f"Unknown keyword: {word} in {self.current_spec.name}"
-
-        return op_type_hint, optional_depth
-
-    def parse_hover_text(self, text: str, type_hint: str) -> OperandSpec:
-        text = text.removeprefix("first ")
-        text = text.removeprefix("second ")
-        text = text.removeprefix("third ")
-
-        op = OperandSpec()
-        op.dest = ("destination" in text)
-        op.src = ("source" in text)
-        op.comment = text
-
-        if "MEM" == type_hint:
-            return self.parse_mem_operand(op, text)
-
-        if "IMM" == type_hint:
-            op.type_ = "IMM"
-            op.src = True
-            op.dest = False
-
-            range_match = re.search(r"\[-?\d+-\d+\]", text)
-            if range_match:
-                op.values = [range_match.group(0)]
-                op.width = 0
-            elif "bit " in text:
-                if "five" in text and "positive" in text:
-                    op.values = ["[0-31]"]
-                    op.width = 5
-                else:
-                    assert False, f"{self.current_spec.name} {text}"
-            elif "bitmask immediate" in text:
-                op.values = ["bitmask"]
-                op.width = self.current_spec.operands[0].width
-            else:
-                assert False, f"{self.current_spec.name} {text}"
-            assert "register" not in text and "label" not in text, \
-                f"{self.current_spec.name} {text}"
-            return op
-
-        if "register" in text:
-            return self.parse_reg_operand(op, text, type_hint)
-
-        if "label" in text:
-            op.type_ = "LABEL"
-            op.values = []
-            op.width = 0
-            op.src = True
-            return op
-
-        if "standard condition" in text:
-            return self.parse_cond_operand(op, text)
-
-        raise ParseFailed()
-
-    def parse_cond_operand(self, op, text: str):
-        op.type_ = "COND"
-        op.values = []
-        op.width = 0
-        if "except" not in text:
-            return op
-
-        raise ParseFailed()
-
-    def parse_mem_operand(self, op, text: str):
-        op.type_ = "MEM"
-        op.width = 32 if "32-bit" in text else 64
-        assert "base" in text or "address" in text, f"{self.current_spec.name} {text}"
-        assert op.width == 32 or "64-bit" in text or "-bit" not in text, \
-            f"{self.current_spec.name} {text}"
-
-        if op.dest or op.src:
-            return op
-
-        if self.current_spec.name[:3] == "LDR":
-            op.src = True
-            return op
-
-        if self.current_spec.name[:3] == "STR":
-            op.dest = True
-            return op
-
-        raise ParseFailed()
-
-    def parse_reg_operand(self, op, text: str, type_hint):
-        if "to be branched" in text:
-            raise ParseFailed()
-
-        op.type_ = "REG"
-        op.width = 32 if "32-bit" in text else 64
-        op.values = ["GPR"]
-        if " wsp" in text or " sp" in text:
-            op.values.append("SP")
-        if "zr" in text:
-            op.values.append("ZR")
-        assert type_hint == "", f"{self.current_spec.name} {text}"
-        assert "general-purpose" in text, f"{self.current_spec.name} {text}"
-        assert op.width == 32 or "64-bit" in text or "-bit" not in text, \
-            f"{self.current_spec.name} {text}"
-
-        if op.dest or op.src:
-            return op
-
-        op.dest = ("stored" in text)
-        op.src = ("loaded" in text)
-        if op.dest or op.src:
-            return op
-
-        op.dest = ("output" in text)
-        op.src = ("input" in text)
-        if op.dest or op.src:
-            return op
-
-        if "tested" in text:
-            op.src = True
-            return op
-
-        if self.current_spec.name[:3] == "LDR":
-            op.dest = True
-            return op
-
-        if self.current_spec.name[:3] == "STR":
-            op.src = True
-            return op
-
-        raise ParseFailed()
-
     def save(self, filename: str):
         json_str = "[\n" + ",\n".join([i.to_json() for i in self.instructions]) + "\n]"
         # print(json_str)
         with open(filename, "w+") as f:
             f.write(json_str)
 
-
 class Downloader:
-    def __init__(self, out_file: str) -> None:
+    def __init__(self, extensions: List[str],  out_file: str) -> None:
+        self.extensions = extensions
         self.out_file = out_file
 
     def run(self):
+        file_name = "ISA_A64_xml_A_profile-2024-12"
         print("> Downloading complete instruction spec...")
         subprocess.run(
             "wget "
-            "https://developer.arm.com/-/cdn-downloads/permalink/Exploration-Tools-A64-ISA/ISA_A64/ISA_A64_xml_A_profile-2024-12.tar.gz",
+            f"https://developer.arm.com/-/cdn-downloads/permalink/Exploration-Tools-A64-ISA/ISA_A64/{file_name}.tar.gz",
             shell=True,
             check=True)
 
         subprocess.run("mkdir -p all", shell=True, check=True)
         subprocess.run("mkdir -p instructions", shell=True, check=True)
-        subprocess.run("tar xf ISA_A64_xml_A_profile-2022-03.tar.gz -C all", shell=True, check=True)
+        subprocess.run(f"tar xf {file_name}.tar.gz -C all", shell=True, check=True)
         subprocess.run(
-            "mv all/ISA_A64_xml_A_profile-2022-03/*.xml instructions/", shell=True, check=True)
-        subprocess.run("rm ISA_A64_xml_A_profile-2022-03.tar.gz*", shell=True, check=True)
+            f"mv all/{file_name}/*.xml instructions/", shell=True, check=True)
+        subprocess.run(f"rm {file_name}.tar.gz*", shell=True, check=True)
         os.remove("instructions/encodingindex.xml")
-        os.remove("instructions/onebigfile.xml")
         subprocess.run("rm -r all", shell=True, check=True)
 
         files = glob.glob("instructions/*.xml")
 
         print("\n> Filtering and transforming the instruction spec...")
-        transformer = Aarch64Transformer()
-        transformer.load_files(files)
+        transformer = Aarch64Transformer(files)
         transformer.parse_tree()
         print(f"Produced base.json with {len(transformer.instructions)} instructions")
         transformer.save("base.json")

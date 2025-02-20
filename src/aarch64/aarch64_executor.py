@@ -36,6 +36,7 @@ def is_smt_enabled() -> bool:
 
     :return: True if SMT is enabled, False otherwise
     """
+    return False
     try:
         out = subprocess.run("lscpu", shell=True, check=True, capture_output=True)
     except subprocess.CalledProcessError:
@@ -193,7 +194,7 @@ def rewind_km_output_to_end():
 # ==================================================================================================
 # Main executor class
 # ==================================================================================================
-class X86Executor(Executor):
+class Aarch64Executor(Executor):
     """
     The executor for x86 architecture. The executor interfaces with the kernel module to collect
     measurements.
@@ -211,9 +212,9 @@ class X86Executor(Executor):
     ignore_list: Set[int]
 
     def __init__(self, enable_mismatch_check_mode: bool = False):
-        super().__init__(enable_mismatch_check_mode)
+      #  super().__init__(enable_mismatch_check_mode)
         self.LOG = Logger()
-        self.target_desc = X86TargetDesc()
+        self.target_desc = Aarch64TargetDesc()
         self.ignore_list = set()
 
         # Check the execution environment:
@@ -223,12 +224,12 @@ class X86Executor(Executor):
             self.LOG.error("executor: Cannot set reserved bits on this CPU")
 
         # Initialize the kernel module
-        if not is_kernel_module_installed():
-            self.LOG.error("x86 executor: kernel module not installed\n\n"
-                           "Go to https://microsoft.github.io/sca-fuzzer/quick-start/ for "
-                           "installation instructions.")
-        configure_kernel_module()
-        self.set_vendor_specific_features()
+#        if not is_kernel_module_installed():
+#            self.LOG.error("x86 executor: kernel module not installed\n\n"
+#                           "Go to https://microsoft.github.io/sca-fuzzer/quick-start/ for "
+#                           "installation instructions.")
+#        configure_kernel_module()
+#        self.set_vendor_specific_features()
 
     def set_vendor_specific_features(self):
         pass  # override in vendor-specific executors
@@ -451,7 +452,7 @@ class X86Executor(Executor):
 # ==================================================================================================
 # Vendor-specific executors
 # ==================================================================================================
-class Aarch64Executor(X86Executor):
+class Aarch64Executor():
 
     def __init__(self, *args):
         super().__init__(*args)

@@ -69,7 +69,11 @@ class FuzzerGeneric(Fuzzer):
                  instruction_set_spec: str,
                  work_dir: str,
                  existing_test_case: str = "",
-                 inputs: List[str] = []):
+                 inputs: List[str] = None):
+
+        if inputs is None:
+            inputs = []
+
         self._adjust_config(existing_test_case)
         self.existing_test_case = existing_test_case
         self.input_paths = inputs
@@ -92,13 +96,13 @@ class FuzzerGeneric(Fuzzer):
 
         self.generator = factory.get_program_generator(isa, prog_seed)
         self.input_gen = factory.get_input_generator(data_seed)
-        self.executor = factory.get_executor()
-        self.model = factory.get_model(self.executor.read_base_addresses())
-        self.analyser = factory.get_analyser()
-        self.asm_parser = factory.get_asm_parser(self.generator)
+        #self.executor = factory.get_executor()
+        #self.model = factory.get_model(self.executor.read_base_addresses())
+        #self.analyser = factory.get_analyser()
+        #self.asm_parser = factory.get_asm_parser(self.generator)
 
-        self.arch_executor = factory.get_executor(True)
-        self.arch_model = factory.get_model(self.arch_executor.read_base_addresses(), True)
+        #self.arch_executor = factory.get_executor(True)
+        #self.arch_model = factory.get_model(self.arch_executor.read_base_addresses(), True)
 
     def start_random(self, num_test_cases: int, num_inputs: int, timeout: int, nonstop: bool,
                      save_violations: bool) -> bool:

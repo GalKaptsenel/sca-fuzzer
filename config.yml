@@ -1,0 +1,3 @@
+instruction_set: aarch64
+instruction_categories:
+  - general
