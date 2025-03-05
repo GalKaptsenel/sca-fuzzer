@@ -56,7 +56,7 @@ class OperandSpec:
         self.width = 0
 
     def __str__(self):
-        return f"{self.values}"
+        return f"{self.values}" # TODO: Maybe it is better to print the name?
 
 
 class InstructionSpec:
@@ -309,7 +309,7 @@ class Operand(ABC):
     # magic_value attribute indicates a specification for this special value
     magic_value: bool = False
 
-    def __init__(self, value: str, type_, src: bool, dest: bool, name: str = ""):
+    def __init__(self, value: str, type_, src: bool, dest: bool, name: str = "n/a"):
         self.name = name
         self.value = value
         self.type = type_
@@ -458,7 +458,7 @@ class Instruction:
         self.is_instrumentation = is_instrumentation
         self.category = category
         self.control_flow = control_flow
-        self.template = template 
+        self.template = template
 
     @classmethod
     def from_spec(cls, spec: InstructionSpec, is_instrumentation=False):

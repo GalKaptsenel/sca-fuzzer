@@ -8,12 +8,13 @@ import abc
 import math
 import random
 import copy
+from itertools import chain
 from typing import List, Tuple
 
 from ..isa_loader import InstructionSet
 from ..interfaces import TestCase, Operand, Instruction, BasicBlock, Function, InstructionSpec, \
     GeneratorException, RegisterOperand, ImmediateOperand, MAIN_AREA_SIZE, FAULTY_AREA_SIZE, \
-    MemoryOperand, AgenOperand, OT
+    MemoryOperand, AgenOperand, OT, OperandSpec, CondOperand
 from ..generator import ConfigurableGenerator, RandomGenerator, Pass, Printer
 from ..config import CONF
 from .aarch64_target_desc import Aarch64TargetDesc
@@ -99,6 +100,7 @@ class Aarch64PatchUndefinedLoadsPass(Pass):
                     new_value = random.choice(options)
                     inst.operands[0].value = new_value
 
+
 class Aarch64NonCanonicalAddressPass(Pass):
 
     def run_on_test_case(self, test_case: TestCase) -> None:
@@ -131,20 +133,21 @@ class Aarch64SandboxPass(Pass):
     def sandbox_memory_access(self, instr: Instruction, parent: BasicBlock):
         """ Force the memory accesses into the page starting from R14 """
 
-        def generate_template(mnemonic: str, op0: Operand, op1: Operand, op2: Operand) -> Tuple[str, Operand, Operand, Operand]:
-                op0_cpy = copy.deepcopy(op0)
-                op1_cpy = copy.deepcopy(op1)
-                op2_cpy = copy.deepcopy(op2)
-                op0_cpy.name += "0"
-                op1_cpy.name += "1"
-                op2_cpy.name += "2"
-                template = f"{mnemonic} {{{op0_cpy.name}}}, {{{op1_cpy.name}}}, {{{op2_cpy.name}}}"
-                return template, op0_cpy, op1_cpy, op2_cpy
- 
+        def generate_template(mnemonic: str, op0: Operand, op1: Operand, op2: Operand) -> Tuple[
+            str, Operand, Operand, Operand]:
+            op0_cpy = copy.deepcopy(op0)
+            op1_cpy = copy.deepcopy(op1)
+            op2_cpy = copy.deepcopy(op2)
+            op0_cpy.name += "0"
+            op1_cpy.name += "1"
+            op2_cpy.name += "2"
+            template = f"{mnemonic} {{{op0_cpy.name}}}, {{{op1_cpy.name}}}, {{{op2_cpy.name}}}"
+            return template, op0_cpy, op1_cpy, op2_cpy
+
         mem_operands = instr.get_mem_operands()
         implicit_mem_operands = instr.get_implicit_mem_operands()
         if mem_operands and not implicit_mem_operands:
-#            assert len(mem_operands) == 1, f"Unexpected instruction format {instr.name}"
+            #            assert len(mem_operands) == 1, f"Unexpected instruction format {instr.name}"
             base_operand: Operand = mem_operands[0]
             base_operand_copy = RegisterOperand(base_operand.value, base_operand.width, True, True)
             base_operand_copy.name = base_operand.name
@@ -152,18 +155,20 @@ class Aarch64SandboxPass(Pass):
             imm_width = min(base_operand_copy.width, 32)
             imm_op = ImmediateOperand(self.sandbox_address_mask, imm_width)
             imm_op.name = "imm_op"
-            template, op0, op1, op2 = generate_template("AND", base_operand_copy, base_operand_copy, imm_op)
+            template, op0, op1, op2 = generate_template("AND", base_operand_copy, base_operand_copy,
+                                                        imm_op)
             apply_mask = Instruction("AND", True).add_op(op0).add_op(op1).add_op(op2)
             apply_mask.template = template
             parent.insert_before(instr, apply_mask)
 
-            x30_register = RegisterOperand("x30", 64, True, False) 
-            x30_register.name = "x30_reg" 
-            template, op0, op1, op2 = generate_template("ADD", base_operand_copy, base_operand_copy, x30_register)
+            x30_register = RegisterOperand("x30", 64, True, False)
+            x30_register.name = "x30_reg"
+            template, op0, op1, op2 = generate_template("ADD", base_operand_copy, base_operand_copy,
+                                                        x30_register)
             add_base = Instruction("ADD", True).add_op(op0).add_op(op1).add_op(op2)
             add_base.template = template
             parent.insert_before(instr, add_base)
- 
+
             for op in mem_operands[1:]:
                 found = False
                 for size, registers in Aarch64TargetDesc.registers.items():
@@ -171,13 +176,14 @@ class Aarch64SandboxPass(Pass):
                         found = True
 
                 if not found:
-                    continue 
+                    continue
 
-                template, op0, op1, op2 = generate_template("SUB", base_operand_copy, base_operand_copy, op)
+                template, op0, op1, op2 = generate_template("SUB", base_operand_copy,
+                                                            base_operand_copy, op)
                 op2.dest = False
                 op2.src = True
                 sub_inst = Instruction("SUB", True).add_op(op0).add_op(op1).add_op(op2)
-                sub_inst.template = template # TODO: this should be done in the constructor
+                sub_inst.template = template  # TODO: this should be done in the constructor
                 parent.insert_before(instr, sub_inst)
 
             return
@@ -269,3 +275,13 @@ class Aarch64RandomGenerator(Aarch64Generator, RandomGenerator):
 
     def __init__(self, instruction_set: InstructionSet, seed: int):
         super().__init__(instruction_set, seed)
+
+    def generate_reg_operand(self, spec: OperandSpec, _: Instruction) -> Operand:
+        choices = [s for s in spec.values if
+                   s in chain.from_iterable(Aarch64TargetDesc.registers.values())]
+        reg = random.choice(choices)
+        return RegisterOperand(reg, spec.width, spec.src, spec.dest)
+
+    def generate_cond_operand(self, spec: OperandSpec, _: Instruction) -> Operand:
+        cond = random.choice(spec.values)
+        return CondOperand(cond)

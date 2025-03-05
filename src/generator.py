@@ -12,7 +12,6 @@ import re
 from typing import List, Tuple, Optional
 from subprocess import CalledProcessError, run
 from copy import deepcopy
-from itertools import chain
 
 from .isa_loader import InstructionSet
 from .interfaces import Generator, TestCase, Operand, RegisterOperand, FlagsOperand, \
@@ -21,7 +20,6 @@ from .interfaces import Generator, TestCase, Operand, RegisterOperand, FlagsOper
     NotSupportedException
 from .util import Logger
 from .config import CONF
-from .aarch64.aarch64_target_desc import Aarch64TargetDesc
 
 
 # ==================================================================================================
@@ -315,7 +313,9 @@ class ConfigurableGenerator(Generator, abc.ABC):
             OT.FLAGS: self.generate_flags_operand,
             OT.COND: self.generate_cond_operand,
         }
-        return generators[spec.type](spec, parent)
+        op = generators[spec.type](spec, parent)
+        op.name = spec.name
+        return op
 
     @abc.abstractmethod
     def generate_reg_operand(self, spec: OperandSpec, parent: Instruction) -> Operand:
@@ -441,13 +441,11 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
         # generate explicit operands
         for operand_spec in spec.operands:
             operand = self.generate_operand(operand_spec, inst)
-            operand.name = operand_spec.name # TODO: should be done inside the factory
             inst.operands.append(operand)
 
         # generate implicit operands
         for operand_spec in spec.implicit_operands:
             operand = self.generate_operand(operand_spec, inst)
-            operand.name = operand_spec.name # TODO: should be done inside the factory
             inst.implicit_operands.append(operand)
 
         return inst
@@ -556,10 +554,7 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
         return FlagsOperand(merged_flags)
 
     def generate_cond_operand(self, spec: OperandSpec, _: Instruction) -> Operand:
-        if spec.values:
-            cond = random.choice(spec.values)
-        else:
-            cond = random.choice(list(self.target_desc.branch_conditions))
+        cond = random.choice(list(self.target_desc.branch_conditions))
         return CondOperand(cond)
 
     def expand_template(self, test_case: TestCase):

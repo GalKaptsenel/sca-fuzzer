@@ -32,7 +32,7 @@ class Aarch64TargetDesc(TargetDesc):
     "al": ["", "", "", "", "", "", "", "", ""]
     }
 
- 
+
     register_sizes = {
         **{f"x{i}": 64 for i in range(31)},
         **{f"w{i}": 32 for i in range(31)},
@@ -182,7 +182,7 @@ class Aarch64TargetDesc(TargetDesc):
 
 
 
-  
+
     def __init__(self):
         super().__init__()
         # remove blocked registers
@@ -244,17 +244,8 @@ class Aarch64TargetDesc(TargetDesc):
         vendor = "arm"
         model = "0xd46" # todo: manually added for now
         stepping = "1"
-        
+
         self.cpu_desc = CPUDesc(vendor, model, family, stepping)
-
-    @staticmethod
-    def is_unconditional_branch(inst: Instruction) -> bool:
-        return inst.name in ["B"]
-
-    @staticmethod
-    def is_call(inst: Instruction) -> bool:
-        return inst.name in ["BL"]
-
 
 class Aarch64UnicornTargetDesc(UnicornTargetDesc):
     reg_str_to_constant = {

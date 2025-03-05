@@ -141,16 +141,12 @@ class InstructionSet(InstructionSetAbstract):
         # set parameters
         for inst in self.instructions:
             if inst.control_flow:
-                self.has_unconditional_branch = True
                 for op in inst.operands:
                     if op.type == OT.COND:
                         self.has_conditional_branch = True
-
-
-#                if inst.category == "BASE-UNCOND_BR":
-#                    self.has_unconditional_branch = True
-#                else:
-#                    self.has_conditional_branch = True
+                if not self.has_conditional_branch:
+                    self.has_unconditional_branch = True
+                    
             elif inst.has_mem_operand:
                 if inst.has_write:
                     self.has_writes = True

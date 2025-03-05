@@ -24,6 +24,16 @@ class OperandSpec:
     dest: bool = False
     magic: bool = False
 
+    def __init__(self, name, type, values, src, dest, width, signed):
+        self.name = name
+        self.type_ = type
+        self.values = values
+        self.src = src
+        self.dest = dest
+        self.width = width
+        self.signed = signed
+
+
     def to_json(self) -> str:
         values_lower = []
         for v in self.values:
@@ -112,8 +122,9 @@ class Aarch64Transformer:
 
     def __init__(self, files) -> None:
         self.instructions = []
-        self.tree = self.load_files(files)
+        self.tree = Aarch64Transformer.load_files(files)
 
+    @staticmethod
     def load_files(self, files: List[str]):
         # get the data from all files
         root = ET.Element("root")
@@ -144,11 +155,11 @@ class Aarch64Transformer:
             def is_store(mnemonic: str, hint: str) -> bool:
                 store_prefixes = ["str", "stg", "stp", "st2", "stl", "stn", "sts", "stt", "stu", "stx", "stz"]
                 return mnemonic[:3].lower() in ["str", "stg"]  #store_prefixes
-            
+
             def is_load(mnemonic: str, hint: str) -> bool:
                 load_prefixes = ["ldr", "ldg", "ldn", "ldp", "ldt", "ldu", "ldx"]
                 return mnemonic[:3].lower() in ["ldr", "ldg"] #load_prefixes
-            
+
             if is_store(mnemonic, hint):
                 src = "MEM" != hint
                 dest = "MEM" == hint
@@ -161,14 +172,6 @@ class Aarch64Transformer:
             return src, dest
 
 
-
-        def get_full_text(element):
-            text = element.text or ""
-            for child in element:
-                text += (child.text or "")
-                text += (child.tail or "")
-            return text
-
         def is_correct_explanation_clause(explnation: ET.Element, variant_name: str, variable: str) -> bool:
 
             if not any(variant_name.strip() == item.strip() for item in enclist_value.split(",")):
@@ -178,14 +181,14 @@ class Aarch64Transformer:
                 return False
 
             return True
-        
+
 
         def handle_table(table: ET.Element) -> Tuple[List[str], str, str, str]:
             tbody = table.findall('.//tbody')
             table_intro= explanation.findall('.//intro')
             assert table_intro and len(table_intro) == 1, "Each <explanation> assumed to contain a single table intro"
             intro = table_intro[0]
-            
+
             hint = "IMM"
             src = True
             dest = False
@@ -196,11 +199,11 @@ class Aarch64Transformer:
                 dest = False
 
             assert len(tbody) == 1, "Each <explanation> assumed to contain a single table body"
-            
+
             entries = tbody[0].findall('.//entry[@class="symbol"]')
 
             values = []
-            
+
             for entry in entries:
                 if entry.text == "RESERVED":
                     continue
@@ -209,87 +212,93 @@ class Aarch64Transformer:
             return values, hint, src, dest
 
         def handle_account(account: ET.Element, hint: str, src: Optional[str], dest: Optional[str]) -> Tuple[List[str], str, str, str, str, str]:
+            def _get_full_text(element):
+                text = element.text or ""
+                for child in element:
+                    text += (child.text or "")
+                    text += (child.tail or "")
+                return text
 
-                account_text = get_full_text(account.find(".//para"))
-                src = any(word in account_text for word in ["loaded", "source"]) if src is None else src
-                dest = any(word in account_text for word in ["stored", "destination"]) if dest is None else dest
-                values = []
-                signed = False
-                width = 0
-                number_of_bits = re.search(r"(\d+)-bit", account_text)
-                match_range = re.search(r"\[([+-]?\d+)-([+-]?\d+)\]", account_text)
-                if number_of_bits:
-                    width = int(number_of_bits.group(1))
-                elif "the number" in account_text:
-                    if not match_range:
-                        raise ParseFailed("Unavailable options for numbers")
-                    hint = "IMM"
-                    src = True
-                    dest = False
-                    a, b = map(int, match_range.groups())
-#                    values = list([str(i) for i in range(a, b+1)])
-                    values = [f'[{a}-{b}]']
+            account_text = _get_full_text(account.find(".//para"))
+            src = any(word in account_text for word in ["loaded", "source"]) if src is None else src
+            dest = any(word in account_text for word in ["stored", "destination"]) if dest is None else dest
+            values = []
+            signed = False
+            width = 0
+            number_of_bits = re.search(r"(\d+)-bit", account_text)
+            match_range = re.search(r"\[([+-]?\d+)-([+-]?\d+)\]", account_text)
+            if number_of_bits:
+                width = int(number_of_bits.group(1))
+            elif "the number" in account_text:
+                if not match_range:
+                    raise ParseFailed("Unavailable options for numbers")
+                hint = "IMM"
+                src = True
+                dest = False
+                a, b = map(int, match_range.groups())
+#               values = list([str(i) for i in range(a, b+1)])
+                values = [f'[{a}-{b}]']
+                signed = a < 0
+                width = int(np.log2(b-a+1))
+                return values, hint, src, dest, width, signed
+
+            if "label" in account_text:
+                hint = "LABEL"
+                src = True
+                dest = False
+                signed = True
+            elif "general-purpose" in account_text and width > 0:
+                assert "register" in account_text
+                assert number_of_bits
+                assert width in Aarch64TargetDesc.registers
+                values = Aarch64TargetDesc.registers[width]
+#               For now we don't support access using sp, because it requires allignment to 16 bytes
+#                   if " wsp" in account_text:
+#                       values.append("wsp")
+#                   if " sp" in account_text:
+#                       values.append("sp")
+
+            elif "SIMD" in account_text and width > 0:
+                assert number_of_bits
+                assert width in Aarch64TargetDesc.simd_registers
+                values = Aarch64TargetDesc.simd_registers[width]
+
+            elif "scalable vector" in account_text:
+                values = Aarch64TargetDesc.sve_scalable_vector_registers
+                width = 0 # it is implementation specific
+
+            elif "scalable predicate" in account_text:
+                values = Aarch64TargetDesc.sve_predicate_registers
+                width = 0 # it is implementation specific
+
+            elif "IMM" == hint:
+                range_match = re.search(r"([+-]?\d+) to ([+-]?\d+)", account_text)
+                if range_match:
+
+                    a, b = map(int, range_match.groups())
                     signed = a < 0
                     width = int(np.log2(b-a+1))
-                    return values, hint, src, dest, width, signed
 
-                if "label" in account_text:
-                    hint = "LABEL"
-                    src = True
-                    dest = False
-                    signed = True
-                elif "general-purpose" in account_text and width > 0:
-                    assert "register" in account_text
-                    assert number_of_bits 
-                    assert width in Aarch64TargetDesc.registers
-                    values = Aarch64TargetDesc.registers[width]
-#                   For now we don't support access using sp, because it requires allignment to 16 bytes
-#                    if " wsp" in account_text:
-#                        values.append("wsp")
-#                    if " sp" in account_text:
-#                        values.append("sp")
+                    multiple_match = re.search(r"multiple of ([+]?\d+)", account_text)
+                    m = 1
+                    if multiple_match:
+                        m = int(multiple_match.group(1))
 
-                elif "SIMD" in account_text and width > 0:
-                    assert number_of_bits 
-                    assert width in Aarch64TargetDesc.simd_registers
-                    values = Aarch64TargetDesc.simd_registers[width]
-
-                elif "scalable vector" in account_text:
-                    values = Aarch64TargetDesc.sve_scalable_vector_registers
-                    width = 0 # it is implementation specific
-
-                elif "scalable predicate" in account_text:
-                    values = Aarch64TargetDesc.sve_predicate_registers
-                    width = 0 # it is implementation specific
-
-                elif "IMM" == hint:
-                    range_match = re.search(r"([+-]?\d+) to ([+-]?\d+)", account_text)
-                    if range_match:
-
-                        a, b = map(int, range_match.groups())
-                        signed = a < 0
-                        width = int(np.log2(b-a+1))
-
-                        multiple_match = re.search(r"multiple of ([+]?\d+)", account_text)
-                        m = 1
-                        if multiple_match:
-                            m = int(multiple_match.group(1))
-
-                        values = [str(i) for i in range(a, b+1) if i % m == 0]
-#                        else:
-#                            values = [f'[{a}-{b}]']
-                    else:
-                        raise ParseFailed(
-                                f"Unexpected Error Parsing Explanation Fields of {variant_name}:{variable}")
-                    signed = "unsigned" not in account_text
-                    src = True
-                    dest = False
+                    values = [str(i) for i in range(a, b+1) if i % m == 0]
+#                       else:
+#                           values = [f'[{a}-{b}]']
                 else:
                     raise ParseFailed(
-                                f"Unexpected Error Parsing Explanation Fields of {variant_name}:{variable}")
+                            f"Unexpected Error Parsing Explanation Fields of {variant_name}:{variable}")
+                signed = "unsigned" not in account_text
+                src = True
+                dest = False
+            else:
+                raise ParseFailed(
+                            f"Unexpected Error Parsing Explanation Fields of {variant_name}:{variable}")
 
-                return values, hint, src, dest, width, signed
-        
+            return values, hint, src, dest, width, signed
+
         width = 0
         src, dest = set_if_memory_access(mnemonic, hint)
         values = []
@@ -317,19 +326,10 @@ class Aarch64Transformer:
             else:
                 raise ParseFailed(f"Unexpected Error Parsing Explanation Fields of {variant_name}:{variable}")
 
-        operand = OperandSpec()
-        operand.name = variable
-        operand.type_ = hint
-        operand.values = values
-        operand.src = src
-        operand.dest = dest
-        operand.width = width
-        operand.signed = signed
-        return operand
-
+        return OperandSpec(variable, hint, values, src, dest, width, signed)
 
     @staticmethod
-    def parse_instruction_variant(instruction_variant_element: ET.Element, instruction_spec: InstructionSpec, explanations: ET.Element) -> InstructionSpec:
+    def parse_instruction_variant(instruction_variant_element: ET.Element, instruction_spec: InstructionSpec, explanations: ET.Element) -> List[InstructionSpec]:
         asmtemplate = instruction_variant_element.findall(".//asmtemplate/*")
         if asmtemplate is None:
             return
@@ -338,12 +338,14 @@ class Aarch64Transformer:
         for word in asmtemplate:
             asmtemplate_data += word.text
 
-        return Aarch64Transformer.parse_instruction_variant_inner(instruction_variant_element.get("name"),
-                                                                  asmtemplate_data,
-                                                                  instruction_spec, 0, explanations, 0)
+        return Aarch64Transformer.parse_instruction_variant_inner(
+            instruction_variant_element.get("name"),asmtemplate_data,instruction_spec,0,
+            explanations, 0)
 
     @staticmethod
-    def parse_instruction_variant_inner(variant_name: str, template: str, current_instruction: InstructionSpec, recursive: int, explanations: ET.Element, index: int) -> InstructionSpec:
+    def parse_instruction_variant_inner(variant_name: str, template: str,
+                                        current_instruction: InstructionSpec, recursive: int,
+                                        explanations: ET.Element, index: int) -> List[InstructionSpec]:
 
         def find_closing_bracket(s: str, index: int) -> Optional[int]:
             bracket_map = {'(': ')', '{': '}', '[': ']', "<": ">"}
@@ -376,7 +378,7 @@ class Aarch64Transformer:
 
         default_hint = "REG"
         hint = default_hint
-        
+
         while index < len(template):
             ch = template[index]
             if ch not in special_characters:
@@ -384,7 +386,7 @@ class Aarch64Transformer:
                 index += 1
             else:
                 if ch in "<":
-                    
+
                     closing_bracket_index = find_closing_bracket(template, index)
                     variable = template[index+1:closing_bracket_index]
                     current_instruction.template += f"{{{variable}}}"
@@ -495,7 +497,7 @@ class Aarch64Transformer:
                     return False # TODO: Currentlu, any instruction that has a label but not a control flow, is not supported as the label is assumed (wrongly) to be of a branch (for example PRFM). Additionally, for some reason cbcc instructions considered non-control flow
 
 
-                
+
 
         # is the 64-bit operands inside the memory clause come before the 32-bit operand, we need an extend clause
         if has_general_purpose_regiers_64_bit_for_memory[0] and \
@@ -509,7 +511,7 @@ class Aarch64Transformer:
                     name_to_search_op64 = f"{{{op64.name}}}"
                     if instruction.template.find(op64.name) < instruction.template.find(op32.name):
                         return False
- 
+
         if has_extend:
             return False
             if has_general_purpose_regiers_32_bit_for_memory[0]:
@@ -532,8 +534,8 @@ class Aarch64Transformer:
 
 
         return True
- 
-            
+
+
 
     def parse_instruction(self, instruction_node, explanations: ET.Element) -> List[InstructionSpec]:
 
@@ -549,7 +551,7 @@ class Aarch64Transformer:
 
         flags_op = Aarch64Transformer.get_flags_from_asl(instruction_node)
 
-        
+
         current_spec = InstructionSpec()
 
         variants = []
@@ -577,14 +579,8 @@ class Aarch64Transformer:
 
             # implicit PC operand
             if current_spec.control_flow:
-                op_pc = OperandSpec()
-                op_pc.name = "pc"
-                op_pc.values = ["PC"]
-                op_pc.type_ = "REG"
-                op_pc.width = 64
-                op_pc.src = True
-                op_pc.dest = False
-                op_pc.signed = False
+                op_pc = OperandSpec(name="pc", type="REG", values=["PC"],
+                                    src=True, dest=False, width=64, signed=False)
                 current_spec.implicit_operands.append(op_pc)
 
             # implicit flags operand
@@ -610,7 +606,7 @@ class Aarch64Transformer:
             explanations = instruction_node.find(".//explanations")
             if explanations is None:
                 continue
- 
+
             encodings = self.parse_instruction(instruction_node, explanations)
             self.instructions.extend(encodings)
 
@@ -633,13 +629,8 @@ class Aarch64Transformer:
                     flag_values[f][0] |= is_read
                     flag_values[f][1] |= is_write
         if uses_flags:
-            flag_op = OperandSpec()
-            flag_op.name = "flags"
-            flag_op.type_ = "FLAGS"
-            flag_op.width = 0
-            flag_op.src = False
-            flag_op.dest = False
-            flag_op.values = []
+            flag_op = OperandSpec(name="flags", type="FLAGS", values=[],
+                                  src=False, dest=False, width=0, signed=False)
 
             # the loop maps aarch64 flags to x86 eflags, which is the basis for out flags data structure
             for f in ["C", "", "", "Z", "N", "", "", "", "V"]:
