@@ -12,6 +12,7 @@ import re
 from typing import List, Tuple, Optional
 from subprocess import CalledProcessError, run
 from copy import deepcopy
+from itertools import chain
 
 from .isa_loader import InstructionSet
 from .interfaces import Generator, TestCase, Operand, RegisterOperand, FlagsOperand, \
@@ -20,6 +21,7 @@ from .interfaces import Generator, TestCase, Operand, RegisterOperand, FlagsOper
     NotSupportedException
 from .util import Logger
 from .config import CONF
+from .aarch64.aarch64_target_desc import Aarch64TargetDesc
 
 
 # ==================================================================================================
@@ -195,7 +197,7 @@ class ConfigurableGenerator(Generator, abc.ABC):
             return msg
 
         try:
-            out = run(f"aarch64-linux-gnu-as {asm_file} -o {obj_file}", shell=True, check=True, capture_output=True) # TODO: extract assembler to configuration
+            out = run(f"aarch64-linux-gnu-as -march=armv9-a+sve+memtag {asm_file} -o {obj_file}", shell=True, check=True, capture_output=True) # TODO: extract assembler to configuration
         except CalledProcessError as e:
             error_msg = e.stderr.decode()
             if "Assembler messages:" in error_msg:
@@ -212,8 +214,8 @@ class ConfigurableGenerator(Generator, abc.ABC):
             print("WARNING: [generator]" + pretty_error_msg(output))
 
         run(f"cp {obj_file} {bin_file}", shell=True, check=True)
-        run(f"strip --remove-section=.note.gnu.property {bin_file}", shell=True, check=True)
-        run(f"objcopy {bin_file} -O binary {bin_file}", shell=True, check=True)
+#        run(f"strip --remove-section=.note.gnu.property {bin_file}", shell=True, check=True)
+        run(f"aarch64-linux-gnu-objcopy {bin_file} -O binary {bin_file}", shell=True, check=True)
 
     @abc.abstractmethod
     def get_elf_data(self, test_case: TestCase, obj_file: str) -> None:
@@ -439,11 +441,13 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
         # generate explicit operands
         for operand_spec in spec.operands:
             operand = self.generate_operand(operand_spec, inst)
+            operand.name = operand_spec.name # TODO: should be done inside the factory
             inst.operands.append(operand)
 
         # generate implicit operands
         for operand_spec in spec.implicit_operands:
             operand = self.generate_operand(operand_spec, inst)
+            operand.name = operand_spec.name # TODO: should be done inside the factory
             inst.implicit_operands.append(operand)
 
         return inst
@@ -455,7 +459,7 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
         elif reg_type == "simd":  # deprecated?
             choices = self.target_desc.simd_registers[spec.width]
         else:
-            choices = spec.values
+            choices = [s for s in spec.values if s in chain.from_iterable(Aarch64TargetDesc.registers.values())]
 
         reg = random.choice(choices)
         return RegisterOperand(reg, spec.width, spec.src, spec.dest)
@@ -477,17 +481,20 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
 
         # generate from a predefined range
         if spec.values:
-            assert "[" in spec.values[0], spec.values
-            range_ = spec.values[0][1:-1].split("-")
-            if range_[0] == "":
-                range_ = range_[1:]
-                range_[0] = "-" + range_[0]
-            assert len(range_) == 2
-            num0 = int(range_[0]) - 1
-            num1 = int(range_[1]) - 1
-            smaller = min(num0, num1)
-            bigger = max(num0, num1)
-            value = str(random.randint(smaller, bigger))
+            if '[' in spec.values[0]:
+                range_ = spec.values[0][1:-1].split("-")
+                if range_[0] == "":
+                    range_ = range_[1:]
+                    range_[0] = "-" + range_[0]
+                assert len(range_) == 2
+                num0 = int(range_[0]) - 1
+                num1 = int(range_[1]) - 1
+                smaller = min(num0, num1)
+                bigger = max(num0, num1)
+                value = str(random.randint(smaller, bigger))
+            else:
+                value = random.choice(spec.values)
+
             return ImmediateOperand(value, spec.width)
 
         # generate from width
@@ -549,7 +556,10 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
         return FlagsOperand(merged_flags)
 
     def generate_cond_operand(self, spec: OperandSpec, _: Instruction) -> Operand:
-        cond = random.choice(list(self.target_desc.branch_conditions))
+        if spec.values:
+            cond = random.choice(spec.values)
+        else:
+            cond = random.choice(list(self.target_desc.branch_conditions))
         return CondOperand(cond)
 
     def expand_template(self, test_case: TestCase):

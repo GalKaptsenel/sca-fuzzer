@@ -7,12 +7,13 @@ SPDX-License-Identifier: MIT
 import abc
 import math
 import random
-from typing import List
+import copy
+from typing import List, Tuple
 
 from ..isa_loader import InstructionSet
 from ..interfaces import TestCase, Operand, Instruction, BasicBlock, Function, InstructionSpec, \
     GeneratorException, RegisterOperand, ImmediateOperand, MAIN_AREA_SIZE, FAULTY_AREA_SIZE, \
-    MemoryOperand, AgenOperand
+    MemoryOperand, AgenOperand, OT
 from ..generator import ConfigurableGenerator, RandomGenerator, Pass, Printer
 from ..config import CONF
 from .aarch64_target_desc import Aarch64TargetDesc
@@ -47,10 +48,10 @@ class Aarch64Generator(ConfigurableGenerator, abc.ABC):
         self.printer = Aarch64Printer(self.target_desc)
 
     def get_return_instruction(self) -> Instruction:
-        return Instruction("ret", False, "", True)
+        return Instruction("ret", False, "", True, template="RET")
 
     def get_unconditional_jump_instruction(self) -> Instruction:
-        return Instruction("b", False, "UNCOND_BR", True)
+        return Instruction("b", False, "UNCOND_BR", True, template="B {label}")
 
     def get_elf_data(self, test_case: TestCase, obj_file: str) -> None:
         self.elf_parser.parse(test_case, obj_file)
@@ -129,23 +130,56 @@ class Aarch64SandboxPass(Pass):
 
     def sandbox_memory_access(self, instr: Instruction, parent: BasicBlock):
         """ Force the memory accesses into the page starting from R14 """
+
+        def generate_template(mnemonic: str, op0: Operand, op1: Operand, op2: Operand) -> Tuple[str, Operand, Operand, Operand]:
+                op0_cpy = copy.deepcopy(op0)
+                op1_cpy = copy.deepcopy(op1)
+                op2_cpy = copy.deepcopy(op2)
+                op0_cpy.name += "0"
+                op1_cpy.name += "1"
+                op2_cpy.name += "2"
+                template = f"{mnemonic} {{{op0_cpy.name}}}, {{{op1_cpy.name}}}, {{{op2_cpy.name}}}"
+                return template, op0_cpy, op1_cpy, op2_cpy
+ 
         mem_operands = instr.get_mem_operands()
         implicit_mem_operands = instr.get_implicit_mem_operands()
         if mem_operands and not implicit_mem_operands:
-            assert len(mem_operands) == 1, f"Unexpected instruction format {instr.name}"
-            mem_operand: Operand = mem_operands[0]
-            address_reg = mem_operand.value
-            imm_width = mem_operand.width if mem_operand.width <= 32 else 32
-            apply_mask = Instruction("and", True) \
-                .add_op(RegisterOperand(address_reg, mem_operand.width, True, True)) \
-                .add_op(RegisterOperand(address_reg, mem_operand.width, True, True)) \
-                .add_op(ImmediateOperand(self.sandbox_address_mask, imm_width))
+#            assert len(mem_operands) == 1, f"Unexpected instruction format {instr.name}"
+            base_operand: Operand = mem_operands[0]
+            base_operand_copy = RegisterOperand(base_operand.value, base_operand.width, True, True)
+            base_operand_copy.name = base_operand.name
+
+            imm_width = min(base_operand_copy.width, 32)
+            imm_op = ImmediateOperand(self.sandbox_address_mask, imm_width)
+            imm_op.name = "imm_op"
+            template, op0, op1, op2 = generate_template("AND", base_operand_copy, base_operand_copy, imm_op)
+            apply_mask = Instruction("AND", True).add_op(op0).add_op(op1).add_op(op2)
+            apply_mask.template = template
             parent.insert_before(instr, apply_mask)
-            add_base = Instruction("add", True) \
-                .add_op(RegisterOperand(address_reg, mem_operand.width, True, True)) \
-                .add_op(RegisterOperand(address_reg, mem_operand.width, True, True)) \
-                .add_op(RegisterOperand("x30", 64, True, True))
+
+            x30_register = RegisterOperand("x30", 64, True, False) 
+            x30_register.name = "x30_reg" 
+            template, op0, op1, op2 = generate_template("ADD", base_operand_copy, base_operand_copy, x30_register)
+            add_base = Instruction("ADD", True).add_op(op0).add_op(op1).add_op(op2)
+            add_base.template = template
             parent.insert_before(instr, add_base)
+ 
+            for op in mem_operands[1:]:
+                found = False
+                for size, registers in Aarch64TargetDesc.registers.items():
+                    if op.value in registers:
+                        found = True
+
+                if not found:
+                    continue 
+
+                template, op0, op1, op2 = generate_template("SUB", base_operand_copy, base_operand_copy, op)
+                op2.dest = False
+                op2.src = True
+                sub_inst = Instruction("SUB", True).add_op(op0).add_op(op1).add_op(op2)
+                sub_inst.template = template # TODO: this should be done in the constructor
+                parent.insert_before(instr, sub_inst)
+
             return
 
         if implicit_mem_operands:
@@ -200,14 +234,19 @@ class Aarch64Printer(Printer):
         if inst.name == "macro":
             return self.macro_to_str(inst)
 
-        operands = ", ".join([self.operand_to_str(op) for op in inst.operands])
+        values = {}
+        for op in inst.operands:
+            values[op.name] = op.value
+
+        instruction = inst.template.format(**values)
+
         if inst.is_instrumentation:
             comment = "// instrumentation"
         elif inst.is_noremove:
             comment = "// noremove"
         else:
             comment = ""
-        return f"{inst.name} {operands} {comment}"
+        return f"{instruction} {comment}"
 
     def operand_to_str(self, op: Operand) -> str:
         if isinstance(op, MemoryOperand) or isinstance(op, AgenOperand):

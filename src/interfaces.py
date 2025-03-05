@@ -35,6 +35,7 @@ class OT(Enum):
 
 
 class OperandSpec:
+    name: str
     values: List[str]
     type: OT
     width: int
@@ -46,7 +47,8 @@ class OperandSpec:
     # magic_value attribute indicates a specification for this special value
     magic_value: bool = False
 
-    def __init__(self, values: List[str], type_: OT, src: bool, dest: bool):
+    def __init__(self, values: List[str], type_: OT, src: bool, dest: bool, name: str = "n/a"):
+        self.name = name
         self.values = values
         self.type = type_
         self.src = src
@@ -63,6 +65,7 @@ class InstructionSpec:
     implicit_operands: List[OperandSpec]
     category: str
     control_flow = False
+    template: str
 
     has_mem_operand = False
     has_write = False
@@ -295,6 +298,7 @@ class Symbol(NamedTuple):
 
 
 class Operand(ABC):
+    name: str
     value: str
     type: OT
     width: int = 0
@@ -305,7 +309,8 @@ class Operand(ABC):
     # magic_value attribute indicates a specification for this special value
     magic_value: bool = False
 
-    def __init__(self, value: str, type_, src: bool, dest: bool):
+    def __init__(self, value: str, type_, src: bool, dest: bool, name: str = ""):
+        self.name = name
         self.value = value
         self.type = type_
         self.src = src
@@ -340,7 +345,7 @@ class ImmediateOperand(Operand):
 class LabelOperand(Operand):
 
     def __init__(self, value):
-        super().__init__(value, OT.LABEL, True, False)
+        super().__init__(value, OT.LABEL, True, False, "label")
 
 
 class AgenOperand(Operand):
@@ -418,6 +423,8 @@ class Instruction:
     control_flow: bool = False
     """ control_flow: If True, the instruction is a control flow instruction
     (branch, call, return, etc.) """
+    template: str
+    """ format string representation of the instruction """
 
     next: Optional[Instruction] = None
     """ next: Next instruction in the double-linked list of instructions """
@@ -444,18 +451,19 @@ class Instruction:
     """ _inst_brief: A brief representation of the instruction,
     used for hashing and for debug messages """
 
-    def __init__(self, name: str, is_instrumentation=False, category="", control_flow=False):
+    def __init__(self, name: str, is_instrumentation=False, category="", control_flow=False, template=None):
         self.name = name
         self.operands = []
         self.implicit_operands = []
         self.is_instrumentation = is_instrumentation
         self.category = category
         self.control_flow = control_flow
+        self.template = template 
 
     @classmethod
     def from_spec(cls, spec: InstructionSpec, is_instrumentation=False):
         # Make sure there are exactly three vertices, though :)
-        return cls(spec.name, is_instrumentation, spec.category, spec.control_flow)
+        return cls(spec.name, is_instrumentation, spec.category, spec.control_flow, spec.template)
 
     def __str__(self) -> str:
         op_list = [

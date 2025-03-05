@@ -143,22 +143,22 @@ class Aarch64Transformer:
         def set_if_memory_access(mnemonic: str, hint: str) -> Tuple[Optional[str], Optional[str]]:
             def is_store(mnemonic: str, hint: str) -> bool:
                 store_prefixes = ["str", "stg", "stp", "st2", "stl", "stn", "sts", "stt", "stu", "stx", "stz"]
-                return mnemonic[:3].lower() in store_prefixes
+                return mnemonic[:3].lower() in ["str", "stg"]  #store_prefixes
             
             def is_load(mnemonic: str, hint: str) -> bool:
                 load_prefixes = ["ldr", "ldg", "ldn", "ldp", "ldt", "ldu", "ldx"]
-                return mnemonic[:3].lower() in load_prefixes
+                return mnemonic[:3].lower() in ["ldr", "ldg"] #load_prefixes
             
             if is_store(mnemonic, hint):
                 src = "MEM" != hint
-                dst = "MEM" == hint
+                dest = "MEM" == hint
             elif is_load(mnemonic, hint):
                 src = "MEM" == hint
-                dst = "MEM" != hint
+                dest = "MEM" != hint
             else:
                 src = None
-                dst = None
-            return src, dst
+                dest = None
+            return src, dest
 
 
 
@@ -188,12 +188,12 @@ class Aarch64Transformer:
             
             hint = "IMM"
             src = True
-            dst = False
+            dest = False
 
             if "standard conditions" in intro.text:
                 hint = "COND"
                 src = False
-                dst = False
+                dest = False
 
             assert len(tbody) == 1, "Each <explanation> assumed to contain a single table body"
             
@@ -206,13 +206,13 @@ class Aarch64Transformer:
                     continue
                 values.append(entry.text)
 
-            return values, hint, src, dst
+            return values, hint, src, dest
 
-        def handle_account(account: ET.Element, hint: str, src: Optional[str], dst: Optional[str]) -> Tuple[List[str], str, str, str, str, str]:
+        def handle_account(account: ET.Element, hint: str, src: Optional[str], dest: Optional[str]) -> Tuple[List[str], str, str, str, str, str]:
 
                 account_text = get_full_text(account.find(".//para"))
                 src = any(word in account_text for word in ["loaded", "source"]) if src is None else src
-                dst = any(word in account_text for word in ["stored", "destination"]) if dst is None else dst
+                dest = any(word in account_text for word in ["stored", "destination"]) if dest is None else dest
                 values = []
                 signed = False
                 width = 0
@@ -225,65 +225,73 @@ class Aarch64Transformer:
                         raise ParseFailed("Unavailable options for numbers")
                     hint = "IMM"
                     src = True
-                    dst = False
+                    dest = False
                     a, b = map(int, match_range.groups())
-                    values = list([str(i) for i in range(a, b+1)])
+#                    values = list([str(i) for i in range(a, b+1)])
+                    values = [f'[{a}-{b}]']
                     signed = a < 0
-                    width = int(np.log2(len(values)))
-                    return values, hint, src, dst, width, signed
+                    width = int(np.log2(b-a+1))
+                    return values, hint, src, dest, width, signed
 
                 if "label" in account_text:
                     hint = "LABEL"
                     src = True
-                    dst = False
+                    dest = False
+                    signed = True
                 elif "general-purpose" in account_text and width > 0:
                     assert "register" in account_text
                     assert number_of_bits 
                     assert width in Aarch64TargetDesc.registers
-                    hint = "REG"
                     values = Aarch64TargetDesc.registers[width]
-                    if " wsp" in account_text:
-                        values.append("wsp")
-                    if " sp" in account_text:
-                        values.append("sp")
+#                   For now we don't support access using sp, because it requires allignment to 16 bytes
+#                    if " wsp" in account_text:
+#                        values.append("wsp")
+#                    if " sp" in account_text:
+#                        values.append("sp")
 
                 elif "SIMD" in account_text and width > 0:
                     assert number_of_bits 
                     assert width in Aarch64TargetDesc.simd_registers
-                    hint = "REG"
                     values = Aarch64TargetDesc.simd_registers[width]
 
                 elif "scalable vector" in account_text:
-                    hint = "REG"
                     values = Aarch64TargetDesc.sve_scalable_vector_registers
                     width = 0 # it is implementation specific
 
                 elif "scalable predicate" in account_text:
-                    hint = "REG"
                     values = Aarch64TargetDesc.sve_predicate_registers
                     width = 0 # it is implementation specific
 
                 elif "IMM" == hint:
                     range_match = re.search(r"([+-]?\d+) to ([+-]?\d+)", account_text)
                     if range_match:
+
                         a, b = map(int, range_match.groups())
                         signed = a < 0
-                        values = list([str(i) for i in range(a, b+1)])
-                        width = int(np.log2(len(values)))
+                        width = int(np.log2(b-a+1))
+
+                        multiple_match = re.search(r"multiple of ([+]?\d+)", account_text)
+                        m = 1
+                        if multiple_match:
+                            m = int(multiple_match.group(1))
+
+                        values = [str(i) for i in range(a, b+1) if i % m == 0]
+#                        else:
+#                            values = [f'[{a}-{b}]']
                     else:
                         raise ParseFailed(
                                 f"Unexpected Error Parsing Explanation Fields of {variant_name}:{variable}")
                     signed = "unsigned" not in account_text
                     src = True
-                    dst = False
+                    dest = False
                 else:
                     raise ParseFailed(
                                 f"Unexpected Error Parsing Explanation Fields of {variant_name}:{variable}")
 
-                return values, hint, src, dst, width, signed
+                return values, hint, src, dest, width, signed
         
         width = 0
-        src, dst = set_if_memory_access(mnemonic, hint)
+        src, dest = set_if_memory_access(mnemonic, hint)
         values = []
         signed = False
         for explanation in explanations.findall(".//explanation"):
@@ -300,11 +308,11 @@ class Aarch64Transformer:
 
             if len(table_elements) == 1:
                 table = table_elements[0]
-                values, hint, src, dst = handle_table(table)
+                values, hint, src, dest = handle_table(table)
 
             elif len(account_elements) == 1:
                 account = account_elements[0]
-                values, hint, src, dst, width, signed = handle_account(account, hint, src, dst)
+                values, hint, src, dest, width, signed = handle_account(account, hint, src, dest)
 
             else:
                 raise ParseFailed(f"Unexpected Error Parsing Explanation Fields of {variant_name}:{variable}")
@@ -314,46 +322,11 @@ class Aarch64Transformer:
         operand.type_ = hint
         operand.values = values
         operand.src = src
-        operand.dst = dst
+        operand.dest = dest
         operand.width = width
         operand.signed = signed
         return operand
 
-        if " wsp" in text or " sp" in text:
-            op.values.append("SP")
-        if "zr" in text:
-            op.values.append("ZR")
-        assert type_hint == "", f"{self.current_spec.name} {text}"
-        assert "general-purpose" in text, f"{self.current_spec.name} {text}"
-        assert op.width == 32 or "64-bit" in text or "-bit" not in text, \
-            f"{self.current_spec.name} {text}"
-
-        if op.dest or op.src:
-            return op
-
-        op.dest = ("stored" in text)
-        op.src = ("loaded" in text)
-        if op.dest or op.src:
-            return op
-
-        op.dest = ("output" in text)
-        op.src = ("input" in text)
-        if op.dest or op.src:
-            return op
-
-        if "tested" in text:
-            op.src = True
-            return op
-
-        if self.current_spec.name[:3] == "LDR":
-            op.dest = True
-            return op
-
-        if self.current_spec.name[:3] == "STR":
-            op.src = True
-            return op
-
-        raise ParseFailed()
 
     @staticmethod
     def parse_instruction_variant(instruction_variant_element: ET.Element, instruction_spec: InstructionSpec, explanations: ET.Element) -> InstructionSpec:
@@ -371,9 +344,6 @@ class Aarch64Transformer:
 
     @staticmethod
     def parse_instruction_variant_inner(variant_name: str, template: str, current_instruction: InstructionSpec, recursive: int, explanations: ET.Element, index: int) -> InstructionSpec:
-
-        def first_occurrence(s: str, chars: str) -> Optional[int]:
-            return next((i for i, c in enumerate(s) if c in chars), None)
 
         def find_closing_bracket(s: str, index: int) -> Optional[int]:
             bracket_map = {'(': ')', '{': '}', '[': ']', "<": ">"}
@@ -404,7 +374,8 @@ class Aarch64Transformer:
 
         special_characters = "<>!|(){}#[]"
 
-        hint = ""
+        default_hint = "REG"
+        hint = default_hint
         
         while index < len(template):
             ch = template[index]
@@ -419,9 +390,14 @@ class Aarch64Transformer:
                     current_instruction.template += f"{{{variable}}}"
                     operand = Aarch64Transformer.parse_explanations(current_instruction.name, explanations, variant_name,
                                                                    variable, hint)
+
+                    # TODO: make it cleaner and clearer! should not be here!
+                    if recursive != 0:
+                        operand.type_ = "MEM"
+
                     current_instruction.operands.append(operand)
                     index = closing_bracket_index + 1
-                    hint = "" if recursive == 0 else hint
+                    hint = default_hint if recursive == 0 else hint
                 elif ch in "{(":
                     closing_bracket_index = find_closing_bracket(template, index)
                     if closing_bracket_index is None:
@@ -470,7 +446,7 @@ class Aarch64Transformer:
                     recursive -= 1
 
                     if recursive == 0:
-                        hint = ""
+                        hint = default_hint
                     index += 1
                 elif ch == "#":
                     current_instruction.template += "#"
@@ -482,7 +458,82 @@ class Aarch64Transformer:
 
         return [current_instruction]
 
+    @staticmethod
+    def postprocessing_instruction(instruction: InstructionSpec) -> bool:
+        """ Not all valid encodings form a logical instruction """
+        has_extend = False
+        has_general_purpose_regiers_32_bit_for_memory = (False, None)
+        has_general_purpose_regiers_64_bit_for_memory = (False, None)
+        has_lsl = False
+        has_amount = False
 
+        for operand in instruction.operands:
+
+            if operand.name == "extend":
+                has_extend = True
+
+                for value in  operand.values:
+                    if value.lower() == "lsl":
+                        has_lsl = True
+
+
+            elif operand.name == "amount":
+                has_amount = True
+
+            elif operand.type_ == "MEM":
+                for value in  operand.values:
+                    if value in Aarch64TargetDesc.registers[32]:
+                        has_general_purpose_regiers_32_bit_for_memory = (True, operand)
+
+                    if value in Aarch64TargetDesc.registers[64]:
+                        has_general_purpose_regiers_64_bit_for_memory = (True, operand)
+
+            elif operand.type_ == "LABEL":
+
+                if not instruction.control_flow:
+
+                    return False # TODO: Currentlu, any instruction that has a label but not a control flow, is not supported as the label is assumed (wrongly) to be of a branch (for example PRFM). Additionally, for some reason cbcc instructions considered non-control flow
+
+
+                
+
+        # is the 64-bit operands inside the memory clause come before the 32-bit operand, we need an extend clause
+        if has_general_purpose_regiers_64_bit_for_memory[0] and \
+                has_general_purpose_regiers_32_bit_for_memory[0] \
+                and not has_extend:
+                    op32 = has_general_purpose_regiers_32_bit_for_memory[1]
+                    op64 = has_general_purpose_regiers_64_bit_for_memory[1]
+                    assert op32 is not None
+                    assert op64 is not None
+                    name_to_search_op32 = f"{{{op32.name}}}"
+                    name_to_search_op64 = f"{{{op64.name}}}"
+                    if instruction.template.find(op64.name) < instruction.template.find(op32.name):
+                        return False
+ 
+        if has_extend:
+            return False
+            if has_general_purpose_regiers_32_bit_for_memory[0]:
+                has_lsl = False
+                valid_32_bit_extends = ["uxtw", "sxtw"]
+                valid_extends = valid_32_bit_extends
+            elif has_general_purpose_regiers_64_bit_for_memory[0]:
+                valid_64_bit_extends = ["lsl", "uxtx", "sxtx"]
+                valid_extends = valid_64_bit_extends
+            else:
+                return False
+
+            for operand in instruction.operands:
+                if operand.name == "extend":
+                    operand.values = [v for v in operand.values if isinstance(v, str) and v.lower() in valid_extends]
+
+        if has_lsl and not has_amount:
+            return False
+
+
+
+        return True
+ 
+            
 
     def parse_instruction(self, instruction_node, explanations: ET.Element) -> List[InstructionSpec]:
 
@@ -491,8 +542,14 @@ class Aarch64Transformer:
             return []
 
         category, address_form = Aarch64Transformer.parse_instruction_docvars(docvars)
+
+        # TODO: temporary
+        if category != "general":
+            return []
+
         flags_op = Aarch64Transformer.get_flags_from_asl(instruction_node)
 
+        
         current_spec = InstructionSpec()
 
         variants = []
@@ -521,11 +578,13 @@ class Aarch64Transformer:
             # implicit PC operand
             if current_spec.control_flow:
                 op_pc = OperandSpec()
+                op_pc.name = "pc"
                 op_pc.values = ["PC"]
                 op_pc.type_ = "REG"
                 op_pc.width = 64
                 op_pc.src = True
                 op_pc.dest = False
+                op_pc.signed = False
                 current_spec.implicit_operands.append(op_pc)
 
             # implicit flags operand
@@ -533,8 +592,12 @@ class Aarch64Transformer:
                 current_spec.implicit_operands.append(flags_op)
 
             try:
-                encoding = Aarch64Transformer.parse_instruction_variant(variant, current_spec, explanations)
-                variants += encoding
+                encodings = Aarch64Transformer.parse_instruction_variant(variant, current_spec, explanations)
+
+                for encoding in encodings:
+                    if Aarch64Transformer.postprocessing_instruction(encoding):
+                        variants.append(encoding)
+
             except ParseFailed:
                 continue
 
@@ -571,6 +634,7 @@ class Aarch64Transformer:
                     flag_values[f][1] |= is_write
         if uses_flags:
             flag_op = OperandSpec()
+            flag_op.name = "flags"
             flag_op.type_ = "FLAGS"
             flag_op.width = 0
             flag_op.src = False

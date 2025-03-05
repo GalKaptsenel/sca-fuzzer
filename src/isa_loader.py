@@ -39,6 +39,7 @@ class InstructionSet(InstructionSetAbstract):
             instruction.name = instruction_node["name"]
             instruction.category = instruction_node["category"]
             instruction.control_flow = instruction_node["control_flow"]
+            instruction.template = instruction_node["template"]
 
             for op_node in instruction_node["operands"]:
                 op = self.parse_operand(op_node, instruction)
@@ -57,7 +58,8 @@ class InstructionSet(InstructionSetAbstract):
         op_values = op.get("values", [])
         if op_type == "REG":
             op_values = sorted(op_values)
-        spec = OperandSpec(op_values, op_type, op["src"], op["dest"])
+        op_name = op.get("name", "")
+        spec = OperandSpec(op_values, op_type, op["src"], op["dest"], op_name)
         spec.width = op["width"]
         spec.signed = op.get("signed", True)
 
@@ -139,10 +141,16 @@ class InstructionSet(InstructionSetAbstract):
         # set parameters
         for inst in self.instructions:
             if inst.control_flow:
-                if inst.category == "BASE-UNCOND_BR":
-                    self.has_unconditional_branch = True
-                else:
-                    self.has_conditional_branch = True
+                self.has_unconditional_branch = True
+                for op in inst.operands:
+                    if op.type == OT.COND:
+                        self.has_conditional_branch = True
+
+
+#                if inst.category == "BASE-UNCOND_BR":
+#                    self.has_unconditional_branch = True
+#                else:
+#                    self.has_conditional_branch = True
             elif inst.has_mem_operand:
                 if inst.has_write:
                     self.has_writes = True

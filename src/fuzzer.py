@@ -13,7 +13,7 @@ import copy
 from . import factory
 from .interfaces import Fuzzer, CTrace, HTrace, Input, Violation, TestCase, \
     Generator, InputGenerator, Model, Executor, Analyser, InputID, InputTaint, \
-    HardwareTracingError
+    HardwareTracingError, InputFragment
 from .isa_loader import InstructionSet
 from .config import CONF
 from .util import Logger, STAT, pretty_htrace
@@ -153,6 +153,10 @@ class FuzzerGeneric(Fuzzer):
             # Check if the test case is useful
             if self.filter(test_case, inputs):
                 continue
+
+            for indx, i in enumerate(inputs):
+                with open(f"input{indx}.bin", "wb") as f:
+                    f.write(i.view(InputFragment).tobytes())
 
             # Fuzz the test case
             violation = self.fuzzing_round(test_case, inputs)
