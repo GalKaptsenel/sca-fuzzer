@@ -276,12 +276,20 @@ class Aarch64RandomGenerator(Aarch64Generator, RandomGenerator):
     def __init__(self, instruction_set: InstructionSet, seed: int):
         super().__init__(instruction_set, seed)
 
-    def generate_reg_operand(self, spec: OperandSpec, _: Instruction) -> Operand:
-        choices = [s for s in spec.values if
+    @staticmethod
+    def filter_invalid_regs(values: List[str]) -> List[str]:
+        return [s for s in values if
                    s in chain.from_iterable(Aarch64TargetDesc.registers.values())]
+    def generate_reg_operand(self, spec: OperandSpec, _: Instruction) -> Operand:
+        choices = Aarch64RandomGenerator.filter_invalid_regs(spec.values)
         reg = random.choice(choices)
         return RegisterOperand(reg, spec.width, spec.src, spec.dest)
 
     def generate_cond_operand(self, spec: OperandSpec, _: Instruction) -> Operand:
         cond = random.choice(spec.values)
         return CondOperand(cond)
+
+    def generate_mem_operand(self, spec: OperandSpec, _: Instruction) -> Operand:
+        choices = Aarch64RandomGenerator.filter_invalid_regs(spec.values)
+        address_reg = random.choice(choices)
+        return MemoryOperand(address_reg, spec.width, spec.src, spec.dest)
