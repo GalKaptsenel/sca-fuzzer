@@ -104,7 +104,7 @@ static void load_registers_from_input(input_t* input) {
 
 	// - RSP and RBP
 	((registers_t*)executor.sandbox.upper_overflow)->sp = get_stack_base_address();
-	module_debug("Input regs: x0:%llx, x1:%llx, x2:%llx x3:%llx, x4:%llx, x5:%llx, flags:%llx, sp:%llx\n",
+	module_err("Input regs: x0:%llx, x1:%llx, x2:%llx x3:%llx, x4:%llx, x5:%llx, flags:%llx, sp:%llx\n",
 			*(uint64_t*)executor.sandbox.upper_overflow,
 			*((uint64_t*)executor.sandbox.upper_overflow+1),
 			*((uint64_t*)executor.sandbox.upper_overflow+2),

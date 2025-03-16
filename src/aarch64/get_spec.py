@@ -125,7 +125,7 @@ class Aarch64Transformer:
         self.tree = Aarch64Transformer.load_files(files)
 
     @staticmethod
-    def load_files(self, files: List[str]):
+    def load_files(files: List[str]):
         # get the data from all files
         root = ET.Element("root")
         tree = ET.ElementTree(root)
@@ -572,7 +572,7 @@ class Aarch64Transformer:
                 elif op_node.attrib["key"] == "datatype":
                     current_spec.datatype = op_node.attrib["value"]
 
-            if address_form not in ["literal", "base-register", "post-indexed", ""]:
+            if address_form not in ["literal", "base-register", "post-indexed", "pre-indexed", ""]:
                 continue
 
             current_spec.name = variant.find("asmtemplate/text").text.split(" ")[0]

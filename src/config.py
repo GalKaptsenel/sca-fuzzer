@@ -100,6 +100,8 @@ class Conf:
     """ generator: type of the program generator """
     instruction_set: str = "x86-64"
     """ instruction_set: ISA under test """
+    supported_instructions: List[str] = None
+    """ supported_instructions: A list of all the supported instruction mnenmonics."""
     instruction_categories: List[str] = []
     """ instruction_categories: list of instruction categories to use for generating programs """
     instruction_allowlist: List[str] = []

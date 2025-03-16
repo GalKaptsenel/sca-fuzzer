@@ -157,16 +157,26 @@ static void update_state_after_writing_test(void) {
 static size_t load_test_and_update_state(const char __user* test, size_t length) {
 
 	if (MAX_TEST_CASE_SIZE < length) {
+		module_err("%u bytes couldnt be written into test memory!, as it is more then %u!\n", length, MAX_TEST_CASE_SIZE);
 		return -ENOMEM;
 	}
 
-	copy_from_user_with_access_check(executor.test_case, test, length);
+	if(copy_from_user_with_access_check(executor.test_case, test, length)) {
+		module_err("Failed to read entire test case from userspace!");
+		return 0;
+	}
 
 	executor.test_case_length = length;
 
 	update_state_after_writing_test();
 
-	module_debug("%u bytes were written into test case memory!\n", length);
+	module_err("%u bytes were written into test case memory!\n", length);
+	{
+		size_t count= 0;
+		for(; count < executor.test_case_length; ++count) {
+			module_err("test: %px -> %lx", executor.test_case + count, ((char*)executor.test_case)[count]);
+		}
+	}
 
 	return executor.test_case_length;
 }
@@ -186,7 +196,7 @@ static int trace(void) {
 		return full_test_case_size;
 	}
 
-	module_debug("%u bytes were written into measurement memory!\n", full_test_case_size);
+	module_err("%u bytes were written into measurement memory!\n", full_test_case_size);
 
 	executor.state = TRACED_STATE;
 
@@ -428,7 +438,7 @@ static ssize_t revisor_read(struct file* File, char __user* user_buffer,
 
 static void copy_input_from_user_and_update_state(const char __user* user_buffer, size_t count) {
 
-	if(USER_CONTROLLED_INPUT_LENGTH <= count) {
+	if(USER_CONTROLLED_INPUT_LENGTH > count) {
 	    module_err("Input must be exactly of length USER_CONTROLLED_INPUT_LENGTH(=%d)!\n",
 	    USER_CONTROLLED_INPUT_LENGTH);
 	}
@@ -436,9 +446,15 @@ static void copy_input_from_user_and_update_state(const char __user* user_buffer
 	void* to_buffer = get_input(executor.checkout_region);
 	BUG_ON(NULL == to_buffer);
 
-	copy_from_user_with_access_check(to_buffer, user_buffer, USER_CONTROLLED_INPUT_LENGTH);
+	if(copy_from_user_with_access_check(to_buffer, user_buffer, USER_CONTROLLED_INPUT_LENGTH)) {
 
-	update_state_after_writing_input();
+		module_err("Was unable to read entire input from user\n");
+
+	} else {
+
+		update_state_after_writing_input();
+
+	}
 }
 
 static ssize_t revisor_write(struct file* File, const char __user* user_buffer,

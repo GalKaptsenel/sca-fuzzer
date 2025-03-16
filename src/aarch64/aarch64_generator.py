@@ -170,13 +170,6 @@ class Aarch64SandboxPass(Pass):
             parent.insert_before(instr, add_base)
 
             for op in mem_operands[1:]:
-                found = False
-                for size, registers in Aarch64TargetDesc.registers.items():
-                    if op.value in registers:
-                        found = True
-
-                if not found:
-                    continue
 
                 template, op0, op1, op2 = generate_template("SUB", base_operand_copy,
                                                             base_operand_copy, op)
@@ -276,12 +269,20 @@ class Aarch64RandomGenerator(Aarch64Generator, RandomGenerator):
     def __init__(self, instruction_set: InstructionSet, seed: int):
         super().__init__(instruction_set, seed)
 
-    @staticmethod
-    def filter_invalid_regs(values: List[str]) -> List[str]:
-        return [s for s in values if
-                   s in chain.from_iterable(Aarch64TargetDesc.registers.values())]
+    def _filter_invalid_operands(self, values: List[str]) -> List[str]:
+        result: List[str] = []
+        register_prefixes = ("x", "w", "q", "v", "d", "s", "h", "b", "sp")
+
+        for op in values:
+            if 'pc' == op:
+                result.append(op)
+            if not(op.startswith(register_prefixes) and op not in chain.from_iterable(self.target_desc.registers.values())):
+                result.append(op)
+
+        return result
+
     def generate_reg_operand(self, spec: OperandSpec, _: Instruction) -> Operand:
-        choices = Aarch64RandomGenerator.filter_invalid_regs(spec.values)
+        choices = self._filter_invalid_operands(spec.values)
         reg = random.choice(choices)
         return RegisterOperand(reg, spec.width, spec.src, spec.dest)
 
@@ -289,7 +290,8 @@ class Aarch64RandomGenerator(Aarch64Generator, RandomGenerator):
         cond = random.choice(spec.values)
         return CondOperand(cond)
 
-    def generate_mem_operand(self, spec: OperandSpec, _: Instruction) -> Operand:
-        choices = Aarch64RandomGenerator.filter_invalid_regs(spec.values)
+    def generate_mem_operand(self, spec: OperandSpec, inst: Instruction) -> Operand:
+        choices = self._filter_invalid_operands(spec.values)
+        choices = [s for s in choices if all((s != op.value and op.type == OT.MEM) or op.type != OT.MEM for op in inst.operands)] # For easier construction, avoid using same registers inside memory
         address_reg = random.choice(choices)
         return MemoryOperand(address_reg, spec.width, spec.src, spec.dest)

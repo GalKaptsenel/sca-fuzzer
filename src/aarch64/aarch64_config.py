@@ -190,6 +190,8 @@ _buggy_instructions: List[str] = [
     # "maskmovdqu",  # incorrect emulation
 ]
 
+supported_instructions: List[str] = ["add", "sub", "b.", "cbz", "b", "str", "ldr", "orr", "and", "eor", "cbnz"]
+
 instruction_blocklist: List[str] = [
     # Currently don't support them - they require very specific order of instruction (they must appear one after the other, what happens otherwise? I don't know)
     "setgp", "setgm", "setge",
@@ -336,6 +338,28 @@ instruction_blocklist: List[str] = [
     "rcwsclr",
     "rcwcaspal",
     "ret",
+    "retaa",
+    "retab",
+    "retaasppcr",
+    "retabsppcr",
+    "eretaa",
+    "eretab",
+    "casalt",
+    "abs",
+    "cnt",
+    "bc.",
+    "blraa",
+    "blraaz",
+    "blrab",
+    "blrabz",
+    "blr",
+    "br",
+    "braa",
+    "braaz",
+    "brab",
+    "brabz",
+    "st64bv0",
+    "rcwswppal",
 
     # Assembel says the cpu does not cupport those instructions
 
@@ -363,6 +387,8 @@ instruction_blocklist: List[str] = [
 ]  # yapf: disable
 instruction_blocklist.extend(_buggy_instructions)
 
+register_allowlist: List[str] = [
+    ]
 # aarch64 executor internally uses x15...x22, x30, SP, thus, they are excluded
 register_blocklist: List[str] = [
     # free - x0 - x14, x23-x29

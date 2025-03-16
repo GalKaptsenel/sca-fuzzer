@@ -680,7 +680,7 @@ int load_template(size_t tc_size) {
     	size_t print_pos = 0;
     	for(; print_pos < code_pos; ++print_pos) {
 
-	        module_debug("%px -> %lx\n", ((uint32_t*)executor.measurement_code) + print_pos,
+	        module_err("%px -> %lx\n", ((uint32_t*)executor.measurement_code) + print_pos,
 	        ((uint32_t*)executor.measurement_code)[print_pos]);
         }
     }

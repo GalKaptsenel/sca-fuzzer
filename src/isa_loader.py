@@ -74,6 +74,10 @@ class InstructionSet(InstructionSetAbstract):
         """ Remove unsupported instructions and operand values """
 
         def is_supported(spec: InstructionSpec):
+
+            if CONF.supported_instructions is not None:
+                return spec.name in CONF.supported_instructions
+
             if CONF._no_generation:
                 # if we use an existing test case, then instruction filtering is irrelevant
                 return True
