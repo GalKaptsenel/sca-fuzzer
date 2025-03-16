@@ -428,7 +428,7 @@ static ssize_t revisor_read(struct file* File, char __user* user_buffer,
 
 static void copy_input_from_user_and_update_state(const char __user* user_buffer, size_t count) {
 
-	if(USER_CONTROLLED_INPUT_LENGTH != count) {
+	if(USER_CONTROLLED_INPUT_LENGTH <= count) {
 	    module_err("Input must be exactly of length USER_CONTROLLED_INPUT_LENGTH(=%d)!\n",
 	    USER_CONTROLLED_INPUT_LENGTH);
 	}
