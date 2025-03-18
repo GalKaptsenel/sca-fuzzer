@@ -36,6 +36,7 @@ int __nocfi initialize_executor(set_memory_t set_memory_x) {
 	executor.state = CONFIGURATION_STATE;
 	executor.checkout_region = TEST_REGION;
 
+	//disable_mte_for_region(executor.sandbox.eviction_region, sizeof(executor.sandbox.eviction_region));
 	return 0;
 
 executor_init_cleanup_free_test_case:

@@ -33,9 +33,7 @@
 
 #define DEBUG 0
 
-#if DEBUG
 #include "pagewalk.h"
-#endif
 
 #define kernel_module_name	"executor"
 

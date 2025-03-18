@@ -316,7 +316,6 @@ inline void epilogue(void) {
 #endif
 
 #define SETS_PROBE_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, LABEL_NUM)                \
-    "   lsl "DEST", "DEST", #1                                                  \n" \
     "	add "TMP", "BASE", #%[eviction_region]				                    \n"	\
         GET_NEXT_SET(OFFSET, OFFSETS)                                               \
     "   lsl "OFFSET", "OFFSET", #6                                              \n" \
@@ -428,7 +427,6 @@ inline void epilogue(void) {
 )
 
 #define SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, LABEL_NUM)         \
-    "   lsl "DEST", "DEST", #1                                                  \n" \
         GET_NEXT_SET(OFFSET, OFFSETS)                                               \
     "   lsl "OFFSET", "OFFSET", #6                                              \n" \
     "   mrs "ACC", pmevcntr3_el0                                                \n" \

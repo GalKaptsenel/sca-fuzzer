@@ -197,3 +197,82 @@ void page_walk_explorer(void *addr) {
 	decode_pte(*pte);
 }
 
+static pte_t* get_pte(void *addr) {
+	pgd_t *pgd = NULL;
+	p4d_t *p4d = NULL;
+	pud_t *pud = NULL;
+	pmd_t *pmd = NULL;
+	pte_t *pte = NULL;
+	size_t vaddr = (size_t)addr;
+
+
+	pgd = pgd_offset(init_mm_ptr, vaddr);
+	if (pgd_none(*pgd) || pgd_bad(*pgd)) {
+		module_err("Invalid PGD\n");
+		return NULL;
+	}
+
+
+	p4d = p4d_offset(pgd, vaddr);
+	if (p4d_none(*p4d) || p4d_bad(*p4d)) {
+		module_err("Invalid P4D\n");
+		return NULL;
+	}
+
+	pud = pud_offset(p4d, vaddr);
+	if (pud_none(*pud) || pud_bad(*pud)) {
+		module_err("Invalid PUD\n");
+		return NULL;
+	}
+
+	pmd = pmd_offset(pud, vaddr);
+	if (pmd_none(*pmd) || pmd_bad(*pmd)) {
+		module_err("Invalid PMD\n");
+		return NULL;
+	}
+
+	if (!(pmd_val(*pmd) & PTE_VALID)) {
+		module_err("PMD not present\n");
+		return NULL;
+	}
+
+	pte = pte_offset_kernel(pmd, vaddr);
+	if (!pte) {
+		module_err("Invalid PTE\n");
+		return NULL;
+	}
+
+	return pte;
+}
+
+static inline pte_t pte_clear_flags_custom(pte_t pte, unsigned long flags) {
+	return __pte(pte_val(pte) & ~flags);
+}
+
+void disable_mte_for_region(void* start, size_t size) {
+	size_t end = (size_t)start + size;
+	size_t addr = (size_t)start;
+	pte_t *pte = NULL;
+
+	if(NULL == init_mm_ptr) {
+		load_init_mm();
+	}
+	
+	for (; addr < end; addr += PAGE_SIZE) {
+
+		pte = get_pte((void*)addr);
+
+		if (NULL == pte) {
+			continue;
+		}
+	
+		module_err("value before: %d", pte_val(*pte) & PTE_ATTRINDX_MASK);
+		// Remove the MTE bit (bit 54) from the PTE
+		*pte = pte_clear_flags_custom(*pte, PTE_ATTRINDX_MASK);
+	
+		module_err("value after: %d", pte_val(*pte) & PTE_ATTRINDX_MASK);
+		// Ensure the update takes effect
+		flush_tlb_kernel_range(addr, addr + PAGE_SIZE);
+	}
+}
+
