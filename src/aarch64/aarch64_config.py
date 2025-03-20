@@ -55,7 +55,7 @@ _option_values = {
         "privileged-execute-never",
         "user-execute-never",
         "randomized",
- 
+
     ],
     "actor_data_ept_properties": [
         # What is the different from above?
@@ -76,7 +76,7 @@ _option_values = {
         "privileged-execute-never",
         "user-execute-never",
         "randomized",
- 
+
     ],
     'instruction_categories': [
         "general",
@@ -246,7 +246,7 @@ instruction_blocklist: List[str] = [
     "ldtclra",
     "ldtset",
     "pacia171615",
-    "pacib171615i", 
+    "pacib171615i",
     "ldsetpal",
     "pacnbiasppc",
     "rcwswpal",
@@ -289,7 +289,7 @@ instruction_blocklist: List[str] = [
     "rcwsclra",
     "swppal",
     "cast",
-    "rcwsswppl", 
+    "rcwsswppl",
     "ldclrpl",
     "rcwscaspl",
     "rcwsetal",
@@ -363,7 +363,7 @@ instruction_blocklist: List[str] = [
 
     # Assembel says the cpu does not cupport those instructions
 
-    
+
 
     # # Hard to fix:
     # # - Requires complex instrumentation

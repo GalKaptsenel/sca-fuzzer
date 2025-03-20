@@ -150,7 +150,7 @@ class InstructionSet(InstructionSetAbstract):
                         self.has_conditional_branch = True
                 if not self.has_conditional_branch:
                     self.has_unconditional_branch = True
-                    
+
             elif inst.has_mem_operand:
                 if inst.has_write:
                     self.has_writes = True

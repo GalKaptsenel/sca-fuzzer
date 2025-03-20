@@ -96,7 +96,7 @@ class FuzzerGeneric(Fuzzer):
 
         self.generator = factory.get_program_generator(isa, prog_seed)
         self.input_gen = factory.get_input_generator(data_seed)
-        #self.executor = factory.get_executor()
+        self.executor = factory.get_executor()
         #self.model = factory.get_model(self.executor.read_base_addresses())
         #self.analyser = factory.get_analyser()
         #self.asm_parser = factory.get_asm_parser(self.generator)

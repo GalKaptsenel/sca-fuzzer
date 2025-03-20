@@ -11,11 +11,14 @@ import subprocess
 import os.path
 import numpy as np
 from typing import List, Tuple, Set, Generator
+import tempfile
+import re
 
 from ..interfaces import HTrace, Input, TestCase, Executor, HardwareTracingError
 from ..config import CONF
 from ..util import Logger, STAT
 from .aarch64_target_desc import Aarch64TargetDesc
+from .aarch64_connection import Connection
 
 
 # ==================================================================================================
@@ -28,28 +31,6 @@ def km_write(value, path: str) -> None:
 def km_write_bytes(value: bytes, path: str) -> None:
     with open(path, "wb") as f:
         f.write(value)
-
-
-def is_smt_enabled() -> bool:
-    """
-    Check if SMT is enabled on the current CPU.
-
-    :return: True if SMT is enabled, False otherwise
-    """
-    return False
-    try:
-        out = subprocess.run("lscpu", shell=True, check=True, capture_output=True)
-    except subprocess.CalledProcessError:
-        LOG = Logger()
-        LOG.warning("executor", "Could not check if SMT is enabled. Is lscpu installed?")
-        return True
-    for line in out.stdout.decode().split("\n"):
-        if line.startswith("Thread(s) per core:"):
-            if line[-1] == "1":
-                return False
-            else:
-                return True
-    return True
 
 
 def can_set_reserved() -> bool:
@@ -73,7 +54,7 @@ def can_set_reserved() -> bool:
 
 
 def is_kernel_module_installed() -> bool:
-    return os.path.isfile("/sys/x86_executor/trace")
+    return os.path.isfile("/dev/executor")
 
 
 def configure_kernel_module() -> None:
@@ -89,9 +70,9 @@ def configure_kernel_module() -> None:
 
 
 def read_trace(
-        n_reps: int,
-        n_inputs: int,
-        enable_warnings: bool = True) -> Generator[Tuple[int, int, int, List[int]], None, None]:
+    n_reps: int,
+    n_inputs: int,
+    enable_warnings: bool = True) -> Generator[Tuple[int, int, int, List[int]], None, None]:
     """
     Generator function that reads the traces from the kernel module.
     The generator handles the batched output of the kernel module and yields the traces one by one.
@@ -196,11 +177,11 @@ def rewind_km_output_to_end():
 # ==================================================================================================
 class Aarch64Executor(Executor):
     """
-    The executor for x86 architecture. The executor interfaces with the kernel module to collect
+    The executor for aarch64 architecture. The executor interfaces with the kernel module to collect
     measurements.
 
     The high-level workflow is as follows:
-    1. Load a test case into the kernel module (see __write_test_case).
+    1. Load a test case into the kernel module (see _write_test_case).
     2. Load a set of inputs into the kernel module (see __write_inputs).
     3. Run the measurements by calling the kernel module (see _get_raw_measurements). Each
        measurement is repeated `n_reps` times.
@@ -212,24 +193,24 @@ class Aarch64Executor(Executor):
     ignore_list: Set[int]
 
     def __init__(self, enable_mismatch_check_mode: bool = False):
-      #  super().__init__(enable_mismatch_check_mode)
+        super(Aarch64Executor).__init__(enable_mismatch_check_mode)
         self.LOG = Logger()
         self.target_desc = Aarch64TargetDesc()
         self.ignore_list = set()
 
         # Check the execution environment:
-        if is_smt_enabled() and not enable_mismatch_check_mode:
+        if self._is_smt_enabled() and not enable_mismatch_check_mode:
             self.LOG.warning("executor", "SMT is on! You may experience false positives.")
         if not can_set_reserved():
             self.LOG.error("executor: Cannot set reserved bits on this CPU")
 
-        # Initialize the kernel module
-#        if not is_kernel_module_installed():
-#            self.LOG.error("x86 executor: kernel module not installed\n\n"
-#                           "Go to https://microsoft.github.io/sca-fuzzer/quick-start/ for "
-#                           "installation instructions.")
-#        configure_kernel_module()
-#        self.set_vendor_specific_features()
+    def _is_smt_enabled(self) -> bool:
+        """
+        Check if SMT is enabled on the current CPU.
+
+        :return: True if SMT is enabled, False otherwise
+        """
+        pass
 
     def set_vendor_specific_features(self):
         pass  # override in vendor-specific executors
@@ -244,7 +225,7 @@ class Aarch64Executor(Executor):
 
         :param state: True to enable the quick and dirty mode, False to disable it
         """
-        km_write("1" if state else "0", "/sys/x86_executor/enable_quick_and_dirty_mode")
+        pass
 
     # ==============================================================================================
     # Interface: Ignore List
@@ -274,12 +255,7 @@ class Aarch64Executor(Executor):
         This function is used to synchronize the memory layout between the executor and the model
         :return: a tuple (sandbox_base, code_base)
         """
-
-        with open('/sys/x86_executor/print_sandbox_base', 'r') as f:
-            sandbox_base = f.readline()
-        with open('/sys/x86_executor/print_code_base', 'r') as f:
-            code_base = f.readline()
-        return int(sandbox_base, 16), int(code_base, 16)
+        raise NotImplemented()
 
     # ==============================================================================================
     # Interface: Test Case Loading
@@ -294,75 +270,108 @@ class Aarch64Executor(Executor):
 
         :param test_case: the test case object to load
         """
-        # enable mismatch check mode if requested
-        km_write("1" if self.mismatch_check_mode else "0", "/sys/x86_executor/enable_dbg_gpr_mode")
-
         # write the test case to the kernel module
-        self.__write_test_case(test_case)
+        self._write_test_case(test_case)
         self.curr_test_case = test_case
 
         # reset the ignore list; as we are testing a new program now, the old ignore list is not
         # relevant anymore
         self.ignore_list = set()
 
-    def __write_test_case(self, test_case: TestCase):
-        actors = sorted(test_case.actors.values(), key=lambda a: (a.id_))
-
-        # sanity check
-        for symbol in test_case.symbol_table:
-            if symbol.type_ < 0:
-                self.LOG.error("attempt to use template as a test case")
-
-        with open('/sys/x86_executor/test_case', 'wb') as f:
-            # header
-            f.write((len(actors)).to_bytes(8, byteorder='little'))  # n_actors
-            f.write((len(test_case.symbol_table)).to_bytes(8, byteorder='little'))  # n_symbols
-
-            # actor metadata
-            for actor in actors:
-                f.write((actor.id_).to_bytes(8, byteorder='little'))
-                f.write((actor.mode.value).to_bytes(8, byteorder='little'))
-                f.write((actor.privilege_level.value).to_bytes(8, byteorder='little'))
-                f.write((actor.data_properties).to_bytes(8, byteorder='little'))
-                f.write((actor.data_ept_properties).to_bytes(8, byteorder='little'))
-                f.write((actor.code_properties).to_bytes(8, byteorder='little'))
-
-            # symbol table (first functions sorted by argument, then macros sorted by actor+offset)
-            function_symbols = [s for s in test_case.symbol_table if s[2] == 0]
-            macro_symbols = [s for s in test_case.symbol_table if s[2] != 0]
-            for aid, s_offset, s_id, arg in sorted(function_symbols, key=lambda s: s.arg):
-                # print("function", s_id, aid, s_offset, arg)
-                f.write((aid).to_bytes(8, byteorder='little'))
-                f.write((s_offset).to_bytes(8, byteorder='little'))
-                f.write((s_id).to_bytes(8, byteorder='little'))
-                f.write((arg).to_bytes(8, byteorder='little'))
-            for aid, s_offset, s_id, arg in sorted(macro_symbols, key=lambda s: (s.aid, s.offset)):
-                # print("macro", aid, s_offset, s_id, arg)
-                f.write((aid).to_bytes(8, byteorder='little'))
-                f.write((s_offset).to_bytes(8, byteorder='little'))
-                f.write((s_id).to_bytes(8, byteorder='little'))
-                f.write((arg).to_bytes(8, byteorder='little'))
-
-            # section metadata
-            for actor in actors:
-                assert actor.elf_section is not None
-                # print("section\n")
-                f.write((actor.id_).to_bytes(8, byteorder='little'))
-                f.write((actor.elf_section.size).to_bytes(8, byteorder='little'))
-                f.write((0).to_bytes(8, byteorder='little'))
-
-            # code
-            with open(test_case.obj_path, 'rb') as bin_file:
-                for actor in actors:
-                    bin_file.seek(actor.elf_section.offset)  # type: ignore
-                    code = bin_file.read(actor.elf_section.size)  # type: ignore
-                    # print(code, actor.elf_section.size)
-                    f.write(code)
-
-            # print(test_case.obj_path, f.tell())
+    def _write_test_case(self, test_case: TestCase):
+        raise NotImplemented()
 
     # ==============================================================================================
     # Interface: Test Case Tracing
+    def trace_test_case(self, inputs: List[Input], n_reps: int) -> List[HTrace]:
+        """
+        Call the executor kernel module to collect the hardware traces for
+        the test case (previously loaded with `load_test_case`) and the given inputs.
+
+        :param inputs: list of inputs to be used for the test case
+        :param n_reps: number of times to repeat each measurement
+        :return: a list of HTrace objects, one for each input
+        :raises HardwareTracingError: if the kernel module output is malformed
+        """
+        raise NotImplemented()
+
+
+# ==================================================================================================
+# Vendor-specific executors
+# ==================================================================================================
+class Aarch64RemoteExecutor(Aarch64Executor):
+
+    def __init__(self, connection: Connection, *args):
+        super(Aarch64RemoteExecutor).__init__(*args)
+        if self.target_desc.cpu_desc.vendor.lower() != "arm":  # Technically ARM currently does not produce ARM processors, and other vendors do produce ARM processors
+            self.LOG.error(
+                "Attempting to run ARM executor on a non-ARM CPUs!\n"
+                "Change the `executor` configuration option to the appropriate vendor value.")
+        self.connection = connection
+
+        if 'No such file or directory' in self.connection.shell('ls /dev/executor'):
+            if 'No such file or directory' in self.connection.shell(
+                'ls /date/local/tmp/revizor-executor.ko'):
+                self.connection.push('revizor-executor.ko', '/data/local/tmp/revizor-executor.ko')
+
+            self.connection.shell('su -c "insmod revizor-executor.ko"')
+
+        if 'No such file or directory' in self.connection.shell(
+            'ls /date/local/tmp/executor_userland'):
+            self.connection.push('executor_userland', '/data/local/tmp/executor_userland')
+
+    def _is_smt_enabled(self):
+        result = self.connection.shell('cat /sys/devices/system/cpu/smt/control')
+        return 'on' in result.lower().split()
+
+    def set_vendor_specific_features(self):
+        pass
+
+    def read_base_addresses(self):
+        """
+        Read the base addresses of the code and the sandbox from the kernel module.
+        This function is used to synchronize the memory layout between the executor and the model
+        :return: a tuple (sandbox_base, code_base)
+        """
+        sandbox_base = self.connection.shell('su -c "cat /sys/executor/print_sandbox_base"')
+        code_base = self.connection.shell('su -c "cat /sys/executor/print_code_base"')
+        return int(sandbox_base, 16), int(code_base, 16)
+
+    def _write_test_case(self, test_case: TestCase):
+        remote_fname = f"/data/local/tmp/{test_case.bin_path}"
+        self.connection.shell('su -c "/data/local/tmp/executor_userland /dev/executor 1"')
+        self.connection.push(test_case.bin_path, remote_fname)
+        self.connection.shell(
+            f'su -c "/data/local/tmp/executor_userland /dev/executor w {remote_fname}"')
+
+    def _write_inputs_to_connection(self, inputs: List[Input], n_reps: int) -> Tuple[
+        List, List[str]]:
+        remote_filenames = []
+        array = np.zeros((len(inputs), n_reps))
+        for idx, inp in enumerate(inputs):
+            inpname = f"input{idx}.bin"
+            remote_fname = '/data/local/tmp/' + inpname
+            inp.save(inpname)
+            self.connection.push(inpname, remote_fname)
+            remote_filenames.append(remote_fname)
+
+        for col in range(n_reps):
+            for row, fname in enumerate(remote_filenames):
+
+                load_output = self.connection.shell(
+                    'su -c "/data/local/tmp/executor_userland /dev/executor 5"')
+                match = re.search(r"Allocated Input ID: (\d+)", load_output)
+                if match is None:
+                    raise RuntimeError("Could not find allocated input ID")
+                iid = match.group(1)
+                array[row, col] = int(iid)
+                self.connection.shell(
+                    f'su -c "/data/local/tmp/executor_userland /dev/executor 4 {iid}"')
+                self.connection.shell(
+                    f'su -c "/data/local/tmp/executor_userland /dev/executor w {fname}"')
+
+        return array, remote_filenames
+
     def trace_test_case(self, inputs: List[Input], n_reps: int) -> List[HTrace]:
         """
         Call the executor kernel module to collect the hardware traces for
@@ -386,23 +395,26 @@ class Aarch64Executor(Executor):
         # Store statistics
         n_inputs = len(inputs)
         STAT.executor_reruns += n_reps * n_inputs
+        iids, filenames = self._write_inputs_to_connection(inputs, n_reps)
+        self.connection.shell('su -c "/data/local/tmp/executor_userland /dev/executor 8"')  # Trace
 
-        # Transfer inputs to the kernel module
-        # TODO: that's a quick-and-dirty optimization to reduce the number of KM calls;
-        # it should be rewritten
-        if n_reps % 5 == 0 and n_inputs < 1000:
-            self.__write_inputs(inputs * 5)
-        else:
-            self.__write_inputs(inputs)
-
-        # Call the kernel module and read traces
-        # Note: read_trace may raise HardwareTracingError, which will be propagated to the caller
         all_traces: np.ndarray = np.ndarray(shape=(n_inputs, n_reps), dtype=np.uint64)
         all_pfc: np.ndarray = np.ndarray(shape=(n_inputs, n_reps, 5), dtype=np.uint64)
-        enable_warnings = not self.mismatch_check_mode
-        for rid, iid, htrace, pfc_list in read_trace(n_reps, n_inputs, enable_warnings):
-            all_traces[iid][rid] = htrace
-            all_pfc[iid][rid] = pfc_list
+
+        for iid in range(iids.shape[0]):  # Iterate over rows
+            for cid in range(iids.shape[1]):  # Iterate over columns
+                self.connection.shell(
+                    f'su -c "/data/local/tmp/executor_userland /dev/executor 4 {iid}"')
+                trace_output = self.connection.shell(
+                    f'su -c "/data/local/tmp/executor_userland /dev/executor 7"')
+                htrace_match = re.search(r"htrace .: ([01]+)", trace_output)
+                pfc_matches = re.findall(r"pfc (\d+): (\d+)", trace_output)
+                htrace = [int(bit) for bit in htrace_match.group(1)] if htrace_match else []
+                pfc_list = [int(pfc_value) for _, pfc_value in
+                            sorted(pfc_matches, key=lambda x: int(x[0]))]
+                all_traces[iid][cid] = htrace
+                all_pfc[iid][cid] = pfc_list
+
         self.LOG.dbg_executor_raw_traces(all_traces, all_pfc)
 
         # Post-process the results and check for errors
@@ -421,45 +433,8 @@ class Aarch64Executor(Executor):
 
         # Aggregate measurements into HTrace objects
         traces = []
-        for input_id in range(n_inputs):
-            trace_list = list(all_traces[input_id])
-            perf_counters = all_pfc[input_id]
+        for input_row in range(n_inputs):
+            trace_list = list(all_traces[input_row])
+            perf_counters = all_pfc[input_row]
             traces.append(HTrace(trace_list=trace_list, perf_counters=perf_counters))
         return traces
-
-    def __write_inputs(self, inputs: List[Input]):
-        with open('/sys/x86_executor/inputs', 'wb') as f:
-            # header
-            f.write((len(inputs[0])).to_bytes(8, byteorder='little'))  # number of actors
-            f.write((len(inputs)).to_bytes(8, byteorder='little'))  # number of inputs
-
-            # metadata
-            fragment_size = (inputs[0].data_size * 8).to_bytes(8, byteorder='little')
-            for id_ in range(len(inputs[0])):
-                f.write(fragment_size)  # size
-                f.write((0).to_bytes(8, byteorder='little'))  # reserved
-
-            # data
-            for input_ in inputs:
-                f.write(input_.tobytes())
-
-        # Check that the transfer was successful
-        with open('/sys/x86_executor/inputs', 'r') as f:
-            if f.readline() != '1\n':
-                self.LOG.error("Failure loading inputs!", print_tb=True)
-
-
-# ==================================================================================================
-# Vendor-specific executors
-# ==================================================================================================
-class Aarch64Executor():
-
-    def __init__(self, *args):
-        super().__init__(*args)
-        if self.target_desc.cpu_desc.vendor.lower() != "arm": # Technically ARM currently does not produce ARM processors, and other vendors do produce ARM processors
-            self.LOG.error(
-                "Attempting to run ARM executor on a non-ARM CPUs!\n"
-                "Change the `executor` configuration option to the appropriate vendor value.")
-
-    def set_vendor_specific_features(self):
-        pass

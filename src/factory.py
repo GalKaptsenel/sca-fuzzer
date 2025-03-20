@@ -67,7 +67,7 @@ X86_EXECUTION_CLAUSES: Dict[str, Type[x86_model.UnicornModel]] = {
 EXECUTORS = {
     'x86-64-intel': x86_executor.X86IntelExecutor,
     'x86-64-amd': x86_executor.X86AMDExecutor,
-    'aarch64': aarch64_executor.Aarch64Executor,
+    'aarch64': aarch64_executor.Aarch64RemoteExecutor,
 }
 
 ANALYSERS: Dict[str, Type[interfaces.Analyser]] = {
