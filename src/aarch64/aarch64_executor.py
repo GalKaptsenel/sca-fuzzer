@@ -193,7 +193,7 @@ class Aarch64Executor(Executor):
     ignore_list: Set[int]
 
     def __init__(self, enable_mismatch_check_mode: bool = False):
-        super(Aarch64Executor).__init__(enable_mismatch_check_mode)
+        super().__init__(enable_mismatch_check_mode)
         self.LOG = Logger()
         self.target_desc = Aarch64TargetDesc()
         self.ignore_list = set()
@@ -302,23 +302,31 @@ class Aarch64Executor(Executor):
 class Aarch64RemoteExecutor(Aarch64Executor):
 
     def __init__(self, connection: Connection, *args):
-        super(Aarch64RemoteExecutor).__init__(*args)
+        userland_application = 'executor_userland'
+        ko_filename = 'revizor-executor.ko'
+
+        self.tmp_dir = '/data/local/tmp'
+        self.userland_application_path = f'{self.tmp_dir}/{userland_application}'
+        self.executor_device_path = '/dev/executor'
+        self.executor_sysfs = '/sys/executor'
+        self.connection = connection
+
+        super().__init__(*args)
         if self.target_desc.cpu_desc.vendor.lower() != "arm":  # Technically ARM currently does not produce ARM processors, and other vendors do produce ARM processors
             self.LOG.error(
                 "Attempting to run ARM executor on a non-ARM CPUs!\n"
                 "Change the `executor` configuration option to the appropriate vendor value.")
-        self.connection = connection
 
-        if 'No such file or directory' in self.connection.shell('ls /dev/executor'):
+        if 'No such file or directory' in self.connection.shell(f'ls {self.executor_device_path}'):
             if 'No such file or directory' in self.connection.shell(
-                'ls /date/local/tmp/revizor-executor.ko'):
-                self.connection.push('revizor-executor.ko', '/data/local/tmp/revizor-executor.ko')
+                f'ls {self.tmp_dir}/{ko_filename}'):
+                self.connection.push(ko_filename, f'{self.tmp_dir}/{ko_filename}')
 
-            self.connection.shell('su -c "insmod revizor-executor.ko"')
+            self.connection.shell(f'su -c "insmod {ko_filename}"')
 
         if 'No such file or directory' in self.connection.shell(
-            'ls /date/local/tmp/executor_userland'):
-            self.connection.push('executor_userland', '/data/local/tmp/executor_userland')
+            f'ls {self.userland_application_path}'):
+            self.connection.push(userland_application, self.userland_application_path)
 
     def _is_smt_enabled(self):
         result = self.connection.shell('cat /sys/devices/system/cpu/smt/control')
@@ -333,24 +341,24 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         This function is used to synchronize the memory layout between the executor and the model
         :return: a tuple (sandbox_base, code_base)
         """
-        sandbox_base = self.connection.shell('su -c "cat /sys/executor/print_sandbox_base"')
-        code_base = self.connection.shell('su -c "cat /sys/executor/print_code_base"')
+        sandbox_base = self.connection.shell(f'su -c "cat {self.executor_sysfs}/print_sandbox_base"')
+        code_base = self.connection.shell(f'su -c "cat {self.executor_sysfs}/print_code_base"')
         return int(sandbox_base, 16), int(code_base, 16)
 
     def _write_test_case(self, test_case: TestCase):
-        remote_fname = f"/data/local/tmp/{test_case.bin_path}"
-        self.connection.shell('su -c "/data/local/tmp/executor_userland /dev/executor 1"')
+        remote_fname = f"{self.tmp_dir}/{test_case.bin_path}"
+        self.connection.shell(f'su -c "{self.userland_application_path} {self.executor_device_path} 1"')
         self.connection.push(test_case.bin_path, remote_fname)
         self.connection.shell(
-            f'su -c "/data/local/tmp/executor_userland /dev/executor w {remote_fname}"')
+            f'su -c "{self.userland_application_path} {self.executor_device_path} w {remote_fname}"')
 
     def _write_inputs_to_connection(self, inputs: List[Input], n_reps: int) -> Tuple[
         List, List[str]]:
         remote_filenames = []
-        array = np.zeros((len(inputs), n_reps))
+        array = np.zeros((len(inputs), n_reps), dtype=np.uint64)
         for idx, inp in enumerate(inputs):
             inpname = f"input{idx}.bin"
-            remote_fname = '/data/local/tmp/' + inpname
+            remote_fname = f'{self.tmp_dir}/{inpname}'
             inp.save(inpname)
             self.connection.push(inpname, remote_fname)
             remote_filenames.append(remote_fname)
@@ -359,17 +367,18 @@ class Aarch64RemoteExecutor(Aarch64Executor):
             for row, fname in enumerate(remote_filenames):
 
                 load_output = self.connection.shell(
-                    'su -c "/data/local/tmp/executor_userland /dev/executor 5"')
-                match = re.search(r"Allocated Input ID: (\d+)", load_output)
-                if match is None:
+                    f'su -c "{self.userland_application_path} {self.executor_device_path} 5"')
+                matching = re.search(r"Allocated Input ID: (\d+)", load_output)
+                if matching is None:
                     raise RuntimeError("Could not find allocated input ID")
-                iid = match.group(1)
+                iid = matching.group(1)
                 array[row, col] = int(iid)
                 self.connection.shell(
-                    f'su -c "/data/local/tmp/executor_userland /dev/executor 4 {iid}"')
+                    f'su -c "{self.userland_application_path} {self.executor_device_path} 4 {iid}"')
                 self.connection.shell(
-                    f'su -c "/data/local/tmp/executor_userland /dev/executor w {fname}"')
+                    f'su -c "{self.userland_application_path} {self.executor_device_path} w {fname}"')
 
+        np.array2string(array, separator = ', ', formatter = {'all': lambda x: f'{x:3d}'})
         return array, remote_filenames
 
     def trace_test_case(self, inputs: List[Input], n_reps: int) -> List[HTrace]:
@@ -386,34 +395,31 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         if not inputs:
             return []
 
-        # Skip if all inputs are ignored
-        if len(inputs) <= len(self.ignore_list):
-            self.LOG.warning("executor", "All inputs are ignored. Skipping measurements")
-            null_trace = HTrace.get_null()
-            return [null_trace for _ in range(len(inputs))]
-
         # Store statistics
         n_inputs = len(inputs)
         STAT.executor_reruns += n_reps * n_inputs
         iids, filenames = self._write_inputs_to_connection(inputs, n_reps)
-        self.connection.shell('su -c "/data/local/tmp/executor_userland /dev/executor 8"')  # Trace
+        self.connection.shell(f'su -c "{self.userland_application_path} {self.executor_device_path} 8"')  # Trace
 
         all_traces: np.ndarray = np.ndarray(shape=(n_inputs, n_reps), dtype=np.uint64)
-        all_pfc: np.ndarray = np.ndarray(shape=(n_inputs, n_reps, 5), dtype=np.uint64)
+        all_pfc: np.ndarray = np.ndarray(shape=(n_inputs, n_reps, 3), dtype=np.uint64)
 
         for iid in range(iids.shape[0]):  # Iterate over rows
             for cid in range(iids.shape[1]):  # Iterate over columns
                 self.connection.shell(
-                    f'su -c "/data/local/tmp/executor_userland /dev/executor 4 {iid}"')
+                    f'su -c "{self.userland_application_path} {self.executor_device_path} 4 {iids[iid][cid]}"')
                 trace_output = self.connection.shell(
-                    f'su -c "/data/local/tmp/executor_userland /dev/executor 7"')
+                    f'su -c "{self.userland_application_path} {self.executor_device_path} 7"')
                 htrace_match = re.search(r"htrace .: ([01]+)", trace_output)
                 pfc_matches = re.findall(r"pfc (\d+): (\d+)", trace_output)
-                htrace = [int(bit) for bit in htrace_match.group(1)] if htrace_match else []
+                htrace = int(htrace_match.group(1), 2) if htrace_match else 0 #[int(bit) for bit in htrace_match.group(1)] if htrace_match else []
                 pfc_list = [int(pfc_value) for _, pfc_value in
                             sorted(pfc_matches, key=lambda x: int(x[0]))]
                 all_traces[iid][cid] = htrace
                 all_pfc[iid][cid] = pfc_list
+
+        for filename in filenames:
+            self.connection.shell(f'su -c "rm {filename}"')
 
         self.LOG.dbg_executor_raw_traces(all_traces, all_pfc)
 

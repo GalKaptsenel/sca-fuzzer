@@ -1,9 +1,11 @@
 import random
-from unittest.mock import Mock
+import numpy as np
+import unittest
+from unittest.mock import Mock, call
 from src.aarch64.aarch64_executor import Aarch64RemoteExecutor
+from src.interfaces import InputFragment, Input
 
-
-class TestRemoteExecutor():
+class TestRemoteExecutor(unittest.TestCase):
 
     def setUp(self):
         input_counter = 0
@@ -27,7 +29,7 @@ class TestRemoteExecutor():
                     assert split_cmd[3] == '/dev/executor'
                     if split_cmd[4] == 'w':
                         return ''
-                    service_nr = int(split_cmd[4])
+                    service_nr = int(split_cmd[4].replace("'", ""). replace('"', ""). replace(" ", ""))
                     if service_nr == 1:
                         return """
                         Device: /dev/executor
@@ -40,7 +42,7 @@ class TestRemoteExecutor():
                     elif service_nr == 4:
                         if len(split_cmd) < 6:
                             raise ValueError
-                        iid = int(split_cmd[5])
+                        iid = int(split_cmd[5].replace("'", ""). replace('"', ""). replace(" ", ""))
                         return f"""
                         Device: /dev/executor
                         Command: 1074295300
@@ -58,7 +60,7 @@ class TestRemoteExecutor():
                         Command: -2146930171
                         Command magic: 114
                         Command number: 5
-                        Allocated Inpud ID: {returned_number}
+                        Allocated Input ID: {returned_number}
                         IOCTL command executed successfully.
                         Result: 0x0
                         """
@@ -99,32 +101,83 @@ class TestRemoteExecutor():
         self.mock_connection.shell.side_effect = custom_shell
 
     def test_remote_executor_setup(self):
-        rexecutor = Aarch64RemoteExecutor(self.mock_connection)
+        rexecutor = Aarch64RemoteExecutor(self.mock_connection, False)
 
         self.mock_connection.shell.assert_any_call('ls /dev/executor')
         self.mock_connection.shell.assert_any_call('ls /data/local/tmp/executor_userland')
 
     def test_remote_executor_read_base_addresses(self):
-        rexecutor = Aarch64RemoteExecutor(self.mock_connection)
+        rexecutor = Aarch64RemoteExecutor(self.mock_connection, False)
 
         result = rexecutor.read_base_addresses()
         assert result == (0xbbb328c7, 0x8bf3e4a0)
 
     def test_remote_executor__is_smt_enabled(self):
-        rexecutor = Aarch64RemoteExecutor(self.mock_connection)
+        rexecutor = Aarch64RemoteExecutor(self.mock_connection, False)
 
         result = result = rexecutor._is_smt_enabled()
         assert result is False
         self.mock_connection.shell.assert_any_call("cat /sys/devices/system/cpu/smt/control")
 
     def test_remote_executor__write_test_case(self):
-        rexecutor = Aarch64RemoteExecutor(self.mock_connection)
+        rexecutor = Aarch64RemoteExecutor(self.mock_connection, False)
         mock_testcase = Mock()
         mock_testcase.bin_path = 'generated.asm'
-        remote_fname = "/data/local/tmp/generated.asm}"
+        remote_fname = "/data/local/tmp/generated.asm"
 
         rexecutor._write_test_case(mock_testcase)
 
-        expected_calls = [('su -c "/data/local/tmp/executor_userland /dev/executor 1',), (f'su -c "/data/local/tmp/executor_userland /dev/executor w {remote_fname}"',)]
+        expected_calls = [call('su -c "/data/local/tmp/executor_userland /dev/executor 1"',), call(f'su -c "/data/local/tmp/executor_userland /dev/executor w {remote_fname}"',)]
         self.mock_connection.shell.assert_has_calls(expected_calls, any_order=False)
         self.mock_connection.push.assert_called_once_with(mock_testcase.bin_path, remote_fname)
+
+
+    def test_remote_executor_trace_test_case(self):
+        rexecutor = Aarch64RemoteExecutor(self.mock_connection, False)
+        n_reps = 5
+        inputs_amount = 2
+        state = np.random.randint(0, 1000000)
+        inputs = [Input() for i in range(inputs_amount)]
+
+        size = inputs[0].itemsize // 8
+        rng = np.random.default_rng(seed=state)
+
+        for inp in inputs:
+            for i in range(len(inp)): 
+
+                data = rng.integers(2**64, size=size, dtype=np.uint64)
+
+                inp[i] = data.view(InputFragment)
+                inp[i]['padding'] = 0
+
+        actual_inputs_flow = [i for i in range(inputs_amount)] * n_reps
+        
+        expected_call_chunks  = []
+
+        # Assuming increasing order of input ids and the order of filenames used
+        for iid, input_file_number in enumerate(actual_inputs_flow):
+            filename = f'/data/local/tmp/input{input_file_number}.bin'
+            expected_call_chunks.append([
+                call('su -c "/data/local/tmp/executor_userland /dev/executor 5"'),
+                ])
+            expected_call_chunks.append([
+                call(f'su -c "/data/local/tmp/executor_userland /dev/executor 4 {iid}"'),
+                call(f'su -c "/data/local/tmp/executor_userland /dev/executor w {filename}"'),
+                ])
+            expected_call_chunks.append([
+                call(f'su -c "/data/local/tmp/executor_userland /dev/executor 4 {iid}"'),
+                call('su -c "/data/local/tmp/executor_userland /dev/executor 7"'),
+                ])
+            expected_call_chunks.append([
+                call(f'su -c "rm {filename}"'),
+                ])
+
+
+
+        expected_call_chunks.append([call('su -c "/data/local/tmp/executor_userland /dev/executor 8"')])
+
+        rexecutor.trace_test_case(inputs, n_reps) 
+
+        for chunk in expected_call_chunks:
+            self.mock_connection.shell.assert_has_calls(chunk, any_order=False)
+
