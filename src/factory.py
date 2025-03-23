@@ -11,7 +11,7 @@ from . import input_generator, analyser, postprocessor, interfaces, model
 from .x86 import (x86_model, x86_executor, x86_fuzzer, x86_generator, x86_asm_parser,
                   get_spec as x86_get_spec)
 from .aarch64 import (aarch64_model, aarch64_executor, aarch64_fuzzer, aarch64_generator, aarch64_asm_parser,
-                      get_spec as aarch64_get_spec)
+                      get_spec as aarch64_get_spec, aarch64_connection)
 from .config import CONF, ConfigException
 
 GENERATORS: Dict[str, Type[interfaces.Generator]] = {
@@ -158,7 +158,13 @@ def get_model(bases: Tuple[int, int], enable_mismatch_check_mode: bool = False) 
 
 
 def get_executor(enable_mismatch_check_mode: bool = False) -> interfaces.Executor:
-    return _get_from_config(EXECUTORS, CONF.executor, "executor", enable_mismatch_check_mode)
+    args = [enable_mismatch_check_mode]
+
+    if 'aarch64' == CONF.executor:
+        connection = aarch64_connection.USBConnection()
+        args = [connection] + args
+
+    return _get_from_config(EXECUTORS, CONF.executor, "executor", *args)
 
 
 def get_analyser() -> interfaces.Analyser:

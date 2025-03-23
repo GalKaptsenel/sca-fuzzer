@@ -16,7 +16,7 @@ class Connection:
 
 
 class USBConnection(Connection):
-    def __init__(self, host, port=5037, serial: str = None):
+    def __init__(self, host: str = '127.0.0.1', port: int = 5037, serial: str = None):
         super(USBConnection, self).__init__()
         self.host = host
         self.port = port

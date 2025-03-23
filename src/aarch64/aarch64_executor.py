@@ -302,6 +302,9 @@ class Aarch64Executor(Executor):
 class Aarch64RemoteExecutor(Aarch64Executor):
 
     def __init__(self, connection: Connection, *args):
+        self.connection = connection
+        super().__init__(*args)
+
         userland_application = 'executor_userland'
         ko_filename = 'revizor-executor.ko'
 
@@ -309,9 +312,7 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         self.userland_application_path = f'{self.tmp_dir}/{userland_application}'
         self.executor_device_path = '/dev/executor'
         self.executor_sysfs = '/sys/executor'
-        self.connection = connection
 
-        super().__init__(*args)
         if self.target_desc.cpu_desc.vendor.lower() != "arm":  # Technically ARM currently does not produce ARM processors, and other vendors do produce ARM processors
             self.LOG.error(
                 "Attempting to run ARM executor on a non-ARM CPUs!\n"
