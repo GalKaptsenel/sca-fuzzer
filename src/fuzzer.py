@@ -5,6 +5,7 @@ Copyright (C) Microsoft Corporation
 SPDX-License-Identifier: MIT
 """
 import shutil
+import random
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, List, Callable, Tuple
@@ -13,7 +14,7 @@ import copy
 from . import factory
 from .interfaces import Fuzzer, CTrace, HTrace, Input, Violation, TestCase, \
     Generator, InputGenerator, Model, Executor, Analyser, InputID, InputTaint, \
-    HardwareTracingError, InputFragment
+    HardwareTracingError, InputFragment, GPR_SUBREGION_SIZE
 from .isa_loader import InstructionSet
 from .config import CONF
 from .util import Logger, STAT, pretty_htrace
@@ -154,12 +155,53 @@ class FuzzerGeneric(Fuzzer):
             if self.filter(test_case, inputs):
                 continue
 
-            for indx, i in enumerate(inputs):
-                with open(f"input{indx}.bin", "wb") as f:
-                    f.write(i.view(InputFragment).tobytes())
+            def randomize_tags(inputs: List[Input]) -> List[Input]:
+                returned_inputs_pre = []
+                for idx, inp in enumerate(inputs):
+
+                    correct_tag_inp = copy.deepcopy(inp)
+
+                    for actor in range(len(inp)):
+
+                        for i in range(GPR_SUBREGION_SIZE // 8):
+                            random_tag = random.randint(0, 14)
+                        
+                            correct_tag_inp[actor]['gpr'][i] = inp[actor]['gpr'][i] | (0b1111 << 55) 
+                            inp[actor]['gpr'][i] |= (random_tag << 55) 
+
+                    returned_inputs_pre.append(((False, idx), inp))
+                    returned_inputs_pre.append(((True, idx), correct_tag_inp))
+
+                random.shuffle(returned_inputs_pre)
+
+                returned_indecies = [i for i, _ in returned_inputs_pre]
+                returned_inputs = [i for _, i in returned_inputs_pre]
+
+                return returned_indecies, returned_inputs
+                    
+                        
+
+            input_indecies, inputs_with_random_tags = randomize_tags(inputs)
 
             # Fuzz the test case
-            violation = self.fuzzing_round(test_case, inputs)
+            self.executor.load_test_case(test_case)
+            htraces = self.executor.trace_test_case(args.inputs, args.n_reps)
+
+            def analyze_violations(input_indecies, htraces) -> List[int]:
+                buckets = {}
+                for _, idx in input_indecies:
+                    if idx not in buckets:
+                        buckets[idx] = []
+                    buckets[idx].append(htraces)
+
+                violations = []
+                for idx, bucket in buckets.items():
+                    if len(set(map(lambda x: x.hash_, bucket))) != 1:
+                        violation.append(idx)
+
+                return violations
+
+            violation = analyze_violations(input_indecies, htraces) # self.fuzzing_round(test_case, inputs)
 
             if violation:
                 self.LOG.fuzzer_report_violations(violation, self.model)

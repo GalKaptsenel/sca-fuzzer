@@ -152,11 +152,31 @@ class Aarch64SandboxPass(Pass):
             base_operand_copy = RegisterOperand(base_operand.value, base_operand.width, True, True)
             base_operand_copy.name = base_operand.name
 
+            # TODO: Very bad implemented! Must fix
+
             imm_width = min(base_operand_copy.width, 32)
             imm_op = ImmediateOperand(self.sandbox_address_mask, imm_width)
             imm_op.name = "imm_op"
+            x25_register = RegisterOperand("x25", 64, True, False)
+            x25_register.name = "x25_reg"
+ 
+            compute_mask = Instruction("MOV", True).add_op(x25_register).add_op(imm_op)
+            compute_mask.template = f"MOV {{{x25_register.name}}}, {{{imm_op.name}}}"
+            parent.insert_before(instr, compute_mask)
+
+            imm_width = 4
+            imm_op = ImmediateOperand('0b0000111100000000', imm_width)
+            imm_op.name = "imm_op"
+            compute_mask = Instruction("MOVK", True).add_op(x25_register).add_op(imm_op)
+            compute_mask.template = f"MOVK {{{x25_register.name}}}, {{{imm_op.name}}}, LSL 48"
+            parent.insert_before(instr, compute_mask)
+
+
+#            imm_width = min(base_operand_copy.width, 32)
+#            imm_op = ImmediateOperand(self.sandbox_address_mask, imm_width)
+#            imm_op.name = "imm_op"
             template, op0, op1, op2 = generate_template("AND", base_operand_copy, base_operand_copy,
-                                                        imm_op)
+                                                        x25_register)
             apply_mask = Instruction("AND", True).add_op(op0).add_op(op1).add_op(op2)
             apply_mask.template = template
             parent.insert_before(instr, apply_mask)
