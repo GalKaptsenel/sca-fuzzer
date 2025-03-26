@@ -166,7 +166,7 @@ class FuzzerGeneric(Fuzzer):
                         for i in range(GPR_SUBREGION_SIZE // 8):
                             random_tag = random.randint(0, 14)
                         
-                            correct_tag_inp[actor]['gpr'][i] = inp[actor]['gpr'][i] | (0b1111 << 55) 
+                            correct_tag_inp[actor]['gpr'][i] = inp[actor]['gpr'][i] | (0b11111 << 55) # TODO: Check if this should be 4 or 5 bits. https://developer.arm.com/documentation/ddi0601/2024-12/AArch64-Registers/TCR-EL1--Translation-Control-Register--EL1-
                             inp[actor]['gpr'][i] |= (random_tag << 55) 
 
                     returned_inputs_pre.append(((False, idx), inp))

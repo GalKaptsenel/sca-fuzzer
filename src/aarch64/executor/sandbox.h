@@ -22,4 +22,6 @@ typedef struct __attribute__((packed)) sandbox {
     measurement_t latest_measurement;                                               // measurement results
 } sandbox_t;
 
+void initialize_sandbox(sandbox_t*);
+
 #endif // ARM64_EXECUTOR_SANDBOX_H

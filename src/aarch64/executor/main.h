@@ -15,6 +15,7 @@
 #include <linux/minmax.h>
 #include <linux/cdev.h>
 #include <linux/uaccess.h>
+#include <linux/memory.h>
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0)
 #include <linux/set_memory.h>
@@ -30,6 +31,7 @@
 #include "inputs.h"
 #include "chardevice.h"
 #include "executor.h"
+#include "mte.h"
 
 #define DEBUG 0
 
