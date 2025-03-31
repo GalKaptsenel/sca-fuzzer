@@ -426,7 +426,7 @@ static ssize_t revisor_read(struct file* File, char __user* user_buffer,
 
 	BUG_ON(NULL == from_buffer);
 
-	not_copied = copy_to_user_with_access_check(user_buffer + *off, from_buffer + *off,
+	not_copied = copy_to_user_with_access_check(user_buffer, from_buffer + *off,
 	 number_of_bytes_to_copy);
 
 	*off += (number_of_bytes_to_copy - not_copied);

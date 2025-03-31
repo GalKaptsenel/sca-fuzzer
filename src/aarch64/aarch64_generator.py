@@ -303,6 +303,7 @@ class Aarch64RandomGenerator(Aarch64Generator, RandomGenerator):
 
     def generate_reg_operand(self, spec: OperandSpec, _: Instruction) -> Operand:
         choices = self._filter_invalid_operands(spec.values)
+        choices = [s for s in choices if all(s != op.value or op.type != OT.MEM)for op in inst.operands)]
         reg = random.choice(choices)
         return RegisterOperand(reg, spec.width, spec.src, spec.dest)
 
@@ -312,6 +313,7 @@ class Aarch64RandomGenerator(Aarch64Generator, RandomGenerator):
 
     def generate_mem_operand(self, spec: OperandSpec, inst: Instruction) -> Operand:
         choices = self._filter_invalid_operands(spec.values)
-        choices = [s for s in choices if all((s != op.value and op.type == OT.MEM) or op.type != OT.MEM for op in inst.operands)] # For easier construction, avoid using same registers inside memory
+        #choices = [s for s in choices if all((s != op.value and op.type == OT.MEM) or op.type != OT.MEM for op in inst.operands)] # For easier construction, avoid using same registers inside memory
+        choices = [s for s in choices if all(s != op.value for op in inst.operands)]
         address_reg = random.choice(choices)
         return MemoryOperand(address_reg, spec.width, spec.src, spec.dest)
