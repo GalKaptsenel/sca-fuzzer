@@ -421,6 +421,7 @@ static ssize_t revisor_read(struct file* File, char __user* user_buffer,
 	}
 
 	if(total_size <= *off) {
+		*off = 0;
 		return 0; // return EOF
 	}
 
