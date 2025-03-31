@@ -165,7 +165,7 @@ class Aarch64SandboxPass(Pass):
             parent.insert_before(instr, compute_mask)
 
             imm_width = 4
-            imm_op = ImmediateOperand('0b0000000000000000', imm_width)#ImmediateOperand('0b0001111100000000', imm_width) # TODO: Check if the mask should be of 4 or 5 bits. https://developer.arm.com/documentation/ddi0601/2024-12/AArch64-Registers/TCR-EL1--Translation-Control-Register--EL1-
+            imm_op = ImmediateOperand('0b0000111100000000', imm_width)
             imm_op.name = "imm_op"
             compute_mask = Instruction("MOVK", True).add_op(x25_register).add_op(imm_op)
             compute_mask.template = f"MOVK {{{x25_register.name}}}, {{{imm_op.name}}}, LSL 48"
