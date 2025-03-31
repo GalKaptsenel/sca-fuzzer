@@ -623,9 +623,7 @@ int load_template(size_t tc_size) {
 		return -5;
 	}
 
-	module_err("before!");
 	map_to_template(executor.config.measurement_template)((size_t*)(&template_ptr));
-	module_err("after!");
 
 	// skip until the beginning of the template
 	for (;	TEMPLATE_ENTER != template_ptr[template_pos]; ++template_pos) {

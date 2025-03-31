@@ -429,6 +429,8 @@ _actor_default = {
         "privileged-execute-never": True,
         "user-execute-never": True,
         "randomized": False,
+
+        "reserved_bit": False # TODO: Does Aarch64 has reserved bits? For what reason do we need them?
     },
     'data_ept_properties': {
         "present": True,
@@ -449,6 +451,7 @@ _actor_default = {
         "user-execute-never": True,
         "randomized": False,
 
+        "reserved_bit": False # TODO: Does Aarch64 has reserved bits? For what reason do we need them?
     },
     'instruction_blocklist': set(),
     'fault_blocklist': set(),

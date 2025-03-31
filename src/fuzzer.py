@@ -155,7 +155,7 @@ class FuzzerGeneric(Fuzzer):
             if self.filter(test_case, inputs):
                 continue
 
-            def randomize_tags(inputs: List[Input]) -> List[Input]:
+            def randomize_tags(inputs: List[Input]) -> Tuple[List[int], List[Input]]:
                 returned_inputs_pre = []
                 for idx, inp in enumerate(inputs):
 
@@ -165,9 +165,9 @@ class FuzzerGeneric(Fuzzer):
 
                         for i in range(GPR_SUBREGION_SIZE // 8):
                             random_tag = random.randint(0, 14)
-                        
+
                             correct_tag_inp[actor]['gpr'][i] = inp[actor]['gpr'][i] | (0b11111 << 55) # TODO: Check if this should be 4 or 5 bits. https://developer.arm.com/documentation/ddi0601/2024-12/AArch64-Registers/TCR-EL1--Translation-Control-Register--EL1-
-                            inp[actor]['gpr'][i] |= (random_tag << 55) 
+                            inp[actor]['gpr'][i] |= (random_tag << 55)
 
                     returned_inputs_pre.append(((False, idx), inp))
                     returned_inputs_pre.append(((True, idx), correct_tag_inp))
@@ -178,26 +178,25 @@ class FuzzerGeneric(Fuzzer):
                 returned_inputs = [i for _, i in returned_inputs_pre]
 
                 return returned_indecies, returned_inputs
-                    
-                        
+
+
 
             input_indecies, inputs_with_random_tags = randomize_tags(inputs)
 
             # Fuzz the test case
             self.executor.load_test_case(test_case)
-            htraces = self.executor.trace_test_case(args.inputs, args.n_reps)
-
+            htraces = self.executor.trace_test_case(inputs_with_random_tags,  CONF.executor_sample_sizes[0])
             def analyze_violations(input_indecies, htraces) -> List[int]:
                 buckets = {}
-                for _, idx in input_indecies:
+                for (_, idx), htrace in zip(input_indecies, htraces):
                     if idx not in buckets:
                         buckets[idx] = []
-                    buckets[idx].append(htraces)
+                    buckets[idx].append(htrace)
 
                 violations = []
                 for idx, bucket in buckets.items():
                     if len(set(map(lambda x: x.hash_, bucket))) != 1:
-                        violation.append(idx)
+                        violations.append(idx)
 
                 return violations
 
@@ -212,7 +211,7 @@ class FuzzerGeneric(Fuzzer):
                     break
 
         self.LOG.fuzzer_finish()
-        self.LOG.dbg_report_coverage(self.model)
+        #self.LOG.dbg_report_coverage(self.model)
         return STAT.violations > 0
 
     def filter(self, test_case, inputs) -> bool:

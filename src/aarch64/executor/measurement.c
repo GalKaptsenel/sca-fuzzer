@@ -199,14 +199,13 @@ static void __nocfi run_experiments(void) {
 	put_cpu(); // free the current task from the current cpu
 }
 
-noinline int execute(void) {
+int execute(void) {
 
     if (setup_environment()) {
         return -1;
     }
 
     run_experiments();
-
     return 0;
 }
 

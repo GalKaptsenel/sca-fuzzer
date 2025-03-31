@@ -159,13 +159,13 @@ class Aarch64SandboxPass(Pass):
             imm_op.name = "imm_op"
             x25_register = RegisterOperand("x25", 64, True, False)
             x25_register.name = "x25_reg"
- 
+
             compute_mask = Instruction("MOV", True).add_op(x25_register).add_op(imm_op)
             compute_mask.template = f"MOV {{{x25_register.name}}}, {{{imm_op.name}}}"
             parent.insert_before(instr, compute_mask)
 
             imm_width = 4
-            imm_op = ImmediateOperand('0b0001111100000000', imm_width) # TODO: Check if the mask should be of 4 or 5 bits. https://developer.arm.com/documentation/ddi0601/2024-12/AArch64-Registers/TCR-EL1--Translation-Control-Register--EL1-
+            imm_op = ImmediateOperand('0b0000000000000000', imm_width)#ImmediateOperand('0b0001111100000000', imm_width) # TODO: Check if the mask should be of 4 or 5 bits. https://developer.arm.com/documentation/ddi0601/2024-12/AArch64-Registers/TCR-EL1--Translation-Control-Register--EL1-
             imm_op.name = "imm_op"
             compute_mask = Instruction("MOVK", True).add_op(x25_register).add_op(imm_op)
             compute_mask.template = f"MOVK {{{x25_register.name}}}, {{{imm_op.name}}}, LSL 48"
@@ -289,21 +289,29 @@ class Aarch64RandomGenerator(Aarch64Generator, RandomGenerator):
     def __init__(self, instruction_set: InstructionSet, seed: int):
         super().__init__(instruction_set, seed)
 
-    def _filter_invalid_operands(self, values: List[str]) -> List[str]:
+    def _filter_invalid_operands(self, spec: OperandSpec, inst: Instruction) -> List[str]:
         result: List[str] = []
         register_prefixes = ("x", "w", "q", "v", "d", "s", "h", "b", "sp")
 
-        for op in values:
+        for op in spec.values:
             if 'pc' == op:
                 result.append(op)
-            if not(op.startswith(register_prefixes) and op not in chain.from_iterable(self.target_desc.registers.values())):
+            elif not op.startswith(register_prefixes):
                 result.append(op)
+            elif op in chain.from_iterable(self.target_desc.registers.values()):
+                # We omit situations where the same physical register is in memory operand and outside the memory operand.
+                # in causes warning of the assembler and unrecognized instructions
+                cond = lambda o: o.type == OT.MEM and o.value in chain.from_iterable(self.target_desc.registers.values())
+                if spec.type == OT.MEM:
+                    cond = lambda _: True
 
+                memory_registers = [o for o in inst.operands if cond(o)]
+                if all(Aarch64TargetDesc.reg_normalized[op] != Aarch64TargetDesc.reg_normalized[o.value] for o in memory_registers):
+                    result.append(op)
         return result
 
-    def generate_reg_operand(self, spec: OperandSpec, _: Instruction) -> Operand:
-        choices = self._filter_invalid_operands(spec.values)
-        choices = [s for s in choices if all(s != op.value or op.type != OT.MEM)for op in inst.operands)]
+    def generate_reg_operand(self, spec: OperandSpec, inst: Instruction) -> Operand:
+        choices = self._filter_invalid_operands(spec, inst)
         reg = random.choice(choices)
         return RegisterOperand(reg, spec.width, spec.src, spec.dest)
 
@@ -312,8 +320,6 @@ class Aarch64RandomGenerator(Aarch64Generator, RandomGenerator):
         return CondOperand(cond)
 
     def generate_mem_operand(self, spec: OperandSpec, inst: Instruction) -> Operand:
-        choices = self._filter_invalid_operands(spec.values)
-        #choices = [s for s in choices if all((s != op.value and op.type == OT.MEM) or op.type != OT.MEM for op in inst.operands)] # For easier construction, avoid using same registers inside memory
-        choices = [s for s in choices if all(s != op.value for op in inst.operands)]
+        choices = self._filter_invalid_operands(spec, inst)
         address_reg = random.choice(choices)
         return MemoryOperand(address_reg, spec.width, spec.src, spec.dest)

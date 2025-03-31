@@ -11,7 +11,6 @@ import subprocess
 import os.path
 import numpy as np
 from typing import List, Tuple, Set, Generator
-import tempfile
 import re
 
 from ..interfaces import HTrace, Input, TestCase, Executor, HardwareTracingError
@@ -323,7 +322,7 @@ class Aarch64RemoteExecutor(Aarch64Executor):
                 f'ls {self.tmp_dir}/{ko_filename}'):
                 self.connection.push(ko_filename, f'{self.tmp_dir}/{ko_filename}')
 
-            self.connection.shell(f'su -c "insmod {ko_filename}"')
+            self.connection.shell(f'su -c "insmod {self.tmp_dir}/{ko_filename}"')
 
         if 'No such file or directory' in self.connection.shell(
             f'ls {self.userland_application_path}'):
@@ -354,7 +353,7 @@ class Aarch64RemoteExecutor(Aarch64Executor):
             f'su -c "{self.userland_application_path} {self.executor_device_path} w {remote_fname}"')
 
     def _write_inputs_to_connection(self, inputs: List[Input], n_reps: int) -> Tuple[
-        List, List[str]]:
+        List[np.ndarray], List[str]]:
         remote_filenames = []
         array = np.zeros((len(inputs), n_reps), dtype=np.uint64)
         for idx, inp in enumerate(inputs):
@@ -401,7 +400,6 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         STAT.executor_reruns += n_reps * n_inputs
         iids, filenames = self._write_inputs_to_connection(inputs, n_reps)
         self.connection.shell(f'su -c "{self.userland_application_path} {self.executor_device_path} 8"')  # Trace
-
         all_traces: np.ndarray = np.ndarray(shape=(n_inputs, n_reps), dtype=np.uint64)
         all_pfc: np.ndarray = np.ndarray(shape=(n_inputs, n_reps, 3), dtype=np.uint64)
 
