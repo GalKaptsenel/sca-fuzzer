@@ -14,7 +14,7 @@ import copy
 from . import factory
 from .interfaces import Fuzzer, CTrace, HTrace, Input, Violation, TestCase, \
     Generator, InputGenerator, Model, Executor, Analyser, InputID, InputTaint, \
-    HardwareTracingError, InputFragment, GPR_SUBREGION_SIZE
+    HardwareTracingError, InputFragment, GPR_SUBREGION_SIZE, Measurement, EquivalenceClass
 from .isa_loader import InstructionSet
 from .config import CONF
 from .util import Logger, STAT, pretty_htrace
@@ -155,7 +155,7 @@ class FuzzerGeneric(Fuzzer):
             if self.filter(test_case, inputs):
                 continue
 
-            def randomize_tags(inputs: List[Input]) -> Tuple[List[int], List[Input]]:
+            def randomize_tags(inputs: List[Input]) -> Tuple[List[Tuple[bool, int]], List[Input]]:
                 returned_inputs_pre = []
                 for idx, inp in enumerate(inputs):
 
@@ -174,36 +174,38 @@ class FuzzerGeneric(Fuzzer):
 
                 random.shuffle(returned_inputs_pre)
 
-                returned_indecies = [i for i, _ in returned_inputs_pre]
+                input_indices = [i for i, _ in returned_inputs_pre]
                 returned_inputs = [i for _, i in returned_inputs_pre]
 
-                return returned_indecies, returned_inputs
+                return input_indices, returned_inputs
 
-
-
-            input_indecies, inputs_with_random_tags = randomize_tags(inputs)
+            input_indices, inputs_with_random_tags = randomize_tags(inputs)
 
             # Fuzz the test case
             self.executor.load_test_case(test_case)
             htraces = self.executor.trace_test_case(inputs_with_random_tags,  CONF.executor_sample_sizes[0])
-            def analyze_violations(input_indecies, htraces) -> List[int]:
-                buckets = {}
-                for (_, idx), htrace in zip(input_indecies, htraces):
-                    if idx not in buckets:
-                        buckets[idx] = []
-                    buckets[idx].append(htrace)
 
+            def analyze_traces(iids: List[Tuple[bool,int]], inputs: List[Input], htraces: List[HTrace]) -> List[Violation]:
                 violations = []
-                for idx, bucket in buckets.items():
-                    if len(set(map(lambda x: x.hash_, bucket))) != 1:
-                        violations.append(idx)
+                ctraces = {iid: (tr, input_) for (tr, (not_modified, iid), input_) in zip(htraces, iids, inputs) if not_modified} # For the not_modified inputs, htrace is used as a reference ctrace
+                modified_traces = {iid: (tr, input_) for (tr, (not_modified, iid), input_) in zip(htraces, iids, inputs) if not not_modified}
+                assert all(iid in ctraces for iid in modified_traces) and all(iid in modified_traces for iid in ctraces)
+
+                for iid, (trace, input_) in ctraces.items():
+                    if modified_traces[iid][0].hash_ != trace.hash_:
+                        ctrace = CTrace(trace.raw)
+                        measurements = [Measurement(iid, input_, ctrace, trace), Measurement(iid, modified_traces[iid][1], ctrace, modified_traces[iid][0])]
+                        htrace_groups = [[m] for m in measurements]
+                        violations.append(Violation(EquivalenceClass(ctrace, measurements,  htrace_groups), [input_, modified_traces[iid][1]] ))
 
                 return violations
 
-            violation = analyze_violations(input_indecies, htraces) # self.fuzzing_round(test_case, inputs)
+            violations = analyze_traces(input_indices, inputs_with_random_tags, htraces) # self.fuzzing_round(test_case, inputs)
 
-            if violation:
-                self.LOG.fuzzer_report_violations(violation, self.model)
+            if violations:
+                violation = violations[0]
+
+                #self.LOG.fuzzer_report_violations(violation, self.model)
                 if save_violations:
                     self._store_violation_artifact(test_case, violation, self.work_dir)
                 STAT.violations += 1
@@ -546,8 +548,8 @@ class FuzzerGeneric(Fuzzer):
                 f.write(f"\nInput #{m.input_id}\n")
                 f.write(f"* Hardware trace:\n {pretty_htrace(m.htrace)}\n")
                 f.write(f"* Contract trace (hash): {m.ctrace}\n")
-                ctrace_full = self.model.dbg_get_trace_detailed(m.input_, CONF.model_max_nesting)
-                f.write(f"* Contract trace (detailed): {ctrace_full}\n")
+                #ctrace_full = self.model.dbg_get_trace_detailed(m.input_, CONF.model_max_nesting)
+                #f.write(f"* Contract trace (detailed): {ctrace_full}\n")
 
         # re-enable colors if enabled previously
         CONF.color = color_on
