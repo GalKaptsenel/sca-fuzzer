@@ -6,6 +6,7 @@ SPDX-License-Identifier: MIT
 """
 from __future__ import annotations
 
+import random
 import shutil
 import xxhash
 from typing import List, Dict, Tuple, Optional, NamedTuple
@@ -329,9 +330,11 @@ class RegisterOperand(Operand):
 
 
 class MemoryOperand(Operand):
-
+    mte_memory_tag: Optional[int]
+    """ mte_memory_tag: The mte tag of the memory access instruction """
     def __init__(self, address: str, width: int, src: bool, dest: bool):
         self.width = width
+        self.mte_memory_tag = random.randint(0,15)
         super().__init__(address.lower(), OT.MEM, src, dest)
 
 
@@ -423,8 +426,12 @@ class Instruction:
     control_flow: bool = False
     """ control_flow: If True, the instruction is a control flow instruction
     (branch, call, return, etc.) """
+    has_memory_access: bool
+    """ has_memory_access: If True, the instruction accesses memory """
+    memory_access_id: Optional[int]
+    """ memory_access_id: The id of a memory access instruction """
     template: str
-    """ format string representation of the instruction """
+    """ template: format string representation of the instruction """
 
     next: Optional[Instruction] = None
     """ next: Next instruction in the double-linked list of instructions """
@@ -450,20 +457,35 @@ class Instruction:
     _inst_brief: str = ""
     """ _inst_brief: A brief representation of the instruction,
     used for hashing and for debug messages """
+    memory_access_instruction_counter: int = 0
+    """ memory_access_instruction_counter: A class variable, counting the number of memory access
+     instructions """
 
-    def __init__(self, name: str, is_instrumentation=False, category="", control_flow=False, template=None):
+    def __init__(self, name: str, is_instrumentation=False, category="", control_flow=False,
+                 has_memory_access: bool = False, template=None):
         self.name = name
         self.operands = []
         self.implicit_operands = []
         self.is_instrumentation = is_instrumentation
         self.category = category
         self.control_flow = control_flow
+        self.has_memory_access = has_memory_access
         self.template = template
+
+
+        # TODO: Must not be implemented like this! Should derive from Instruction and add those members
+        self.memory_access_id = None
+        if self.has_memory_access:
+            self.memory_access_id = Instruction.memory_access_instruction_counter
+            Instruction.memory_access_instruction_counter += 1
+
 
     @classmethod
     def from_spec(cls, spec: InstructionSpec, is_instrumentation=False):
         # Make sure there are exactly three vertices, though :)
-        return cls(spec.name, is_instrumentation, spec.category, spec.control_flow, spec.template)
+        return cls(name=spec.name, is_instrumentation=is_instrumentation, category=spec.category,
+                   control_flow=spec.control_flow, has_memory_access=spec.has_mem_operand,
+                   template=spec.template)
 
     def __str__(self) -> str:
         op_list = [

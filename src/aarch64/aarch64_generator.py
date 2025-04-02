@@ -44,6 +44,8 @@ class Aarch64Generator(ConfigurableGenerator, abc.ABC):
         self.passes = [
             Aarch64PatchUndefinedLoadsPass(self.target_desc),
             Aarch64SandboxPass(),
+            Aarch64MarkMemoryAccesses(),
+            Aarch64TagMemoryAccesses(),
         ]
 
         self.printer = Aarch64Printer(self.target_desc)
@@ -105,6 +107,65 @@ class Aarch64NonCanonicalAddressPass(Pass):
 
     def run_on_test_case(self, test_case: TestCase) -> None:
         pass
+
+
+class Aarch64TagMemoryAccesses(Pass):
+    def run_on_test_case(self, test_case: TestCase) -> None:
+        for func in test_case.functions:
+            for bb in func:
+
+                memory_instructions = []
+
+                for inst in bb:
+                    if inst.has_mem_operand(include_implicit=True):
+                        memory_instructions.append(inst)
+
+                for inst in memory_instructions:
+                    if inst.has_memory_access:
+                        mem_operands = inst.get_mem_operands()
+                        for operand in mem_operands:
+                            if operand.name in chain.from_iterable(Aarch64TargetDesc.registers.values()):
+                                base_operand: MemoryOperand = operand
+                                mte_tag = base_operand.mte_memory_tag
+
+                                imm_width = 16
+                                imm_op = ImmediateOperand(f'{mte_tag:0{imm_width}b}', imm_width)
+                                imm_op.name = "imm_op"
+                                compute_mask = Instruction("MOVK", True).add_op(base_operand).add_op(imm_op)
+                                compute_mask.template = f"MOVK {{{base_operand.name}}}, {{{imm_op.name}}}, LSL 48"
+                                bb.insert_before(position=inst ,inst=compute_mask)
+
+
+class Aarch64MarkMemoryAccesses(Pass):
+
+    @staticmethod
+    def set_simd_bit_instruction(register: str, bit: int) -> Instruction:
+        if not (0 <= bit <= 127):
+            raise ValueError("SIDM bit must be between 0 and 127, inclusive")
+
+        byte_index = bit // 8
+        bit_index = bit % 8
+
+        instruction_string = f"orr {register}.b[{byte_index}], {register}.b[{byte_index}], #{1 << bit_index}"
+        set_mte_instruction = Instruction("ORR", True, template=instruction_string)
+        return set_mte_instruction
+
+    def run_on_test_case(self, test_case: TestCase) -> None:
+        for func in test_case.functions:
+            for bb in func:
+
+                memory_instructions = []
+
+                for inst in bb:
+                    if inst.has_mem_operand(include_implicit=True):
+                        memory_instructions.append(inst)
+
+                for inst in memory_instructions:
+                    if inst.has_memory_access:
+                        access_id = inst.memory_access_id
+                        simd_register = 'v0'
+                        set_mte_instruction = Aarch64MarkMemoryAccesses.set_simd_bit_instruction(simd_register, access_id)
+                        bb.insert_before(position=inst, inst=set_mte_instruction)
 
 
 class Aarch64SandboxPass(Pass):
