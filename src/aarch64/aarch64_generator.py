@@ -147,20 +147,28 @@ class Aarch64MarkMemoryAccesses(Pass):
 
 
         sve_register_bitmap = 'z0'
-        sve_register_temporary = 'z1'
+        sve_register_temporary_1 = 'z1'
+        sve_register_temporary_2 = 'z2'
         predicate_register = 'p1'
 
         byte_index = access_id // 8
         bit_shift = access_id % 8
 
-        ptrue_string = f"ptrue {predicate_register}.B, #0b{1 << byte_index:016b}"
-        mov_string = f"mov {sve_register_temporary}.B, #0b{1 << bit_shift:08b}"
-        orr_string = f"orr {sve_register_bitmap}.B, {predicate_register}/M, {sve_register_bitmap}.B, {sve_register_temporary}.B"
-        ptrue_instruction = Instruction("PTRUE", True, template=ptrue_string)
-        mov_instruction = Instruction("MOV", True, template=mov_string)
-        orr_instruction = Instruction("ORR", True, template=orr_string)
+        ptrue_template = f"ptrue {predicate_register}.B, ALL"
+        index_template = f"index {sve_register_temporary_2}.B, #0, #1"
+        compeq_template = f"cmpeq {predicate_register}.B, {predicate_register}/z, {sve_register_temporary_2}.B, #{byte_index}"
+        mov_template = f"mov {sve_register_temporary_1}.B, #0b{1 << bit_shift:08b}"
+        orr_template = f"orr {sve_register_bitmap}.B, {predicate_register}/M, {sve_register_bitmap}.B, {sve_register_temporary_1}.B"
+
+        ptrue_instruction = Instruction("PTRUE", True, template=ptrue_template)
+        index_instruction = Instruction("INDEX", True, template=index_template)
+        cmpeq_instruction = Instruction("CMPEQ", True, template=compeq_template)
+        mov_instruction = Instruction("MOV", True, template=mov_template)
+        orr_instruction = Instruction("ORR", True, template=orr_template)
 
         bb.insert_before(position=inst, inst=ptrue_instruction)
+        bb.insert_before(position=inst, inst=index_instruction)
+        bb.insert_before(position=inst, inst=cmpeq_instruction)
         bb.insert_before(position=inst, inst=mov_instruction)
         bb.insert_before(position=inst, inst=orr_instruction)
 
