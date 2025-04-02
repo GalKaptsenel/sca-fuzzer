@@ -191,6 +191,27 @@ static void __nocfi run_experiments(void) {
 		// execute
 		((void(*)(void*))executor.measurement_code)(&executor.sandbox);
 
+        {
+            uint8_t buffer[32] = {0};
+            size_t i = 0;
+            asm volatile(
+            "PTRUE p0.b, ALL\n"
+            "ST1B {z0.b}, p0, [%0]"
+            :
+            : "r"(buffer)
+            : "memory"
+            );
+        }
+
+        // Print the bits in the buffer
+        for (; i < sizeof(buffer); ++i) {
+            for (int j = 7; j >= 0; --j) {
+                printf("%d", (buffer[i] >> j) & 1);  // Extract each bit
+            }
+            printf(" ");
+        }
+        printf("\n");
+
 		measure(&current_input->measurement);
 	}
 

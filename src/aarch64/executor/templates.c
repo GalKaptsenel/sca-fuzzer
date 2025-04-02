@@ -125,6 +125,7 @@ inline void epilogue(void) {
     "eor x20, x20, x20\n"		                                                                \
     "eor x21, x21, x21\n"		                                                                \
     "eor x22, x22, x22\n"		                                                                \
+    "dup z0.b, wzr\n"		                                                                \
     "isb; dsb SY \n"		                                                                    \
     "mrs x20, pmevcntr1_el0 \n"                                                                 \
     "mrs x21, pmevcntr2_el0 \n"	                                                                \

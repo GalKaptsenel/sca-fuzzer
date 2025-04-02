@@ -117,38 +117,52 @@ class Aarch64TagMemoryAccesses(Pass):
                 memory_instructions = []
 
                 for inst in bb:
-                    if inst.has_mem_operand(include_implicit=True):
+                    if inst.has_memory_access:
                         memory_instructions.append(inst)
 
                 for inst in memory_instructions:
-                    if inst.has_memory_access:
-                        mem_operands = inst.get_mem_operands()
-                        for operand in mem_operands:
-                            if operand.name in chain.from_iterable(Aarch64TargetDesc.registers.values()):
-                                base_operand: MemoryOperand = operand
-                                mte_tag = base_operand.mte_memory_tag
+                    mem_operands = inst.get_mem_operands()
+                    for operand in mem_operands:
+                        if operand.name in chain.from_iterable(Aarch64TargetDesc.registers.values()):
+                            base_operand: MemoryOperand = operand
+                            mte_tag = base_operand.mte_memory_tag
 
-                                imm_width = 16
-                                imm_op = ImmediateOperand(f'{mte_tag:0{imm_width}b}', imm_width)
-                                imm_op.name = "imm_op"
-                                compute_mask = Instruction("MOVK", True).add_op(base_operand).add_op(imm_op)
-                                compute_mask.template = f"MOVK {{{base_operand.name}}}, {{{imm_op.name}}}, LSL 48"
-                                bb.insert_before(position=inst ,inst=compute_mask)
+                            imm_width = 16
+                            imm_op = ImmediateOperand(f'{mte_tag:0{imm_width}b}', imm_width)
+                            imm_op.name = "imm_op"
+                            compute_mask = Instruction("MOVK", True).add_op(base_operand).add_op(imm_op)
+                            compute_mask.template = f"MOVK {{{base_operand.name}}}, {{{imm_op.name}}}, LSL 48"
+                            bb.insert_before(position=inst ,inst=compute_mask)
 
 
 class Aarch64MarkMemoryAccesses(Pass):
 
     @staticmethod
-    def set_simd_bit_instruction(register: str, bit: int) -> Instruction:
-        if not (0 <= bit <= 127):
-            raise ValueError("SIDM bit must be between 0 and 127, inclusive")
+    def mark_memory_access(bb: BasicBlock, inst: Instruction):
 
-        byte_index = bit // 8
-        bit_index = bit % 8
+        access_id = inst.memory_access_id
 
-        instruction_string = f"orr {register}.b[{byte_index}], {register}.b[{byte_index}], #{1 << bit_index}"
-        set_mte_instruction = Instruction("ORR", True, template=instruction_string)
-        return set_mte_instruction
+        if not (0 <= access_id <= 127):
+            raise ValueError("SVE bit must be between 0 and 127, inclusive")
+
+
+        sve_register_bitmap = 'z0'
+        sve_register_temporary = 'z1'
+        predicate_register = 'p1'
+
+        byte_index = access_id // 8
+        bit_shift = access_id % 8
+
+        ptrue_string = f"ptrue {predicate_register}.B, #0b{1 << byte_index:016b}"
+        mov_string = f"mov {sve_register_temporary}.B, #0b{1 << bit_shift:08b}"
+        orr_string = f"orr {sve_register_bitmap}.B, {predicate_register}/M, {sve_register_bitmap}.B, {sve_register_temporary}.B"
+        ptrue_instruction = Instruction("PTRUE", True, template=ptrue_string)
+        mov_instruction = Instruction("MOV", True, template=mov_string)
+        orr_instruction = Instruction("ORR", True, template=orr_string)
+
+        bb.insert_before(position=inst, inst=ptrue_instruction)
+        bb.insert_before(position=inst, inst=mov_instruction)
+        bb.insert_before(position=inst, inst=orr_instruction)
 
     def run_on_test_case(self, test_case: TestCase) -> None:
         for func in test_case.functions:
@@ -157,15 +171,11 @@ class Aarch64MarkMemoryAccesses(Pass):
                 memory_instructions = []
 
                 for inst in bb:
-                    if inst.has_mem_operand(include_implicit=True):
+                    if inst.has_memory_access:
                         memory_instructions.append(inst)
 
                 for inst in memory_instructions:
-                    if inst.has_memory_access:
-                        access_id = inst.memory_access_id
-                        simd_register = 'v0'
-                        set_mte_instruction = Aarch64MarkMemoryAccesses.set_simd_bit_instruction(simd_register, access_id)
-                        bb.insert_before(position=inst, inst=set_mte_instruction)
+                    Aarch64MarkMemoryAccesses.mark_memory_access(bb, inst)
 
 
 class Aarch64SandboxPass(Pass):
