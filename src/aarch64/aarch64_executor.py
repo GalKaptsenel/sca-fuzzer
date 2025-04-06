@@ -6,13 +6,16 @@ File: Implementation of executor for x86 architecture
 Copyright (C) Microsoft Corporation
 SPDX-License-Identifier: MIT
 """
-
+import copy
 import subprocess
 import os.path
+from doctest import UnexpectedException
+
 import numpy as np
-from typing import List, Tuple, Set, Generator
+from typing import List, Tuple, Set, Generator, Optional
 import re
 
+from .aarch64_generator import Aarch64TagMemoryAccesses
 from ..interfaces import HTrace, Input, TestCase, Executor, HardwareTracingError
 from ..config import CONF
 from ..util import Logger, STAT
@@ -303,6 +306,7 @@ class Aarch64RemoteExecutor(Aarch64Executor):
     def __init__(self, connection: Connection, *args):
         self.connection = connection
         super().__init__(*args)
+        self.test_case: Optional[TestCase] = None
 
         userland_application = 'executor_userland'
         ko_filename = 'revizor-executor.ko'
@@ -345,12 +349,16 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         code_base = self.connection.shell(f'su -c "cat {self.executor_sysfs}/print_code_base"')
         return int(sandbox_base, 16), int(code_base, 16)
 
-    def _write_test_case(self, test_case: TestCase):
-        remote_fname = f"{self.tmp_dir}/{test_case.bin_path}"
+    def _write_test_case(self, test_case: TestCase, memory_accesses_to_guess_tag: Optional[List[int]] = None):
+        patched_test_case = copy.deepcopy(test_case)
+        tagging_pass = Aarch64TagMemoryAccesses(memory_accesses_to_guess_tag=memory_accesses_to_guess_tag)
+        tagging_pass.run_on_test_case(patched_test_case)
+        remote_fname = f"{self.tmp_dir}/{patched_test_case.bin_path}"
         self.connection.shell(f'su -c "{self.userland_application_path} {self.executor_device_path} 1"')
-        self.connection.push(test_case.bin_path, remote_fname)
+        self.connection.push(patched_test_case.bin_path, remote_fname)
         self.connection.shell(
             f'su -c "{self.userland_application_path} {self.executor_device_path} w {remote_fname}"')
+        self.test_case = test_case
 
     def _write_inputs_to_connection(self, inputs: List[Input], n_reps: int) -> Tuple[
         List[np.ndarray], List[str]]:
@@ -392,7 +400,7 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         :raises HardwareTracingError: if the kernel module output is malformed
         """
         # Skip if it's a dummy call
-        if not inputs:
+        if not inputs or self.test_case is None:
             return []
 
         # Store statistics
@@ -400,22 +408,49 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         STAT.executor_reruns += n_reps * n_inputs
         iids, filenames = self._write_inputs_to_connection(inputs, n_reps)
         self.connection.shell(f'su -c "{self.userland_application_path} {self.executor_device_path} 8"')  # Trace
-        all_traces: np.ndarray = np.ndarray(shape=(n_inputs, n_reps), dtype=np.uint64)
-        all_pfc: np.ndarray = np.ndarray(shape=(n_inputs, n_reps, 3), dtype=np.uint64)
+        all_traces: np.ndarray = np.ndarray(shape=(2*n_inputs, n_reps), dtype=np.uint64) # TODO: Cleaner! multiply by 2 for both correct and incrrect tags test
+        all_pfc: np.ndarray = np.ndarray(shape=(2*n_inputs, n_reps, 3), dtype=np.uint64)
+        all_not_architectural_memory_accesses: np.ndarray = np.ndarray(shape=(n_inputs,), dtype=np.uint64)
 
         for iid in range(iids.shape[0]):  # Iterate over rows
-            for cid in range(iids.shape[1]):  # Iterate over columns
+            all_not_architectural_memory_accesses_set = set()
+            for cid in range(iids.shape[1]):  # Iterate over columns (reruns)
+                self.connection.shell(
+                    f'su -c "{self.userland_application_path} {self.executor_device_path} 4 {iids[iid][cid]}"')
+                trace_output = self.connection.shell(
+                    f'su -c "{self.userland_application_path} {self.executor_device_path} 7"')
+                architectural_memory_accesses_bitmap_match = re.search(r"architectural memory access bitmap: ([01]+)", trace_output)
+                architectural_memory_accesses_bitmap = architectural_memory_accesses_bitmap_match.group(1) \
+                    if architectural_memory_accesses_bitmap_match else ""
+                all_not_architectural_memory_accesses_set.add(architectural_memory_accesses_bitmap)
+
+            assert len(all_not_architectural_memory_accesses_set) == 1,\
+                "Architecturally, expected all memory accesses be the same"
+
+            not_architectural_memory_accesses: List[int] = []
+
+            for memory_access_id, i in all_not_architectural_memory_accesses_set.pop():
+                if i == 0:
+                    not_architectural_memory_accesses.append(memory_access_id)
+
+            all_not_architectural_memory_accesses[iid] = not_architectural_memory_accesses
+
+        for iid in range(iids.shape[0]):
+            self._write_test_case(self.test_case, all_not_architectural_memory_accesses[iid])
+            self.connection.shell(
+                f'su -c "{self.userland_application_path} {self.executor_device_path} 8"')  # Trace
+            for cid in range(iids.shape[1]):
                 self.connection.shell(
                     f'su -c "{self.userland_application_path} {self.executor_device_path} 4 {iids[iid][cid]}"')
                 trace_output = self.connection.shell(
                     f'su -c "{self.userland_application_path} {self.executor_device_path} 7"')
                 htrace_match = re.search(r"htrace .: ([01]+)", trace_output)
                 pfc_matches = re.findall(r"pfc (\d+): (\d+)", trace_output)
-                htrace = int(htrace_match.group(1), 2) if htrace_match else 0 #[int(bit) for bit in htrace_match.group(1)] if htrace_match else []
+                htrace = int(htrace_match.group(1), 2) if htrace_match else 0
                 pfc_list = [int(pfc_value) for _, pfc_value in
                             sorted(pfc_matches, key=lambda x: int(x[0]))]
-                all_traces[iid][cid] = htrace
-                all_pfc[iid][cid] = pfc_list
+                all_traces[n_inputs+iid][cid] = htrace
+                all_pfc[n_inputs+iid][cid] = pfc_list
 
         for filename in filenames:
             self.connection.shell(f'su -c "rm {filename}"')
@@ -425,7 +460,7 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         # Post-process the results and check for errors
         if not self.mismatch_check_mode:  # no need to post-process in mismatch check mode
             mask = np.uint64(0x0FFFFFFFFFFFFFF0)
-            for input_id in range(n_inputs):
+            for input_id in range(2*n_inputs):
                 for rep_id in range(n_reps):
                     # Zero-out traces for ignored inputs
                     if input_id in self.ignore_list:
@@ -438,7 +473,7 @@ class Aarch64RemoteExecutor(Aarch64Executor):
 
         # Aggregate measurements into HTrace objects
         traces = []
-        for input_row in range(n_inputs):
+        for input_row in range(2*n_inputs):
             trace_list = list(all_traces[input_row])
             perf_counters = all_pfc[input_row]
             traces.append(HTrace(trace_list=trace_list, perf_counters=perf_counters))

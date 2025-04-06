@@ -13,7 +13,7 @@ unsigned long int_to_cmd[] = {
 	REVISOR_TRACE,
 	REVISOR_CLEAR_ALL_INPUTS,
 	REVISOR_GET_TEST_LENGTH,
-};	
+};
 
 /*
 static inline struct timespec timer_start(){
@@ -50,11 +50,11 @@ static long inline function_under_test_single(int fd) {
     	}
 
 	stime = timer_start();
-	
+
 	uint64_t allocated_iid = ioctl(fd, int_to_cmd[REVISOR_ALLOCATE_INPUT_CONSTANT]);
 	ioctl(fd, int_to_cmd[REVISOR_CHECKOUT_INPUT_CONSTANT], allocated_iid);
 	write(fd, buffer, USER_CONTROLLED_INPUT_LENGTH);
-	
+
 	time_elapsed_nanos = timer_end(stime);
 
 	close(fd_randomness);
@@ -75,7 +75,7 @@ static long inline function_under_test_batch_indirect(int fd, size_t batch_size)
 		goto function_under_test_batch_indirect_error;
 	}
 
-	input_batch->size = batch_size; 
+	input_batch->size = batch_size;
 
 	int fd_randomness = open("/dev/urandom", O_RDONLY);
 
@@ -85,8 +85,8 @@ static long inline function_under_test_batch_indirect(int fd, size_t batch_size)
 		goto function_under_test_batch_indirect_input_batch;
 	}
 
-	
-	
+
+
 	for(int i = 0; i < batch_size; ++i) {
 		input_batch->array[i].id = -1;
 		input_batch->array[i].input = (input_t*)malloc(sizeof(input_t));
@@ -105,9 +105,9 @@ static long inline function_under_test_batch_indirect(int fd, size_t batch_size)
 	}
 
 	stime = timer_start();
-	
+
 	ioctl(fd, REVISOR_BATCHED_INPUTS, input_batch);
-	
+
 	time_elapsed_nanos = timer_end(stime);
 
 	err = time_elapsed_nanos;
@@ -115,11 +115,11 @@ static long inline function_under_test_batch_indirect(int fd, size_t batch_size)
 	for(int i = 0; i < batch_size; ++i) {
 		printf("input at index %d got id %ld\n", i, input_batch->array[i].id);
 	}
-	
+
 
 	printf("---------- finished %zu inputs! -------------\n", input_batch->size);
 
-	
+
 
 function_under_test_batch_indirect_free_inputs:
 
@@ -152,7 +152,7 @@ static long inline function_under_test_batch_direct(int fd, size_t batch_size) {
 		goto function_under_test_batch_direct_error;
 	}
 
-	input_batch->size = batch_size; 
+	input_batch->size = batch_size;
 
 	int fd_randomness = open("/dev/urandom", O_RDONLY);
 
@@ -162,8 +162,8 @@ static long inline function_under_test_batch_direct(int fd, size_t batch_size) {
 		goto function_under_test_batch_direct_input_batch;
 	}
 
-	
-	
+
+
 	for(int i = 0; i < batch_size; ++i) {
 		input_batch->array[i].id = -1;
 
@@ -176,9 +176,9 @@ static long inline function_under_test_batch_direct(int fd, size_t batch_size) {
 	}
 
 	stime = timer_start();
-	
+
 	ioctl(fd, REVISOR_BATCHED_INPUTS, input_batch);
-	
+
 	time_elapsed_nanos = timer_end(stime);
 
 	err = time_elapsed_nanos;
@@ -186,10 +186,10 @@ static long inline function_under_test_batch_direct(int fd, size_t batch_size) {
 	for(int i = 0; i < batch_size; ++i) {
 		printf("input at index %d got id %ld\n", i, input_batch->array[i].id);
 	}
-	
+
 
 	printf("---------- finished %zu inputs! -------------\n", input_batch->size);
-	
+
 
 function_under_test_batch_direct_randomness_close:
 	close(fd_randomness);
@@ -270,7 +270,7 @@ static int T_operation(int fd) {
 
 			total_time += ret;
 		}
-	
+
 //		total_time += function_under_test_batch_indirect(fd, current_value);
 
 		total_time += function_under_test_batch_direct(fd, current_value);
@@ -278,10 +278,10 @@ static int T_operation(int fd) {
 		total_time += post_test(fd);
 
 		results[i].time_elapsed = total_time;
-	}	
-	
+	}
+
 	for(int i = 0; i < number_of_tests; ++i) {
-		
+
 		printf("Repeatitions: %d, Time elapsed: %ld\n", results[i].repeats, results[i].time_elapsed);
 	}
 
@@ -331,19 +331,19 @@ static int read_device(int fd, char** buffer, size_t* size) {
 			perror("Error reallocating memory");
 			goto read_device_free_buffers;
 		}
-		
+
 		*buffer = new_buffer;
 		memcpy(*buffer + total_size, temp_buffer, bytes_read);
 		total_size += bytes_read;
 	}
-	
+
 	if (0 > bytes_read) {
 		perror("Error reading file");
 		goto read_device_free_buffers;
 	}
-	
+
 	free(temp_buffer);
-	
+
 	*size = total_size;
 	return 0;
 
@@ -368,7 +368,7 @@ static int read_file(const char* file_path, char** buffer, size_t* size) {
 		perror("Error getting file size");
 		goto read_file_failure;
 	}
-	
+
 	*size = st.st_size;
 	*buffer = malloc(*size);
 
@@ -376,19 +376,19 @@ static int read_file(const char* file_path, char** buffer, size_t* size) {
 		perror("Error allocating memory for file");
 		goto read_file_failure;
 	}
-	
+
 	fd = open(file_path, O_RDONLY);
 
 	if (0 > fd) {
 		perror("Error opening file");
 		goto read_file_cleanup_free_memory;
 	}
-	
+
 	if ((ssize_t)*size != read(fd, *buffer, *size)) {
 		perror("Error reading file");
 		goto read_file_cleanup_close_file;
 	}
-	
+
 	close(fd);
 	return 0;
 
@@ -406,7 +406,7 @@ static int handle_returned_uint64(int fd, int command, const char* prompt) {
 	if (0 <= result) {
 	    printf("%s: %lu\n", prompt, value);
 	}
-	
+
 	return result;
 }
 
@@ -427,14 +427,20 @@ static int handle_get_measurement(int fd, int command) {
 	int result = ioctl(fd, command, &measurement);
 	if (0 <= result) {
 		printf("Measurement:\n");
-		printf("\thtrace 1: ");
-		print_bits64(measurement.htrace[0]);
+		for(int i = 0; i < NUM_PFC; ++i) {
+    		printf("\thtrace %d: ", i);
+    		print_bits64(measurement.htrace[0]);
+		}
 		printf("\n");
-		printf("\tpfc 1: %lu\n", measurement.pfc[0]);
-		printf("\tpfc 2: %lu\n", measurement.pfc[1]);
-		printf("\tpfc 3: %lu\n", measurement.pfc[2]);
+		for(int i = 0; i < NUM_PFC; ++i) {
+		    printf("\tpfc %d: %lu\n", i, measurement.pfc[0]);
+		}
+		printf("\tarchitectural memory access bitmap: ")
+		for(int i = 0; i < WIDTH_MEMORY_IDS; ++i) {
+		    print_bits64(measurement.memory_ids_bitmap[i]);
+		}
 	}
-	
+
 	return result;
 }
 
@@ -449,7 +455,7 @@ static int write_operation(int fd, const char* filename) {
 			err = EXIT_FAILURE;
 			break;
 		}
-		
+
 		printf("File loaded: %s (%zu bytes)\n", filename, file_size);
 
 		err = write(fd, file_data, file_size);
@@ -474,7 +480,7 @@ static int read_operation(int fd, const char* filename) {
 	size_t file_size = 0;
 	int file_fd = -1;
 	int err = EXIT_SUCCESS;
-	
+
 	do {
 
 		if(0 != read_device(fd, &file_data, &file_size)) {
@@ -578,7 +584,7 @@ static int serve_numerical_operation(int fd, int argc, char** argv) {
 
 		printf("Invalid command number: %d\n", command_number);
 		return EXIT_FAILURE;
-	} 
+	}
 
 	int command = int_to_cmd[command_number];
 	int result = 0;
@@ -621,7 +627,7 @@ static int serve_operation(int fd, int argc, char** argv) {
 	int err = EXIT_SUCCESS;
 
 	if(0 == strcmp("w", argv[2]) || 0 == strcmp("r", argv[2])) {
-		
+
 		if(4 > argc) {
 
 			printf("Missing filename!\n");
@@ -630,7 +636,7 @@ static int serve_operation(int fd, int argc, char** argv) {
 
 		} else if ('w' == argv[2][0]) {
 
-			err = write_operation(fd, argv[3]); 
+			err = write_operation(fd, argv[3]);
 
 		} else {
 

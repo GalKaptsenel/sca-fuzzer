@@ -9,7 +9,7 @@ import math
 import random
 import copy
 from itertools import chain
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 from ..isa_loader import InstructionSet
 from ..interfaces import TestCase, Operand, Instruction, BasicBlock, Function, InstructionSpec, \
@@ -45,7 +45,6 @@ class Aarch64Generator(ConfigurableGenerator, abc.ABC):
             Aarch64PatchUndefinedLoadsPass(self.target_desc),
             Aarch64SandboxPass(),
             Aarch64MarkMemoryAccesses(),
-            Aarch64TagMemoryAccesses(),
         ]
 
         self.printer = Aarch64Printer(self.target_desc)
@@ -110,6 +109,13 @@ class Aarch64NonCanonicalAddressPass(Pass):
 
 
 class Aarch64TagMemoryAccesses(Pass):
+    def __init__(self, memory_accesses_to_guess_tag: Optional[List[int]] = None):
+        super().__init__()
+        if memory_accesses_to_guess_tag is None:
+            memory_accesses_to_guess_tag = []
+
+        self.memory_accesses_to_guess_tag = memory_accesses_to_guess_tag
+
     def run_on_test_case(self, test_case: TestCase) -> None:
         for func in test_case.functions:
             for bb in func:
@@ -125,7 +131,12 @@ class Aarch64TagMemoryAccesses(Pass):
                     for operand in mem_operands:
                         if operand.name in chain.from_iterable(Aarch64TargetDesc.registers.values()):
                             base_operand: MemoryOperand = operand
-                            mte_tag = base_operand.mte_memory_tag
+                            if inst.memory_access_id not in self.memory_accesses_to_guess_tag or random.random() < 0.5: # with 50% do correct tags
+                                mte_tag = base_operand.mte_memory_tag
+                            else:
+                                lst = list(range(0, 15))
+                                lst.remove(base_operand.mte_memory_tag)
+                                mte_tag = random.choice(lst)
 
                             imm_width = 16
                             imm_op = ImmediateOperand(f'{mte_tag:0{imm_width}b}', imm_width)
@@ -166,11 +177,11 @@ class Aarch64MarkMemoryAccesses(Pass):
         mov_instruction = Instruction("MOV", True, template=mov_template)
         orr_instruction = Instruction("ORR", True, template=orr_template)
 
-        bb.insert_before(position=inst, inst=ptrue_instruction)
-        bb.insert_before(position=inst, inst=index_instruction)
-        bb.insert_before(position=inst, inst=cmpeq_instruction)
-        bb.insert_before(position=inst, inst=mov_instruction)
-        bb.insert_before(position=inst, inst=orr_instruction)
+        bb.insert_after(position=inst, inst=orr_instruction)
+        bb.insert_after(position=inst, inst=mov_instruction)
+        bb.insert_after(position=inst, inst=cmpeq_instruction)
+        bb.insert_after(position=inst, inst=index_instruction)
+        bb.insert_after(position=inst, inst=ptrue_instruction)
 
     def run_on_test_case(self, test_case: TestCase) -> None:
         for func in test_case.functions:
@@ -236,26 +247,8 @@ class Aarch64SandboxPass(Pass):
             imm_width = min(base_operand_copy.width, 32)
             imm_op = ImmediateOperand(self.sandbox_address_mask, imm_width)
             imm_op.name = "imm_op"
-            x25_register = RegisterOperand("x25", 64, True, False)
-            x25_register.name = "x25_reg"
-
-            compute_mask = Instruction("MOV", True).add_op(x25_register).add_op(imm_op)
-            compute_mask.template = f"MOV {{{x25_register.name}}}, {{{imm_op.name}}}"
-            parent.insert_before(instr, compute_mask)
-
-            imm_width = 4
-            imm_op = ImmediateOperand('0b0000111100000000', imm_width)
-            imm_op.name = "imm_op"
-            compute_mask = Instruction("MOVK", True).add_op(x25_register).add_op(imm_op)
-            compute_mask.template = f"MOVK {{{x25_register.name}}}, {{{imm_op.name}}}, LSL 48"
-            parent.insert_before(instr, compute_mask)
-
-
-#            imm_width = min(base_operand_copy.width, 32)
-#            imm_op = ImmediateOperand(self.sandbox_address_mask, imm_width)
-#            imm_op.name = "imm_op"
-            template, op0, op1, op2 = generate_template("AND", base_operand_copy, base_operand_copy,
-                                                        x25_register)
+            template, op0, op1, op2 = generate_template("AND", base_operand_copy,
+                                                        base_operand_copy, imm_op)
             apply_mask = Instruction("AND", True).add_op(op0).add_op(op1).add_op(op2)
             apply_mask.template = template
             parent.insert_before(instr, apply_mask)

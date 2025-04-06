@@ -155,35 +155,9 @@ class FuzzerGeneric(Fuzzer):
             if self.filter(test_case, inputs):
                 continue
 
-            def randomize_tags(inputs: List[Input]) -> Tuple[List[Tuple[bool, int]], List[Input]]:
-                returned_inputs_pre = []
-                for idx, inp in enumerate(inputs):
-
-                    correct_tag_inp = copy.deepcopy(inp)
-
-                    for actor in range(len(inp)):
-
-                        for i in range(GPR_SUBREGION_SIZE // 8):
-                            random_tag = random.randint(0, 14)
-
-                            correct_tag_inp[actor]['gpr'][i] = inp[actor]['gpr'][i] | (0b11111 << 55) # TODO: Check if this should be 4 or 5 bits. https://developer.arm.com/documentation/ddi0601/2024-12/AArch64-Registers/TCR-EL1--Translation-Control-Register--EL1-
-                            inp[actor]['gpr'][i] |= (random_tag << 55)
-
-                    returned_inputs_pre.append(((False, idx), inp))
-                    returned_inputs_pre.append(((True, idx), correct_tag_inp))
-
-                random.shuffle(returned_inputs_pre)
-
-                input_indices = [i for i, _ in returned_inputs_pre]
-                returned_inputs = [i for _, i in returned_inputs_pre]
-
-                return input_indices, returned_inputs
-
-            input_indices, inputs_with_random_tags = randomize_tags(inputs)
-
             # Fuzz the test case
             self.executor.load_test_case(test_case)
-            htraces = self.executor.trace_test_case(inputs_with_random_tags,  CONF.executor_sample_sizes[0])
+            htraces = self.executor.trace_test_case(inputs,  CONF.executor_sample_sizes[0])
 
             def analyze_traces(iids: List[Tuple[bool,int]], inputs: List[Input], htraces: List[HTrace]) -> List[Violation]:
                 violations = []
