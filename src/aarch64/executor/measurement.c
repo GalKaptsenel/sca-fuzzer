@@ -140,10 +140,13 @@ static void measure(measurement_t* measurement) {
 
 	// store the measurement results
 	initialize_measurement(measurement);
-	measurement->htrace[0] = executor.sandbox.latest_measurement.htrace[0];
-	measurement->pfc[0] = executor.sandbox.latest_measurement.pfc[0];
-	measurement->pfc[1] = executor.sandbox.latest_measurement.pfc[1];
-	measurement->pfc[2] = executor.sandbox.latest_measurement.pfc[2];
+//	measurement->htrace[0] = executor.sandbox.latest_measurement.htrace[0];
+//	measurement->pfc[0] = executor.sandbox.latest_measurement.pfc[0];
+//	measurement->pfc[1] = executor.sandbox.latest_measurement.pfc[1];
+//	measurement->pfc[2] = executor.sandbox.latest_measurement.pfc[2];
+//	measurement->memory_ids_bitmap[0] = executor.sandbox.latest_measurement.memory_ids_bitmap[0];
+//	measurement->memory_ids_bitmap[1] = executor.sandbox.latest_measurement.memory_ids_bitmap[1];
+	memcpy(measurement, &executor.sandbox.latest_measurement, sizeof(measurement_t));
 }
 
 static void __nocfi run_experiments(void) {
@@ -191,26 +194,23 @@ static void __nocfi run_experiments(void) {
 		// execute
 		((void(*)(void*))executor.measurement_code)(&executor.sandbox);
 
-        {
-            uint8_t buffer[32] = {0};
-            size_t i = 0;
-            asm volatile(
-            "PTRUE p0.b, ALL\n"
-            "ST1B {z0.b}, p0, [%0]"
-            :
-            : "r"(buffer)
-            : "memory"
-            );
-        }
-
-        // Print the bits in the buffer
-        for (; i < sizeof(buffer); ++i) {
-            for (int j = 7; j >= 0; --j) {
-                printf("%d", (buffer[i] >> j) & 1);  // Extract each bit
-            }
-            printf(" ");
-        }
-        printf("\n");
+        	{
+//        	    uint8_t buffer[32] = {0};
+//        	    asm volatile(
+//        	    "PTRUE p0.b, ALL\n"
+//        	    "ST1B {z0.b}, p0, [%0]"
+//        	    :
+//        	    : "r"(buffer)
+//        	    : "memory"
+//        	    );
+		    
+			// Print the bits in the buffer
+			for (size_t i = 0; i < WIDTH_MEMORY_IDS; ++i) {
+				for(size_t j = 0; j < sizeof(executor.sandbox.latest_measurement.memory_ids_bitmap[0]) * 8; ++j) {
+					module_err("%d", (executor.sandbox.latest_measurement.memory_ids_bitmap[i] >> j) & 1);  // Extract each bit
+				}
+        		}
+        	}
 
 		measure(&current_input->measurement);
 	}

@@ -412,8 +412,8 @@ static int handle_returned_uint64(int fd, int command, const char* prompt) {
 
 static void print_bits64(uint64_t u) {
 	char str[66];
-	str[64] = '\n';
-	str[65] = 0;
+//	str[64] = '\n';
+	str[64] = 0;
 	for (int i = 63; i >= 0; i--) {
 		str[i] = '0' + (u & 1);
 		u >>= 1;
@@ -425,20 +425,29 @@ static void print_bits64(uint64_t u) {
 static int handle_get_measurement(int fd, int command) {
 	measurement_t measurement = { 0 };
 	int result = ioctl(fd, command, &measurement);
+
 	if (0 <= result) {
+
 		printf("Measurement:\n");
+
 		for(int i = 0; i < NUM_PFC; ++i) {
-    		printf("\thtrace %d: ", i);
-    		print_bits64(measurement.htrace[0]);
+			printf("\thtrace %d: ", i);
+			print_bits64(measurement.htrace[i]);
 		}
+
 		printf("\n");
+
 		for(int i = 0; i < NUM_PFC; ++i) {
-		    printf("\tpfc %d: %lu\n", i, measurement.pfc[0]);
+			printf("\tpfc %d: %lu\n", i, measurement.pfc[i]);
 		}
-		printf("\tarchitectural memory access bitmap: ")
-		for(int i = 0; i < WIDTH_MEMORY_IDS; ++i) {
-		    print_bits64(measurement.memory_ids_bitmap[i]);
+
+		printf("\tarchitectural memory access bitmap: ");
+
+		for(int i = WIDTH_MEMORY_IDS - 1; i >= 0; --i) {
+			print_bits64(measurement.memory_ids_bitmap[i]);
 		}
+
+		printf("\n");
 	}
 
 	return result;

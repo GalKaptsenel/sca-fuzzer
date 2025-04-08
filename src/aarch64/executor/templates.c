@@ -85,8 +85,11 @@ inline void epilogue(void) {
     asm volatile(""
         // store the hardware trace (x15) and pfc readings (x20-x22)
         "add x16, x16, x30                                                                  \n" \
-        "stp x15, x20, [x16]                                                                \n" \
-        "stp x21, x22, [x16, #16]                                                           \n" \
+        "stp x15, x20, [x16], #16                                                           \n" \
+        "stp x21, x22, [x16], #16                                                           \n" \
+	"ptrue p0.b, ALL\n"
+	"st1b {z0.b}, p0, [x16] 							    \n" \
+	"sub x16, x16, #32	 							    \n" \
 
         // rsp <- stored_rsp
         "ldr x0, [x30, x0]                                                                  \n" \
@@ -101,6 +104,9 @@ inline void epilogue(void) {
         "ldp x20, x21, [sp], #16                                                            \n" \
         "ldp x18, x19, [sp], #16                                                            \n" \
         "ldp x16, x17, [sp], #16                                                            \n" \
+	:
+	:
+	: "memory"	
     );
 }
 
@@ -125,7 +131,7 @@ inline void epilogue(void) {
     "eor x20, x20, x20\n"		                                                                \
     "eor x21, x21, x21\n"		                                                                \
     "eor x22, x22, x22\n"		                                                                \
-    "dup z0.b, wzr\n"		                                                                \
+    "mov z0.b, #0\n"		                                                                \
     "isb; dsb SY \n"		                                                                    \
     "mrs x20, pmevcntr1_el0 \n"                                                                 \
     "mrs x21, pmevcntr2_el0 \n"	                                                                \
