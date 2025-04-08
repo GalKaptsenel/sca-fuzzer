@@ -159,22 +159,20 @@ class FuzzerGeneric(Fuzzer):
             self.executor.load_test_case(test_case)
             htraces = self.executor.trace_test_case(inputs,  CONF.executor_sample_sizes[0])
 
-            def analyze_traces(iids: List[Tuple[bool,int]], inputs: List[Input], htraces: List[HTrace]) -> List[Violation]:
+            def analyze_traces(inputs: List[Input], htraces: List[List[HTrace]]) -> List[Violation]:
                 violations = []
-                ctraces = {iid: (tr, input_) for (tr, (not_modified, iid), input_) in zip(htraces, iids, inputs) if not_modified} # For the not_modified inputs, htrace is used as a reference ctrace
-                modified_traces = {iid: (tr, input_) for (tr, (not_modified, iid), input_) in zip(htraces, iids, inputs) if not not_modified}
-                assert all(iid in ctraces for iid in modified_traces) and all(iid in modified_traces for iid in ctraces)
 
-                for iid, (trace, input_) in ctraces.items():
-                    if modified_traces[iid][0].hash_ != trace.hash_:
-                        ctrace = CTrace(trace.raw)
-                        measurements = [Measurement(iid, input_, ctrace, trace), Measurement(iid, modified_traces[iid][1], ctrace, modified_traces[iid][0])]
-                        htrace_groups = [[m] for m in measurements]
-                        violations.append(Violation(EquivalenceClass(ctrace, measurements,  htrace_groups), [input_, modified_traces[iid][1]] ))
+                for iid, input_ in enumerate(inputs):
+                    for htrace_correct_tags, htrace_incorrect_tags in htraces:
+                        if htrace_correct_tags.hash_ != htrace_incorrect_tags.hash_:
+                            ctrace = CTrace(htrace_correct_tags.raw)
+                            measurements = [Measurement(iid, input_, ctrace, htrace_correct_tags), Measurement(iid, input_, ctrace, hltrace_incorrect_tags)]
+                            htrace_groups = [[m] for m in measurements]
+                            violations.append(Violation(EquivalenceClass(ctrace, measurements,  htrace_groups), [input_, input_] ))
 
                 return violations
 
-            violations = analyze_traces(input_indices, inputs_with_random_tags, htraces) # self.fuzzing_round(test_case, inputs)
+            violations = analyze_traces(inputs, htraces) # self.fuzzing_round(test_case, inputs)
 
             if violations:
                 violation = violations[0]

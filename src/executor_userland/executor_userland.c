@@ -430,9 +430,9 @@ static int handle_get_measurement(int fd, int command) {
 
 		printf("Measurement:\n");
 
-		for(int i = 0; i < NUM_PFC; ++i) {
-			printf("\thtrace %d: ", i);
-			print_bits64(measurement.htrace[i]);
+		for(int i = 0; i < HTRACE_WIDTH; ++i) {
+	    		printf("\thtrace %d: ", i);
+    			print_bits64(measurement.htrace[i]);
 		}
 
 		printf("\n");

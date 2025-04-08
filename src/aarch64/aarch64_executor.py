@@ -15,12 +15,14 @@ import numpy as np
 from typing import List, Tuple, Set, Generator, Optional
 import re
 
-from .aarch64_generator import Aarch64TagMemoryAccesses
+from .aarch64_generator import Aarch64TagMemoryAccesses, Aarch64Printer
+from .. import EquivalenceClass
 from ..interfaces import HTrace, Input, TestCase, Executor, HardwareTracingError
 from ..config import CONF
 from ..util import Logger, STAT
 from .aarch64_target_desc import Aarch64TargetDesc
-from .aarch64_connection import Connection
+from .aarch64_connection import Connection, UserlandExecutorImp, TestCaseRegion, InputRegion, \
+    HWMeasurement
 
 
 # ==================================================================================================
@@ -307,30 +309,15 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         self.connection = connection
         super().__init__(*args)
         self.test_case: Optional[TestCase] = None
-
-        userland_application = 'executor_userland'
-        ko_filename = 'revizor-executor.ko'
-
-        self.tmp_dir = '/data/local/tmp'
-        self.userland_application_path = f'{self.tmp_dir}/{userland_application}'
-        self.executor_device_path = '/dev/executor'
-        self.executor_sysfs = '/sys/executor'
-
+        self.tmpdir = '/data/local/tmp'
+        self.userland_executor = UserlandExecutorImp(connection, f'{self.tmpdir}/executor_userland',
+                                                     '/dev/executor', '/sys/executor',
+                                                     f'{self.tmpdir}/revizor-executor.ko'
+                                                     )
         if self.target_desc.cpu_desc.vendor.lower() != "arm":  # Technically ARM currently does not produce ARM processors, and other vendors do produce ARM processors
             self.LOG.error(
                 "Attempting to run ARM executor on a non-ARM CPUs!\n"
                 "Change the `executor` configuration option to the appropriate vendor value.")
-
-        if 'No such file or directory' in self.connection.shell(f'ls {self.executor_device_path}'):
-            if 'No such file or directory' in self.connection.shell(
-                f'ls {self.tmp_dir}/{ko_filename}'):
-                self.connection.push(ko_filename, f'{self.tmp_dir}/{ko_filename}')
-
-            self.connection.shell(f'su -c "insmod {self.tmp_dir}/{ko_filename}"')
-
-        if 'No such file or directory' in self.connection.shell(
-            f'ls {self.userland_application_path}'):
-            self.connection.push(userland_application, self.userland_application_path)
 
     def _is_smt_enabled(self):
         result = self.connection.shell('cat /sys/devices/system/cpu/smt/control')
@@ -345,51 +332,57 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         This function is used to synchronize the memory layout between the executor and the model
         :return: a tuple (sandbox_base, code_base)
         """
-        sandbox_base = self.connection.shell(f'su -c "cat {self.executor_sysfs}/print_sandbox_base"')
-        code_base = self.connection.shell(f'su -c "cat {self.executor_sysfs}/print_code_base"')
-        return int(sandbox_base, 16), int(code_base, 16)
+        return self.userland_executor.sandbox_base, self.userland_executor.code_base
 
-    def _write_test_case(self, test_case: TestCase, memory_accesses_to_guess_tag: Optional[List[int]] = None):
+    def _write_test_case(self, test_case: TestCase, iid: Optional[int] = None, memory_accesses_to_guess_tag: Optional[List[int]] = None):
         patched_test_case = copy.deepcopy(test_case)
+
         tagging_pass = Aarch64TagMemoryAccesses(memory_accesses_to_guess_tag=memory_accesses_to_guess_tag)
         tagging_pass.run_on_test_case(patched_test_case)
-        remote_fname = f"{self.tmp_dir}/{patched_test_case.bin_path}"
-        self.connection.shell(f'su -c "{self.userland_application_path} {self.executor_device_path} 1"')
-        self.connection.push(patched_test_case.bin_path, remote_fname)
-        self.connection.shell(
-            f'su -c "{self.userland_application_path} {self.executor_device_path} w {remote_fname}"')
-        self.test_case = test_case
 
-    def _write_inputs_to_connection(self, inputs: List[Input], n_reps: int) -> Tuple[
-        List[np.ndarray], List[str]]:
+        if iid is not None:
+            filename_suffix = f'patched_iid_{iid}'
+        else:
+            filename_suffix = f'correct_tags'
+
+        local_filename = f'generated_{filename_suffix}.bin'
+
+        printer = Aarch64Printer(Aarch64TargetDesc())
+        printer.print(patched_test_case, local_filename)
+
+        remote_filename = f'{self.tmpdir}/remote_{local_filename}'
+        self.test_case = test_case
+        self.connection.push(local_filename, remote_filename)
+        self.userland_executor.checkout_region(TestCaseRegion())
+        self.userland_executor.write_file(remote_filename)
+        self.connection.shell(f'rm {remote_filename}')
+
+    def _create_local_files_for_inputs(self, inputs: List[Input]):
         remote_filenames = []
-        array = np.zeros((len(inputs), n_reps), dtype=np.uint64)
         for idx, inp in enumerate(inputs):
             inpname = f"input{idx}.bin"
-            remote_fname = f'{self.tmp_dir}/{inpname}'
+            remote_fname = f'{self.tmpdir}/{inpname}'
             inp.save(inpname)
             self.connection.push(inpname, remote_fname)
             remote_filenames.append(remote_fname)
+        return remote_filenames
+
+    def _write_inputs_to_connection(self, inputs: List[Input], n_reps: int) -> Tuple[
+        List[np.ndarray], List[str]]:
+        array = np.zeros((len(inputs), n_reps), dtype=np.uint64)
+        remote_filenames = self._create_local_files_for_inputs(inputs)
 
         for col in range(n_reps):
             for row, fname in enumerate(remote_filenames):
-
-                load_output = self.connection.shell(
-                    f'su -c "{self.userland_application_path} {self.executor_device_path} 5"')
-                matching = re.search(r"Allocated Input ID: (\d+)", load_output)
-                if matching is None:
-                    raise RuntimeError("Could not find allocated input ID")
-                iid = matching.group(1)
-                array[row, col] = int(iid)
-                self.connection.shell(
-                    f'su -c "{self.userland_application_path} {self.executor_device_path} 4 {iid}"')
-                self.connection.shell(
-                    f'su -c "{self.userland_application_path} {self.executor_device_path} w {fname}"')
+                array[row, col] = self.userland_executor.allocate_iid()
+                self.userland_executor.checkout_region(InputRegion(array[row, col]))
+                self.userland_executor.write_file(fname)
 
         np.array2string(array, separator = ', ', formatter = {'all': lambda x: f'{x:3d}'})
+
         return array, remote_filenames
 
-    def trace_test_case(self, inputs: List[Input], n_reps: int) -> List[HTrace]:
+    def trace_test_case(self, inputs: List[Input], n_reps: int) -> List[EquivalenceClass]:
         """
         Call the executor kernel module to collect the hardware traces for
         the test case (previously loaded with `load_test_case`) and the given inputs.
@@ -407,60 +400,50 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         n_inputs = len(inputs)
         STAT.executor_reruns += n_reps * n_inputs
         iids, filenames = self._write_inputs_to_connection(inputs, n_reps)
-        self.connection.shell(f'su -c "{self.userland_application_path} {self.executor_device_path} 8"')  # Trace
-        all_traces: np.ndarray = np.ndarray(shape=(2*n_inputs, n_reps), dtype=np.uint64) # TODO: Cleaner! multiply by 2 for both correct and incrrect tags test
-        all_pfc: np.ndarray = np.ndarray(shape=(2*n_inputs, n_reps, 3), dtype=np.uint64)
-        all_not_architectural_memory_accesses: np.ndarray = np.ndarray(shape=(n_inputs,), dtype=np.uint64)
+
+        self.userland_executor.trace()
+
+        all_traces: np.ndarray = np.ndarray(shape=(n_inputs, 2, n_reps), dtype=np.uint64) # TODO: Cleaner! multiply by 2 for both correct and incrrect tags test
+        all_pfc: np.ndarray = np.ndarray(shape=(n_inputs, 2, n_reps, 3), dtype=np.uint64)
+        all_not_architectural_memory_accesses: np.ndarray = np.ndarray(shape=(n_inputs,), dtype=object)
 
         for iid in range(iids.shape[0]):  # Iterate over rows
             all_not_architectural_memory_accesses_set = set()
             for cid in range(iids.shape[1]):  # Iterate over columns (reruns)
-                self.connection.shell(
-                    f'su -c "{self.userland_application_path} {self.executor_device_path} 4 {iids[iid][cid]}"')
-                trace_output = self.connection.shell(
-                    f'su -c "{self.userland_application_path} {self.executor_device_path} 7"')
-                architectural_memory_accesses_bitmap_match = re.search(r"architectural memory access bitmap: ([01]+)", trace_output)
-                architectural_memory_accesses_bitmap = architectural_memory_accesses_bitmap_match.group(1) \
-                    if architectural_memory_accesses_bitmap_match else ""
-                all_not_architectural_memory_accesses_set.add(architectural_memory_accesses_bitmap)
+                self.userland_executor.checkout_region(InputRegion(iids[iid, cid]))
+                hwmeasurement: HWMeasurement = self.userland_executor.hardware_measurement()
+                all_traces[iid][0][cid] = hwmeasurement.htrace
+                all_pfc[iid][0][cid] = hwmeasurement.pfcs
+
+                all_not_architectural_memory_accesses_set.add(hwmeasurement.memory_ids)
 
             assert len(all_not_architectural_memory_accesses_set) == 1,\
                 "Architecturally, expected all memory accesses be the same"
 
-            not_architectural_memory_accesses: List[int] = []
+            def bitmap_to_unused_indexes(n: int) -> List[int]:
+                return [i for i in range(n.bit_count()) if ((n >> i) & 1) == 0]
 
-            for memory_access_id, i in all_not_architectural_memory_accesses_set.pop():
-                if i == 0:
-                    not_architectural_memory_accesses.append(memory_access_id)
-
-            all_not_architectural_memory_accesses[iid] = not_architectural_memory_accesses
+            all_not_architectural_memory_accesses[iid] = bitmap_to_unused_indexes(all_not_architectural_memory_accesses_set.pop())
 
         for iid in range(iids.shape[0]):
-            self._write_test_case(self.test_case, all_not_architectural_memory_accesses[iid])
-            self.connection.shell(
-                f'su -c "{self.userland_application_path} {self.executor_device_path} 8"')  # Trace
+            self._write_test_case(self.test_case, iid, all_not_architectural_memory_accesses[iid])
+            self.userland_executor.trace()
+
             for cid in range(iids.shape[1]):
-                self.connection.shell(
-                    f'su -c "{self.userland_application_path} {self.executor_device_path} 4 {iids[iid][cid]}"')
-                trace_output = self.connection.shell(
-                    f'su -c "{self.userland_application_path} {self.executor_device_path} 7"')
-                htrace_match = re.search(r"htrace .: ([01]+)", trace_output)
-                pfc_matches = re.findall(r"pfc (\d+): (\d+)", trace_output)
-                htrace = int(htrace_match.group(1), 2) if htrace_match else 0
-                pfc_list = [int(pfc_value) for _, pfc_value in
-                            sorted(pfc_matches, key=lambda x: int(x[0]))]
-                all_traces[n_inputs+iid][cid] = htrace
-                all_pfc[n_inputs+iid][cid] = pfc_list
+                self.userland_executor.checkout_region(InputRegion(iids[iid][cid]))
+                hwmeasurement: HWMeasurement = self.userland_executor.hardware_measurement()
+                all_traces[iid][1][cid] = hwmeasurement.htrace
+                all_pfc[iid][1][cid] = hwmeasurement.pfcs
 
         for filename in filenames:
-            self.connection.shell(f'su -c "rm {filename}"')
+            self.connection.shell(f'rm {filename}')
 
         self.LOG.dbg_executor_raw_traces(all_traces, all_pfc)
 
         # Post-process the results and check for errors
         if not self.mismatch_check_mode:  # no need to post-process in mismatch check mode
             mask = np.uint64(0x0FFFFFFFFFFFFFF0)
-            for input_id in range(2*n_inputs):
+            for input_id in range(n_inputs):
                 for rep_id in range(n_reps):
                     # Zero-out traces for ignored inputs
                     if input_id in self.ignore_list:
@@ -473,8 +456,15 @@ class Aarch64RemoteExecutor(Aarch64Executor):
 
         # Aggregate measurements into HTrace objects
         traces = []
-        for input_row in range(2*n_inputs):
-            trace_list = list(all_traces[input_row])
-            perf_counters = all_pfc[input_row]
-            traces.append(HTrace(trace_list=trace_list, perf_counters=perf_counters))
+        for input_row in range(n_inputs):
+            trace_list_correct_tags = list(all_traces[input_row][0])
+            perf_counters_correct_tags = all_pfc[input_row][0]
+            trace_list_incorrect_tags = list(all_traces[input_row][1])
+            perf_counters_incorrect_tags = all_pfc[input_row][1]
+            traces.append([
+                HTrace(trace_list=trace_list_correct_tags,
+                       perf_counters=perf_counters_correct_tags),
+                HTrace(trace_list=trace_list_incorrect_tags,
+                       perf_counters=perf_counters_incorrect_tags),
+                          ])
         return traces

@@ -129,13 +129,13 @@ class Aarch64TagMemoryAccesses(Pass):
                 for inst in memory_instructions:
                     mem_operands = inst.get_mem_operands()
                     for operand in mem_operands:
-                        if operand.name in chain.from_iterable(Aarch64TargetDesc.registers.values()):
+                        if operand.value in chain.from_iterable(Aarch64TargetDesc.registers.values()):
                             base_operand: MemoryOperand = operand
                             if inst.memory_access_id not in self.memory_accesses_to_guess_tag or random.random() < 0.5: # with 50% do correct tags
                                 mte_tag = base_operand.mte_memory_tag
                             else:
                                 lst = list(range(0, 15))
-                                lst.remove(base_operand.mte_memory_tag)
+                                #lst.remove(base_operand.mte_memory_tag)
                                 mte_tag = random.choice(lst)
 
                             imm_width = 16

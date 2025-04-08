@@ -334,7 +334,7 @@ class MemoryOperand(Operand):
     """ mte_memory_tag: The mte tag of the memory access instruction """
     def __init__(self, address: str, width: int, src: bool, dest: bool):
         self.width = width
-        self.mte_memory_tag = random.randint(0,15)
+        self.mte_memory_tag = 6#random.randint(0,15)
         super().__init__(address.lower(), OT.MEM, src, dest)
 
 
