@@ -127,10 +127,12 @@ class Aarch64TagMemoryAccesses(Pass):
                         memory_instructions.append(inst)
 
                 for inst in memory_instructions:
+                    to_subtract = []
                     mem_operands = inst.get_mem_operands()
+                    base_operand: Optional[MemoryOperand] = None
                     for operand in mem_operands:
-                        if operand.value in chain.from_iterable(Aarch64TargetDesc.registers.values()):
-                            base_operand: MemoryOperand = operand
+                        if operand.value in chain.from_iterable(Aarch64TargetDesc.registers.values()) and base_operand is None:
+                            base_operand = operand
                             if inst.memory_access_id not in self.memory_accesses_to_guess_tag or random.random() < 0.5: # with 50% do correct tags
                                 mte_tag = base_operand.mte_memory_tag
                             else:
@@ -138,12 +140,35 @@ class Aarch64TagMemoryAccesses(Pass):
                                 #lst.remove(base_operand.mte_memory_tag)
                                 mte_tag = random.choice(lst)
 
-                            imm_width = 16
-                            imm_op = ImmediateOperand(f'{mte_tag:0{imm_width}b}', imm_width)
+                            x7_register = RegisterOperand("x7", 64, True, True)
+                            x7_register.name = "x7_reg"
+                            imm_width = 4
+                            imm_op = ImmediateOperand(f'0b{mte_tag:0{imm_width}b}', imm_width)
                             imm_op.name = "imm_op"
-                            compute_mask = Instruction("MOVK", True).add_op(base_operand).add_op(imm_op)
-                            compute_mask.template = f"MOVK {{{base_operand.name}}}, {{{imm_op.name}}}, LSL 48"
-                            bb.insert_before(position=inst ,inst=compute_mask)
+                            tag_register_instruction = Instruction("MOV", True).add_op(x7_register).add_op(imm_op)
+                            tag_register_instruction.template = f"MOV {{{x7_register.name}}}, {{{imm_op.name}}}"
+                            bb.insert_before(position=inst ,inst=tag_register_instruction)
+
+                            set_tag_register_instruction = Instruction("ORR", True).add_op(base_operand).add_op(base_operand).add_op(x7_register)
+                            set_tag_register_instruction.template = f"ORR {{{base_operand.name}}}, {{{base_operand.name}}}, {{{x7_register.name}}}, LSL 55"
+                            bb.insert_before(position=inst ,inst=set_tag_register_instruction)
+                        else:
+                            to_subtract.append(operand)
+
+                    if base_operand is not None:
+                        for operand in to_subtract:
+                            base_operand_cpy = copy.deepcopy(base_operand)
+                            other_operand_cpy = copy.deepcopy(operand)
+                            base_operand_cpy.name += '0'
+                            other_operand_cpy.name += '1'
+                            other_operand_cpy.src = True
+                            other_operand_cpy.dest = False
+                            base_operand_cpy.src = True
+                            base_operand_cpy.dest = True
+                            sub_inst = Instruction("SUB", True).add_op(base_operand_cpy).add_op(base_operand_cpy).add_op(other_operand_cpy)
+
+                            sub_inst.template = f'sub {{{base_operand_cpy.name}}}, {{{base_operand_cpy.name}}}, {{{other_operand_cpy.name}}}'  # TODO: this should be done in the constructor
+                            bb.insert_before(inst, sub_inst)
 
 
 class Aarch64MarkMemoryAccesses(Pass):
@@ -261,15 +286,15 @@ class Aarch64SandboxPass(Pass):
             add_base.template = template
             parent.insert_before(instr, add_base)
 
-            for op in mem_operands[1:]:
-
-                template, op0, op1, op2 = generate_template("SUB", base_operand_copy,
-                                                            base_operand_copy, op)
-                op2.dest = False
-                op2.src = True
-                sub_inst = Instruction("SUB", True).add_op(op0).add_op(op1).add_op(op2)
-                sub_inst.template = template  # TODO: this should be done in the constructor
-                parent.insert_before(instr, sub_inst)
+            # for op in mem_operands[1:]:
+            #
+            #     template, op0, op1, op2 = generate_template("SUB", base_operand_copy,
+            #                                                 base_operand_copy, op)
+            #     op2.dest = False
+            #     op2.src = True
+            #     sub_inst = Instruction("SUB", True).add_op(op0).add_op(op1).add_op(op2)
+            #     sub_inst.template = template  # TODO: this should be done in the constructor
+            #     parent.insert_before(instr, sub_inst)
 
             return
 

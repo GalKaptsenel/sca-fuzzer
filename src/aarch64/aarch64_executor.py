@@ -16,7 +16,7 @@ from typing import List, Tuple, Set, Generator, Optional
 import re
 
 from .aarch64_generator import Aarch64TagMemoryAccesses, Aarch64Printer
-from .. import EquivalenceClass
+from .. import EquivalenceClass, ConfigurableGenerator
 from ..interfaces import HTrace, Input, TestCase, Executor, HardwareTracingError
 from ..config import CONF
 from ..util import Logger, STAT
@@ -345,14 +345,16 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         else:
             filename_suffix = f'correct_tags'
 
-        local_filename = f'generated_{filename_suffix}.bin'
-
+        local_bin_filename = f'generated_{filename_suffix}.bin'
+        local_asm_filename = local_bin_filename[:-3] + 'asm'
+        local_o_filename = local_bin_filename[:-3] + 'o'
         printer = Aarch64Printer(Aarch64TargetDesc())
-        printer.print(patched_test_case, local_filename)
+        printer.print(patched_test_case, local_asm_filename)
+        ConfigurableGenerator.assemble(local_asm_filename, local_o_filename, local_bin_filename)
 
-        remote_filename = f'{self.tmpdir}/remote_{local_filename}'
+        remote_filename = f'{self.tmpdir}/remote_{local_bin_filename}'
         self.test_case = test_case
-        self.connection.push(local_filename, remote_filename)
+        self.connection.push(local_bin_filename, remote_filename)
         self.userland_executor.checkout_region(TestCaseRegion())
         self.userland_executor.write_file(remote_filename)
         self.connection.shell(f'rm {remote_filename}')

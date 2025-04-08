@@ -166,7 +166,7 @@ class FuzzerGeneric(Fuzzer):
                     for htrace_correct_tags, htrace_incorrect_tags in htraces:
                         if htrace_correct_tags.hash_ != htrace_incorrect_tags.hash_:
                             ctrace = CTrace(htrace_correct_tags.raw)
-                            measurements = [Measurement(iid, input_, ctrace, htrace_correct_tags), Measurement(iid, input_, ctrace, hltrace_incorrect_tags)]
+                            measurements = [Measurement(iid, input_, ctrace, htrace_correct_tags), Measurement(iid, input_, ctrace, htrace_incorrect_tags)]
                             htrace_groups = [[m] for m in measurements]
                             violations.append(Violation(EquivalenceClass(ctrace, measurements,  htrace_groups), [input_, input_] ))
 
