@@ -4,14 +4,14 @@ File: Fuzzing Orchestration
 Copyright (C) Microsoft Corporation
 SPDX-License-Identifier: MIT
 """
+import os
 import shutil
-import random
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, List, Callable, Tuple
 import copy
 
-from . import factory
+from . import factory, ChiSquaredAnalyser
 from .interfaces import Fuzzer, CTrace, HTrace, Input, Violation, TestCase, \
     Generator, InputGenerator, Model, Executor, Analyser, InputID, InputTaint, \
     HardwareTracingError, InputFragment, GPR_SUBREGION_SIZE, Measurement, EquivalenceClass
@@ -99,7 +99,7 @@ class FuzzerGeneric(Fuzzer):
         self.input_gen = factory.get_input_generator(data_seed)
         self.executor = factory.get_executor()
         #self.model = factory.get_model(self.executor.read_base_addresses())
-        #self.analyser = factory.get_analyser()
+        self.analyser = factory.get_analyser()
         #self.asm_parser = factory.get_asm_parser(self.generator)
 
         #self.arch_executor = factory.get_executor(True)
@@ -125,9 +125,15 @@ class FuzzerGeneric(Fuzzer):
 
     def _start(self, num_test_cases: int, num_inputs: int, timeout: int, nonstop: bool,
                save_violations: bool) -> bool:
+
+        def _remove_test_case_files(test_case: TestCase):
+            os.remove(test_case.asm_path)
+            os.remove(test_case.bin_path)
+            os.remove(test_case.obj_path)
+
         start_time = datetime.today()
         self.LOG.fuzzer_start(num_test_cases, start_time)
-
+        htraces: List[Tuple[Tuple[TestCase, Measurement], Tuple[TestCase, Measurement]]] = []
         for i in range(num_test_cases):
             self.LOG.fuzzer_start_round(i)
 
@@ -159,14 +165,14 @@ class FuzzerGeneric(Fuzzer):
             self.executor.load_test_case(test_case)
             htraces = self.executor.trace_test_case(inputs,  CONF.executor_sample_sizes[0])
 
-            def analyze_traces(inputs: List[Input], htraces: List[List[HTrace]]) -> List[Violation]:
+            def analyze_traces(inputs: List[Input], htraces: List[Tuple[Tuple[TestCase,HTrace],Tuple[TestCase,HTrace]]]) -> List[Violation]:
                 violations = []
-
+                analyzer = ChiSquaredAnalyser()
                 for iid, input_ in enumerate(inputs):
-                    for htrace_correct_tags, htrace_incorrect_tags in htraces:
-                        if htrace_correct_tags.hash_ != htrace_incorrect_tags.hash_:
+                    for (tc_correct_tags, htrace_correct_tags), (tc_incorrect_tags, htrace_incorrect_tags) in htraces:
+                        if not analyzer.htraces_are_equivalent(htrace_correct_tags, htrace_incorrect_tags):
                             ctrace = CTrace(htrace_correct_tags.raw)
-                            measurements = [Measurement(iid, input_, ctrace, htrace_correct_tags), Measurement(iid, input_, ctrace, htrace_incorrect_tags)]
+                            measurements = [Measurement(iid, input_, ctrace, htrace_correct_tags, tc_correct_tags), Measurement(iid, input_, ctrace, htrace_incorrect_tags, tc_incorrect_tags)]
                             htrace_groups = [[m] for m in measurements]
                             violations.append(Violation(EquivalenceClass(ctrace, measurements,  htrace_groups), [input_, input_] ))
 
@@ -184,7 +190,15 @@ class FuzzerGeneric(Fuzzer):
                 if not nonstop:
                     break
 
+        for (_, _), (tc_incorrect_tags, _) in htraces:
+            _remove_test_case_files(tc_incorrect_tags)
+
+        if htraces:
+            _remove_test_case_files(htraces[0][0][0])
+
         self.LOG.fuzzer_finish()
+
+
         #self.LOG.dbg_report_coverage(self.model)
         return STAT.violations > 0
 
@@ -452,9 +466,12 @@ class FuzzerGeneric(Fuzzer):
         Path(violation_dir).mkdir()
 
         # store violation
-        test_case.save(f"{violation_dir}/program.asm")
+        test_case.save(f"{violation_dir}/{test_case.asm_path}")
         for i, input_ in enumerate(violation.input_sequence):
             input_.save(f"{violation_dir}/input_{i:04}.bin")
+        for m in violation.measurements:
+            if m.test_case is not None:
+                m.test_case.save(f"{violation_dir}/{m.test_case.asm_path}")
 
         # store the original configuration file
         if CONF._config_path:

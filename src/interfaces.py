@@ -900,6 +900,7 @@ class Measurement(NamedTuple):
     input_: Input
     ctrace: CTrace
     htrace: HTrace
+    test_case: Optional[TestCase] = None
 
 
 class EquivalenceClass:

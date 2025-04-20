@@ -9,20 +9,20 @@ SPDX-License-Identifier: MIT
 import copy
 import subprocess
 import os.path
-from doctest import UnexpectedException
+import os
 
 import numpy as np
-from typing import List, Tuple, Set, Generator, Optional
-import re
+from typing import List, Tuple, Set, Generator, Optional, Any
 
-from .aarch64_generator import Aarch64TagMemoryAccesses, Aarch64Printer
-from .. import EquivalenceClass, ConfigurableGenerator
+from .aarch64_generator import Aarch64TagMemoryAccesses, Aarch64Printer, Aarch64MarkMemoryAccesses
+from .. import ConfigurableGenerator
 from ..interfaces import HTrace, Input, TestCase, Executor, HardwareTracingError
 from ..config import CONF
 from ..util import Logger, STAT
 from .aarch64_target_desc import Aarch64TargetDesc
 from .aarch64_connection import Connection, UserlandExecutorImp, TestCaseRegion, InputRegion, \
     HWMeasurement
+from .aarch64_generator import Pass
 
 
 # ==================================================================================================
@@ -275,12 +275,13 @@ class Aarch64Executor(Executor):
         :param test_case: the test case object to load
         """
         # write the test case to the kernel module
-        self._write_test_case(test_case)
+        written_tc = self._write_test_case(test_case)
         self.curr_test_case = test_case
 
         # reset the ignore list; as we are testing a new program now, the old ignore list is not
         # relevant anymore
         self.ignore_list = set()
+        return written_tc
 
     def _write_test_case(self, test_case: TestCase):
         raise NotImplemented()
@@ -334,30 +335,67 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         """
         return self.userland_executor.sandbox_base, self.userland_executor.code_base
 
-    def _write_test_case(self, test_case: TestCase, iid: Optional[int] = None, memory_accesses_to_guess_tag: Optional[List[int]] = None):
+    def _write_test_case_with_bitmap_trace(self, test_case: TestCase) -> None:
         patched_test_case = copy.deepcopy(test_case)
+        tagging_pass = Aarch64TagMemoryAccesses(memory_accesses_to_guess_tag=None)
+        marking_pass = Aarch64MarkMemoryAccesses()
+        Aarch64RemoteExecutor._pass_on_test_case(patched_test_case, [tagging_pass, marking_pass])
 
-        tagging_pass = Aarch64TagMemoryAccesses(memory_accesses_to_guess_tag=memory_accesses_to_guess_tag)
-        tagging_pass.run_on_test_case(patched_test_case)
+        Aarch64RemoteExecutor._assemble_local_test_case(patched_test_case, 'generated_retrieve_bitmap')
 
-        if iid is not None:
-            filename_suffix = f'patched_iid_{iid}'
-        else:
-            filename_suffix = f'correct_tags'
+        self._load_test_case_remotely(patched_test_case)
 
-        local_bin_filename = f'generated_{filename_suffix}.bin'
-        local_asm_filename = local_bin_filename[:-3] + 'asm'
-        local_o_filename = local_bin_filename[:-3] + 'o'
-        printer = Aarch64Printer(Aarch64TargetDesc())
-        printer.print(patched_test_case, local_asm_filename)
-        ConfigurableGenerator.assemble(local_asm_filename, local_o_filename, local_bin_filename)
+        os.remove(patched_test_case.bin_path)
+        os.remove(patched_test_case.asm_path)
+        os.remove(patched_test_case.obj_path)
 
-        remote_filename = f'{self.tmpdir}/remote_{local_bin_filename}'
-        self.test_case = test_case
-        self.connection.push(local_bin_filename, remote_filename)
+    @staticmethod
+    def _pass_on_test_case(test_case: TestCase, passes: List[Pass]):
+        for p in passes:
+            p.run_on_test_case(test_case)
+
+    def _load_test_case_remotely(self, test_case: TestCase):
+        remote_filename = f'{self.tmpdir}/remote_{test_case.bin_path}'
+        self.connection.push(test_case.bin_path, remote_filename)
         self.userland_executor.checkout_region(TestCaseRegion())
         self.userland_executor.write_file(remote_filename)
         self.connection.shell(f'rm {remote_filename}')
+
+    @staticmethod
+    def _assemble_local_test_case(test_case: TestCase, base_filename: str):
+        printer = Aarch64Printer(Aarch64TargetDesc())
+        test_case.bin_path, test_case.asm_path, test_case.obj_path = \
+            (f'{base_filename}.{suffix}' for suffix in ('bin', 'asm', 'o'))
+
+        printer.print(test_case, test_case.asm_path)
+
+        ConfigurableGenerator.assemble(test_case.asm_path, test_case.obj_path, test_case.bin_path)
+
+    def _write_test_with_correct_tags(self) -> TestCase:
+        patched_test_case = copy.deepcopy(self.test_case)
+        tagging_pass = Aarch64TagMemoryAccesses(memory_accesses_to_guess_tag=None)
+        Aarch64RemoteExecutor._pass_on_test_case(patched_test_case, [tagging_pass])
+
+        Aarch64RemoteExecutor._assemble_local_test_case(patched_test_case, 'generated_correct_tags')
+
+        self._load_test_case_remotely(patched_test_case)
+
+        return patched_test_case
+
+    def _write_test_with_incorrect_tags(self, iid: int, memory_accesses_to_guess_tag: List[int]) -> TestCase:
+        patched_test_case = copy.deepcopy(self.test_case)
+        tagging_pass = Aarch64TagMemoryAccesses(
+            memory_accesses_to_guess_tag=memory_accesses_to_guess_tag)
+        Aarch64RemoteExecutor._pass_on_test_case(patched_test_case, [tagging_pass])
+
+        Aarch64RemoteExecutor._assemble_local_test_case(patched_test_case, f'generated_patched_iid_{iid}')
+
+        self._load_test_case_remotely(patched_test_case)
+
+        return patched_test_case
+
+    def _write_test_case(self, test_case: TestCase) -> None:
+        self.test_case = test_case
 
     def _create_local_files_for_inputs(self, inputs: List[Input]):
         remote_filenames = []
@@ -366,12 +404,13 @@ class Aarch64RemoteExecutor(Aarch64Executor):
             remote_fname = f'{self.tmpdir}/{inpname}'
             inp.save(inpname)
             self.connection.push(inpname, remote_fname)
+            os.remove(inpname)
             remote_filenames.append(remote_fname)
         return remote_filenames
 
     def _write_inputs_to_connection(self, inputs: List[Input], n_reps: int) -> Tuple[
-        List[np.ndarray], List[str]]:
-        array = np.zeros((len(inputs), n_reps), dtype=np.uint64)
+        np.ndarray[int, int], List[str]]:
+        array: np.ndarray[int, int] = np.zeros((len(inputs), n_reps), dtype=np.uint64)
         remote_filenames = self._create_local_files_for_inputs(inputs)
 
         for col in range(n_reps):
@@ -380,11 +419,10 @@ class Aarch64RemoteExecutor(Aarch64Executor):
                 self.userland_executor.checkout_region(InputRegion(array[row, col]))
                 self.userland_executor.write_file(fname)
 
-        np.array2string(array, separator = ', ', formatter = {'all': lambda x: f'{x:3d}'})
-
         return array, remote_filenames
 
-    def trace_test_case(self, inputs: List[Input], n_reps: int) -> List[EquivalenceClass]:
+    def trace_test_case(self, inputs: List[Input], n_reps: int) -> List[Tuple[
+        Tuple[TestCase,HTrace], Tuple[TestCase,HTrace]]]:
         """
         Call the executor kernel module to collect the hardware traces for
         the test case (previously loaded with `load_test_case`) and the given inputs.
@@ -394,6 +432,23 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         :return: a list of HTrace objects, one for each input
         :raises HardwareTracingError: if the kernel module output is malformed
         """
+        def parse_bitmap(n: str, bit: int) -> List[int]:
+            result = []
+            for index, b in enumerate(n):
+                if bit == int(b):
+                    result.append(len(n) - (index + 1))
+            return result
+            #return [i for i in range(n.bit_count()) if ((n >> i) & 1) == bit]
+
+        def _measure_input(iid: int, iids: np.ndarray[int, int]) -> np.ndarray[Any, np.dtype[HWMeasurement]]:
+
+            def checkout_and_measure(cid: int) -> HWMeasurement:
+                self.userland_executor.checkout_region(InputRegion(iids[iid][cid]))
+                return self.userland_executor.hardware_measurement()
+
+            hwmeasurements = list(map(checkout_and_measure, range(iids.shape[1])))
+            return np.array(hwmeasurements, dtype=object)
+
         # Skip if it's a dummy call
         if not inputs or self.test_case is None:
             return []
@@ -403,44 +458,44 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         STAT.executor_reruns += n_reps * n_inputs
         iids, filenames = self._write_inputs_to_connection(inputs, n_reps)
 
+
+        all_correct_tags_traces: np.ndarray = np.ndarray(shape=(n_inputs, n_reps), dtype=np.uint64)
+        all_incorrect_tags_traces: np.ndarray = np.ndarray(shape=(n_inputs, n_reps), dtype=np.uint64)
+        all_correct_tags_pfc: np.ndarray = np.ndarray(shape=(n_inputs, n_reps, 3), dtype=np.uint64)
+        all_incorrect_tags_pfc: np.ndarray = np.ndarray(shape=(n_inputs, n_reps, 3), dtype=np.uint64)
+        all_not_architectural_memory_accesses: np.ndarray = np.ndarray(shape=(n_inputs,), dtype=object)
+        all_tc_incorrect_tags: np.ndarray = np.ndarray(shape=(n_inputs,), dtype=TestCase)
+
+        self._write_test_case_with_bitmap_trace(self.test_case)
         self.userland_executor.trace()
 
-        all_traces: np.ndarray = np.ndarray(shape=(n_inputs, 2, n_reps), dtype=np.uint64) # TODO: Cleaner! multiply by 2 for both correct and incrrect tags test
-        all_pfc: np.ndarray = np.ndarray(shape=(n_inputs, 2, n_reps, 3), dtype=np.uint64)
-        all_not_architectural_memory_accesses: np.ndarray = np.ndarray(shape=(n_inputs,), dtype=object)
-
         for iid in range(iids.shape[0]):  # Iterate over rows
-            all_not_architectural_memory_accesses_set = set()
-            for cid in range(iids.shape[1]):  # Iterate over columns (reruns)
-                self.userland_executor.checkout_region(InputRegion(iids[iid, cid]))
-                hwmeasurement: HWMeasurement = self.userland_executor.hardware_measurement()
-                all_traces[iid][0][cid] = hwmeasurement.htrace
-                all_pfc[iid][0][cid] = hwmeasurement.pfcs
+            self.userland_executor.checkout_region(InputRegion(iids[iid, 0]))
+            architectural_memory_accesses = self.userland_executor.hardware_measurement().memory_ids
+            all_not_architectural_memory_accesses[iid]: List[int] = \
+                parse_bitmap(architectural_memory_accesses, bit=0)
 
-                all_not_architectural_memory_accesses_set.add(hwmeasurement.memory_ids)
-
-            assert len(all_not_architectural_memory_accesses_set) == 1,\
-                "Architecturally, expected all memory accesses be the same"
-
-            def bitmap_to_unused_indexes(n: int) -> List[int]:
-                return [i for i in range(n.bit_count()) if ((n >> i) & 1) == 0]
-
-            all_not_architectural_memory_accesses[iid] = bitmap_to_unused_indexes(all_not_architectural_memory_accesses_set.pop())
+        tc_correct_tags: TestCase = self._write_test_with_correct_tags()
+        self.userland_executor.trace()
+        for iid in range(iids.shape[0]):
+            hwmeasurements = _measure_input(iid, iids)
+            all_correct_tags_traces[iid, :] = np.array([m.htrace for m in hwmeasurements])
+            all_correct_tags_pfc[iid, :, :] = np.array([m.pfcs for m in hwmeasurements])
 
         for iid in range(iids.shape[0]):
-            self._write_test_case(self.test_case, iid, all_not_architectural_memory_accesses[iid])
+            all_tc_incorrect_tags[iid] = self._write_test_with_incorrect_tags(
+                iid, all_not_architectural_memory_accesses[iid])
             self.userland_executor.trace()
 
-            for cid in range(iids.shape[1]):
-                self.userland_executor.checkout_region(InputRegion(iids[iid][cid]))
-                hwmeasurement: HWMeasurement = self.userland_executor.hardware_measurement()
-                all_traces[iid][1][cid] = hwmeasurement.htrace
-                all_pfc[iid][1][cid] = hwmeasurement.pfcs
+            hwmeasurements = _measure_input(iid, iids)
+            all_incorrect_tags_traces[iid, :] = np.array([m.htrace for m in hwmeasurements])
+            all_incorrect_tags_pfc[iid, :, :] = np.array([m.pfcs for m in hwmeasurements])
 
         for filename in filenames:
             self.connection.shell(f'rm {filename}')
 
-        self.LOG.dbg_executor_raw_traces(all_traces, all_pfc)
+        self.LOG.dbg_executor_raw_traces(all_correct_tags_traces, all_correct_tags_pfc)
+        self.LOG.dbg_executor_raw_traces(all_incorrect_tags_traces, all_incorrect_tags_pfc)
 
         # Post-process the results and check for errors
         if not self.mismatch_check_mode:  # no need to post-process in mismatch check mode
@@ -449,24 +504,30 @@ class Aarch64RemoteExecutor(Aarch64Executor):
                 for rep_id in range(n_reps):
                     # Zero-out traces for ignored inputs
                     if input_id in self.ignore_list:
-                        all_traces[input_id][rep_id] = 0
+                        all_correct_tags_traces[input_id][rep_id] = 0
+                        all_incorrect_tags_traces[input_id][rep_id] = 0
                         continue
 
                     # When using TSC mode, we need to mask the lower 4 bits of the trace
                     if CONF.executor_mode == 'TSC':
-                        all_traces[input_id][rep_id] &= mask
+                        all_correct_tags_traces[input_id][rep_id] &= mask
+                        all_incorrect_tags_traces[input_id][rep_id] &= mask
 
         # Aggregate measurements into HTrace objects
         traces = []
         for input_row in range(n_inputs):
-            trace_list_correct_tags = list(all_traces[input_row][0])
-            perf_counters_correct_tags = all_pfc[input_row][0]
-            trace_list_incorrect_tags = list(all_traces[input_row][1])
-            perf_counters_incorrect_tags = all_pfc[input_row][1]
-            traces.append([
-                HTrace(trace_list=trace_list_correct_tags,
-                       perf_counters=perf_counters_correct_tags),
-                HTrace(trace_list=trace_list_incorrect_tags,
-                       perf_counters=perf_counters_incorrect_tags),
-                          ])
+            trace_list_correct_tags = list(all_correct_tags_traces[input_row])
+            perf_counters_correct_tags = all_correct_tags_pfc[input_row]
+            trace_list_incorrect_tags = list(all_incorrect_tags_traces[input_row])
+            perf_counters_incorrect_tags = all_incorrect_tags_pfc[input_row]
+            traces.append((
+                (tc_correct_tags,
+                 HTrace(trace_list=trace_list_correct_tags,
+                       perf_counters=perf_counters_correct_tags)),
+                (all_tc_incorrect_tags[input_row],
+                 HTrace(trace_list=trace_list_incorrect_tags,
+                       perf_counters=perf_counters_incorrect_tags))
+            ))
+
+
         return traces

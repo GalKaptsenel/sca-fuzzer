@@ -44,7 +44,6 @@ class Aarch64Generator(ConfigurableGenerator, abc.ABC):
         self.passes = [
             Aarch64PatchUndefinedLoadsPass(self.target_desc),
             Aarch64SandboxPass(),
-            Aarch64MarkMemoryAccesses(),
         ]
 
         self.printer = Aarch64Printer(self.target_desc)
@@ -133,11 +132,11 @@ class Aarch64TagMemoryAccesses(Pass):
                     for operand in mem_operands:
                         if operand.value in chain.from_iterable(Aarch64TargetDesc.registers.values()) and base_operand is None:
                             base_operand = operand
-                            if inst.memory_access_id not in self.memory_accesses_to_guess_tag or random.random() < 0.5: # with 50% do correct tags
+                            if inst.memory_access_id not in self.memory_accesses_to_guess_tag:
                                 mte_tag = base_operand.mte_memory_tag
                             else:
                                 lst = list(range(0, 15))
-                                #lst.remove(base_operand.mte_memory_tag)
+                                lst.remove(base_operand.mte_memory_tag)
                                 mte_tag = random.choice(lst)
 
                             x7_register = RegisterOperand("x7", 64, True, True)

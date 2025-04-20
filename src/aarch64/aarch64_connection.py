@@ -45,7 +45,6 @@ class USBConnection(Connection):
 
     def shell(self, cmd: str, privileged = False) -> str:
         cmd = f'su -c "{cmd}"' if privileged else cmd
-        print(cmd)
         return self.device.shell(cmd)
 
     def push(self, src, dst):
@@ -74,7 +73,7 @@ class ExecutorMemory(bytes):
 
 
 class HWMeasurement:
-    def __init__(self, htrace: int, pfcs: List[int], memory_ids: int):
+    def __init__(self, htrace: int, pfcs: List[int], memory_ids: str):
         self.htrace = htrace
         self.pfcs = pfcs
         self.memory_ids = memory_ids
@@ -173,7 +172,7 @@ class UserlandExecutorImp:
         htrace = int(htrace_match.group(1), 2)
         pfc_list = [int(pfc_value) for _, pfc_value in
                     sorted(pfc_matches, key=lambda x: int(x[0]))]
-        architectural_memory_accesses_bitmap = int(architectural_memory_accesses_bitmap_match.group(1))
+        architectural_memory_accesses_bitmap = architectural_memory_accesses_bitmap_match.group(1)
 
         return HWMeasurement(htrace=htrace, pfcs=pfc_list, memory_ids=architectural_memory_accesses_bitmap)
 
