@@ -149,7 +149,7 @@ class Aarch64TagMemoryAccesses(Pass):
                             bb.insert_before(position=inst ,inst=tag_register_instruction)
 
                             set_tag_register_instruction = Instruction("ORR", True).add_op(base_operand).add_op(base_operand).add_op(x7_register)
-                            set_tag_register_instruction.template = f"ORR {{{base_operand.name}}}, {{{base_operand.name}}}, {{{x7_register.name}}}, LSL 55"
+                            set_tag_register_instruction.template = f"ORR {{{base_operand.name}}}, {{{base_operand.name}}}, {{{x7_register.name}}}, LSL 56"
                             bb.insert_before(position=inst ,inst=set_tag_register_instruction)
                         else:
                             to_subtract.append(operand)
