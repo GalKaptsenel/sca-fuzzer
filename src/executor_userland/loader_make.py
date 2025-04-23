@@ -169,7 +169,7 @@ def assemble_testcase(filename, output_file):
 	modified = filename + '_mod'
 	append_information_to_assembly(filename, modified);
 	run_command(f'{AS} -march=armv9-a+sve+memtag {modified} -o {output_file}');
-	#run_command(f'rm {modified}')
+	run_command(f'rm {modified}')
 
 def compile_and_link(c_file, testcase_file, data_file, output_file):
 	run_command(f"{CC} -march=armv9-a+memtag+sve -Wall -g -static -o {output_file} {c_file} {testcase_file} {data_file}")
