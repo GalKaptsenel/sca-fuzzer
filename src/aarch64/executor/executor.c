@@ -10,6 +10,22 @@ static void init_executor_defaults(void) {
 	executor.config.measurement_template = MEASUREMENT_TEMPLATE_DEFAULT;
 }
 
+static bool set_prefetcher(bool to_set) {
+	uint64 result = 0;
+
+	asm volatile (""			\
+		" mrs x0, SYS_IMP_CPUECTLR_EL1	\n"	\
+		" and %[output], x0, %[pf_dis]	\n"	\
+		" orr x0, x0, %[to_set_value]	\n"	\
+		" msr SYS_IMP_CPUECTLR_EL1, x0	\n"	\
+		: : [output] "r"(result), [to_set_value] "r"(((int)to_set) << PF_DIS) : );
+
+	return (bool)result;
+}
+
+static bool enable_data_hw_prefetching()	{ return set_prefetcher(true);	}
+static bool disable_data_hw_prefetching()	{ return set_prefetcher(false);	}
+
 int __nocfi initialize_executor(set_memory_t set_memory_x) {
 	int err = 0;
 
@@ -32,6 +48,8 @@ int __nocfi initialize_executor(set_memory_t set_memory_x) {
 
 	initialize_inputs_db();
 
+	disable_data_hw_prefetching();
+
 	executor.tracing_error = 0;
 	executor.state = CONFIGURATION_STATE;
 	executor.checkout_region = TEST_REGION;
@@ -49,6 +67,8 @@ executor_init_failed_execution:
 }
 
 void __nocfi free_executor(set_memory_t set_memory_nx) {
+
+	enable_data_hw_prefetching();
 
 	destroy_inputs_db();
 

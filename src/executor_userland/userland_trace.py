@@ -56,7 +56,7 @@ def main():
 
     # Step 1: Run loader_make.py
     print("[*] Running loader_make.py...")
-    subprocess.run(["./loader_make.py", input_file, testcase_file], check=True)
+    subprocess.run([f"{os.path.dirname(os.path.realpath(__file__))}/loader_make.py", input_file, testcase_file], check=True)
 
 
     # Step 2: Get address of function using nm
