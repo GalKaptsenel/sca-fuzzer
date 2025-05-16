@@ -172,7 +172,7 @@ def assemble_testcase(filename, output_file):
 	run_command(f'rm {modified}')
 
 def compile_and_link(c_file, testcase_file, data_file, output_file):
-	run_command(f"{CC} -march=armv9-a+memtag+sve -Wall -g -static -o {output_file} {c_file} {testcase_file} {data_file}")
+	run_command(f"{CC} -I/home/gal/revizor_aarch64/src/executor_userland -march=armv9-a+memtag+sve -Wall -g -static -o {output_file} {c_file} {testcase_file} {data_file}")
 
 def clean(files):
 	for f in files:

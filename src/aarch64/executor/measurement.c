@@ -140,12 +140,6 @@ static void measure(measurement_t* measurement) {
 
 	// store the measurement results
 	initialize_measurement(measurement);
-//	measurement->htrace[0] = executor.sandbox.latest_measurement.htrace[0];
-//	measurement->pfc[0] = executor.sandbox.latest_measurement.pfc[0];
-//	measurement->pfc[1] = executor.sandbox.latest_measurement.pfc[1];
-//	measurement->pfc[2] = executor.sandbox.latest_measurement.pfc[2];
-//	measurement->memory_ids_bitmap[0] = executor.sandbox.latest_measurement.memory_ids_bitmap[0];
-//	measurement->memory_ids_bitmap[1] = executor.sandbox.latest_measurement.memory_ids_bitmap[1];
 	memcpy(measurement, &executor.sandbox.latest_measurement, sizeof(measurement_t));
 }
 
@@ -159,10 +153,6 @@ static void __nocfi run_experiments(void) {
 		module_err("No inputs were set!\n");
 		return;
 	}
-
-	get_cpu(); // pin the current task to the current cpu
-	raw_local_irq_save(flags); // disable local interrupts and save current state
-	preempt_disable();	// disable preemption
 
 	current_input_node = rb_first(&executor.inputs_root);
 	BUG_ON(NULL == current_input_node);
@@ -183,7 +173,6 @@ static void __nocfi run_experiments(void) {
 		current_input = rb_entry(current_input_node, struct input_node, node);
 
 		initialize_overflow_pages();
-
 		load_input_to_sandbox(&current_input->input);
 
 		// flush some of the uarch state
@@ -191,33 +180,22 @@ static void __nocfi run_experiments(void) {
 			// TBD
 		}
 
+//		get_cpu(); // pin the current task to the current cpu
+		raw_local_irq_save(flags); // disable local interrupts and save current state
+		preempt_disable();	// disable preemption
+
+
 		// execute
 		((void(*)(void*))executor.measurement_code)(&executor.sandbox);
 
-        	{
-//        	    uint8_t buffer[32] = {0};
-//        	    asm volatile(
-//        	    "PTRUE p0.b, ALL\n"
-//        	    "ST1B {z0.b}, p0, [%0]"
-//        	    :
-//        	    : "r"(buffer)
-//        	    : "memory"
-//        	    );
-		    
-			// Print the bits in the buffer
-			for (size_t i = 0; i < WIDTH_MEMORY_IDS; ++i) {
-				for(size_t j = 0; j < sizeof(executor.sandbox.latest_measurement.memory_ids_bitmap[0]) * 8; ++j) {
-					module_err("%d", (executor.sandbox.latest_measurement.memory_ids_bitmap[i] >> j) & 1);  // Extract each bit
-				}
-        		}
-        	}
+		preempt_enable();	// enable preemption
+		raw_local_irq_restore(flags); // enable local interrupts with previously saved state
+//		put_cpu(); // free the current task from the current cpu
+	
 
 		measure(&current_input->measurement);
 	}
 
-	preempt_enable();	// enable preemption
-	raw_local_irq_restore(flags); // enable local interrupts with previously saved state
-	put_cpu(); // free the current task from the current cpu
 }
 
 int execute(void) {

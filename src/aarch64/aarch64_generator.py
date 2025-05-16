@@ -69,7 +69,7 @@ class Aarch64DsbLdPass(Pass):
                     insertion_points.append(instr)
 
                 for instr in insertion_points:
-                    bb.insert_after(instr, Instruction("DSB LD", True))
+                    bb.insert_after(instr, Instruction("DSB SY", True, template="DSB SY"))
 
 
 class Aarch64PatchUndefinedLoadsPass(Pass):
