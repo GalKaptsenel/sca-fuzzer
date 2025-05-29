@@ -168,7 +168,7 @@ inline void epilogue(void) {
     										                                                    \
     "_arm64_executor_prime_inner_assoc:					                                    \n"	\
     "	isb; dsb SY							                                                \n"	\
-    "	str xzr, ["TMP"]						                                            \n"	\
+    "	str "COUNTER", ["TMP"]						                                            \n"	\
     "	isb; dsb SY							                                                \n"	\
     "	add "TMP", "TMP", #"xstr(L1D_CONFLICT_DISTANCE)"		                            \n"	\
     "	sub "ASSOC_CTR", "ASSOC_CTR", #1				                                    \n"	\

@@ -10,6 +10,7 @@ static int config_pfc(void) {
 
     // disable PMU user-mode access (not necessary?)
     uint64_t val = 0;
+    uint64_t filter_events = (1 << 30) | (1 << 26);
 
     // asm volatile("msr pmuserenr_el0, %0" :: "r" (0x1));
     // asm volatile("isb\n");
@@ -22,19 +23,19 @@ static int config_pfc(void) {
 
     // select events:
     // 1. L1D cache refills (0x3)
-    asm volatile("msr pmevtyper0_el0, %0" :: "r" ((uint64_t)0x3));
+    asm volatile("msr pmevtyper0_el0, %0" :: "r" ((uint64_t)(filter_events | 0x3)));
     asm volatile("isb\n");
 
     // 2. Instructions retired (0x08)
-    asm volatile("msr pmevtyper1_el0, %0" :: "r" ((uint64_t)0x08));
+    asm volatile("msr pmevtyper1_el0, %0" :: "r" ((uint64_t)(filter_events | 0x08)));
     asm volatile("isb\n");
 
     // 3. Instruction speculatively executed (0x1b)
-    asm volatile("msr pmevtyper2_el0, %0" :: "r" ((uint64_t)0x1b));
+    asm volatile("msr pmevtyper2_el0, %0" :: "r" ((uint64_t)(filter_events | 0x1b)));
     asm volatile("isb\n");
 
     // 4. L1D cache refills (0x3)
-    asm volatile("msr pmevtyper3_el0, %0" :: "r" ((uint64_t)0x3));
+    asm volatile("msr pmevtyper3_el0, %0" :: "r" ((uint64_t)(filter_events | 0x3)));
     asm volatile("isb\n");
 
     // enable counting
@@ -180,19 +181,15 @@ static void __nocfi run_experiments(void) {
 			// TBD
 		}
 
-//		get_cpu(); // pin the current task to the current cpu
-		raw_local_irq_save(flags); // disable local interrupts and save current state
-		preempt_disable();	// disable preemption
+		config_pfc();
 
+		raw_local_irq_save(flags); // disable local interrupts and save current state
 
 		// execute
 		((void(*)(void*))executor.measurement_code)(&executor.sandbox);
 
-		preempt_enable();	// enable preemption
 		raw_local_irq_restore(flags); // enable local interrupts with previously saved state
-//		put_cpu(); // free the current task from the current cpu
 	
-
 		measure(&current_input->measurement);
 	}
 
