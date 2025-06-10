@@ -294,6 +294,8 @@ struct pair {
 	long time_elapsed;
 };
 */
+
+
 static void print_usage(const char *prog_name) {
 	printf("Usage: %s <device> <command [argument]|w file|r file> \n", prog_name);
 	printf("\t<device>  : Path to the device (e.g., /dev/revizor_device)\n");
@@ -365,7 +367,9 @@ static int read_file(const char* file_path, char** buffer, size_t* size) {
 	int fd = -1;
 
 	if (0 > stat(file_path, &st)) {
-		perror("Error getting file size");
+		char buf[1000] = { 0 };
+		snprintf(buf, sizeof(buf), "Error getting file size of: %s", file_path);
+		perror(buf);
 		goto read_file_failure;
 	}
 
@@ -412,7 +416,6 @@ static int handle_returned_uint64(int fd, int command, const char* prompt) {
 
 static void print_bits64(uint64_t u) {
 	char str[66];
-//	str[64] = '\n';
 	str[64] = 0;
 	for (int i = 63; i >= 0; i--) {
 		str[i] = '0' + (u & 1);
@@ -631,11 +634,245 @@ static int serve_numerical_operation(int fd, int argc, char** argv) {
 
 }
 
+static int scenario_operation(int fd, const char* input_paths[], const unsigned int number_of_inputs, const char* test_paths[], const unsigned int number_of_tests, const unsigned int repeats) {
+
+	int result = 0;
+	uint64_t* batch = (int64_t*)malloc(sizeof(int64_t) * number_of_inputs);
+
+	if(NULL == batch) {
+		result = -1;
+		goto T_return;
+	}
+
+
+	struct measurement* measurements = (struct measurement*)malloc(sizeof(struct measurement) * (number_of_inputs * repeats));
+	if(NULL == measurements) {
+		result = -2;
+		goto T_free_batch;
+	}
+
+
+	for(unsigned int i = 0; i < number_of_inputs; ++i) {
+		ioctl(fd, REVISOR_ALLOCATE_INPUT, batch + i);
+		//printf("Input at index %u got id %lu\n", i, batch[i]);
+		if(0 >  batch[i]) {
+			result = -3;
+			goto T_clear_all_inputs;
+		}
+	}
+
+	for(unsigned int i = 0; i < number_of_inputs; ++i) {
+		result = serve_numerical_command_with_argument(fd, REVISOR_CHECKOUT_INPUT, batch[i]); 
+		if(0 >  result) {
+			goto T_clear_all_inputs;
+		}
+
+		result = write_operation(fd, input_paths[i]);
+		if(EXIT_FAILURE == result) {
+			goto T_clear_all_inputs;
+		}
+	}
+
+	for(unsigned int i = 0; i < repeats; ++i) {
+		for(unsigned int j = 0 ; j < number_of_tests; ++j) {
+
+			result = serve_numerical_command_without_argument(fd, REVISOR_CHECKOUT_TEST); 
+			if(0 >  result) {
+				goto T_unload_test_case;
+			}
+
+			result = write_operation(fd, test_paths[j]);
+			if(EXIT_FAILURE == result) {
+				printf("FAILED to load test. Result is: %u\n", result);
+				goto T_unload_test_case;
+			}
+
+			result = serve_numerical_command_without_argument(fd, REVISOR_TRACE); 
+			if(0 >  result) {
+				goto T_unload_test_case;
+			}
+
+			for(unsigned int k = 0; k < number_of_inputs; ++k) {
+				result = serve_numerical_command_with_argument(fd, REVISOR_CHECKOUT_INPUT, batch[k]); 
+				if(0 >  result) {
+					goto T_unload_test_case;
+				}
+				result = serve_numerical_command_without_argument(fd, REVISOR_MEASUREMENT);
+				if(0 >  result) {
+					goto T_unload_test_case;
+				}
+
+				
+			}
+		}
+	}
+
+	
+T_unload_test_case:
+	serve_numerical_command_without_argument(fd, REVISOR_UNLOAD_TEST);
+T_clear_all_inputs:
+	serve_numerical_command_without_argument(fd, REVISOR_CLEAR_ALL_INPUTS);
+	free(measurements);
+T_free_batch:
+	free(batch);
+T_return:
+	return result;
+
+}
+
+static bool is_blank_line(const char* line) {
+	while(*line) {
+		if(!isspace((unsigned char)*line)) {
+			return false;
+		}
+
+		++line;
+	}
+
+	return true;
+}
+
+#define MAX_LINE_LENGTH (1024)
+#define INITIAL_CAPACITY (16)
+
+static char** read_section_lines(const char* configuration_path, const char* section_name, unsigned int* line_count) {
+
+	if(NULL == configuration_path || NULL == section_name) return NULL;
+
+	FILE* file = fopen(configuration_path, "r");
+	if(NULL == file) {
+		perror("Failed to open configuration file");
+		goto read_section_return;
+	}
+
+	if(MAX_LINE_LENGTH - 2 < strlen(section_name)) {
+		// Section name must start and end with '<' and '>' symbols
+		fprintf(stderr, "section_name must be at length at most: %u", MAX_LINE_LENGTH - 2);
+		goto read_section_fclose;
+	}
+
+	char line[MAX_LINE_LENGTH] = { 0 };
+	char section_header[MAX_LINE_LENGTH] = { 0 };
+	snprintf(section_header, sizeof(section_header), "<%s>", section_name);
+
+	unsigned int capacity = INITIAL_CAPACITY;
+	unsigned int count = 0;
+	bool is_section = false;
+
+	char** lines = (char**)malloc(sizeof(char*) * capacity);
+	if(NULL == lines) {
+		perror("Failed to alocate memory for lines");
+		goto read_section_fclose;
+
+	}
+
+	lines[count] = NULL;
+
+	while(fgets(line, sizeof(line), file)) {
+		line[strcspn(line, "\r\n")] = 0;
+		 
+		if(!is_section) {
+			is_section = (0 == strcmp(line, section_header));
+		} else {
+			if('<' == line[0] && '>' == line[strlen(line) - 1]) break;
+
+			if(is_blank_line(line)) continue;
+
+			if(count + 1 >= capacity) { // + 1 for NULL terminator in the send of array
+				capacity *= 2;
+				char** temp = realloc(lines, sizeof(char*) * capacity);
+				if(NULL == temp) {
+					perror("Failed to realocate memory for lines");
+					goto read_section_free_lines;
+				}
+
+				lines = temp;
+			}
+
+			lines[count] = strdup(line);
+			if(NULL == lines[count]) {
+				perror("Failed to copy line from file");
+				goto read_section_free_lines;
+			}
+			++count;
+		}
+
+	}
+
+	lines[count] = NULL;
+	if(NULL != line_count) {
+		*line_count = count;
+	}
+
+	goto read_section_fclose;
+
+read_section_free_lines:
+	for(unsigned int i = 0; i < count; ++i) free(lines[i]);
+	free(lines);
+	lines = NULL;
+
+read_section_fclose:
+	fclose(file);
+read_section_return:
+	return lines;
+}
+
+static int configurable_operation(int fd, const char* configuration) {
+	int err = EXIT_SUCCESS;
+	if(NULL == configuration) {
+		err = EXIT_FAILURE;
+		printf("Error configurable_operation\n");
+		goto configurable_operation_return;
+	}
+
+	unsigned int input_count = 0;
+	const char** input_paths = (const char**)read_section_lines(configuration, "inputs", &input_count);
+	if(NULL == input_paths) {
+		err = EXIT_FAILURE;
+		goto configurable_operation_return;
+	}
+
+	unsigned int test_count = 0;
+	const char** test_paths = (const char**)read_section_lines(configuration, "tests", &test_count);
+	if(NULL == test_paths) {
+		err = EXIT_FAILURE;
+		goto configurable_operation_free_inputs;
+	}
+
+	unsigned int repeats_count = 0;
+	const char** repeats_strings = (const char**)read_section_lines(configuration, "repeats", &repeats_count);
+	if(NULL == repeats_strings) {
+		err = EXIT_FAILURE;
+		goto configurable_operation_free_tests;
+	}
+
+	unsigned int repeats = 1;
+	if(0 < repeats_count) {
+		repeats = atoi(repeats_strings[0]);
+		if(repeats < 0) {
+			err = EXIT_FAILURE;
+			goto configurable_operation_free_repeats;;
+
+		}
+	}
+
+	err = scenario_operation(fd, input_paths, input_count, test_paths, test_count, repeats);
+
+configurable_operation_free_repeats:
+	free(repeats_strings);
+configurable_operation_free_tests:
+	free(test_paths);
+configurable_operation_free_inputs:
+	free(input_paths);
+configurable_operation_return:
+	return err;
+}
+
 static int serve_operation(int fd, int argc, char** argv) {
 
 	int err = EXIT_SUCCESS;
 
-	if(0 == strcmp("w", argv[2]) || 0 == strcmp("r", argv[2])) {
+	if(0 == strcmp("w", argv[2]) || 0 == strcmp("r", argv[2]) || 0 == strcmp("c", argv[2])) {
 
 		if(4 > argc) {
 
@@ -647,15 +884,15 @@ static int serve_operation(int fd, int argc, char** argv) {
 
 			err = write_operation(fd, argv[3]);
 
-		} else {
+		} else if ('r' == argv[2][0]) {
 
 			err = read_operation(fd, argv[3]);
 
+		} else {
+
+			err = configurable_operation(fd, argv[3]);
+
 		}
-
-	} else if (0 == strcmp("T", argv[2])) {
-
-		err = EXIT_FAILURE; //T_operation(fd);
 
 	} else {
 
