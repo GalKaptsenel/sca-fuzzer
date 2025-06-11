@@ -3,8 +3,10 @@ import uuid
 import tempfile
 from defer import return_value
 from ppadb.client import Client as AdbClient
-from typing import List, Literal, Union
+from typing import List, Literal, Union, Optional, Type, Callable, Tuple
 from abc import ABC, abstractmethod
+import functools
+import time
 
 class Connection:
     def __init__(self):
@@ -131,7 +133,40 @@ class InputRegion(ExecutorRegion):
         super().__init__()
         self.iid = iid
 
+def retry(max_times: int = 1,
+          retry_on: Union[Type[BaseException], Tuple[Type[BaseException], ...]] = Exception,
+          backoff: float = 0.0) -> Callable:
+
+    if not isinstance(retry_on, tuple):
+        retry_on = (retry_on,)
+
+    if not all(isinstance(exc, type) and issubclass(exc, BaseException) for exc in retry_on):
+        raise TypeError("All entries in 'retry_on' must be of exception types!")
+    
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exception: Optional[BaseException] = None
+
+            for attempt in range(1, max_times + 1):
+                try:
+                    return func(*args, **kwargs)
+
+                except retry_on as e:
+                    last_exception = e
+                    if attempt < max_times and backoff > 0.0:
+                        sleep_time = backoff * (2 ** (attempt - 1))
+                        print(f"[retry] Attempt {attempt} failed with {e!r}, retrying in {sleep_time:.2f}s...")
+                        time.sleep(sleep_time)
+
+            raise last_exception
+        return wrapper
+    return decorator
+
+
 class UserlandExecutorImp:
+    _RETRIES = 100
+
     def __init__(self, connection: Connection, userland_application_path: str,
                  device_path: str, sys_executor_path: str, module_path: str):
         self.remote_batch_file_path: Optional[str] = None
@@ -146,8 +181,15 @@ class UserlandExecutorImp:
                 self.connection.push('revizor-executor.ko', module_path)
             self.connection.shell(f'insmod {module_path}', privileged=True)
 
+        self.connection.shell(f'echo "P" > /sys/executor/measurement_mode', privileged=True) # Use Prime And Probe
+
         if not self.connection.is_file_present(self.userland_application_path):
             self.connection.push('executor_userland', userland_application_path)
+
+        # Discard any previous contents in the executor memory
+        self.discard_all_inputs()
+        self.checkout_region(TestCaseRegion())
+        del self.contents 
 
     def trace(self):
 
@@ -167,6 +209,7 @@ class UserlandExecutorImp:
         else:
             raise ValueError(f'Unsupported region type: {type(region)}')
 
+    @retry(max_times=_RETRIES, retry_on=RuntimeError, backoff=0.5)
     def hardware_measurement(self) -> HWMeasurement:
         result = self._query_executor(7)
         htrace_match = re.search(r"htrace .: ([01]+)", result)
@@ -175,9 +218,11 @@ class UserlandExecutorImp:
             r"architectural memory access bitmap: ([01]+)", result)
 
         if htrace_match is None or pfc_matches is None or architectural_memory_accesses_bitmap_match is None:
+            print(f"{result=}")
             raise RuntimeError('Could not measurements')
 
         htrace = int(htrace_match.group(1), 2)
+        assert htrace is not None
         pfc_list = [int(pfc_value) for _, pfc_value in
                     sorted(pfc_matches, key=lambda x: int(x[0]))]
         architectural_memory_accesses_bitmap = architectural_memory_accesses_bitmap_match.group(1)
@@ -218,30 +263,34 @@ class UserlandExecutorImp:
         else:
             raise ValueError(f'Unsupported region type: {type(self.current_region)}')
 
-        raise NotImplementedError()
-
+    @retry(max_times=_RETRIES, retry_on=RuntimeError, backoff=0.5)
     def number_of_inputs(self) -> int:
         result = self._query_executor(3)
         number_of_inputs_match = re.search(r"Number Of Inputs: (\d+)", result)
         if number_of_inputs_match is None:
+            print(f"{result=}")
             raise RuntimeError("Could not find number of inputs")
         return int(number_of_inputs_match.group(1))
 
     def discard_all_inputs(self) -> None:
         self._query_executor(9)
 
+    @retry(max_times=_RETRIES, retry_on=RuntimeError, backoff=0.5)
     @property
     def test_length(self) -> int:
         result = self._query_executor(10)
         test_length_match = re.search(r"Test Length: (\d+)", result)
         if test_length_match is None:
+            print(f"{result=}")
             raise RuntimeError("Could not find test length")
         return int(test_length_match.group(1))
 
+    @retry(max_times=_RETRIES, retry_on=RuntimeError, backoff=0.5)
     def allocate_iid(self) -> int:
         result = self._query_executor(5)
         iid_matching = re.search(r"Allocated Input ID: (\d+)", result)
         if iid_matching is None:
+            print(f"{result=}")
             raise RuntimeError("Could not find allocated input ID")
         return int(iid_matching.group(1))
 

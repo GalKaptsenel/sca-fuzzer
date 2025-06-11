@@ -44,6 +44,7 @@ class Aarch64Generator(ConfigurableGenerator, abc.ABC):
         self.passes = [
             Aarch64PatchUndefinedLoadsPass(self.target_desc),
             Aarch64SandboxPass(),
+#            Aarch64DsbSyPass(),
         ]
 
         self.printer = Aarch64Printer(self.target_desc)
@@ -58,7 +59,7 @@ class Aarch64Generator(ConfigurableGenerator, abc.ABC):
         self.elf_parser.parse(test_case, obj_file)
 
 
-class Aarch64DsbLdPass(Pass):
+class Aarch64DsbSyPass(Pass):
 
     def run_on_test_case(self, test_case: TestCase) -> None:
         for func in test_case.functions:

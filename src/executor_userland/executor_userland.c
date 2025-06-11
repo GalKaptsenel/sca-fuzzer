@@ -536,27 +536,28 @@ static int serve_numerical_command_without_argument(int fd, int command) {
 
 	int result = 0;
 
-	switch (command) {
-		case REVISOR_GET_TEST_LENGTH:
+	switch (_IOC_NR(command)) {
+		case REVISOR_GET_TEST_LENGTH_CONSTANT:
+			
 			result = handle_returned_uint64(fd, command, "Test Length");
 			break;
 
-		case REVISOR_MEASUREMENT:
+		case REVISOR_MEASUREMENT_CONSTANT:
 			result = handle_get_measurement(fd, command);
 			break;
 
-		case REVISOR_GET_NUMBER_OF_INPUTS:
+		case REVISOR_GET_NUMBER_OF_INPUTS_CONSTANT:
 			result = handle_returned_uint64(fd, command, "Number Of Inputs");
 			break;
 
-		case REVISOR_ALLOCATE_INPUT:
+		case REVISOR_ALLOCATE_INPUT_CONSTANT:
 			result = handle_returned_uint64(fd, command, "Allocated Input ID");
 			break;
 
-		case REVISOR_CHECKOUT_TEST:
-		case REVISOR_UNLOAD_TEST:
-		case REVISOR_TRACE:
-		case REVISOR_CLEAR_ALL_INPUTS:
+		case REVISOR_CHECKOUT_TEST_CONSTANT:
+		case REVISOR_UNLOAD_TEST_CONSTANT:
+		case REVISOR_TRACE_CONSTANT:
+		case REVISOR_CLEAR_ALL_INPUTS_CONSTANT:
 			result = ioctl(fd, command);
 			break;
 
@@ -574,9 +575,9 @@ static int serve_numerical_command_with_argument(int fd, int command, uint64_t a
 	int result = 0;
 
 	printf("Argument: 0x%lx\n", argument);
-	switch(command) {
-		case REVISOR_CHECKOUT_INPUT:
-		case REVISOR_FREE_INPUT:
+	switch(_IOC_NR(command)) {
+		case REVISOR_CHECKOUT_INPUT_CONSTANT:
+		case REVISOR_FREE_INPUT_CONSTANT:
 			result = ioctl(fd, command, &argument);
 			break;
 
