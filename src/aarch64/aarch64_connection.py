@@ -1,10 +1,10 @@
 import re
-
+import uuid
+import tempfile
 from defer import return_value
 from ppadb.client import Client as AdbClient
 from typing import List, Literal, Union
 from abc import ABC, abstractmethod
-import uuid
 
 class Connection:
     def __init__(self):
@@ -134,11 +134,13 @@ class InputRegion(ExecutorRegion):
 class UserlandExecutorImp:
     def __init__(self, connection: Connection, userland_application_path: str,
                  device_path: str, sys_executor_path: str, module_path: str):
-        self.connection = connection
-        self.userland_application_path = userland_application_path
-        self.executor_device_path = device_path
-        self.executor_sysfs = sys_executor_path
-        self.current_region = TestCaseRegion()
+        self.remote_batch_file_path: Optional[str] = None
+        self.connection: Connection = connection
+        self.userland_application_path: str = userland_application_path
+        self.executor_device_path: str = device_path
+        self.executor_sysfs: str = sys_executor_path
+        self.current_region: ExecutorRegion = TestCaseRegion()
+
         if not self.connection.is_file_present(self.executor_device_path):
             if not self.connection.is_file_present(module_path):
                 self.connection.push('revizor-executor.ko', module_path)
@@ -148,7 +150,13 @@ class UserlandExecutorImp:
             self.connection.push('executor_userland', userland_application_path)
 
     def trace(self):
-        self._query_executor(8)
+
+        if self.remote_batch_file_path is not None:
+            self.connection.shell(
+            f'{self.userland_application_path} {self.executor_device_path} c {remote_batch_file_path}',
+            priviledged=True)
+        else:
+            self._query_executor(8)
 
     def checkout_region(self, region: ExecutorRegion):
         self.current_region = region
@@ -246,3 +254,45 @@ class UserlandExecutorImp:
     def code_base(self) -> int:
         base = self.connection.shell(f'cat {self.executor_sysfs}/print_code_base', privileged=True)
         return int(base, 16)
+
+    def upload_batch(executor_batch: ExecutorBatch, dest_path: Optional[str] = '/data/local/tmp/executor_batch'):
+        if self.remote_batch_file_path is not None:
+            self.connection.shell(f'rm {self.remote_batch_file_path}')
+
+        if dest_path is not None:
+            with tempfile.NamedTemporaryFile() as tmp_file:
+                tmp_file.write(str(conf_file))
+                self.connection.push(dest_path, tmp_file.name)
+
+        self.remote_batch_file_path = dest_path
+
+
+class ExecutorBatch:
+    def __init__():
+        self._inputs: List[str] = []
+        self._tests: List[str] = []
+        self._repeats: int = 1
+
+    def add_input(self, input_path: str):
+        inputs.append(input_path)
+
+    def add_test(self, test_path: str):
+        tests.append(test_path)
+
+    @property
+    def repeats(self):
+        return self._repeats
+
+    @property.setter
+    def repeats(self, reps: int):
+        self._repeats = reps
+
+    def __str__(self):
+        tests_header = "<tests>"
+        inputs_header = "<inputs>"
+        repeats_header = "<repeats>"
+        tests = reduce("", lambda x: x + "\n", tests_header)
+        inputs = reduce("", lambda x: x + "\n", tests_header)
+        repeats = str(self._repeats) + "\n"
+        return tests_header + "\n" + tests + "\n" + inputs_header + "\n" + inputs + "\n" + repeats_heaader + "\n" + repeats
+
