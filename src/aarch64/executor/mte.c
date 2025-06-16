@@ -10,7 +10,7 @@ void mte_randomly_tag_region(const void* ptr, uint64_t length) {
 	for(; loc < length; loc += MTE_GRANULE_SIZE) {
 		uintptr_t current_ptr = (uintptr_t)ptr + loc;
 		module_err("tagging address %p", current_ptr);
-	        uint8_t tag = 5;//mte_get_random_tag();
+	        uint8_t tag = 6;//mte_get_random_tag();
 		const void* tagged_ptr = __tag_set((void*)current_ptr, tag);
 		stg(tagged_ptr);
 	}
