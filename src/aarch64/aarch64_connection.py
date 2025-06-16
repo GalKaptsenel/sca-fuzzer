@@ -164,6 +164,38 @@ def retry(max_times: int = 1,
     return decorator
 
 
+class ExecutorBatch:
+
+    def __init__(self):
+        self._inputs: List[str] = []
+        self._tests: List[str] = []
+        self._repeats: int = 1
+
+    def add_input(self, input_path: str):
+        self._inputs.append(input_path)
+
+    def add_test(self, test_path: str):
+        self._tests.append(test_path)
+
+    @property
+    def repeats(self):
+        return self._repeats
+
+    @repeats.setter
+    def repeats(self, reps: int):
+        self._repeats = reps
+
+    def __str__(self):
+        tests_header = "<tests>"
+        inputs_header = "<inputs>"
+        repeats_header = "<repeats>"
+        tests = functools.reduce(lambda x, y: x + "\n" + y, self._tests, tests_header)
+        inputs = functools.reduce(lambda x, y: x + "\n" + y, self._inputs, inputs_header)
+        repeats = str(self._repeats) + "\n"
+        output = tests + "\n" + inputs + "\n" + repeats_header + "\n" + repeats
+        return output
+
+
 class UserlandExecutorImp:
     _RETRIES = 100
 
@@ -173,6 +205,7 @@ class UserlandExecutorImp:
         self.connection: Connection = connection
         self.userland_application_path: str = userland_application_path
         self.executor_device_path: str = device_path
+
         self.executor_sysfs: str = sys_executor_path
         self.current_region: ExecutorRegion = TestCaseRegion()
 
@@ -191,12 +224,12 @@ class UserlandExecutorImp:
         self.checkout_region(TestCaseRegion())
         del self.contents 
 
-    def trace(self):
+    def trace(self) -> Optional[str]:
 
         if self.remote_batch_file_path is not None:
-            self.connection.shell(
-            f'{self.userland_application_path} {self.executor_device_path} c {remote_batch_file_path}',
-            priviledged=True)
+            return self.connection.shell(
+            f'{self.userland_application_path} {self.executor_device_path} c {self.remote_batch_file_path}',
+            privileged=True)
         else:
             self._query_executor(8)
 
@@ -218,7 +251,6 @@ class UserlandExecutorImp:
             r"architectural memory access bitmap: ([01]+)", result)
 
         if htrace_match is None or pfc_matches is None or architectural_memory_accesses_bitmap_match is None:
-            print(f"{result=}")
             raise RuntimeError('Could not measurements')
 
         htrace = int(htrace_match.group(1), 2)
@@ -268,7 +300,6 @@ class UserlandExecutorImp:
         result = self._query_executor(3)
         number_of_inputs_match = re.search(r"Number Of Inputs: (\d+)", result)
         if number_of_inputs_match is None:
-            print(f"{result=}")
             raise RuntimeError("Could not find number of inputs")
         return int(number_of_inputs_match.group(1))
 
@@ -281,7 +312,6 @@ class UserlandExecutorImp:
         result = self._query_executor(10)
         test_length_match = re.search(r"Test Length: (\d+)", result)
         if test_length_match is None:
-            print(f"{result=}")
             raise RuntimeError("Could not find test length")
         return int(test_length_match.group(1))
 
@@ -290,7 +320,6 @@ class UserlandExecutorImp:
         result = self._query_executor(5)
         iid_matching = re.search(r"Allocated Input ID: (\d+)", result)
         if iid_matching is None:
-            print(f"{result=}")
             raise RuntimeError("Could not find allocated input ID")
         return int(iid_matching.group(1))
 
@@ -304,44 +333,17 @@ class UserlandExecutorImp:
         base = self.connection.shell(f'cat {self.executor_sysfs}/print_code_base', privileged=True)
         return int(base, 16)
 
-    def upload_batch(executor_batch: ExecutorBatch, dest_path: Optional[str] = '/data/local/tmp/executor_batch'):
+    def upload_batch(self, executor_batch: ExecutorBatch, dest_path: Optional[str] = '/data/local/tmp/executor_batch'):
         if self.remote_batch_file_path is not None:
             self.connection.shell(f'rm {self.remote_batch_file_path}')
 
         if dest_path is not None:
-            with tempfile.NamedTemporaryFile() as tmp_file:
-                tmp_file.write(str(conf_file))
-                self.connection.push(dest_path, tmp_file.name)
+            with tempfile.NamedTemporaryFile(mode='w') as tmp_file:
+                tmp_file.write(str(executor_batch))
+                tmp_file.flush()
+                self.connection.push(tmp_file.name, dest_path)
 
         self.remote_batch_file_path = dest_path
 
 
-class ExecutorBatch:
-    def __init__():
-        self._inputs: List[str] = []
-        self._tests: List[str] = []
-        self._repeats: int = 1
-
-    def add_input(self, input_path: str):
-        inputs.append(input_path)
-
-    def add_test(self, test_path: str):
-        tests.append(test_path)
-
-    @property
-    def repeats(self):
-        return self._repeats
-
-    @property.setter
-    def repeats(self, reps: int):
-        self._repeats = reps
-
-    def __str__(self):
-        tests_header = "<tests>"
-        inputs_header = "<inputs>"
-        repeats_header = "<repeats>"
-        tests = reduce("", lambda x: x + "\n", tests_header)
-        inputs = reduce("", lambda x: x + "\n", tests_header)
-        repeats = str(self._repeats) + "\n"
-        return tests_header + "\n" + tests + "\n" + inputs_header + "\n" + inputs + "\n" + repeats_heaader + "\n" + repeats
 

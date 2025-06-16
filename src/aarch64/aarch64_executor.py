@@ -12,7 +12,7 @@ import os.path
 import os
 
 import numpy as np
-from typing import List, Tuple, Set, Generator, Optional, Any
+from typing import List, Tuple, Set, Generator, Optional, Any, Dict
 
 from .aarch64_generator import Aarch64TagMemoryAccesses, Aarch64Printer, Aarch64MarkMemoryAccesses
 from .. import ConfigurableGenerator
@@ -21,7 +21,7 @@ from ..config import CONF
 from ..util import Logger, STAT
 from .aarch64_target_desc import Aarch64TargetDesc
 from .aarch64_connection import Connection, UserlandExecutorImp, TestCaseRegion, InputRegion, \
-    HWMeasurement
+    HWMeasurement, ExecutorBatch
 from .aarch64_generator import Pass
 
 
@@ -343,7 +343,8 @@ class Aarch64RemoteExecutor(Aarch64Executor):
 
         Aarch64RemoteExecutor._assemble_local_test_case(patched_test_case, 'generated_retrieve_bitmap')
 
-        self._load_test_case_remotely(patched_test_case)
+        remote_testcase_name = self._write_test_case_remotely(patched_test_case)
+        self._load__and_remove_remote_test_case(remote_testcase_name)
 
         os.remove(patched_test_case.bin_path)
         os.remove(patched_test_case.asm_path)
@@ -421,14 +422,14 @@ class Aarch64RemoteExecutor(Aarch64Executor):
 
         return array, remote_filenames
 
-    def _measure_architecturaly_accessed_memory_addresses(self, remote_filenames: List[str]) -> Dict[int, str]:
+    def _measure_architecturaly_accessed_memory_addresses(self, remote_input_filenames: List[str]) -> Dict[int, str]:
 
         all_architectural_memory_accesses = {}
-        iids: np.ndarray[int] = np.zeros((len(remote_filenames)), dtype=np.uint64)
+        iids: np.ndarray[int] = np.zeros((len(remote_input_filenames)), dtype=np.uint64)
 
         self._write_test_case_with_bitmap_trace(self.test_case)
 
-        for idx, remote_filename in enumerate(remote_filenames):
+        for idx, remote_filename in enumerate(remote_input_filenames):
             iids[idx] = self.userland_executor.allocate_iid()
             self.userland_executor.checkout_region(InputRegion(iids[idx]))
             self.userland_executor.write_file(remote_filename)
@@ -443,7 +444,7 @@ class Aarch64RemoteExecutor(Aarch64Executor):
 
         return all_architectural_memory_accesses
  
-    def _measure_architecturaly_not_accessed_memory_addresses(self, remote_filenames: List[str]) -> Dict[int, List[int]]:
+    def _measure_architecturaly_not_accessed_memory_addresses(self, remote_input_filenames: List[str]) -> Dict[int, List[int]]:
 
         def parse_bitmap(n: str, bit: int) -> List[int]:
             result = []
@@ -452,31 +453,38 @@ class Aarch64RemoteExecutor(Aarch64Executor):
                     result.append(len(n) - (index + 1))
             return result
 
-        all_not_architectural_memory_accesses: np.ndarray = np.ndarray(shape=(len(remote_filenames),), dtype=object)
-        for iid, measurement in _measure_architecturaly_accessed_memory_addresses(remote_filenames).items():
+        all_not_architectural_memory_accesses: Dict[int, List[int]] = {}
+        for iid, measurement in self._measure_architecturaly_accessed_memory_addresses(remote_input_filenames).items():
             all_not_architectural_memory_accesses[iid]: List[int] = \
                 parse_bitmap(measurement, bit=0)
 
         return all_not_architectural_memory_accesses
 
-    @static
-    def _create_scenario_batch(remote_filenames List[str], repeats: int) -> ExecutorBatch:
+    def _create_tests_with_incorrect_tags(self, remote_input_filenames: List[str]) -> Tuple[Dict[int, str], Dict[int, TestCase]]:
+
+        all_tc_incorrect_tags: Dict[int, TestCase] = {}
+        all_filename_incorrect_tags: Dict[int, str] = {}
+
+        all_not_architectural_memory_accesses = self._measure_architecturaly_not_accessed_memory_addresses(remote_input_filenames)
+
+        for iid, measurement in all_not_architectural_memory_accesses.items() :
+            all_filename_incorrect_tags[iid], all_tc_incorrect_tags[iid] = self._write_test_with_incorrect_tags(
+                iid, measurement)
+
+        return all_filename_incorrect_tags, all_tc_incorrect_tags
+
+    def _create_scenario_batch(self, remote_input_filenames: List[str], test_cases: List[str], repeats: int) -> ExecutorBatch:
         executor_batch = ExecutorBatch()
 
-        executor_batch.repeats = n_reps
+        executor_batch.repeats = repeats
 
-        for remote_filename in remote_filenames:
+        for remote_filename in remote_input_filenames:
             executor_batch.add_input(remote_filename)
         
-        tc_correct_tags_filename, tc_correct_tags = self._write_test_with_correct_tags()
-        executor_batch.add_test(tc_correct_tags_filename)
+        for tc in test_cases:
+            executor_batch.add_test(tc)
 
-
-        all_not_architectural_memory_accesses = self._measure_architecturaly_not_accessed_memory_addresses(remote_filenames)
-        for iid, measurement in all_not_architectural_memory_accesses.items() :
-            all_tc_incorrect_tags[iid] = self._write_test_with_incorrect_tags(
-                iid, measurement)
-            executor_batch.add_test(all_tc_incorrect_tags[iid])
+        return executor_batch
  
 
     def trace_test_case(self, inputs: List[Input], n_reps: int) -> List[Tuple[
@@ -507,12 +515,14 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         n_inputs = len(inputs)
         STAT.executor_reruns += n_reps * n_inputs
 
-        remote_filenames = self._create_remote_files_for_inputs(inputs)
-        scenario_batch: ExecutorBatch = _create_scenario_batch(remote_filenames, n_reps)
+        remote_input_filenames = self._create_remote_files_for_inputs(inputs)
+        remote_tc_filename_correct_tags, remote_tc_correct_tags = self._write_test_with_correct_tags()
+        remote_tc_filenames_incorrect_tags, remote_tc_incorrect_tags = self._create_tests_with_incorrect_tags(remote_input_filenames)
+        scenario_batch: ExecutorBatch = self._create_scenario_batch(remote_input_filenames, [remote_tc_filename_correct_tags] + list(remote_tc_filenames_incorrect_tags.values()), n_reps)
         self.userland_executor.upload_batch(scenario_batch)
         output = self.userland_executor.trace()
         print(output)
-
+        a = 1 / 0
         all_correct_tags_traces: np.ndarray = np.ndarray(shape=(n_inputs, n_reps), dtype=np.uint64)
         all_incorrect_tags_traces: np.ndarray = np.ndarray(shape=(n_inputs, n_reps), dtype=np.uint64)
         all_correct_tags_pfc: np.ndarray = np.ndarray(shape=(n_inputs, n_reps, 3), dtype=np.uint64)
