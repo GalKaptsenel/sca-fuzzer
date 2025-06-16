@@ -340,8 +340,7 @@ inline void epilogue(void) {
     "   mov "TMP", #1								\n" \
     "   lsr "OFFSET", "OFFSET", #6                                              \n" \
     "   lsl "OFFSET", "TMP", "OFFSET"                                              \n" \
-    "   orr "DEST", "DEST", "OFFSET"                                                  \n" 
-                                                                                    \
+    "   orr "DEST", "DEST", "OFFSET"                                                  \n" \
     "_arm64_executor_probe_failed_"LABEL_NUM":                                        \n" \
 
 #define SETS_PROBE(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, INIT_LABEL_NUM)                        \
