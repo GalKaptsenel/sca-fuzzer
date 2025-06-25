@@ -16,6 +16,7 @@
 #include <linux/cdev.h>
 #include <linux/uaccess.h>
 #include <linux/memory.h>
+#include <asm/sysreg.h>
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0)
 #include <linux/set_memory.h>

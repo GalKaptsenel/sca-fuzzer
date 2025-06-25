@@ -65,6 +65,12 @@ static int config_pfc(void) {
     return 0;
 }
 
+static inline u64 read_inst_count(void) {
+	u64 val;
+	asm volatile("mrs %0, PMEVCNTR4_EL0" : "=r"(val));
+	return val;
+}
+
 static inline int setup_environment(void) {
     int err = 0;
 
@@ -185,12 +191,26 @@ static void __nocfi run_experiments(void) {
 
 		raw_local_irq_save(flags); // disable local interrupts and save current state
 
+//		void* saved_stack_ptr = current->stack;
+//		current->stack = (void*)ALIGN_DOWN(((registers_t*)executor.sandbox.upper_overflow)->sp, THREAD_SIZE);
+
+//		u64 before_counter = read_inst_count();
+
 		// execute
 		((void(*)(void*))executor.measurement_code)(&executor.sandbox);
 
+//		u64 after_counter = read_inst_count();
+
+//		current->stack = saved_stack_ptr;
+
+		enable_mte_tag_checking();
+
 		raw_local_irq_restore(flags); // enable local interrupts with previously saved state
+					      
+//		module_err("Total instructions retired = %llu", after_counter - before_counter);
 	
 		measure(&current_input->measurement);
+
 	}
 
 }

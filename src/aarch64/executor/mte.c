@@ -50,3 +50,12 @@ uint8_t disable_TCMA1_bit(void) {
 	return set_TCMA1_bit(0);
 }
 
+void enable_mte_tag_checking(void) {
+	unsigned long sctlr = read_sysreg(sctlr_el1);
+
+	if(SCTLR_ELx_TCF_SYNC != (sctlr & SCTLR_ELx_TCF_MASK)) {
+		module_err("Resetting MTE to SYNC mode");
+		sysreg_clear_set(sctlr_el1, SCTLR_ELx_TCF_MASK, SCTLR_ELx_TCF_SYNC);
+		isb();
+	}
+}

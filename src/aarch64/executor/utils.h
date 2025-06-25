@@ -11,6 +11,10 @@
 #define PAGESIZE	(4UL * (KB))
 
 // MACROS
+#define ALIGN_UP(x, align)   (((x) + ((align) - 1)) & ~((typeof(x))(align) - 1))
+//#define ALIGN_DOWN(x, align) ((x) & ~((typeof(x))(align) - 1))
+
+
 #define module_msg(printer_fn, format, ...)             printer_fn(kernel_module_name ": " format, ##__VA_ARGS__)
 #define module_emerg(format, ...)                       module_msg(pr_emerg, format, ##__VA_ARGS__)
 #define module_alert(format, ...)                       module_msg(pr_alert, format, ##__VA_ARGS__)
