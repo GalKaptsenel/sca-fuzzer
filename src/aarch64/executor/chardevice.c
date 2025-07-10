@@ -181,6 +181,11 @@ static size_t load_test_and_update_state(const char __user* test, size_t length)
 	return executor.test_case_length;
 }
 
+static int execute_result = 0;
+
+static void execute_on_target(void* unused) {
+	execute_result = execute();
+}
 
 static int trace(void) {
 	int full_test_case_size = 0;
@@ -198,9 +203,13 @@ static int trace(void) {
 
 	module_err("%u bytes were written into measurement memory!\n", full_test_case_size);
 
-	executor.state = TRACED_STATE;
+	int err = execute_on_pinned_cpu(executor.config.pinned_cpu_id, execute_on_target, NULL);
+	if(0 != err) {
+		module_err("Failed to execute on CPU %d (err: %d)\n", executor.config.pinned_cpu_id, err);
+	}
 
-	return execute();
+	executor.state = TRACED_STATE;
+	return execute_result;
 }
 
 static void get_test_length(void __user* arg) {

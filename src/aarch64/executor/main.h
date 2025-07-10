@@ -16,7 +16,11 @@
 #include <linux/cdev.h>
 #include <linux/uaccess.h>
 #include <linux/memory.h>
+#include <linux/smp.h>
+#include <linux/cpu.h>
+#include <linux/ctype.h>
 #include <asm/sysreg.h>
+#include <asm/cputype.h>
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0)
 #include <linux/set_memory.h>
@@ -33,6 +37,7 @@
 #include "chardevice.h"
 #include "executor.h"
 #include "mte.h"
+#include "cpu.h"
 
 #define DEBUG 0
 

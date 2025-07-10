@@ -8,6 +8,7 @@ static void init_executor_defaults(void) {
 	executor.config.enable_faulty_page = ENABLE_FAULTY_DEFAULT;
 	executor.config.pre_run_flush = PRE_RUN_FLUSH_DEFAULT;
 	executor.config.measurement_template = MEASUREMENT_TEMPLATE_DEFAULT;
+	executor.config.pinned_cpu_id = CPU_ID_DEFAULT;
 }
 
 /*

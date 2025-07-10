@@ -15,11 +15,12 @@ enum State {
 };
 
 // Executor Configuration Interface
-#define UARCH_RESET_ROUNDS_DEFAULT	    1
-#define ENABLE_FAULTY_DEFAULT		    0
-#define PRE_RUN_FLUSH_DEFAULT		    1
-#define NUMBER_OF_INPUTS_DEFAULT	    1
-#define MEASUREMENT_TEMPLATE_DEFAULT	(FLUSH_AND_RELOAD_TEMPLATE)
+#define UARCH_RESET_ROUNDS_DEFAULT	    	1
+#define ENABLE_FAULTY_DEFAULT		    	0
+#define PRE_RUN_FLUSH_DEFAULT		    	1
+#define NUMBER_OF_INPUTS_DEFAULT	    	1
+#define MEASUREMENT_TEMPLATE_DEFAULT		(FLUSH_AND_RELOAD_TEMPLATE)
+#define CPU_ID_DEFAULT				(-1)	
 #define REGION_DEFFAULT			        (TEST_REGION)
 
 #define MAX_TEST_CASE_SIZE              PAGESIZE
@@ -32,6 +33,7 @@ typedef struct executor_config {
 	char enable_faulty_page;
 	char pre_run_flush;
 	enum Templates measurement_template;
+	int pinned_cpu_id;
 } executor_config_t;
 
 typedef struct device_managment {
