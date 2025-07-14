@@ -170,6 +170,7 @@ class ExecutorBatch:
         self._inputs: List[str] = []
         self._tests: List[str] = []
         self._repeats: int = 1
+        self._output: Optional[str] = None
 
     def add_input(self, input_path: str):
         self._inputs.append(input_path)
@@ -185,23 +186,37 @@ class ExecutorBatch:
     def repeats(self, reps: int):
         self._repeats = reps
 
+    @property
+    def output(self):
+        return self._output
+
+    @output.setter
+    def output(self, filename: Optional[str]):
+        self._output = filename 
+
     def __str__(self):
         tests_header = "<tests>"
         inputs_header = "<inputs>"
         repeats_header = "<repeats>"
+        output_header = "<output>"
         tests = functools.reduce(lambda x, y: x + "\n" + y, self._tests, tests_header)
         inputs = functools.reduce(lambda x, y: x + "\n" + y, self._inputs, inputs_header)
         repeats = str(self._repeats) + "\n"
-        output = tests + "\n" + inputs + "\n" + repeats_header + "\n" + repeats
-        return output
+
+        config = tests + "\n" + inputs + "\n" + repeats_header + "\n" + repeats
+
+        if self._output is not None:
+            config += output_header + "\n" + self._output
+
+        return config 
 
 
 class UserlandExecutorImp:
     _RETRIES = 100
 
     def __init__(self, connection: Connection, userland_application_path: str,
-                 device_path: str, sys_executor_path: str, module_path: str):
-        self.remote_batch_file_path: Optional[str] = None
+                 device_path: str, sys_executor_path: str, module_path: str
+                 ):
         self.connection: Connection = connection
         self.userland_application_path: str = userland_application_path
         self.executor_device_path: str = device_path
@@ -224,12 +239,21 @@ class UserlandExecutorImp:
         self.checkout_region(TestCaseRegion())
         del self.contents 
 
-    def trace(self) -> Optional[str]:
+    def trace(self, executor_batch: Optional[ExecutorBatch] = None, remote_batch_file_path: Optional[str] = None ) -> Optional[str]:
 
-        if self.remote_batch_file_path is not None:
-            return self.connection.shell(
-            f'{self.userland_application_path} {self.executor_device_path} c {self.remote_batch_file_path}',
-            privileged=True)
+        if executor_batch is not None:
+            assert remote_batch_file_path is not None
+            self._upload_batch(executor_batch, remote_batch_file_path)
+            output = self.connection.shell(
+                    f'{self.userland_application_path} {self.executor_device_path} c {remote_batch_file_path}',
+                    privileged=True)
+
+            if executor_batch.output is not None:
+                with tempfile.NamedTemporaryFile(mode='w+') as tmp_file:
+                    self.connection.pull(executor_batch.output, tmp_file.name)
+                    tmp_file.seek(0)
+                    return tmp_file.read()
+
         else:
             self._query_executor(8)
 
@@ -333,17 +357,11 @@ class UserlandExecutorImp:
         base = self.connection.shell(f'cat {self.executor_sysfs}/print_code_base', privileged=True)
         return int(base, 16)
 
-    def upload_batch(self, executor_batch: ExecutorBatch, dest_path: Optional[str] = '/data/local/tmp/executor_batch'):
-        if self.remote_batch_file_path is not None:
-            self.connection.shell(f'rm {self.remote_batch_file_path}')
+    def _upload_batch(self, executor_batch: ExecutorBatch, remote_batch_file_path: str):
+        self.connection.shell(f'rm {remote_batch_file_path}')
 
-        if dest_path is not None:
-            with tempfile.NamedTemporaryFile(mode='w') as tmp_file:
-                tmp_file.write(str(executor_batch))
-                tmp_file.flush()
-                self.connection.push(tmp_file.name, dest_path)
-
-        self.remote_batch_file_path = dest_path
-
-
+        with tempfile.NamedTemporaryFile(mode='w') as tmp_file:
+            tmp_file.write(str(executor_batch))
+            tmp_file.flush()
+            self.connection.push(tmp_file.name, remote_batch_file_path)
 

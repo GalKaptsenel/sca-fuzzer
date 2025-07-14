@@ -1,5 +1,6 @@
 #include "executor_ioctl.h"
 #include "executor_utils.h"
+#include "trace_writer.h"
 
 unsigned long int_to_cmd[] = {
 	0,
@@ -297,7 +298,7 @@ struct pair {
 
 
 static void print_usage(const char *prog_name) {
-	printf("Usage: %s <device> <command [argument]|w file|r file> \n", prog_name);
+	printf("Usage: %s <device> <command [argument]|w file|r file| c batch_file> \n", prog_name);
 	printf("\t<device>  : Path to the device (e.g., /dev/revizor_device)\n");
 	printf("\t<command [arguemnt]|w file|r file> :\n");
 	printf("\t		- IOCTL command number (integer)\n");
@@ -306,9 +307,11 @@ static void print_usage(const char *prog_name) {
 	printf("\t			file: file with data to write to the device\n");
 	printf("\t		- r for reading from the device\n");
 	printf("\t			file: file to read device contents into\n");
+	printf("\t		- c for uploading a batch file\n");
+	printf("\t			btach_file: file containing the description of the batch\n");
 	printf("\tExample: %s /dev/revizor_device 3 0x100\n", prog_name);
-	printf("\tExample: %s /dev/revizor_device w /my/src/file/namr\n", prog_name);
-	printf("\tExample: %s /dev/revizor_device r /my/dst/file/namr\n", prog_name);
+	printf("\tExample: %s /dev/revizor_device w /my/src/file/name\n", prog_name);
+	printf("\tExample: %s /dev/revizor_device r /my/dst/file/name\n", prog_name);
 }
 
 static int read_device(int fd, char** buffer, size_t* size) {
@@ -414,14 +417,16 @@ static int handle_returned_uint64(int fd, int command, const char* prompt) {
 	return result;
 }
 
-static void print_bits64(uint64_t u) {
-	char str[66];
-	str[64] = 0;
+static void buffer_bits64(uint64_t u, char* buff) {
+	buff[64] = 0;
 	for (int i = 63; i >= 0; i--) {
-		str[i] = '0' + (u & 1);
+		buff[i] = '0' + (u & 1);
 		u >>= 1;
 	}
-
+}
+static void print_bits64(uint64_t u) {
+	char str[65] = { 0 };
+	buffer_bits64(u, str);
 	printf("%s", str);
 }
 
@@ -503,7 +508,7 @@ static int read_operation(int fd, const char* filename) {
 
 		printf("%zu bytes were loaded from device\n", file_size);
 
-		file_fd  = open(filename, O_WRONLY | O_CREAT);
+		file_fd  = open(filename, O_WRONLY | O_CREAT, 0644);
 
 		if (0 > file_fd) {
 			printf("Error opening file %s", filename);
@@ -632,34 +637,55 @@ static int serve_numerical_operation(int fd, int argc, char** argv) {
 	}
 
 	return err;
-
 }
 
-static int scenario_operation(int fd, const char* input_paths[], const unsigned int number_of_inputs, const char* test_paths[], const unsigned int number_of_tests, const unsigned int repeats) {
+static int scenario_operation(int fd, 
+		const char* input_paths[], 
+		const unsigned int number_of_inputs, 
+		const char* test_paths[], 
+		const unsigned int number_of_tests, 
+		const unsigned int repeats, 
+		const char* output_filename) {
 
 	int result = 0;
-	uint64_t* batch = (int64_t*)malloc(sizeof(int64_t) * number_of_inputs);
+	int64_t* batch = (int64_t*)malloc(sizeof(int64_t) * number_of_inputs);
 
 	if(NULL == batch) {
 		result = -1;
 		goto T_return;
 	}
 
+	result = serve_numerical_command_without_argument(fd, REVISOR_CLEAR_ALL_INPUTS); 
+	if(0 >  result) {
+		goto T_free_batch;
+	}
 
-	struct measurement* measurements = (struct measurement*)malloc(sizeof(struct measurement) * (number_of_inputs * repeats));
-	if(NULL == measurements) {
+	uint64_t total_number_of_traces = number_of_inputs * number_of_tests * repeats;
+
+	struct trace_json* traces = (struct trace_json*)malloc(sizeof(struct trace_json) * total_number_of_traces);
+	if(NULL == traces) {
 		result = -2;
 		goto T_free_batch;
 	}
 
+	for(unsigned int i = 0; i < total_number_of_traces; ++i) {
+		init_trace_json(traces + i);
+		traces[i].order = i;
+	}
+
+	cJSON** cjsons= (cJSON**)calloc(total_number_of_traces, sizeof(cJSON*));
+	if(NULL == cjsons) {
+		result = -3;
+		goto T_free_traces;
+	}
 
 	for(unsigned int i = 0; i < number_of_inputs; ++i) {
 		ioctl(fd, REVISOR_ALLOCATE_INPUT, batch + i);
-		//printf("Input at index %u got id %lu\n", i, batch[i]);
 		if(0 >  batch[i]) {
-			result = -3;
+			result = -4;
 			goto T_clear_all_inputs;
 		}
+
 	}
 
 	for(unsigned int i = 0; i < number_of_inputs; ++i) {
@@ -671,6 +697,11 @@ static int scenario_operation(int fd, const char* input_paths[], const unsigned 
 		result = write_operation(fd, input_paths[i]);
 		if(EXIT_FAILURE == result) {
 			goto T_clear_all_inputs;
+		}
+
+		for(unsigned int j = 0; j < number_of_tests*repeats; ++j) {
+			traces[i + j*number_of_inputs].iid = batch[i];
+			traces[i + j*number_of_inputs].input_name = input_paths[i];
 		}
 	}
 
@@ -694,26 +725,62 @@ static int scenario_operation(int fd, const char* input_paths[], const unsigned 
 			}
 
 			for(unsigned int k = 0; k < number_of_inputs; ++k) {
+
+				uint64_t index = (number_of_inputs*number_of_tests)*i + number_of_inputs*j + k;
+				traces[index].test_name = test_paths[j];
+
 				result = serve_numerical_command_with_argument(fd, REVISOR_CHECKOUT_INPUT, batch[k]); 
 				if(0 >  result) {
 					goto T_unload_test_case;
 				}
-				result = serve_numerical_command_without_argument(fd, REVISOR_MEASUREMENT);
+
+				measurement_t measurement = { 0 };
+				result = ioctl(fd, REVISOR_MEASUREMENT, &measurement);
 				if(0 >  result) {
 					goto T_unload_test_case;
 				}
 
+				for(unsigned int t = 0; t < HTRACE_WIDTH; ++t) {
+					buffer_bits64(measurement.htrace[t], traces[index].hwtraces[t]);
+				}
 				
+				for(unsigned int t = 0; t < NUM_PFC; ++t) {
+					traces[index].pfcs[t] = measurement.pfc[t];
+				}
+
+				for(unsigned int t = 0; t < WIDTH_MEMORY_IDS; ++t) {
+					buffer_bits64(measurement.memory_ids_bitmap[t], traces[index].memory_ids_bitmap[t]);
+				}
+
+				cjsons[index] = build_trace_json(traces + index);
+				if(NULL == cjsons[index]) {
+					result = -5;
+					goto T_unload_test_case;
+				}
 			}
 		}
 	}
 
+	if(NULL != output_filename) {
+		if(0 > dump_jsons(output_filename, (const cJSON**)cjsons, total_number_of_traces)) {
+			result = -6;
+		}
+	}
+
+	for(uint64_t i = 0; i < total_number_of_traces; ++i) {
+		cJSON_Delete(cjsons[i]);
+	}
 	
 T_unload_test_case:
 	serve_numerical_command_without_argument(fd, REVISOR_UNLOAD_TEST);
 T_clear_all_inputs:
 	serve_numerical_command_without_argument(fd, REVISOR_CLEAR_ALL_INPUTS);
-	free(measurements);
+	free(cjsons);
+T_free_traces:
+	for(unsigned int i = 0; i < total_number_of_traces; ++i) {
+		release_trace_json(traces + i);
+	}
+	free(traces);
 T_free_batch:
 	free(batch);
 T_return:
@@ -738,6 +805,8 @@ static bool is_blank_line(const char* line) {
 
 static char** read_section_lines(const char* configuration_path, const char* section_name, unsigned int* line_count) {
 
+	char** lines = NULL;
+
 	if(NULL == configuration_path || NULL == section_name) return NULL;
 
 	FILE* file = fopen(configuration_path, "r");
@@ -746,7 +815,7 @@ static char** read_section_lines(const char* configuration_path, const char* sec
 		goto read_section_return;
 	}
 
-	if(MAX_LINE_LENGTH - 2 < strlen(section_name)) {
+	if(MAX_LINE_LENGTH - 3 < strlen(section_name)) {
 		// Section name must start and end with '<' and '>' symbols
 		fprintf(stderr, "section_name must be at length at most: %u", MAX_LINE_LENGTH - 2);
 		goto read_section_fclose;
@@ -760,7 +829,7 @@ static char** read_section_lines(const char* configuration_path, const char* sec
 	unsigned int count = 0;
 	bool is_section = false;
 
-	char** lines = (char**)malloc(sizeof(char*) * capacity);
+	lines = (char**)malloc(sizeof(char*) * capacity);
 	if(NULL == lines) {
 		perror("Failed to alocate memory for lines");
 		goto read_section_fclose;
@@ -847,18 +916,30 @@ static int configurable_operation(int fd, const char* configuration) {
 		goto configurable_operation_free_tests;
 	}
 
-	unsigned int repeats = 1;
+	int repeats = 1;
 	if(0 < repeats_count) {
 		repeats = atoi(repeats_strings[0]);
 		if(repeats < 0) {
 			err = EXIT_FAILURE;
-			goto configurable_operation_free_repeats;;
-
+			goto configurable_operation_free_repeats;
 		}
 	}
 
-	err = scenario_operation(fd, input_paths, input_count, test_paths, test_count, repeats);
+	unsigned int output_filename_count = 0;
+	const char** output_paths = (const char**)read_section_lines(configuration, "output", &output_filename_count);
+	if(NULL == output_paths) {
+		err = EXIT_FAILURE;
+		goto configurable_operation_free_repeats;
+	}
 
+	const char* output_filename = NULL;
+	if(0 < output_filename_count) {
+		output_filename = output_paths[0];
+	}
+
+	err = scenario_operation(fd, input_paths, input_count, test_paths, test_count, (unsigned int)repeats, output_filename);
+
+	free(output_paths);
 configurable_operation_free_repeats:
 	free(repeats_strings);
 configurable_operation_free_tests:

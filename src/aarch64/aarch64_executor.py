@@ -10,10 +10,11 @@ import copy
 import subprocess
 import os.path
 import os
+import json
 
 import numpy as np
 from typing import List, Tuple, Set, Generator, Optional, Any, Dict
-
+from collections import defaultdict
 from .aarch64_generator import Aarch64TagMemoryAccesses, Aarch64Printer, Aarch64MarkMemoryAccesses
 from .. import ConfigurableGenerator
 from ..interfaces import HTrace, Input, TestCase, Executor, HardwareTracingError
@@ -310,10 +311,10 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         self.connection = connection
         super().__init__(*args)
         self.test_case: Optional[TestCase] = None
-        self.tmpdir = '/data/local/tmp'
+        self.tmpdir = '/data/local/tmp/revizor'
         self.userland_executor = UserlandExecutorImp(connection, f'{self.tmpdir}/executor_userland',
                                                      '/dev/executor', '/sys/executor',
-                                                     f'{self.tmpdir}/revizor-executor.ko'
+                                                     f'{self.tmpdir}/revizor-executor.ko',
                                                      )
         if self.target_desc.cpu_desc.vendor.lower() != "arm":  # Technically ARM currently does not produce ARM processors, and other vendors do produce ARM processors
             self.LOG.error(
@@ -343,7 +344,7 @@ class Aarch64RemoteExecutor(Aarch64Executor):
 
         Aarch64RemoteExecutor._assemble_local_test_case(patched_test_case, 'generated_retrieve_bitmap')
 
-        remote_testcase_name = self._write_test_case_remotely(patched_test_case)
+        remote_testcase_name = self._write_test_case_remotely(patched_test_case.bin_path)
         self._load__and_remove_remote_test_case(remote_testcase_name)
 
         os.remove(patched_test_case.bin_path)
@@ -355,9 +356,9 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         for p in passes:
             p.run_on_test_case(test_case)
 
-    def _write_test_case_remotely(self, test_case: TestCase):
-        remote_filename = f'{self.tmpdir}/remote_{test_case.bin_path}'
-        self.connection.push(test_case.bin_path, remote_filename)
+    def _write_test_case_remotely(self, test_case_bin_path: str):
+        remote_filename = f'{self.tmpdir}/remote_{test_case_bin_path}'
+        self.connection.push(test_case_bin_path, remote_filename)
         return remote_filename
 
 
@@ -378,27 +379,38 @@ class Aarch64RemoteExecutor(Aarch64Executor):
 
     def _write_test_with_correct_tags(self) -> Tuple[str, TestCase]:
         patched_test_case = copy.deepcopy(self.test_case)
+        #os.remove(patched_test_case.bin_path)
+        #os.remove(patched_test_case.asm_path)
+        #os.remove(patched_test_case.obj_path)
         tagging_pass = Aarch64TagMemoryAccesses(memory_accesses_to_guess_tag=None)
         Aarch64RemoteExecutor._pass_on_test_case(patched_test_case, [tagging_pass])
 
-        Aarch64RemoteExecutor._assemble_local_test_case(patched_test_case, 'generated_correct_tags')
+        local_filename = 'generated_correct_tags'
+        Aarch64RemoteExecutor._assemble_local_test_case(patched_test_case, local_filename)
+        remote_filename = self._write_test_case_remotely(patched_test_case.bin_path)
+        os.remove(patched_test_case.bin_path)
+        #os.remove(patched_test_case.asm_path)
+        os.remove(patched_test_case.obj_path)
+        return remote_filename, patched_test_case
 
-        return self._write_test_case_remotely(patched_test_case), patched_test_case 
-
-    def _write_test_with_incorrect_tags(self, iid: int, memory_accesses_to_guess_tag: List[int]) -> Tuple[str, TestCase]:
+    def _write_test_with_incorrect_tags(self, filename_suffix: str, memory_accesses_to_guess_tag: List[int]) -> Tuple[str, TestCase]:
         patched_test_case = copy.deepcopy(self.test_case)
         tagging_pass = Aarch64TagMemoryAccesses(
             memory_accesses_to_guess_tag=memory_accesses_to_guess_tag)
         Aarch64RemoteExecutor._pass_on_test_case(patched_test_case, [tagging_pass])
 
-        Aarch64RemoteExecutor._assemble_local_test_case(patched_test_case, f'generated_patched_iid_{iid}')
-
-        return self._write_test_case_remotely(patched_test_case), patched_test_case
+        local_filename = f'generated_patched_{filename_suffix}'
+        Aarch64RemoteExecutor._assemble_local_test_case(patched_test_case, local_filename)
+        remote_filename = self._write_test_case_remotely(patched_test_case.bin_path)
+        os.remove(patched_test_case.bin_path)
+        #os.remove(patched_test_case.asm_path)
+        os.remove(patched_test_case.obj_path)
+        return remote_filename, patched_test_case
 
     def _write_test_case(self, test_case: TestCase) -> None:
         self.test_case = test_case
 
-    def _create_remote_files_for_inputs(self, inputs: List[Input]):
+    def _upload_inputs(self, inputs: List[Input]):
         remote_filenames = []
         for idx, inp in enumerate(inputs):
             inpname = f"input{idx}.bin"
@@ -412,7 +424,7 @@ class Aarch64RemoteExecutor(Aarch64Executor):
     def _write_inputs_to_connection(self, inputs: List[Input], n_reps: int) -> Tuple[
         np.ndarray[int, int], List[str]]:
         array: np.ndarray[int, int] = np.zeros((len(inputs), n_reps), dtype=np.uint64)
-        remote_filenames = self._create_remote_files_for_inputs(inputs)
+        remote_filenames = self._upload_inputs(inputs)
 
         for col in range(n_reps):
             for row, fname in enumerate(remote_filenames):
@@ -422,7 +434,7 @@ class Aarch64RemoteExecutor(Aarch64Executor):
 
         return array, remote_filenames
 
-    def _measure_architecturaly_accessed_memory_addresses(self, remote_input_filenames: List[str]) -> Dict[int, str]:
+    def _measure_architecturaly_accessed_memory_addresses(self, remote_input_filenames: List[str]) -> Dict[str, str]:
 
         all_architectural_memory_accesses = {}
         iids: np.ndarray[int] = np.zeros((len(remote_input_filenames)), dtype=np.uint64)
@@ -436,15 +448,15 @@ class Aarch64RemoteExecutor(Aarch64Executor):
 
         self.userland_executor.trace()
 
-        for iid in iids:
+        for iid, remote_input_filename in zip(iids, remote_input_filenames):
             self.userland_executor.checkout_region(InputRegion(iid))
-            all_architectural_memory_accesses[iid] = self.userland_executor.hardware_measurement().memory_ids
+            all_architectural_memory_accesses[remote_input_filename] = self.userland_executor.hardware_measurement().memory_ids
 
         self.userland_executor.discard_all_inputs()
 
         return all_architectural_memory_accesses
  
-    def _measure_architecturaly_not_accessed_memory_addresses(self, remote_input_filenames: List[str]) -> Dict[int, List[int]]:
+    def _measure_architecturaly_not_accessed_memory_addresses(self, remote_input_filenames: List[str]) -> Dict[str, List[int]]:
 
         def parse_bitmap(n: str, bit: int) -> List[int]:
             result = []
@@ -454,26 +466,25 @@ class Aarch64RemoteExecutor(Aarch64Executor):
             return result
 
         all_not_architectural_memory_accesses: Dict[int, List[int]] = {}
-        for iid, measurement in self._measure_architecturaly_accessed_memory_addresses(remote_input_filenames).items():
-            all_not_architectural_memory_accesses[iid]: List[int] = \
+        for remote_filename, measurement in self._measure_architecturaly_accessed_memory_addresses(remote_input_filenames).items():
+            all_not_architectural_memory_accesses[remote_filename]: List[int] = \
                 parse_bitmap(measurement, bit=0)
 
         return all_not_architectural_memory_accesses
 
-    def _create_tests_with_incorrect_tags(self, remote_input_filenames: List[str]) -> Tuple[Dict[int, str], Dict[int, TestCase]]:
+    def _create_tests_with_incorrect_tags(self, remote_input_filenames: List[str]) -> Dict[str, Tuple[str, TestCase]]:
 
-        all_tc_incorrect_tags: Dict[int, TestCase] = {}
-        all_filename_incorrect_tags: Dict[int, str] = {}
+        pair_filename_tc_incorrect_tags: Dict[str, Tuple[str, TestCase]] = {}
 
         all_not_architectural_memory_accesses = self._measure_architecturaly_not_accessed_memory_addresses(remote_input_filenames)
 
-        for iid, measurement in all_not_architectural_memory_accesses.items() :
-            all_filename_incorrect_tags[iid], all_tc_incorrect_tags[iid] = self._write_test_with_incorrect_tags(
-                iid, measurement)
+        for remote_input_filename, measurement in all_not_architectural_memory_accesses.items() :
+            pair_filename_tc_incorrect_tags[remote_input_filename] = self._write_test_with_incorrect_tags(
+                remote_input_filename.rstrip('/').split('/')[-1], measurement)
 
-        return all_filename_incorrect_tags, all_tc_incorrect_tags
+        return pair_filename_tc_incorrect_tags
 
-    def _create_scenario_batch(self, remote_input_filenames: List[str], test_cases: List[str], repeats: int) -> ExecutorBatch:
+    def _create_scenario_batch(self, remote_input_filenames: List[str], test_cases: List[str], repeats: int, output: Optional[str] = None) -> ExecutorBatch:
         executor_batch = ExecutorBatch()
 
         executor_batch.repeats = repeats
@@ -483,6 +494,9 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         
         for tc in test_cases:
             executor_batch.add_test(tc)
+
+        if output is not None:
+            executor_batch.output = output
 
         return executor_batch
  
@@ -515,72 +529,99 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         n_inputs = len(inputs)
         STAT.executor_reruns += n_reps * n_inputs
 
-        remote_input_filenames = self._create_remote_files_for_inputs(inputs)
-        remote_tc_filename_correct_tags, remote_tc_correct_tags = self._write_test_with_correct_tags()
-        remote_tc_filenames_incorrect_tags, remote_tc_incorrect_tags = self._create_tests_with_incorrect_tags(remote_input_filenames)
-        scenario_batch: ExecutorBatch = self._create_scenario_batch(remote_input_filenames, [remote_tc_filename_correct_tags] + list(remote_tc_filenames_incorrect_tags.values()), n_reps)
-        self.userland_executor.upload_batch(scenario_batch)
-        output = self.userland_executor.trace()
-        print(output)
-        a = 1 / 0
-        all_correct_tags_traces: np.ndarray = np.ndarray(shape=(n_inputs, n_reps), dtype=np.uint64)
-        all_incorrect_tags_traces: np.ndarray = np.ndarray(shape=(n_inputs, n_reps), dtype=np.uint64)
-        all_correct_tags_pfc: np.ndarray = np.ndarray(shape=(n_inputs, n_reps, 3), dtype=np.uint64)
-        all_incorrect_tags_pfc: np.ndarray = np.ndarray(shape=(n_inputs, n_reps, 3), dtype=np.uint64)
-        all_tc_incorrect_tags: np.ndarray = np.ndarray(shape=(n_inputs,), dtype=TestCase)
+        
+        def extract_json_objects(blob):
+            objs = []
+            brace_level = 0
+            start_idx = None
+        
+            for i, char in enumerate(blob):
+                if char == '{':
+                    if brace_level == 0:
+                        start_idx = i
+                    brace_level += 1
+                elif char == '}':
+                    brace_level -= 1
+                    if brace_level == 0 and start_idx is not None:
+                        obj_str = blob[start_idx:i + 1]
+                        objs.append(json.loads(obj_str))
+                        start_idx = None  # reset
+        
+            return objs
 
 
-        for iid in range(iids.shape[0]):
-            hwmeasurements = _measure_input(iid, iids)
-            all_correct_tags_traces[iid, :] = np.array([m.htrace for m in hwmeasurements])
-            all_correct_tags_pfc[iid, :, :] = np.array([m.pfcs for m in hwmeasurements])
 
-        for iid in range(iids.shape[0]):
-            all_tc_incorrect_tags[iid] = self._write_test_with_incorrect_tags(
-                iid, all_not_architectural_memory_accesses[iid])
-            self.userland_executor.trace()
+        remote_output_filename = f"{self.tmpdir}/remote_tmp_output"
+        remote_batch_filename = f'{self.tmpdir}/executor_batch'
 
-            hwmeasurements = _measure_input(iid, iids)
-            all_incorrect_tags_traces[iid, :] = np.array([m.htrace for m in hwmeasurements])
-            all_incorrect_tags_pfc[iid, :, :] = np.array([m.pfcs for m in hwmeasurements])
+        remote_input_filenames = self._upload_inputs(inputs)
+        remote_filename_correct_tags, tc_correct_tags  = self._write_test_with_correct_tags()
+        remote_pair_filenames_tcs_incorrect_tags = self._create_tests_with_incorrect_tags(remote_input_filenames)
+        remote_filenames_incorrect_tags = { k: v[0] for k,v in remote_pair_filenames_tcs_incorrect_tags.items() }
+        tcs_incorrect_tags = { k: v[1] for k,v in remote_pair_filenames_tcs_incorrect_tags.items() }
 
+        scenario_batch: ExecutorBatch = self._create_scenario_batch(remote_input_filenames, [remote_filename_correct_tags] + list(remote_filenames_incorrect_tags.values()), n_reps, remote_output_filename)
+        output = self.userland_executor.trace(scenario_batch, remote_batch_filename)
+
+        jsons = extract_json_objects(output)
+        
+        correct_traces_by_input = defaultdict(list)
+        incorrect_traces_by_input = defaultdict(list)
+        correct_pfcs_by_input = defaultdict(list)
+        incorrect_pfcs_by_input = defaultdict(list)
+
+        for js in jsons:
+            input_name = js['input_name']
+            test_name = js['test_name']
+
+            trace = int(js['htraces'][0], 2)
+            pfcs = tuple(js['pfcs'])
+
+            if test_name == remote_filename_correct_tags:
+                correct_traces_by_input[input_name].append(trace)
+                correct_pfcs_by_input[input_name].append(pfcs)
+            elif test_name == remote_filenames_incorrect_tags.get(input_name, None):
+                incorrect_traces_by_input[input_name].append(trace)
+                incorrect_pfcs_by_input[input_name].append(pfcs)
+
+        remote_filenames = list(remote_filenames_incorrect_tags.values()) + remote_input_filenames + [remote_output_filename, remote_filename_correct_tags, remote_batch_filename] 
         for filename in remote_filenames:
-            self.connection.shell(f'rm {filename}')
+            self.connection.shell(f'rm {filename}', privileged=True)
 
-        self.LOG.dbg_executor_raw_traces(all_correct_tags_traces, all_correct_tags_pfc)
-        self.LOG.dbg_executor_raw_traces(all_incorrect_tags_traces, all_incorrect_tags_pfc)
+        self.LOG.dbg_executor_raw_traces(correct_traces_by_input, correct_pfcs_by_input)
+        self.LOG.dbg_executor_raw_traces(incorrect_traces_by_input, incorrect_pfcs_by_input)
 
-        # Post-process the results and check for errors
-        if not self.mismatch_check_mode:  # no need to post-process in mismatch check mode
-            mask = np.uint64(0x0FFFFFFFFFFFFFF0)
-            for input_id in range(n_inputs):
-                for rep_id in range(n_reps):
-                    # Zero-out traces for ignored inputs
-                    if input_id in self.ignore_list:
-                        all_correct_tags_traces[input_id][rep_id] = 0
-                        all_incorrect_tags_traces[input_id][rep_id] = 0
-                        continue
-
-                    # When using TSC mode, we need to mask the lower 4 bits of the trace
-                    if CONF.executor_mode == 'TSC':
-                        all_correct_tags_traces[input_id][rep_id] &= mask
-                        all_incorrect_tags_traces[input_id][rep_id] &= mask
+#        # Post-process the results and check for errors
+#        if not self.mismatch_check_mode:  # no need to post-process in mismatch check mode
+#            mask = np.uint64(0x0FFFFFFFFFFFFFF0)
+#            for input_id in range(n_inputs):
+#                for rep_id in range(n_reps):
+#                    # Zero-out traces for ignored inputs
+#                    if input_id in self.ignore_list:
+#                        all_correct_tags_traces[input_id][rep_id] = 0
+#                        all_incorrect_tags_traces[input_id][rep_id] = 0
+#                        continue
+#
+#                    # When using TSC mode, we need to mask the lower 4 bits of the trace
+#                    if CONF.executor_mode == 'TSC':
+#                        all_correct_tags_traces[input_id][rep_id] &= mask
+#                        all_incorrect_tags_traces[input_id][rep_id] &= mask
 
         # Aggregate measurements into HTrace objects
         traces = []
-        for input_row in range(n_inputs):
-            trace_list_correct_tags = list(all_correct_tags_traces[input_row])
-            perf_counters_correct_tags = all_correct_tags_pfc[input_row]
-            trace_list_incorrect_tags = list(all_incorrect_tags_traces[input_row])
-            perf_counters_incorrect_tags = all_incorrect_tags_pfc[input_row]
-            traces.append((
-                (tc_correct_tags,
-                 HTrace(trace_list=trace_list_correct_tags,
-                       perf_counters=perf_counters_correct_tags)),
-                (all_tc_incorrect_tags[input_row],
-                 HTrace(trace_list=trace_list_incorrect_tags,
-                       perf_counters=perf_counters_incorrect_tags))
-            ))
+        for remote_input_filename in remote_input_filenames:
 
+            trace_correct = correct_traces_by_input[remote_input_filename]
+            pfcs_correct = correct_pfcs_by_input[remote_input_filename]
+            trace_incorrect = incorrect_traces_by_input[remote_input_filename]
+            pfcs_incorrect = incorrect_pfcs_by_input[remote_input_filename]
 
+            traces.append(
+                    (
+                        (tc_correct_tags, HTrace(trace_list=trace_correct, perf_counters=pfcs_correct)),
+                        (tcs_incorrect_tags[remote_input_filename], HTrace(trace_list=trace_incorrect, perf_counters=pfcs_incorrect))
+                    )
+                )
+                
         return traces
+

@@ -126,11 +126,6 @@ class FuzzerGeneric(Fuzzer):
     def _start(self, num_test_cases: int, num_inputs: int, timeout: int, nonstop: bool,
                save_violations: bool) -> bool:
 
-        def _remove_test_case_files(test_case: TestCase):
-            os.remove(test_case.asm_path)
-            os.remove(test_case.bin_path)
-            os.remove(test_case.obj_path)
-
         start_time = datetime.today()
         self.LOG.fuzzer_start(num_test_cases, start_time)
         htraces: List[Tuple[Tuple[TestCase, Measurement], Tuple[TestCase, Measurement]]] = []
@@ -189,12 +184,13 @@ class FuzzerGeneric(Fuzzer):
                 STAT.violations += 1
                 if not nonstop:
                     break
-
-        for (_, _), (tc_incorrect_tags, _) in htraces:
-            _remove_test_case_files(tc_incorrect_tags)
-
-        if htraces:
-            _remove_test_case_files(htraces[0][0][0])
+#        os.remove(test_case.asm_path)
+        tcs_paths = [test_case.bin_path, test_case.obj_path, test_case.asm_path]
+        for ht in htraces:
+            tcs_paths.append(ht[0][0].asm_path)
+            tcs_paths.append(ht[1][0].asm_path)
+        for tc_path in set(tcs_paths):
+            os.remove(tc_path)
 
         self.LOG.fuzzer_finish()
 
