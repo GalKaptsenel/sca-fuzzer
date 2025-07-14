@@ -549,8 +549,6 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         
             return objs
 
-
-
         remote_output_filename = f"{self.tmpdir}/remote_tmp_output"
         remote_batch_filename = f'{self.tmpdir}/executor_batch'
 
