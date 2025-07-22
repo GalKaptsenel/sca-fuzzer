@@ -210,6 +210,17 @@ static void __nocfi run_experiments(void) {
 //		module_err("Total instructions retired = %llu", after_counter - before_counter);
 	
 		measure(&current_input->measurement);
+		module_err("htrace: %llu", current_input->measurement.htrace[0]);
+		char[65] buff = { 0 };
+		for(int i = 0; i < 63; ++i) {
+			buff[63-i] = (current_input->measurement.htrace[0] & ((uint64_t)1 << i)) ? '1' : '0';
+		}
+		buff[64] = 0;
+
+		module_err("htrace: %s", buff);
+		module_err("pfc[0]: %llu", current_input->measurement.pfc[0]);
+		module_err("pfc[1]: %llu", current_input->measurement.pfc[1]);
+		module_err("pfc[2]: %llu", current_input->measurement.pfc[2]);
 
 	}
 

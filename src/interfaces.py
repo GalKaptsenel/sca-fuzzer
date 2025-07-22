@@ -478,6 +478,7 @@ class Instruction:
         if self.has_memory_access:
             self.memory_access_id = Instruction.memory_access_instruction_counter
             Instruction.memory_access_instruction_counter += 1
+            Instruction.memory_access_instruction_counter %= 128 # access id must be between 0 to 127
 
 
     @classmethod

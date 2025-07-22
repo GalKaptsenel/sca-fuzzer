@@ -187,7 +187,7 @@ class Conf:
     executor_warmups: int = 5
     """ executor_warmups: number of warmup rounds executed before starting to collect
     hardware traces """
-    executor_sample_sizes: List[int] = [500, 50, 100, 500]
+    executor_sample_sizes: List[int] = [50, 100, 500]
     """ executor_sample_sizes: a list of sample sizes to be used during the measurements;
     the executor will first collect the hardware traces with the first sample size in the list,
     and if a violation is detected, it will try to reproduce it with all the following
@@ -202,7 +202,8 @@ class Conf:
 
     # ==============================================================================================
     # Analyser
-    analyser: str = 'chi2'
+
+    analyser: str = 'ansamble' # 'chi2_bitwise_threshold'  #'chi2'#'chi2_bitwise_pvalues'
     """ analyser: type of the analyser """
     analyser_subsets_is_violation: bool = False
     """ analyser_subsets_is_violation: [only for analyser='sets' or analyser='bitmaps']

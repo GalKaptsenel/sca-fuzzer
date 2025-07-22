@@ -149,6 +149,11 @@ class Aarch64TagMemoryAccesses(Pass):
                             tag_register_instruction.template = f"MOV {{{x7_register.name}}}, {{{imm_op.name}}}"
                             bb.insert_before(position=inst ,inst=tag_register_instruction)
 
+
+                            ubfx_instruction = Instruction("UBFX", True).add_op(base_operand).add_op(base_operand)
+                            ubfx_instruction.template = f"UBFX {{{base_operand.name}}}, {{{base_operand.name}}}, #0, #56"
+                            bb.insert_before(position=inst ,inst=ubfx_instruction)
+
                             set_tag_register_instruction = Instruction("ORR", True).add_op(base_operand).add_op(base_operand).add_op(x7_register)
                             set_tag_register_instruction.template = f"ORR {{{base_operand.name}}}, {{{base_operand.name}}}, {{{x7_register.name}}}, LSL 56"
                             bb.insert_before(position=inst ,inst=set_tag_register_instruction)

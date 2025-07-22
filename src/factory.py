@@ -75,6 +75,9 @@ ANALYSERS: Dict[str, Type[interfaces.Analyser]] = {
     'sets': analyser.SetAnalyser,
     'mwu': analyser.MWUAnalyser,
     'chi2': analyser.ChiSquaredAnalyser,
+    'chi2_bitwise_pvalues': analyser.ChiSquaredBitwisePValueAnalyser,
+    'chi2_bitwise_threshold': analyser.ChiSquaredBitwiseThresholdAnalyser,
+    'ansamble': analyser.AnsambleAnalyser,
 }
 
 MINIMIZERS: Dict[str, Type[interfaces.Minimizer]] = {

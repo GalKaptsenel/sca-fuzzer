@@ -579,7 +579,7 @@ static int serve_numerical_command_with_argument(int fd, int command, uint64_t a
 
 	int result = 0;
 
-	printf("Argument: 0x%lx\n", argument);
+//	printf("Argument: 0x%lx\n", argument);
 	switch(_IOC_NR(command)) {
 		case REVISOR_CHECKOUT_INPUT_CONSTANT:
 		case REVISOR_FREE_INPUT_CONSTANT:
