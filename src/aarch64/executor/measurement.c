@@ -23,7 +23,7 @@ static int config_pfc(void) {
 
     // select events:
     // 1. L1D cache refills (0x3)
-    asm volatile("msr pmevtyper0_el0, %0" :: "r" ((uint64_t)(filter_events | 0x3)));
+    asm volatile("msr pmevtyper0_el0, %0" :: "r" ((uint64_t)(filter_events | 0x03)));
     asm volatile("isb\n");
 
     // 2. Instructions retired (0x08)
@@ -150,6 +150,40 @@ static void measure(measurement_t* measurement) {
 	memcpy(measurement, &executor.sandbox.latest_measurement, sizeof(measurement_t));
 }
 
+void flush_l1d_cache(void) {
+	uint64_t clidr = 0, ccsidr = 0;
+	uint32_t line_size = 0, assoc = 0, num_sets = 0;
+
+	asm volatile("mrs %0, CLIDR_EL1" : "=r"(clidr) :: "memory");
+
+	for(int level = 0; level < 7; ++level) {
+		int ctype = (clidr >> (level * 3)) & 0b111;
+		if(ctype < 2) {
+			// no data/unified cache at this level
+			continue;
+		}
+
+		write_sysreg(level << 1, csselr_el1);
+		isb();
+
+		ccsidr = read_sysreg(ccsidr_el1);
+		line_size = (ccsidr & 0b111) + 4; // log2(words per line) + 2 for bytes: 2^line_size is the size of the line in bytes
+		assoc = ((ccsidr >> 3) & 0x3FF) + 1; // ways
+		num_sets = ((ccsidr >> 13) & 0x7FFF) + 1; // sets
+
+		for(int way = 0; way < assoc; ++way) {
+			for(int set = 0; set < num_sets; ++set) {
+				uint64_t sw = (way << (32 - __builtin_clz(assoc - 1))) | (set << line_size);
+				asm volatile("dc cisw, %0" :: "r"(sw) : "memory");
+			}
+		}
+	}
+
+	dsb(ish);
+	isb();
+}
+
+
 static void __nocfi run_experiments(void) {
 	int64_t rounds = (int64_t)executor.number_of_inputs;
 	unsigned long flags = 0;
@@ -166,6 +200,13 @@ static void __nocfi run_experiments(void) {
 
 	// Zero-initialize the region of memory used by Prime+Probe
 	memset(executor.sandbox.eviction_region, 0, sizeof(executor.sandbox.eviction_region));
+
+	current->policy = SCHED_FIFO;
+	current->rt_priority = MAX_RT_PRIO - 1;
+	cpumask_t mask;
+	cpumask_clear(&mask);
+	cpumask_set_cpu(smp_processor_id(), &mask);
+	set_cpus_allowed_ptr(current, &mask);
 
 	for (int64_t i = -executor.config.uarch_reset_rounds; i < rounds; ++i) {
 
@@ -187,40 +228,37 @@ static void __nocfi run_experiments(void) {
 			// TBD
 		}
 
+
 		config_pfc();
 
 		raw_local_irq_save(flags); // disable local interrupts and save current state
 
-//		void* saved_stack_ptr = current->stack;
-//		current->stack = (void*)ALIGN_DOWN(((registers_t*)executor.sandbox.upper_overflow)->sp, THREAD_SIZE);
-
-//		u64 before_counter = read_inst_count();
+		flush_l1d_cache();
 
 		// execute
 		((void(*)(void*))executor.measurement_code)(&executor.sandbox);
 
-//		u64 after_counter = read_inst_count();
 
-//		current->stack = saved_stack_ptr;
-
-		enable_mte_tag_checking();
+		//enable_mte_tag_checking();
 
 		raw_local_irq_restore(flags); // enable local interrupts with previously saved state
-					      
-//		module_err("Total instructions retired = %llu", after_counter - before_counter);
-	
+//		udelay(5000);
+
 		measure(&current_input->measurement);
 		module_err("htrace: %llu", current_input->measurement.htrace[0]);
-		char[65] buff = { 0 };
-		for(int i = 0; i < 63; ++i) {
-			buff[63-i] = (current_input->measurement.htrace[0] & ((uint64_t)1 << i)) ? '1' : '0';
-		}
-		buff[64] = 0;
+		{
+			char buff[65] = { 0 };
+			for(int i = 0; i < 64; ++i) {
+				buff[63-i] = (current_input->measurement.htrace[0] & ((uint64_t)1 << i)) ? '1' : '0';
+			}
+			buff[64] = 0;
+	
+			module_err("htrace: %s", buff);
 
-		module_err("htrace: %s", buff);
-		module_err("pfc[0]: %llu", current_input->measurement.pfc[0]);
-		module_err("pfc[1]: %llu", current_input->measurement.pfc[1]);
-		module_err("pfc[2]: %llu", current_input->measurement.pfc[2]);
+			module_err("pfc[0]: %llu", current_input->measurement.pfc[0]);
+			module_err("pfc[1]: %llu", current_input->measurement.pfc[1]);
+			module_err("pfc[2]: %llu", current_input->measurement.pfc[2]);
+		}
 
 	}
 

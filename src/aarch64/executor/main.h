@@ -21,6 +21,10 @@
 #include <linux/ctype.h>
 #include <asm/sysreg.h>
 #include <asm/cputype.h>
+#include <asm/cacheflush.h>
+#include <linux/sched.h>
+#include <linux/delay.h>
+#include <linux/cpumask.h>
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0)
 #include <linux/set_memory.h>

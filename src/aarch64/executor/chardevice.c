@@ -171,12 +171,12 @@ static size_t load_test_and_update_state(const char __user* test, size_t length)
 	update_state_after_writing_test();
 
 	module_err("%u bytes were written into test case memory!\n", length);
-	{
-		size_t count= 0;
-		for(; count < executor.test_case_length; ++count) {
-			module_err("test: %px -> %lx", executor.test_case + count, ((char*)executor.test_case)[count]);
-		}
-	}
+	//{
+	//	size_t count= 0;
+	//	for(; count < executor.test_case_length; ++count) {
+	//		module_err("test: %px -> %lx", executor.test_case + count, ((char*)executor.test_case)[count]);
+	//	}
+	//}
 
 	return executor.test_case_length;
 }

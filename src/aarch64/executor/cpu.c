@@ -9,12 +9,13 @@ void get_cpu_info(void *info) {
 }
 
 int execute_on_pinned_cpu(int target_cpu, void (*fn)(void *), void *arg) {
-	bool should_put_cpu = false;
 	int result = 0;
-	
-	if (CPU_ID_DEFAULT  == target_cpu) {
-		target_cpu = get_cpu();
-		should_put_cpu = true;
+
+	if(smp_processor_id() == target_cpu) {
+		get_cpu();
+		fn(arg);
+		put_cpu();
+		return 0;
 	}
 
 	if (target_cpu < 0 || target_cpu >= nr_cpu_ids || !cpu_online(target_cpu)) {

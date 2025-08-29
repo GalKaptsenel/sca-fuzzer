@@ -316,7 +316,7 @@ inline void epilogue(void) {
 	"add "TMPBASE", "TMPBASE", #4096			\n"	\
 	"ldr xzr, ["TMPBASE", "OFFSET"]			\n"	\
 	"add "TMPBASE", "TMPBASE", #4096			\n"	\
-	"ldr xzr, ["TMPBASE", "OFFSET"]			\n"	\                                              \n" \
+	"ldr xzr, ["TMPBASE", "OFFSET"]			\n"	 \
 
 #else
 #error "Unexpected associativity"
@@ -417,7 +417,7 @@ inline void epilogue(void) {
     "	add "TMP", "BASE", "OFFSET"					                                        \n"	\
     										                                                    \
     "	isb; dsb SY							                                                \n"	\
-    "	dc ivac, "TMP"							                                            \n"	\
+    "	dc civac, "TMP"							                                            \n"	\
     "	isb; dsb SY							                                                \n"	\
     										                                                    \
     "	add "OFFSET", "OFFSET", #64					                                        \n"	\
@@ -435,13 +435,13 @@ inline void epilogue(void) {
 #define SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, LABEL_NUM)         \
         GET_NEXT_SET(OFFSET, OFFSETS)                                               \
     "   lsl "OFFSET", "OFFSET", #6                                              \n" \
-    "   mrs "ACC", pmevcntr3_el0                                                \n" \
+    "   mrs "ACC", pmevcntr3_el0						\n" \
                                                                                     \
     "   isb; dsb SY                                                             \n" \
     "   ldr xzr, ["BASE", "OFFSET"]                                             \n" \
     "   isb; dsb SY                                                             \n" \
                                                                                     \
-    "   mrs "TMP", pmevcntr3_el0                                                \n" \
+    "   mrs "TMP", pmevcntr3_el0						\n" \
     "   isb; dsb SY                                                             \n" \
     "   cmp "ACC", "TMP"                                                        \n" \
     "   b.ne _arm64_executor_reload_failed_"LABEL_NUM"                                \n" \
@@ -453,7 +453,7 @@ inline void epilogue(void) {
                                                                                     \
     "_arm64_executor_reload_failed_"LABEL_NUM":                                 \n" \
 
-#define SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, INIT_LABEL_NUM)                        \
+#define SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, INIT_LABEL_NUM)                          \
     SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 0))   \
     SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 1))   \
     SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 2))   \
@@ -507,6 +507,108 @@ inline void epilogue(void) {
     "movk "OFFSETS", #0x2521,	lsl #48 					\n" \
     SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 56)				\
    )
+
+#define FLUSH_VIRTUAL_COUNTER(BASE, OFFSET, TMP) asm volatile(""                                                \
+    "isb; dsb SY							                                                \n"	\
+    "eor "OFFSET", "OFFSET", "OFFSET"					                                    \n"	\
+    										                                                    \
+    "_arm64_executor_flush_virtual_counter_loop:					                                        \n"	\
+    "	add "TMP", "BASE", "OFFSET"					                                        \n"	\
+    										                                                    \
+    "	isb; dsb SY							                                                \n"	\
+    "	dc civac, "TMP"							                                            \n"	\
+    "	isb; dsb SY							                                                \n"	\
+    										                                                    \
+    "	add "OFFSET", "OFFSET", #64					                                        \n"	\
+    										                                                    \
+    "	mov "TMP", #%[main_region_size]				                                        \n"	\
+    "	cmp "TMP", "OFFSET"						                                            \n"	\
+    "	b.gt _arm64_executor_flush_virtual_counter_loop					                                    \n"	\
+    										                                                    \
+    "isb; dsb SY							                                                \n"	\
+	:									                                                        \
+	: [main_region_size] "i"(sizeof(executor.sandbox.main_region))			                    \
+	:									                                                        \
+)
+
+#define SETS_RELOAD_INNER_VIRTUAL_COUNTER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, LABEL_NUM)         \
+        GET_NEXT_SET(OFFSET, OFFSETS)                                               \
+    "   lsl "OFFSET", "OFFSET", #6                                              \n" \
+    "   mrs "ACC", pmevcntr2_el0						\n" \
+                                                                                    \
+    "   isb; dsb SY                                                             \n" \
+    "   ldr xzr, ["BASE", "OFFSET"]                                             \n" \
+    "   isb; dsb SY                                                             \n" \
+                                                                                    \
+    "   mrs "TMP", pmevcntr2_el0						\n" \
+    "   isb; dsb SY                                                             \n" \
+    "	sub "TMP", "TMP", "ACC"							\n" \
+    "   cmp "TMP", #75	                                                        \n" \
+    "   b.gt _arm64_executor_reload_virtual_failed_"LABEL_NUM"                                \n" \
+                                                                                    \
+    "   mov "TMP", #1								\n" \
+    "   lsr "OFFSET", "OFFSET", #6                                              \n" \
+    "   lsl "OFFSET", "TMP", "OFFSET"                                              \n" \
+    "   orr "DEST", "DEST", "OFFSET"                                                  \n" \
+                                                                                    \
+    "_arm64_executor_reload_virtual_failed_"LABEL_NUM":                                 \n" \
+
+
+#define SETS_RELOAD_VIRTUAL_COUNTER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, INIT_LABEL_NUM)                          \
+    SETS_RELOAD_INNER_VIRTUAL_COUNTER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 0))   \
+    SETS_RELOAD_INNER_VIRTUAL_COUNTER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 1))   \
+    SETS_RELOAD_INNER_VIRTUAL_COUNTER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 2))   \
+    SETS_RELOAD_INNER_VIRTUAL_COUNTER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 3))   \
+    SETS_RELOAD_INNER_VIRTUAL_COUNTER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 4))   \
+    SETS_RELOAD_INNER_VIRTUAL_COUNTER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 5))   \
+    SETS_RELOAD_INNER_VIRTUAL_COUNTER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 6))   \
+    SETS_RELOAD_INNER_VIRTUAL_COUNTER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 7))   \
+
+// clobber: -
+#define RELOAD_SCATTERED_VIRTUAL_COUNTER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST) asm volatile (""	\
+    "eor "DEST", "DEST", "DEST"								\n" \
+    "movz "OFFSETS", #0x3602							    \n" \
+    "movk "OFFSETS", #0x161B,	lsl #16						\n" \
+    "movk "OFFSETS", #0x2305,	lsl #32						\n" \
+    "movk "OFFSETS", #0x1930,	lsl #48						\n" \
+    SETS_RELOAD_VIRTUAL_COUNTER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 0)				\
+    "movz "OFFSETS", #0x082A								\n" \
+    "movk "OFFSETS", #0x0D3A,	lsl #16						\n" \
+    "movk "OFFSETS", #0x1F0A,	lsl #32						\n" \
+    "movk "OFFSETS", #0x243E,	lsl #48						\n" \
+    SETS_RELOAD_VIRTUAL_COUNTER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 8)				\
+    "movz "OFFSETS", #0x142E								\n" \
+    "movk "OFFSETS", #0x1E00,	lsl #16						\n" \
+    "movk "OFFSETS", #0x2C2B,	lsl #32						\n" \
+    "movk "OFFSETS", #0x340E,	lsl #48						\n" \
+    SETS_RELOAD_VIRTUAL_COUNTER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 16)				\
+    "movz "OFFSETS", #0x0710								\n" \
+    "movk "OFFSETS", #0x2906,	lsl #16						\n" \
+    "movk "OFFSETS", #0x3112,	lsl #32						\n" \
+    "movk "OFFSETS", #0x2D0C,	lsl #48						\n" \
+    SETS_RELOAD_VIRTUAL_COUNTER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 24)				\
+    "movz "OFFSETS", #0x2604								\n" \
+    "movk "OFFSETS", #0x1A01,	lsl #16						\n" \
+    "movk "OFFSETS", #0x1D1C,	lsl #32						\n" \
+    "movk "OFFSETS", #0x153F,	lsl #48						\n" \
+    SETS_RELOAD_VIRTUAL_COUNTER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 32)				\
+    "movz "OFFSETS", #0x183C								\n" \
+    "movk "OFFSETS", #0x2F17,	lsl #16						\n" \
+    "movk "OFFSETS", #0x1335,	lsl #32						\n" \
+    "movk "OFFSETS", #0x3B3D,	lsl #48						\n" \
+    SETS_RELOAD_VIRTUAL_COUNTER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 40)				\
+    "movz "OFFSETS", #0x3722								\n" \
+    "movk "OFFSETS", #0x0920,	lsl #16						\n" \
+    "movk "OFFSETS", #0x0F38,	lsl #32						\n" \
+    "movk "OFFSETS", #0x3311,	lsl #48						\n" \
+    SETS_RELOAD_VIRTUAL_COUNTER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 48)				\
+    "movz "OFFSETS", #0x3227								\n" \
+    "movk "OFFSETS", #0x0328,	lsl #16						\n" \
+    "movk "OFFSETS", #0x390B,	lsl #32						\n" \
+    "movk "OFFSETS", #0x2521,	lsl #48 					\n" \
+    SETS_RELOAD_VIRTUAL_COUNTER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 56)				\
+   )
+
 
 
 /* MACRO: MEASUREMENT_METHOD:
@@ -592,6 +694,41 @@ MEASUREMENT_METHOD(template_l1d_flush_reload)
 	asm volatile(".long "xstr(TEMPLATE_RETURN));
 }
 
+MEASUREMENT_METHOD(template_l1d_flush_reload_virtual_counter)
+	asm volatile(".long "xstr(TEMPLATE_ENTER));
+
+	// ensure that we don't crash because of BTI
+	asm volatile("bti c");
+
+	prologue();
+
+	// Initialize registers
+	SET_REGISTER_FROM_INPUT("sp");
+
+	ADJUST_REGISTER_TO("x30", sandbox_t, main_region);
+
+	FLUSH_VIRTUAL_COUNTER("x30", "x16", "x17");
+
+	READ_PFC_START();
+
+	// Execute the test case
+	asm(
+		"\nisb; dsb SY\n"
+		".long "xstr(TEMPLATE_INSERT_TC)" \n"
+		"isb; dsb SY\n"
+	);
+
+	READ_PFC_END();
+
+	// Reload and store the resulting eviction bitmap map into x15
+	RELOAD_SCATTERED_VIRTUAL_COUNTER("x30", "x16", "x17", "x18", "x19", "x15");
+
+	ADJUST_REGISTER_FROM("x30", sandbox_t, main_region);
+
+	epilogue();
+	asm volatile(".long "xstr(TEMPLATE_RETURN));
+}
+
 // clang-format on
 
 typedef void (*measurement_template)(size_t*);
@@ -606,6 +743,7 @@ static measurement_template map_to_template(enum Templates required_template) {
     struct measurement_method methods[] = {
         {PRIME_AND_PROBE_TEMPLATE,	template_l1d_prime_probe, "prime and probe"},
         {FLUSH_AND_RELOAD_TEMPLATE,	template_l1d_flush_reload, "flush and reload"},
+        {FLUSH_AND_RELOAD_VIRTUAL_COUNTER_TEMPLATE,	template_l1d_flush_reload_virtual_counter, "flush and reload virtual counter"},
     };
 
 	for(int i = 0; i < (sizeof(methods) / sizeof(methods[0])); ++i) {
@@ -678,14 +816,14 @@ int load_template(size_t tc_size) {
     ((uint32_t*)executor.measurement_code)[code_pos] = 0xd65f03c0;
     code_pos += 1;
 
-    {
-    	size_t print_pos = 0;
-    	for(; print_pos < code_pos; ++print_pos) {
-
-	        module_err("%px -> %lx\n", ((uint32_t*)executor.measurement_code) + print_pos,
-	        ((uint32_t*)executor.measurement_code)[print_pos]);
-        }
-    }
+//    {
+//    	size_t print_pos = 0;
+//    	for(; print_pos < code_pos; ++print_pos) {
+//
+//	        module_err("%px -> %lx\n", ((uint32_t*)executor.measurement_code) + print_pos,
+//	        ((uint32_t*)executor.measurement_code)[print_pos]);
+//        }
+//    }
 
     return (sizeof(uint32_t) * code_pos);
 }
