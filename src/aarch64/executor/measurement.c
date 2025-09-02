@@ -6,11 +6,53 @@
 
 /// Clears the programmable performance counters and writes the
 /// configurations to the corresponding MSRs.
+
+static void prepare_perf_event_attribute(struct perf_event_attr* attr, uint32_t type, uint64_t config) {
+	if(!attr) return;
+
+	memset(attr, 0, sizeof(*attr));
+	attr->type		= type;
+	attr->config		= config;
+	attr->size		= sizeof(*attr);
+	attr->disabled		= 0;      /* start counting immediately */
+	attr->pinned		= 1;      /* try hard not to multiplex */
+	attr->exclude_hv	= 1;
+	attr->exclude_user	= 1;
+	attr->exclude_kernel	= 0;
+//	attr->exclude_idle	= 1;
+}
+
+static uint64_t next_perf_event_index = 0;
+static struct perf_event* perf_events[16] = { 0 };
+static int perf_event_to_pmevcntr_index(struct perf_event* ev) { return ev ? ev->hw.idx - 1: -1; }
+static void overflow_cb(struct perf_event *event, struct perf_sample_data *data, struct pt_regs *regs) { }
+static int create_perf_event(uint32_t type, uint64_t config) {
+	if(next_perf_event_index >= ARRAY_SIZE(perf_events)) return -2;
+
+	uint64_t current_index = next_perf_event_index;
+
+	struct perf_event_attr attr = { 0 };
+	prepare_perf_event_attribute(&attr, type, config);
+	perf_events[current_index] = perf_event_create_kernel_counter(&attr, smp_processor_id(), NULL, overflow_cb, NULL);
+	if (IS_ERR(perf_events[current_index])) {
+		int err = PTR_ERR(perf_events[current_index]);
+		module_err("failed to create pmu event: %d (type: %u, config: %llu)", err, type, config);
+		perf_events[current_index] = NULL;
+		return -3;
+	}
+
+	perf_event_enable(perf_events[current_index]);
+
+	++next_perf_event_index;
+
+	return perf_event_to_pmevcntr_index(perf_events[current_index]);
+}
+
 static int config_pfc(void) {
 
     // disable PMU user-mode access (not necessary?)
     uint64_t val = 0;
-    uint64_t filter_events = (1 << 30) | (1 << 26);
+    uint64_t filter_events = 0; //(1 << 30) | (1 << 26);
 
     // asm volatile("msr pmuserenr_el0, %0" :: "r" (0x1));
     // asm volatile("isb\n");
@@ -20,11 +62,21 @@ static int config_pfc(void) {
     asm volatile("mrs %0, pmcr_el0" : "=r" (val));
     asm volatile("msr pmcr_el0, %0" :: "r" ((uint64_t)0x0));
     asm volatile("isb\n");
+    asm volatile("msr pmcntenclr_el0, %0" :: "r" ((uint64_t)0b1111));
+    asm volatile("isb\n");
+
 
     // select events:
     // 1. L1D cache refills (0x3)
-    asm volatile("msr pmevtyper0_el0, %0" :: "r" ((uint64_t)(filter_events | 0x03)));
-    asm volatile("isb\n");
+    val = create_perf_event(PERF_TYPE_HW_CACHE, PERF_COUNT_HW_CACHE_L1D | (PERF_COUNT_HW_CACHE_OP_READ << 8) | (PERF_COUNT_HW_CACHE_RESULT_MISS << 16)); 
+    if(0 != val) {
+	    module_err("Unexpected PMU was allocated: %llu", val);
+    } else {
+	    module_err("PMU %llu was allocated", val);
+    }
+
+//    asm volatile("msr pmevtyper0_el0, %0" :: "r" ((uint64_t)(filter_events | 0x03)));
+//    asm volatile("isb\n");
 
     // 2. Instructions retired (0x08)
     asm volatile("msr pmevtyper1_el0, %0" :: "r" ((uint64_t)(filter_events | 0x08)));
@@ -40,16 +92,17 @@ static int config_pfc(void) {
 
     // enable counting
     val = 0;
-    asm volatile("msr pmcntenset_el0, %0" :: "r" ((uint64_t)0b1111));
+    asm volatile("msr pmcntenset_el0, %0" :: "r" (((uint64_t)0b1111) | (1ULL << 31)));
     asm volatile("isb\n");
 
-    // enable PMU counters and reset the counters (using two bits)
+    // enable PMU counters and reset the counters (using 3 bits)
     val = 0;
     asm volatile("mrs %0, pmcr_el0" : "=r" (val));
-    asm volatile("msr pmcr_el0, %0" :: "r" (val | 0x3));
+    asm volatile("msr pmcr_el0, %0" :: "r" (val | 0b111));
     asm volatile("isb\n");
+    
     // debug prints (view via 'sudo dmesg')
-
+    
      val = 0;
      asm volatile("mrs %0, pmuserenr_el0" : "=r" (val));
      module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMUSERENR_EL0:", val);
@@ -61,8 +114,69 @@ static int config_pfc(void) {
      module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMEVTYPER0_EL0:", val);
      asm volatile("mrs %0, pmcntenset_el0" : "=r" (val));
      module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMCNTENSET_EL0:", val);
+     asm volatile("mrs %0, pmevcntr1_el0" : "=r" (val));
+     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMECNTR1_EL0:", val);
+     asm volatile("mrs %0, pmevcntr2_el0" : "=r" (val));
+     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMECNTR2_EL0:", val);
+     asm volatile("mrs %0, pmevcntr3_el0" : "=r" (val));
+     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMECNTR3_EL0:", val);
+     asm volatile("mrs %0, pmccntr_el0" : "=r"(val));
+     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PNCCNTR_EL0:", val);
 
     return 0;
+}
+
+static void pmu_discover(void *arg)
+{
+    unsigned long flags;
+    u64 pmcr, pmceid0, pmceid1, n, i;
+
+    preempt_disable();
+    local_irq_save(flags);
+
+    /* Read PMCR_EL0 */
+    asm volatile("mrs %0, pmcr_el0" : "=r"(pmcr));
+    pr_info("PMCR_EL0: 0x%016llx\n", pmcr);
+
+    /* Number of general-purpose counters: N = bits[15:11] + 1 */
+    n = ((pmcr >> 11) & 0x1f) + 1;
+    pr_info("Number of general-purpose counters: %llu\n", n);
+
+    /* Check cycle counter */
+    pr_info("Cycle counter exists: %s\n", (pmcr & (1<<31)) ? "YES" : "NO");
+
+    /* Read supported events (PMCEID0_EL0 and PMCEID1_EL0) */
+    asm volatile("mrs %0, pmceid0_el0" : "=r"(pmceid0));
+    asm volatile("mrs %0, pmceid1_el0" : "=r"(pmceid1));
+
+    pr_info("Supported event IDs 0-31 : 0x%016llx\n", pmceid0);
+    pr_info("Supported event IDs 32-63: 0x%016llx\n", pmceid1);
+
+    /* Print which counters are enabled (PMCNTENSET_EL0) */
+    u64 cntenset;
+    asm volatile("mrs %0, pmcntenset_el0" : "=r"(cntenset));
+    pr_info("PMCNTENSET_EL0: 0x%016llx\n", cntenset);
+
+    /* Print initial values of general-purpose counters and cycle counter */
+    for (i = 0; i < n; i++) {
+        u64 val;
+        switch(i) {
+            case 0: asm volatile("mrs %0, pmevcntr0_el0" : "=r"(val)); break;
+            case 1: asm volatile("mrs %0, pmevcntr1_el0" : "=r"(val)); break;
+            case 2: asm volatile("mrs %0, pmevcntr2_el0" : "=r"(val)); break;
+            case 3: asm volatile("mrs %0, pmevcntr3_el0" : "=r"(val)); break;
+            default: val = 0; break;
+        }
+        pr_info("PMEVCNTR%llu_EL0 initial value: %llu\n", i, val);
+    }
+
+    /* Cycle counter */
+    u64 cc;
+    asm volatile("mrs %0, pmccntr_el0" : "=r"(cc));
+    pr_info("PMCCNTR_EL0 initial value: %llu\n", cc);
+
+    local_irq_restore(flags);
+    preempt_enable();
 }
 
 static inline u64 read_inst_count(void) {
@@ -79,6 +193,9 @@ static inline int setup_environment(void) {
     if (err)
         return err;
 
+    int cpu = smp_processor_id();
+    module_err("Starting PMU discovery on CPU %d\n", cpu);
+    smp_call_function_single(cpu, pmu_discover, NULL, 1);
     // TBD: configure faulty page
     return 0;
 }
@@ -142,6 +259,7 @@ void initialize_measurement(measurement_t* measurement) {
 	if(NULL == measurement) return;
 	memset(measurement, 0, sizeof(measurement_t));
 }
+EXPORT_SYMBOL(initialize_measurement);
 
 static void measure(measurement_t* measurement) {
 
@@ -150,7 +268,7 @@ static void measure(measurement_t* measurement) {
 	memcpy(measurement, &executor.sandbox.latest_measurement, sizeof(measurement_t));
 }
 
-void flush_l1d_cache(void) {
+static void flush_l1d_cache(void) {
 	uint64_t clidr = 0, ccsidr = 0;
 	uint32_t line_size = 0, assoc = 0, num_sets = 0;
 
@@ -242,7 +360,6 @@ static void __nocfi run_experiments(void) {
 		//enable_mte_tag_checking();
 
 		raw_local_irq_restore(flags); // enable local interrupts with previously saved state
-//		udelay(5000);
 
 		measure(&current_input->measurement);
 		module_err("htrace: %llu", current_input->measurement.htrace[0]);
@@ -254,7 +371,6 @@ static void __nocfi run_experiments(void) {
 			buff[64] = 0;
 	
 			module_err("htrace: %s", buff);
-
 			module_err("pfc[0]: %llu", current_input->measurement.pfc[0]);
 			module_err("pfc[1]: %llu", current_input->measurement.pfc[1]);
 			module_err("pfc[2]: %llu", current_input->measurement.pfc[2]);
@@ -273,5 +389,5 @@ int execute(void) {
     run_experiments();
     return 0;
 }
-
+EXPORT_SYMBOL(execute);
 

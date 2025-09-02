@@ -2,9 +2,12 @@
 #define ARM64_EXECUTOR_H
 
 // Includes
-#include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/init.h>
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("ACSL - Gal Kaptsenel");
+MODULE_DESCRIPTION("AArch64 implementation of Revisor's executor");
+#include <linux/kernel.h>
 #include <linux/version.h>
 #include <linux/types.h>
 #include <linux/mm.h>
@@ -25,23 +28,26 @@
 #include <linux/sched.h>
 #include <linux/delay.h>
 #include <linux/cpumask.h>
+#include <linux/perf_event.h>
+#include <linux/hw_breakpoint.h>
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0)
 #include <linux/set_memory.h>
 #endif
 
-#include "utils.h"
-#include "sysfs.h"
-#include "pfc.h"
 #include "cache_configuration.h"
-#include "templates.h"
+#include "utils.h"
 #include "measurement.h"
 #include "sandbox.h"
-#include "inputs.h"
-#include "chardevice.h"
 #include "executor.h"
+#include "chardevice.h"
+#include "sysfs.h"
+#include "pfc.h"
+#include "templates.h"
+#include "inputs.h"
 #include "mte.h"
 #include "cpu.h"
+#include "globals.h"
 
 #define DEBUG 0
 

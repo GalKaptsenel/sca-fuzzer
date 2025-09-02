@@ -45,7 +45,7 @@ typedef struct device_managment {
 typedef struct executor {
 	sandbox_t sandbox;
 	executor_config_t config;
-	char measurement_code[MAX_MEASUREMENT_CODE_SIZE];
+	char measurement_code[MAX_MEASUREMENT_CODE_SIZE] __aligned(PAGESIZE);
 	volatile uint64_t number_of_inputs;
 	char* test_case; // The member test_case is NOT embedded inside the struct (as opposed to measurement_code member) because we require that it wll be continuous within physical memory, and therefore it should be acquired by kmalloc
 	size_t test_case_length;
@@ -55,8 +55,6 @@ typedef struct executor {
 	enum State state;
 	device_management_t device_mgmt;
 } executor_t;
-
-extern executor_t executor;
 
 int __nocfi initialize_executor(set_memory_t);
 void __nocfi free_executor(set_memory_t);

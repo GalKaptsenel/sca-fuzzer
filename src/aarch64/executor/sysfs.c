@@ -1,7 +1,7 @@
 #include "main.h"
 
 static ssize_t number_of_inputs_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
-    return sprintf(buf, "%lu\n", executor.number_of_inputs);
+    return sprintf(buf, "%llu\n", executor.number_of_inputs);
 }
 
 static ssize_t warmups_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
@@ -200,6 +200,7 @@ sysfs_init_failed_remove_directory:
 sysfs_init_failed_execution:
 	return err;
 }
+EXPORT_SYMBOL(initialize_sysfs);
 
 void free_sysfs(void) {
 
@@ -208,3 +209,5 @@ void free_sysfs(void) {
 		kobj_interface = NULL;
 	}
 }
+EXPORT_SYMBOL(free_sysfs);
+

@@ -6,9 +6,8 @@
 // clang-format off
 
 // INCLUDES
+//
 #include "main.h"
-
-kallsyms_lookup_name_t kallsyms_lookup_name_fn	    =	NULL;
 
 // STATICS
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
@@ -52,6 +51,7 @@ static bool __nocfi load_globals(void) {
 static int  __init executor_init(void) {
 	int err = 0;
 
+	module_info("Starting running executor kernel module init\n");
 	if(!load_globals()) {
 		module_err("Unable to load global kernel exports\n");
 		err = -ENOENT;
@@ -75,7 +75,10 @@ static int  __init executor_init(void) {
 		module_err("Unable to initialize character device interface (error code: %d)\n", err);
 		goto init_cleanup_sysfs;
 	}
+	
+	//enable_pmu_access_el0();
 
+	module_err("Loaded Successfully\n");
 	return 0;
 
 init_cleanup_sysfs:
@@ -98,12 +101,10 @@ static void __nocfi __exit executor_exit(void) {
 	free_sysfs();
 
 	free_executor(set_memory_nx);
+	
+//	restore_pmu_access_el0();
 }
 
 module_init(executor_init);
 module_exit(executor_exit);
-
-MODULE_LICENSE("GPL");
-MODULE_AUTHOR("ACSL - Gal Kaptsenel");
-MODULE_DESCRIPTION("AArch64 implementation of Revisor's executor");
 

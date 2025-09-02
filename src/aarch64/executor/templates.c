@@ -75,6 +75,7 @@ inline void prologue(void)
 	ADJUST_REGISTER_TO("x30", sandbox_t, stored_rsp);
     asm volatile("str x0, [x30]\n");
 	ADJUST_REGISTER_FROM("x30", sandbox_t, stored_rsp);
+
 }
 
 inline void epilogue(void) {
@@ -87,8 +88,8 @@ inline void epilogue(void) {
         "add x16, x16, x30                                                                  \n" \
         "stp x15, x20, [x16], #16                                                           \n" \
         "stp x21, x22, [x16], #16                                                           \n" \
-	"ptrue p0.b, ALL\n"
-	"st1b {z0.b}, p0, [x16] 							    \n" \
+//	"ptrue p0.b, ALL\n"
+//	"st1b {z0.b}, p0, [x16] 							    \n" \
 	"sub x16, x16, #32	 							    \n" \
 
         // rsp <- stored_rsp
@@ -103,7 +104,7 @@ inline void epilogue(void) {
         "ldp x22, x23, [sp], #16                                                            \n" \
         "ldp x20, x21, [sp], #16                                                            \n" \
         "ldp x18, x19, [sp], #16                                                            \n" \
-        "ldp x16, x17, [sp], #16                                                            \n" \
+        "ldp x16, x17, [sp], #16                                                            \n" 
 	:
 	:
 	: "memory"	
@@ -127,11 +128,12 @@ inline void epilogue(void) {
 
 // clobber: -
 // dest: x20, x21, x22
+// 
+//    "mov z0.b, #0\n"		                                                                
 #define READ_PFC_START() asm volatile(""                                                        \
     "eor x20, x20, x20\n"		                                                                \
     "eor x21, x21, x21\n"		                                                                \
     "eor x22, x22, x22\n"		                                                                \
-    "mov z0.b, #0\n"		                                                                \
     "isb; dsb SY \n"		                                                                    \
     "mrs x20, pmevcntr1_el0 \n"                                                                 \
     "mrs x21, pmevcntr2_el0 \n"	                                                                \
@@ -316,7 +318,7 @@ inline void epilogue(void) {
 	"add "TMPBASE", "TMPBASE", #4096			\n"	\
 	"ldr xzr, ["TMPBASE", "OFFSET"]			\n"	\
 	"add "TMPBASE", "TMPBASE", #4096			\n"	\
-	"ldr xzr, ["TMPBASE", "OFFSET"]			\n"	 \
+	"ldr xzr, ["TMPBASE", "OFFSET"]			\n"	\
 
 #else
 #error "Unexpected associativity"
@@ -326,13 +328,13 @@ inline void epilogue(void) {
     "	add "TMP", "BASE", #%[eviction_region]				                    \n"	\
         GET_NEXT_SET(OFFSET, OFFSETS)                                               \
     "   lsl "OFFSET", "OFFSET", #6                                              \n" \
-    "   mrs "ACC", pmevcntr3_el0                                                \n" \
+    "   mrs "ACC", pmevcntr0_el0						\n" \
                                                                                     \
     "   isb; dsb SY                                                             \n" \
 	    AGGREGATE_ONE_SET(TMP, OFFSET)						                        \
     "   isb; dsb SY                                                             \n" \
                                                                                     \
-    "   mrs "TMP", pmevcntr3_el0                                                \n" \
+    "   mrs "TMP", pmevcntr0_el0						\n" \
     "   isb; dsb SY                                                             \n" \
     "   cmp "ACC", "TMP"                                                        \n" \
     "   b.eq _arm64_executor_probe_failed_"LABEL_NUM"                                 \n" \
@@ -435,13 +437,13 @@ inline void epilogue(void) {
 #define SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, LABEL_NUM)         \
         GET_NEXT_SET(OFFSET, OFFSETS)                                               \
     "   lsl "OFFSET", "OFFSET", #6                                              \n" \
-    "   mrs "ACC", pmevcntr3_el0						\n" \
+    "   mrs "ACC", pmevcntr0_el0						\n" \
                                                                                     \
     "   isb; dsb SY                                                             \n" \
     "   ldr xzr, ["BASE", "OFFSET"]                                             \n" \
     "   isb; dsb SY                                                             \n" \
                                                                                     \
-    "   mrs "TMP", pmevcntr3_el0						\n" \
+    "   mrs "TMP", pmevcntr0_el0						\n" \
     "   isb; dsb SY                                                             \n" \
     "   cmp "ACC", "TMP"                                                        \n" \
     "   b.ne _arm64_executor_reload_failed_"LABEL_NUM"                                \n" \
@@ -820,10 +822,13 @@ int load_template(size_t tc_size) {
 //    	size_t print_pos = 0;
 //    	for(; print_pos < code_pos; ++print_pos) {
 //
-//	        module_err("%px -> %lx\n", ((uint32_t*)executor.measurement_code) + print_pos,
+//	        module_err("%px -> %x\n", ((uint32_t*)executor.measurement_code) + print_pos,
 //	        ((uint32_t*)executor.measurement_code)[print_pos]);
 //        }
 //    }
+    module_err("executor is loaded at: %px", &executor);
 
     return (sizeof(uint32_t) * code_pos);
 }
+EXPORT_SYMBOL(load_template);
+

@@ -7,6 +7,7 @@ void get_cpu_info(void *info) {
 	out->midr_el1 = read_sysreg(midr_el1);
 	out->ctr_el0 = read_sysreg(ctr_el0);
 }
+EXPORT_SYMBOL(get_cpu_info);
 
 int execute_on_pinned_cpu(int target_cpu, void (*fn)(void *), void *arg) {
 	int result = 0;
@@ -26,10 +27,7 @@ int execute_on_pinned_cpu(int target_cpu, void (*fn)(void *), void *arg) {
 	
 	result = smp_call_function_single(target_cpu, fn, arg, 1);
 	
-	if(should_put_cpu) {
-		put_cpu();
-	}
-
 execute_on_pinned_cpu_out:
 	return result;
 }
+EXPORT_SYMBOL(execute_on_pinned_cpu);

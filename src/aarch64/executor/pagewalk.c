@@ -117,7 +117,7 @@ static void decode_entry(uint64_t entry, const char *level) {
 	module_info("%s: Software-defined bits: 0x%llx\n", level, software_defined);
 
 	module_info("| P\t|Type\t|AF\t|AP/Dirty\t|AttrIndx\t|SH\t|PXN\t|UXN\t| D Modifier\t|SW-defined\t");
-	module_info("  %d\t  %d\t  %d\t  %d\t  %d\t\t %d\t  %d\t  %d\t  %d\t  %d\t",
+	module_info("  %llx\t  %llx\t  %llx\t  %llx\t  %llx\t\t %llx\t  %llx\t  %llx\t  %llx\t  %llx\t",
 	 present_bit, entry_type, accessed_flag, access_permissions,
 	  attr_index,sharability, pxn_bit, uxn_bit, dirty_bit_modifier, software_defined);
 }
@@ -196,6 +196,7 @@ void page_walk_explorer(void *addr) {
 	}
 	decode_pte(*pte);
 }
+EXPORT_SYMBOL(page_walk_explorer);
 
 static pte_t* get_pte(void *addr) {
 	pgd_t *pgd = NULL;
@@ -266,13 +267,14 @@ void disable_mte_for_region(void* start, size_t size) {
 			continue;
 		}
 	
-		module_err("value before: %d", pte_val(*pte) & PTE_ATTRINDX_MASK);
+		module_err("value before: %llx", pte_val(*pte) & PTE_ATTRINDX_MASK);
 		// Remove the MTE bit (bit 54) from the PTE
 		*pte = pte_clear_flags_custom(*pte, PTE_ATTRINDX_MASK);
 	
-		module_err("value after: %d", pte_val(*pte) & PTE_ATTRINDX_MASK);
+		module_err("value after: %llx", pte_val(*pte) & PTE_ATTRINDX_MASK);
 		// Ensure the update takes effect
 		flush_tlb_kernel_range(addr, addr + PAGE_SIZE);
 	}
 }
+EXPORT_SYMBOL(disable_mte_for_region);
 

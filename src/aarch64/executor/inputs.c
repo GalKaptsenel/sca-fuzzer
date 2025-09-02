@@ -5,6 +5,7 @@ void initialize_inputs_db(void) {
 	executor.inputs_root = RB_ROOT;
 	executor.number_of_inputs = 0;
 }
+EXPORT_SYMBOL(initialize_inputs_db);
 
 int64_t allocate_input(void) {
 	static int64_t input_id = 0;
@@ -41,6 +42,7 @@ int64_t allocate_input(void) {
 
 	return new_node->id;
 }
+EXPORT_SYMBOL(allocate_input);
 
 static struct input_node* get_input_node(int64_t id) {
 	struct rb_node* node = executor.inputs_root.rb_node;
@@ -69,6 +71,7 @@ measurement_t* get_measurement(int64_t id) {
 
 	return &(node->measurement);
 }
+EXPORT_SYMBOL(get_measurement);
 
 input_t* get_input(int64_t id) {
 	struct input_node* node = get_input_node(id);
@@ -77,6 +80,7 @@ input_t* get_input(int64_t id) {
 
 	return &(node->input);
 }
+EXPORT_SYMBOL(get_input);
 
 void remove_input(int64_t id) {
 	struct input_node* node_to_remove = get_input_node(id);
@@ -85,6 +89,7 @@ void remove_input(int64_t id) {
 	vfree(node_to_remove);
 	--executor.number_of_inputs;
 }
+EXPORT_SYMBOL(remove_input);
 
 void destroy_inputs_db(void) {
 	struct input_node* node = NULL;
@@ -100,3 +105,4 @@ void destroy_inputs_db(void) {
 	executor.inputs_root.rb_node = NULL;
 	executor.number_of_inputs = 0;
 }
+EXPORT_SYMBOL(destroy_inputs_db);

@@ -1,5 +1,12 @@
 #include "main.h"
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
+#define CLASS_CREATE(DEV_CLASS, DEV_NAME) class_create(DEV_NAME);
+#else
+#define CLASS_CREATE(DEV_CLASS, DEV_NAME) class_create(DEV_CLASS, DEV_NAME);
+#endif
+
+
 static unsigned long copy_to_user_with_access_check(void __user* user_buffer,
  const void* from_buffer, size_t size) {
 
@@ -30,7 +37,7 @@ static int load_input_id(int64_t* p_input_id, void __user* arg) {
 	not_read = copy_from_user_with_access_check(p_input_id, arg, sizeof(int64_t));
 
 	if(0 > *p_input_id) {
-		module_err("Invalid input id! (got input id: %d)\n", *p_input_id);
+		module_err("Invalid input id! (got input id: %lld)\n", *p_input_id);
 	}
 
 	return sizeof(int64_t) - not_read;
@@ -49,7 +56,7 @@ static void checkout_into_input_id(void __user* arg) {
 			executor.checkout_region = input_id;
 
 		} else {
-			module_err("Checkedout an input id that does not exist! (requested input id: %d)\n",
+			module_err("Checkedout an input id that does not exist! (requested input id: %lld)\n",
 			 input_id);
 
 		}
@@ -68,6 +75,7 @@ static void reset_state_and_region_after_unloading_all_inputs(void) {
 	switch(executor.state) {
 		case TRACED_STATE:
 			measurements_became_unavailable();
+			fallthrough;
 		case READY_STATE:
 			executor.state = LOADED_TEST_STATE;
 			break;
@@ -130,6 +138,7 @@ static void unload_test_and_update_state(void) {
 	switch(executor.state) {
 		case TRACED_STATE:
 			measurements_became_unavailable();
+			fallthrough;
 		case READY_STATE:
 		      executor.state = LOADED_INPUTS_STATE;
 		      break;
@@ -157,7 +166,7 @@ static void update_state_after_writing_test(void) {
 static size_t load_test_and_update_state(const char __user* test, size_t length) {
 
 	if (MAX_TEST_CASE_SIZE < length) {
-		module_err("%u bytes couldnt be written into test memory!, as it is more then %u!\n", length, MAX_TEST_CASE_SIZE);
+		module_err("%lu bytes couldnt be written into test memory!, as it is more then %lu!\n", length, MAX_TEST_CASE_SIZE);
 		return -ENOMEM;
 	}
 
@@ -170,7 +179,7 @@ static size_t load_test_and_update_state(const char __user* test, size_t length)
 
 	update_state_after_writing_test();
 
-	module_err("%u bytes were written into test case memory!\n", length);
+	module_err("%zu bytes were written into test case memory!\n", length);
 	//{
 	//	size_t count= 0;
 	//	for(; count < executor.test_case_length; ++count) {
@@ -258,7 +267,7 @@ static int64_t handle_batch(void __user* arg) {
 		goto handle_batch_end;
 	}
 
-	module_info("Loading a batch of %lu inputs", batch.size);
+	module_info("Loading a batch of %llu inputs", batch.size);
 
 	if (copy_from_user_with_access_check(input_and_id_array,  user_batch->array, batch.size * sizeof(struct input_and_id_pair))) {
 		err = -EFAULT;
@@ -449,7 +458,7 @@ static ssize_t revisor_read(struct file* File, char __user* user_buffer,
 static void copy_input_from_user_and_update_state(const char __user* user_buffer, size_t count) {
 
 	if(USER_CONTROLLED_INPUT_LENGTH > count) {
-	    module_err("Input must be exactly of length USER_CONTROLLED_INPUT_LENGTH(=%d)!\n",
+	    module_err("Input must be exactly of length USER_CONTROLLED_INPUT_LENGTH(=%lu)!\n",
 	    USER_CONTROLLED_INPUT_LENGTH);
 	}
 
@@ -509,7 +518,8 @@ int initialize_device_interface(void) {
 		goto initialize_cleanup_allocated_device_numbers;
 	}
 
-	executor.device_mgmt.device_class = class_create(THIS_MODULE, REVISOR_DEVICE_CLASS_NAME);
+	executor.device_mgmt.device_class = CLASS_CREATE(THIS_MODULE, REVISOR_DEVICE_CLASS_NAME);
+
 	if (IS_ERR(executor.device_mgmt.device_class)) {
 		module_err("Unable to create device class\n");
 		status = PTR_ERR(executor.device_mgmt.device_class);
@@ -537,6 +547,7 @@ initialize_cleanup_allocated_device_numbers:
 initialize_cleanup_exit_with_error:
 	return status;
 }
+EXPORT_SYMBOL(initialize_device_interface);
 
 void free_device_interface(void) {
 
@@ -556,3 +567,4 @@ void free_device_interface(void) {
     module_info("Unregistered device number MAJOR: %d, MINOR: %d and deleted cdev\n",
      MAJOR(executor.device_mgmt.device_number), MINOR(executor.device_mgmt.device_number));
 }
+EXPORT_SYMBOL(free_device_interface);

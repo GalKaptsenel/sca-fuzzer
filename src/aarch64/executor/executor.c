@@ -1,8 +1,5 @@
 #include "main.h"
 
-// Globals
-executor_t executor	=	{ 0 };
-
 static void init_executor_defaults(void) {
 	executor.config.uarch_reset_rounds = UARCH_RESET_ROUNDS_DEFAULT;
 	executor.config.enable_faulty_page = ENABLE_FAULTY_DEFAULT;
@@ -66,6 +63,7 @@ executor_init_cleanup_free_test_case:
 executor_init_failed_execution:
 	return err;
 }
+EXPORT_SYMBOL(initialize_executor);
 
 void __nocfi free_executor(set_memory_t set_memory_nx) {
 
@@ -78,4 +76,4 @@ void __nocfi free_executor(set_memory_t set_memory_nx) {
 		executor.test_case = NULL;
 	}
 }
-
+EXPORT_SYMBOL(free_executor);
