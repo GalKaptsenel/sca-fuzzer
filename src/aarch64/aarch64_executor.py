@@ -11,10 +11,17 @@ import subprocess
 import os.path
 import os
 import json
+import warnings
 
 import numpy as np
-from typing import List, Tuple, Set, Generator, Optional, Any, Dict
-from collections import defaultdict
+import time
+from typing import List, Tuple, Set, Generator, Optional, Any, Dict, Iterable, Callable, Protocol, runtime_checkable
+from abc import ABC, abstractmethod
+from __future__ import annotations
+from dataclasses import dataclass
+from collections import defaultdict, OrderedDict
+from enum import Enum, auto
+
 from .aarch64_generator import Aarch64TagMemoryAccesses, Aarch64Printer, Aarch64MarkMemoryAccesses
 from .. import ConfigurableGenerator
 from ..interfaces import HTrace, Input, TestCase, Executor, HardwareTracingError
@@ -24,6 +31,7 @@ from .aarch64_target_desc import Aarch64TargetDesc
 from .aarch64_connection import Connection, UserlandExecutorImp, TestCaseRegion, InputRegion, \
     HWMeasurement, ExecutorBatch
 from .aarch64_generator import Pass
+
 
 
 # ==================================================================================================
@@ -177,6 +185,622 @@ def rewind_km_output_to_end():
             break
 
 
+
+# Blocks
+class StageType(Enum):
+	LOAD = auto()
+	TRANSFORM = auto()
+	EXECUTE = auto()
+	ANALYZE = auto()
+
+	@classmethod
+	def order(cls) -> List[StageType]:
+		return list(cls)
+
+	@classmethod
+	def index(cls, stage_type: StageType) -> int:
+		return cls.order().index(stage_type)
+
+	@classmethod
+	def before(cls, a: StageType, b: StageType) -> bool:
+		return cls.index(a) < cls.index(b)
+
+	def __repr__(self):
+		return f"<StageType.{self.name}>"
+
+
+
+@runtime_checkable
+class BlockProtocol(Protocol):
+	required_keys: Set[str]
+	provided_keys: Set[str]
+	name: str
+	stage_type: StageType
+
+	def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
+		...
+
+class Block(ABC, BlockProtocol):
+	"""Abstract base for pipeline blocks."""
+	required_keys: Set[str] = set()
+	provided_keys: Set[str] = set()
+	name: str = "uninitialized"
+	stage_type: StageType
+
+
+	def __init__(self, stage_type: StageType = None):
+		if stage_type is None:
+			raise ValueError(f"{self.__class__.__name__} must have a stage_type explicitly set.")
+		self.stage_type = stage_type
+
+		if self.name == "uninitialized":
+			self.name = self.__class__.__name__
+
+
+	@abstractmethod
+	def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
+		"""Execute this block with a given context,
+		producing new key-value pairs for the pipeline context."""
+		pass
+
+	# Chain multiple blocks into a Stage using &
+	def __and__(self, other: Block) -> StageBuilder:
+		if not isinstance(other, BlockProtocol):
+			raise ValueError(f"other is of type {type(other)}, Should be of type Block.")
+		if self.stage_type != other.stage_type:
+			raise ValueError(f"other block is for stage {other.stage_type} while self block is for stage {self.stage_type}.")
+
+		return StageBuilder([self, other], stage_type=self.stage_type)
+
+	# Support chaining blocks into PipelineBuilder using |
+	def __or__(self, other: Union[Block, StageBuilder, PipelineBuilder]) -> PipelineBuilder:
+		builder = PipelineBuilder()
+		builder.add_stagebuilder(StageBuilder([self], stage_type=self.stage_type))
+		if isinstance(other, BlockProtocol):
+			builder.add_stagebuilder(StageBuilder([other], stage_type=other.stage_type))
+		elif isinstance(other, StageBuilder):
+			builder.add_stagebuilder(other)
+		elif isinstance(other, PipelineBuilder):
+			builder.merge(other)
+		else:
+			raise TypeError(f"Unsupported type {type(other)} for | operator with Block")
+		return builder
+
+	def __repr__(self):
+		return (
+			f"<{self.__class__.__name__}:Block"
+			f"name={self.name} "
+			f"stage={self.stage_type} "
+			f"requires={list(self.required_keys)} "
+			f"provides={list(self.provided_keys)}>"
+		)
+
+
+# =====================================================
+# Stage management
+# =====================================================
+class StageBuilder:
+	def __init__(self, blocks: List[Block] = None, stage_type: StageType = None):
+		self.blocks: List[Block] = blocks or []
+		if stage_type is None:
+			raise ValueError(f"{self.__class__.__name__} must have a stage_type explicitly set. ")
+		self.stage_type: StageType = stage_type
+
+	# Add more blocks via &
+	def __and__(self, other: Union[Block, StageBuilder]) -> StageBuilder:
+
+		if not isinstance(other, (Block, StageBuilder)):
+			raise TypeError(f"Cannot combine StageBuilder with object of type: {type(other)}")
+
+		if self.stage_type != other.stage_type:
+			raise ValueError(f"other is for stage {other.stage_type} while self stage builder is for stage {self.stage_type}.")
+
+		new_blocks = self.blocks.copy()
+
+		if isinstance(other, BlockProtocol):
+			new_blocks.append(other)
+		else:
+			new_blocks.extend(other.blocks)
+
+		return StageBuilder(new_blocks, stage_type=self.stage_type)
+
+	# Merge into pipeline builder via |
+	def __or__(self, other: Union[Block, StageBuilder, PipelineBuilder]) -> PipelineBuilder:
+		builder = PipelineBuilder()
+		builder.add_stagebuilder(self)
+		if isinstance(other, BlockProtocol):
+			builder.add_stagebuilder(StageBuilder([other], stage_type=other.stage_type))
+		elif isinstance(other, StageBuilder):
+			builder.add_stagebuilder(other)
+		elif isinstance(other, PipelineBuilder):
+			builder.merge(other)
+		else:
+			raise TypeError(f"Unsupported type {type(other)} for | operator with StageBuilder")
+		return builder
+
+	def __repr__(self):
+		block_repr = ", ".join(repr(b) for b in self.blocks)
+		return f"<StageBuilder stage={self.stage_type} blocks=[{block_repr}]>"
+
+class Stage:
+	def __init__(self, stage_type: StageType):
+		self.stage_type = stage_type
+		self.blocks: List[Block] = []
+
+	def add_block(self, block: Block):
+		if self.stage_type != block.stage_type:
+			raise ValueError(f"Block is for stage {block.stage_type} while self stage is for stage {self.stage_type}.")
+
+		self.blocks.append(block)
+
+	def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
+		ordered = self._topo_sort(ctx)
+		for block in ordered:
+			provided = block.run(ctx)
+			missing_keys = block.provided_keys - set(provided.keys())
+			if missing_keys:
+				raise RuntimeError(f"Block {block.name} did not provide declared keys {missing_keys}")
+			unexpected_keys =  set(provided.keys()) - block.provided_keys
+			if unexpected_keys:
+				raise RuntimeError(f"Block {block.name} provide undeclared keys {unexpected_keys}")
+
+			self._merge_into(ctx, provided)
+		return ctx
+
+	def _merge_into(self, ctx: dict, updates: dict) -> None:
+		ctx.update(updates)
+
+	def _topo_sort(self, ctx: Dict[str, Any]) -> List[Block]:
+		producers: Dict[str, Block] = {}
+		for b in self.blocks:
+			for key in b.provided_keys:
+				if key in ctx:
+					raise RuntimeError(f"key {key} already satisfied from ctx context {ctx}.")
+				if key in producers:
+					raise RuntimeError(f"key {key} defined by multiple blocks: {producers[key].name} and {b.name}.")
+
+				producers[key] = b
+
+		deps: Dict[Block, Set[Block]] = {b: set() for b in self.blocks}
+		for b in self.blocks:
+			for req in b.required_keys:
+				if req in producers:
+					deps[b].add(producers[req])
+				elif req not in ctx:
+					raise RuntimeError(f"required key {req} for block {b.name}  is not provided by any block in the stage or by the given context ({ctx=}, {deps=}).")
+
+			if b in deps[b]:
+				warnings.warn(f"Block {b.name} is dependent on its own keys, ignoring self-dependency.")
+				deps[b].discard(b)
+
+		indeg = {b: len(deps[b]) for b in self.blocks}
+		q = deque([b for b in self.blocks if indeg[b] == 0])
+		ordered = []
+		while q:
+			b = q.popleft()
+			ordered.append(b)
+			for other in self.blocks:
+				if b in deps[other]:
+					indeg[other] -= 1
+					if indeg[other] == 0:
+						q.append(other)
+
+		if len(ordered) != len(self.blocks):
+			raise RuntimeError(f"Cycle detected in stage {self.stage_type}, cannot topologically sort block within stage {self.stage_type}.")
+
+		return ordered
+
+	def __repr__(self):
+		block_repr = ", ".join(repr(b) for b in self.blocks)
+		return f"<Stage stage={self.stage_type} blocks=[{block_repr}]>"
+
+# =====================================================
+# Pipeline builder
+# =====================================================
+class PipelineBuilder:
+
+	def __init__(self):
+		self._stages: Dict[StageType, Stage] = {}
+
+	def add_block(self, block: Block):
+		self.add_stagebuilder(StageBuilder([block], stage_type=block.stage_type))
+
+	def add_stagebuilder(self, stagebuilder: StageBuilder):
+		if stagebuilder.stage_type not in self._stages:
+			self._stages[stagebuilder.stage_type] = Stage(stagebuilder.stage_type)
+		for b in stagebuilder.blocks:
+			self._stages[stagebuilder.stage_type].add_block(b)
+
+	def merge(self, other: PipelineBuilder):
+		for stype, stage in other._stages.items():
+			self._stages.setdefault(stype, Stage(stype)).blocks.extend(stage.blocks)
+
+	def __or__(self, other: Union[Block, StageBuilder, PipelineBuilder]):
+		if isinstance(other, BlockProtocol):
+			self.add_block(other)
+		elif isinstance(other, StageBuilder):
+			self.add_stagebuilder(other)
+		elif isinstance(other, PipelineBuilder):
+			self.merge(other)
+		else:
+			raise TypeError(f"Unsupported type {type(other)} for | operator")
+		return self
+
+	def build(self) -> Pipeline:
+		return Pipeline(self._stages)
+
+	def __repr__(self):
+		repr_str = "\n".join(f"{stype}: {repr(stage)}" for stype, stage in self._stages.items())
+		return f"<PipelineBuilder stages:\n{repr_str}>"
+
+class Pipeline:
+	def __init__(self, stages: Dict[StageType, Stage]):
+		self._stages = stages
+
+	def run(self, ctx: Dict[str, Any] = None) -> Dict[str, Any]:
+		ctx = ctx or {}
+		for stype in StageType.order():
+			if stype in self._stages:
+				ctx = self._stages[stype].run(ctx)
+		return ctx
+
+	def __repr__(self):
+		repr_str = "\n".join(f"{stype}: {repr(stage)}" for stype, stage in self._stages.items())
+		return f"<Pipeline stages:\n{repr_str}>"
+
+
+
+class LoadInputs(Block):
+	required_keys = {"inputs", "connection", "workdir", "userland_executor", "repeats"}
+	provided_keys = {"iids_dict"}
+
+	def __init__(self):
+		super().__init__(StageType.LOAD)
+
+	@classmethod
+	def _upload_inputs(cls, inputs: List[Input], connection: Connection, workdir: str) -> List[str]:
+		remote_filenames = []
+		for idx, inp in enumerate(inputs):
+			input_name = f"input{idx}.bin"
+			remote_filename = f'{workdir}/{input_name}'
+			inp.save(input_name)
+			connection.push(input_name, remote_filename)
+			os.remove(input_name)
+			remote_filenames.append(remote_filename)
+		return remote_filenames
+
+
+	@classmethod
+	def _write_inputs_to_connection(cls, inputs: List[Input], connection: Connection, workdir: str, userland_executor: UserlandExecutor, n_reps: int) -> OrderedDict[str, List[int]]:
+
+		iids_dict: OrderedDict[str, List[int]] = OrderedDict()
+
+		remote_filenames = cls._upload_inputs(inputs, connection, workdir)
+
+		for remote_filename in remote_filenames:
+			iids_dict[remote_filename] = []
+
+		# Notice the order: Repeat the same input n_reps times, and then go to the next input
+		for remote_filename in remote_filenames:
+			for _ in range(n_reps):
+				iid = userland_executor.allocate_iid()
+				userland_executor.checkout_region(InputRegion(iid))
+				userland_executor.write_file(remote_filename)
+				iids_dict[remote_filename].append(iid)
+
+		return iids_dict
+
+
+
+	def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
+		inputs: List[Input] = ctx["inputs"]
+		connection: Connection = ctx["connection"]
+		workdir: str = ctx["workdir"]
+		userland_executor: UserlandExecutor= ctx["userland_executor"]
+		repeats: int = ctx["repeats"]
+
+		ctx.update({"iids_dict": self._write_inputs_to_connection(inputs, connection, workdir, userland_executor, repeats)})
+
+		return ctx
+
+class LoadTest(Block):
+	required_keys = {"test_case", "connection", "workdir"}
+	provided_keys = {"remote_test_filename"}
+
+	def __init__(self):
+		super().__init__(StageType.LOAD)
+
+	@classmethod
+	def _upload_test(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
+		remote_filename = f'{workdir}/remote_{os.path.basename(test_case.bin_path)}'
+		connection.push(test_case.bin_path, remote_filename)
+		return remote_filename
+
+	def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
+		test_case: TestCase = ctx["test_case"]
+		connection: Connection = ctx["connection"]
+		workdir: str= ctx["workdir"]
+		ctx.update({"remote_test_filename": self._upload_test(test_case, connection, workdir)})
+		return ctx
+
+
+class GenerateMTETestVariants(Block):
+	required_keys = {"test_case", "iids_dict", "connection", "workdir", "userland_executor"}
+	provided_keys = {"remote_test_filename_correct_tags", "remote_input_to_test_case_filename_incorrect_tags"}
+
+	def __init__(self):
+		super().__init__(StageType.TRANSFORM)
+
+	@classmethod
+	def _upload_test(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
+		remote_filename = f'{workdir}/remote_{os.path.basename(test_case.bin_path)}'
+		connection.push(test_case.bin_path, remote_filename)
+		return remote_filename
+
+	@staticmethod
+	def _assemble_local_test_case(test_case: TestCase, base_filename: str):
+		printer = Aarch64Printer(Aarch64TargetDesc())
+		test_case.bin_path, test_case.asm_path, test_case.obj_path = (f'{base_filename}.{suffix}' for suffix in ('bin', 'asm', 'o'))
+
+		printer.print(test_case, test_case.asm_path)
+
+		ConfigurableGenerator.assemble(test_case.asm_path, test_case.obj_path, test_case.bin_path)
+
+
+
+	@classmethod
+	def _write_test_case_remotely(cls, test_case: TestCase, connection: Connection, workdir: str, local_filename: str) -> str:
+
+		cls._assemble_local_test_case(test_case, local_filename)
+
+		remote_filename = cls._upload_test(test_case, connection, workdir)
+
+		os.remove(test_case.bin_path)
+		#os.remove(test_case.asm_path)
+		os.remove(test_case.obj_path)
+		return remote_filename
+
+	@classmethod
+	def _pass_on_test_case(cls, test_case: TestCase, passes: List[Pass]):
+		for p in passes:
+			p.run_on_test_case(test_case)
+
+
+	@classmethod
+	def _write_test_with_correct_tags(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
+		patched_test_case = copy.deepcopy(test_case)
+		tagging_pass = Aarch64TagMemoryAccesses(memory_accesses_to_guess_tag=None)
+		cls._pass_on_test_case(patched_test_case, [tagging_pass])
+		return cls._write_test_case_remotely(patched_test_case, connection, workdir, 'generated_correct_tags')
+
+	@classmethod
+	def _write_test_with_incorrect_tags(cls, test_case: TestCase, connection: Connection, workdir: str, filename_suffix: str, tag_ids_to_guess: List[int]) -> str:
+		patched_test_case = copy.deepcopy(test_case)
+		tagging_pass = Aarch64TagMemoryAccesses(memory_accesses_to_guess_tag=tag_ids_to_guess)
+		cls._pass_on_test_case(patched_test_case, [tagging_pass])
+		return cls._write_test_case_remotely(patched_test_case, connection, workdir, f'generated_patched_{filename_suffix}')
+
+	@classmethod
+	def _write_test_case_with_bitmap_trace(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
+		patched_test_case = copy.deepcopy(test_case)
+		tagging_pass = Aarch64TagMemoryAccesses(memory_accesses_to_guess_tag=None)
+		marking_pass = Aarch64MarkMemoryAccesses()
+		cls._pass_on_test_case(patched_test_case, [tagging_pass, marking_pass])
+		return cls._write_test_case_remotely(patched_test_case, connection, workdir, 'generated_retrieve_bitmap')
+
+	@classmethod
+	def _measure_architecturally_not_accessed_memory_addresses(cls, test_case: TestCase, iids_dict: OrderedDict[str, List[int]], workdir: str, userland_executor: UserlandExecutor, connection: Connection) -> Dict[str, List[int]]:
+
+		def parse_bitmap(n: str, bit: int) -> List[int]:
+			result = []
+			for index, b in enumerate(n):
+				if bit == int(b):
+					result.append(len(n) - (index + 1))
+			return result
+
+		remote_test_case_filename = cls._write_test_case_with_bitmap_trace(test_case, connection, workdir)
+
+		userland_executor.checkout_region(TestCaseRegion())
+		userland_executor.write_file(remote_test_case_filename)
+		userland_executor.trace()
+
+		not_architectural_memory_accesses: Dict[str, List[int]] = {}
+
+		for remote_input_filename, iids in iids_dict.items():
+
+			if not iids:
+				warnings.warn(f"Skipping remote input filename {remote_input_filename}: iid list is empty ({iids}).")
+				continue
+
+			userland_executor.checkout_region(InputRegion(iids[0]))
+			measurement = userland_executor.hardware_measurement().memory_ids
+			not_architectural_memory_accesses[remote_input_filename] = parse_bitmap(measurement, bit=0)
+
+		connection.shell(f'rm {remote_test_case_filename}')
+
+		return not_architectural_memory_accesses
+
+	@classmethod
+	def _create_tests_with_incorrect_tags(cls, test_case: TestCase, iids_dict: OrderedDict[str, List[int]], workdir: str, userland_executor: UserlandExecutor, connection: Connection) -> Dict[str, str]:
+
+		input_to_test_case_filename: Dict[str, str] = {}
+
+		not_architectural_memory_accesses = cls._measure_architecturally_not_accessed_memory_addresses(test_case, iids_dict, workdir, userland_executor, connection)
+
+		for remote_input_filename, measurement in not_architectural_memory_accesses.items() :
+			filename_suffix = os.path.basename(remote_input_filename.rstrip('/'))
+			input_to_test_case_filename[remote_input_filename] = cls._write_test_with_incorrect_tags(
+					test_case, connection, workdir, filename_suffix, measurement)
+
+		return input_to_test_case_filename
+
+	def run(self, ctx: dict[str, Any]) -> dict[str, Any]:
+		test_case: TestCase = ctx["test_case"]
+		iids_dict: OrderedDict[str, List[int]] = ctx["iids_dict"]
+		connection: Connection = ctx["connection"]
+		workdir: str = ctx["workdir"]
+		userland_executor: UserlandExecutor = ctx["userland_executor"]
+
+		# Correct tags
+		remote_filename_correct_tags = self._write_test_with_correct_tags(test_case, connection, workdir)
+
+		# Incorrect tags
+		input_to_test_case_filename_incorrect_tags = self._create_tests_with_incorrect_tags(test_case, iids_dict, workdir, userland_executor, connection)
+
+		ctx.update({
+		    "remote_test_filename_correct_tags": remote_filename_correct_tags,
+		    "remote_input_to_test_case_filename_incorrect_tags": input_to_test_case_filename_incorrect_tags
+		})
+
+		return ctx
+
+class PrepareScenarioBatch(Block):
+	required_keys = {"iids_dict", "remote_test_filename", "repeats", "workdir"}
+	provided_keys = {"scenario_batch"}
+
+	def __init__(self):
+		super().__init__(StageType.EXECUTE)
+
+	@staticmethod
+	def _create_scenario_batch(remote_inputs: OrderedDict[str, List[int]],
+					remote_test_filename: str,
+					repeats: int,
+					workdir: str,
+					output: str = None) -> ExecutorBatch:
+		batch = ExecutorBatch()
+		batch.repeats = repeats
+
+		for input_fname in remote_inputs.keys():
+			batch.add_input(input_fname)
+
+		# Add the single test case
+		batch.add_test(remote_test_filename)
+
+		# Optional output filename
+		batch.output = output or f"{workdir}/remote_batch_output"
+
+		return batch
+
+
+	def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
+		iids_dict: OrderedDict[str, List[int]] = ctx["iids_dict"]
+		remote_test_filename: str = ctx["remote_test_filename"]
+		repeats: int = ctx["repeats"]
+		workdir: str = ctx["workdir"]
+
+		batch = self._create_scenario_batch(iids_dict, remote_test_filename, repeats, workdir)
+
+		ctx.update({
+			"scenario_batch": batch,
+		})
+
+		return ctx
+
+
+class TraceScenarioBatch(Block):
+	required_keys = {"scenario_batch", "userland_executor", "iids_dict"}
+	provided_keys = {"traces_dict", "remote_batch_filename"}  # keyed by remote input filename, values = list of HTrace objects
+
+	def __init__(self):
+		super().__init__(StageType.EXECUTE)
+
+	@staticmethod
+	def _extract_json_objects(blob: str) -> List[dict]:
+		"""Extract JSON objects from a raw blob string returned by the executor."""
+		objs = []
+		brace_level = 0
+		start_idx = None
+
+		for i, char in enumerate(blob):
+			if char == '{':
+				if brace_level == 0:
+					start_idx = i
+				brace_level += 1
+			elif char == '}':
+				brace_level -= 1
+				if brace_level == 0 and start_idx is not None:
+					obj_str = blob[start_idx:i + 1]
+					try:
+						objs.append(json.loads(obj_str))
+					except json.JSONDecodeError as e:
+						warnings.warn(f"Skipping malformed JSON object: {obj_str} ({e}).")
+					start_idx = None  # reset
+
+		return objs
+
+	def run(self, ctx: dict[str, Any]) -> dict[str, Any]:
+		batch: ExecutorBatch = ctx["scenario_batch"]
+		userland_executor: UserlandExecutor = ctx["userland_executor"]
+		iids_dict: OrderedDict[str, List[int]] = ctx["iids_dict"]
+
+		# Temporary remote batch file
+		remote_batch_filename = f"{batch.output}_batch"
+
+		raw_output = userland_executor.trace(batch, remote_batch_filename)
+
+		json_objs = self._extract_json_objects(raw_output)
+
+		# Aggregate traces per remote input
+		traces_dict: dict[str, List[HTrace]] = {fname: [] for fname in iids_dict.keys()}
+
+		for js in json_objs:
+			input_name = js.get('input_name')
+			if input_name not in traces_dict:
+				warnings.warn(f"Unexpected input_name returned: {input_name}")
+				continue
+
+			trace_bin = js['htraces'][0]
+			trace_int = int(trace_bin, 2)
+
+			pfcs = tuple(js['pfcs'])
+
+			traces_dict[input_name].append(HTrace(trace_list=[trace_int], perf_counters=pfcs))
+
+		ctx.update({
+			"traces_dict": traces_dict,
+			"remote_batch_filename": remote_batch_filename
+		})
+
+		return ctx
+
+
+class CleanupRemoteFiles(Block):
+	required_keys = {"remote_batch_filename", "iids_dict", "remote_test_filename", "connection", "scenario_batch"}
+	provided_keys = set()
+
+	def __init__(self):
+		super().__init__(StageType.EXECUTE)
+
+	def run(self, ctx: dict[str, Any]) -> dict[str, Any]:
+		connection: Connection = ctx["connection"]
+		remote_batch_filename: str = ctx["remote_batch_filename"]
+		scenario_batch: ExecutorBatch = ctx["scenario_batch"]
+		remote_test_filename: str = ctx["remote_test_filename"]
+		iids_dict: OrderedDict[str, List[int]] = ctx["iids_dict"]
+
+		for remote_input in iids_dict.keys():
+			try:
+				connection.shell(f"rm {remote_input}", privileged=True)
+			except Exception as e:
+				warnings.warn(f"Failed to remove input: {remote_input} ({e}).")
+
+		try:
+			connection.shell(f"rm {remote_test_filename}", privileged=True)
+		except Exception as e:
+			warnings.warn(f"Failed to remove test file: {remote_test_filename} ({e}).")
+
+		try:
+			connection.shell(f"rm {remote_batch_filename}", privileged=True)
+		except Exception as e:
+			warnings.warn(f"Failed to remove batch file: {remote_batch_filename} ({e}).")
+
+		try:
+			connection.shell(f"rm {scenario_batch.output}", privileged=True)
+		except Exception as e:
+			warnings.warn(f"Failed to remove batch output file: {scenario_batch.output} ({e}).")
+
+		return ctx
+
 # ==================================================================================================
 # Main executor class
 # ==================================================================================================
@@ -305,6 +929,80 @@ class Aarch64Executor(Executor):
 # ==================================================================================================
 # Vendor-specific executors
 # ==================================================================================================
+class Aarch64RemoteExecutor(Aarch64Executor):
+
+    def __init__(self, connection: Connection, *args):
+        self.connection = connection
+        super().__init__(*args)
+        self.test_case: Optional[TestCase] = None
+        self.workdir= '/data/local/tmp/revizor'
+        self.userland_executor = UserlandExecutorImp(connection, f'{self.workdir}/executor_userland',
+                                                     '/dev/executor', '/sys/executor',
+                                                     f'{self.workdir}/revizor-executor.ko',
+                                                     )
+        if self.target_desc.cpu_desc.vendor.lower() != "arm":  # Technically ARM currently does not produce ARM processors, and other vendors do produce ARM processors
+            self.LOG.error(
+                "Attempting to run ARM executor on a non-ARM CPUs!\n"
+                "Change the `executor` configuration option to the appropriate vendor value.")
+
+    def _is_smt_enabled(self):
+        result = self.connection.shell('cat /sys/devices/system/cpu/smt/control')
+        return 'on' in result.lower().split()
+
+    def set_vendor_specific_features(self):
+        pass
+
+    def read_base_addresses(self):
+        """
+        Read the base addresses of the code and the sandbox from the kernel module.
+        This function is used to synchronize the memory layout between the executor and the model
+        :return: a tuple (sandbox_base, code_base)
+        """
+        return self.userland_executor.sandbox_base, self.userland_executor.code_base
+
+    def _write_test_case(self, test_case: TestCase) -> None:
+        self.test_case = test_case
+
+    def trace_test_case(self, inputs: List[Input], n_reps: int) -> List[HTrace]:
+        """
+        Call the executor kernel module to collect the hardware traces for
+        the test case (previously loaded with `load_test_case`) and the given inputs.
+
+        :param inputs: list of inputs to be used for the test case
+        :param n_reps: number of times to repeat each measurement
+        :return: a list of HTrace objects, one for each input
+        :raises HardwareTracingError: if the kernel module output is malformed
+        """
+        # Skip if it's a dummy call
+        if not inputs or self.test_case is None:
+            return []
+
+        # Store statistics
+        n_inputs = len(inputs)
+        STAT.executor_reruns += n_reps * n_inputs
+
+	pipeline = (
+			(LoadInputs() & LoadTest()) | 
+			(PrepareScenarioBatch() & TraceScenarioBatch() & CleanupRemoteFiles())
+		).build()
+
+	initial_context = {
+		"inputs": inputs,
+		"test_case": self.test_case,
+		"repeats": n_reps,
+		"workdir": self.workdir,
+		"userland_executor": self.userland_executor,
+		"connection": self.connection
+	}
+
+	ctx = pipeline.run(initial_context)
+
+	htraces = ctx["htraces"]
+
+	import pdb; pdb.set_trace()
+        return htraces
+
+
 class Aarch64RemoteExecutor(Aarch64Executor):
 
     def __init__(self, connection: Connection, *args):
