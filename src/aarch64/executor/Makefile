@@ -6,7 +6,7 @@ CC := aarch64-linux-gnu-gcc-13
 # Your module object(s)
 obj-m := revizor-executor.o 
 
-ccflags-y +=-march=armv8.2-a+sve  -DL1D_SIZE_K=64 -DL1D_ASSOCIATIVITY=4
+ccflags-y +=-g -march=armv8.2-a+sve  -DL1D_SIZE_K=64 -DL1D_ASSOCIATIVITY=4
 
 revizor-executor-y := main.o chardevice.o cpu.o executor.o inputs.o measurement.o mte.o pagewalk.o sandbox.o sysfs.o templates.o globals.o
 

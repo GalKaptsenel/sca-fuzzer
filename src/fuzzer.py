@@ -140,6 +140,7 @@ class FuzzerGeneric(Fuzzer):
     
             return: True if the violation survived priming
             """
+            #import pdb; pdb.set_trace()
             violation = copy.copy(org_violation)
             measurements_to_test = [hg[0] for hg in violation.htrace_groups]
             null_htrace = HTrace.get_null()
@@ -147,7 +148,7 @@ class FuzzerGeneric(Fuzzer):
     
             for idx, current_measurement in enumerate(measurements_to_test):
                 current_input_id = current_measurement.input_id
-                #htrace_to_reproduce = current_measurement.htrace
+                htrace_to_reproduce = current_measurement.htrace
                 other_measurements = [(idx2, m) for idx2, m in enumerate(measurements_to_test) if m != current_measurement]
     
                 # list of inputs that produced a different HTrace
@@ -160,25 +161,31 @@ class FuzzerGeneric(Fuzzer):
                     # insert the tested input into its new place
                     primer = list(all_inputs)
                     primer[idx] = all_inputs[idx2]
+                    import pdb; pdb.set_trace()
     
                     # try the new input sequence and check if the traces observed for the new input
                     # are equivalent to the original ones
 
-                    htraces_pairs = self.executor.trace_test_case(primer,  CONF.executor_sample_sizes[0])
-                    for ((_, htrace_correct_tags), (_, htrace_incorrect_tags)), i in zip(htraces_pairs, all_inputs):
-                        if primer[idx] == i:
-                            new_htrace1 = htrace_correct_tags
-                            new_htrace2 = htrace_incorrect_tags
+                    violations = self.executor.trace_test_case(primer,  CONF.executor_sample_sizes[0], self.analyser)
+                    if not violations:
+                        return False
+                    new_violation = violations[0]
+                    new_measurements = [hg[0] for hg in violation.htrace_groups]
+                    new_htrace = new_measurements[current_input_id].htrace
+#                    for ((_, htrace_correct_tags), (_, htrace_incorrect_tags)), i in zip(htraces_pairs, all_inputs):
+#                        if primer[idx] == i:
+#                            new_htrace1 = htrace_correct_tags
+#                            new_htrace2 = htrace_incorrect_tags
 
                     #new_htrace = htraces[current_input_id]
     
                     # fast exit in case of a tracing error
-                    if not new_htrace1.raw or new_htrace1 == null_htrace or not new_htrace2.raw or new_htrace2 == null_htrace:
+                    if not new_htrace.raw or new_htrace == null_htrace: # or not new_htrace2.raw or new_htrace2 == null_htrace:
                         self.LOG.warning("fuzzer", "Tracing error during priming. "
                                          "Skipping this test case")
                         return False
     
-                    if not self.analyser.htraces_are_equivalent(new_htrace1, new_htrace2):
+                    if not self.analyser.htraces_are_equivalent(new_htrace, htrace_to_reproduce):
                         continue
     
                     # could not reproduce; it's a genuine violation
@@ -223,31 +230,32 @@ class FuzzerGeneric(Fuzzer):
 
             # Fuzz the test case
             self.executor.load_test_case(test_case)
-            htraces_pairs = self.executor.trace_test_case(inputs,  CONF.executor_sample_sizes[0])
-            ctraces = []
-            htraces = []
-            test_cases = []
-            extended_inputs = []
+            violations = self.executor.trace_test_case(inputs,  CONF.executor_sample_sizes[0], self.analyser)
+#            ctraces = []
+#            htraces = []
+#            test_cases = []
+#            extended_inputs = []
+#
+#            for ((tc_correct_tags, htrace_correct_tags), (tc_incorrect_tags, htrace_incorrect_tags)), i in zip(htraces_pairs, inputs):
+#                ctraces.append(CTrace(htrace_correct_tags.raw))
+#                ctraces.append(CTrace(htrace_correct_tags.raw))
+#                htraces.append(htrace_correct_tags)
+#                htraces.append(htrace_incorrect_tags)
+#                test_cases.append(tc_correct_tags)
+#                test_cases.append(tc_incorrect_tags)
+#                extended_inputs.append(i)
+#                extended_inputs.append(i)
 
-            for ((tc_correct_tags, htrace_correct_tags), (tc_incorrect_tags, htrace_incorrect_tags)), i in zip(htraces_pairs, inputs):
-                ctraces.append(CTrace(htrace_correct_tags.raw))
-                ctraces.append(CTrace(htrace_correct_tags.raw))
-                htraces.append(htrace_correct_tags)
-                htraces.append(htrace_incorrect_tags)
-                test_cases.append(tc_correct_tags)
-                test_cases.append(tc_incorrect_tags)
-                extended_inputs.append(i)
-                extended_inputs.append(i)
-
-            violations = self.analyser.filter_violations(extended_inputs, ctraces, htraces, test_cases, stats=True)
-
+#            import pdb; pdb.set_trace()
+#            violations = self.analyser.filter_violations(extended_inputs, ctraces, htraces, test_cases, stats=True)
+#
 #           os.remove(test_case.asm_path)
-            tcs_paths = [test_case.bin_path, test_case.obj_path, test_case.asm_path]
-            for ht in htraces_pairs:
-                tcs_paths.append(ht[0][0].asm_path)
-                tcs_paths.append(ht[1][0].asm_path)
-            for tc_path in set(tcs_paths):
-                os.remove(tc_path)
+#            tcs_paths = [test_case.bin_path, test_case.obj_path, test_case.asm_path]
+#            for ht in htraces_pairs:
+#                tcs_paths.append(ht[0][0].asm_path)
+#                tcs_paths.append(ht[1][0].asm_path)
+#            for tc_path in set(tcs_paths):
+#                os.remove(tc_path)
 
 
 
@@ -255,7 +263,7 @@ class FuzzerGeneric(Fuzzer):
             #     use the priming test where we swap inputs that caused the violation with each other
             if not violations:
                 print("No violation found in current test case")
-                self.analyser.reset(True) # If found is True, then the htraces are not equivalent
+#                self.analyser.reset(True) # If found is True, then the htraces are not equivalent
                 continue
 
             print(f"violation candidate found: {len(violations)}")
@@ -265,7 +273,7 @@ class FuzzerGeneric(Fuzzer):
                     STAT.fp_early_priming += 1
 
                     print("priming detected false positive")
-                    self.analyser.reset(True) # If found is True, then the htraces are not equivalent
+#                    self.analyser.reset(True) # If found is True, then the htraces are not equivalent
                     continue
                 
             
@@ -276,23 +284,23 @@ class FuzzerGeneric(Fuzzer):
             for n_reps in CONF.executor_sample_sizes[1:]:
                 self.LOG.fuzzer_sample_size_increase(n_reps)
     
-                htraces_pairs = self.executor.trace_test_case(inputs,  n_reps)
-                ctraces = []
-                htraces = []
-                test_cases = []
-                extended_inputs = []
-    
-                for ((tc_correct_tags, htrace_correct_tags), (tc_incorrect_tags, htrace_incorrect_tags)), i in zip(htraces_pairs, inputs):
-                    ctraces.append(CTrace(htrace_correct_tags.raw))
-                    ctraces.append(CTrace(htrace_correct_tags.raw))
-                    htraces.append(htrace_correct_tags)
-                    htraces.append(htrace_incorrect_tags)
-                    test_cases.append(tc_correct_tags)
-                    test_cases.append(tc_incorrect_tags)
-                    extended_inputs.append(i)
-                    extended_inputs.append(i)
-    
-                violations = self.analyser.filter_violations(extended_inputs, ctraces, htraces, test_cases, stats=True)
+                violations = self.executor.trace_test_case(inputs,  n_reps, self.analyser)
+#                ctraces = []
+#                htraces = []
+#                test_cases = []
+#                extended_inputs = []
+#    
+#                for ((tc_correct_tags, htrace_correct_tags), (tc_incorrect_tags, htrace_incorrect_tags)), i in zip(htraces_pairs, inputs):
+#                    ctraces.append(CTrace(htrace_correct_tags.raw))
+#                    ctraces.append(CTrace(htrace_correct_tags.raw))
+#                    htraces.append(htrace_correct_tags)
+#                    htraces.append(htrace_incorrect_tags)
+#                    test_cases.append(tc_correct_tags)
+#                    test_cases.append(tc_incorrect_tags)
+#                    extended_inputs.append(i)
+#                    extended_inputs.append(i)
+#    
+#                violations = self.analyser.filter_violations(extended_inputs, ctraces, htraces, test_cases, stats=True)
 
                 if not violations:
 
@@ -316,14 +324,14 @@ class FuzzerGeneric(Fuzzer):
 
 
 
-            found = False
+#            found = False
             if violations:
                 print("\nFound violation!")
-                found = True
+#                found = True
             else:
                 print("\nNo violation was found..")
 
-            self.analyser.reset(not found) # If found is True, then the htraces are not equivalent
+#            self.analyser.reset(not found) # If found is True, then the htraces are not equivalent
 
             if violations:
                 violation = violations[0]
@@ -785,7 +793,7 @@ class FuzzerGeneric(Fuzzer):
 
                 # try the new input sequence and check if the traces observed for the new input
                 # are equivalent to the original ones
-                htraces: List[HTrace] = self.executor.trace_test_case(primer, n_reps)
+                htraces: List[HTrace] = self.executor.trace_test_case(primer, n_reps, self.analyser)
                 new_htrace = htraces[current_input_id]
 
                 # fast exit in case of a tracing error

@@ -126,6 +126,7 @@ class Aarch64TagMemoryAccesses(Pass):
                     if inst.has_memory_access:
                         memory_instructions.append(inst)
 
+                import pdb; pdb.set_trace()
                 for inst in memory_instructions:
                     to_subtract = []
                     mem_operands = inst.get_mem_operands()
@@ -291,15 +292,15 @@ class Aarch64SandboxPass(Pass):
             add_base.template = template
             parent.insert_before(instr, add_base)
 
-            # for op in mem_operands[1:]:
-            #
-            #     template, op0, op1, op2 = generate_template("SUB", base_operand_copy,
-            #                                                 base_operand_copy, op)
-            #     op2.dest = False
-            #     op2.src = True
-            #     sub_inst = Instruction("SUB", True).add_op(op0).add_op(op1).add_op(op2)
-            #     sub_inst.template = template  # TODO: this should be done in the constructor
-            #     parent.insert_before(instr, sub_inst)
+            for op in mem_operands[1:]:
+            
+                template, op0, op1, op2 = generate_template("SUB", base_operand_copy,
+                                                            base_operand_copy, op)
+                op2.dest = False
+                op2.src = True
+                sub_inst = Instruction("SUB", True).add_op(op0).add_op(op1).add_op(op2)
+                sub_inst.template = template  # TODO: this should be done in the constructor
+                parent.insert_before(instr, sub_inst)
 
             return
 

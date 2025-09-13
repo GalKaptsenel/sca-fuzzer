@@ -1,12 +1,16 @@
 import re
 import uuid
 import tempfile
+import random
+import string
 from defer import return_value
 from ppadb.client import Client as AdbClient
 from typing import List, Literal, Union, Optional, Type, Callable, Tuple
 from abc import ABC, abstractmethod
 import functools
 import time
+import paramiko
+import os
 
 class Connection:
     def __init__(self):
@@ -24,7 +28,64 @@ class Connection:
     def is_file_present(self, filename: str) -> bool:
         raise NotImplementedError
 
-class USBConnection(Connection):
+class SSHConnection(Connection):
+    def __init__(self, host: str = '127.0.0.1', port: int = 22, username: str = None, password: str = None, key_filename: str = None):
+        super(SSHConnection, self).__init__()
+        self.host = host
+        self.port = port
+        self.username = username
+        self.password = password
+        self.client = paramiko.SSHClient()
+        self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        try:
+            self.client.connect(
+                    hostname=self.host,
+                    port=self.port,
+                    username=self.username,
+                    password=password,
+                    key_filename=key_filename,
+                    look_for_keys=True
+                )
+        except Exception as e:
+            raise IOError(f'Could not connect to SSH server: {e}')
+
+        try:
+            self.sftp = self.client.open_sftp()
+        except Exception as e:
+            self.client.close()
+            raise IOError(f'Could not open SFTP session: {e}')
+
+    def shell(self, cmd: str, privileged = False) -> str:
+        cmd = f'sudo -S bash -c "{cmd}"' if privileged else cmd
+        stdin, stdout, stderr = self.client.exec_command(cmd)
+
+        if privileged and stdin is not None:
+            password = self.password if self.password else ""
+            stdin.write(password + "\n")
+            stdin.flush()
+
+        out = stdout.read().decode().strip()
+        err = stderr.read().decode().strip()
+        return out if out else err
+
+    def push(self, src, dst):
+        return self.sftp.put(src, dst)
+
+    def pull(self, src, dst):
+        return self.sftp.get(src, dst)
+
+    def is_file_present(self, filename: str) -> bool:
+        try:
+            self.sftp.stat(filename)
+            return True
+        except FileNotFoundError:
+            return False
+
+    def close(self):
+        if self.sftp: self.sftp.close()
+        if self.client: self.client.close()
+
+class ADBConnection(Connection):
     def __init__(self, host: str = '127.0.0.1', port: int = 5037, serial: str = None):
         super(USBConnection, self).__init__()
         self.host = host
@@ -230,6 +291,7 @@ class UserlandExecutorImp:
             self.connection.shell(f'insmod {module_path}', privileged=True)
 
         self.connection.shell(f'echo "P" > /sys/executor/measurement_mode', privileged=True) # Use Prime And Probe
+        self.connection.shell(f'echo "0" > /sys/executor/pin_to_core', privileged=True) # Use Prime And Probe
 
         if not self.connection.is_file_present(self.userland_application_path):
             self.connection.push('executor_userland', userland_application_path)
@@ -239,14 +301,17 @@ class UserlandExecutorImp:
         self.checkout_region(TestCaseRegion())
         del self.contents 
 
-    def trace(self, executor_batch: Optional[ExecutorBatch] = None, remote_batch_file_path: Optional[str] = None ) -> Optional[str]:
+    def trace(self, executor_batch: Optional[ExecutorBatch] = None) -> Optional[str]:
+        def random_filename(length: int = 15) -> str:
+            return ''.join(random.choices(string.ascii_uppercase + string.ascii_lowercase + string.digits, k=length))
 
         if executor_batch is not None:
-            assert remote_batch_file_path is not None
+            remote_batch_file_path  = '/tmp/' + random_filename()
             self._upload_batch(executor_batch, remote_batch_file_path)
             output = self.connection.shell(
                     f'{self.userland_application_path} {self.executor_device_path} c {remote_batch_file_path}',
                     privileged=True)
+            self.connection.shell(f'rm {remote_batch_file_path}', privileged=True)
 
             if executor_batch.output is not None:
                 with tempfile.NamedTemporaryFile(mode='w+') as tmp_file:

@@ -882,7 +882,8 @@ class HTrace:
             self.perf_counters_max = [0, 0, 0, 0, 0]
         else:
             self.perf_counters = perf_counters
-            self.perf_counters_max = max(perf_counters, key=lambda x: x[0])
+            #self.perf_counters_max = max(perf_counters, key=lambda x: x[0])
+            self.perf_counters_max = max(perf_counters)
 
     def __eq__(self, other):
         return self.hash_ == other.hash_

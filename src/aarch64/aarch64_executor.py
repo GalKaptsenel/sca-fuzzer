@@ -6,6 +6,7 @@ File: Implementation of executor for x86 architecture
 Copyright (C) Microsoft Corporation
 SPDX-License-Identifier: MIT
 """
+from __future__ import annotations
 import copy
 import subprocess
 import os.path
@@ -17,14 +18,13 @@ import numpy as np
 import time
 from typing import List, Tuple, Set, Generator, Optional, Any, Dict, Iterable, Callable, Protocol, runtime_checkable
 from abc import ABC, abstractmethod
-from __future__ import annotations
 from dataclasses import dataclass
-from collections import defaultdict, OrderedDict
+from collections import defaultdict, OrderedDict, deque
 from enum import Enum, auto
 
 from .aarch64_generator import Aarch64TagMemoryAccesses, Aarch64Printer, Aarch64MarkMemoryAccesses
 from .. import ConfigurableGenerator
-from ..interfaces import HTrace, Input, TestCase, Executor, HardwareTracingError
+from ..interfaces import HTrace, Input, TestCase, Executor, HardwareTracingError, Analyser, CTrace
 from ..config import CONF
 from ..util import Logger, STAT
 from .aarch64_target_desc import Aarch64TargetDesc
@@ -330,21 +330,33 @@ class Stage:
 	def add_block(self, block: Block):
 		if self.stage_type != block.stage_type:
 			raise ValueError(f"Block is for stage {block.stage_type} while self stage is for stage {self.stage_type}.")
-
 		self.blocks.append(block)
 
 	def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
 		ordered = self._topo_sort(ctx)
+
 		for block in ordered:
+        
+			before_keys = set(ctx.keys())
+
 			provided = block.run(ctx)
-			missing_keys = block.provided_keys - set(provided.keys())
-			if missing_keys:
-				raise RuntimeError(f"Block {block.name} did not provide declared keys {missing_keys}")
-			unexpected_keys =  set(provided.keys()) - block.provided_keys
-			if unexpected_keys:
-				raise RuntimeError(f"Block {block.name} provide undeclared keys {unexpected_keys}")
+			if not isinstance(provided, dict):
+				raise TypeError(f"Block {block.name} must return a dict, got {type(provided)}")
+
+			after_keys = set(provided.keys())
+
+			added_keys = after_keys - before_keys
+
+			if added_keys != block.provided_keys:
+				missing_keys = block.provided_keys - added_keys
+				unexpected_keys =  added_keys - block.provided_keys
+				raise RuntimeError(
+							f"Stage {self.__class__.__name__} of type {self.stage_type} violated provided_keys contract of Block {block.name}. "
+							f"Missing: {missing_keys}, Extra: {unexpected_keys}"
+						)
 
 			self._merge_into(ctx, provided)
+
 		return ctx
 
 	def _merge_into(self, ctx: dict, updates: dict) -> None:
@@ -452,43 +464,44 @@ class Pipeline:
 
 class LoadInputs(Block):
 	required_keys = {"inputs", "connection", "workdir", "userland_executor", "repeats"}
-	provided_keys = {"iids_dict"}
+#	provided_keys = {"input_to_iids_dict", "input_to_filename_dict"}
+	provided_keys = {"input_to_filename_dict"}
 
 	def __init__(self):
 		super().__init__(StageType.LOAD)
 
 	@classmethod
-	def _upload_inputs(cls, inputs: List[Input], connection: Connection, workdir: str) -> List[str]:
-		remote_filenames = []
+	def _upload_inputs(cls, inputs: List[Input], connection: Connection, workdir: str) -> Dict[Input, str]:
+		remote_filenames = {}
 		for idx, inp in enumerate(inputs):
 			input_name = f"input{idx}.bin"
 			remote_filename = f'{workdir}/{input_name}'
 			inp.save(input_name)
 			connection.push(input_name, remote_filename)
 			os.remove(input_name)
-			remote_filenames.append(remote_filename)
+			remote_filenames[inp] = remote_filename
 		return remote_filenames
 
 
 	@classmethod
-	def _write_inputs_to_connection(cls, inputs: List[Input], connection: Connection, workdir: str, userland_executor: UserlandExecutor, n_reps: int) -> OrderedDict[str, List[int]]:
+	def _write_inputs_to_connection(cls, inputs: List[Input], connection: Connection, workdir: str, userland_executor: UserlandExecutor, n_reps: int) -> Tuple[OrderedDict[Input, List[int]], Dict[Input, str]]:
 
-		iids_dict: OrderedDict[str, List[int]] = OrderedDict()
+#		input_to_iids_dict: OrderedDict[Input, List[int]] = OrderedDict()
 
-		remote_filenames = cls._upload_inputs(inputs, connection, workdir)
+		input_to_filename_dict: OrderedDict[Input, str] = cls._upload_inputs(inputs, connection, workdir)
 
-		for remote_filename in remote_filenames:
-			iids_dict[remote_filename] = []
+#		for inp in input_to_filename_dict:
+#			input_to_iids_dict[inp] = []
+#
+#		# Notice the order: Repeat the same input n_reps times, and then go to the next input
+#		for inp, remote_filename in input_to_filename_dict.items():
+#			for _ in range(n_reps):
+#				iid = userland_executor.allocate_iid()
+#				userland_executor.checkout_region(InputRegion(iid))
+#				userland_executor.write_file(remote_filename)
+#				input_to_iids_dict[inp].append(iid)
 
-		# Notice the order: Repeat the same input n_reps times, and then go to the next input
-		for remote_filename in remote_filenames:
-			for _ in range(n_reps):
-				iid = userland_executor.allocate_iid()
-				userland_executor.checkout_region(InputRegion(iid))
-				userland_executor.write_file(remote_filename)
-				iids_dict[remote_filename].append(iid)
-
-		return iids_dict
+		return input_to_filename_dict #input_to_iids_dict, input_to_filename_dict 
 
 
 
@@ -499,7 +512,14 @@ class LoadInputs(Block):
 		userland_executor: UserlandExecutor= ctx["userland_executor"]
 		repeats: int = ctx["repeats"]
 
-		ctx.update({"iids_dict": self._write_inputs_to_connection(inputs, connection, workdir, userland_executor, repeats)})
+#		input_to_iids_dict, input_to_filename_dict = self._write_inputs_to_connection(inputs, connection, workdir, userland_executor, repeats)
+		input_to_filename_dict = self._write_inputs_to_connection(inputs, connection, workdir, userland_executor, repeats)
+
+#		ctx.update({"input_to_iids_dict": input_to_iids_dict,
+#                    "input_to_filename_dict": input_to_filename_dict})
+
+		ctx.update({"input_to_filename_dict": input_to_filename_dict})
+
 
 		return ctx
 
@@ -525,7 +545,8 @@ class LoadTest(Block):
 
 
 class GenerateMTETestVariants(Block):
-	required_keys = {"test_case", "iids_dict", "connection", "workdir", "userland_executor"}
+#	required_keys = {"test_case", "input_to_iids_dict", "input_to_filename_dict", "connection", "workdir", "userland_executor"}
+	required_keys = {"test_case", "input_to_filename_dict", "connection", "workdir", "userland_executor"}
 	provided_keys = {"remote_test_filename_correct_tags", "remote_input_to_test_case_filename_incorrect_tags"}
 
 	def __init__(self):
@@ -588,8 +609,10 @@ class GenerateMTETestVariants(Block):
 		cls._pass_on_test_case(patched_test_case, [tagging_pass, marking_pass])
 		return cls._write_test_case_remotely(patched_test_case, connection, workdir, 'generated_retrieve_bitmap')
 
+#	@classmethod
+#	def _measure_architecturally_not_accessed_memory_addresses(cls, test_case: TestCase, input_to_iids_dict: OrderedDict[Input, List[int]], input_to_filename: Dict[Input, str],  workdir: str, userland_executor: UserlandExecutor, connection: Connection) -> Dict[Input, List[int]]:
 	@classmethod
-	def _measure_architecturally_not_accessed_memory_addresses(cls, test_case: TestCase, iids_dict: OrderedDict[str, List[int]], workdir: str, userland_executor: UserlandExecutor, connection: Connection) -> Dict[str, List[int]]:
+	def _measure_architecturally_not_accessed_memory_addresses(cls, test_case: TestCase, input_to_filename: Dict[Input, str],  workdir: str, userland_executor: UserlandExecutor, connection: Connection) -> Dict[Input, List[int]]:
 
 		def parse_bitmap(n: str, bit: int) -> List[int]:
 			result = []
@@ -597,6 +620,14 @@ class GenerateMTETestVariants(Block):
 				if bit == int(b):
 					result.append(len(n) - (index + 1))
 			return result
+
+		inp_to_iids = {}
+		for inp, remote_input_filename in input_to_filename.items():
+			iid = userland_executor.allocate_iid()
+			inp_to_iids[inp] = iid
+			userland_executor.checkout_region(InputRegion(iid))
+			userland_executor.write_file(remote_input_filename)
+
 
 		remote_test_case_filename = cls._write_test_case_with_bitmap_trace(test_case, connection, workdir)
 
@@ -606,37 +637,44 @@ class GenerateMTETestVariants(Block):
 
 		not_architectural_memory_accesses: Dict[str, List[int]] = {}
 
-		for remote_input_filename, iids in iids_dict.items():
+#		for inp, iids in input_to_filename.items():
+#			remote_input_filename = input_to_filename[inp]
 
-			if not iids:
-				warnings.warn(f"Skipping remote input filename {remote_input_filename}: iid list is empty ({iids}).")
-				continue
+		for inp, iid in inp_to_iids.items():
+#			if not iids:
+#				warnings.warn(f"Skipping remote input filename {remote_input_filename}: iid list is empty ({iids}).")
+#				continue
 
-			userland_executor.checkout_region(InputRegion(iids[0]))
+			userland_executor.checkout_region(InputRegion(iid))
 			measurement = userland_executor.hardware_measurement().memory_ids
-			not_architectural_memory_accesses[remote_input_filename] = parse_bitmap(measurement, bit=0)
+			not_architectural_memory_accesses[inp] = parse_bitmap(measurement, bit=0)
 
+		userland_executor.discard_all_inputs()
 		connection.shell(f'rm {remote_test_case_filename}')
 
 		return not_architectural_memory_accesses
 
+#	@classmethod
+#	def _create_tests_with_incorrect_tags(cls, test_case: TestCase, input_to_iids_dict: OrderedDict[Input, List[int]], input_to_filename: Dict[Input, str], workdir: str, userland_executor: UserlandExecutor, connection: Connection) -> Dict[Input, str]:
 	@classmethod
-	def _create_tests_with_incorrect_tags(cls, test_case: TestCase, iids_dict: OrderedDict[str, List[int]], workdir: str, userland_executor: UserlandExecutor, connection: Connection) -> Dict[str, str]:
+	def _create_tests_with_incorrect_tags(cls, test_case: TestCase, input_to_filename: Dict[Input, str], workdir: str, userland_executor: UserlandExecutor, connection: Connection) -> Dict[Input, str]:
 
 		input_to_test_case_filename: Dict[str, str] = {}
 
-		not_architectural_memory_accesses = cls._measure_architecturally_not_accessed_memory_addresses(test_case, iids_dict, workdir, userland_executor, connection)
+		not_architectural_memory_accesses: Dict[Input, List[int]] = cls._measure_architecturally_not_accessed_memory_addresses(test_case, input_to_filename, workdir, userland_executor, connection)
 
-		for remote_input_filename, measurement in not_architectural_memory_accesses.items() :
+		for inp, measurement in not_architectural_memory_accesses.items() :
+			remote_input_filename = input_to_filename[inp]
 			filename_suffix = os.path.basename(remote_input_filename.rstrip('/'))
-			input_to_test_case_filename[remote_input_filename] = cls._write_test_with_incorrect_tags(
+			input_to_test_case_filename[inp] = cls._write_test_with_incorrect_tags(
 					test_case, connection, workdir, filename_suffix, measurement)
 
 		return input_to_test_case_filename
 
 	def run(self, ctx: dict[str, Any]) -> dict[str, Any]:
 		test_case: TestCase = ctx["test_case"]
-		iids_dict: OrderedDict[str, List[int]] = ctx["iids_dict"]
+#		input_to_iids_dict: OrderedDict[Input, List[int]] = ctx["input_to_iids_dict"]
+		input_to_filename_dict: OrderedDict[Input, str] = ctx["input_to_filename_dict"]
 		connection: Connection = ctx["connection"]
 		workdir: str = ctx["workdir"]
 		userland_executor: UserlandExecutor = ctx["userland_executor"]
@@ -645,7 +683,7 @@ class GenerateMTETestVariants(Block):
 		remote_filename_correct_tags = self._write_test_with_correct_tags(test_case, connection, workdir)
 
 		# Incorrect tags
-		input_to_test_case_filename_incorrect_tags = self._create_tests_with_incorrect_tags(test_case, iids_dict, workdir, userland_executor, connection)
+		input_to_test_case_filename_incorrect_tags = self._create_tests_with_incorrect_tags(test_case, input_to_filename_dict, workdir, userland_executor, connection)
 
 		ctx.update({
 		    "remote_test_filename_correct_tags": remote_filename_correct_tags,
@@ -655,14 +693,14 @@ class GenerateMTETestVariants(Block):
 		return ctx
 
 class PrepareScenarioBatch(Block):
-	required_keys = {"iids_dict", "remote_test_filename", "repeats", "workdir"}
+	required_keys = {"input_to_filename_dict", "remote_test_filename", "repeats", "workdir"}
 	provided_keys = {"scenario_batch"}
 
 	def __init__(self):
 		super().__init__(StageType.EXECUTE)
 
 	@staticmethod
-	def _create_scenario_batch(remote_inputs: OrderedDict[str, List[int]],
+	def _create_scenario_batch(remote_inputs: List[str],
 					remote_test_filename: str,
 					repeats: int,
 					workdir: str,
@@ -670,7 +708,7 @@ class PrepareScenarioBatch(Block):
 		batch = ExecutorBatch()
 		batch.repeats = repeats
 
-		for input_fname in remote_inputs.keys():
+		for input_fname in remote_inputs:
 			batch.add_input(input_fname)
 
 		# Add the single test case
@@ -683,12 +721,12 @@ class PrepareScenarioBatch(Block):
 
 
 	def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
-		iids_dict: OrderedDict[str, List[int]] = ctx["iids_dict"]
+		input_to_filename_dict: OrderedDict[Input, str] = ctx["input_to_filename_dict"]
 		remote_test_filename: str = ctx["remote_test_filename"]
 		repeats: int = ctx["repeats"]
 		workdir: str = ctx["workdir"]
 
-		batch = self._create_scenario_batch(iids_dict, remote_test_filename, repeats, workdir)
+		batch = self._create_scenario_batch(input_to_filename_dict.values(), remote_test_filename, repeats, workdir)
 
 		ctx.update({
 			"scenario_batch": batch,
@@ -698,8 +736,8 @@ class PrepareScenarioBatch(Block):
 
 
 class TraceScenarioBatch(Block):
-	required_keys = {"scenario_batch", "userland_executor", "iids_dict"}
-	provided_keys = {"traces_dict", "remote_batch_filename"}  # keyed by remote input filename, values = list of HTrace objects
+	required_keys = {"scenario_batch", "userland_executor", "input_to_filename_dict"}
+	provided_keys = {"filename_to_htraces_list"}  # keyed by remote input filename, values = list of HTrace objects
 
 	def __init__(self):
 		super().__init__(StageType.EXECUTE)
@@ -731,21 +769,21 @@ class TraceScenarioBatch(Block):
 	def run(self, ctx: dict[str, Any]) -> dict[str, Any]:
 		batch: ExecutorBatch = ctx["scenario_batch"]
 		userland_executor: UserlandExecutor = ctx["userland_executor"]
-		iids_dict: OrderedDict[str, List[int]] = ctx["iids_dict"]
+		input_to_filename_dict: OrderedDict[Input, List[int]] = ctx["input_to_filename_dict"]
 
 		# Temporary remote batch file
-		remote_batch_filename = f"{batch.output}_batch"
-
-		raw_output = userland_executor.trace(batch, remote_batch_filename)
+		import subprocess
+		subprocess.run("cp ~/revizor/a ~/revizor/remote_generated; cp ~/revizor/spectrev1_arch.bin ~/revizor/input0.bin; cp ~/revizor/spectrev1_spec.bin ~/revizor/input1.bin", shell=True, check=True)
+		raw_output = userland_executor.trace(batch)
 
 		json_objs = self._extract_json_objects(raw_output)
 
 		# Aggregate traces per remote input
-		traces_dict: dict[str, List[HTrace]] = {fname: [] for fname in iids_dict.keys()}
+		filename_to_htraces_list: Dict[str, List[int]] = {input_name: [] for input_name in input_to_filename_dict.values()}
 
 		for js in json_objs:
 			input_name = js.get('input_name')
-			if input_name not in traces_dict:
+			if input_name not in filename_to_htraces_list:
 				warnings.warn(f"Unexpected input_name returned: {input_name}")
 				continue
 
@@ -754,18 +792,18 @@ class TraceScenarioBatch(Block):
 
 			pfcs = tuple(js['pfcs'])
 
-			traces_dict[input_name].append(HTrace(trace_list=[trace_int], perf_counters=pfcs))
+#			htraces[input_name].append(HTrace(trace_list=[trace_int], perf_counters=pfcs))
+			filename_to_htraces_list[input_name].append(trace_int)
 
 		ctx.update({
-			"traces_dict": traces_dict,
-			"remote_batch_filename": remote_batch_filename
+			"filename_to_htraces_list": filename_to_htraces_list,
 		})
 
 		return ctx
 
 
 class CleanupRemoteFiles(Block):
-	required_keys = {"remote_batch_filename", "iids_dict", "remote_test_filename", "connection", "scenario_batch"}
+	required_keys = {"input_to_filename_dict", "remote_test_filename", "connection", "scenario_batch"}
 	provided_keys = set()
 
 	def __init__(self):
@@ -773,12 +811,11 @@ class CleanupRemoteFiles(Block):
 
 	def run(self, ctx: dict[str, Any]) -> dict[str, Any]:
 		connection: Connection = ctx["connection"]
-		remote_batch_filename: str = ctx["remote_batch_filename"]
 		scenario_batch: ExecutorBatch = ctx["scenario_batch"]
 		remote_test_filename: str = ctx["remote_test_filename"]
-		iids_dict: OrderedDict[str, List[int]] = ctx["iids_dict"]
+		input_to_filename_dict: OrderedDict[Input, str] = ctx["input_to_filename_dict"]
 
-		for remote_input in iids_dict.keys():
+		for remote_input in input_to_filename_dict.values():
 			try:
 				connection.shell(f"rm {remote_input}", privileged=True)
 			except Exception as e:
@@ -790,16 +827,46 @@ class CleanupRemoteFiles(Block):
 			warnings.warn(f"Failed to remove test file: {remote_test_filename} ({e}).")
 
 		try:
-			connection.shell(f"rm {remote_batch_filename}", privileged=True)
-		except Exception as e:
-			warnings.warn(f"Failed to remove batch file: {remote_batch_filename} ({e}).")
-
-		try:
 			connection.shell(f"rm {scenario_batch.output}", privileged=True)
 		except Exception as e:
 			warnings.warn(f"Failed to remove batch output file: {scenario_batch.output} ({e}).")
 
 		return ctx
+
+class AnalyserBlock(Block):
+	required_keys = {"filename_to_htraces_list", "input_to_filename_dict", "test_case"}
+	provided_keys = {"violations"}
+
+	def __init__(self, analyser: Analyser):
+		super().__init__(StageType.ANALYZE)
+		self.analyser = analyser
+
+	def run(self, ctx: dict[str, Any]) -> dict[str, Any]:
+		#filename_to_htraces: Dict[str, List[HTrace]] = ctx["htraces"]
+		filename_to_htraces_list: Dict[str, List[HTrace]] = ctx["filename_to_htraces_list"]
+		input_to_filename_dict: Dict[Input, str] = ctx["input_to_filename_dict"]
+		test_case: TestCase = ctx["test_case"]
+	
+		ctraces = [CTrace.get_null()] * len(input_to_filename_dict)
+		test_cases = [test_case] * len(input_to_filename_dict)
+		htraces = []
+		inputs = list(input_to_filename_dict.keys())
+	
+		for inp, remote_input_filename in input_to_filename_dict.items():
+#			number_of_added_htraces = len(filename_to_htraces[remote_input_filename])
+			htraces.append(HTrace(trace_list=filename_to_htraces_list[remote_input_filename]))
+#			inputs += [inp] * number_of_added_htraces
+#			ctraces += [CTrace.get_null()] * number_of_added_htraces
+#			test_cases += [test_case] * number_of_added_htraces
+	
+		violations = self.analyser.filter_violations(inputs, ctraces, htraces, test_cases, stats=True)
+	
+		ctx.update({"violations": violations})
+	
+		#import pdb; pdb.set_trace()
+	
+		return ctx
+
 
 # ==================================================================================================
 # Main executor class
@@ -931,11 +998,11 @@ class Aarch64Executor(Executor):
 # ==================================================================================================
 class Aarch64RemoteExecutor(Aarch64Executor):
 
-    def __init__(self, connection: Connection, *args):
+    def __init__(self, connection: Connection, workdir: str, *args):
         self.connection = connection
         super().__init__(*args)
         self.test_case: Optional[TestCase] = None
-        self.workdir= '/data/local/tmp/revizor'
+        self.workdir = workdir
         self.userland_executor = UserlandExecutorImp(connection, f'{self.workdir}/executor_userland',
                                                      '/dev/executor', '/sys/executor',
                                                      f'{self.workdir}/revizor-executor.ko',
@@ -945,9 +1012,15 @@ class Aarch64RemoteExecutor(Aarch64Executor):
                 "Attempting to run ARM executor on a non-ARM CPUs!\n"
                 "Change the `executor` configuration option to the appropriate vendor value.")
 
+
     def _is_smt_enabled(self):
-        result = self.connection.shell('cat /sys/devices/system/cpu/smt/control')
-        return 'on' in result.lower().split()
+        smt_file = '/sys/devices/system/cpu/smt/control'
+        if self.connection.is_file_present(smt_file):
+            result = self.connection.shell(f'cat {smt_file}').lower().split()
+            return 'on' in result or '1' in result
+
+        return False
+
 
     def set_vendor_specific_features(self):
         pass
@@ -963,7 +1036,7 @@ class Aarch64RemoteExecutor(Aarch64Executor):
     def _write_test_case(self, test_case: TestCase) -> None:
         self.test_case = test_case
 
-    def trace_test_case(self, inputs: List[Input], n_reps: int) -> List[HTrace]:
+    def trace_test_case(self, inputs: List[Input], n_reps: int, analyser: Analyser) -> Dict[Input, List[HTrace]]:
         """
         Call the executor kernel module to collect the hardware traces for
         the test case (previously loaded with `load_test_case`) and the given inputs.
@@ -976,43 +1049,43 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         # Skip if it's a dummy call
         if not inputs or self.test_case is None:
             return []
-
+        
         # Store statistics
         n_inputs = len(inputs)
         STAT.executor_reruns += n_reps * n_inputs
+        
+        pipeline = (
+                    (LoadInputs() & LoadTest()) | 
+                    (PrepareScenarioBatch() & TraceScenarioBatch() & CleanupRemoteFiles()) |
+                    AnalyserBlock(analyser)
+                ).build()
+        
+        initial_context = {
+            "inputs": inputs,
+            "test_case": self.test_case,
+            "repeats": n_reps,
+            "workdir": self.workdir,
+            "userland_executor": self.userland_executor,
+            "connection": self.connection
+        }
+        
+        ctx = pipeline.run(initial_context)
+        
+        violations = ctx["violations"]
+        
+        return violations
 
-	pipeline = (
-			(LoadInputs() & LoadTest()) | 
-			(PrepareScenarioBatch() & TraceScenarioBatch() & CleanupRemoteFiles())
-		).build()
 
-	initial_context = {
-		"inputs": inputs,
-		"test_case": self.test_case,
-		"repeats": n_reps,
-		"workdir": self.workdir,
-		"userland_executor": self.userland_executor,
-		"connection": self.connection
-	}
-
-	ctx = pipeline.run(initial_context)
-
-	htraces = ctx["htraces"]
-
-	import pdb; pdb.set_trace()
-        return htraces
-
-
-class Aarch64RemoteExecutor(Aarch64Executor):
+class Aarch64RemoteExecutorMTE(Aarch64Executor):
 
     def __init__(self, connection: Connection, *args):
         self.connection = connection
         super().__init__(*args)
         self.test_case: Optional[TestCase] = None
-        self.tmpdir = '/data/local/tmp/revizor'
-        self.userland_executor = UserlandExecutorImp(connection, f'{self.tmpdir}/executor_userland',
+        self.workdir = workdir
+        self.userland_executor = UserlandExecutorImp(connection, f'{self.workdir}/executor_userland',
                                                      '/dev/executor', '/sys/executor',
-                                                     f'{self.tmpdir}/revizor-executor.ko',
+                                                     f'{self.workdir}/revizor-executor.ko',
                                                      )
         if self.target_desc.cpu_desc.vendor.lower() != "arm":  # Technically ARM currently does not produce ARM processors, and other vendors do produce ARM processors
             self.LOG.error(
@@ -1042,7 +1115,7 @@ class Aarch64RemoteExecutor(Aarch64Executor):
 
         Aarch64RemoteExecutor._assemble_local_test_case(patched_test_case, 'generated_retrieve_bitmap')
 
-        remote_testcase_name = self._write_test_case_remotely(patched_test_case.bin_path)
+        remote_testcase_name = self._write_test_case_remotely(patched_test_case)
         self._load__and_remove_remote_test_case(remote_testcase_name)
 
         os.remove(patched_test_case.bin_path)
@@ -1054,9 +1127,9 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         for p in passes:
             p.run_on_test_case(test_case)
 
-    def _write_test_case_remotely(self, test_case_bin_path: str):
-        remote_filename = f'{self.tmpdir}/remote_{test_case_bin_path}'
-        self.connection.push(test_case_bin_path, remote_filename)
+    def _write_test_case_remotely(self, test_case: TestCase):
+        remote_filename = f'{self.workdir}/remote_{test_case.bin_path}'
+        self.connection.push(test_case.bin_path, remote_filename)
         return remote_filename
 
 
@@ -1085,7 +1158,7 @@ class Aarch64RemoteExecutor(Aarch64Executor):
 
         local_filename = 'generated_correct_tags'
         Aarch64RemoteExecutor._assemble_local_test_case(patched_test_case, local_filename)
-        remote_filename = self._write_test_case_remotely(patched_test_case.bin_path)
+        remote_filename = self._write_test_case_remotely(patched_test_case)
         os.remove(patched_test_case.bin_path)
         #os.remove(patched_test_case.asm_path)
         os.remove(patched_test_case.obj_path)
@@ -1099,7 +1172,7 @@ class Aarch64RemoteExecutor(Aarch64Executor):
 
         local_filename = f'generated_patched_{filename_suffix}'
         Aarch64RemoteExecutor._assemble_local_test_case(patched_test_case, local_filename)
-        remote_filename = self._write_test_case_remotely(patched_test_case.bin_path)
+        remote_filename = self._write_test_case_remotely(patched_test_case)
         os.remove(patched_test_case.bin_path)
         #os.remove(patched_test_case.asm_path)
         os.remove(patched_test_case.obj_path)
@@ -1112,7 +1185,7 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         remote_filenames = []
         for idx, inp in enumerate(inputs):
             inpname = f"input{idx}.bin"
-            remote_fname = f'{self.tmpdir}/{inpname}'
+            remote_fname = f'{self.workdir}/{inpname}'
             inp.save(inpname)
             self.connection.push(inpname, remote_fname)
             os.remove(inpname)
@@ -1247,8 +1320,8 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         
             return objs
 
-        remote_output_filename = f"{self.tmpdir}/remote_tmp_output"
-        remote_batch_filename = f'{self.tmpdir}/executor_batch'
+        remote_output_filename = f"{self.workdir}/remote_tmp_output"
+        remote_batch_filename = f'{self.workdir}/executor_batch'
 
         remote_input_filenames = self._upload_inputs(inputs)
         remote_filename_correct_tags, tc_correct_tags  = self._write_test_with_correct_tags()
@@ -1321,3 +1394,186 @@ class Aarch64RemoteExecutor(Aarch64Executor):
                 
         return traces
 
+#class Aarch64RemoteExecutor(Aarch64Executor):
+#
+#    def __init__(self, connection: Connection, workdir: str, *args):
+#        self.connection = connection
+#        super().__init__(*args)
+#        self.test_case: Optional[TestCase] = None
+#        self.workdir = workdir
+#        self.userland_executor = UserlandExecutorImp(connection, f'{self.workdir}/executor_userland',
+#                                                     '/dev/executor', '/sys/executor',
+#                                                     f'{self.workdir}/revizor-executor.ko',
+#                                                     )
+#        if self.target_desc.cpu_desc.vendor.lower() != "arm":  # Technically ARM currently does not produce ARM processors, and other vendors do produce ARM processors
+#            self.LOG.error(
+#                "Attempting to run ARM executor on a non-ARM CPUs!\n"
+#                "Change the `executor` configuration option to the appropriate vendor value.")
+#
+#    def _is_smt_enabled(self):
+#        smt_file = '/sys/devices/system/cpu/smt/control'
+#        if self.connection.is_file_present(smt_file):
+#            result = self.connection.shell(f'cat {smt_file}').lower().split()
+#            return 'on' in result or '1' in result
+#
+#        return False
+#
+#    def set_vendor_specific_features(self):
+#        pass
+#
+#    def read_base_addresses(self):
+#        """
+#        Read the base addresses of the code and the sandbox from the kernel module.
+#        This function is used to synchronize the memory layout between the executor and the model
+#        :return: a tuple (sandbox_base, code_base)
+#        """
+#        return self.userland_executor.sandbox_base, self.userland_executor.code_base
+#
+#    def _write_test_case_remotely(self, test_case: TestCase):
+#        remote_filename = f'{self.workdir}/remote_{test_case.bin_path}'
+#        self.connection.push(test_case.bin_path, remote_filename)
+#        return remote_filename
+#
+#    def _load__and_remove_remote_test_case(self, remote_filename: str):
+#        self.userland_executor.checkout_region(TestCaseRegion())
+#        self.userland_executor.write_file(remote_filename)
+#        self.connection.shell(f'rm {remote_filename}')
+#
+#    def _write_test_case(self, test_case: TestCase) -> None:
+#        self.test_case = test_case
+#
+#    def _upload_inputs(self, inputs: List[Input]):
+#        remote_filenames = []
+#        for idx, inp in enumerate(inputs):
+#            inpname = f"input{idx}.bin"
+#            remote_fname = f'{self.workdir}/{inpname}'
+#            inp.save(inpname)
+#            self.connection.push(inpname, remote_fname)
+#            os.remove(inpname)
+#            remote_filenames.append(remote_fname)
+#        return remote_filenames
+#
+#    def _write_inputs_to_connection(self, inputs: List[Input], n_reps: int) -> Tuple[
+#        np.ndarray[int, int], List[str]]:
+#        array: np.ndarray[int, int] = np.zeros((len(inputs), n_reps), dtype=np.uint64)
+#        remote_filenames = self._upload_inputs(inputs)
+#
+#        for col in range(n_reps):
+#            for row, fname in enumerate(remote_filenames):
+#                array[row, col] = self.userland_executor.allocate_iid()
+#                self.userland_executor.checkout_region(InputRegion(array[row, col]))
+#                self.userland_executor.write_file(fname)
+#
+#        return array, remote_filenames
+#
+#    def _create_scenario_batch(self, remote_input_filenames: List[str], test_cases: List[str], repeats: int, output: Optional[str] = None) -> ExecutorBatch:
+#        executor_batch = ExecutorBatch()
+#
+#        executor_batch.repeats = repeats
+#
+#        for remote_filename in remote_input_filenames:
+#            executor_batch.add_input(remote_filename)
+#        
+#        for tc in test_cases:
+#            executor_batch.add_test(tc)
+#
+#        if output is not None:
+#            executor_batch.output = output
+#
+#        return executor_batch
+# 
+#
+#    def trace_test_case(self, inputs: List[Input], n_reps: int) -> List[Tuple[
+#        Tuple[TestCase,HTrace], Tuple[TestCase,HTrace]]]:
+#        """
+#        Call the executor kernel module to collect the hardware traces for
+#        the test case (previously loaded with `load_test_case`) and the given inputs.
+#
+#        :param inputs: list of inputs to be used for the test case
+#        :param n_reps: number of times to repeat each measurement
+#        :return: a list of HTrace objects, one for each input
+#        :raises HardwareTracingError: if the kernel module output is malformed
+#        """
+#        def _measure_input(iid: int, iids: np.ndarray[int, int]) -> np.ndarray[Any, np.dtype[HWMeasurement]]:
+#
+#            def checkout_and_measure(cid: int) -> HWMeasurement:
+#                self.userland_executor.checkout_region(InputRegion(iids[iid][cid]))
+#                return self.userland_executor.hardware_measurement()
+#
+#            hwmeasurements = list(map(checkout_and_measure, range(iids.shape[1])))
+#            return np.array(hwmeasurements, dtype=object)
+#
+#        # Skip if it's a dummy call
+#        if not inputs or self.test_case is None:
+#            return []
+#
+#        # Store statistics
+#        n_inputs = len(inputs)
+#        STAT.executor_reruns += n_reps * n_inputs
+#
+#        
+#        def extract_json_objects(blob):
+#            objs = []
+#            brace_level = 0
+#            start_idx = None
+#        
+#            for i, char in enumerate(blob):
+#                if char == '{':
+#                    if brace_level == 0:
+#                        start_idx = i
+#                    brace_level += 1
+#                elif char == '}':
+#                    brace_level -= 1
+#                    if brace_level == 0 and start_idx is not None:
+#                        obj_str = blob[start_idx:i + 1]
+#                        objs.append(json.loads(obj_str))
+#                        start_idx = None  # reset
+#        
+#            return objs
+#
+#        remote_output_filename = f"{self.workdir}/remote_tmp_output"
+#        remote_batch_filename = f'{self.workdir}/executor_batch'
+#
+#        remote_input_filenames = self._upload_inputs(inputs)
+#        remote_filename = self._write_test_case_remotely(self.test_case)
+#
+#        scenario_batch: ExecutorBatch = self._create_scenario_batch(remote_input_filenames, [remote_filename], n_reps, remote_output_filename)
+#        output = self.userland_executor.trace(scenario_batch, remote_batch_filename)
+#
+#        jsons = extract_json_objects(output)
+#        
+#        traces_by_input = defaultdict(list)
+#        pfcs_by_input = defaultdict(list)
+#
+#        for js in jsons:
+#            input_name = js['input_name']
+#            test_name = js['test_name']
+#
+#            trace = int(js['htraces'][0], 2)
+#            pfcs = tuple(js['pfcs'])
+#            traces_by_input[input_name].append(trace)
+#            pfcs_by_input[input_name].append(pfcs)
+#
+#        import pdb; pdb.set_trace()
+#        remote_filenames = remote_input_filenames + [remote_output_filename, remote_filename, remote_batch_filename] 
+#        for filename in remote_filenames:
+#            self.connection.shell(f'rm {filename}', privileged=True)
+#
+#        self.LOG.dbg_executor_raw_traces(traces_by_input, pfcs_by_input)
+#
+#        # Aggregate measurements into HTrace objects
+#        traces = []
+#        for remote_input_filename in remote_input_filenames:
+#
+#            trace = correct_traces_by_input[remote_input_filename]
+#            pfcs = correct_pfcs_by_input[remote_input_filename]
+#
+#            traces.append(
+#                    (
+#                        (tc_correct_tags, HTrace(trace_list=trace_correct, perf_counters=pfcs_correct)),
+#                        (tcs_incorrect_tags[remote_input_filename], HTrace(trace_list=trace_incorrect, perf_counters=pfcs_incorrect))
+#                    )
+#                )
+#                
+#        return traces
+#

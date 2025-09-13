@@ -24,7 +24,7 @@ static void prepare_perf_event_attribute(struct perf_event_attr* attr, uint32_t 
 
 static uint64_t next_perf_event_index = 0;
 static struct perf_event* perf_events[16] = { 0 };
-static int perf_event_to_pmevcntr_index(struct perf_event* ev) { return ev ? ev->hw.idx - 1: -1; }
+static int perf_event_to_pmevcntr_index(struct perf_event* ev) { return ev ? ev->hw.idx : -1; }
 static void overflow_cb(struct perf_event *event, struct perf_sample_data *data, struct pt_regs *regs) { }
 static int create_perf_event(uint32_t type, uint64_t config) {
 	if(next_perf_event_index >= ARRAY_SIZE(perf_events)) return -2;
@@ -347,7 +347,7 @@ static void __nocfi run_experiments(void) {
 		}
 
 
-		config_pfc();
+//		config_pfc();
 
 		raw_local_irq_save(flags); // disable local interrupts and save current state
 

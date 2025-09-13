@@ -68,6 +68,7 @@ EXECUTORS = {
     'x86-64-intel': x86_executor.X86IntelExecutor,
     'x86-64-amd': x86_executor.X86AMDExecutor,
     'aarch64': aarch64_executor.Aarch64RemoteExecutor,
+    'aarch64-android': aarch64_executor.Aarch64RemoteExecutor,
 }
 
 ANALYSERS: Dict[str, Type[interfaces.Analyser]] = {
@@ -163,9 +164,14 @@ def get_model(bases: Tuple[int, int], enable_mismatch_check_mode: bool = False) 
 def get_executor(enable_mismatch_check_mode: bool = False) -> interfaces.Executor:
     args = [enable_mismatch_check_mode]
 
-    if 'aarch64' == CONF.executor:
-        connection = aarch64_connection.USBConnection()
-        args = [connection] + args
+    if 'aarch64-android' == CONF.executor:
+        connection = aarch64_connection.ADBConnection()
+        workdir = '/data/local/tmp/revizor'
+        args = [connection, workdir] + args
+    elif 'aarch64' == CONF.executor:
+        connection = aarch64_connection.SSHConnection(username="rvzr_prj", password="Abc1234#")
+        workdir = '/home/rvzr_prj/revizor'
+        args = [connection, workdir] + args
 
     return _get_from_config(EXECUTORS, CONF.executor, "executor", *args)
 

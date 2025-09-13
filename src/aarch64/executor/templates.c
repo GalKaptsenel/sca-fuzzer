@@ -135,7 +135,7 @@ inline void epilogue(void) {
     "eor x21, x21, x21\n"		                                                                \
     "eor x22, x22, x22\n"		                                                                \
     "isb; dsb SY \n"		                                                                    \
-    "mrs x20, pmevcntr1_el0 \n"                                                                 \
+    "mrs x20, pmevcntr0_el0 \n"                                                                 \
     "mrs x21, pmevcntr2_el0 \n"	                                                                \
     "mrs x22, pmevcntr3_el0 \n");
 
@@ -143,7 +143,7 @@ inline void epilogue(void) {
 // dest: x20, x21, x22
 #define READ_PFC_END() asm volatile(""                                                          \
     "isb; dsb SY \n"		                                                                    \
-    "mrs x1, pmevcntr1_el0 \n"	                                                                \
+    "mrs x1, pmevcntr0_el0 \n"	                                                                \
     "sub x20, x1, x20 \n"	                                                                    \
     "mrs x1, pmevcntr2_el0 \n"	                                                                \
     "sub x21, x1, x21 \n"	                                                                    \

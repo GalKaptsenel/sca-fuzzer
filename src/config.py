@@ -84,7 +84,7 @@ class Conf:
     # Fuzzer
     fuzzer: str = "basic"
     """ fuzzer: type of the fuzzing algorithm """
-    enable_priming: bool = True
+    enable_priming: bool = False #True
     """ enable_priming: whether to check violations with priming """
     enable_speculation_filter: bool = False
     """ enable_speculation_filter: if True, discard test cases that don't trigger speculation"""
@@ -207,7 +207,7 @@ class Conf:
     # ==============================================================================================
     # Analyser
 
-    analyser: str = 'ansamble' # 'chi2_bitwise_threshold'  #'chi2'#'chi2_bitwise_pvalues'
+    analyser: str = 'chi2' #'ansamble' # 'chi2_bitwise_threshold'  #'chi2'#'chi2_bitwise_pvalues'
     """ analyser: type of the analyser """
     analyser_subsets_is_violation: bool = False
     """ analyser_subsets_is_violation: [only for analyser='sets' or analyser='bitmaps']

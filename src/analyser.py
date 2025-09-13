@@ -58,8 +58,8 @@ class EquivalenceAnalyserCommon(Analyser):
         equivalent_inputs_ids = defaultdict(list)
         for i, ctrace in enumerate(ctraces):
             # skip the measurements with corrupted/ignored htraces
-            if not htraces[i].raw:
-                continue
+#            if not htraces[i].raw:
+#                continue
             equivalent_inputs_ids[ctrace].append(i)
         
 
@@ -71,7 +71,8 @@ class EquivalenceAnalyserCommon(Analyser):
                 continue
 
             # get all measurements in the class
-            measurements = [Measurement(i, inputs[i], ctrace, htraces[i], test_cases[i]) for i in ids]
+#            measurements = [Measurement(i, inputs[i], ctrace, m, test_cases[i]) for i in ids for m in htraces[i] if m.raw]
+            measurements = [Measurement(i, inputs[i], ctrace, htraces[i], test_cases[i]) for i in ids if  htraces[i].raw]
 
             # Build htrace groups
             htrace_groups = self._build_htrace_groups(measurements)
