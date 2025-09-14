@@ -176,8 +176,51 @@ class Aarch64TagMemoryAccesses(Pass):
                             sub_inst.template = f'sub {{{base_operand_cpy.name}}}, {{{base_operand_cpy.name}}}, {{{other_operand_cpy.name}}}'  # TODO: this should be done in the constructor
                             bb.insert_before(inst, sub_inst)
 
+class Aarch64MarkMemoryAccessesNEON(Pass):
 
-class Aarch64MarkMemoryAccesses(Pass):
+    @staticmethod
+    def mark_memory_access(bb: BasicBlock, inst: Instruction):
+
+        access_id = inst.memory_access_id
+
+        if not (0 <= access_id <= 127):
+            raise ValueError("NEON bit must be between 0 and 127, inclusive")
+
+
+        neon_register_bitmap = 'v0'
+        neon_register_temporary = 'v1'
+        scalar_register_temporary = 'w7'
+
+        byte_index = access_id // 8
+        bit_shift = access_id % 8
+        bit_mask = 1 << bit_shift
+
+        mov_scalar_template = f"mov {scalar_register_temporary}, #{bit_mask}"
+        movi_template = f"movi {neon_register_temporary}.16b, #0"
+        ins_template  = f"ins {neon_register_temporary}.b[{byte_index}], {scalar_register_temporary}"
+        orr_template = f"orr {neon_register_bitmap}.16b, {neon_register_bitmap}.16b, {neon_register_temporary}.16b"
+
+        mov_instruction = Instruction("MOV", True, template=mov_scalar_template)
+        movi_instruction = Instruction("MOVI", True, template=movi_template)
+        ins_instruction  = Instruction("INS", True, template=ins_template)
+        orr_instruction  = Instruction("ORR", True, template=orr_template)
+
+        bb.insert_after(position=inst, inst=orr_instruction)
+        bb.insert_after(position=inst, inst=ins_instruction)
+        bb.insert_after(position=inst, inst=movi_instruction)
+        bb.insert_after(position=inst, inst=mov_instruction)
+
+    def run_on_test_case(self, test_case: TestCase) -> None:
+        for func in test_case.functions:
+            for bb in func:
+                memory_instructions = [inst for inst in bb if inst.has_memory_access]
+
+                for inst in memory_instructions:
+                    self.mark_memory_access(bb, inst)
+
+
+
+class Aarch64MarkMemoryAccessesSVE(Pass):
 
     @staticmethod
     def mark_memory_access(bb: BasicBlock, inst: Instruction):

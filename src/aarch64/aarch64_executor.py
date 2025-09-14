@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from collections import defaultdict, OrderedDict, deque
 from enum import Enum, auto
 
-from .aarch64_generator import Aarch64TagMemoryAccesses, Aarch64Printer, Aarch64MarkMemoryAccesses
+from .aarch64_generator import Aarch64TagMemoryAccesses, Aarch64Printer, Aarch64MarkMemoryAccessesNEON
 from .. import ConfigurableGenerator
 from ..interfaces import HTrace, Input, TestCase, Executor, HardwareTracingError, Analyser, CTrace
 from ..config import CONF
@@ -471,8 +471,8 @@ class LoadInputs(Block):
 		super().__init__(StageType.LOAD)
 
 	@classmethod
-	def _upload_inputs(cls, inputs: List[Input], connection: Connection, workdir: str) -> Dict[Input, str]:
-		remote_filenames = {}
+	def _upload_inputs(cls, inputs: List[Input], connection: Connection, workdir: str) -> OrderedDict[Input, str]:
+		remote_filenames = OrderedDict()
 		for idx, inp in enumerate(inputs):
 			input_name = f"input{idx}.bin"
 			remote_filename = f'{workdir}/{input_name}'
@@ -605,7 +605,7 @@ class GenerateMTETestVariants(Block):
 	def _write_test_case_with_bitmap_trace(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
 		patched_test_case = copy.deepcopy(test_case)
 		tagging_pass = Aarch64TagMemoryAccesses(memory_accesses_to_guess_tag=None)
-		marking_pass = Aarch64MarkMemoryAccesses()
+		marking_pass = Aarch64MarkMemoryAccessesNEON()
 		cls._pass_on_test_case(patched_test_case, [tagging_pass, marking_pass])
 		return cls._write_test_case_remotely(patched_test_case, connection, workdir, 'generated_retrieve_bitmap')
 
@@ -772,8 +772,8 @@ class TraceScenarioBatch(Block):
 		input_to_filename_dict: OrderedDict[Input, List[int]] = ctx["input_to_filename_dict"]
 
 		# Temporary remote batch file
-		import subprocess
-		subprocess.run("cp ~/revizor/a ~/revizor/remote_generated; cp ~/revizor/spectrev1_arch.bin ~/revizor/input0.bin; cp ~/revizor/spectrev1_spec.bin ~/revizor/input1.bin", shell=True, check=True)
+#		import subprocess
+#		subprocess.run("cp ~/revizor/a ~/revizor/remote_generated; cp ~/revizor/spectrev1_arch.bin ~/revizor/input0.bin; cp ~/revizor/spectrev1_spec.bin ~/revizor/input1.bin", shell=True, check=True)
 		raw_output = userland_executor.trace(batch)
 
 		json_objs = self._extract_json_objects(raw_output)
@@ -797,6 +797,108 @@ class TraceScenarioBatch(Block):
 
 		ctx.update({
 			"filename_to_htraces_list": filename_to_htraces_list,
+		})
+
+		return ctx
+
+
+class ArchiteturalFlowTraceBlock(Block):
+	required_keys = {"test_case", "workdir", "connection", "userland_executor", "input_to_filename_dict"}
+	provided_keys = {"architectural_flows"}
+
+	def __init__(self):
+		super().__init__(StageType.EXECUTE)
+
+	@classmethod
+	def _upload_test(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
+		remote_filename = f'{workdir}/remote_{os.path.basename(test_case.bin_path)}'
+		connection.push(test_case.bin_path, remote_filename)
+		return remote_filename
+
+	@staticmethod
+	def _assemble_local_test_case(test_case: TestCase, base_filename: str):
+		printer = Aarch64Printer(Aarch64TargetDesc())
+		test_case.bin_path, test_case.asm_path, test_case.obj_path = (f'{base_filename}.{suffix}' for suffix in ('bin', 'asm', 'o'))
+
+		printer.print(test_case, test_case.asm_path)
+
+		ConfigurableGenerator.assemble(test_case.asm_path, test_case.obj_path, test_case.bin_path)
+
+
+
+	@classmethod
+	def _write_test_case_remotely(cls, test_case: TestCase, connection: Connection, workdir: str, local_filename: str) -> str:
+
+		cls._assemble_local_test_case(test_case, local_filename)
+
+		remote_filename = cls._upload_test(test_case, connection, workdir)
+
+		os.remove(test_case.bin_path)
+		#os.remove(test_case.asm_path)
+		os.remove(test_case.obj_path)
+		return remote_filename
+
+	@classmethod
+	def _pass_on_test_case(cls, test_case: TestCase, passes: List[Pass]):
+		for p in passes:
+			p.run_on_test_case(test_case)
+
+	@classmethod
+	def _write_test_case_with_bitmap_trace(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
+		patched_test_case = copy.deepcopy(test_case)
+		marking_pass = Aarch64MarkMemoryAccessesNEON()
+		cls._pass_on_test_case(patched_test_case, [marking_pass])
+		return cls._write_test_case_remotely(patched_test_case, connection, workdir, 'generated_retrieve_bitmap')
+
+	@classmethod
+	def _measure_architecturally_not_accessed_memory_addresses(cls, test_case: TestCase, input_to_filename: Dict[Input, str],  workdir: str, userland_executor: UserlandExecutor, connection: Connection) -> OrderedDict[Input, List[int]]:
+
+		def parse_bitmap(n: str, bit: int) -> List[int]:
+			result = []
+			for index, b in enumerate(n):
+				if bit == int(b):
+					result.append(len(n) - (index + 1))
+			return result
+
+		inp_to_iids = {}
+		for inp, remote_input_filename in input_to_filename.items():
+			iid = userland_executor.allocate_iid()
+			inp_to_iids[inp] = iid
+			userland_executor.checkout_region(InputRegion(iid))
+			userland_executor.write_file(remote_input_filename)
+
+
+		remote_test_case_filename = cls._write_test_case_with_bitmap_trace(test_case, connection, workdir)
+
+		userland_executor.checkout_region(TestCaseRegion())
+		userland_executor.write_file(remote_test_case_filename)
+		import pdb; pdb.set_trace()
+		userland_executor.trace()
+
+		not_architectural_memory_accesses: OrderedDict[str, List[int]] = OrderedDict()
+
+		for inp, iid in inp_to_iids.items():
+			userland_executor.checkout_region(InputRegion(iid))
+			measurement = userland_executor.hardware_measurement().memory_ids
+			not_architectural_memory_accesses[inp] = parse_bitmap(measurement, bit=1)
+
+		userland_executor.discard_all_inputs()
+		connection.shell(f'rm {remote_test_case_filename}')
+
+		return not_architectural_memory_accesses
+
+	def run(self, ctx: dict[str, Any]) -> dict[str, Any]:
+		connection: Connection = ctx["connection"]
+		test_case: TestCase = ctx["test_case"]
+		workdir: str = ctx["workdir"]
+		userland_executor: UserlandExecutor = ctx["userland_executor"]
+		input_to_filename_dict: OrderedDict[Input, List[int]] = ctx["input_to_filename_dict"]
+
+		architectural_flows = self._measure_architecturally_not_accessed_memory_addresses(test_case, input_to_filename_dict, workdir, userland_executor, connection)
+
+		print(f"{architectural_flows=}")
+		ctx.update({
+            "architectural_flows": architectural_flows
 		})
 
 		return ctx
@@ -1056,8 +1158,8 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         
         pipeline = (
                     (LoadInputs() & LoadTest()) | 
-                    (PrepareScenarioBatch() & TraceScenarioBatch() & CleanupRemoteFiles()) |
-                    AnalyserBlock(analyser)
+					(ArchiteturalFlowTraceBlock() & PrepareScenarioBatch() & TraceScenarioBatch() & CleanupRemoteFiles()) |
+					AnalyserBlock(analyser)
                 ).build()
         
         initial_context = {
@@ -1076,323 +1178,323 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         return violations
 
 
-class Aarch64RemoteExecutorMTE(Aarch64Executor):
-
-    def __init__(self, connection: Connection, *args):
-        self.connection = connection
-        super().__init__(*args)
-        self.test_case: Optional[TestCase] = None
-        self.workdir = workdir
-        self.userland_executor = UserlandExecutorImp(connection, f'{self.workdir}/executor_userland',
-                                                     '/dev/executor', '/sys/executor',
-                                                     f'{self.workdir}/revizor-executor.ko',
-                                                     )
-        if self.target_desc.cpu_desc.vendor.lower() != "arm":  # Technically ARM currently does not produce ARM processors, and other vendors do produce ARM processors
-            self.LOG.error(
-                "Attempting to run ARM executor on a non-ARM CPUs!\n"
-                "Change the `executor` configuration option to the appropriate vendor value.")
-
-    def _is_smt_enabled(self):
-        result = self.connection.shell('cat /sys/devices/system/cpu/smt/control')
-        return 'on' in result.lower().split()
-
-    def set_vendor_specific_features(self):
-        pass
-
-    def read_base_addresses(self):
-        """
-        Read the base addresses of the code and the sandbox from the kernel module.
-        This function is used to synchronize the memory layout between the executor and the model
-        :return: a tuple (sandbox_base, code_base)
-        """
-        return self.userland_executor.sandbox_base, self.userland_executor.code_base
-
-    def _write_test_case_with_bitmap_trace(self, test_case: TestCase) -> None:
-        patched_test_case = copy.deepcopy(test_case)
-        tagging_pass = Aarch64TagMemoryAccesses(memory_accesses_to_guess_tag=None)
-        marking_pass = Aarch64MarkMemoryAccesses()
-        Aarch64RemoteExecutor._pass_on_test_case(patched_test_case, [tagging_pass, marking_pass])
-
-        Aarch64RemoteExecutor._assemble_local_test_case(patched_test_case, 'generated_retrieve_bitmap')
-
-        remote_testcase_name = self._write_test_case_remotely(patched_test_case)
-        self._load__and_remove_remote_test_case(remote_testcase_name)
-
-        os.remove(patched_test_case.bin_path)
-        os.remove(patched_test_case.asm_path)
-        os.remove(patched_test_case.obj_path)
-
-    @staticmethod
-    def _pass_on_test_case(test_case: TestCase, passes: List[Pass]):
-        for p in passes:
-            p.run_on_test_case(test_case)
-
-    def _write_test_case_remotely(self, test_case: TestCase):
-        remote_filename = f'{self.workdir}/remote_{test_case.bin_path}'
-        self.connection.push(test_case.bin_path, remote_filename)
-        return remote_filename
-
-
-    def _load__and_remove_remote_test_case(self, remote_filename: str):
-        self.userland_executor.checkout_region(TestCaseRegion())
-        self.userland_executor.write_file(remote_filename)
-        self.connection.shell(f'rm {remote_filename}')
-
-    @staticmethod
-    def _assemble_local_test_case(test_case: TestCase, base_filename: str):
-        printer = Aarch64Printer(Aarch64TargetDesc())
-        test_case.bin_path, test_case.asm_path, test_case.obj_path = \
-            (f'{base_filename}.{suffix}' for suffix in ('bin', 'asm', 'o'))
-
-        printer.print(test_case, test_case.asm_path)
-
-        ConfigurableGenerator.assemble(test_case.asm_path, test_case.obj_path, test_case.bin_path)
-
-    def _write_test_with_correct_tags(self) -> Tuple[str, TestCase]:
-        patched_test_case = copy.deepcopy(self.test_case)
-        #os.remove(patched_test_case.bin_path)
-        #os.remove(patched_test_case.asm_path)
-        #os.remove(patched_test_case.obj_path)
-        tagging_pass = Aarch64TagMemoryAccesses(memory_accesses_to_guess_tag=None)
-        Aarch64RemoteExecutor._pass_on_test_case(patched_test_case, [tagging_pass])
-
-        local_filename = 'generated_correct_tags'
-        Aarch64RemoteExecutor._assemble_local_test_case(patched_test_case, local_filename)
-        remote_filename = self._write_test_case_remotely(patched_test_case)
-        os.remove(patched_test_case.bin_path)
-        #os.remove(patched_test_case.asm_path)
-        os.remove(patched_test_case.obj_path)
-        return remote_filename, patched_test_case
-
-    def _write_test_with_incorrect_tags(self, filename_suffix: str, memory_accesses_to_guess_tag: List[int]) -> Tuple[str, TestCase]:
-        patched_test_case = copy.deepcopy(self.test_case)
-        tagging_pass = Aarch64TagMemoryAccesses(
-            memory_accesses_to_guess_tag=memory_accesses_to_guess_tag)
-        Aarch64RemoteExecutor._pass_on_test_case(patched_test_case, [tagging_pass])
-
-        local_filename = f'generated_patched_{filename_suffix}'
-        Aarch64RemoteExecutor._assemble_local_test_case(patched_test_case, local_filename)
-        remote_filename = self._write_test_case_remotely(patched_test_case)
-        os.remove(patched_test_case.bin_path)
-        #os.remove(patched_test_case.asm_path)
-        os.remove(patched_test_case.obj_path)
-        return remote_filename, patched_test_case
-
-    def _write_test_case(self, test_case: TestCase) -> None:
-        self.test_case = test_case
-
-    def _upload_inputs(self, inputs: List[Input]):
-        remote_filenames = []
-        for idx, inp in enumerate(inputs):
-            inpname = f"input{idx}.bin"
-            remote_fname = f'{self.workdir}/{inpname}'
-            inp.save(inpname)
-            self.connection.push(inpname, remote_fname)
-            os.remove(inpname)
-            remote_filenames.append(remote_fname)
-        return remote_filenames
-
-    def _write_inputs_to_connection(self, inputs: List[Input], n_reps: int) -> Tuple[
-        np.ndarray[int, int], List[str]]:
-        array: np.ndarray[int, int] = np.zeros((len(inputs), n_reps), dtype=np.uint64)
-        remote_filenames = self._upload_inputs(inputs)
-
-        for col in range(n_reps):
-            for row, fname in enumerate(remote_filenames):
-                array[row, col] = self.userland_executor.allocate_iid()
-                self.userland_executor.checkout_region(InputRegion(array[row, col]))
-                self.userland_executor.write_file(fname)
-
-        return array, remote_filenames
-
-    def _measure_architecturaly_accessed_memory_addresses(self, remote_input_filenames: List[str]) -> Dict[str, str]:
-
-        all_architectural_memory_accesses = {}
-        iids: np.ndarray[int] = np.zeros((len(remote_input_filenames)), dtype=np.uint64)
-
-        self._write_test_case_with_bitmap_trace(self.test_case)
-
-        for idx, remote_filename in enumerate(remote_input_filenames):
-            iids[idx] = self.userland_executor.allocate_iid()
-            self.userland_executor.checkout_region(InputRegion(iids[idx]))
-            self.userland_executor.write_file(remote_filename)
-
-        self.userland_executor.trace()
-
-        for iid, remote_input_filename in zip(iids, remote_input_filenames):
-            self.userland_executor.checkout_region(InputRegion(iid))
-            all_architectural_memory_accesses[remote_input_filename] = self.userland_executor.hardware_measurement().memory_ids
-
-        self.userland_executor.discard_all_inputs()
-
-        return all_architectural_memory_accesses
- 
-    def _measure_architecturaly_not_accessed_memory_addresses(self, remote_input_filenames: List[str]) -> Dict[str, List[int]]:
-
-        def parse_bitmap(n: str, bit: int) -> List[int]:
-            result = []
-            for index, b in enumerate(n):
-                if bit == int(b):
-                    result.append(len(n) - (index + 1))
-            return result
-
-        all_not_architectural_memory_accesses: Dict[int, List[int]] = {}
-        for remote_filename, measurement in self._measure_architecturaly_accessed_memory_addresses(remote_input_filenames).items():
-            all_not_architectural_memory_accesses[remote_filename]: List[int] = \
-                parse_bitmap(measurement, bit=0)
-
-        return all_not_architectural_memory_accesses
-
-    def _create_tests_with_incorrect_tags(self, remote_input_filenames: List[str]) -> Dict[str, Tuple[str, TestCase]]:
-
-        pair_filename_tc_incorrect_tags: Dict[str, Tuple[str, TestCase]] = {}
-
-        all_not_architectural_memory_accesses = self._measure_architecturaly_not_accessed_memory_addresses(remote_input_filenames)
-
-        for remote_input_filename, measurement in all_not_architectural_memory_accesses.items() :
-            pair_filename_tc_incorrect_tags[remote_input_filename] = self._write_test_with_incorrect_tags(
-                remote_input_filename.rstrip('/').split('/')[-1], measurement)
-
-        return pair_filename_tc_incorrect_tags
-
-    def _create_scenario_batch(self, remote_input_filenames: List[str], test_cases: List[str], repeats: int, output: Optional[str] = None) -> ExecutorBatch:
-        executor_batch = ExecutorBatch()
-
-        executor_batch.repeats = repeats
-
-        for remote_filename in remote_input_filenames:
-            executor_batch.add_input(remote_filename)
-        
-        for tc in test_cases:
-            executor_batch.add_test(tc)
-
-        if output is not None:
-            executor_batch.output = output
-
-        return executor_batch
- 
-
-    def trace_test_case(self, inputs: List[Input], n_reps: int) -> List[Tuple[
-        Tuple[TestCase,HTrace], Tuple[TestCase,HTrace]]]:
-        """
-        Call the executor kernel module to collect the hardware traces for
-        the test case (previously loaded with `load_test_case`) and the given inputs.
-
-        :param inputs: list of inputs to be used for the test case
-        :param n_reps: number of times to repeat each measurement
-        :return: a list of HTrace objects, one for each input
-        :raises HardwareTracingError: if the kernel module output is malformed
-        """
-        def _measure_input(iid: int, iids: np.ndarray[int, int]) -> np.ndarray[Any, np.dtype[HWMeasurement]]:
-
-            def checkout_and_measure(cid: int) -> HWMeasurement:
-                self.userland_executor.checkout_region(InputRegion(iids[iid][cid]))
-                return self.userland_executor.hardware_measurement()
-
-            hwmeasurements = list(map(checkout_and_measure, range(iids.shape[1])))
-            return np.array(hwmeasurements, dtype=object)
-
-        # Skip if it's a dummy call
-        if not inputs or self.test_case is None:
-            return []
-
-        # Store statistics
-        n_inputs = len(inputs)
-        STAT.executor_reruns += n_reps * n_inputs
-
-        
-        def extract_json_objects(blob):
-            objs = []
-            brace_level = 0
-            start_idx = None
-        
-            for i, char in enumerate(blob):
-                if char == '{':
-                    if brace_level == 0:
-                        start_idx = i
-                    brace_level += 1
-                elif char == '}':
-                    brace_level -= 1
-                    if brace_level == 0 and start_idx is not None:
-                        obj_str = blob[start_idx:i + 1]
-                        objs.append(json.loads(obj_str))
-                        start_idx = None  # reset
-        
-            return objs
-
-        remote_output_filename = f"{self.workdir}/remote_tmp_output"
-        remote_batch_filename = f'{self.workdir}/executor_batch'
-
-        remote_input_filenames = self._upload_inputs(inputs)
-        remote_filename_correct_tags, tc_correct_tags  = self._write_test_with_correct_tags()
-        remote_pair_filenames_tcs_incorrect_tags = self._create_tests_with_incorrect_tags(remote_input_filenames)
-        remote_filenames_incorrect_tags = { k: v[0] for k,v in remote_pair_filenames_tcs_incorrect_tags.items() }
-        tcs_incorrect_tags = { k: v[1] for k,v in remote_pair_filenames_tcs_incorrect_tags.items() }
-
-        scenario_batch: ExecutorBatch = self._create_scenario_batch(remote_input_filenames, [remote_filename_correct_tags] + list(remote_filenames_incorrect_tags.values()), n_reps, remote_output_filename)
-        output = self.userland_executor.trace(scenario_batch, remote_batch_filename)
-
-        jsons = extract_json_objects(output)
-        
-        correct_traces_by_input = defaultdict(list)
-        incorrect_traces_by_input = defaultdict(list)
-        correct_pfcs_by_input = defaultdict(list)
-        incorrect_pfcs_by_input = defaultdict(list)
-
-        for js in jsons:
-            input_name = js['input_name']
-            test_name = js['test_name']
-
-            trace = int(js['htraces'][0], 2)
-            pfcs = tuple(js['pfcs'])
-
-            if test_name == remote_filename_correct_tags:
-                correct_traces_by_input[input_name].append(trace)
-                correct_pfcs_by_input[input_name].append(pfcs)
-            elif test_name == remote_filenames_incorrect_tags.get(input_name, None):
-                incorrect_traces_by_input[input_name].append(trace)
-                incorrect_pfcs_by_input[input_name].append(pfcs)
-
-        remote_filenames = list(remote_filenames_incorrect_tags.values()) + remote_input_filenames + [remote_output_filename, remote_filename_correct_tags, remote_batch_filename] 
-        for filename in remote_filenames:
-            self.connection.shell(f'rm {filename}', privileged=True)
-
-        self.LOG.dbg_executor_raw_traces(correct_traces_by_input, correct_pfcs_by_input)
-        self.LOG.dbg_executor_raw_traces(incorrect_traces_by_input, incorrect_pfcs_by_input)
-
-#        # Post-process the results and check for errors
-#        if not self.mismatch_check_mode:  # no need to post-process in mismatch check mode
-#            mask = np.uint64(0x0FFFFFFFFFFFFFF0)
-#            for input_id in range(n_inputs):
-#                for rep_id in range(n_reps):
-#                    # Zero-out traces for ignored inputs
-#                    if input_id in self.ignore_list:
-#                        all_correct_tags_traces[input_id][rep_id] = 0
-#                        all_incorrect_tags_traces[input_id][rep_id] = 0
-#                        continue
+#class Aarch64RemoteExecutorMTE(Aarch64Executor):
 #
-#                    # When using TSC mode, we need to mask the lower 4 bits of the trace
-#                    if CONF.executor_mode == 'TSC':
-#                        all_correct_tags_traces[input_id][rep_id] &= mask
-#                        all_incorrect_tags_traces[input_id][rep_id] &= mask
-
-        # Aggregate measurements into HTrace objects
-        traces = []
-        for remote_input_filename in remote_input_filenames:
-
-            trace_correct = correct_traces_by_input[remote_input_filename]
-            pfcs_correct = correct_pfcs_by_input[remote_input_filename]
-            trace_incorrect = incorrect_traces_by_input[remote_input_filename]
-            pfcs_incorrect = incorrect_pfcs_by_input[remote_input_filename]
-
-            traces.append(
-                    (
-                        (tc_correct_tags, HTrace(trace_list=trace_correct, perf_counters=pfcs_correct)),
-                        (tcs_incorrect_tags[remote_input_filename], HTrace(trace_list=trace_incorrect, perf_counters=pfcs_incorrect))
-                    )
-                )
-                
-        return traces
+#    def __init__(self, connection: Connection, *args):
+#        self.connection = connection
+#        super().__init__(*args)
+#        self.test_case: Optional[TestCase] = None
+#        self.workdir = workdir
+#        self.userland_executor = UserlandExecutorImp(connection, f'{self.workdir}/executor_userland',
+#                                                     '/dev/executor', '/sys/executor',
+#                                                     f'{self.workdir}/revizor-executor.ko',
+#                                                     )
+#        if self.target_desc.cpu_desc.vendor.lower() != "arm":  # Technically ARM currently does not produce ARM processors, and other vendors do produce ARM processors
+#            self.LOG.error(
+#                "Attempting to run ARM executor on a non-ARM CPUs!\n"
+#                "Change the `executor` configuration option to the appropriate vendor value.")
+#
+#    def _is_smt_enabled(self):
+#        result = self.connection.shell('cat /sys/devices/system/cpu/smt/control')
+#        return 'on' in result.lower().split()
+#
+#    def set_vendor_specific_features(self):
+#        pass
+#
+#    def read_base_addresses(self):
+#        """
+#        Read the base addresses of the code and the sandbox from the kernel module.
+#        This function is used to synchronize the memory layout between the executor and the model
+#        :return: a tuple (sandbox_base, code_base)
+#        """
+#        return self.userland_executor.sandbox_base, self.userland_executor.code_base
+#
+#    def _write_test_case_with_bitmap_trace(self, test_case: TestCase) -> None:
+#        patched_test_case = copy.deepcopy(test_case)
+#        tagging_pass = Aarch64TagMemoryAccesses(memory_accesses_to_guess_tag=None)
+#        marking_pass = Aarch64MarkMemoryAccesses()
+#        Aarch64RemoteExecutor._pass_on_test_case(patched_test_case, [tagging_pass, marking_pass])
+#
+#        Aarch64RemoteExecutor._assemble_local_test_case(patched_test_case, 'generated_retrieve_bitmap')
+#
+#        remote_testcase_name = self._write_test_case_remotely(patched_test_case)
+#        self._load__and_remove_remote_test_case(remote_testcase_name)
+#
+#        os.remove(patched_test_case.bin_path)
+#        os.remove(patched_test_case.asm_path)
+#        os.remove(patched_test_case.obj_path)
+#
+#    @staticmethod
+#    def _pass_on_test_case(test_case: TestCase, passes: List[Pass]):
+#        for p in passes:
+#            p.run_on_test_case(test_case)
+#
+#    def _write_test_case_remotely(self, test_case: TestCase):
+#        remote_filename = f'{self.workdir}/remote_{test_case.bin_path}'
+#        self.connection.push(test_case.bin_path, remote_filename)
+#        return remote_filename
+#
+#
+#    def _load__and_remove_remote_test_case(self, remote_filename: str):
+#        self.userland_executor.checkout_region(TestCaseRegion())
+#        self.userland_executor.write_file(remote_filename)
+#        self.connection.shell(f'rm {remote_filename}')
+#
+#    @staticmethod
+#    def _assemble_local_test_case(test_case: TestCase, base_filename: str):
+#        printer = Aarch64Printer(Aarch64TargetDesc())
+#        test_case.bin_path, test_case.asm_path, test_case.obj_path = \
+#            (f'{base_filename}.{suffix}' for suffix in ('bin', 'asm', 'o'))
+#
+#        printer.print(test_case, test_case.asm_path)
+#
+#        ConfigurableGenerator.assemble(test_case.asm_path, test_case.obj_path, test_case.bin_path)
+#
+#    def _write_test_with_correct_tags(self) -> Tuple[str, TestCase]:
+#        patched_test_case = copy.deepcopy(self.test_case)
+#        #os.remove(patched_test_case.bin_path)
+#        #os.remove(patched_test_case.asm_path)
+#        #os.remove(patched_test_case.obj_path)
+#        tagging_pass = Aarch64TagMemoryAccesses(memory_accesses_to_guess_tag=None)
+#        Aarch64RemoteExecutor._pass_on_test_case(patched_test_case, [tagging_pass])
+#
+#        local_filename = 'generated_correct_tags'
+#        Aarch64RemoteExecutor._assemble_local_test_case(patched_test_case, local_filename)
+#        remote_filename = self._write_test_case_remotely(patched_test_case)
+#        os.remove(patched_test_case.bin_path)
+#        #os.remove(patched_test_case.asm_path)
+#        os.remove(patched_test_case.obj_path)
+#        return remote_filename, patched_test_case
+#
+#    def _write_test_with_incorrect_tags(self, filename_suffix: str, memory_accesses_to_guess_tag: List[int]) -> Tuple[str, TestCase]:
+#        patched_test_case = copy.deepcopy(self.test_case)
+#        tagging_pass = Aarch64TagMemoryAccesses(
+#            memory_accesses_to_guess_tag=memory_accesses_to_guess_tag)
+#        Aarch64RemoteExecutor._pass_on_test_case(patched_test_case, [tagging_pass])
+#
+#        local_filename = f'generated_patched_{filename_suffix}'
+#        Aarch64RemoteExecutor._assemble_local_test_case(patched_test_case, local_filename)
+#        remote_filename = self._write_test_case_remotely(patched_test_case)
+#        os.remove(patched_test_case.bin_path)
+#        #os.remove(patched_test_case.asm_path)
+#        os.remove(patched_test_case.obj_path)
+#        return remote_filename, patched_test_case
+#
+#    def _write_test_case(self, test_case: TestCase) -> None:
+#        self.test_case = test_case
+#
+#    def _upload_inputs(self, inputs: List[Input]):
+#        remote_filenames = []
+#        for idx, inp in enumerate(inputs):
+#            inpname = f"input{idx}.bin"
+#            remote_fname = f'{self.workdir}/{inpname}'
+#            inp.save(inpname)
+#            self.connection.push(inpname, remote_fname)
+#            os.remove(inpname)
+#            remote_filenames.append(remote_fname)
+#        return remote_filenames
+#
+#    def _write_inputs_to_connection(self, inputs: List[Input], n_reps: int) -> Tuple[
+#        np.ndarray[int, int], List[str]]:
+#        array: np.ndarray[int, int] = np.zeros((len(inputs), n_reps), dtype=np.uint64)
+#        remote_filenames = self._upload_inputs(inputs)
+#
+#        for col in range(n_reps):
+#            for row, fname in enumerate(remote_filenames):
+#                array[row, col] = self.userland_executor.allocate_iid()
+#                self.userland_executor.checkout_region(InputRegion(array[row, col]))
+#                self.userland_executor.write_file(fname)
+#
+#        return array, remote_filenames
+#
+#    def _measure_architecturaly_accessed_memory_addresses(self, remote_input_filenames: List[str]) -> Dict[str, str]:
+#
+#        all_architectural_memory_accesses = {}
+#        iids: np.ndarray[int] = np.zeros((len(remote_input_filenames)), dtype=np.uint64)
+#
+#        self._write_test_case_with_bitmap_trace(self.test_case)
+#
+#        for idx, remote_filename in enumerate(remote_input_filenames):
+#            iids[idx] = self.userland_executor.allocate_iid()
+#            self.userland_executor.checkout_region(InputRegion(iids[idx]))
+#            self.userland_executor.write_file(remote_filename)
+#
+#        self.userland_executor.trace()
+#
+#        for iid, remote_input_filename in zip(iids, remote_input_filenames):
+#            self.userland_executor.checkout_region(InputRegion(iid))
+#            all_architectural_memory_accesses[remote_input_filename] = self.userland_executor.hardware_measurement().memory_ids
+#
+#        self.userland_executor.discard_all_inputs()
+#
+#        return all_architectural_memory_accesses
+# 
+#    def _measure_architecturaly_not_accessed_memory_addresses(self, remote_input_filenames: List[str]) -> Dict[str, List[int]]:
+#
+#        def parse_bitmap(n: str, bit: int) -> List[int]:
+#            result = []
+#            for index, b in enumerate(n):
+#                if bit == int(b):
+#                    result.append(len(n) - (index + 1))
+#            return result
+#
+#        all_not_architectural_memory_accesses: Dict[int, List[int]] = {}
+#        for remote_filename, measurement in self._measure_architecturaly_accessed_memory_addresses(remote_input_filenames).items():
+#            all_not_architectural_memory_accesses[remote_filename]: List[int] = \
+#                parse_bitmap(measurement, bit=0)
+#
+#        return all_not_architectural_memory_accesses
+#
+#    def _create_tests_with_incorrect_tags(self, remote_input_filenames: List[str]) -> Dict[str, Tuple[str, TestCase]]:
+#
+#        pair_filename_tc_incorrect_tags: Dict[str, Tuple[str, TestCase]] = {}
+#
+#        all_not_architectural_memory_accesses = self._measure_architecturaly_not_accessed_memory_addresses(remote_input_filenames)
+#
+#        for remote_input_filename, measurement in all_not_architectural_memory_accesses.items() :
+#            pair_filename_tc_incorrect_tags[remote_input_filename] = self._write_test_with_incorrect_tags(
+#                remote_input_filename.rstrip('/').split('/')[-1], measurement)
+#
+#        return pair_filename_tc_incorrect_tags
+#
+#    def _create_scenario_batch(self, remote_input_filenames: List[str], test_cases: List[str], repeats: int, output: Optional[str] = None) -> ExecutorBatch:
+#        executor_batch = ExecutorBatch()
+#
+#        executor_batch.repeats = repeats
+#
+#        for remote_filename in remote_input_filenames:
+#            executor_batch.add_input(remote_filename)
+#        
+#        for tc in test_cases:
+#            executor_batch.add_test(tc)
+#
+#        if output is not None:
+#            executor_batch.output = output
+#
+#        return executor_batch
+# 
+#
+#    def trace_test_case(self, inputs: List[Input], n_reps: int) -> List[Tuple[
+#        Tuple[TestCase,HTrace], Tuple[TestCase,HTrace]]]:
+#        """
+#        Call the executor kernel module to collect the hardware traces for
+#        the test case (previously loaded with `load_test_case`) and the given inputs.
+#
+#        :param inputs: list of inputs to be used for the test case
+#        :param n_reps: number of times to repeat each measurement
+#        :return: a list of HTrace objects, one for each input
+#        :raises HardwareTracingError: if the kernel module output is malformed
+#        """
+#        def _measure_input(iid: int, iids: np.ndarray[int, int]) -> np.ndarray[Any, np.dtype[HWMeasurement]]:
+#
+#            def checkout_and_measure(cid: int) -> HWMeasurement:
+#                self.userland_executor.checkout_region(InputRegion(iids[iid][cid]))
+#                return self.userland_executor.hardware_measurement()
+#
+#            hwmeasurements = list(map(checkout_and_measure, range(iids.shape[1])))
+#            return np.array(hwmeasurements, dtype=object)
+#
+#        # Skip if it's a dummy call
+#        if not inputs or self.test_case is None:
+#            return []
+#
+#        # Store statistics
+#        n_inputs = len(inputs)
+#        STAT.executor_reruns += n_reps * n_inputs
+#
+#        
+#        def extract_json_objects(blob):
+#            objs = []
+#            brace_level = 0
+#            start_idx = None
+#        
+#            for i, char in enumerate(blob):
+#                if char == '{':
+#                    if brace_level == 0:
+#                        start_idx = i
+#                    brace_level += 1
+#                elif char == '}':
+#                    brace_level -= 1
+#                    if brace_level == 0 and start_idx is not None:
+#                        obj_str = blob[start_idx:i + 1]
+#                        objs.append(json.loads(obj_str))
+#                        start_idx = None  # reset
+#        
+#            return objs
+#
+#        remote_output_filename = f"{self.workdir}/remote_tmp_output"
+#        remote_batch_filename = f'{self.workdir}/executor_batch'
+#
+#        remote_input_filenames = self._upload_inputs(inputs)
+#        remote_filename_correct_tags, tc_correct_tags  = self._write_test_with_correct_tags()
+#        remote_pair_filenames_tcs_incorrect_tags = self._create_tests_with_incorrect_tags(remote_input_filenames)
+#        remote_filenames_incorrect_tags = { k: v[0] for k,v in remote_pair_filenames_tcs_incorrect_tags.items() }
+#        tcs_incorrect_tags = { k: v[1] for k,v in remote_pair_filenames_tcs_incorrect_tags.items() }
+#
+#        scenario_batch: ExecutorBatch = self._create_scenario_batch(remote_input_filenames, [remote_filename_correct_tags] + list(remote_filenames_incorrect_tags.values()), n_reps, remote_output_filename)
+#        output = self.userland_executor.trace(scenario_batch, remote_batch_filename)
+#
+#        jsons = extract_json_objects(output)
+#        
+#        correct_traces_by_input = defaultdict(list)
+#        incorrect_traces_by_input = defaultdict(list)
+#        correct_pfcs_by_input = defaultdict(list)
+#        incorrect_pfcs_by_input = defaultdict(list)
+#
+#        for js in jsons:
+#            input_name = js['input_name']
+#            test_name = js['test_name']
+#
+#            trace = int(js['htraces'][0], 2)
+#            pfcs = tuple(js['pfcs'])
+#
+#            if test_name == remote_filename_correct_tags:
+#                correct_traces_by_input[input_name].append(trace)
+#                correct_pfcs_by_input[input_name].append(pfcs)
+#            elif test_name == remote_filenames_incorrect_tags.get(input_name, None):
+#                incorrect_traces_by_input[input_name].append(trace)
+#                incorrect_pfcs_by_input[input_name].append(pfcs)
+#
+#        remote_filenames = list(remote_filenames_incorrect_tags.values()) + remote_input_filenames + [remote_output_filename, remote_filename_correct_tags, remote_batch_filename] 
+#        for filename in remote_filenames:
+#            self.connection.shell(f'rm {filename}', privileged=True)
+#
+#        self.LOG.dbg_executor_raw_traces(correct_traces_by_input, correct_pfcs_by_input)
+#        self.LOG.dbg_executor_raw_traces(incorrect_traces_by_input, incorrect_pfcs_by_input)
+#
+##        # Post-process the results and check for errors
+##        if not self.mismatch_check_mode:  # no need to post-process in mismatch check mode
+##            mask = np.uint64(0x0FFFFFFFFFFFFFF0)
+##            for input_id in range(n_inputs):
+##                for rep_id in range(n_reps):
+##                    # Zero-out traces for ignored inputs
+##                    if input_id in self.ignore_list:
+##                        all_correct_tags_traces[input_id][rep_id] = 0
+##                        all_incorrect_tags_traces[input_id][rep_id] = 0
+##                        continue
+##
+##                    # When using TSC mode, we need to mask the lower 4 bits of the trace
+##                    if CONF.executor_mode == 'TSC':
+##                        all_correct_tags_traces[input_id][rep_id] &= mask
+##                        all_incorrect_tags_traces[input_id][rep_id] &= mask
+#
+#        # Aggregate measurements into HTrace objects
+#        traces = []
+#        for remote_input_filename in remote_input_filenames:
+#
+#            trace_correct = correct_traces_by_input[remote_input_filename]
+#            pfcs_correct = correct_pfcs_by_input[remote_input_filename]
+#            trace_incorrect = incorrect_traces_by_input[remote_input_filename]
+#            pfcs_incorrect = incorrect_pfcs_by_input[remote_input_filename]
+#
+#            traces.append(
+#                    (
+#                        (tc_correct_tags, HTrace(trace_list=trace_correct, perf_counters=pfcs_correct)),
+#                        (tcs_incorrect_tags[remote_input_filename], HTrace(trace_list=trace_incorrect, perf_counters=pfcs_incorrect))
+#                    )
+#                )
+#                
+#        return traces
 
 #class Aarch64RemoteExecutor(Aarch64Executor):
 #
@@ -1576,4 +1678,4 @@ class Aarch64RemoteExecutorMTE(Aarch64Executor):
 #                )
 #                
 #        return traces
-#
+

@@ -71,6 +71,8 @@ inline void prologue(void)
 	// stored_rsp <- sp
 	// "str sp, [x30, #"xstr(offsetof(sandbox_t, stored_rsp))"]\n"
 	"mov x0, sp                                                                             \n" \
+	"movi v0.16b, #0\n" \
+ 
     );
 	ADJUST_REGISTER_TO("x30", sandbox_t, stored_rsp);
     asm volatile("str x0, [x30]\n");
@@ -89,7 +91,8 @@ inline void epilogue(void) {
         "stp x15, x20, [x16], #16                                                           \n" \
         "stp x21, x22, [x16], #16                                                           \n" \
 //	"ptrue p0.b, ALL\n"
-//	"st1b {z0.b}, p0, [x16] 							    \n" \
+//	"st1b {z0.b}, p0, [x16] 							    \n" 
+	"st1 {v0.16b}, [x16] 							    \n" \
 	"sub x16, x16, #32	 							    \n" \
 
         // rsp <- stored_rsp
