@@ -7,6 +7,7 @@ from defer import return_value
 from ppadb.client import Client as AdbClient
 from typing import List, Literal, Union, Optional, Type, Callable, Tuple
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 import functools
 import time
 import paramiko
@@ -134,12 +135,22 @@ class ExecutorMemory(bytes):
     def read_int(self, offset, size=4, byteorder: Literal['little', 'big']="little") -> int:
         return int.from_bytes(self[offset:offset+size], byteorder=byteorder, signed=False)
 
+@dataclass
+class DebugPage:
+    regs_write_bits: int = 0
+    regs_read_bits: int = 0
+    regs_input_read_bits: int = 0
+    mem_write_bits: int = 0
+    mem_read_bits: int = 0
+    mem_input_read_bits: int = 0
+
 
 class HWMeasurement:
-    def __init__(self, htrace: int, pfcs: List[int], memory_ids: str):
+    def __init__(self, htrace: int, pfcs: List[int], memory_ids: str, debug_page: DebugPage):
         self.htrace = htrace
         self.pfcs = pfcs
         self.memory_ids = memory_ids
+        self.debug_page = debug_page
 
 
 class UserlandExecutor(ABC):
@@ -348,7 +359,23 @@ class UserlandExecutorImp:
                     sorted(pfc_matches, key=lambda x: int(x[0]))]
         architectural_memory_accesses_bitmap = architectural_memory_accesses_bitmap_match.group(1)
 
-        return HWMeasurement(htrace=htrace, pfcs=pfc_list, memory_ids=architectural_memory_accesses_bitmap)
+        debug_page_fields = {
+            "regs_write_bits":   r"REG WRITE\s+: 0x([0-9a-fA-F]+)",
+            "regs_read_bits":    r"REG READ\s+: 0x([0-9a-fA-F]+)",
+            "regs_input_read_bits": r"REG INPUT READ\s+: 0x([0-9a-fA-F]+)",
+            "mem_write_bits":    r"MEM WRITE\s+: 0x([0-9a-fA-F]+)",
+            "mem_read_bits":     r"MEM READ\s+: 0x([0-9a-fA-F]+)",
+            "mem_input_read_bits": r"MEM INPUT READ\s+: 0x([0-9a-fA-F]+)",
+        }
+
+        debug_kwargs = {}
+        for field, pattern in debug_page_fields.items():
+            pattern_match = re.search(pattern, result)
+            debug_kwargs[field] = int(match.group(1), 16) if match else 0
+        
+        debug_page = DebugPage(**debug_kwargs)
+
+        return HWMeasurement(htrace=htrace, pfcs=pfc_list, memory_ids=architectural_memory_accesses_bitmap, debug_page=debug_page)
 
     @property
     def contents(self) -> ExecutorMemory:

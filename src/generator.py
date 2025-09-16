@@ -195,8 +195,7 @@ class ConfigurableGenerator(Generator, abc.ABC):
             return msg
 
         try:
-#            out = run(f"aarch64-linux-gnu-as -march=armv9-a+sve+memtag {asm_file} -o {obj_file}", shell=True, check=True, capture_output=True) # TODO: extract assembler to configuration
-            out = run(f"aarch64-linux-gnu-as -march=armv8.2-a+simd {asm_file} -o {obj_file}", shell=True, check=True, capture_output=True) # TODO: extract assembler to configuration
+            out = run(f"aarch64-linux-gnu-as -march=armv9-a+sve+memtag {asm_file} -o {obj_file}", shell=True, check=True, capture_output=True) # TODO: extract assembler to configuration
         except CalledProcessError as e:
             error_msg = e.stderr.decode()
             if "Assembler messages:" in error_msg:
@@ -207,6 +206,7 @@ class ConfigurableGenerator(Generator, abc.ABC):
         finally:
             pass
             # run(f"rm {patched_asm_file}", shell=True, check=True)
+
 
         output = out.stderr.decode()
         if "Assembler messages:" in output:

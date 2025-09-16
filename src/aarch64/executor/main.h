@@ -35,15 +35,16 @@ MODULE_DESCRIPTION("AArch64 implementation of Revisor's executor");
 #include <linux/set_memory.h>
 #endif
 
+#include "debug_page.h"
 #include "cache_configuration.h"
 #include "utils.h"
 #include "measurement.h"
 #include "sandbox.h"
 #include "executor.h"
+#include "templates.h"
 #include "chardevice.h"
 #include "sysfs.h"
 #include "pfc.h"
-#include "templates.h"
 #include "inputs.h"
 #include "mte.h"
 #include "cpu.h"

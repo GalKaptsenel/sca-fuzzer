@@ -22,14 +22,14 @@ from dataclasses import dataclass
 from collections import defaultdict, OrderedDict, deque
 from enum import Enum, auto
 
-from .aarch64_generator import Aarch64TagMemoryAccesses, Aarch64Printer, Aarch64MarkMemoryAccessesNEON
+from .aarch64_generator import Aarch64TagMemoryAccesses, Aarch64Printer, Aarch64MarkMemoryAccessesNEON, Aarch64SandboxPass, Aarch64MarkRegisterTaints
 from .. import ConfigurableGenerator
 from ..interfaces import HTrace, Input, TestCase, Executor, HardwareTracingError, Analyser, CTrace
 from ..config import CONF
 from ..util import Logger, STAT
 from .aarch64_target_desc import Aarch64TargetDesc
 from .aarch64_connection import Connection, UserlandExecutorImp, TestCaseRegion, InputRegion, \
-    HWMeasurement, ExecutorBatch
+    HWMeasurement, ExecutorBatch, DebugPage
 from .aarch64_generator import Pass
 
 
@@ -486,22 +486,9 @@ class LoadInputs(Block):
 	@classmethod
 	def _write_inputs_to_connection(cls, inputs: List[Input], connection: Connection, workdir: str, userland_executor: UserlandExecutor, n_reps: int) -> Tuple[OrderedDict[Input, List[int]], Dict[Input, str]]:
 
-#		input_to_iids_dict: OrderedDict[Input, List[int]] = OrderedDict()
-
 		input_to_filename_dict: OrderedDict[Input, str] = cls._upload_inputs(inputs, connection, workdir)
 
-#		for inp in input_to_filename_dict:
-#			input_to_iids_dict[inp] = []
-#
-#		# Notice the order: Repeat the same input n_reps times, and then go to the next input
-#		for inp, remote_filename in input_to_filename_dict.items():
-#			for _ in range(n_reps):
-#				iid = userland_executor.allocate_iid()
-#				userland_executor.checkout_region(InputRegion(iid))
-#				userland_executor.write_file(remote_filename)
-#				input_to_iids_dict[inp].append(iid)
-
-		return input_to_filename_dict #input_to_iids_dict, input_to_filename_dict 
+		return input_to_filename_dict
 
 
 
@@ -512,14 +499,9 @@ class LoadInputs(Block):
 		userland_executor: UserlandExecutor= ctx["userland_executor"]
 		repeats: int = ctx["repeats"]
 
-#		input_to_iids_dict, input_to_filename_dict = self._write_inputs_to_connection(inputs, connection, workdir, userland_executor, repeats)
 		input_to_filename_dict = self._write_inputs_to_connection(inputs, connection, workdir, userland_executor, repeats)
 
-#		ctx.update({"input_to_iids_dict": input_to_iids_dict,
-#                    "input_to_filename_dict": input_to_filename_dict})
-
 		ctx.update({"input_to_filename_dict": input_to_filename_dict})
-
 
 		return ctx
 
@@ -541,6 +523,105 @@ class LoadTest(Block):
 		connection: Connection = ctx["connection"]
 		workdir: str= ctx["workdir"]
 		ctx.update({"remote_test_filename": self._upload_test(test_case, connection, workdir)})
+		return ctx
+
+class GenerateInputArchFlow(Block):
+	required_keys = {"test_case", "input_to_filename_dict", "connection", "workdir", "userland_executor"}
+	provided_keys = {"input_to_architectural_flow"}
+
+	def __init__(self):
+		super().__init__(StageType.TRANSFORM)
+
+	@classmethod
+	def _upload_test(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
+		remote_filename = f'{workdir}/remote_{os.path.basename(test_case.bin_path)}'
+		connection.push(test_case.bin_path, remote_filename)
+		return remote_filename
+
+	@staticmethod
+	def _assemble_local_test_case(test_case: TestCase, base_filename: str):
+		printer = Aarch64Printer(Aarch64TargetDesc())
+		test_case.bin_path, test_case.asm_path, test_case.obj_path = (f'{base_filename}.{suffix}' for suffix in ('bin', 'asm', 'o'))
+
+		printer.print(test_case, test_case.asm_path)
+
+		ConfigurableGenerator.assemble(test_case.asm_path, test_case.obj_path, test_case.bin_path)
+
+	@classmethod
+	def _write_test_case_remotely(cls, test_case: TestCase, connection: Connection, workdir: str, local_filename: str) -> str:
+
+		cls._assemble_local_test_case(test_case, local_filename)
+
+		remote_filename = cls._upload_test(test_case, connection, workdir)
+
+		os.remove(test_case.bin_path)
+		#os.remove(test_case.asm_path)
+		os.remove(test_case.obj_path)
+		return remote_filename
+
+	@classmethod
+	def _pass_on_test_case(cls, test_case: TestCase, passes: List[Pass]):
+		for p in passes:
+			p.run_on_test_case(test_case)
+
+
+	@classmethod
+	def _write_test_with_taint_tracker(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
+		patched_test_case = copy.deepcopy(test_case)
+		register_taints = Aarch64MarkRegisterTaints()
+		sandbox_with_taints = Aarch64SandboxPass(with_taint=True)
+		cls._pass_on_test_case(patched_test_case, [register_taints, sandbox_with_taints])
+		return cls._write_test_case_remotely(patched_test_case, connection, workdir, 'generated_taint_tracker')
+
+	def _measure_taints(cls, test_case: TestCase, input_to_filename: Dict[Input, str],  workdir: str, userland_executor: UserlandExecutor, connection: Connection) -> Dict[Input, DebugPage]:
+
+		def parse_bitmap(n: str, bit: int) -> List[int]:
+			result = []
+			for index, b in enumerate(n):
+				if bit == int(b):
+					result.append(len(n) - (index + 1))
+			return result
+
+		inp_to_iids = {}
+		for inp, remote_input_filename in input_to_filename.items():
+			iid = userland_executor.allocate_iid()
+			inp_to_iids[inp] = iid
+			userland_executor.checkout_region(InputRegion(iid))
+			userland_executor.write_file(remote_input_filename)
+
+
+		remote_test_case_filename = cls._write_test_with_taint_tracker(test_case, connection, workdir)
+
+		userland_executor.checkout_region(TestCaseRegion())
+		userland_executor.write_file(remote_test_case_filename)
+		userland_executor.trace()
+
+		taints: Dict[str, List[int]] = {}
+
+		for inp, iid in inp_to_iids.items():
+			userland_executor.checkout_region(InputRegion(iid))
+			taints[inp] = userland_executor.hardware_measurement().debug_page
+
+		userland_executor.discard_all_inputs()
+		connection.shell(f'rm {remote_test_case_filename}')
+
+		return taints 
+
+
+	def run(self, ctx: dict[str, Any]) -> dict[str, Any]:
+		test_case: TestCase = ctx["test_case"]
+		input_to_filename_dict: OrderedDict[Input, str] = ctx["input_to_filename_dict"]
+		connection: Connection = ctx["connection"]
+		workdir: str = ctx["workdir"]
+		userland_executor: UserlandExecutor = ctx["userland_executor"]
+		import pdb; pdb.set_trace()
+
+		taints = self._measure_taints(test_case, input_to_filename_dict, workdir, userland_executor, connection)
+
+		ctx.update({
+		    "debug_page_taints": taints
+		})
+
 		return ctx
 
 
@@ -1158,6 +1239,7 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         
         pipeline = (
                     (LoadInputs() & LoadTest()) | 
+                    (GenerateInputArchFlow()) |
 					(ArchiteturalFlowTraceBlock() & PrepareScenarioBatch() & TraceScenarioBatch() & CleanupRemoteFiles()) |
 					AnalyserBlock(analyser)
                 ).build()

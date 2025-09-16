@@ -43,7 +43,7 @@ class Aarch64Generator(ConfigurableGenerator, abc.ABC):
         # configure instrumentation passes
         self.passes = [
             Aarch64PatchUndefinedLoadsPass(self.target_desc),
-            Aarch64SandboxPass(),
+#            Aarch64SandboxPass(),
 #            Aarch64DsbSyPass(),
         ]
 
@@ -176,6 +176,110 @@ class Aarch64TagMemoryAccesses(Pass):
                             sub_inst.template = f'sub {{{base_operand_cpy.name}}}, {{{base_operand_cpy.name}}}, {{{other_operand_cpy.name}}}'  # TODO: this should be done in the constructor
                             bb.insert_before(inst, sub_inst)
 
+
+class Aarch64MarkRegisterTaints(Pass):
+	"""
+	Pass that inserts taint instrumentation for GPR register reads/writes.
+	It emits macro invocations that take the debug-page base register and temporary regs.
+	
+	Constructor args:
+	  base_reg: str, e.g. "x7"  -- the register containing base address of debug page
+	  temp_regs: List[str] -- list of available temporary registers, e.g. ["x9","x10","x11"]
+	    - For TAINT_REG_WRITE we use temp_regs[0], temp_regs[1]
+	    - For TAINT_REG_PROPAGATE_OR_USED we use temp_regs[0], temp_regs[1]
+	"""
+	TEMPLATE_TAINT_REG_WRITE = "TAINT_REG_WRITE {dst}, {base}, {t0}, {t1}"
+	TEMPLATE_TAINT_REG_READ = "TAINT_REG_READ {src}, {base}, {t0}, {t1}"
+
+	def __init__(self, base_reg: str = "x7", temp_regs: List[str] = None):
+		super().__init__()
+		self.base_reg = base_reg
+		if temp_regs is None:
+			temp_regs = ["x9", "x10"]
+		if len(temp_regs) < 2:
+			raise ValueError(f"temp_regs must contain at least 2 registers other then base_reg ({base_reg}), now it containts {temp_regs}")
+		self.temp_regs = temp_regs
+
+	@staticmethod
+	def _reg_name_to_index(reg_name: str) -> int:
+		if not isinstance(reg_name, str):
+			return -1
+	
+		rn = reg_name.strip().lower()
+		if rn.startswith('x') or rn.startswith('w'):
+			try:
+				num = int(rn[1:])
+				if 0 <= num <= 30:
+					return num
+			except ValueError:
+				return -1
+	
+		return -1
+
+	@classmethod
+	def _get_regs_from_inst(cls, inst: Instruction) -> List[Operand]:
+		regs = []
+		for op in inst.operands:
+			if op.type == OT.REG:
+				regs.append(op)
+
+
+		for op in inst.implicit_operands:
+			if op.type == OT.REG:
+				regs.append(op)
+
+		return regs
+
+	def _collect_src_dst_indices(self, inst: Instruction) ->Tuple[List[int], List[int]]:
+		regs = self._get_regs_from_inst(inst)
+
+		src_idxs = [self._reg_name_to_index(r.value) for r in regs if r.src]
+		src_idxs = [idx for idx in src_idxs if idx >= 0]
+
+		dest_idxs = [self._reg_name_to_index(r.value) for r in regs if r.dest]
+		dest_idxs = [idx for idx in dest_idxs if idx >= 0]
+
+		return src_idxs, dest_idxs
+
+	def mark_register_taints(self, bb: BasicBlock, inst: Instruction) -> None:
+		src_idxs, dst_idxs = self._collect_src_dst_indices(inst)
+		if not src_idxs and not dst_idxs:
+			return
+
+		instrs_to_insert = []
+
+		for dst in dst_idxs:
+			asm_text = self.TEMPLATE_TAINT_REG_WRITE.format(
+                    dst=dst, base=self.base_reg,
+                    t0=self.temp_regs[0], t1=self.temp_regs[1]
+            )
+			iobj = Instruction(f"TAINT_REG_WRITE_{dst}", True, template=asm_text)
+			instrs_to_insert.append(iobj)
+
+		# create write macro invocations for each dst
+		for src in src_idxs:
+			asm_text = self.TEMPLATE_TAINT_REG_READ.format(
+					src=src, base=self.base_reg,
+                    t0=self.temp_regs[0], t1=self.temp_regs[1]
+			)
+			iobj = Instruction(f"TAINT_REG_READ_{src}", True, template=asm_text)
+			instrs_to_insert.append(iobj)
+
+		# insert after instruction (reverse so first ends up closest to inst if insert_after prepends)
+		for i in instrs_to_insert:
+			bb.insert_before(position=inst, inst=i)
+
+	def run_on_test_case(self, test_case: TestCase) -> None:
+		for func in test_case.functions:
+			for bb in func:
+				for inst in list(bb):
+					try:
+						self.mark_register_taints(bb, inst)
+					except Exception as e:
+						print(f"[Aarch64MarkRegisterTaints] warn: failed to instrument {inst}: {e}")
+
+
+
 class Aarch64MarkMemoryAccessesNEON(Pass):
 
     @staticmethod
@@ -271,86 +375,153 @@ class Aarch64MarkMemoryAccessesSVE(Pass):
                     Aarch64MarkMemoryAccesses.mark_memory_access(bb, inst)
 
 
+class Aarch64MarkMemoryTaints:
+	"""
+	Pass that inserts taint instrumentation for memory accesses.
+	It emits macro invocations that take the debug-page base register and temporary regs.
+	
+	Constructor args:
+	  base_reg: str, e.g. "x7"  -- register holding base address of debug page
+	  temp_regs: List[str] -- list of temp registers, e.g. ["x9","x10"]
+	    - temp_regs[0], temp_regs[1] are used for address computation and bit masking
+	"""
+	
+	# Templates for memory taint macros (you can create these in taint_instrument.S later)
+	MEM_TEMPLATE_LOAD = "TAINT_LOAD {addr}, {base}, {t0}, {t1}"
+	MEM_TEMPLATE_STORE = "TAINT_STORE {addr}, {base}, {t0}, {t1}"
+	
+	def __init__(self, base_reg: str = "x7", temp_regs: List[str] = None):
+		super().__init__()
+		self.base_reg = base_reg
+		if temp_regs is None:
+			temp_regs = ["x9", "x10"]
+		if len(temp_regs) < 2:
+			raise ValueError("temp_regs must contain at least 2 registers other than base_reg")
+		self.temp_regs = temp_regs
+	
+	def mark_memory_taints(self, bb: BasicBlock, inst: Instruction,  op: Operand) -> None:
+		"""
+		Insert memory taint macros after the instruction.
+		We assume each memory access has an `inst.memory_address_reg` or `inst.memory_address` field.
+		"""
+		
+		instrs_to_insert = []
+		
+		addr_idx = self._reg_name_to_index(op.value)
+		assert 0 <= addr_idx <= 30, "Register name in Aarch64 is expected to have id between 0 to 30"
+		
+		# write macro (for stores)
+		if op.dest:
+			asm_text = self.MEM_TEMPLATE_STORE.format(addr=op.value, base=self.base_reg,
+											 t0=self.temp_regs[0], t1=self.temp_regs[1])
+			instrs_to_insert.append(Instruction(f"TAINT_STORE_{addr_idx}", True, template=asm_text))
+        # write macro (for loads)
+		if op.src:
+			asm_text = self.MEM_TEMPLATE_LOAD.format(addr=op.value, base=self.base_reg,
+											 t0=self.temp_regs[0], t1=self.temp_regs[1])
+			instrs_to_insert.append(Instruction(f"TAINT_LOAD_{addr_idx}", True, template=asm_text))
+
+		
+		# Insert after instruction (reverse to maintain order)
+		for i in instrs_to_insert:
+			bb.insert_before(position=inst, inst=i)
+	
+	@staticmethod
+	def _reg_name_to_index(reg_name: str) -> int:
+		if not isinstance(reg_name, str):
+			return -1
+	
+		rn = reg_name.strip().lower()
+		if rn.startswith('x') or rn.startswith('w'):
+			try:
+				num = int(rn[1:])
+				if 0 <= num <= 30:
+					return num
+			except ValueError:
+				return -1
+
+		return -1
+
 class Aarch64SandboxPass(Pass):
-    def __init__(self):
-        super().__init__()
+	def __init__(self, with_taint: bool = False):
+		super().__init__()
+		input_memory_size = MAIN_AREA_SIZE + FAULTY_AREA_SIZE
+		mask_size = int(math.log(input_memory_size, 2))
+		self.sandbox_address_mask = "0b" + "1" * mask_size
+		self.taint_pass = Aarch64MarkMemoryTaints() if with_taint else None
 
-        input_memory_size = MAIN_AREA_SIZE + FAULTY_AREA_SIZE
-        mask_size = int(math.log(input_memory_size, 2))
-        self.sandbox_address_mask = "0b" + "1" * mask_size
+	def run_on_test_case(self, test_case: TestCase) -> None:
+		for func in test_case.functions:
+			for bb in func:
 
-    def run_on_test_case(self, test_case: TestCase) -> None:
-        for func in test_case.functions:
-            for bb in func:
+				memory_instructions = []
 
-                # collect all instructions that require sandboxing
-                memory_instructions = []
+				for inst in bb:
+					if inst.has_mem_operand(True):
+						memory_instructions.append(inst)
 
-                for inst in bb:
-                    if inst.has_mem_operand(True):
-                        memory_instructions.append(inst)
+				for inst in memory_instructions:
+					self.sandbox_memory_access(inst, bb)
 
-                # sandbox them
-                for inst in memory_instructions:
-                    self.sandbox_memory_access(inst, bb)
+	def sandbox_memory_access(self, instr: Instruction, parent: BasicBlock):
+		""" Force the memory accesses into the page starting from R14 """
 
-    def sandbox_memory_access(self, instr: Instruction, parent: BasicBlock):
-        """ Force the memory accesses into the page starting from R14 """
+		def generate_template(mnemonic: str, op0: Operand, op1: Operand, op2: Operand) -> Tuple[
+			str, Operand, Operand, Operand]:
+			op0_cpy = copy.deepcopy(op0)
+			op1_cpy = copy.deepcopy(op1)
+			op2_cpy = copy.deepcopy(op2)
+			op0_cpy.name += "0"
+			op1_cpy.name += "1"
+			op2_cpy.name += "2"
+			template = f"{mnemonic} {{{op0_cpy.name}}}, {{{op1_cpy.name}}}, {{{op2_cpy.name}}}"
+			return template, op0_cpy, op1_cpy, op2_cpy
 
-        def generate_template(mnemonic: str, op0: Operand, op1: Operand, op2: Operand) -> Tuple[
-            str, Operand, Operand, Operand]:
-            op0_cpy = copy.deepcopy(op0)
-            op1_cpy = copy.deepcopy(op1)
-            op2_cpy = copy.deepcopy(op2)
-            op0_cpy.name += "0"
-            op1_cpy.name += "1"
-            op2_cpy.name += "2"
-            template = f"{mnemonic} {{{op0_cpy.name}}}, {{{op1_cpy.name}}}, {{{op2_cpy.name}}}"
-            return template, op0_cpy, op1_cpy, op2_cpy
+		mem_operands = instr.get_mem_operands()
+		implicit_mem_operands = instr.get_implicit_mem_operands()
+		if mem_operands and not implicit_mem_operands:
+			#            assert len(mem_operands) == 1, f"Unexpected instruction format {instr.name}"
+			base_operand: Operand = mem_operands[0]
+			base_operand_copy = RegisterOperand(base_operand.value, base_operand.width, True, True)
+			base_operand_copy.name = base_operand.name
+			
+			# TODO: Very bad implemented! Must fix
+			
+			imm_width = min(base_operand_copy.width, 32)
+			imm_op = ImmediateOperand(self.sandbox_address_mask, imm_width)
+			imm_op.name = "imm_op"
+			template, op0, op1, op2 = generate_template("AND", base_operand_copy,
+			                                            base_operand_copy, imm_op)
+			apply_mask = Instruction("AND", True).add_op(op0).add_op(op1).add_op(op2)
+			apply_mask.template = template
+			parent.insert_before(instr, apply_mask)
+			
+			x30_register = RegisterOperand("x30", 64, True, False)
+			x30_register.name = "x30_reg"
+			template, op0, op1, op2 = generate_template("ADD", base_operand_copy, base_operand_copy,
+			                                            x30_register)
+			add_base = Instruction("ADD", True).add_op(op0).add_op(op1).add_op(op2)
+			add_base.template = template
+			parent.insert_before(instr, add_base)
+			
+			if self.taint_pass is not None:
+				self.taint_pass.mark_memory_taints(parent, instr, base_operand)
 
-        mem_operands = instr.get_mem_operands()
-        implicit_mem_operands = instr.get_implicit_mem_operands()
-        if mem_operands and not implicit_mem_operands:
-            #            assert len(mem_operands) == 1, f"Unexpected instruction format {instr.name}"
-            base_operand: Operand = mem_operands[0]
-            base_operand_copy = RegisterOperand(base_operand.value, base_operand.width, True, True)
-            base_operand_copy.name = base_operand.name
-
-            # TODO: Very bad implemented! Must fix
-
-            imm_width = min(base_operand_copy.width, 32)
-            imm_op = ImmediateOperand(self.sandbox_address_mask, imm_width)
-            imm_op.name = "imm_op"
-            template, op0, op1, op2 = generate_template("AND", base_operand_copy,
-                                                        base_operand_copy, imm_op)
-            apply_mask = Instruction("AND", True).add_op(op0).add_op(op1).add_op(op2)
-            apply_mask.template = template
-            parent.insert_before(instr, apply_mask)
-
-            x30_register = RegisterOperand("x30", 64, True, False)
-            x30_register.name = "x30_reg"
-            template, op0, op1, op2 = generate_template("ADD", base_operand_copy, base_operand_copy,
-                                                        x30_register)
-            add_base = Instruction("ADD", True).add_op(op0).add_op(op1).add_op(op2)
-            add_base.template = template
-            parent.insert_before(instr, add_base)
-
-            for op in mem_operands[1:]:
+			for op in mem_operands[1:]:
             
-                template, op0, op1, op2 = generate_template("SUB", base_operand_copy,
-                                                            base_operand_copy, op)
-                op2.dest = False
-                op2.src = True
-                sub_inst = Instruction("SUB", True).add_op(op0).add_op(op1).add_op(op2)
-                sub_inst.template = template  # TODO: this should be done in the constructor
-                parent.insert_before(instr, sub_inst)
+				template, op0, op1, op2 = generate_template("SUB", base_operand_copy, base_operand_copy, op)
+				op2.dest = False
+				op2.src = True
+				sub_inst = Instruction("SUB", True).add_op(op0).add_op(op1).add_op(op2)
+				sub_inst.template = template  # TODO: this should be done in the constructor
+				parent.insert_before(instr, sub_inst)
 
-            return
+			return
 
-        if implicit_mem_operands:
-            raise GeneratorException("Implicit memory accesses are not supported")
+		if implicit_mem_operands:
+			raise GeneratorException("Implicit memory accesses are not supported")
 
-        raise GeneratorException("Attempt to sandbox an instruction without memory operands")
+		raise GeneratorException("Attempt to sandbox an instruction without memory operands")
 
 
 class Aarch64Printer(Printer):

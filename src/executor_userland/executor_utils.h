@@ -28,10 +28,21 @@
 #define WIDTH_MEMORY_IDS_BITMAP_BITS	(128) // size of sve vector
 #define WIDTH_MEMORY_IDS        (WIDTH_MEMORY_IDS_BITMAP_BITS / (8 * sizeof(uint64_t)))
 
+typedef struct debug_page {
+	uint64_t regs_write_bits;       // 0
+	uint64_t regs_read_bits;        // 8
+	uint64_t regs_input_read_bits;  // 16
+
+	uint64_t mem_write_bits;        // 24
+	uint64_t mem_read_bits;         // 32
+	uint64_t mem_input_read_bits;   // 40
+} debug_page_t;
+
 typedef struct measurement {
 	uint64_t htrace[HTRACE_WIDTH];
 	uint64_t pfc[NUM_PFC];
 	uint64_t memory_ids_bitmap[WIDTH_MEMORY_IDS];
+	debug_page_t debug_page;
 } measurement_t;
 
 typedef struct registers {
