@@ -248,6 +248,18 @@ class Aarch64MarkRegisterTaints(Pass):
 
 		instrs_to_insert = []
 
+        # Create macro invocations. First MUST do src operands, and only later dst operands.
+		# create macro invocations for each src
+		for src in src_idxs:
+			asm_text = self.TEMPLATE_TAINT_REG_READ.format(
+					src=src, base=self.base_reg,
+                    t0=self.temp_regs[0], t1=self.temp_regs[1]
+			)
+			iobj = Instruction(f"TAINT_REG_READ_{src}", True, template=asm_text)
+			instrs_to_insert.append(iobj)
+
+
+		# create macro invocations for each dst 
 		for dst in dst_idxs:
 			asm_text = self.TEMPLATE_TAINT_REG_WRITE.format(
                     dst=dst, base=self.base_reg,
@@ -256,14 +268,6 @@ class Aarch64MarkRegisterTaints(Pass):
 			iobj = Instruction(f"TAINT_REG_WRITE_{dst}", True, template=asm_text)
 			instrs_to_insert.append(iobj)
 
-		# create write macro invocations for each dst
-		for src in src_idxs:
-			asm_text = self.TEMPLATE_TAINT_REG_READ.format(
-					src=src, base=self.base_reg,
-                    t0=self.temp_regs[0], t1=self.temp_regs[1]
-			)
-			iobj = Instruction(f"TAINT_REG_READ_{src}", True, template=asm_text)
-			instrs_to_insert.append(iobj)
 
 		# insert after instruction (reverse so first ends up closest to inst if insert_after prepends)
 		for i in instrs_to_insert:
@@ -410,16 +414,18 @@ class Aarch64MarkMemoryTaints:
 		addr_idx = self._reg_name_to_index(op.value)
 		assert 0 <= addr_idx <= 30, "Register name in Aarch64 is expected to have id between 0 to 30"
 		
-		# write macro (for stores)
-		if op.dest:
-			asm_text = self.MEM_TEMPLATE_STORE.format(addr=op.value, base=self.base_reg,
-											 t0=self.temp_regs[0], t1=self.temp_regs[1])
-			instrs_to_insert.append(Instruction(f"TAINT_STORE_{addr_idx}", True, template=asm_text))
         # write macro (for loads)
 		if op.src:
 			asm_text = self.MEM_TEMPLATE_LOAD.format(addr=op.value, base=self.base_reg,
 											 t0=self.temp_regs[0], t1=self.temp_regs[1])
 			instrs_to_insert.append(Instruction(f"TAINT_LOAD_{addr_idx}", True, template=asm_text))
+
+
+		# write macro (for stores)
+		if op.dest:
+			asm_text = self.MEM_TEMPLATE_STORE.format(addr=op.value, base=self.base_reg,
+											 t0=self.temp_regs[0], t1=self.temp_regs[1])
+			instrs_to_insert.append(Instruction(f"TAINT_STORE_{addr_idx}", True, template=asm_text))
 
 		
 		# Insert after instruction (reverse to maintain order)

@@ -371,7 +371,7 @@ class UserlandExecutorImp:
         debug_kwargs = {}
         for field, pattern in debug_page_fields.items():
             pattern_match = re.search(pattern, result)
-            debug_kwargs[field] = int(match.group(1), 16) if match else 0
+            debug_kwargs[field] = int(pattern_match.group(1), 16) if pattern_match else 0
         
         debug_page = DebugPage(**debug_kwargs)
 

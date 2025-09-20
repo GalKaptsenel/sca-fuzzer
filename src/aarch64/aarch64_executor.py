@@ -339,6 +339,7 @@ class Stage:
         
 			before_keys = set(ctx.keys())
 
+			print(f"Executing block of type: {block.__class__.__name__}")
 			provided = block.run(ctx)
 			if not isinstance(provided, dict):
 				raise TypeError(f"Block {block.name} must return a dict, got {type(provided)}")
@@ -462,9 +463,8 @@ class Pipeline:
 
 
 
-class LoadInputs(Block):
-	required_keys = {"inputs", "connection", "workdir", "userland_executor", "repeats"}
-#	provided_keys = {"input_to_iids_dict", "input_to_filename_dict"}
+class LoadInputsBlock(Block):
+	required_keys = {"inputs", "connection", "workdir"}
 	provided_keys = {"input_to_filename_dict"}
 
 	def __init__(self):
@@ -482,52 +482,18 @@ class LoadInputs(Block):
 			remote_filenames[inp] = remote_filename
 		return remote_filenames
 
-
-	@classmethod
-	def _write_inputs_to_connection(cls, inputs: List[Input], connection: Connection, workdir: str, userland_executor: UserlandExecutor, n_reps: int) -> Tuple[OrderedDict[Input, List[int]], Dict[Input, str]]:
-
-		input_to_filename_dict: OrderedDict[Input, str] = cls._upload_inputs(inputs, connection, workdir)
-
-		return input_to_filename_dict
-
-
-
 	def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
 		inputs: List[Input] = ctx["inputs"]
 		connection: Connection = ctx["connection"]
 		workdir: str = ctx["workdir"]
-		userland_executor: UserlandExecutor= ctx["userland_executor"]
-		repeats: int = ctx["repeats"]
 
-		input_to_filename_dict = self._write_inputs_to_connection(inputs, connection, workdir, userland_executor, repeats)
-
-		ctx.update({"input_to_filename_dict": input_to_filename_dict})
+		ctx.update({"input_to_filename_dict": self._upload_inputs(inputs, connection, workdir)})
 
 		return ctx
 
-class LoadTest(Block):
+class LoadSandboxedTestCaseBlock(Block):
 	required_keys = {"test_case", "connection", "workdir"}
-	provided_keys = {"remote_test_filename"}
-
-	def __init__(self):
-		super().__init__(StageType.LOAD)
-
-	@classmethod
-	def _upload_test(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
-		remote_filename = f'{workdir}/remote_{os.path.basename(test_case.bin_path)}'
-		connection.push(test_case.bin_path, remote_filename)
-		return remote_filename
-
-	def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
-		test_case: TestCase = ctx["test_case"]
-		connection: Connection = ctx["connection"]
-		workdir: str= ctx["workdir"]
-		ctx.update({"remote_test_filename": self._upload_test(test_case, connection, workdir)})
-		return ctx
-
-class GenerateInputArchFlow(Block):
-	required_keys = {"test_case", "input_to_filename_dict", "connection", "workdir", "userland_executor"}
-	provided_keys = {"input_to_architectural_flow"}
+	provided_keys = {"remote_sandboxed_test_filename", "sandboxed_test_case"}
 
 	def __init__(self):
 		super().__init__(StageType.TRANSFORM)
@@ -549,7 +515,60 @@ class GenerateInputArchFlow(Block):
 
 	@classmethod
 	def _write_test_case_remotely(cls, test_case: TestCase, connection: Connection, workdir: str, local_filename: str) -> str:
+		cls._assemble_local_test_case(test_case, local_filename)
 
+		remote_filename = cls._upload_test(test_case, connection, workdir)
+
+		os.remove(test_case.bin_path)
+		#os.remove(test_case.asm_path)
+		os.remove(test_case.obj_path)
+		return remote_filename
+
+	@classmethod
+	def _upload_sandboxed_test(cls, test_case: TestCase, connection: Connection, workdir: str) -> Tuple[str, TestCase]:
+		sandboxed_test_case = copy.deepcopy(test_case)
+		sandbox_pass = Aarch64SandboxPass(with_taint=False)
+		sandbox_pass.run_on_test_case(sandboxed_test_case)
+		return cls._write_test_case_remotely(sandboxed_test_case, connection, workdir, f'sandboxed_test_case'), sandboxed_test_case
+
+	def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
+		test_case: TestCase = ctx["test_case"]
+		connection: Connection = ctx["connection"]
+		workdir: str= ctx["workdir"]
+
+		remote_sandboxed_test_filename, sandboxed_test_case = self._upload_sandboxed_test(test_case, connection, workdir)
+		ctx.update(
+				{
+					"remote_sandboxed_test_filename": remote_sandboxed_test_filename,
+					"sandboxed_test_case": sandboxed_test_case,
+				}
+		)
+		return ctx
+
+class GenerateInputArchFlowBlock(Block):
+	required_keys = {"test_case", "input_to_filename_dict", "connection", "workdir", "userland_executor"}
+	provided_keys = {"input_to_debug_page"}
+
+	def __init__(self):
+		super().__init__(StageType.LOAD)
+
+	@classmethod
+	def _upload_test(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
+		remote_filename = f'{workdir}/remote_{os.path.basename(test_case.bin_path)}'
+		connection.push(test_case.bin_path, remote_filename)
+		return remote_filename
+
+	@staticmethod
+	def _assemble_local_test_case(test_case: TestCase, base_filename: str):
+		printer = Aarch64Printer(Aarch64TargetDesc())
+		test_case.bin_path, test_case.asm_path, test_case.obj_path = (f'{base_filename}.{suffix}' for suffix in ('bin', 'asm', 'o'))
+
+		printer.print(test_case, test_case.asm_path)
+
+		ConfigurableGenerator.assemble(test_case.asm_path, test_case.obj_path, test_case.bin_path)
+
+	@classmethod
+	def _write_test_case_remotely(cls, test_case: TestCase, connection: Connection, workdir: str, local_filename: str) -> str:
 		cls._assemble_local_test_case(test_case, local_filename)
 
 		remote_filename = cls._upload_test(test_case, connection, workdir)
@@ -573,7 +592,7 @@ class GenerateInputArchFlow(Block):
 		cls._pass_on_test_case(patched_test_case, [register_taints, sandbox_with_taints])
 		return cls._write_test_case_remotely(patched_test_case, connection, workdir, 'generated_taint_tracker')
 
-	def _measure_taints(cls, test_case: TestCase, input_to_filename: Dict[Input, str],  workdir: str, userland_executor: UserlandExecutor, connection: Connection) -> Dict[Input, DebugPage]:
+	def _measure_taints(cls, test_case: TestCase, input_to_filename: Dict[Input, str],  workdir: str, userland_executor: UserlandExecutor, connection: Connection) -> OrderedDict[Input, DebugPage]:
 
 		def parse_bitmap(n: str, bit: int) -> List[int]:
 			result = []
@@ -596,7 +615,7 @@ class GenerateInputArchFlow(Block):
 		userland_executor.write_file(remote_test_case_filename)
 		userland_executor.trace()
 
-		taints: Dict[str, List[int]] = {}
+		taints: Dict[str, List[int]] = OrderedDict()
 
 		for inp, iid in inp_to_iids.items():
 			userland_executor.checkout_region(InputRegion(iid))
@@ -614,12 +633,178 @@ class GenerateInputArchFlow(Block):
 		connection: Connection = ctx["connection"]
 		workdir: str = ctx["workdir"]
 		userland_executor: UserlandExecutor = ctx["userland_executor"]
-		import pdb; pdb.set_trace()
 
 		taints = self._measure_taints(test_case, input_to_filename_dict, workdir, userland_executor, connection)
 
 		ctx.update({
-		    "debug_page_taints": taints
+		    "input_to_debug_page": taints
+		})
+
+		return ctx
+
+
+class LoadInputVariantsBlock(Block):
+	required_keys = {"input_to_filename_dict", "input_to_equivalence_class_inputs", "connection", "workdir"}
+	provided_keys = {"input_equivalence_classes_filenames"}
+
+	def __init__(self):
+		super().__init__(StageType.LOAD)
+
+	@classmethod
+	def _upload_inputs(cls, input_to_filename_dict: OrderedDict[Input, str], input_to_equivalence_class_inputs: OrderedDict[Input, List[Input]],
+					connection: Connection, workdir: str) -> OrderedDict[Input, OrderedDict[Input, str]]:
+		remote_filenames = OrderedDict()
+		for inp, remote_filename in input_to_filename_dict.items():
+			remote_filenames[inp] = OrderedDict()
+			for idx, new_input in enumerate(input_to_equivalence_class_inputs[inp]):
+				new_input_name = f"{os.path.basename(remote_filename)}.{idx}"
+				new_remote_filename = f'{workdir}/{new_input_name}'
+				new_input.save(new_input_name)
+				connection.push(new_input_name, new_remote_filename)
+				os.remove(new_input_name)
+				remote_filenames[inp][new_input] = new_remote_filename
+		return remote_filenames
+
+	def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
+		input_to_equivalence_class_inputs: OrderedDict[Input, List[Input]] = ctx["input_to_equivalence_class_inputs"]
+		input_to_filename_dict: OrderedDict[Input, str] = ctx["input_to_filename_dict"]
+		connection: Connection = ctx["connection"]
+		workdir: str = ctx["workdir"]
+
+		input_equivalence_classes_filenames = self._upload_inputs(input_to_filename_dict, input_to_equivalence_class_inputs, connection, workdir)
+
+		ctx.update(
+				{
+					"input_equivalence_classes_filenames": input_equivalence_classes_filenames,
+				}
+			)
+
+		return ctx
+
+
+class GenerateInputVariantsBlock(Block):
+	required_keys = {"input_to_debug_page", "variants_per_input"}
+	provided_keys = {"input_to_equivalence_class_inputs"}
+
+	def __init__(self):
+		super().__init__(StageType.LOAD)
+
+	@classmethod
+	def _classify_resources(cls, W: int, R: int, IR: int, number_of_relevant_bits: int = 64) -> Tuple[int, int, int, int]:
+		if not isinstance(number_of_relevant_bits, int) or not(64 >= number_of_relevant_bits >= 0):
+			raise ValueError(
+					f"number_of_relevant_bits must be between 0 and 64, inclusice."
+					f"Got {number_of_relevant_bits}."
+			)
+
+		mask = (1 << number_of_relevant_bits) - 1
+
+		modifiable = (~IR) & mask
+		high_priority = modifiable & (R | W)
+		low_priority = modifiable & ~(R | W)
+		must_keep = IR & mask
+
+		return modifiable, high_priority, low_priority, must_keep
+
+	@classmethod
+	def _cache_set(cls, address: int, line_size: int, num_sets: int) -> int:
+		return (address // line_size) % num_sets
+
+	@classmethod
+	def _mutate_input(
+			cls,
+			input_to_mutate: Input,
+			debug_page: DebugPage,
+			variants: int,
+			p_high: float = 0.8,
+			p_low: float = 0.2,
+			line_size: int = 64,
+			rng: np.random.Generator = np.random.default_rng()
+		) -> List[Input]:
+
+		num_of_gprs = input_to_mutate[0]['gpr'].shape[0]
+		num_of_sets_in_bitmask = debug_page.mem_read_bits.bit_length()
+
+		_, high_priority_registers, low_priority_registers, _ = cls._classify_resources(
+				debug_page.regs_write_bits,
+				debug_page.regs_read_bits,
+				debug_page.regs_input_read_bits,
+				num_of_gprs
+			)
+
+		_, high_priority_cache_sets, low_priority_cache_sets, _ = cls._classify_resources(
+				debug_page.mem_write_bits,
+				debug_page.mem_read_bits,
+				debug_page.mem_input_read_bits,
+				num_of_sets_in_bitmask
+			)
+
+		results: List[Input] = []
+
+		for _ in range(variants):
+			out = input_to_mutate.copy()
+
+			# Registers
+			gpr_region = out[0]['gpr']
+			for i in range(num_of_gprs):
+				mask: int = 1 << i
+    
+				if high_priority_registers & mask:
+					if rng.random() < p_high:
+						prev = gpr_region[i]
+						gpr_region[i] = rng.integers(0, np.iinfo(np.uint64).max + 1, dtype=np.uint64)
+						print(f"{cls.__name__}: GPR[{i}] {prev} ===> {gpr_region[i]}")
+    
+				elif low_priority_registers & mask:
+					if rng.random() < p_low:
+						prev = gpr_region[i]
+						gpr_region[i] = rng.integers(0, np.iinfo(np.uint64).max + 1, dtype=np.uint64)
+						print(f"{cls.__name__}: GPR[{i}] {prev} ===> {gpr_region[i]}")
+
+			# Memory
+			for region_name in ["main", "faulty"]:
+				region = out[0][region_name]
+				region_base = out.dtype.fields[region_name][1] // 8
+
+				for offset in range(region.shape[0]):
+					address: int = (region_base + offset) * 8 # Assumes memory region base is alligned to PageSize boundry and set bits are within the page offset bits
+					set_idx = cls._cache_set(address, line_size, num_of_sets_in_bitmask)
+					mask: int = 1 << set_idx
+
+					if high_priority_cache_sets & mask:
+						if rng.random() < p_high:
+							prev = region[offset]
+							region[offset] = rng.integers(0, np.iinfo(np.uint64).max + 1, dtype=np.uint64)
+							print(f"{cls.__name__}: {region_name}[{offset}] {prev} ===> {gpr_region[i]}")
+
+					elif low_priority_cache_sets & mask:
+						if rng.random() < p_low:
+							prev = region[offset]
+							region[offset] = rng.integers(0, np.iinfo(np.uint64).max + 1, dtype=np.uint64)
+							print(f"{cls.__name__}: {region_name}[{offset}] {prev} ===> {gpr_region[i]}")
+
+			results.append(out)
+
+		return results
+        
+	@classmethod
+	def _mutate_inputs(cls, input_to_debug_page: OrderedDict[Input, DebugPage], variants: int) -> OrderedDict[Input, List[Input]]:
+		input_to_equivalence_class_inputs: OrderedDict[Input, List[Input]] = OrderedDict()
+
+		for i, dp in input_to_debug_page.items():
+			input_to_equivalence_class_inputs[i] = [i] + cls._mutate_input(i, dp, variants, p_low=0)
+
+		return input_to_equivalence_class_inputs
+
+
+	def run(self, ctx: dict[str, Any]) -> dict[str, Any]:
+		variants_per_input: int = ctx["variants_per_input"]
+		input_to_debug_page: OrderedDict[Input, DebugPage] = ctx["input_to_debug_page"]
+
+		input_to_equivalence_class_inputs: OrderedDict[Input, List[Input]] = self._mutate_inputs(input_to_debug_page, variants_per_input);
+
+		ctx.update({
+			"input_to_equivalence_class_inputs": input_to_equivalence_class_inputs
 		})
 
 		return ctx
@@ -774,7 +959,7 @@ class GenerateMTETestVariants(Block):
 		return ctx
 
 class PrepareScenarioBatch(Block):
-	required_keys = {"input_to_filename_dict", "remote_test_filename", "repeats", "workdir"}
+	required_keys = {"input_equivalence_classes_filenames", "remote_sandboxed_test_filename", "repeats", "workdir"}
 	provided_keys = {"scenario_batch"}
 
 	def __init__(self):
@@ -817,7 +1002,7 @@ class PrepareScenarioBatch(Block):
 
 
 class TraceScenarioBatch(Block):
-	required_keys = {"scenario_batch", "userland_executor", "input_to_filename_dict"}
+	required_keys = {"scenario_batch", "userland_executor", "input_equivalence_classes_filenames"}
 	provided_keys = {"filename_to_htraces_list"}  # keyed by remote input filename, values = list of HTrace objects
 
 	def __init__(self):
@@ -847,20 +1032,27 @@ class TraceScenarioBatch(Block):
 
 		return objs
 
+	@staticmethod
+	def flatten_ordered_dict(d: OrderedDict) -> OrderedDict:
+		flat = OrderedDict()
+		for outer_key, inner_dict in d.items():
+			for inner_key, value in inner_dict.items():
+				flat[inner_key] = value
+		return flat
+
 	def run(self, ctx: dict[str, Any]) -> dict[str, Any]:
 		batch: ExecutorBatch = ctx["scenario_batch"]
 		userland_executor: UserlandExecutor = ctx["userland_executor"]
-		input_to_filename_dict: OrderedDict[Input, List[int]] = ctx["input_to_filename_dict"]
+		input_equivalence_classes_filenames: OrderedDict[Input, OrderedDict[Input, str]] = ctx["input_equivalence_classes_filenames"]
 
 		# Temporary remote batch file
-#		import subprocess
-#		subprocess.run("cp ~/revizor/a ~/revizor/remote_generated; cp ~/revizor/spectrev1_arch.bin ~/revizor/input0.bin; cp ~/revizor/spectrev1_spec.bin ~/revizor/input1.bin", shell=True, check=True)
+		import pdb; pdb.set_trace()
 		raw_output = userland_executor.trace(batch)
 
 		json_objs = self._extract_json_objects(raw_output)
 
 		# Aggregate traces per remote input
-		filename_to_htraces_list: Dict[str, List[int]] = {input_name: [] for input_name in input_to_filename_dict.values()}
+		filename_to_htraces_list: Dict[str, List[int]] = {input_name: [] for input_name in self.flatten_ordered_dict(input_equivalence_classes_filenames).values()}
 
 		for js in json_objs:
 			input_name = js.get('input_name')
@@ -888,7 +1080,7 @@ class ArchiteturalFlowTraceBlock(Block):
 	provided_keys = {"architectural_flows"}
 
 	def __init__(self):
-		super().__init__(StageType.EXECUTE)
+		super().__init__(StageType.LOAD)
 
 	@classmethod
 	def _upload_test(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
@@ -928,7 +1120,8 @@ class ArchiteturalFlowTraceBlock(Block):
 	def _write_test_case_with_bitmap_trace(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
 		patched_test_case = copy.deepcopy(test_case)
 		marking_pass = Aarch64MarkMemoryAccessesNEON()
-		cls._pass_on_test_case(patched_test_case, [marking_pass])
+		sandbox_with_taints = Aarch64SandboxPass(with_taint=False)
+		cls._pass_on_test_case(patched_test_case, [sandbox_with_taints, marking_pass])
 		return cls._write_test_case_remotely(patched_test_case, connection, workdir, 'generated_retrieve_bitmap')
 
 	@classmethod
@@ -953,7 +1146,6 @@ class ArchiteturalFlowTraceBlock(Block):
 
 		userland_executor.checkout_region(TestCaseRegion())
 		userland_executor.write_file(remote_test_case_filename)
-		import pdb; pdb.set_trace()
 		userland_executor.trace()
 
 		not_architectural_memory_accesses: OrderedDict[str, List[int]] = OrderedDict()
@@ -977,16 +1169,14 @@ class ArchiteturalFlowTraceBlock(Block):
 
 		architectural_flows = self._measure_architecturally_not_accessed_memory_addresses(test_case, input_to_filename_dict, workdir, userland_executor, connection)
 
-		print(f"{architectural_flows=}")
 		ctx.update({
             "architectural_flows": architectural_flows
 		})
 
 		return ctx
 
-
 class CleanupRemoteFiles(Block):
-	required_keys = {"input_to_filename_dict", "remote_test_filename", "connection", "scenario_batch"}
+	required_keys = {"input_to_filename_dict", "input_equivalence_classes_filenames", "remote_sandboxed_test_filename", "connection", "scenario_batch"}
 	provided_keys = set()
 
 	def __init__(self):
@@ -995,19 +1185,28 @@ class CleanupRemoteFiles(Block):
 	def run(self, ctx: dict[str, Any]) -> dict[str, Any]:
 		connection: Connection = ctx["connection"]
 		scenario_batch: ExecutorBatch = ctx["scenario_batch"]
-		remote_test_filename: str = ctx["remote_test_filename"]
+		remote_sandboxed_test_filename: str = ctx["remote_sandboxed_test_filename"]
 		input_to_filename_dict: OrderedDict[Input, str] = ctx["input_to_filename_dict"]
+		input_equivalence_classes_filenames: OrderedDict[Input, OrderedDict[Input, str]] = ctx["input_equivalence_classes_filenames"]
 
 		for remote_input in input_to_filename_dict.values():
 			try:
 				connection.shell(f"rm {remote_input}", privileged=True)
 			except Exception as e:
-				warnings.warn(f"Failed to remove input: {remote_input} ({e}).")
+				warnings.warn(f"Failed to remove main input: {remote_input} ({e}).")
+
+
+		for remote_equivalence_class_filenames in input_equivalence_classes_filenames.values():
+			for remote_input in remote_equivalence_class_filenames.values():
+				try:
+					connection.shell(f"rm {remote_input}", privileged=True)
+				except Exception as e:
+					warnings.warn(f"Failed to remove input of equivalence class: {remote_input} ({e}).")
 
 		try:
-			connection.shell(f"rm {remote_test_filename}", privileged=True)
+			connection.shell(f"rm {remote_sandboxed_test_filename}", privileged=True)
 		except Exception as e:
-			warnings.warn(f"Failed to remove test file: {remote_test_filename} ({e}).")
+			warnings.warn(f"Failed to remove test file: {remote_sandboxed_test_filename} ({e}).")
 
 		try:
 			connection.shell(f"rm {scenario_batch.output}", privileged=True)
@@ -1017,7 +1216,7 @@ class CleanupRemoteFiles(Block):
 		return ctx
 
 class AnalyserBlock(Block):
-	required_keys = {"filename_to_htraces_list", "input_to_filename_dict", "test_case"}
+	required_keys = {"filename_to_htraces_list", "input_equivalence_classes_filenames", "sandboxed_test_case"}
 	provided_keys = {"violations"}
 
 	def __init__(self, analyser: Analyser):
@@ -1025,29 +1224,25 @@ class AnalyserBlock(Block):
 		self.analyser = analyser
 
 	def run(self, ctx: dict[str, Any]) -> dict[str, Any]:
-		#filename_to_htraces: Dict[str, List[HTrace]] = ctx["htraces"]
 		filename_to_htraces_list: Dict[str, List[HTrace]] = ctx["filename_to_htraces_list"]
-		input_to_filename_dict: Dict[Input, str] = ctx["input_to_filename_dict"]
-		test_case: TestCase = ctx["test_case"]
+		input_equivalence_classes_filenames: OrderedDict[Input, OrderedDict[Input, str]] = ctx["input_equivalence_classes_filenames"]
+		test_case: TestCase = ctx["sandboxed_test_case"]
 	
-		ctraces = [CTrace.get_null()] * len(input_to_filename_dict)
-		test_cases = [test_case] * len(input_to_filename_dict)
-		htraces = []
-		inputs = list(input_to_filename_dict.keys())
+		violations = []
+		for eq_class_filenames in input_equivalence_classes_filenames.values():
+
+			ctraces = [CTrace.get_null()] * len(eq_class_filenames)
+			test_cases = [test_case] * len(eq_class_filenames)
+			inputs = list(eq_class_filenames.keys())
+			htraces = []
+			for inp_filename in eq_class_filenames.values():
+				inp_htrace = filename_to_htraces_list[inp_filename]
+				htraces.append(HTrace(trace_list=inp_htrace))
 	
-		for inp, remote_input_filename in input_to_filename_dict.items():
-#			number_of_added_htraces = len(filename_to_htraces[remote_input_filename])
-			htraces.append(HTrace(trace_list=filename_to_htraces_list[remote_input_filename]))
-#			inputs += [inp] * number_of_added_htraces
-#			ctraces += [CTrace.get_null()] * number_of_added_htraces
-#			test_cases += [test_case] * number_of_added_htraces
-	
-		violations = self.analyser.filter_violations(inputs, ctraces, htraces, test_cases, stats=True)
+			violations.extend(self.analyser.filter_violations(inputs, ctraces, htraces, test_cases, stats=True))
 	
 		ctx.update({"violations": violations})
-	
-		#import pdb; pdb.set_trace()
-	
+
 		return ctx
 
 
@@ -1236,11 +1431,10 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         # Store statistics
         n_inputs = len(inputs)
         STAT.executor_reruns += n_reps * n_inputs
-        
         pipeline = (
-                    (LoadInputs() & LoadTest()) | 
-                    (GenerateInputArchFlow()) |
-					(ArchiteturalFlowTraceBlock() & PrepareScenarioBatch() & TraceScenarioBatch() & CleanupRemoteFiles()) |
+                    (LoadInputsBlock() & GenerateInputArchFlowBlock() & GenerateInputVariantsBlock() & LoadInputVariantsBlock() & ArchiteturalFlowTraceBlock()) | 
+                    (LoadSandboxedTestCaseBlock()) |
+					(PrepareScenarioBatch() & TraceScenarioBatch() & CleanupRemoteFiles()) |
 					AnalyserBlock(analyser)
                 ).build()
         
@@ -1250,7 +1444,8 @@ class Aarch64RemoteExecutor(Aarch64Executor):
             "repeats": n_reps,
             "workdir": self.workdir,
             "userland_executor": self.userland_executor,
-            "connection": self.connection
+            "connection": self.connection,
+            "variants_per_input": 1
         }
         
         ctx = pipeline.run(initial_context)
