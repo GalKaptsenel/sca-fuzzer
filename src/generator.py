@@ -190,6 +190,7 @@ class ConfigurableGenerator(Generator, abc.ABC):
                 if not line_num_str:
                     msg += line
                 else:
+                    import pdb; pdb.set_trace()
                     parsed = lines[int(line_num_str.group(1)) - 1]
                     msg += f"\n  Line {line}\n    (the line was parsed as {parsed})"
             return msg

@@ -35,7 +35,7 @@ MODULE_DESCRIPTION("AArch64 implementation of Revisor's executor");
 #include <linux/set_memory.h>
 #endif
 
-#include "debug_page.h"
+#include "aux_buffer.h"
 #include "cache_configuration.h"
 #include "utils.h"
 #include "measurement.h"

@@ -8,7 +8,7 @@ obj-m := revizor-executor.o
 
 ccflags-y +=-g -march=armv8.2-a+sve  -DL1D_SIZE_K=64 -DL1D_ASSOCIATIVITY=4
 
-revizor-executor-y := main.o chardevice.o cpu.o executor.o inputs.o measurement.o mte.o pagewalk.o sandbox.o sysfs.o templates.o globals.o debug_page.o
+revizor-executor-y := main.o chardevice.o cpu.o executor.o inputs.o measurement.o mte.o pagewalk.o sandbox.o sysfs.o templates.o globals.o aux_buffer.o
 
 # Tell kbuild to build the module with the forced CC
 all:

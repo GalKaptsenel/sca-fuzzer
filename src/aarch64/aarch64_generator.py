@@ -175,6 +175,88 @@ class Aarch64TagMemoryAccesses(Pass):
                             sub_inst.template = f'sub {{{base_operand_cpy.name}}}, {{{base_operand_cpy.name}}}, {{{other_operand_cpy.name}}}'  # TODO: this should be done in the constructor
                             bb.insert_before(inst, sub_inst)
 
+class Aarch64FullTrace(Pass):
+	"""
+	Pass that inserts full tracing instrumentation for each instruction.
+	Logs PC, operands, flags, and memory accesses into the debug page.
+	"""
+
+	TEMPLATE_TRACE_INSTRUCTION = "TRACE_INSTRUCTION {base_reg}, {t0}, {t1}, {t2}, {mem_type}, {addr_reg}, {val_reg}"
+
+	def __init__(self, base_reg="x7", temp_regs=None):
+		default_registers = ["x9","x10", "x11", "x12"]
+		if temp_regs is None:
+			temp_regs = default_registers
+		if len(temp_regs) < 4:
+			raise ValueError("Need at least {len(default_registers)} temporary registers")
+		self.base_reg = base_reg
+		self.temp_regs = temp_regs
+
+	@staticmethod
+	def _reg_name_to_index(reg_name: str) -> int:
+		if not isinstance(reg_name, str):
+			return -1
+
+		rn = reg_name.strip().lower()
+		if rn.startswith('x') or rn.startswith('w'):
+			try:
+				num = int(rn[1:])
+				if 0 <= num <= 30:
+					return num
+			except ValueError:
+				return -1
+
+		return -1
+
+
+
+	def instrument_inst(self, bb: BasicBlock, inst: Instruction) -> None:
+		instrs_to_insert = []
+
+		value_reg = "-"
+		addr_reg = "-"
+		mem_type = 0
+
+		if inst.has_memory_access:
+			mem_operands = inst.get_mem_operands()
+
+			base_template = f"MOV {self.temp_regs[0]}, {mem_operands[0].value}"
+			instrs_to_insert.append(Instruction(f"MOV", True, template=base_template))
+			for op in mem_operands[1:]:
+
+				add_template = f"ADD {self.temp_regs[0]}, {self.temp_regs[0]}, {op.value}"
+				instrs_to_insert.append(Instruction(f"ADD", True, template=add_template))
+
+				addr_reg = self.temp_regs[0]
+				mem_type = 1 if mem_operands[0].src else 2
+
+				if mem_type == 2:
+					value_operand = [op for op in inst.operands if op.src and op.type == OT.REG]
+					assert len(value_operand) == 1
+					value_reg = value_operand[0].value
+
+
+
+		asm_trace = self.TEMPLATE_TRACE_INSTRUCTION.format(
+				base_reg=self.base_reg, t0=self.temp_regs[1], t1=self.temp_regs[2], t2=self.temp_regs[3],
+				mem_type=mem_type, addr_reg=addr_reg, val_reg=value_reg
+			)
+		instrs_to_insert.append(Instruction(f"TRACE_INSTRUCTION_{inst.name}", True, template=asm_trace))
+
+		# Insert all
+		for i in instrs_to_insert:
+			bb.insert_before(inst, i)
+
+	def run_on_test_case(self, test_case: TestCase):
+		for func in test_case.functions:
+			for bb in func:
+				for inst in bb:
+#					if not inst.is_instrumentation:
+					try:
+						self.instrument_inst(bb, inst)
+					except Exception as e:
+						print(f"[Aarch64FullTrace] failed on {inst}: {e}")
+
 
 class Aarch64MarkRegisterTaints(Pass):
 	"""

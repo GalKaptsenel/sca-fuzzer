@@ -11,10 +11,11 @@ typedef struct measurement {
 	uint64_t htrace[HTRACE_WIDTH];
 	uint64_t pfc[NUM_PFC];
 	uint64_t memory_ids_bitmap[WIDTH_MEMORY_IDS];
-	struct debug_page_t debug_page;
+	struct aux_buffer_t* aux_buffer;
 } measurement_t;
 
 int execute(void);
 void initialize_measurement(measurement_t*);
+void free_measurement(measurement_t*);
 
 #endif // ARM64_EXECUTOR_MEASUREMENT_H

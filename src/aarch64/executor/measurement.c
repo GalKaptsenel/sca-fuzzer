@@ -218,7 +218,7 @@ static size_t get_stack_base_address(void) {
 	return PTR_ALIGN(address, 16); // Technically, kernel stack should be aligned to THREAD_SIZE, for example it allows access the thread_indo structure. But it is fine to just align to 16 bytes, due to hardware only checks this constraint.
 }
 
-static void load_registers_from_input(input_t* input, struct debug_page_t* dp) {
+static void load_registers_from_input(input_t* input, void* aux_buffer) {
 
 	// Initial register values
 	*((registers_t*)executor.sandbox.lower_overflow) = input->regs;
@@ -229,8 +229,8 @@ static void load_registers_from_input(input_t* input, struct debug_page_t* dp) {
 	// - RSP and RBP
 	((registers_t*)executor.sandbox.lower_overflow)->sp = get_stack_base_address();
 
-	if(NULL != dp) {
-		((registers_t*)executor.sandbox.lower_overflow)->x7 = (size_t)dp;
+	if(NULL != aux_buffer) {
+		((registers_t*)executor.sandbox.lower_overflow)->x7 = (size_t)aux_buffer;
 	}
 
 	module_err("Input regs: x0:%llx, x1:%llx, x2:%llx x3:%llx, x4:%llx, x5:%llx, x6:%llx, x7 (Debug Page):%llx, flags:%llx, sp:%llx\n",
@@ -246,9 +246,9 @@ static void load_registers_from_input(input_t* input, struct debug_page_t* dp) {
 			*((uint64_t*)executor.sandbox.lower_overflow+9));
 }
 
-static void load_input_to_sandbox(input_t* input, struct debug_page_t* dp) {
+static void load_input_to_sandbox(input_t* input, void* aux_buffer) {
 	load_memory_from_input(input);
-	load_registers_from_input(input, dp);
+	load_registers_from_input(input, aux_buffer);
 }
 
 static void initialize_overflow_pages(void) {
@@ -265,15 +265,31 @@ static void initialize_overflow_pages(void) {
 void initialize_measurement(measurement_t* measurement) {
 	if(NULL == measurement) return;
 	memset(measurement, 0, sizeof(measurement_t));
+	measurement->aux_buffer = aux_buffer_alloc(PAGE_SIZE);
 }
 EXPORT_SYMBOL(initialize_measurement);
 
-static void measure(measurement_t* measurement, struct debug_page_t* dp) {
 
-	// store the measurement results
-	initialize_measurement(measurement);
-	memcpy(measurement, &executor.sandbox.latest_measurement, sizeof(measurement_t));
-	measurement->debug_page = *dp;
+void free_measurement(measurement_t* measurement) {
+	if(NULL == measurement) return;
+	aux_buffer_free(measurement->aux_buffer);
+}
+EXPORT_SYMBOL(free_measurement);
+
+static void measure(measurement_t* measurement) {
+	if(NULL == measurement) return;
+
+	for(size_t i = 0; i < HTRACE_WIDTH; ++i) {
+		measurement->htrace[i] = executor.sandbox.latest_measurement.htrace[i];
+	}
+	
+	for(size_t i = 0; i < NUM_PFC; ++i) {
+		measurement->pfc[i] = executor.sandbox.latest_measurement.pfc[i];
+	}
+
+	for(size_t i = 0; i < WIDTH_MEMORY_IDS; ++i) {
+		measurement->memory_ids_bitmap[i] = executor.sandbox.latest_measurement.memory_ids_bitmap[i];
+	}
 }
 
 static void flush_l1d_cache(void) {
@@ -334,9 +350,6 @@ static void __nocfi run_experiments(void) {
 	cpumask_set_cpu(smp_processor_id(), &mask);
 	set_cpus_allowed_ptr(current, &mask);
 
-	struct debug_page_t* dp = debug_page_alloc();
-	BUG_ON(NULL == dp);
-
 	for (int64_t i = -executor.config.uarch_reset_rounds; i < rounds; ++i) {
 
 		struct input_node* current_input = NULL;
@@ -350,9 +363,8 @@ static void __nocfi run_experiments(void) {
 		current_input = rb_entry(current_input_node, struct input_node, node);
 
 		initialize_overflow_pages();
-		debug_page_init(dp);
-		load_input_to_sandbox(&current_input->input, dp);
-
+		aux_buffer_init(current_input->measurement.aux_buffer);
+		load_input_to_sandbox(&current_input->input, current_input->measurement.aux_buffer->addr);
 
 		// flush some of the uarch state
 		if (1 == executor.config.pre_run_flush) {
@@ -374,7 +386,7 @@ static void __nocfi run_experiments(void) {
 
 		raw_local_irq_restore(flags); // enable local interrupts with previously saved state
 
-		measure(&current_input->measurement, dp);
+		measure(&current_input->measurement);
 		module_err("htrace: %llu", current_input->measurement.htrace[0]);
 		{
 			char buff[65] = { 0 };
@@ -387,12 +399,10 @@ static void __nocfi run_experiments(void) {
 			module_err("pfc[0]: %llu", current_input->measurement.pfc[0]);
 			module_err("pfc[1]: %llu", current_input->measurement.pfc[1]);
 			module_err("pfc[2]: %llu", current_input->measurement.pfc[2]);
-			debug_page_print(dp);
+			aux_buffer_dump(current_input->measurement.aux_buffer);
 		}
 
 	}
-
-	debug_page_free(dp);
 }
 
 int execute(void) {

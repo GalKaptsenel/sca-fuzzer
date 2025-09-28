@@ -23,7 +23,7 @@ int64_t allocate_input(void) {
 
 	new_node->id = input_id;
 	memset(&(new_node->input), 0, sizeof(input_t));
-	initialize_measurement(&(new_node->measurement));
+	initialize_measurement(&new_node->measurement);
 
 	while(*link) {
 		parent = *link;
@@ -85,6 +85,7 @@ EXPORT_SYMBOL(get_input);
 void remove_input(int64_t id) {
 	struct input_node* node_to_remove = get_input_node(id);
 	if(NULL == node_to_remove) return;
+	free_measurement(&node_to_remove->measurement);
 	rb_erase(&(node_to_remove->node), &(executor.inputs_root));
 	vfree(node_to_remove);
 	--executor.number_of_inputs;
@@ -98,6 +99,7 @@ void destroy_inputs_db(void) {
 	while(rb_node) {
 		node = rb_entry(rb_node, struct input_node, node);
 		rb_node = rb_next(rb_node);
+		free_measurement(&node->measurement);
 		rb_erase(&node->node, &executor.inputs_root);
 		vfree(node);
 	}
