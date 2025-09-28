@@ -399,7 +399,7 @@ static void __nocfi run_experiments(void) {
 			module_err("pfc[0]: %llu", current_input->measurement.pfc[0]);
 			module_err("pfc[1]: %llu", current_input->measurement.pfc[1]);
 			module_err("pfc[2]: %llu", current_input->measurement.pfc[2]);
-			aux_buffer_dump(current_input->measurement.aux_buffer);
+//			aux_buffer_dump(current_input->measurement.aux_buffer);
 		}
 
 	}
