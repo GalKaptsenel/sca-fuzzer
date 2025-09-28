@@ -195,7 +195,7 @@ class ConfigurableGenerator(Generator, abc.ABC):
             return msg
 
         try:
-            out = run(f"cat src/aarch64/taint_instrumentation.S {asm_file} > {asm_file}_tmp", shell=True, check=True, capture_output=True) # TODO: extract assembler to configuration
+            out = run(f"cat src/aarch64/instrumentation.S {asm_file} > {asm_file}_tmp", shell=True, check=True, capture_output=True) # TODO: extract assembler to configuration
             out = run(f"aarch64-linux-gnu-as -march=armv9-a+sve+memtag {asm_file}_tmp -o {obj_file}", shell=True, check=True, capture_output=True) # TODO: extract assembler to configuration
             out = run(f"rm {asm_file}_tmp", shell=True, check=True, capture_output=True) # TODO: extract assembler to configuration
         except CalledProcessError as e:

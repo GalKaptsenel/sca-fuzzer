@@ -986,13 +986,22 @@ class PrepareScenarioBatch(Block):
 		return batch
 
 
+	@staticmethod
+	def flatten_ordered_dict(d: OrderedDict) -> OrderedDict:
+		flat = OrderedDict()
+		for outer_key, inner_dict in d.items():
+			for inner_key, value in inner_dict.items():
+				flat[inner_key] = value
+		return flat
+
+
 	def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
-		input_to_filename_dict: OrderedDict[Input, str] = ctx["input_to_filename_dict"]
-		remote_test_filename: str = ctx["remote_test_filename"]
+		input_equivalence_classes_filenames: OrderedDict[Input, OrderedDict[Input, str]] = ctx["input_equivalence_classes_filenames"]
+		remote_test_filename: str = ctx["remote_sandboxed_test_filename"]
 		repeats: int = ctx["repeats"]
 		workdir: str = ctx["workdir"]
 
-		batch = self._create_scenario_batch(input_to_filename_dict.values(), remote_test_filename, repeats, workdir)
+		batch = self._create_scenario_batch(self.flatten_ordered_dict(input_equivalence_classes_filenames).values(), remote_test_filename, repeats, workdir)
 
 		ctx.update({
 			"scenario_batch": batch,
@@ -1046,7 +1055,6 @@ class TraceScenarioBatch(Block):
 		input_equivalence_classes_filenames: OrderedDict[Input, OrderedDict[Input, str]] = ctx["input_equivalence_classes_filenames"]
 
 		# Temporary remote batch file
-		import pdb; pdb.set_trace()
 		raw_output = userland_executor.trace(batch)
 
 		json_objs = self._extract_json_objects(raw_output)

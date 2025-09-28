@@ -11,7 +11,7 @@ typedef struct measurement {
 	uint64_t htrace[HTRACE_WIDTH];
 	uint64_t pfc[NUM_PFC];
 	uint64_t memory_ids_bitmap[WIDTH_MEMORY_IDS];
-	debug_page_t debug_page;
+	struct debug_page_t debug_page;
 } measurement_t;
 
 int execute(void);

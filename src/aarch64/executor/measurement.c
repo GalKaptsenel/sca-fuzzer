@@ -218,37 +218,37 @@ static size_t get_stack_base_address(void) {
 	return PTR_ALIGN(address, 16); // Technically, kernel stack should be aligned to THREAD_SIZE, for example it allows access the thread_indo structure. But it is fine to just align to 16 bytes, due to hardware only checks this constraint.
 }
 
-static void load_registers_from_input(input_t* input, struct debug_page_handle* dph) {
+static void load_registers_from_input(input_t* input, struct debug_page_t* dp) {
 
 	// Initial register values
-	*((registers_t*)executor.sandbox.upper_overflow) = input->regs;
+	*((registers_t*)executor.sandbox.lower_overflow) = input->regs;
 
 	// - flags
-	((registers_t*)executor.sandbox.upper_overflow)->flags <<= 28;
+	((registers_t*)executor.sandbox.lower_overflow)->flags <<= 28;
 
 	// - RSP and RBP
-	((registers_t*)executor.sandbox.upper_overflow)->sp = get_stack_base_address();
+	((registers_t*)executor.sandbox.lower_overflow)->sp = get_stack_base_address();
 
-	if(NULL != dph) {
-		((registers_t*)executor.sandbox.upper_overflow)->x7 = (size_t)dph->vaddr;
+	if(NULL != dp) {
+		((registers_t*)executor.sandbox.lower_overflow)->x7 = (size_t)dp;
 	}
 
 	module_err("Input regs: x0:%llx, x1:%llx, x2:%llx x3:%llx, x4:%llx, x5:%llx, x6:%llx, x7 (Debug Page):%llx, flags:%llx, sp:%llx\n",
-			*(uint64_t*)executor.sandbox.upper_overflow,
-			*((uint64_t*)executor.sandbox.upper_overflow+1),
-			*((uint64_t*)executor.sandbox.upper_overflow+2),
-			*((uint64_t*)executor.sandbox.upper_overflow+3),
-			*((uint64_t*)executor.sandbox.upper_overflow+4),
-			*((uint64_t*)executor.sandbox.upper_overflow+5),
-			*((uint64_t*)executor.sandbox.upper_overflow+6),
-			*((uint64_t*)executor.sandbox.upper_overflow+7),
-			*((uint64_t*)executor.sandbox.upper_overflow+8),
-			*((uint64_t*)executor.sandbox.upper_overflow+9));
+			*(uint64_t*)executor.sandbox.lower_overflow,
+			*((uint64_t*)executor.sandbox.lower_overflow+1),
+			*((uint64_t*)executor.sandbox.lower_overflow+2),
+			*((uint64_t*)executor.sandbox.lower_overflow+3),
+			*((uint64_t*)executor.sandbox.lower_overflow+4),
+			*((uint64_t*)executor.sandbox.lower_overflow+5),
+			*((uint64_t*)executor.sandbox.lower_overflow+6),
+			*((uint64_t*)executor.sandbox.lower_overflow+7),
+			*((uint64_t*)executor.sandbox.lower_overflow+8),
+			*((uint64_t*)executor.sandbox.lower_overflow+9));
 }
 
-static void load_input_to_sandbox(input_t* input, struct debug_page_handle* dph) {
+static void load_input_to_sandbox(input_t* input, struct debug_page_t* dp) {
 	load_memory_from_input(input);
-	load_registers_from_input(input, dph);
+	load_registers_from_input(input, dp);
 }
 
 static void initialize_overflow_pages(void) {
@@ -268,12 +268,12 @@ void initialize_measurement(measurement_t* measurement) {
 }
 EXPORT_SYMBOL(initialize_measurement);
 
-static void measure(measurement_t* measurement, struct debug_page_handle* dph) {
+static void measure(measurement_t* measurement, struct debug_page_t* dp) {
 
 	// store the measurement results
 	initialize_measurement(measurement);
 	memcpy(measurement, &executor.sandbox.latest_measurement, sizeof(measurement_t));
-	measurement->debug_page = *dph->vaddr;
+	measurement->debug_page = *dp;
 }
 
 static void flush_l1d_cache(void) {
@@ -334,8 +334,8 @@ static void __nocfi run_experiments(void) {
 	cpumask_set_cpu(smp_processor_id(), &mask);
 	set_cpus_allowed_ptr(current, &mask);
 
-	struct debug_page_handle* dph = debug_page_alloc();
-	BUG_ON(NULL == dph);
+	struct debug_page_t* dp = debug_page_alloc();
+	BUG_ON(NULL == dp);
 
 	for (int64_t i = -executor.config.uarch_reset_rounds; i < rounds; ++i) {
 
@@ -350,8 +350,8 @@ static void __nocfi run_experiments(void) {
 		current_input = rb_entry(current_input_node, struct input_node, node);
 
 		initialize_overflow_pages();
-		debug_page_init(dph);
-		load_input_to_sandbox(&current_input->input, dph);
+		debug_page_init(dp);
+		load_input_to_sandbox(&current_input->input, dp);
 
 
 		// flush some of the uarch state
@@ -374,7 +374,7 @@ static void __nocfi run_experiments(void) {
 
 		raw_local_irq_restore(flags); // enable local interrupts with previously saved state
 
-		measure(&current_input->measurement, dph);
+		measure(&current_input->measurement, dp);
 		module_err("htrace: %llu", current_input->measurement.htrace[0]);
 		{
 			char buff[65] = { 0 };
@@ -387,12 +387,12 @@ static void __nocfi run_experiments(void) {
 			module_err("pfc[0]: %llu", current_input->measurement.pfc[0]);
 			module_err("pfc[1]: %llu", current_input->measurement.pfc[1]);
 			module_err("pfc[2]: %llu", current_input->measurement.pfc[2]);
-			debug_page_dump(dph);
+			debug_page_print(dp);
 		}
 
 	}
 
-	debug_page_free(dph);
+	debug_page_free(dp);
 }
 
 int execute(void) {

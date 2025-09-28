@@ -117,7 +117,7 @@ inline void epilogue(void) {
 
 
 #define SET_REGISTER_FROM_INPUT(TMP) asm volatile(""			                                \
-    "add "TMP", x30, #%[upper_overflow]\n"					                                    \
+    "add "TMP", x30, #%[lower_overflow]\n"					                                    \
     "ldp x0, x1, ["TMP"], #16\n"						                                        \
     "ldp x2, x3, ["TMP"], #16\n"						                                        \
     "ldp x4, x5, ["TMP"], #16\n"						                                        \
@@ -126,7 +126,7 @@ inline void epilogue(void) {
     "msr nzcv, x8\n"							                                                \
     "mov sp, x9\n"							                                                    \
 	:								                                                            \
-	: [upper_overflow] "i"(offsetof(sandbox_t, upper_overflow))	                                \
+	: [lower_overflow] "i"(offsetof(sandbox_t, lower_overflow))	                                \
 	:								                                                            \
 	)
 

@@ -126,7 +126,6 @@ class Aarch64TagMemoryAccesses(Pass):
                     if inst.has_memory_access:
                         memory_instructions.append(inst)
 
-                import pdb; pdb.set_trace()
                 for inst in memory_instructions:
                     to_subtract = []
                     mem_operands = inst.get_mem_operands()
@@ -416,14 +415,14 @@ class Aarch64MarkMemoryTaints:
 		
         # write macro (for loads)
 		if op.src:
-			asm_text = self.MEM_TEMPLATE_LOAD.format(addr=op.value, base=self.base_reg,
+			asm_text = self.MEM_TEMPLATE_LOAD.format(addr=addr_idx, base=self.base_reg,
 											 t0=self.temp_regs[0], t1=self.temp_regs[1])
 			instrs_to_insert.append(Instruction(f"TAINT_LOAD_{addr_idx}", True, template=asm_text))
 
 
 		# write macro (for stores)
 		if op.dest:
-			asm_text = self.MEM_TEMPLATE_STORE.format(addr=op.value, base=self.base_reg,
+			asm_text = self.MEM_TEMPLATE_STORE.format(addr=addr_idx, base=self.base_reg,
 											 t0=self.temp_regs[0], t1=self.temp_regs[1])
 			instrs_to_insert.append(Instruction(f"TAINT_STORE_{addr_idx}", True, template=asm_text))
 
