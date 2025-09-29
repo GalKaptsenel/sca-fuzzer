@@ -12,7 +12,7 @@ void aux_buffer_dump_range(const struct aux_buffer_t* auxb, size_t offset, size_
 		length = auxb->size - offset;
 	}
 
-	module_err("Auxilary Zone Dump (offset=%zu, length=%zu):", offset, length);
+	module_err("Auxilary Buffer Dump (offset=%zu, length=%zu):", offset, length);
 
 	for(size_t i = 0; i < length; i += 16) {
 		size_t line_len = length - i;

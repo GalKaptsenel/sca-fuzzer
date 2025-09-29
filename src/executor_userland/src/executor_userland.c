@@ -1,8 +1,9 @@
-#include "executor_ioctl.h"
-#include "executor_utils.h"
-#include "trace_writer.h"
+#include <executor_ioctl.h>
+#include <executor_utils.h>
+#include <trace_writer.h>
+#include <buffer.h>
 
-unsigned long int_to_cmd[] = {
+static unsigned long int_to_cmd[] = {
 	0,
 	REVISOR_CHECKOUT_TEST,
 	REVISOR_UNLOAD_TEST,
@@ -14,6 +15,8 @@ unsigned long int_to_cmd[] = {
 	REVISOR_TRACE,
 	REVISOR_CLEAR_ALL_INPUTS,
 	REVISOR_GET_TEST_LENGTH,
+	REVISOR_BATCHED_INPUTS,
+	REVISOR_GET_AUX_BUFFER
 };
 
 
@@ -144,6 +147,7 @@ static void buffer_bits64(uint64_t u, char* buff) {
 		u >>= 1;
 	}
 }
+
 static void print_bits64(uint64_t u) {
 	char str[65] = { 0 };
 	buffer_bits64(u, str);
@@ -175,19 +179,51 @@ static int handle_get_measurement(int fd, int command) {
 			print_bits64(measurement.memory_ids_bitmap[i]);
 		}
 
-
-		printf("\nDebug Page:\n");
-		printf("\tREG WRITE      : 0x%016llx\n", (unsigned long long)measurement.debug_page.regs_write_bits);
-		printf("\tREG READ       : 0x%016llx\n", (unsigned long long)measurement.debug_page.regs_read_bits);
-		printf("\tREG INPUT READ : 0x%016llx\n", (unsigned long long)measurement.debug_page.regs_input_read_bits);
-		printf("\tMEM WRITE      : 0x%016llx\n", (unsigned long long)measurement.debug_page.mem_write_bits);
-		printf("\tMEM READ       : 0x%016llx\n", (unsigned long long)measurement.debug_page.mem_read_bits);
-		printf("\tMEM INPUT READ : 0x%016llx\n", (unsigned long long)measurement.debug_page.mem_input_read_bits);
-
 		printf("\n");
 	}
 
 	return result;
+}
+
+struct buffer_t* get_aux_buffer(int fd) {
+	if(0 > fd) return NULL;
+
+	struct aux_buffer_ioctl req = {0};
+
+	req.size = 0;
+	req.data = NULL;
+
+	if(0 > ioctl(fd, REVISOR_GET_AUX_BUFFER, &req)) {
+		perror("ioctl REVISOR_GET_AUX_BUFFER (size query)");
+		return NULL;
+	}
+
+	if(0 == req.size) return NULL;
+
+	struct buffer_t* auxb = buffer_alloc(req.size);
+	if(NULL == auxb) return NULL;
+
+	req.data = auxb->addr;
+
+	if(0 > ioctl(fd, REVISOR_GET_AUX_BUFFER, &req)) {
+		perror("ioctl REVISOR_GET_AUX_BUFFER (data fetch)");
+		buffer_free(auxb);
+		return NULL;
+	}
+
+	auxb->data_size = req.size;
+	return auxb;
+}
+
+static int handle_print_aux_buffer(int fd, size_t offset, size_t length) {
+	struct buffer_t* auxb = get_aux_buffer(fd);
+	if(NULL == auxb) {
+		return -1;
+	}
+
+	buffer_dump_range(auxb, offset, length);
+	buffer_free(auxb);
+	return 0;
 }
 
 static int write_operation(int fd, const char* filename) {
@@ -294,7 +330,6 @@ static int serve_numerical_command_without_argument(int fd, int command) {
 		case REVISOR_CLEAR_ALL_INPUTS_CONSTANT:
 			result = ioctl(fd, command);
 			break;
-
 		default:
 			printf("Missing arguments for command!\n");
 			result = -2;
@@ -326,7 +361,7 @@ static int serve_numerical_operation(int fd, int argc, char** argv) {
 
 	int command_number = atoi(argv[2]);
 
-	if (!(1 <= command_number && command_number <= 10)) {
+	if (!(1 <= command_number && command_number <= 12)) {
 
 		printf("Invalid command number: %d\n", command_number);
 		return EXIT_FAILURE;
@@ -340,8 +375,12 @@ static int serve_numerical_operation(int fd, int argc, char** argv) {
 	printf("Command magic: %d\n", _IOC_TYPE(command));
 	printf("Command number: %d\n", _IOC_NR(command));
 
+	if(REVISOR_GET_AUX_BUFFER_CONSTANT == _IOC_NR(command)) {
+		size_t offset = (4 <= argc) ? (size_t)atoi(argv[3]) : 0;
+		size_t length = (5 <= argc) ? (size_t)atoi(argv[5]) : (size_t)-1;
+		result = handle_print_aux_buffer(fd, offset, length);
 
-	if (3 < argc) {
+	} else if (3 < argc) {
 
 		result = serve_numerical_command_with_argument(fd, command, atoi(argv[3]));
 
@@ -480,6 +519,8 @@ static int scenario_operation(int fd,
 					buffer_bits64(measurement.memory_ids_bitmap[t], traces[index].memory_ids_bitmap[t]);
 				}
 
+				traces[index].aux_buffer = get_aux_buffer(fd);
+
 				cjsons[index] = build_trace_json(traces + index);
 				if(NULL == cjsons[index]) {
 					result = -5;
@@ -506,6 +547,10 @@ T_clear_all_inputs:
 	free(cjsons);
 T_free_traces:
 	for(unsigned int i = 0; i < total_number_of_traces; ++i) {
+		if(traces[i].aux_buffer) {
+			buffer_free(traces[i].aux_buffer);
+			traces[i].aux_buffer = NULL;
+		}
 		release_trace_json(traces + i);
 	}
 	free(traces);

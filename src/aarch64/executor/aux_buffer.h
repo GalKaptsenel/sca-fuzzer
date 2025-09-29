@@ -3,7 +3,7 @@
 
 struct aux_buffer_t {
 	void* addr;
-	size_t size;
+	size_t size; // Actual size of the buffer pointed by 'addr'.
 };
 
 struct aux_buffer_t* aux_buffer_alloc(size_t size);

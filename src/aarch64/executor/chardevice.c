@@ -126,7 +126,6 @@ static void measure_input_id(void __user* arg) {
 		measurement_t* current_measurement = get_measurement(executor.checkout_region);
 		BUG_ON(NULL == current_measurement);
 		copy_to_user_with_access_check(arg, current_measurement, sizeof(measurement_t));
-
 	}
 }
 
@@ -180,12 +179,6 @@ static size_t load_test_and_update_state(const char __user* test, size_t length)
 	update_state_after_writing_test();
 
 	module_err("%zu bytes were written into test case memory!\n", length);
-	//{
-	//	size_t count= 0;
-	//	for(; count < executor.test_case_length; ++count) {
-	//		module_err("test: %px -> %lx", executor.test_case + count, ((char*)executor.test_case)[count]);
-	//	}
-	//}
 
 	return executor.test_case_length;
 }
@@ -250,7 +243,7 @@ static void update_state_after_writing_input(void) {
 }
 
 static int64_t handle_batch(void __user* arg) {
-	uint64_t err = 0;
+	int64_t err = 0;
 	uint64_t i = 0;
 	struct input_batch batch = { 0 };
 	struct input_and_id_pair* input_and_id_array = NULL;
@@ -291,12 +284,7 @@ static int64_t handle_batch(void __user* arg) {
 		BUG_ON(NULL == to_buffer);
 
 		memcpy(to_buffer, &input_and_id_array[i].input, USER_CONTROLLED_INPUT_LENGTH);
-/*
-		if(copy_from_user_with_access_check(to_buffer, input_and_id_array[i].input, USER_CONTROLLED_INPUT_LENGTH)) {
-			remove_input(chosen_iid);
-			chosen_iid = -1;
-		}
-*/
+
 		input_and_id_array[i].id = chosen_iid;
 
 		if (copy_to_user_with_access_check(&user_batch->array[i].id,  &input_and_id_array[i].id, sizeof(int64_t))) {
@@ -337,6 +325,64 @@ handle_batch_free_array:
 	vfree(input_and_id_array);
 
 handle_batch_end:
+	return err;
+}
+
+static int64_t handle_get_aux_buffer(void __user* user_req) {
+	int64_t err = 0;
+	struct aux_buffer_ioctl req = { 0 };
+	if(copy_from_user_with_access_check(&req, user_req, sizeof(req))) {
+		err = -EFAULT;
+		goto handle_get_aux_buffer_end;
+	}
+
+	struct aux_buffer_t* auxb = NULL;
+	if(TRACED_STATE != executor.state) {
+		err = -EINVAL;
+		module_err("Measurements are available only after performing a trace!\n");
+		goto handle_get_aux_buffer_end;
+
+	} else if(TEST_REGION == executor.checkout_region) {
+		err = -EINVAL;
+		module_err("Checkout into the desired input!\n");
+		goto handle_get_aux_buffer_end;
+
+	} else {
+
+		measurement_t* current_measurement = get_measurement(executor.checkout_region);
+		BUG_ON(NULL == current_measurement);
+		if(NULL == current_measurement->aux_buffer) {
+			err = -ENODATA;
+			module_err("Checkout input (%lld) does not have an auxiliary buffer.\n", executor.checkout_region);
+			goto handle_get_aux_buffer_end;
+		}
+
+		auxb = current_measurement->aux_buffer;
+		BUG_ON(NULL == auxb->addr);
+	}
+
+	if(NULL == req.data) {
+		module_debug("Retrieving auxiliary buffer size (cmd: %d)..\n", REVISOR_GET_AUX_BUFFER_CONSTANT);
+		req.size = auxb->size;
+
+	} else {
+
+		module_debug("Retrieving auxiliary buffer (cmd: %d)..\n", REVISOR_GET_AUX_BUFFER_CONSTANT);
+
+		req.size = (req.size < auxb->size) ? req.size : auxb->size;
+
+		if(copy_to_user_with_access_check(req.data, auxb->addr, req.size)) {
+			err = -EFAULT;
+			goto handle_get_aux_buffer_end;
+		}
+	}
+
+	if(copy_to_user_with_access_check(user_req, &req, sizeof(req))) {
+		err = -EFAULT;
+		goto handle_get_aux_buffer_end;
+	}
+
+handle_get_aux_buffer_end:
 	return err;
 }
 
@@ -408,12 +454,15 @@ static long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg
 			handle_batch((void __user*)arg);
 		    break;
 
+		case REVISOR_GET_AUX_BUFFER_CONSTANT:
+			result = handle_get_aux_buffer((void __user*)arg);
+		    break;
 		default:
 			module_err("Invalid IOCTL! Entered default case..\n");
 			return -ENOTTY;
 	}
 
-	return 0;
+	return result;
 }
 
 static ssize_t revisor_read(struct file* File, char __user* user_buffer,

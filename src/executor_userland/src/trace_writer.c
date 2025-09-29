@@ -1,4 +1,49 @@
-#include "trace_writer.h"
+#include <trace_writer.h>
+
+// Base64 character set
+static const char base64_chars[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+// Function to encode data in Base64
+char* base64_encode(const unsigned char* data, size_t input_length, size_t* output_length) {
+	if (NULL == data || 0 == input_length) {
+		if (output_length) *output_length = 0;
+		return NULL;
+	}
+
+	size_t output_len = 4 * ((input_length + 2) / 3);
+	char* encoded_data = (char*)malloc(output_len + 1); // +1 for null terminator
+	if (NULL == encoded_data) {
+		if (output_length) *output_length = 0;
+		return NULL;
+	}
+
+	*output_length = output_len;
+
+	for (size_t i = 0, j = 0; i < input_length;) {
+		uint32_t octet_a = i < input_length ? data[i++] : 0;
+		uint32_t octet_b = i < input_length ? data[i++] : 0;
+		uint32_t octet_c = i < input_length ? data[i++] : 0;
+
+		uint32_t triple = (octet_a << 0x10) + (octet_b << 0x08) + octet_c;
+
+		encoded_data[j++] = base64_chars[(triple >> 3 * 6) & 0x3F];
+		encoded_data[j++] = base64_chars[(triple >> 2 * 6) & 0x3F];
+		encoded_data[j++] = base64_chars[(triple >> 1 * 6) & 0x3F];
+		encoded_data[j++] = base64_chars[(triple >> 0 * 6) & 0x3F];
+	}
+
+	// Handle padding
+	int padding = (3 - input_length % 3) % 3;
+
+	for (int k = 0; k < padding; k++) {
+		encoded_data[*output_length - 1 - k] = '=';
+	}
+
+	encoded_data[*output_length] = '\0'; // Null-terminate the string
+
+	return encoded_data;
+}
 
 static cJSON* initialize_uint64_array(const uint64_t* data, size_t count) {
 
@@ -72,8 +117,30 @@ cJSON* build_trace_json(const struct trace_json* trj) {
 	if (!memory_ids_bitmap_array) goto error;
 	cJSON_AddItemToObject(root, KEY_MEMORY_IDS_BITMAP, memory_ids_bitmap_array);
 
+	char* b64 = NULL;
+	cJSON* aux_obj = NULL;
+	if (trj->aux_buffer && trj->aux_buffer->addr && trj->aux_buffer->data_size > 0) {
+		size_t b64_size = 0;
+		b64 = base64_encode(trj->aux_buffer->addr, trj->aux_buffer->data_size, &b64_size);
+		if(!b64) goto error;
+
+		aux_obj = cJSON_CreateObject();
+		if(!aux_obj) goto aux_buffer_error;
+
+
+		if (!cJSON_AddNumberToObject(aux_obj, KEY_AUX_BUFFER_SIZE, trj->aux_buffer->data_size)) goto aux_object_error;
+		if (!cJSON_AddStringToObject(aux_obj, KEY_AUX_BUFFER_DATA, b64)) goto aux_object_error;
+		free(b64);
+		b64 = NULL;
+		cJSON_AddItemToObject(root, KEY_AUX_BUFFER, aux_obj);
+	}
+
 	return root;
 
+aux_object_error:
+	cJSON_Delete(aux_obj);
+aux_buffer_error:
+	free(b64);
 error:
 	cJSON_Delete(root);
 	return NULL;
@@ -128,6 +195,8 @@ void init_trace_json(struct trace_json* trj) {
 	for(size_t i = 0; i < WIDTH_MEMORY_IDS; ++i) {
 		trj->memory_ids_bitmap[i] = calloc(65, sizeof(char));
 	}
+
+	trj->aux_buffer = NULL;
 }
 
 void release_trace_json(struct trace_json* trj) {
@@ -141,5 +210,10 @@ void release_trace_json(struct trace_json* trj) {
 	for(size_t i = 0; i < WIDTH_MEMORY_IDS; ++i) {
 		if(trj->memory_ids_bitmap[i]) free(trj->memory_ids_bitmap[i]);
 		trj->memory_ids_bitmap[i] = NULL;
+	}
+
+	if(trj->aux_buffer) {
+		buffer_free(trj->aux_buffer);
+		trj->aux_buffer = NULL;
 	}
 }

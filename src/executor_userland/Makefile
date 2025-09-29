@@ -1,10 +1,10 @@
 CC = aarch64-linux-gnu-gcc
-CFLAGS = -I../utils -static -march=armv9-a+sve+memtag -Wall -Wextra -O2
+CFLAGS = -I../include -Iinclude -static -march=armv9-a+sve+memtag -Wall -Wextra -O2
 
-SRC_DIR = .
-UTILS_DIR = ../utils
+SRC_DIR = ./src
+THIRD_PARTY_DIR = ../third_party
 
-SRCS = executor_userland.c trace_writer.c $(UTILS_DIR)/cJSON.c
+SRCS = $(SRC_DIR)/executor_userland.c $(SRC_DIR)/trace_writer.c $(SRC_DIR)/buffer.c $(THIRD_PARTY_DIR)/cJSON.c
 OBJS = $(SRCS:.c=.o)
 
 TARGET = executor_userland
