@@ -16,23 +16,21 @@ import warnings
 
 import numpy as np
 import time
-from typing import List, Tuple, Set, Generator, Optional, Any, Dict, Iterable, Callable, Protocol, runtime_checkable
+from typing import List, Tuple, Set, Generator, Optional, Any, Dict, Iterable, Callable, Protocol, runtime_checkable, Type
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from collections import defaultdict, OrderedDict, deque
 from enum import Enum, auto
 
-from .aarch64_generator import Aarch64TagMemoryAccesses, Aarch64Printer, Aarch64MarkMemoryAccessesNEON, Aarch64SandboxPass, Aarch64MarkRegisterTaints, Aarch64FullTrace
+from .aarch64_generator import Aarch64TagMemoryAccesses, Aarch64Printer, Aarch64MarkMemoryAccessesNEON, Aarch64SandboxPass, Aarch64MarkRegisterTaints, Aarch64MarkMemoryTaints, Aarch64FullTrace, FullTraceAuxBuffer
 from .. import ConfigurableGenerator
 from ..interfaces import HTrace, Input, TestCase, Executor, HardwareTracingError, Analyser, CTrace
 from ..config import CONF
 from ..util import Logger, STAT
 from .aarch64_target_desc import Aarch64TargetDesc
 from .aarch64_connection import Connection, UserlandExecutorImp, TestCaseRegion, InputRegion, \
-    HWMeasurement, ExecutorBatch, DebugPage
+    HWMeasurement, ExecutorBatch, aux_buffer_from_bytes, AuxBufferType
 from .aarch64_generator import Pass
-
-
 
 # ==================================================================================================
 # Helper functions
@@ -527,9 +525,9 @@ class LoadSandboxedTestCaseBlock(Block):
 	@classmethod
 	def _upload_sandboxed_test(cls, test_case: TestCase, connection: Connection, workdir: str) -> Tuple[str, TestCase]:
 		sandboxed_test_case = copy.deepcopy(test_case)
-		sandbox_pass = Aarch64SandboxPass(with_taint=False)
+		sandbox_pass = Aarch64SandboxPass()
 		sandbox_pass.run_on_test_case(sandboxed_test_case)
-#		Aarch64FullTrace().run_on_test_case(sandboxed_test_case)        
+		Aarch64FullTrace().run_on_test_case(sandboxed_test_case)        
 		return cls._write_test_case_remotely(sandboxed_test_case, connection, workdir, f'sandboxed_test_case'), sandboxed_test_case
 
 	def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
@@ -548,7 +546,7 @@ class LoadSandboxedTestCaseBlock(Block):
 
 class GenerateInputArchFlowBlock(Block):
 	required_keys = {"test_case", "input_to_filename_dict", "connection", "workdir", "userland_executor"}
-	provided_keys = {"input_to_debug_page"}
+	provided_keys = {"input_to_aux_buffer"}
 
 	def __init__(self):
 		super().__init__(StageType.LOAD)
@@ -589,8 +587,10 @@ class GenerateInputArchFlowBlock(Block):
 	def _write_test_with_taint_tracker(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
 		patched_test_case = copy.deepcopy(test_case)
 		register_taints = Aarch64MarkRegisterTaints()
-		sandbox_with_taints = Aarch64SandboxPass(with_taint=True)
-		cls._pass_on_test_case(patched_test_case, [register_taints, sandbox_with_taints])
+		sandbox = Aarch64SandboxPass()
+		import pdb; pdb.set_trace()
+		memory_taints = Aarch64MarkMemoryTaints()
+		cls._pass_on_test_case(patched_test_case, [register_taints, sandbox, memory_taints])
 		return cls._write_test_case_remotely(patched_test_case, connection, workdir, 'generated_taint_tracker')
 
 	def _measure_taints(cls, test_case: TestCase, input_to_filename: Dict[Input, str],  workdir: str, userland_executor: UserlandExecutor, connection: Connection) -> OrderedDict[Input, DebugPage]:
@@ -620,7 +620,9 @@ class GenerateInputArchFlowBlock(Block):
 
 		for inp, iid in inp_to_iids.items():
 			userland_executor.checkout_region(InputRegion(iid))
-			taints[inp] = userland_executor.hardware_measurement().debug_page
+			taints[inp] = aux_buffer_from_bytes(AuxBufferType.BITMAP_TAINTS, userland_executor.aux_buffer)
+
+		import pdb; pdb.set_trace()
 
 		userland_executor.discard_all_inputs()
 		connection.shell(f'rm {remote_test_case_filename}')
@@ -638,7 +640,7 @@ class GenerateInputArchFlowBlock(Block):
 		taints = self._measure_taints(test_case, input_to_filename_dict, workdir, userland_executor, connection)
 
 		ctx.update({
-		    "input_to_debug_page": taints
+		    "input_to_aux_buffer": taints
 		})
 
 		return ctx
@@ -684,7 +686,7 @@ class LoadInputVariantsBlock(Block):
 
 
 class GenerateInputVariantsBlock(Block):
-	required_keys = {"input_to_debug_page", "variants_per_input"}
+	required_keys = {"input_to_aux_buffer", "variants_per_input"}
 	provided_keys = {"input_to_equivalence_class_inputs"}
 
 	def __init__(self):
@@ -715,7 +717,7 @@ class GenerateInputVariantsBlock(Block):
 	def _mutate_input(
 			cls,
 			input_to_mutate: Input,
-			debug_page: DebugPage,
+			ftrace_aux_buffer: FullTraceAuxBuffer,
 			variants: int,
 			p_high: float = 0.8,
 			p_low: float = 0.2,
@@ -724,22 +726,22 @@ class GenerateInputVariantsBlock(Block):
 		) -> List[Input]:
 
 		num_of_gprs = input_to_mutate[0]['gpr'].shape[0]
-		num_of_sets_in_bitmask = debug_page.mem_read_bits.bit_length()
+		num_of_sets_in_bitmask = ftrace_aux_buffer.mem_read_bits.bit_length()
 
 		if num_of_sets_in_bitmask == 0:
 			print(f"{cls.__name__}: Genarated test trace has no visible memory accesses")
 
 		_, high_priority_registers, low_priority_registers, _ = cls._classify_resources(
-				debug_page.regs_write_bits,
-				debug_page.regs_read_bits,
-				debug_page.regs_input_read_bits,
+				ftrace_aux_buffer.regs_write_bits,
+				ftrace_aux_buffer.regs_read_bits,
+				ftrace_aux_buffer.regs_input_read_bits,
 				num_of_gprs
 			)
 
 		_, high_priority_cache_sets, low_priority_cache_sets, _ = cls._classify_resources(
-				debug_page.mem_write_bits,
-				debug_page.mem_read_bits,
-				debug_page.mem_input_read_bits,
+				ftrace_aux_buffer.mem_write_bits,
+				ftrace_aux_buffer.mem_read_bits,
+				ftrace_aux_buffer.mem_input_read_bits,
 				num_of_sets_in_bitmask
 			)
 
@@ -792,10 +794,10 @@ class GenerateInputVariantsBlock(Block):
 		return results
         
 	@classmethod
-	def _mutate_inputs(cls, input_to_debug_page: OrderedDict[Input, DebugPage], variants: int) -> OrderedDict[Input, List[Input]]:
+	def _mutate_inputs(cls, input_to_aux_buffer: OrderedDict[Input, FullTraceAuxBuffer], variants: int) -> OrderedDict[Input, List[Input]]:
 		input_to_equivalence_class_inputs: OrderedDict[Input, List[Input]] = OrderedDict()
 
-		for i, dp in input_to_debug_page.items():
+		for i, dp in input_to_aux_buffer.items():
 			input_to_equivalence_class_inputs[i] = [i] + cls._mutate_input(i, dp, variants, p_low=0)
 
 		return input_to_equivalence_class_inputs
@@ -803,9 +805,9 @@ class GenerateInputVariantsBlock(Block):
 
 	def run(self, ctx: dict[str, Any]) -> dict[str, Any]:
 		variants_per_input: int = ctx["variants_per_input"]
-		input_to_debug_page: OrderedDict[Input, DebugPage] = ctx["input_to_debug_page"]
+		input_to_aux_buffer: OrderedDict[Input, FullTraceAuxBuffer] = ctx["input_to_aux_buffer"]
 
-		input_to_equivalence_class_inputs: OrderedDict[Input, List[Input]] = self._mutate_inputs(input_to_debug_page, variants_per_input);
+		input_to_equivalence_class_inputs: OrderedDict[Input, List[Input]] = self._mutate_inputs(input_to_aux_buffer, variants_per_input);
 
 		ctx.update({
 			"input_to_equivalence_class_inputs": input_to_equivalence_class_inputs
@@ -1118,8 +1120,8 @@ class ArchiteturalFlowTraceBlock(Block):
 	def _write_test_case_with_bitmap_trace(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
 		patched_test_case = copy.deepcopy(test_case)
 		marking_pass = Aarch64MarkMemoryAccessesNEON()
-		sandbox_with_taints = Aarch64SandboxPass(with_taint=False)
-		cls._pass_on_test_case(patched_test_case, [sandbox_with_taints, marking_pass])
+		sandbox = Aarch64SandboxPass()
+		cls._pass_on_test_case(patched_test_case, [sandbox, marking_pass])
 		return cls._write_test_case_remotely(patched_test_case, connection, workdir, 'generated_retrieve_bitmap')
 
 	@classmethod

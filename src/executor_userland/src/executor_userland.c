@@ -1,4 +1,5 @@
 #include <executor_ioctl.h>
+#include <executor_user_api.h>
 #include <executor_utils.h>
 #include <trace_writer.h>
 #include <buffer.h>
@@ -155,7 +156,7 @@ static void print_bits64(uint64_t u) {
 }
 
 static int handle_get_measurement(int fd, int command) {
-	measurement_t measurement = { 0 };
+	user_measurement_t measurement = { 0 };
 	int result = ioctl(fd, command, &measurement);
 
 	if (0 <= result) {
@@ -501,7 +502,7 @@ static int scenario_operation(int fd,
 					goto T_unload_test_case;
 				}
 
-				measurement_t measurement = { 0 };
+				user_measurement_t measurement = { 0 };
 				result = ioctl(fd, REVISOR_MEASUREMENT, &measurement);
 				if(0 >  result) {
 					goto T_unload_test_case;

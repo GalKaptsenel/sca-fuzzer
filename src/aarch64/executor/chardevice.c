@@ -1,4 +1,5 @@
 #include "main.h"
+#include <executor_user_api.h>
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
 #define CLASS_CREATE(DEV_CLASS, DEV_NAME) class_create(DEV_NAME);
@@ -113,19 +114,33 @@ static void clear_all_inputs(void) {
 	reset_state_and_region_after_unloading_all_inputs();
 }
 
+static void kernel_measurement_to_user_measurement(user_measurement_t* um, const measurement_t* km) {
+	memset(um, 0, sizeof(*um));
+	memcpy(um->htrace, km->htrace, sizeof(um->htrace));
+	memcpy(um->pfc, km->pfc, sizeof(um->pfc));
+	memcpy(um->memory_ids_bitmap, km->memory_ids_bitmap, sizeof(um->memory_ids_bitmap));
+}
+
 static void measure_input_id(void __user* arg) {
 
 	if(TRACED_STATE != executor.state) {
 		module_err("Measurements are available only after performing a trace!\n");
-
-	} else if(TEST_REGION == executor.checkout_region) {
+		return;
+	}
+	
+	if(TEST_REGION == executor.checkout_region) {
 		module_err("Checkout into the desired input!\n");
+		return;
+	}
 
-	} else {
+	measurement_t* current_measurement = get_measurement(executor.checkout_region);
+	BUG_ON(NULL == current_measurement);
 
-		measurement_t* current_measurement = get_measurement(executor.checkout_region);
-		BUG_ON(NULL == current_measurement);
-		copy_to_user_with_access_check(arg, current_measurement, sizeof(measurement_t));
+	user_measurement_t umeasurement = { 0 };
+	kernel_measurement_to_user_measurement(&umeasurement, current_measurement);
+
+	if (copy_to_user_with_access_check(arg, &umeasurement, sizeof(umeasurement))) {
+		module_err("Failed to copy measurement to userspace!\n");
 	}
 }
 

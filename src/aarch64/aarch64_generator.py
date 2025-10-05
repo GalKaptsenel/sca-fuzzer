@@ -8,8 +8,10 @@ import abc
 import math
 import random
 import copy
+import struct
 from itertools import chain
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Type
+from dataclasses import dataclass
 
 from ..isa_loader import InstructionSet
 from ..interfaces import TestCase, Operand, Instruction, BasicBlock, Function, InstructionSpec, \
@@ -19,6 +21,7 @@ from ..generator import ConfigurableGenerator, RandomGenerator, Pass, Printer
 from ..config import CONF
 from .aarch64_target_desc import Aarch64TargetDesc
 from .aarch64_elf_parser import Aarch64ElfParser
+from .aarch64_connection import ExecutorAuxBuffer, AuxBufferType, register_aux_buffer
 
 
 class FaultFilter:
@@ -107,7 +110,6 @@ class Aarch64NonCanonicalAddressPass(Pass):
     def run_on_test_case(self, test_case: TestCase) -> None:
         pass
 
-
 class Aarch64TagMemoryAccesses(Pass):
     def __init__(self, memory_accesses_to_guess_tag: Optional[List[int]] = None):
         super().__init__()
@@ -175,10 +177,16 @@ class Aarch64TagMemoryAccesses(Pass):
                             sub_inst.template = f'sub {{{base_operand_cpy.name}}}, {{{base_operand_cpy.name}}}, {{{other_operand_cpy.name}}}'  # TODO: this should be done in the constructor
                             bb.insert_before(inst, sub_inst)
 
+
+@register_aux_buffer(AuxBufferType.FULL_TRACE)
+@dataclass
+class FullTraceAuxBuffer(ExecutorAuxBuffer):
+	pass
+
 class Aarch64FullTrace(Pass):
 	"""
 	Pass that inserts full tracing instrumentation for each instruction.
-	Logs PC, operands, flags, and memory accesses into the debug page.
+	Logs PC, operands, flags, and memory accesses into the auxiliary buffer.
 	"""
 
 	TEMPLATE_TRACE_INSTRUCTION = "TRACE_INSTRUCTION {base_reg}, {t0}, {t1}, {t2}, {mem_type}, {addr_reg}, {val_reg}"
@@ -261,10 +269,10 @@ class Aarch64FullTrace(Pass):
 class Aarch64MarkRegisterTaints(Pass):
 	"""
 	Pass that inserts taint instrumentation for GPR register reads/writes.
-	It emits macro invocations that take the debug-page base register and temporary regs.
+	It emits macro invocations that take the auxiliary buffer base register and temporary regs.
 	
 	Constructor args:
-	  base_reg: str, e.g. "x7"  -- the register containing base address of debug page
+	  base_reg: str, e.g. "x7"  -- the register containing base address of auxiliary buffer
 	  temp_regs: List[str] -- list of available temporary registers, e.g. ["x9","x10","x11"]
 	    - For TAINT_REG_WRITE we use temp_regs[0], temp_regs[1]
 	    - For TAINT_REG_PROPAGATE_OR_USED we use temp_regs[0], temp_regs[1]
@@ -312,9 +320,13 @@ class Aarch64MarkRegisterTaints(Pass):
 		return regs
 
 	def _collect_src_dst_indices(self, inst: Instruction) ->Tuple[List[int], List[int]]:
+		register_names = [x for lst in Aarch64TargetDesc.registers.values() for x in lst]
+		mem_src_regs = [op for op in inst.get_mem_operands() if op.value in register_names]
+
 		regs = self._get_regs_from_inst(inst)
 
 		src_idxs = [self._reg_name_to_index(r.value) for r in regs if r.src]
+		src_idxs += [self._reg_name_to_index(r.value) for r in mem_src_regs]
 		src_idxs = [idx for idx in src_idxs if idx >= 0]
 
 		dest_idxs = [self._reg_name_to_index(r.value) for r in regs if r.dest]
@@ -460,13 +472,13 @@ class Aarch64MarkMemoryAccessesSVE(Pass):
                     Aarch64MarkMemoryAccesses.mark_memory_access(bb, inst)
 
 
-class Aarch64MarkMemoryTaints:
+class Aarch64MarkMemoryTaints(Pass):
 	"""
 	Pass that inserts taint instrumentation for memory accesses.
-	It emits macro invocations that take the debug-page base register and temporary regs.
+	It emits macro invocations that take the auxiliary buffer base register and temporary regs.
 	
 	Constructor args:
-	  base_reg: str, e.g. "x7"  -- register holding base address of debug page
+	  base_reg: str, e.g. "x7"  -- register holding base address of auxiliary buffer
 	  temp_regs: List[str] -- list of temp registers, e.g. ["x9","x10"]
 	    - temp_regs[0], temp_regs[1] are used for address computation and bit masking
 	"""
@@ -479,39 +491,10 @@ class Aarch64MarkMemoryTaints:
 		super().__init__()
 		self.base_reg = base_reg
 		if temp_regs is None:
-			temp_regs = ["x9", "x10"]
-		if len(temp_regs) < 2:
-			raise ValueError("temp_regs must contain at least 2 registers other than base_reg")
+			temp_regs = ["x9", "x10", "x11"]
+		if len(temp_regs) < 3:
+			raise ValueError("temp_regs must contain at least 3 registers other than base_reg")
 		self.temp_regs = temp_regs
-	
-	def mark_memory_taints(self, bb: BasicBlock, inst: Instruction,  op: Operand) -> None:
-		"""
-		Insert memory taint macros after the instruction.
-		We assume each memory access has an `inst.memory_address_reg` or `inst.memory_address` field.
-		"""
-		
-		instrs_to_insert = []
-		
-		addr_idx = self._reg_name_to_index(op.value)
-		assert 0 <= addr_idx <= 30, "Register name in Aarch64 is expected to have id between 0 to 30"
-		
-        # write macro (for loads)
-		if op.src:
-			asm_text = self.MEM_TEMPLATE_LOAD.format(addr=addr_idx, base=self.base_reg,
-											 t0=self.temp_regs[0], t1=self.temp_regs[1])
-			instrs_to_insert.append(Instruction(f"TAINT_LOAD_{addr_idx}", True, template=asm_text))
-
-
-		# write macro (for stores)
-		if op.dest:
-			asm_text = self.MEM_TEMPLATE_STORE.format(addr=addr_idx, base=self.base_reg,
-											 t0=self.temp_regs[0], t1=self.temp_regs[1])
-			instrs_to_insert.append(Instruction(f"TAINT_STORE_{addr_idx}", True, template=asm_text))
-
-		
-		# Insert after instruction (reverse to maintain order)
-		for i in instrs_to_insert:
-			bb.insert_before(position=inst, inst=i)
 	
 	@staticmethod
 	def _reg_name_to_index(reg_name: str) -> int:
@@ -529,13 +512,118 @@ class Aarch64MarkMemoryTaints:
 
 		return -1
 
+	def mark_memory_taint(self, bb: BasicBlock, inst: Instruction) -> None:
+		instrs_to_insert = []
+
+		mem_operands = inst.get_mem_operands()
+
+		base_template = f"MOV {self.temp_regs[0]}, {mem_operands[0].value}"
+		instrs_to_insert.append(Instruction(f"MOV", True, template=base_template))
+		for op in mem_operands[1:]:
+
+			add_template = f"ADD {self.temp_regs[0]}, {self.temp_regs[0]}, {op.value}"
+			instrs_to_insert.append(Instruction(f"ADD", True, template=add_template))
+
+		addr_reg = self.temp_regs[0]
+
+		addr_idx = self._reg_name_to_index(addr_reg)
+		assert 0 <= addr_idx <= 30, "Register name in Aarch64 is expected to have id between 0 to 30"
+
+		left_operand = next((op for op in inst.operands if op.type == OT.REG))
+		
+        # write macro (for loads)
+		if left_operand.src:
+			asm_text = self.MEM_TEMPLATE_LOAD.format(addr=addr_idx, base=self.base_reg,
+											 t0=self.temp_regs[1], t1=self.temp_regs[2])
+			instrs_to_insert.append(Instruction(f"TAINT_LOAD_{addr_idx}", True, template=asm_text))
+
+
+		# write macro (for stores)
+		if left_operand.dest:
+			asm_text = self.MEM_TEMPLATE_STORE.format(addr=addr_idx, base=self.base_reg,
+											 t0=self.temp_regs[1], t1=self.temp_regs[2])
+			instrs_to_insert.append(Instruction(f"TAINT_STORE_{addr_idx}", True, template=asm_text))
+
+		# Insert all
+		for i in instrs_to_insert:
+			bb.insert_before(inst, i)
+
+	def run_on_test_case(self, test_case: TestCase):
+		for func in test_case.functions:
+			for bb in func:
+				for inst in bb:
+					if inst.has_memory_access:
+						try:
+							self.mark_memory_taint(bb, inst)
+						except Exception as e:
+							print(f"[Aarch64MarkMemoryTaints] failed on {inst}: {e}")
+
+
+
+@register_aux_buffer(AuxBufferType.BITMAP_TAINTS)
+@dataclass
+class BitmapTaintsAuxBuffer(ExecutorAuxBuffer):
+	regs_write_bits: int = 0
+	regs_read_bits: int = 0
+	regs_input_read_bits: int = 0
+	mem_write_bits: int = 0
+	mem_read_bits: int = 0
+	mem_input_read_bits: int = 0
+
+	def __post_init__(self):
+		super().__init__(AuxBufferType.BITMAP_TAINTS)
+
+	@classmethod
+	def from_bytes(cls: Type["BitmapTaintsAuxBuffer"], data: bytes):
+		"""
+		Parse binary data into a BitmapTaintsAuxBuffer.
+
+		Expected binary layout:
+			6 consecutive 8-byte unsigned integers (little-endian):
+				regs_write_bits
+				regs_read_bits
+				regs_input_read_bits
+				mem_write_bits
+				mem_read_bits
+				mem_input_read_bits
+		"""
+		expected_size = 6 * 8
+		if len(data) < expected_size:
+			raise ValueError(f"Invalid data size ({len(data)} bytes), expected >= {expected_size} bytes")
+		# Little-endian unsigned 64-bit integers
+		fields = struct.unpack("<6Q", data[:expected_size])
+		return cls(*fields)
+
+	def to_bytes(self) -> bytes:
+		"""Serialize the buffer back into bytes."""
+		return struct.pack(
+				"<6Q",
+				self.regs_write_bits,
+				self.regs_read_bits,
+				self.regs_input_read_bits,
+				self.mem_write_bits,
+				self.mem_read_bits,
+				self.mem_input_read_bits,
+			)
+
+	def __repr__(self):
+		return (
+			f"<BitmapTaintsAuxBuffer "
+			f"regs_write_bits={self.regs_write_bits}, "
+			f"regs_read_bits={self.regs_read_bits}, "
+			f"regs_input_read_bits={self.regs_input_read_bits}, "
+			f"mem_write_bits={self.mem_write_bits}, "
+			f"mem_read_bits={self.mem_read_bits}, "
+			f"mem_input_read_bits={self.mem_input_read_bits}>"
+		)
+
+
 class Aarch64SandboxPass(Pass):
-	def __init__(self, with_taint: bool = False):
+	def __init__(self):
 		super().__init__()
 		input_memory_size = MAIN_AREA_SIZE + FAULTY_AREA_SIZE
 		mask_size = int(math.log(input_memory_size, 2))
 		self.sandbox_address_mask = "0b" + "1" * mask_size
-		self.taint_pass = Aarch64MarkMemoryTaints() if with_taint else None
 
 	def run_on_test_case(self, test_case: TestCase) -> None:
 		for func in test_case.functions:
@@ -591,9 +679,6 @@ class Aarch64SandboxPass(Pass):
 			add_base.template = template
 			parent.insert_before(instr, add_base)
 			
-			if self.taint_pass is not None:
-				self.taint_pass.mark_memory_taints(parent, instr, base_operand)
-
 			for op in mem_operands[1:]:
             
 				template, op0, op1, op2 = generate_template("SUB", base_operand_copy, base_operand_copy, op)

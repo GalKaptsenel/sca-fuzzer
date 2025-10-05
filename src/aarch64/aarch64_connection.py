@@ -5,9 +5,10 @@ import random
 import string
 from defer import return_value
 from ppadb.client import Client as AdbClient
-from typing import List, Literal, Union, Optional, Type, Callable, Tuple
+from typing import List, Literal, Union, Optional, Type, Callable, Tuple, Type
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, asdict, MISSING
+from enum import Enum
 import functools
 import time
 import paramiko
@@ -135,22 +136,12 @@ class ExecutorMemory(bytes):
     def read_int(self, offset, size=4, byteorder: Literal['little', 'big']="little") -> int:
         return int.from_bytes(self[offset:offset+size], byteorder=byteorder, signed=False)
 
-@dataclass
-class DebugPage:
-    regs_write_bits: int = 0
-    regs_read_bits: int = 0
-    regs_input_read_bits: int = 0
-    mem_write_bits: int = 0
-    mem_read_bits: int = 0
-    mem_input_read_bits: int = 0
-
 
 class HWMeasurement:
-    def __init__(self, htrace: int, pfcs: List[int], memory_ids: str, debug_page: DebugPage):
+    def __init__(self, htrace: int, pfcs: List[int], memory_ids: str):
         self.htrace = htrace
         self.pfcs = pfcs
         self.memory_ids = memory_ids
-        self.debug_page = debug_page
 
 
 class UserlandExecutor(ABC):
@@ -194,7 +185,10 @@ class UserlandExecutor(ABC):
     def allocate_iid(self) -> int:
         raise NotImplementedError()
 
-
+    @property
+    @abstractmethod
+    def aux_buffer(self) -> bytes:
+        raise NotImplementedError()
 
 class TestCaseRegion(ExecutorRegion):
     def __init__(self):
@@ -284,176 +278,287 @@ class ExecutorBatch:
 
 
 class UserlandExecutorImp:
-    _RETRIES = 100
+	_RETRIES = 100
 
-    def __init__(self, connection: Connection, userland_application_path: str,
-                 device_path: str, sys_executor_path: str, module_path: str
-                 ):
-        self.connection: Connection = connection
-        self.userland_application_path: str = userland_application_path
-        self.executor_device_path: str = device_path
+	def __init__(self, connection: Connection, userland_application_path: str,
+			  device_path: str, sys_executor_path: str, module_path: str
+			):
+		self.connection: Connection = connection
+		self.userland_application_path: str = userland_application_path
+		self.executor_device_path: str = device_path
 
-        self.executor_sysfs: str = sys_executor_path
-        self.current_region: ExecutorRegion = TestCaseRegion()
+		self.executor_sysfs: str = sys_executor_path
+		self.current_region: ExecutorRegion = TestCaseRegion()
 
-        if not self.connection.is_file_present(self.executor_device_path):
-            if not self.connection.is_file_present(module_path):
-                self.connection.push('revizor-executor.ko', module_path)
-            self.connection.shell(f'insmod {module_path}', privileged=True)
+		if not self.connection.is_file_present(self.executor_device_path):
+			if not self.connection.is_file_present(module_path):
+				self.connection.push('revizor-executor.ko', module_path)
+			self.connection.shell(f'insmod {module_path}', privileged=True)
 
-        self.connection.shell(f'echo "P" > /sys/executor/measurement_mode', privileged=True) # Use Prime And Probe
-        self.connection.shell(f'echo "0" > /sys/executor/pin_to_core', privileged=True) # Use Prime And Probe
+		self.connection.shell(f'echo "P" > /sys/executor/measurement_mode', privileged=True) # Use Prime And Probe
+		self.connection.shell(f'echo "0" > /sys/executor/pin_to_core', privileged=True) # Use Prime And Probe
 
-        if not self.connection.is_file_present(self.userland_application_path):
-            self.connection.push('executor_userland', userland_application_path)
+		if not self.connection.is_file_present(self.userland_application_path):
+			self.connection.push('executor_userland', userland_application_path)
 
-        # Discard any previous contents in the executor memory
-        self.discard_all_inputs()
-        self.checkout_region(TestCaseRegion())
-        del self.contents 
+		# Discard any previous contents in the executor memory
+		self.discard_all_inputs()
+		self.checkout_region(TestCaseRegion())
+		del self.contents 
 
-    def trace(self, executor_batch: Optional[ExecutorBatch] = None) -> Optional[str]:
-        def random_filename(length: int = 15) -> str:
-            return ''.join(random.choices(string.ascii_uppercase + string.ascii_lowercase + string.digits, k=length))
+	def trace(self, executor_batch: Optional[ExecutorBatch] = None) -> Optional[str]:
+		def random_filename(length: int = 15) -> str:
+			return ''.join(random.choices(string.ascii_uppercase + string.ascii_lowercase + string.digits, k=length))
 
-        if executor_batch is not None:
-            remote_batch_file_path  = '/tmp/' + random_filename()
-            self._upload_batch(executor_batch, remote_batch_file_path)
-            output = self.connection.shell(
-                    f'{self.userland_application_path} {self.executor_device_path} c {remote_batch_file_path}',
-                    privileged=True)
-            self.connection.shell(f'rm {remote_batch_file_path}', privileged=True)
+		if executor_batch is not None:
+			remote_batch_file_path  = '/tmp/' + random_filename()
+			self._upload_batch(executor_batch, remote_batch_file_path)
+			output = self.connection.shell(
+					f'{self.userland_application_path} {self.executor_device_path} c {remote_batch_file_path}',
+					privileged=True)
+			self.connection.shell(f'rm {remote_batch_file_path}', privileged=True)
 
-            if executor_batch.output is not None:
-                with tempfile.NamedTemporaryFile(mode='w+') as tmp_file:
-                    self.connection.pull(executor_batch.output, tmp_file.name)
-                    tmp_file.seek(0)
-                    return tmp_file.read()
+			if executor_batch.output is not None:
+				with tempfile.NamedTemporaryFile(mode='w+') as tmp_file:
+					self.connection.pull(executor_batch.output, tmp_file.name)
+					tmp_file.seek(0)
+					return tmp_file.read()
 
-        else:
-            self._query_executor(8)
+		else:
+			self._query_executor(8)
 
-    def checkout_region(self, region: ExecutorRegion):
-        self.current_region = region
-        if isinstance(region, TestCaseRegion):
-            self._query_executor(1)
-        elif isinstance(region, InputRegion):
-            self._query_executor(4, region.iid)
-        else:
-            raise ValueError(f'Unsupported region type: {type(region)}')
+	def checkout_region(self, region: ExecutorRegion):
+		self.current_region = region
+		if isinstance(region, TestCaseRegion):
+			self._query_executor(1)
+		elif isinstance(region, InputRegion):
+			self._query_executor(4, region.iid)
+		else:
+			raise ValueError(f'Unsupported region type: {type(region)}')
 
-    @retry(max_times=_RETRIES, retry_on=RuntimeError, backoff=0.5)
-    def hardware_measurement(self) -> HWMeasurement:
-        result = self._query_executor(7)
-        htrace_match = re.search(r"htrace .: ([01]+)", result)
-        pfc_matches = re.findall(r"pfc (\d+): (\d+)", result)
-        architectural_memory_accesses_bitmap_match = re.search(
-            r"architectural memory access bitmap: ([01]+)", result)
+	@retry(max_times=_RETRIES, retry_on=RuntimeError, backoff=0.5)
+	def hardware_measurement(self) -> HWMeasurement:
+		result = self._query_executor(7)
+		htrace_match = re.search(r"htrace .: ([01]+)", result)
+		pfc_matches = re.findall(r"pfc (\d+): (\d+)", result)
+		architectural_memory_accesses_bitmap_match = re.search(
+				r"architectural memory access bitmap: ([01]+)", result)
 
-        if htrace_match is None or pfc_matches is None or architectural_memory_accesses_bitmap_match is None:
-            raise RuntimeError('Could not measurements')
+		if htrace_match is None or pfc_matches is None or architectural_memory_accesses_bitmap_match is None:
+			raise RuntimeError('Could not measurements')
 
-        htrace = int(htrace_match.group(1), 2)
-        assert htrace is not None
-        pfc_list = [int(pfc_value) for _, pfc_value in
-                    sorted(pfc_matches, key=lambda x: int(x[0]))]
-        architectural_memory_accesses_bitmap = architectural_memory_accesses_bitmap_match.group(1)
+		htrace = int(htrace_match.group(1), 2)
+		assert htrace is not None
+		pfc_list = [int(pfc_value) for _, pfc_value in
+			  sorted(pfc_matches, key=lambda x: int(x[0]))]
+		architectural_memory_accesses_bitmap = architectural_memory_accesses_bitmap_match.group(1)
 
-        debug_page_fields = {
-            "regs_write_bits":   r"REG WRITE\s+: 0x([0-9a-fA-F]+)",
-            "regs_read_bits":    r"REG READ\s+: 0x([0-9a-fA-F]+)",
-            "regs_input_read_bits": r"REG INPUT READ\s+: 0x([0-9a-fA-F]+)",
-            "mem_write_bits":    r"MEM WRITE\s+: 0x([0-9a-fA-F]+)",
-            "mem_read_bits":     r"MEM READ\s+: 0x([0-9a-fA-F]+)",
-            "mem_input_read_bits": r"MEM INPUT READ\s+: 0x([0-9a-fA-F]+)",
-        }
+		return HWMeasurement(htrace=htrace, pfcs=pfc_list, memory_ids=architectural_memory_accesses_bitmap)
 
-        debug_kwargs = {}
-        for field, pattern in debug_page_fields.items():
-            pattern_match = re.search(pattern, result)
-            debug_kwargs[field] = int(pattern_match.group(1), 16) if pattern_match else 0
-        
-        debug_page = DebugPage(**debug_kwargs)
+	@property
+	def aux_buffer(self) -> bytes:
+		result = self._query_executor(12)
+		hex_bytes = re.findall(r'\b[0-9a-fA-F]{2}\b', result)
+		try:
+			return bytes(int(b, 16) for b in hex_bytes)
+		except ValueError as e:
+			raise ValueError(f"Invalid hexdump format: {e}")
 
-        return HWMeasurement(htrace=htrace, pfcs=pfc_list, memory_ids=architectural_memory_accesses_bitmap, debug_page=debug_page)
+	@property
+	def contents(self) -> ExecutorMemory:
+		filename = f'{uuid.uuid4().hex}.bin'
+		remote_filename = f'remote_{filename}'
 
-    @property
-    def contents(self) -> ExecutorMemory:
-        filename = f'{uuid.uuid4().hex}.bin'
-        remote_filename = f'remote_{filename}'
+		self.connection.shell(
+				f'{self.userland_application_path} {self.executor_device_path} r {remote_filename}',
+				privileged=True)
 
-        self.connection.shell(
-            f'{self.userland_application_path} {self.executor_device_path} r {remote_filename}',
-            privileged=True)
+		self.connection.pull(remote_filename, filename)
+		self.connection.shell(f'rm {remote_filename}')
 
-        self.connection.pull(remote_filename, filename)
-        self.connection.shell(f'rm {remote_filename}')
+		ret_data = ""
+		with open(filename) as f:
+			ret_data = ExecutorMemory(f.read())
 
-        ret_data = ""
-        with open(filename) as f:
-            ret_data = ExecutorMemory(f.read())
+		return ExecutorMemory(ret_data)
 
-        return ExecutorMemory(ret_data)
-
-    def write_file(self, filename: str) -> None:
-        self.connection.shell(f'{self.userland_application_path} {self.executor_device_path} w {filename}', privileged=True)
+	def write_file(self, filename: str) -> None:
+		self.connection.shell(f'{self.userland_application_path} {self.executor_device_path} w {filename}', privileged=True)
 
 
-    def _query_executor(self, qid: int, *args) -> str:
-        return self.connection.shell(f'{self.userland_application_path} {self.executor_device_path} {qid} {" ".join(str(arg) for arg in args)}', privileged=True)
+	def _query_executor(self, qid: int, *args) -> str:
+		return self.connection.shell(f'{self.userland_application_path} {self.executor_device_path} {qid} {" ".join(str(arg) for arg in args)}', privileged=True)
 
-    @contents.deleter
-    def contents(self) -> None:
-        if isinstance(self.current_region, TestCaseRegion):
-            self._query_executor(2)
-        elif isinstance(self.current_region, InputRegion):
-            self._query_executor(6)
-        else:
-            raise ValueError(f'Unsupported region type: {type(self.current_region)}')
+	@contents.deleter
+	def contents(self) -> None:
+		if isinstance(self.current_region, TestCaseRegion):
+			self._query_executor(2)
+		elif isinstance(self.current_region, InputRegion):
+			self._query_executor(6)
+		else:
+			raise ValueError(f'Unsupported region type: {type(self.current_region)}')
 
-    @retry(max_times=_RETRIES, retry_on=RuntimeError, backoff=0.5)
-    def number_of_inputs(self) -> int:
-        result = self._query_executor(3)
-        number_of_inputs_match = re.search(r"Number Of Inputs: (\d+)", result)
-        if number_of_inputs_match is None:
-            raise RuntimeError("Could not find number of inputs")
-        return int(number_of_inputs_match.group(1))
+	@retry(max_times=_RETRIES, retry_on=RuntimeError, backoff=0.5)
+	def number_of_inputs(self) -> int:
+		result = self._query_executor(3)
+		number_of_inputs_match = re.search(r"Number Of Inputs: (\d+)", result)
+		if number_of_inputs_match is None:
+			raise RuntimeError("Could not find number of inputs")
+		return int(number_of_inputs_match.group(1))
 
-    def discard_all_inputs(self) -> None:
-        self._query_executor(9)
+	def discard_all_inputs(self) -> None:
+		self._query_executor(9)
 
-    @retry(max_times=_RETRIES, retry_on=RuntimeError, backoff=0.5)
-    @property
-    def test_length(self) -> int:
-        result = self._query_executor(10)
-        test_length_match = re.search(r"Test Length: (\d+)", result)
-        if test_length_match is None:
-            raise RuntimeError("Could not find test length")
-        return int(test_length_match.group(1))
+	@retry(max_times=_RETRIES, retry_on=RuntimeError, backoff=0.5)
+	@property
+	def test_length(self) -> int:
+		result = self._query_executor(10)
+		test_length_match = re.search(r"Test Length: (\d+)", result)
+		if test_length_match is None:
+			raise RuntimeError("Could not find test length")
+		return int(test_length_match.group(1))
 
-    @retry(max_times=_RETRIES, retry_on=RuntimeError, backoff=0.5)
-    def allocate_iid(self) -> int:
-        result = self._query_executor(5)
-        iid_matching = re.search(r"Allocated Input ID: (\d+)", result)
-        if iid_matching is None:
-            raise RuntimeError("Could not find allocated input ID")
-        return int(iid_matching.group(1))
+	@retry(max_times=_RETRIES, retry_on=RuntimeError, backoff=0.5)
+	def allocate_iid(self) -> int:
+		result = self._query_executor(5)
+		iid_matching = re.search(r"Allocated Input ID: (\d+)", result)
+		if iid_matching is None:
+			raise RuntimeError("Could not find allocated input ID")
+		return int(iid_matching.group(1))
 
-    @property
-    def sandbox_base(self) -> int:
-        base = self.connection.shell(f'cat {self.executor_sysfs}/print_sandbox_base', privileged=True)
-        return int(base, 16)
+	@property
+	def sandbox_base(self) -> int:
+		base = self.connection.shell(f'cat {self.executor_sysfs}/print_sandbox_base', privileged=True)
+		return int(base, 16)
 
-    @property
-    def code_base(self) -> int:
-        base = self.connection.shell(f'cat {self.executor_sysfs}/print_code_base', privileged=True)
-        return int(base, 16)
+	@property
+	def code_base(self) -> int:
+		base = self.connection.shell(f'cat {self.executor_sysfs}/print_code_base', privileged=True)
+		return int(base, 16)
 
-    def _upload_batch(self, executor_batch: ExecutorBatch, remote_batch_file_path: str):
-        self.connection.shell(f'rm {remote_batch_file_path}')
+	def _upload_batch(self, executor_batch: ExecutorBatch, remote_batch_file_path: str):
+		self.connection.shell(f'rm {remote_batch_file_path}')
 
-        with tempfile.NamedTemporaryFile(mode='w') as tmp_file:
-            tmp_file.write(str(executor_batch))
-            tmp_file.flush()
-            self.connection.push(tmp_file.name, remote_batch_file_path)
+		with tempfile.NamedTemporaryFile(mode='w') as tmp_file:
+			tmp_file.write(str(executor_batch))
+			tmp_file.flush()
+			self.connection.push(tmp_file.name, remote_batch_file_path)
+
+# Auxiliary Buffer Managment
+class AuxBufferType(Enum):
+	RAW_BYTES = "raw_bytes"
+	BITMAP_TAINTS = "bitmap_taints"
+	FULL_TRACE = "full_trace"
+
+class ExecutorAuxBuffer(ABC):
+	"""Base class for all executor auxiliary buffers."""
+
+	def __init__(self, buffer_type: AuxBufferType):
+		self.buffer_type = buffer_type
+
+	@classmethod
+	def from_json(cls, data: dict):
+		"""
+		Generic from_json constructor: maps JSON keys to dataclass fields.
+		Ignores extra keys and sets missing keys to default.
+		"""
+		if not hasattr(cls, "__dataclass_fields__"):
+			raise TypeError(f"{cls.__name__} must be a dataclass")
+
+		init_kwargs = {}
+
+		for name, field in cls.__dataclass_fields__.items():
+			if name in data:
+				init_kwargs[name] = data[name]
+			elif field.default is not MISSING:
+				init_kwargs[name] = field.default
+			elif field.default_factory is not MISSING:
+				init_kwargs[name] = field.default_factory()
+			else:
+				raise ValueError(f"Missing required field '{name}' for {cls.__name__}")
+
+		obj = cls(**init_kwargs)
+		if "buffer_type" not in cls.__dataclass_fields__:
+			obj.buffer_type = AuxBufferType(data["type"])
+
+		return obj
+
+	@classmethod
+	@abstractmethod
+	def from_bytes(cls, data: bytes):
+		"""Construct buffer from raw byte array (must be implemented in subclass)."""
+		raise NotImplementedError
+
+	@abstractmethod
+	def to_bytes(self) -> bytes:
+		"""Serialize this buffer into raw bytes (must be implemented in subclass)."""
+		raise NotImplementedError
+
+
+	def to_dict(self) -> dict:
+		"""Generic serialization to dict/JSON."""
+		d = asdict(self)
+		d["type"] = getattr(self, "buffer_type", self.__class__.__name__).value
+		return d
+
+AUX_BUFFER_TYPES: dict[AuxBufferType, Type[ExecutorAuxBuffer]] = {}
+
+def register_aux_buffer(buffer_type: AuxBufferType):
+
+	def wrapper(cls: Type[ExecutorAuxBuffer]):
+		AUX_BUFFER_TYPES[buffer_type] = cls
+		return cls
+
+	return wrapper
+
+def aux_buffer_from_json(data: dict) -> ExecutorAuxBuffer:
+	buffer_type_str = data.get("type")
+	if not buffer_type_str:
+		raise ValueError("JSON missing 'type' field")
+
+	try:
+		buffer_type = AuxBufferType(buffer_type_str)
+	except ValueError:
+		raise ValueError(f"Unknown buffer type: {buffer_type_str}")
+
+	cls = AUX_BUFFER_TYPES.get(buffer_type)
+	if cls is None:
+		raise ValueError(f"No registered class for buffer type: {buffer_type}")
+	return cls.from_json(data)
+
+def aux_buffer_from_bytes(buffer_type: AuxBufferType, data: bytes) -> ExecutorAuxBuffer:
+	cls = AUX_BUFFER_TYPES.get(buffer_type)
+	if cls is None:
+		raise ValueError(f"No registered class for buffer type: {buffer_type}")
+	return cls.from_bytes(data)
+
+
+@register_aux_buffer(AuxBufferType.RAW_BYTES)
+@dataclass
+class RawBytesAuxBuffer(ExecutorAuxBuffer):
+	data: bytes = b""
+
+	def __post_init__(self):
+		super().__init__(AuxBufferType.RAW_BYTES)
+
+	@classmethod
+	def from_bytes(cls, data: bytes):
+		return cls(data=data)
+
+	@classmethod
+	def from_json(cls, data: dict):
+		# support JSON too, e.g., base64-encoded bytes
+		import base64
+		raw = base64.b64decode(data.get("data", ""))
+		return cls(data=raw)
+
+	def to_dict(self) -> dict:
+		import base64
+		return {
+			"type": self.buffer_type.value,
+			"data": base64.b64encode(self.data).decode()
+		}
+
+	def __repr__(self):
+		return f"<RawBytesAuxBuffer len={len(self.data)} bytes>"
 

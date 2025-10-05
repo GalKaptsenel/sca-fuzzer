@@ -1,5 +1,5 @@
 /* -----------------------------------------------------------------------------
- * taint_instrumentation.S
+ * taint_instrument.S
  *
  * Single-file, pinned, parameterized macros for register and memory tainting.
  *

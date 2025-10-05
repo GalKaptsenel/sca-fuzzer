@@ -1,5 +1,5 @@
 CC = aarch64-linux-gnu-gcc
-CFLAGS = -I../include -Iinclude -static -march=armv9-a+sve+memtag -Wall -Wextra -O2
+CFLAGS = -I../include -Iinclude -I$(PWD)/../aarch64/executor/userapi -static -march=armv9-a+sve+memtag -Wall -Wextra -O2
 
 SRC_DIR = ./src
 THIRD_PARTY_DIR = ../third_party
