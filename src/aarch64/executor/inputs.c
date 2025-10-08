@@ -14,16 +14,24 @@ int64_t allocate_input(void) {
 	struct rb_node **link = &(executor.inputs_root.rb_node);
 	struct rb_node *parent = NULL;
 
-	new_node = (struct input_node*)vmalloc(sizeof(struct input_node));
+	new_node = (struct input_node*)vzalloc(sizeof(*new_node));
 
 	if(NULL == new_node) {
 		module_err("Not enough memory to vmalloc input inside kernel!\n");
 		return -ENOMEM;
 	}
 
+	RB_CLEAR_NODE(&new_node->node);
+
 	new_node->id = input_id;
-	memset(&(new_node->input), 0, sizeof(input_t));
 	initialize_measurement(&new_node->measurement);
+
+	/* If aux allocation failed inside initialize_measurement, clean up */
+	if (new_node->measurement.aux_buffer == NULL) {
+		module_err("aux_buffer_alloc failed for new input node, cleaning up\n");
+		vfree(new_node);
+		return -ENOMEM;
+	}
 
 	while(*link) {
 		parent = *link;

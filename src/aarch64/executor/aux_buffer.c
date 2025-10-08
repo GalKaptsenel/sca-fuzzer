@@ -74,6 +74,7 @@ void aux_buffer_init(struct aux_buffer_t* auxb) {
 void aux_buffer_free(struct aux_buffer_t* auxb) {
 	if(NULL == auxb) return;
 	if(auxb->addr) kfree(auxb->addr);
+	auxb->addr = NULL;
 	kfree(auxb);
 }
 

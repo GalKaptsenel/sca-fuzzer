@@ -11,7 +11,7 @@ import copy
 import struct
 from itertools import chain
 from typing import List, Tuple, Optional, Type
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ..isa_loader import InstructionSet
 from ..interfaces import TestCase, Operand, Instruction, BasicBlock, Function, InstructionSpec, \
@@ -178,10 +178,145 @@ class Aarch64TagMemoryAccesses(Pass):
                             bb.insert_before(inst, sub_inst)
 
 
+@dataclass
+class InstructionLog:
+	pc: int = 0
+	flags: int = 0
+	regs: List[int] = field(default_factory=lambda: [0]*31)
+	effective_address: int = 0
+	mem_before: int = 0
+	mem_after: int = 0
+
+	def __repr__(self) -> str:
+		regs_preview = ", ".join(f"x{i}=0x{r:x}" for i, r in enumerate(self.regs[:4]))
+		if len(self.regs) > 4:
+			regs_preview += ", ..."
+		return (
+				f"InstructionLog(pc=0x{self.pc:x}, flags=0x{self.flags:x}, "
+				f"{regs_preview}, ea=0x{self.effective_address:x}, "
+				f"mem_before=0x{self.mem_before:x}, mem_after=0x{self.mem_after:x})"
+			)
+
+	def __str__(self) -> str:
+		regs_str = "\n      ".join(
+					f"x{i:02d}: 0x{val:016x}" for i, val in enumerate(self.regs)
+				) if self.regs else "<no registers>"
+		return (
+				f"InstructionLog:\n"
+				f"  PC:             0x{self.pc:016x}\n"
+				f"  FLAGS:          0x{self.flags:016x}\n"
+				f"  EFFECTIVE_ADDR: 0x{self.effective_address:016x}\n"
+				f"  MEM_BEFORE:     0x{self.mem_before:016x}\n"
+				f"  MEM_AFTER:      0x{self.mem_after:016x}\n"
+				f"  REGS:\n      {regs_str}"
+			)
+    
 @register_aux_buffer(AuxBufferType.FULL_TRACE)
 @dataclass
 class FullTraceAuxBuffer(ExecutorAuxBuffer):
-	pass
+	instruction_log_array_offset: int = 0
+	instruction_log_entry_count: int = 0
+	instruction_log_max_count: int = 0
+	instruction_logs: List[InstructionLog] = field(default_factory=list)
+
+	def __post_init__(self):
+		super().__init__(AuxBufferType.FULL_TRACE)
+
+	@classmethod
+	def from_bytes(cls: Type["FullTraceAuxBuffer"], data: bytes):
+		"""
+		Parse binary data into a FullTraceAuxBuffer.
+
+		Expected binary layout:
+			3 consecutive 8-byte unsigned integers (little-endian):
+                instruction_log_array_offset
+                instruction_log_entry_count
+                instruction_log_max_count
+            and then, from offset 'instruction_log_array_offset' an array of 'instruction_log_entry_count' entries of the format:
+                pc
+                flags
+                regs[31]
+                affective_address
+                memory_before
+                memory_after
+		"""
+		header_size = 3 * 8
+		if len(data) < header_size:
+			raise ValueError(f"Invalid data size ({len(data)} bytes), expected >= {header_size} bytes")
+
+		# Little-endian unsigned 64-bit integers
+		instruction_log_array_offset, entry_count, max_count = struct.unpack("<3Q", data[:header_size])
+
+		logs = []
+		offset = instruction_log_array_offset
+		entry_size = 8 + 8 + 31*8 + 8 + 8 + 8 # pc + flags + regs[31] + effective_address + mem_before + mem_after
+
+		for i in range(entry_count):
+			entry_data = data[offset:offset+entry_size]
+			if len(entry_data) < entry_size:
+				raise ValueError(f"Incomplete instruction log entry {i}")
+			pc, flags = struct.unpack("<2Q", entry_data[:16])
+			regs = list(struct.unpack("<31Q", entry_data[16:16+31*8]))
+			effective_address, mem_before, mem_after = struct.unpack("<3Q", entry_data[16+31*8:])
+			logs.append(InstructionLog(pc, flags, regs, effective_address, mem_before, mem_after))
+			offset += entry_size
+
+		return cls(
+				instruction_log_array_offset=instruction_log_array_offset,
+				instruction_log_entry_count=entry_count,
+				instruction_log_max_count=max_count,
+				instruction_logs=logs
+			)
+
+	def to_bytes(self) -> bytes:
+		"""Serialize the buffer back into bytes."""
+		header = struct.pack(
+				"<3Q",
+				self.instruction_log_array_offset,
+				self.instruction_log_entry_count,
+				self.instruction_log_max_count
+			)
+		logs_bytes = b""
+		for log in self.instruction_logs:
+			logs_bytes += struct.pack(
+					"<2Q31Q3Q",
+					log.pc,
+					log.flags,
+					*log.regs,
+					log.effective_address,
+					log.mem_before,
+					log.mem_after
+				)
+
+		return header + logs_bytes
+
+
+	def __repr__(self) -> str:
+		return (
+				f"{self.__class__.__name__}("
+				f"offset=0x{self.instruction_log_array_offset:x}, "
+				f"entry_count={self.instruction_log_entry_count}, "
+				f"max_count={self.instruction_log_max_count}, "
+				f"instruction_logs=[{len(self.instruction_logs)} entries])"
+			)
+
+	def __str__(self) -> str:
+		lines = [
+				f"FullTraceAuxBuffer:",
+				f"  instruction_log_array_offset = 0x{self.instruction_log_array_offset:x}",
+				f"  instruction_log_entry_count  = {self.instruction_log_entry_count}",
+				f"  instruction_log_max_count    = {self.instruction_log_max_count}",
+				f"  instruction_logs ({len(self.instruction_logs)} entries):",
+			]
+
+		for i, log in enumerate(self.instruction_logs):
+			lines.append(
+					f"    [{i}] {str(log)}"
+				)
+
+		return "\n".join(lines)
+
+
 
 class Aarch64FullTrace(Pass):
 	"""
@@ -190,6 +325,7 @@ class Aarch64FullTrace(Pass):
 	"""
 
 	TEMPLATE_TRACE_INSTRUCTION = "TRACE_INSTRUCTION {base_reg}, {t0}, {t1}, {t2}, {mem_type}, {addr_reg}, {val_reg}"
+	TEMPLATE_TRACE_INIT = "TRACE_INIT {base_reg}, {t0}, {t1}"
 
 	def __init__(self, base_reg="x7", temp_regs=None):
 		default_registers = ["x9","x10", "x11", "x12"]
@@ -235,15 +371,13 @@ class Aarch64FullTrace(Pass):
 				add_template = f"ADD {self.temp_regs[0]}, {self.temp_regs[0]}, {op.value}"
 				instrs_to_insert.append(Instruction(f"ADD", True, template=add_template))
 
-				addr_reg = self.temp_regs[0]
-				mem_type = 1 if mem_operands[0].src else 2
+			addr_reg = self.temp_regs[0]
+			mem_type = 1 if mem_operands[0].src else 2
 
-				if mem_type == 2:
-					value_operand = [op for op in inst.operands if op.src and op.type == OT.REG]
-					assert len(value_operand) == 1
-					value_reg = value_operand[0].value
-
-
+			if mem_type == 2:
+				value_operand = [op for op in inst.operands if op.src and op.type == OT.REG]
+				assert len(value_operand) == 1
+				value_reg = value_operand[0].value
 
 		asm_trace = self.TEMPLATE_TRACE_INSTRUCTION.format(
 				base_reg=self.base_reg, t0=self.temp_regs[1], t1=self.temp_regs[2], t2=self.temp_regs[3],
@@ -256,10 +390,18 @@ class Aarch64FullTrace(Pass):
 			bb.insert_before(inst, i)
 
 	def run_on_test_case(self, test_case: TestCase):
+		initialized = False
 		for func in test_case.functions:
 			for bb in func:
 				for inst in bb:
-#					if not inst.is_instrumentation:
+					if not initialized:
+						trace_init_template = self.TEMPLATE_TRACE_INIT.format(
+								base_reg=self.base_reg, t0=self.temp_regs[1], t1=self.temp_regs[2]
+							)
+						trace_init_inst = Instruction(f"TRACE_INIT", True, template=trace_init_template)
+						bb.insert_before(inst, trace_init_inst)
+						initialized = True
+
 					try:
 						self.instrument_inst(bb, inst)
 					except Exception as e:

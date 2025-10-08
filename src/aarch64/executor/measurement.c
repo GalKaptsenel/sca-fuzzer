@@ -7,55 +7,55 @@
 /// Clears the programmable performance counters and writes the
 /// configurations to the corresponding MSRs.
 
-static void prepare_perf_event_attribute(struct perf_event_attr* attr, uint32_t type, uint64_t config) {
-	if(!attr) return;
-
-	memset(attr, 0, sizeof(*attr));
-	attr->type		= type;
-	attr->config		= config;
-	attr->size		= sizeof(*attr);
-	attr->disabled		= 0;      /* start counting immediately */
-	attr->pinned		= 1;      /* try hard not to multiplex */
-	attr->exclude_hv	= 1;
-	attr->exclude_user	= 1;
-	attr->exclude_kernel	= 0;
-//	attr->exclude_idle	= 1;
-}
-
-static uint64_t next_perf_event_index = 0;
-static struct perf_event* perf_events[16] = { 0 };
-static int perf_event_to_pmevcntr_index(struct perf_event* ev) { return ev ? ev->hw.idx : -1; }
-static void overflow_cb(struct perf_event *event, struct perf_sample_data *data, struct pt_regs *regs) { }
-static int create_perf_event(uint32_t type, uint64_t config) {
-	if(next_perf_event_index >= ARRAY_SIZE(perf_events)) return -2;
-
-	uint64_t current_index = next_perf_event_index;
-
-	struct perf_event_attr attr = { 0 };
-	prepare_perf_event_attribute(&attr, type, config);
-	perf_events[current_index] = perf_event_create_kernel_counter(&attr, smp_processor_id(), NULL, overflow_cb, NULL);
-	if (IS_ERR(perf_events[current_index])) {
-		int err = PTR_ERR(perf_events[current_index]);
-		module_err("failed to create pmu event: %d (type: %u, config: %llu)", err, type, config);
-		perf_events[current_index] = NULL;
-		return -3;
-	}
-
-	perf_event_enable(perf_events[current_index]);
-
-	++next_perf_event_index;
-
-	return perf_event_to_pmevcntr_index(perf_events[current_index]);
-}
-
+//static void prepare_perf_event_attribute(struct perf_event_attr* attr, uint32_t type, uint64_t config) {
+//	if(!attr) return;
+//
+//	memset(attr, 0, sizeof(*attr));
+//	attr->type		= type;
+//	attr->config		= config;
+//	attr->size		= sizeof(*attr);
+//	attr->disabled		= 0;      /* start counting immediately */
+//	attr->pinned		= 1;      /* try hard not to multiplex */
+//	attr->exclude_hv	= 1;
+//	attr->exclude_user	= 1;
+//	attr->exclude_kernel	= 0;
+////	attr->exclude_idle	= 1;
+//}
+//
+//static uint64_t next_perf_event_index = 0;
+//static struct perf_event* perf_events[16] = { 0 };
+//static int perf_event_to_pmevcntr_index(struct perf_event* ev) { return ev ? ev->hw.idx : -1; }
+//static void overflow_cb(struct perf_event *event, struct perf_sample_data *data, struct pt_regs *regs) { }
+//static int create_perf_event(uint32_t type, uint64_t config) {
+//	if(next_perf_event_index >= ARRAY_SIZE(perf_events)) return -2;
+//
+//	uint64_t current_index = next_perf_event_index;
+//
+//	struct perf_event_attr attr = { 0 };
+//	prepare_perf_event_attribute(&attr, type, config);
+//	perf_events[current_index] = perf_event_create_kernel_counter(&attr, smp_processor_id(), NULL, overflow_cb, NULL);
+//	if (IS_ERR(perf_events[current_index])) {
+//		int err = PTR_ERR(perf_events[current_index]);
+//		module_err("failed to create pmu event: %d (type: %u, config: %llu)", err, type, config);
+//		perf_events[current_index] = NULL;
+//		return -3;
+//	}
+//
+//	perf_event_enable(perf_events[current_index]);
+//
+//	++next_perf_event_index;
+//
+//	return perf_event_to_pmevcntr_index(perf_events[current_index]);
+//}
+//
 static int config_pfc(void) {
 
     // disable PMU user-mode access (not necessary?)
     uint64_t val = 0;
-    uint64_t filter_events = 0; //(1 << 30) | (1 << 26);
+    uint64_t filter_events = (1 << 30) | (1 << 27);
 
-    // asm volatile("msr pmuserenr_el0, %0" :: "r" (0x1));
-    // asm volatile("isb\n");
+    asm volatile("msr pmuserenr_el0, %0" :: "r" (0x1));
+    asm volatile("isb\n");
 
     // disable PMU counters before selecting the event we want
     val = 0;
@@ -68,15 +68,8 @@ static int config_pfc(void) {
 
     // select events:
     // 1. L1D cache refills (0x3)
-    val = create_perf_event(PERF_TYPE_HW_CACHE, PERF_COUNT_HW_CACHE_L1D | (PERF_COUNT_HW_CACHE_OP_READ << 8) | (PERF_COUNT_HW_CACHE_RESULT_MISS << 16)); 
-    if(0 != val) {
-	    module_err("Unexpected PMU was allocated: %llu", val);
-    } else {
-	    module_err("PMU %llu was allocated", val);
-    }
-
-//    asm volatile("msr pmevtyper0_el0, %0" :: "r" ((uint64_t)(filter_events | 0x03)));
-//    asm volatile("isb\n");
+    asm volatile("msr pmevtyper0_el0, %0" :: "r" ((uint64_t)(filter_events | 0x03)));
+    asm volatile("isb\n");
 
     // 2. Instructions retired (0x08)
     asm volatile("msr pmevtyper1_el0, %0" :: "r" ((uint64_t)(filter_events | 0x08)));
@@ -233,7 +226,7 @@ static void load_registers_from_input(input_t* input, void* aux_buffer) {
 		((registers_t*)executor.sandbox.lower_overflow)->x7 = (size_t)aux_buffer;
 	}
 
-	module_err("Input regs: x0:%llx, x1:%llx, x2:%llx x3:%llx, x4:%llx, x5:%llx, x6:%llx, x7 (Debug Page):%llx, flags:%llx, sp:%llx\n",
+	module_err("Inp1ut regs: x0:%llx, x1:%llx, x2:%llx x3:%llx, x4:%llx, x5:%llx, x6:%llx, x7 (Debug Page):%llx, flags:%llx, sp:%llx\n",
 			*(uint64_t*)executor.sandbox.lower_overflow,
 			*((uint64_t*)executor.sandbox.lower_overflow+1),
 			*((uint64_t*)executor.sandbox.lower_overflow+2),
@@ -265,7 +258,10 @@ static void initialize_overflow_pages(void) {
 void initialize_measurement(measurement_t* measurement) {
 	if(NULL == measurement) return;
 	memset(measurement, 0, sizeof(measurement_t));
-	measurement->aux_buffer = aux_buffer_alloc(PAGE_SIZE);
+	measurement->aux_buffer = aux_buffer_alloc(18 * PAGE_SIZE); // For Full trace support, we allocate 18 pages of 4096 bytes. This allows us to log 255 instructions in total.
+	if (NULL == measurement->aux_buffer) {
+		module_err("initialize_measurement: aux_buffer_alloc returned NULL\n");
+	}
 }
 EXPORT_SYMBOL(initialize_measurement);
 
@@ -337,6 +333,9 @@ static void __nocfi run_experiments(void) {
 		return;
 	}
 
+	module_err("inputs_root.rb_node=%zx, number_of_inputs=%llu\n", (size_t)executor.inputs_root.rb_node, executor.number_of_inputs);
+	module_err("measurement area is at =%zx\n", (size_t)executor.measurement_code);
+
 	current_input_node = rb_first(&executor.inputs_root);
 	BUG_ON(NULL == current_input_node);
 
@@ -399,6 +398,8 @@ static void __nocfi run_experiments(void) {
 			module_err("pfc[0]: %llu", current_input->measurement.pfc[0]);
 			module_err("pfc[1]: %llu", current_input->measurement.pfc[1]);
 			module_err("pfc[2]: %llu", current_input->measurement.pfc[2]);
+			aux_buffer_dump_range(current_input->measurement.aux_buffer, 0, 0x200);
+
 //			aux_buffer_dump(current_input->measurement.aux_buffer);
 		}
 

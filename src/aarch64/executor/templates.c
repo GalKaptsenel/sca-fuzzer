@@ -140,8 +140,8 @@ inline void epilogue(void) {
     "eor x22, x22, x22\n"		                                                                \
     "isb; dsb SY \n"		                                                                    \
     "mrs x20, pmevcntr0_el0 \n"                                                                 \
-    "mrs x21, pmevcntr2_el0 \n"	                                                                \
-    "mrs x22, pmevcntr3_el0 \n");
+    "mrs x21, pmevcntr1_el0 \n"	                                                                \
+    "mrs x22, pmevcntr2_el0 \n");
 
 // clobber: x1
 // dest: x20, x21, x22
@@ -149,9 +149,9 @@ inline void epilogue(void) {
     "isb; dsb SY \n"		                                                                    \
     "mrs x1, pmevcntr0_el0 \n"	                                                                \
     "sub x20, x1, x20 \n"	                                                                    \
-    "mrs x1, pmevcntr2_el0 \n"	                                                                \
+    "mrs x1, pmevcntr1_el0 \n"	                                                                \
     "sub x21, x1, x21 \n"	                                                                    \
-    "mrs x1, pmevcntr3_el0 \n"	                                                                \
+    "mrs x1, pmevcntr2_el0 \n"	                                                                \
     "sub x22, x1, x22 \n");
 
 // =================================================================================================

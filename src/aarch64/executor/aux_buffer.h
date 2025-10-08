@@ -34,10 +34,5 @@ void aux_buffer_dump(const struct aux_buffer_t* auxb);
 //	uint64_t mem_before;
 //	uint64_t mem_after;
 //};
-//
-//void debug_page_print(const struct debug_page_t* dp);
-//struct debug_page_t* debug_page_alloc(void);
-//void debug_page_free(struct debug_page_t* dp);
-//void debug_page_init(struct debug_page_t* dp);
 
 #endif // DEBUG_PAGE_H

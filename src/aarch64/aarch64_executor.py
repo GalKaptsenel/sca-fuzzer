@@ -13,6 +13,7 @@ import os.path
 import os
 import json
 import warnings
+import base64
 
 import numpy as np
 import time
@@ -22,14 +23,14 @@ from dataclasses import dataclass
 from collections import defaultdict, OrderedDict, deque
 from enum import Enum, auto
 
-from .aarch64_generator import Aarch64TagMemoryAccesses, Aarch64Printer, Aarch64MarkMemoryAccessesNEON, Aarch64SandboxPass, Aarch64MarkRegisterTaints, Aarch64MarkMemoryTaints, Aarch64FullTrace, FullTraceAuxBuffer
+from .aarch64_generator import Aarch64TagMemoryAccesses, Aarch64Printer, Aarch64MarkMemoryAccessesNEON, Aarch64SandboxPass, Aarch64MarkRegisterTaints, Aarch64MarkMemoryTaints, Aarch64FullTrace, FullTraceAuxBuffer, BitmapTaintsAuxBuffer
 from .. import ConfigurableGenerator
 from ..interfaces import HTrace, Input, TestCase, Executor, HardwareTracingError, Analyser, CTrace
 from ..config import CONF
 from ..util import Logger, STAT
 from .aarch64_target_desc import Aarch64TargetDesc
 from .aarch64_connection import Connection, UserlandExecutorImp, TestCaseRegion, InputRegion, \
-    HWMeasurement, ExecutorBatch, aux_buffer_from_bytes, AuxBufferType
+    HWMeasurement, ExecutorBatch, aux_buffer_from_bytes, AuxBufferType, ExecutorAuxBuffer
 from .aarch64_generator import Pass
 
 # ==================================================================================================
@@ -588,7 +589,6 @@ class GenerateInputArchFlowBlock(Block):
 		patched_test_case = copy.deepcopy(test_case)
 		register_taints = Aarch64MarkRegisterTaints()
 		sandbox = Aarch64SandboxPass()
-		import pdb; pdb.set_trace()
 		memory_taints = Aarch64MarkMemoryTaints()
 		cls._pass_on_test_case(patched_test_case, [register_taints, sandbox, memory_taints])
 		return cls._write_test_case_remotely(patched_test_case, connection, workdir, 'generated_taint_tracker')
@@ -621,8 +621,6 @@ class GenerateInputArchFlowBlock(Block):
 		for inp, iid in inp_to_iids.items():
 			userland_executor.checkout_region(InputRegion(iid))
 			taints[inp] = aux_buffer_from_bytes(AuxBufferType.BITMAP_TAINTS, userland_executor.aux_buffer)
-
-		import pdb; pdb.set_trace()
 
 		userland_executor.discard_all_inputs()
 		connection.shell(f'rm {remote_test_case_filename}')
@@ -717,7 +715,7 @@ class GenerateInputVariantsBlock(Block):
 	def _mutate_input(
 			cls,
 			input_to_mutate: Input,
-			ftrace_aux_buffer: FullTraceAuxBuffer,
+			bitmap_aux_buffer: BitmapTaintsAuxBuffer,
 			variants: int,
 			p_high: float = 0.8,
 			p_low: float = 0.2,
@@ -726,22 +724,22 @@ class GenerateInputVariantsBlock(Block):
 		) -> List[Input]:
 
 		num_of_gprs = input_to_mutate[0]['gpr'].shape[0]
-		num_of_sets_in_bitmask = ftrace_aux_buffer.mem_read_bits.bit_length()
+		num_of_sets_in_bitmask = bitmap_aux_buffer.mem_read_bits.bit_length()
 
 		if num_of_sets_in_bitmask == 0:
 			print(f"{cls.__name__}: Genarated test trace has no visible memory accesses")
 
 		_, high_priority_registers, low_priority_registers, _ = cls._classify_resources(
-				ftrace_aux_buffer.regs_write_bits,
-				ftrace_aux_buffer.regs_read_bits,
-				ftrace_aux_buffer.regs_input_read_bits,
+				bitmap_aux_buffer.regs_write_bits,
+				bitmap_aux_buffer.regs_read_bits,
+				bitmap_aux_buffer.regs_input_read_bits,
 				num_of_gprs
 			)
 
 		_, high_priority_cache_sets, low_priority_cache_sets, _ = cls._classify_resources(
-				ftrace_aux_buffer.mem_write_bits,
-				ftrace_aux_buffer.mem_read_bits,
-				ftrace_aux_buffer.mem_input_read_bits,
+				bitmap_aux_buffer.mem_write_bits,
+				bitmap_aux_buffer.mem_read_bits,
+				bitmap_aux_buffer.mem_input_read_bits,
 				num_of_sets_in_bitmask
 			)
 
@@ -794,7 +792,7 @@ class GenerateInputVariantsBlock(Block):
 		return results
         
 	@classmethod
-	def _mutate_inputs(cls, input_to_aux_buffer: OrderedDict[Input, FullTraceAuxBuffer], variants: int) -> OrderedDict[Input, List[Input]]:
+	def _mutate_inputs(cls, input_to_aux_buffer: OrderedDict[Input, BitmapTaintsAuxBuffer], variants: int) -> OrderedDict[Input, List[Input]]:
 		input_to_equivalence_class_inputs: OrderedDict[Input, List[Input]] = OrderedDict()
 
 		for i, dp in input_to_aux_buffer.items():
@@ -805,7 +803,7 @@ class GenerateInputVariantsBlock(Block):
 
 	def run(self, ctx: dict[str, Any]) -> dict[str, Any]:
 		variants_per_input: int = ctx["variants_per_input"]
-		input_to_aux_buffer: OrderedDict[Input, FullTraceAuxBuffer] = ctx["input_to_aux_buffer"]
+		input_to_aux_buffer: OrderedDict[Input, BitmapTaintsAuxBuffer] = ctx["input_to_aux_buffer"]
 
 		input_to_equivalence_class_inputs: OrderedDict[Input, List[Input]] = self._mutate_inputs(input_to_aux_buffer, variants_per_input);
 
@@ -1046,7 +1044,6 @@ class TraceScenarioBatch(Block):
 		userland_executor: UserlandExecutor = ctx["userland_executor"]
 		input_equivalence_classes_filenames: OrderedDict[Input, OrderedDict[Input, str]] = ctx["input_equivalence_classes_filenames"]
 
-		import pdb; pdb.set_trace()
 		# Temporary remote batch file
 		raw_output = userland_executor.trace(batch)
 
@@ -1067,6 +1064,14 @@ class TraceScenarioBatch(Block):
 			pfcs = tuple(js['pfcs'])
 
 			filename_to_htraces_list[input_name].append(trace_int)
+
+			expected_size = int(js['aux_buffer']['size'])
+			raw_aux_buffer = base64.b64decode(js['aux_buffer']['data_b64'])
+			assert len(raw_aux_buffer) == expected_size, f"Decoded aux buffer size mismatch: got {len(raw_aux_buffer)}, expected {expected_size}"
+			aux_buffer = FullTraceAuxBuffer.from_bytes(raw_aux_buffer)
+
+			import pdb; pdb.set_trace()
+			print(aux_buffer)
 
 		ctx.update({
 			"filename_to_htraces_list": filename_to_htraces_list,

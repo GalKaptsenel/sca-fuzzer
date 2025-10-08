@@ -23,8 +23,8 @@ enum State {
 #define CPU_ID_DEFAULT				(-1)	
 #define REGION_DEFFAULT			        (TEST_REGION)
 
-#define MAX_TEST_CASE_SIZE              PAGESIZE
-#define MAX_MEASUREMENT_CODE_SIZE       (PAGESIZE * 4)
+#define MAX_TEST_CASE_SIZE              (PAGESIZE * 100)
+#define MAX_MEASUREMENT_CODE_SIZE       (MAX_TEST_CASE_SIZE * 4)
 
 #define TEST_REGION				        (-1)
 

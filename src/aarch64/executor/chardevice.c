@@ -385,6 +385,7 @@ static int64_t handle_get_aux_buffer(void __user* user_req) {
 		module_debug("Retrieving auxiliary buffer (cmd: %d)..\n", REVISOR_GET_AUX_BUFFER_CONSTANT);
 
 		req.size = (req.size < auxb->size) ? req.size : auxb->size;
+		aux_buffer_dump_range(auxb, 0, 0x200);
 
 		if(copy_to_user_with_access_check(req.data, auxb->addr, req.size)) {
 			err = -EFAULT;
@@ -522,7 +523,7 @@ static ssize_t revisor_read(struct file* File, char __user* user_buffer,
 static void copy_input_from_user_and_update_state(const char __user* user_buffer, size_t count) {
 
 	if(USER_CONTROLLED_INPUT_LENGTH > count) {
-	    module_err("Input must be exactly of length USER_CONTROLLED_INPUT_LENGTH(=%lu)!\n",
+	    module_err("In2put must be exactly of length USER_CONTROLLED_INPUT_LENGTH(=%lu)!\n",
 	    USER_CONTROLLED_INPUT_LENGTH);
 	}
 
