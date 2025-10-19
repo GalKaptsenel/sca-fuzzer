@@ -35,7 +35,8 @@
 #define INSTR_LOG_MEM_ADDR_OFFSET 264
 #define INSTR_LOG_MEM_BEFORE_OFFSET 272
 #define INSTR_LOG_MEM_AFTER_OFFSET 280
-#define INSTR_LOG_ENTRY_SIZE	288
+#define INSTR_LOG_ENCODING 288
+#define INSTR_LOG_ENTRY_SIZE	296
 
 /* initialize */
 .macro TRACE_INIT base_reg, tmp1, tmp2
@@ -44,7 +45,7 @@
     str     \tmp1, [\tmp2], #8
     mov     \tmp1, #0		// Initialize INSTR_LOG_COUNT member to 0
     str     \tmp1, [\tmp2], #8
-    mov     \tmp1, #255		// Allow to log up to 255 instructions. Notice, auxiliary buffer needs to be of size >= 255*sizeof(instruction_log)+3*sizeof(uint64_t)=255*288+24=73464 bytes, a.k.a >= 18 pages of 4096 bytes log size per (input, testcae) pair
+    mov     \tmp1, #255		// Allow to log up to 255 instructions. Notice, auxiliary buffer needs to be of size >= 255*sizeof(instruction_log)+3*sizeof(uint64_t)=255*296+24=75480 bytes, a.k.a >= 19 pages of 4096 bytes log size per (input, testcae) pair
     str     \tmp1, [\tmp2], #8
 .endm
 
@@ -55,7 +56,7 @@
     add     \tmp1, \tmp1, #1
     str     \tmp1, [\tmp2]
     sub     \tmp1, \tmp1, #1
-    mov     \tmp2, #288 //#INSTR_LOG_ENTRY_SIZE
+    mov     \tmp2, #296 //#INSTR_LOG_ENTRY_SIZE
     mul     \tmp1, \tmp1, \tmp2
 
     // tmp2 = actual address of next log entry
@@ -65,10 +66,14 @@
     add     \output, \tmp2, \tmp1
 .endm
 
-/* Log current PC (with delta correction) */
+/* Log current PC (with delta correction) and encoding */
 .macro TRACE_PC inst_log_entry, tmp1, tmp2
     add     \tmp2, \inst_log_entry, #0 //#INSTR_LOG_PC_OFFSET
     adr     \tmp1, 1f              // get PC of label 1 (we should garantee the logged instruction comes immidiatly after this macro)
+    str     \tmp1, [\tmp2]
+    ldr     \tmp1, [\tmp1] // load the instruction (4 bytes)
+    ubfx    \tmp1, \tmp1, #0, #32              // keep only lower 32 bits
+    add     \tmp2, \inst_log_entry, #288  //#INSTR_LOG_ENCODING_OFFSET
     str     \tmp1, [\tmp2]
 1:
 .endm
@@ -154,6 +159,7 @@
     add     \tmp2, \inst_log_entry, #280 //#INSTR_LOG_MEM_AFTER_OFFSET
     str     \val_reg, [\tmp2]
 .endm
+
 
 /* ----------------------------------------------------------------------------- 
  * TRACE_INSTRUCTION

@@ -226,7 +226,7 @@ static void load_registers_from_input(input_t* input, void* aux_buffer) {
 		((registers_t*)executor.sandbox.lower_overflow)->x7 = (size_t)aux_buffer;
 	}
 
-	module_err("Inp1ut regs: x0:%llx, x1:%llx, x2:%llx x3:%llx, x4:%llx, x5:%llx, x6:%llx, x7 (Debug Page):%llx, flags:%llx, sp:%llx\n",
+	module_err("Input regs: x0:%llx, x1:%llx, x2:%llx x3:%llx, x4:%llx, x5:%llx, x6:%llx, x7 (Debug Page):%llx, flags:%llx, sp:%llx\n",
 			*(uint64_t*)executor.sandbox.lower_overflow,
 			*((uint64_t*)executor.sandbox.lower_overflow+1),
 			*((uint64_t*)executor.sandbox.lower_overflow+2),
@@ -258,7 +258,7 @@ static void initialize_overflow_pages(void) {
 void initialize_measurement(measurement_t* measurement) {
 	if(NULL == measurement) return;
 	memset(measurement, 0, sizeof(measurement_t));
-	measurement->aux_buffer = aux_buffer_alloc(18 * PAGE_SIZE); // For Full trace support, we allocate 18 pages of 4096 bytes. This allows us to log 255 instructions in total.
+	measurement->aux_buffer = aux_buffer_alloc(19 * PAGE_SIZE); // For Full trace support, we allocate 19 pages of 4096 bytes. This allows us to log 255 instructions in total.
 	if (NULL == measurement->aux_buffer) {
 		module_err("initialize_measurement: aux_buffer_alloc returned NULL\n");
 	}
@@ -378,7 +378,12 @@ static void __nocfi run_experiments(void) {
 		flush_l1d_cache();
 
 		// execute
+//		module_err("DEBUG 1: Before trace");
+//		aux_buffer_dump_range(current_input->measurement.aux_buffer, 0, 0x400);
 		((void(*)(void*))executor.measurement_code)(&executor.sandbox);
+//		module_err("DEBUG 2: After trace");
+//		aux_buffer_dump_range(current_input->measurement.aux_buffer, 0, 0x400);
+
 
 
 		//enable_mte_tag_checking();
@@ -398,7 +403,8 @@ static void __nocfi run_experiments(void) {
 			module_err("pfc[0]: %llu", current_input->measurement.pfc[0]);
 			module_err("pfc[1]: %llu", current_input->measurement.pfc[1]);
 			module_err("pfc[2]: %llu", current_input->measurement.pfc[2]);
-			aux_buffer_dump_range(current_input->measurement.aux_buffer, 0, 0x200);
+//			module_err("DEBUG 3: Printer:");
+			aux_buffer_dump_range(current_input->measurement.aux_buffer, 0, 0x400);
 
 //			aux_buffer_dump(current_input->measurement.aux_buffer);
 		}

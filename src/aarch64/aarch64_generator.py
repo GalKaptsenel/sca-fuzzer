@@ -186,6 +186,7 @@ class InstructionLog:
 	effective_address: int = 0
 	mem_before: int = 0
 	mem_after: int = 0
+	encoding: int = 0
 
 	def __repr__(self) -> str:
 		regs_preview = ", ".join(f"x{i}=0x{r:x}" for i, r in enumerate(self.regs[:4]))
@@ -194,7 +195,8 @@ class InstructionLog:
 		return (
 				f"InstructionLog(pc=0x{self.pc:x}, flags=0x{self.flags:x}, "
 				f"{regs_preview}, ea=0x{self.effective_address:x}, "
-				f"mem_before=0x{self.mem_before:x}, mem_after=0x{self.mem_after:x})"
+				f"mem_before=0x{self.mem_before:x}, mem_after=0x{self.mem_after:x}), "
+                f"encoding=0x{self.encoding:08x})"
 			)
 
 	def __str__(self) -> str:
@@ -208,6 +210,7 @@ class InstructionLog:
 				f"  EFFECTIVE_ADDR: 0x{self.effective_address:016x}\n"
 				f"  MEM_BEFORE:     0x{self.mem_before:016x}\n"
 				f"  MEM_AFTER:      0x{self.mem_after:016x}\n"
+                f"  ENCODING:       0x{self.encoding:08x}\n"
 				f"  REGS:\n      {regs_str}"
 			)
     
@@ -239,6 +242,7 @@ class FullTraceAuxBuffer(ExecutorAuxBuffer):
                 affective_address
                 memory_before
                 memory_after
+                encoding (lower 32 bits are valid encoding)
 		"""
 		header_size = 3 * 8
 		if len(data) < header_size:
@@ -249,7 +253,7 @@ class FullTraceAuxBuffer(ExecutorAuxBuffer):
 
 		logs = []
 		offset = instruction_log_array_offset
-		entry_size = 8 + 8 + 31*8 + 8 + 8 + 8 # pc + flags + regs[31] + effective_address + mem_before + mem_after
+		entry_size = 8 + 8 + 31*8 + 8 + 8 + 8 + 8 # pc + flags + regs[31] + effective_address + mem_before + mem_after + encoding
 
 		for i in range(entry_count):
 			entry_data = data[offset:offset+entry_size]
@@ -257,8 +261,9 @@ class FullTraceAuxBuffer(ExecutorAuxBuffer):
 				raise ValueError(f"Incomplete instruction log entry {i}")
 			pc, flags = struct.unpack("<2Q", entry_data[:16])
 			regs = list(struct.unpack("<31Q", entry_data[16:16+31*8]))
-			effective_address, mem_before, mem_after = struct.unpack("<3Q", entry_data[16+31*8:])
-			logs.append(InstructionLog(pc, flags, regs, effective_address, mem_before, mem_after))
+			effective_address, mem_before, mem_after, raw_encoding = struct.unpack("<4Q", entry_data[16+31*8:])
+			encoding = raw_encoding & 0xFFFFFFFF
+			logs.append(InstructionLog(pc, flags, regs, effective_address, mem_before, mem_after, encoding))
 			offset += entry_size
 
 		return cls(
@@ -279,13 +284,14 @@ class FullTraceAuxBuffer(ExecutorAuxBuffer):
 		logs_bytes = b""
 		for log in self.instruction_logs:
 			logs_bytes += struct.pack(
-					"<2Q31Q3Q",
+					"<2Q31Q3QQ",
 					log.pc,
 					log.flags,
 					*log.regs,
 					log.effective_address,
 					log.mem_before,
-					log.mem_after
+					log.mem_after,
+                    log.encoding & 0xFFFFFFFF
 				)
 
 		return header + logs_bytes
@@ -393,6 +399,7 @@ class Aarch64FullTrace(Pass):
 		initialized = False
 		for func in test_case.functions:
 			for bb in func:
+				instructions = []
 				for inst in bb:
 					if not initialized:
 						trace_init_template = self.TEMPLATE_TRACE_INIT.format(
@@ -401,12 +408,18 @@ class Aarch64FullTrace(Pass):
 						trace_init_inst = Instruction(f"TRACE_INIT", True, template=trace_init_template)
 						bb.insert_before(inst, trace_init_inst)
 						initialized = True
-
 					try:
 						self.instrument_inst(bb, inst)
 					except Exception as e:
 						print(f"[Aarch64FullTrace] failed on {inst}: {e}")
-
+				else:
+					trace_bb_exit_template =  self.TEMPLATE_TRACE_INSTRUCTION.format(
+							base_reg=self.base_reg, t0=self.temp_regs[1], t1=self.temp_regs[2], t2=self.temp_regs[3],
+							mem_type=0, addr_reg='-', val_reg='-'
+						)
+					trace_bb_exit_inst = Instruction(f"TRACE_INSTRUCTION_EXIT_{bb.name}", True, template=trace_bb_exit_template)
+#					bb.insert_after(bb.end, trace_bb_exit_inst)
+					bb.terminators = [elem for pair in zip([trace_bb_exit_inst]*len(bb.terminators), bb.terminators) for elem in pair]
 
 class Aarch64MarkRegisterTaints(Pass):
 	"""

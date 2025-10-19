@@ -32,6 +32,7 @@ from .aarch64_target_desc import Aarch64TargetDesc
 from .aarch64_connection import Connection, UserlandExecutorImp, TestCaseRegion, InputRegion, \
     HWMeasurement, ExecutorBatch, aux_buffer_from_bytes, AuxBufferType, ExecutorAuxBuffer
 from .aarch64_generator import Pass
+from .aarch64_inputgen import solve_for_inputs
 
 # ==================================================================================================
 # Helper functions
@@ -1068,10 +1069,11 @@ class TraceScenarioBatch(Block):
 			expected_size = int(js['aux_buffer']['size'])
 			raw_aux_buffer = base64.b64decode(js['aux_buffer']['data_b64'])
 			assert len(raw_aux_buffer) == expected_size, f"Decoded aux buffer size mismatch: got {len(raw_aux_buffer)}, expected {expected_size}"
-			aux_buffer = FullTraceAuxBuffer.from_bytes(raw_aux_buffer)
-
 			import pdb; pdb.set_trace()
+			aux_buffer = aux_buffer_from_bytes(AuxBufferType.FULL_TRACE, raw_aux_buffer)
+
 			print(aux_buffer)
+			solve_for_inputs(aux_buffer.instruction_logs, 64, 64, userland_executor.sandbox_base, 4096*2)
 
 		ctx.update({
 			"filename_to_htraces_list": filename_to_htraces_list,
