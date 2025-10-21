@@ -258,7 +258,7 @@ class FullTraceAuxBuffer(ExecutorAuxBuffer):
 		for i in range(entry_count):
 			entry_data = data[offset:offset+entry_size]
 			if len(entry_data) < entry_size:
-				raise ValueError(f"Incomplete instruction log entry {i}")
+				raise ValueError(f"Incomplete instruction log entry {i} out of {entry_count} logged instructions")
 			pc, flags = struct.unpack("<2Q", entry_data[:16])
 			regs = list(struct.unpack("<31Q", entry_data[16:16+31*8]))
 			effective_address, mem_before, mem_after, raw_encoding = struct.unpack("<4Q", entry_data[16+31*8:])
@@ -715,18 +715,134 @@ class Aarch64MarkMemoryTaints(Pass):
 
 
 
+class BitmapAccessor:
+	def __init__(self, parent, attr_name, size_in_bits):
+		self.parent = parent
+		self.attr_name = attr_name
+		self.size_in_bits = size_in_bits
+	
+	def _get_value(self):
+		return getattr(self.parent, self.attr_name)
+
+	def _set_value(self, value):
+		setattr(self.parent, self.attr_name, value & ((1 << self.size_in_bits) - 1))  # mask to size
+
+	def __getitem__(self, index):
+		value = self._get_value()
+
+		if isinstance(index, slice):
+			start, stop, step = index.indices(self.size_in_bits)
+			if step != 1:
+				raise ValueError("BitmapAccessor does not support stepped slices")
+			width = stop - start
+			if width <= 0:
+				return 0
+			mask = (1 << width) - 1
+			return (value >> start) & mask
+
+		if index < 0 or index >= self.size_in_bits:
+				raise IndexError(f"Bit index out of range: {index=} not in [0, {self.size_in_bits}]")
+		return bool((value >> index) & 1)
+
+	def __setitem__(self, index, val):
+		value = self._get_value()
+
+		if isinstance(index, slice):
+			start, stop, step = index.indices(self.size_in_bits)
+			if step != 1:
+				raise ValueError("BitmapAccessor does not support stepped slices")
+			width = stop - start
+			if width <= 0:
+				return
+			mask = ((1 << width) - 1) << start
+			value = (value & ~mask) | ((int(val) << start) & mask)
+			self._set_value(value)
+			return
+
+		if index < 0 or index >= self.size_in_bits:
+			raise IndexError(f"Bit index out of range: {index=} not in [0, {self.size_in_bits}]")
+
+		if val:
+			value |= (1 << index)
+		else:
+			value &= ~(1 << index)
+		self._set_value(value)
+
+	def __int__(self):
+		return self._get_value()
+
+	def __index__(self):
+		return self._get_value()
+
+	def __repr__(self):
+		return f"{self._get_value():0{self.size_in_bits}b}"
+
+	def __str__(self):
+		return f"0b{self._get_value():0{self.size_in_bits}b}"
+
+	def __call__(self, new_val: int):
+		self._set_value(new_val)
+
+	def __invert__(self): return ~self._get_value()
+	def __and__(self, other): return int(self) & int(other)
+	def __or__(self, other):  return int(self) | int(other)
+	def __xor__(self, other): return int(self) ^ int(other)
+	def __rand__(self, other): return int(other) & int(self)
+	def __ror__(self, other):  return int(other) | int(self)
+	def __rxor__(self, other): return int(other) ^ int(self)
+	
+	def __iand__(self, other): self._set_value(int(self) & int(other)); return self
+	def __ior__(self, other): self._set_value(int(self) | int(other)); return self
+	def __ixor__(self, other): self._set_value(int(self) ^ int(other)); return self
+	
+	def __lshift__(self, other): return int(self) << int(other)
+	def __rshift__(self, other): return int(self) >> int(other)
+	def __ilshift__(self, other): self._set_value(int(self) << int(other)); return self
+	def __irshift__(self, other): self._set_value(int(self) >> int(other)); return self
+
+	def __add__(self, other): return int(self) + int(other)
+	def __sub__(self, other): return int(self) - int(other)
+	def __mul__(self, other): return int(self) * int(other)
+	def __floordiv__(self, other): return int(self) // int(other)
+	def __mod__(self, other): return int(self) % int(other)
+	def __pow__(self, other, modulo=None): return pow(int(self), int(other), modulo)
+	def __neg__(self): return -int(self)
+	def __pos__(self): return +int(self)
+
+	def __iadd__(self, other): self._set_value(int(self) + int(other)); return self
+	def __isub__(self, other): self._set_value(int(self) - int(other)); return self
+	def __imul__(self, other): self._set_value(int(self) * int(other)); return self
+	def __ifloordiv__(self, other): self._set_value(int(self) // int(other)); return self
+	def __imod__(self, other): self._set_value(int(self) % int(other)); return self
+
+
+	def __eq__(self, other): return int(self) == int(other)
+	def __ne__(self, other): return int(self) != int(other)
+	def __lt__(self, other): return int(self) < int(other)
+	def __le__(self, other): return int(self) <= int(other)
+	def __gt__(self, other): return int(self) > int(other)
+	def __ge__(self, other): return int(self) >= int(other)
+
+
 @register_aux_buffer(AuxBufferType.BITMAP_TAINTS)
 @dataclass
 class BitmapTaintsAuxBuffer(ExecutorAuxBuffer):
-	regs_write_bits: int = 0
-	regs_read_bits: int = 0
-	regs_input_read_bits: int = 0
-	mem_write_bits: int = 0
-	mem_read_bits: int = 0
-	mem_input_read_bits: int = 0
+	_size_in_bits: int = 64
+	_regs_write_bits: int = field(default=0, repr=False)
+	_regs_read_bits: int = field(default=0, repr=False)
+	_regs_input_read_bits: int = field(default=0, repr=False)
+	_mem_write_bits: int = field(default=0, repr=False)
+	_mem_read_bits: int = field(default=0, repr=False)
+	_mem_input_read_bits: int = field(default=0, repr=False)
 
 	def __post_init__(self):
 		super().__init__(AuxBufferType.BITMAP_TAINTS)
+		self.regs_write_bits = BitmapAccessor(self, "_regs_write_bits", self._size_in_bits)
+		self.regs_read_bits = BitmapAccessor(self, "_regs_read_bits", self._size_in_bits)
+		self.regs_input_read_bits = BitmapAccessor(self, "_regs_input_read_bits", self._size_in_bits)
+		self.mem_write_bits = BitmapAccessor(self, "_mem_write_bits", self._size_in_bits)
+		self.mem_read_bits = BitmapAccessor(self, "_mem_read_bits", self._size_in_bits)
+		self.mem_input_read_bits = BitmapAccessor(self, "_mem_input_read_bits", self._size_in_bits)
 
 	@classmethod
 	def from_bytes(cls: Type["BitmapTaintsAuxBuffer"], data: bytes):

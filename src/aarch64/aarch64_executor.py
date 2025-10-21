@@ -184,6 +184,84 @@ def rewind_km_output_to_end():
         if 'done' in output.decode():
             break
 
+# Helpers
+
+def pass_on_test_case(test_case: TestCase, passes: List[Pass]):
+	for p in passes:
+		p.run_on_test_case(test_case)
+
+def write_test_case_remotely(test_case: TestCase, connection: Connection, workdir: str, local_filename: str) -> str:
+
+	def upload_test(test_case: TestCase, connection: Connection, workdir: str) -> str:
+		remote_filename = f'{workdir}/remote_{os.path.basename(test_case.bin_path)}'
+		connection.push(test_case.bin_path, remote_filename)
+		return remote_filename
+
+	def assemble_local_test_case(test_case: TestCase, base_filename: str):
+		printer = Aarch64Printer(Aarch64TargetDesc())
+		test_case.bin_path, test_case.asm_path, test_case.obj_path = (f'{base_filename}.{suffix}' for suffix in ('bin', 'asm', 'o'))
+	
+		printer.print(test_case, test_case.asm_path)
+	
+		ConfigurableGenerator.assemble(test_case.asm_path, test_case.obj_path, test_case.bin_path)
+
+	assemble_local_test_case(test_case, local_filename)
+
+	remote_filename = upload_test(test_case, connection, workdir)
+
+	os.remove(test_case.bin_path)
+	#os.remove(test_case.asm_path)
+	os.remove(test_case.obj_path)
+	return remote_filename
+
+
+def create_scenario_batch(remote_inputs: List[str],
+				remote_test_filename: str,
+				repeats: int,
+				workdir: str,
+				output: str = None) -> ExecutorBatch:
+	batch = ExecutorBatch()
+	batch.repeats = repeats
+
+	for input_fname in remote_inputs:
+		batch.add_input(input_fname)
+
+	batch.add_test(remote_test_filename)
+
+	batch.output = output or f"{workdir}/remote_batch_output"
+
+	return batch
+
+
+def extract_json_objects(blob: str) -> List[dict]:
+	"""Extract JSON objects from a raw blob string returned by the executor."""
+	objs = []
+	brace_level = 0
+	start_idx = None
+
+	for i, char in enumerate(blob):
+		if char == '{':
+			if brace_level == 0:
+				start_idx = i
+			brace_level += 1
+		elif char == '}':
+			brace_level -= 1
+			if brace_level == 0 and start_idx is not None:
+				obj_str = blob[start_idx:i + 1]
+				try:
+					objs.append(json.loads(obj_str))
+				except json.JSONDecodeError as e:
+					warnings.warn(f"Skipping malformed JSON object: {obj_str} ({e}).")
+				start_idx = None  # reset
+
+	return objs
+
+def flatten_ordered_dict(d: OrderedDict) -> OrderedDict:
+	flat = OrderedDict()
+	for outer_key, inner_dict in d.items():
+		for inner_key, value in inner_dict.items():
+			flat[inner_key] = value
+	return flat
 
 
 # Blocks
@@ -499,38 +577,10 @@ class LoadSandboxedTestCaseBlock(Block):
 		super().__init__(StageType.TRANSFORM)
 
 	@classmethod
-	def _upload_test(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
-		remote_filename = f'{workdir}/remote_{os.path.basename(test_case.bin_path)}'
-		connection.push(test_case.bin_path, remote_filename)
-		return remote_filename
-
-	@staticmethod
-	def _assemble_local_test_case(test_case: TestCase, base_filename: str):
-		printer = Aarch64Printer(Aarch64TargetDesc())
-		test_case.bin_path, test_case.asm_path, test_case.obj_path = (f'{base_filename}.{suffix}' for suffix in ('bin', 'asm', 'o'))
-
-		printer.print(test_case, test_case.asm_path)
-
-		ConfigurableGenerator.assemble(test_case.asm_path, test_case.obj_path, test_case.bin_path)
-
-	@classmethod
-	def _write_test_case_remotely(cls, test_case: TestCase, connection: Connection, workdir: str, local_filename: str) -> str:
-		cls._assemble_local_test_case(test_case, local_filename)
-
-		remote_filename = cls._upload_test(test_case, connection, workdir)
-
-		os.remove(test_case.bin_path)
-		#os.remove(test_case.asm_path)
-		os.remove(test_case.obj_path)
-		return remote_filename
-
-	@classmethod
 	def _upload_sandboxed_test(cls, test_case: TestCase, connection: Connection, workdir: str) -> Tuple[str, TestCase]:
 		sandboxed_test_case = copy.deepcopy(test_case)
-		sandbox_pass = Aarch64SandboxPass()
-		sandbox_pass.run_on_test_case(sandboxed_test_case)
-		Aarch64FullTrace().run_on_test_case(sandboxed_test_case)        
-		return cls._write_test_case_remotely(sandboxed_test_case, connection, workdir, f'sandboxed_test_case'), sandboxed_test_case
+		Aarch64SandboxPass().run_on_test_case(sandboxed_test_case)
+		return write_test_case_remotely(sandboxed_test_case, connection, workdir, f'sandboxed_test_case'), sandboxed_test_case
 
 	def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
 		test_case: TestCase = ctx["test_case"]
@@ -548,85 +598,61 @@ class LoadSandboxedTestCaseBlock(Block):
 
 class GenerateInputArchFlowBlock(Block):
 	required_keys = {"test_case", "input_to_filename_dict", "connection", "workdir", "userland_executor"}
-	provided_keys = {"input_to_aux_buffer"}
+	provided_keys = {"input_to_bitmap_taints_buffer", "input_to_full_trace_buffer"}
 
 	def __init__(self):
 		super().__init__(StageType.LOAD)
 
 	@classmethod
-	def _upload_test(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
-		remote_filename = f'{workdir}/remote_{os.path.basename(test_case.bin_path)}'
-		connection.push(test_case.bin_path, remote_filename)
-		return remote_filename
-
-	@staticmethod
-	def _assemble_local_test_case(test_case: TestCase, base_filename: str):
-		printer = Aarch64Printer(Aarch64TargetDesc())
-		test_case.bin_path, test_case.asm_path, test_case.obj_path = (f'{base_filename}.{suffix}' for suffix in ('bin', 'asm', 'o'))
-
-		printer.print(test_case, test_case.asm_path)
-
-		ConfigurableGenerator.assemble(test_case.asm_path, test_case.obj_path, test_case.bin_path)
-
-	@classmethod
-	def _write_test_case_remotely(cls, test_case: TestCase, connection: Connection, workdir: str, local_filename: str) -> str:
-		cls._assemble_local_test_case(test_case, local_filename)
-
-		remote_filename = cls._upload_test(test_case, connection, workdir)
-
-		os.remove(test_case.bin_path)
-		#os.remove(test_case.asm_path)
-		os.remove(test_case.obj_path)
-		return remote_filename
-
-	@classmethod
-	def _pass_on_test_case(cls, test_case: TestCase, passes: List[Pass]):
-		for p in passes:
-			p.run_on_test_case(test_case)
-
-
-	@classmethod
 	def _write_test_with_taint_tracker(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
 		patched_test_case = copy.deepcopy(test_case)
-		register_taints = Aarch64MarkRegisterTaints()
-		sandbox = Aarch64SandboxPass()
-		memory_taints = Aarch64MarkMemoryTaints()
-		cls._pass_on_test_case(patched_test_case, [register_taints, sandbox, memory_taints])
-		return cls._write_test_case_remotely(patched_test_case, connection, workdir, 'generated_taint_tracker')
+		register_taints_pass = Aarch64MarkRegisterTaints()
+		sandbox_pass = Aarch64SandboxPass()
+		memory_taints_pass = Aarch64MarkMemoryTaints()
+		pass_on_test_case(patched_test_case, [register_taints_pass, sandbox_pass, memory_taints_pass])
+		return write_test_case_remotely(patched_test_case, connection, workdir, 'generated_taint_tracker')
 
-	def _measure_taints(cls, test_case: TestCase, input_to_filename: Dict[Input, str],  workdir: str, userland_executor: UserlandExecutor, connection: Connection) -> OrderedDict[Input, DebugPage]:
+	@classmethod
+	def _write_test_with_full_trace_tracker(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
+		patched_test_case = copy.deepcopy(test_case)
+		sandbox_pass = Aarch64SandboxPass()
+		full_trace_pass = Aarch64FullTrace()
+		pass_on_test_case(patched_test_case, [sandbox_pass, full_trace_pass])
+		return write_test_case_remotely(patched_test_case, connection, workdir, 'generated_full_trace_tracker')
 
-		def parse_bitmap(n: str, bit: int) -> List[int]:
-			result = []
-			for index, b in enumerate(n):
-				if bit == int(b):
-					result.append(len(n) - (index + 1))
+
+	def _measure(cls, test_case: TestCase, input_to_filename: Dict[Input, str],  workdir: str, userland_executor: UserlandExecutor, connection: Connection) -> Tuple[OrderedDict[Input, BitmapTaintsAuxBuffer], OrderedDict[Input, FullTraceAuxBuffer]]:
+
+		def _load_trace_parse(write_test_method, buffer_layout, input_to_iid) -> OrderedDict[Input, ExecutorAuxBuffer]:
+			remote_test_case_filename = write_test_method(test_case, connection, workdir)
+
+			userland_executor.checkout_region(TestCaseRegion())
+			userland_executor.write_file(remote_test_case_filename)
+			userland_executor.trace()
+
+			result: OrderedDict[Input, ExecutorAuxBuffer] = OrderedDict()
+
+			for inp, iid in input_to_iid.items():
+				userland_executor.checkout_region(InputRegion(iid))
+				result[inp] = aux_buffer_from_bytes(buffer_layout, userland_executor.aux_buffer)
+
+			connection.shell(f'rm {remote_test_case_filename}')
+
 			return result
 
-		inp_to_iids = {}
+		input_to_iids = {}
 		for inp, remote_input_filename in input_to_filename.items():
 			iid = userland_executor.allocate_iid()
-			inp_to_iids[inp] = iid
+			input_to_iids[inp] = iid
 			userland_executor.checkout_region(InputRegion(iid))
 			userland_executor.write_file(remote_input_filename)
 
-
-		remote_test_case_filename = cls._write_test_with_taint_tracker(test_case, connection, workdir)
-
-		userland_executor.checkout_region(TestCaseRegion())
-		userland_executor.write_file(remote_test_case_filename)
-		userland_executor.trace()
-
-		taints: Dict[str, List[int]] = OrderedDict()
-
-		for inp, iid in inp_to_iids.items():
-			userland_executor.checkout_region(InputRegion(iid))
-			taints[inp] = aux_buffer_from_bytes(AuxBufferType.BITMAP_TAINTS, userland_executor.aux_buffer)
+		input_to_bitmap_taints_buffer: OrderedDict[Input, BitmapTaintsAuxBuffer] = _load_trace_parse(cls._write_test_with_taint_tracker, AuxBufferType.BITMAP_TAINTS, input_to_iids)
+		input_to_full_trace_buffer: OrderedDict[Input, FullTraceAuxBuffer] = _load_trace_parse(cls._write_test_with_full_trace_tracker, AuxBufferType.FULL_TRACE, input_to_iids)
 
 		userland_executor.discard_all_inputs()
-		connection.shell(f'rm {remote_test_case_filename}')
+		return input_to_bitmap_taints_buffer, input_to_full_trace_buffer
 
-		return taints 
 
 
 	def run(self, ctx: dict[str, Any]) -> dict[str, Any]:
@@ -636,29 +662,32 @@ class GenerateInputArchFlowBlock(Block):
 		workdir: str = ctx["workdir"]
 		userland_executor: UserlandExecutor = ctx["userland_executor"]
 
-		taints = self._measure_taints(test_case, input_to_filename_dict, workdir, userland_executor, connection)
+		input_to_bitmap_taints_buffer, input_to_full_trace_buffer = self._measure(test_case, input_to_filename_dict, workdir, userland_executor, connection)
 
 		ctx.update({
-		    "input_to_aux_buffer": taints
+		    "input_to_bitmap_taints_buffer": input_to_bitmap_taints_buffer,
+			"input_to_full_trace_buffer": input_to_full_trace_buffer
 		})
 
 		return ctx
 
 
 class LoadInputVariantsBlock(Block):
-	required_keys = {"input_to_filename_dict", "input_to_equivalence_class_inputs", "connection", "workdir"}
+	required_keys = {"input_to_filename_dict", "input_to_equivalence_class", "connection", "workdir"}
 	provided_keys = {"input_equivalence_classes_filenames"}
 
 	def __init__(self):
 		super().__init__(StageType.LOAD)
 
 	@classmethod
-	def _upload_inputs(cls, input_to_filename_dict: OrderedDict[Input, str], input_to_equivalence_class_inputs: OrderedDict[Input, List[Input]],
+	def _upload_inputs(cls, input_to_filename_dict: OrderedDict[Input, str], input_to_equivalence_class: OrderedDict[Input, List[Input]], 
 					connection: Connection, workdir: str) -> OrderedDict[Input, OrderedDict[Input, str]]:
 		remote_filenames = OrderedDict()
 		for inp, remote_filename in input_to_filename_dict.items():
 			remote_filenames[inp] = OrderedDict()
-			for idx, new_input in enumerate(input_to_equivalence_class_inputs[inp]):
+			remote_filenames[inp][inp] = remote_filename # Add original input to it's own equivalence class of remote filenames
+
+			for idx, new_input in enumerate(input_to_equivalence_class[inp]):
 				new_input_name = f"{os.path.basename(remote_filename)}.{idx}"
 				new_remote_filename = f'{workdir}/{new_input_name}'
 				new_input.save(new_input_name)
@@ -668,12 +697,12 @@ class LoadInputVariantsBlock(Block):
 		return remote_filenames
 
 	def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
-		input_to_equivalence_class_inputs: OrderedDict[Input, List[Input]] = ctx["input_to_equivalence_class_inputs"]
+		input_to_equivalence_class: OrderedDict[Input, List[Input]] = ctx["input_to_equivalence_class"]
 		input_to_filename_dict: OrderedDict[Input, str] = ctx["input_to_filename_dict"]
 		connection: Connection = ctx["connection"]
 		workdir: str = ctx["workdir"]
 
-		input_equivalence_classes_filenames = self._upload_inputs(input_to_filename_dict, input_to_equivalence_class_inputs, connection, workdir)
+		input_equivalence_classes_filenames = self._upload_inputs(input_to_filename_dict, input_to_equivalence_class, connection, workdir)
 
 		ctx.update(
 				{
@@ -685,131 +714,120 @@ class LoadInputVariantsBlock(Block):
 
 
 class GenerateInputVariantsBlock(Block):
-	required_keys = {"input_to_aux_buffer", "variants_per_input"}
-	provided_keys = {"input_to_equivalence_class_inputs"}
+	required_keys = {"input_to_bitmap_taints_buffer", "input_to_full_trace_buffer", "variants_per_input"}
+	provided_keys = {"input_to_equivalence_class"}
 
-	def __init__(self):
+	def __init__(self, seed: Optional[int] = None):
 		super().__init__(StageType.LOAD)
+		if seed is None:
+			seed = int(time.time() * 1000) & ((1 << 63) - 1)
+		self.seed = seed
+		self._seed_seq = np.random.SeedSequence(seed)
+		self.rng = np.random.default_rng(self._seed_seq)
 
-	@classmethod
-	def _classify_resources(cls, W: int, R: int, IR: int, number_of_relevant_bits: int = 64) -> Tuple[int, int, int, int]:
-		if not isinstance(number_of_relevant_bits, int) or not(64 >= number_of_relevant_bits >= 0):
-			raise ValueError(
-					f"number_of_relevant_bits must be between 0 and 64, inclusice."
-					f"Got {number_of_relevant_bits}."
-			)
 
-		mask = (1 << number_of_relevant_bits) - 1
+	def _generate_single_input_mutation(self, input_to_mutate: Input, bitmap_aux_buffer: BitmapTaintsAuxBuffer, full_trace_buffer: FullTraceAux, p_high: float, p_low: float) -> Input:
 
-		modifiable = (~IR) & mask
-		high_priority = modifiable & (R | W)
-		low_priority = modifiable & ~(R | W)
-		must_keep = IR & mask
+		def _classify_resources(W: int, R: int, IR: int, number_of_relevant_bits: int = 64) -> Tuple[int, int, int, int]:
+			if not isinstance(number_of_relevant_bits, int) or not(64 >= number_of_relevant_bits >= 0):
+				raise ValueError(
+						f"number_of_relevant_bits must be between 0 and 64, inclusice."
+						f"Got {number_of_relevant_bits}."
+				)
+	
+			mask = (1 << number_of_relevant_bits) - 1
+	
+			modifiable = (~IR) & mask
+			high_priority = modifiable & (R | W)
+			low_priority = modifiable & ~(R | W)
+			must_keep = IR & mask
+	
+			return modifiable, high_priority, low_priority, must_keep
 
-		return modifiable, high_priority, low_priority, must_keep
 
-	@classmethod
-	def _cache_set(cls, address: int, line_size: int, num_sets: int) -> int:
-		return (address // line_size) % num_sets
+		def _mutate_region(region: np.ndarray, region_name: str, offset: int, prob: float):
+			if self.rng.random() < prob:
+				prev = region[offset]
+				region[offset] = self.rng.integers(0, 256, dtype=np.uint8)
+				print(f"{self.__class__.__name__}: {region_name}[{offset}] {prev} ===> {region[offset]}")
 
-	@classmethod
-	def _mutate_input(
-			cls,
-			input_to_mutate: Input,
-			bitmap_aux_buffer: BitmapTaintsAuxBuffer,
-			variants: int,
-			p_high: float = 0.8,
-			p_low: float = 0.2,
-			line_size: int = 64,
-			rng: np.random.Generator = np.random.default_rng()
-		) -> List[Input]:
+		num_of_gprs = input_to_mutate['gpr'].shape[0]
 
-		num_of_gprs = input_to_mutate[0]['gpr'].shape[0]
-		num_of_sets_in_bitmask = bitmap_aux_buffer.mem_read_bits.bit_length()
-
-		if num_of_sets_in_bitmask == 0:
-			print(f"{cls.__name__}: Genarated test trace has no visible memory accesses")
-
-		_, high_priority_registers, low_priority_registers, _ = cls._classify_resources(
+		_, high_priority_registers, low_priority_registers, _ = _classify_resources(
 				bitmap_aux_buffer.regs_write_bits,
 				bitmap_aux_buffer.regs_read_bits,
 				bitmap_aux_buffer.regs_input_read_bits,
 				num_of_gprs
 			)
 
-		_, high_priority_cache_sets, low_priority_cache_sets, _ = cls._classify_resources(
-				bitmap_aux_buffer.mem_write_bits,
-				bitmap_aux_buffer.mem_read_bits,
-				bitmap_aux_buffer.mem_input_read_bits,
-				num_of_sets_in_bitmask
-			)
+		new_input = input_to_mutate.copy()
+
+		gpr_region = new_input[0]['gpr']
+		for i in range(num_of_gprs):
+			mask: int = 1 << i
+   
+			if high_priority_registers & mask:
+				if self.rng.random() < p_high:
+					prev = gpr_region[i]
+					gpr_region[i] = self.rng.integers(0, np.iinfo(np.uint64).max + 1, dtype=np.uint64)
+					print(f"{self.__class__.__name__}: GPR[{i}] {prev} ===> {gpr_region[i]}")
+
+			elif low_priority_registers & mask:
+				if self.rng.random() < p_low:
+					prev = gpr_region[i]
+					gpr_region[i] = self.rng.integers(0, np.iinfo(np.uint64).max + 1, dtype=np.uint64)
+					print(f"{self.__class.__.__name__}: GPR[{i}] {prev} ===> {gpr_region[i]}")
+
+		# Sandbox base is stored in x30 while executing the test case. It should not change while executing the test case. Take the first one.
+		sandbox_base = full_trace_buffer.instruction_logs[0].regs[30]
+		faulty_region_u8 = new_input[0]["faulty"].view(np.uint8)
+		main_region_u8 = new_input[0]["main"].view(np.uint8)
+		sandbox_size = main_region_u8.size + faulty_region_u8.size
+		for offset in range(sandbox_size):
+			if all(offset != (inst_log.effective_address - sandbox_base) for inst_log in full_trace_buffer.instruction_logs):
+				if offset < main_region_u8.size:
+					_mutate_region(main_region_u8, "main", offset, p_high)
+				else:
+					_mutate_region(faulty_region_u8, "faulty", offset - main_region_u8.size, p_high)
+
+		return new_input
+
+
+	def _mutate_input(self, input_to_mutate: Input, variants: int, bitmap_aux_buffer: BitmapTaintsAuxBuffer, full_trace_buffer: FullTraceAuxBuff, p_high: float , p_low: float) -> List[Input]:
 
 		results: List[Input] = []
 
 		for _ in range(variants):
-			out = input_to_mutate.copy()
-
-			# Registers
-			gpr_region = out[0]['gpr']
-			for i in range(num_of_gprs):
-				mask: int = 1 << i
-    
-				if high_priority_registers & mask:
-					if rng.random() < p_high:
-						prev = gpr_region[i]
-						gpr_region[i] = rng.integers(0, np.iinfo(np.uint64).max + 1, dtype=np.uint64)
-						print(f"{cls.__name__}: GPR[{i}] {prev} ===> {gpr_region[i]}")
-    
-				elif low_priority_registers & mask:
-					if rng.random() < p_low:
-						prev = gpr_region[i]
-						gpr_region[i] = rng.integers(0, np.iinfo(np.uint64).max + 1, dtype=np.uint64)
-						print(f"{cls.__name__}: GPR[{i}] {prev} ===> {gpr_region[i]}")
-
-			# Memory
-			for region_name in ["main", "faulty"]:
-				region = out[0][region_name]
-				region_base = out.dtype.fields[region_name][1] // 8
-
-				for offset in range(region.shape[0]):
-					address: int = (region_base + offset) * 8 # Assumes memory region base is alligned to PageSize boundry and set bits are within the page offset bits
-					set_idx = cls._cache_set(address, line_size, num_of_sets_in_bitmask)
-					mask: int = 1 << set_idx
-
-					if high_priority_cache_sets & mask:
-						if rng.random() < p_high:
-							prev = region[offset]
-							region[offset] = rng.integers(0, np.iinfo(np.uint64).max + 1, dtype=np.uint64)
-							print(f"{cls.__name__}: {region_name}[{offset}] {prev} ===> {gpr_region[i]}")
-
-					elif low_priority_cache_sets & mask:
-						if rng.random() < p_low:
-							prev = region[offset]
-							region[offset] = rng.integers(0, np.iinfo(np.uint64).max + 1, dtype=np.uint64)
-							print(f"{cls.__name__}: {region_name}[{offset}] {prev} ===> {gpr_region[i]}")
-
-			results.append(out)
+			new_input_variation = self._generate_single_input_mutation(input_to_mutate, bitmap_aux_buffer, full_trace_buffer, p_high, p_low)
+			results.append(new_input_variation)
 
 		return results
-        
-	@classmethod
-	def _mutate_inputs(cls, input_to_aux_buffer: OrderedDict[Input, BitmapTaintsAuxBuffer], variants: int) -> OrderedDict[Input, List[Input]]:
-		input_to_equivalence_class_inputs: OrderedDict[Input, List[Input]] = OrderedDict()
 
-		for i, dp in input_to_aux_buffer.items():
-			input_to_equivalence_class_inputs[i] = [i] + cls._mutate_input(i, dp, variants, p_low=0)
 
-		return input_to_equivalence_class_inputs
+	def _mutate_inputs(self, input_to_bitmap_taints_buffer: Dict[str, BitmapTaintsAuxBuffer], input_to_full_trace_buffer: Dict[str, FullTraceAuxBuffer], variants: int, p_high: float = 0.8, p_low: float = 0.2) -> OrderedDict[Input, List[Input]]:
 
+		assert set(input_to_bitmap_taints_buffer) == set(input_to_full_trace_buffer)
+		inputs_to_mutate = list(input_to_bitmap_taints_buffer.keys())
+		if not inputs_to_mutate:
+			return {} 
+
+		results: OrderedDict[Input, List[Input]] = OrderedDict()
+
+		for input_to_mutate, bitmap_aux_buffer in input_to_bitmap_taints_buffer.items():
+			full_trace_buffer = input_to_full_trace_buffer[input_to_mutate]
+			results[input_to_mutate] = self._mutate_input(input_to_mutate, variants, bitmap_aux_buffer, full_trace_buffer, p_high, p_low)
+		
+		return results
 
 	def run(self, ctx: dict[str, Any]) -> dict[str, Any]:
 		variants_per_input: int = ctx["variants_per_input"]
-		input_to_aux_buffer: OrderedDict[Input, BitmapTaintsAuxBuffer] = ctx["input_to_aux_buffer"]
+		input_to_bitmap_taints_buffer: OrderedDict[Input, BitmapTaintsAuxBuffer] = ctx["input_to_bitmap_taints_buffer"]
+		input_to_full_trace_buffer: OrderedDict[Input, FullTraceAuxBuffer] = ctx["input_to_full_trace_buffer"]
 
-		input_to_equivalence_class_inputs: OrderedDict[Input, List[Input]] = self._mutate_inputs(input_to_aux_buffer, variants_per_input);
+		input_to_equivalence_class: OrderedDict[Input, List[Input]] = self._mutate_inputs(input_to_bitmap_taints_buffer, input_to_full_trace_buffer, variants_per_input, p_high = 1, p_low = 0.8);
 
 		ctx.update({
-			"input_to_equivalence_class_inputs": input_to_equivalence_class_inputs
+			"input_to_equivalence_class": input_to_equivalence_class
 		})
 
 		return ctx
@@ -822,61 +840,26 @@ class GenerateMTETestVariants(Block):
 		super().__init__(StageType.TRANSFORM)
 
 	@classmethod
-	def _upload_test(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
-		remote_filename = f'{workdir}/remote_{os.path.basename(test_case.bin_path)}'
-		connection.push(test_case.bin_path, remote_filename)
-		return remote_filename
-
-	@staticmethod
-	def _assemble_local_test_case(test_case: TestCase, base_filename: str):
-		printer = Aarch64Printer(Aarch64TargetDesc())
-		test_case.bin_path, test_case.asm_path, test_case.obj_path = (f'{base_filename}.{suffix}' for suffix in ('bin', 'asm', 'o'))
-
-		printer.print(test_case, test_case.asm_path)
-
-		ConfigurableGenerator.assemble(test_case.asm_path, test_case.obj_path, test_case.bin_path)
-
-
-
-	@classmethod
-	def _write_test_case_remotely(cls, test_case: TestCase, connection: Connection, workdir: str, local_filename: str) -> str:
-
-		cls._assemble_local_test_case(test_case, local_filename)
-
-		remote_filename = cls._upload_test(test_case, connection, workdir)
-
-		os.remove(test_case.bin_path)
-		#os.remove(test_case.asm_path)
-		os.remove(test_case.obj_path)
-		return remote_filename
-
-	@classmethod
-	def _pass_on_test_case(cls, test_case: TestCase, passes: List[Pass]):
-		for p in passes:
-			p.run_on_test_case(test_case)
-
-
-	@classmethod
 	def _write_test_with_correct_tags(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
 		patched_test_case = copy.deepcopy(test_case)
 		tagging_pass = Aarch64TagMemoryAccesses(memory_accesses_to_guess_tag=None)
-		cls._pass_on_test_case(patched_test_case, [tagging_pass])
-		return cls._write_test_case_remotely(patched_test_case, connection, workdir, 'generated_correct_tags')
+		pass_on_test_case(patched_test_case, [tagging_pass])
+		return write_test_case_remotely(patched_test_case, connection, workdir, 'generated_correct_tags')
 
 	@classmethod
 	def _write_test_with_incorrect_tags(cls, test_case: TestCase, connection: Connection, workdir: str, filename_suffix: str, tag_ids_to_guess: List[int]) -> str:
 		patched_test_case = copy.deepcopy(test_case)
 		tagging_pass = Aarch64TagMemoryAccesses(memory_accesses_to_guess_tag=tag_ids_to_guess)
-		cls._pass_on_test_case(patched_test_case, [tagging_pass])
-		return cls._write_test_case_remotely(patched_test_case, connection, workdir, f'generated_patched_{filename_suffix}')
+		pass_on_test_case(patched_test_case, [tagging_pass])
+		return write_test_case_remotely(patched_test_case, connection, workdir, f'generated_patched_{filename_suffix}')
 
 	@classmethod
 	def _write_test_case_with_bitmap_trace(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
 		patched_test_case = copy.deepcopy(test_case)
 		tagging_pass = Aarch64TagMemoryAccesses(memory_accesses_to_guess_tag=None)
 		marking_pass = Aarch64MarkMemoryAccessesNEON()
-		cls._pass_on_test_case(patched_test_case, [tagging_pass, marking_pass])
-		return cls._write_test_case_remotely(patched_test_case, connection, workdir, 'generated_retrieve_bitmap')
+		pass_on_test_case(patched_test_case, [tagging_pass, marking_pass])
+		return write_test_case_remotely(patched_test_case, connection, workdir, 'generated_retrieve_bitmap')
 
 	@classmethod
 	def _measure_architecturally_not_accessed_memory_addresses(cls, test_case: TestCase, input_to_filename: Dict[Input, str],  workdir: str, userland_executor: UserlandExecutor, connection: Connection) -> Dict[Input, List[int]]:
@@ -956,43 +939,13 @@ class PrepareScenarioBatch(Block):
 	def __init__(self):
 		super().__init__(StageType.EXECUTE)
 
-	@staticmethod
-	def _create_scenario_batch(remote_inputs: List[str],
-					remote_test_filename: str,
-					repeats: int,
-					workdir: str,
-					output: str = None) -> ExecutorBatch:
-		batch = ExecutorBatch()
-		batch.repeats = repeats
-
-		for input_fname in remote_inputs:
-			batch.add_input(input_fname)
-
-		# Add the single test case
-		batch.add_test(remote_test_filename)
-
-		# Optional output filename
-		batch.output = output or f"{workdir}/remote_batch_output"
-
-		return batch
-
-
-	@staticmethod
-	def flatten_ordered_dict(d: OrderedDict) -> OrderedDict:
-		flat = OrderedDict()
-		for outer_key, inner_dict in d.items():
-			for inner_key, value in inner_dict.items():
-				flat[inner_key] = value
-		return flat
-
-
 	def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
 		input_equivalence_classes_filenames: OrderedDict[Input, OrderedDict[Input, str]] = ctx["input_equivalence_classes_filenames"]
 		remote_test_filename: str = ctx["remote_sandboxed_test_filename"]
 		repeats: int = ctx["repeats"]
 		workdir: str = ctx["workdir"]
 
-		batch = self._create_scenario_batch(self.flatten_ordered_dict(input_equivalence_classes_filenames).values(), remote_test_filename, repeats, workdir)
+		batch = create_scenario_batch(flatten_ordered_dict(input_equivalence_classes_filenames).values(), remote_test_filename, repeats, workdir)
 
 		ctx.update({
 			"scenario_batch": batch,
@@ -1008,37 +961,6 @@ class TraceScenarioBatch(Block):
 	def __init__(self):
 		super().__init__(StageType.EXECUTE)
 
-	@staticmethod
-	def _extract_json_objects(blob: str) -> List[dict]:
-		"""Extract JSON objects from a raw blob string returned by the executor."""
-		objs = []
-		brace_level = 0
-		start_idx = None
-
-		for i, char in enumerate(blob):
-			if char == '{':
-				if brace_level == 0:
-					start_idx = i
-				brace_level += 1
-			elif char == '}':
-				brace_level -= 1
-				if brace_level == 0 and start_idx is not None:
-					obj_str = blob[start_idx:i + 1]
-					try:
-						objs.append(json.loads(obj_str))
-					except json.JSONDecodeError as e:
-						warnings.warn(f"Skipping malformed JSON object: {obj_str} ({e}).")
-					start_idx = None  # reset
-
-		return objs
-
-	@staticmethod
-	def flatten_ordered_dict(d: OrderedDict) -> OrderedDict:
-		flat = OrderedDict()
-		for outer_key, inner_dict in d.items():
-			for inner_key, value in inner_dict.items():
-				flat[inner_key] = value
-		return flat
 
 	def run(self, ctx: dict[str, Any]) -> dict[str, Any]:
 		batch: ExecutorBatch = ctx["scenario_batch"]
@@ -1048,10 +970,10 @@ class TraceScenarioBatch(Block):
 		# Temporary remote batch file
 		raw_output = userland_executor.trace(batch)
 
-		json_objs = self._extract_json_objects(raw_output)
+		json_objs = extract_json_objects(raw_output)
 
 		# Aggregate traces per remote input
-		filename_to_htraces_list: Dict[str, List[int]] = {input_name: [] for input_name in self.flatten_ordered_dict(input_equivalence_classes_filenames).values()}
+		filename_to_htraces_list: Dict[str, List[int]] = {input_name: [] for input_name in flatten_ordered_dict(input_equivalence_classes_filenames).values()}
 
 		for js in json_objs:
 			input_name = js.get('input_name')
@@ -1066,14 +988,14 @@ class TraceScenarioBatch(Block):
 
 			filename_to_htraces_list[input_name].append(trace_int)
 
-			expected_size = int(js['aux_buffer']['size'])
-			raw_aux_buffer = base64.b64decode(js['aux_buffer']['data_b64'])
-			assert len(raw_aux_buffer) == expected_size, f"Decoded aux buffer size mismatch: got {len(raw_aux_buffer)}, expected {expected_size}"
-			import pdb; pdb.set_trace()
-			aux_buffer = aux_buffer_from_bytes(AuxBufferType.FULL_TRACE, raw_aux_buffer)
+#			expected_size = int(js['aux_buffer']['size'])
+#			raw_aux_buffer = base64.b64decode(js['aux_buffer']['data_b64'])
+#			assert len(raw_aux_buffer) == expected_size, f"Decoded aux buffer size mismatch: got {len(raw_aux_buffer)}, expected {expected_size}"
+#			import pdb; pdb.set_trace()
+#			aux_buffer = aux_buffer_from_bytes(AuxBufferType.FULL_TRACE, raw_aux_buffer)
 
-			print(aux_buffer)
-			solve_for_inputs(aux_buffer.instruction_logs, 64, 64, userland_executor.sandbox_base, 4096*2)
+#			print(aux_buffer)
+#			solve_for_inputs(aux_buffer.instruction_logs, 64, 64, userland_executor.sandbox_base, 4096*2)
 
 		ctx.update({
 			"filename_to_htraces_list": filename_to_htraces_list,
@@ -1090,46 +1012,12 @@ class ArchiteturalFlowTraceBlock(Block):
 		super().__init__(StageType.LOAD)
 
 	@classmethod
-	def _upload_test(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
-		remote_filename = f'{workdir}/remote_{os.path.basename(test_case.bin_path)}'
-		connection.push(test_case.bin_path, remote_filename)
-		return remote_filename
-
-	@staticmethod
-	def _assemble_local_test_case(test_case: TestCase, base_filename: str):
-		printer = Aarch64Printer(Aarch64TargetDesc())
-		test_case.bin_path, test_case.asm_path, test_case.obj_path = (f'{base_filename}.{suffix}' for suffix in ('bin', 'asm', 'o'))
-
-		printer.print(test_case, test_case.asm_path)
-
-		ConfigurableGenerator.assemble(test_case.asm_path, test_case.obj_path, test_case.bin_path)
-
-
-
-	@classmethod
-	def _write_test_case_remotely(cls, test_case: TestCase, connection: Connection, workdir: str, local_filename: str) -> str:
-
-		cls._assemble_local_test_case(test_case, local_filename)
-
-		remote_filename = cls._upload_test(test_case, connection, workdir)
-
-		os.remove(test_case.bin_path)
-		#os.remove(test_case.asm_path)
-		os.remove(test_case.obj_path)
-		return remote_filename
-
-	@classmethod
-	def _pass_on_test_case(cls, test_case: TestCase, passes: List[Pass]):
-		for p in passes:
-			p.run_on_test_case(test_case)
-
-	@classmethod
 	def _write_test_case_with_bitmap_trace(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
 		patched_test_case = copy.deepcopy(test_case)
 		marking_pass = Aarch64MarkMemoryAccessesNEON()
 		sandbox = Aarch64SandboxPass()
-		cls._pass_on_test_case(patched_test_case, [sandbox, marking_pass])
-		return cls._write_test_case_remotely(patched_test_case, connection, workdir, 'generated_retrieve_bitmap')
+		pass_on_test_case(patched_test_case, [sandbox, marking_pass])
+		return write_test_case_remotely(patched_test_case, connection, workdir, 'generated_retrieve_bitmap')
 
 	@classmethod
 	def _measure_architecturally_not_accessed_memory_addresses(cls, test_case: TestCase, input_to_filename: Dict[Input, str],  workdir: str, userland_executor: UserlandExecutor, connection: Connection) -> OrderedDict[Input, List[int]]:
@@ -1234,7 +1122,7 @@ class AnalyserBlock(Block):
 		filename_to_htraces_list: Dict[str, List[HTrace]] = ctx["filename_to_htraces_list"]
 		input_equivalence_classes_filenames: OrderedDict[Input, OrderedDict[Input, str]] = ctx["input_equivalence_classes_filenames"]
 		test_case: TestCase = ctx["sandboxed_test_case"]
-	
+
 		violations = []
 		for eq_class_filenames in input_equivalence_classes_filenames.values():
 
@@ -1439,7 +1327,7 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         n_inputs = len(inputs)
         STAT.executor_reruns += n_reps * n_inputs
         pipeline = (
-                    (LoadInputsBlock() & GenerateInputArchFlowBlock() & GenerateInputVariantsBlock() & LoadInputVariantsBlock() & ArchiteturalFlowTraceBlock()) | 
+                    (LoadInputsBlock() & GenerateInputArchFlowBlock() & GenerateInputVariantsBlock() & LoadInputVariantsBlock()) | 
                     (LoadSandboxedTestCaseBlock()) |
 					(PrepareScenarioBatch() & TraceScenarioBatch() & CleanupRemoteFiles()) |
 					AnalyserBlock(analyser)

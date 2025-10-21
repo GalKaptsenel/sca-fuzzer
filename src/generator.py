@@ -652,7 +652,6 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
         search_for_memory_access = random.random() < memory_access_probability
         if not search_for_memory_access:
             return random.choice(non_memory_access_instructions)
-
         if store_instructions:
             search_for_store = random.random() < 0.5  # 50% probability of stores
         else:

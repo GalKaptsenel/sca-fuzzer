@@ -64,6 +64,8 @@
     ldr     \tmp2, [\tmp2] 
     add	    \tmp2, \base_reg, \tmp2
     add     \output, \tmp2, \tmp1
+    mov     \tmp1, #-1
+    str     \tmp1, [\output, #264] // #INSTR_LOG_MEM_ADDR_OFFSET
 .endm
 
 /* Log current PC (with delta correction) and encoding */
