@@ -2,9 +2,9 @@
 #include <executor_user_api.h>
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
-#define CLASS_CREATE(DEV_CLASS, DEV_NAME) class_create(DEV_NAME);
-#else
 #define CLASS_CREATE(DEV_CLASS, DEV_NAME) class_create(DEV_CLASS, DEV_NAME);
+#else
+#define CLASS_CREATE(DEV_CLASS, DEV_NAME) class_create(DEV_NAME);
 #endif
 
 

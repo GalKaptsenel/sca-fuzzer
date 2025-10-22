@@ -37,27 +37,31 @@ mkdir -p "$BASE_DIR"
 # -------------------------
 # Detect kernel GCC version
 # -------------------------
+
 detect_compiler() {
     echo "[*] Detecting kernel compiler version..."
-    GCC_VERSION_STR=$(grep -o 'gcc version [0-9]\+' /proc/version 2>/dev/null | awk '{print $3}' || true)
+    GCC_VERSION_STR=""
+
+    if grep -qE 'gcc-[0-9]+' /proc/version; then
+        GCC_VERSION_STR=$(grep -oE 'gcc-[0-9]+' /proc/version | head -n1 | cut -d- -f2)
+    elif grep -qE 'gcc version [0-9]+' /proc/version; then
+        GCC_VERSION_STR=$(grep -oE 'gcc version [0-9]+' /proc/version | awk '{print $3}')
+    fi
 
     if [ -z "$GCC_VERSION_STR" ]; then
-        # Try to read from kernel headers Makefile
         HEADER_MAKEFILE="/usr/src/linux-headers-$(uname -r)/Makefile"
         if [ -f "$HEADER_MAKEFILE" ]; then
-            GCC_VERSION_STR=$(grep -oP '(?<=GCC_VERSION = )\d+' "$HEADER_MAKEFILE" | head -n1 || true)
+            GCC_VERSION_STR=$(grep -Eo 'GCC_VERSION\s*=\s*[0-9]+' "$HEADER_MAKEFILE" | grep -Eo '[0-9]+' | head -n1)
         fi
     fi
 
-    if [ -z "$GCC_VERSION_STR" ]; then
-        # Try system default GCC
-        if command -v gcc &>/dev/null; then
-            GCC_VERSION_STR=$(gcc -dumpversion | cut -d. -f1)
-        fi
+    if [ -z "$GCC_VERSION_STR" ] && command -v gcc &>/dev/null; then
+        echo "[!] Falling back to system GCC version (may differ from kernel build)."
+        GCC_VERSION_STR=$(gcc -dumpfullversion -dumpversion 2>/dev/null | cut -d. -f1)
     fi
 
     if [ -z "$GCC_VERSION_STR" ]; then
-        echo "[!] Could not detect kernel GCC version. Falling back to default aarch64-linux-gnu-gcc."
+        echo "[!] Could not detect kernel GCC version. Using default aarch64-linux-gnu-gcc."
         CROSS_GCC="aarch64-linux-gnu-gcc"
     else
         echo "[*] Kernel built with GCC version $GCC_VERSION_STR"
@@ -66,12 +70,12 @@ detect_compiler() {
         if command -v "$CROSS_GCC_VER" &>/dev/null; then
             CROSS_GCC="$CROSS_GCC_VER"
         else
-            echo "[!] $CROSS_GCC_VER not found, attempting installation..."
+            echo "[!] $CROSS_GCC_VER not found. Installing..."
             sudo apt install -y "gcc-$GCC_VERSION_STR-aarch64-linux-gnu" "g++-$GCC_VERSION_STR-aarch64-linux-gnu" || true
             if command -v "$CROSS_GCC_VER" &>/dev/null; then
                 CROSS_GCC="$CROSS_GCC_VER"
             else
-                echo "[!] Still not found. Falling back to default aarch64-linux-gnu-gcc."
+                echo "[!] Still not found. Falling back to aarch64-linux-gnu-gcc."
                 CROSS_GCC="aarch64-linux-gnu-gcc"
             fi
         fi
@@ -79,6 +83,7 @@ detect_compiler() {
 
     echo "[*] Using cross-compiler: $CROSS_GCC"
 }
+
 
 # -------------------------
 # Build executables function
@@ -91,13 +96,13 @@ build_executables() {
     cp executor_userland "$BASE_DIR/"
     popd
 
-    echo "[*] Building kernel module (executor)..."
+    echo "[*] Building kernel module (revizor-executor)..."
     pushd "$DEST_DIR/src/aarch64/executor"
     make CC="$CROSS_GCC"
-    cp executor "$BASE_DIR/"
+    cp revizor-executor.ko "$BASE_DIR/"
     popd
 
-    echo "[*] Binaries 'executor_userland' and 'executor' are in $BASE_DIR"
+    echo "[*] Binaries 'executor_userland' and 'revizor-executor.ko' are in $BASE_DIR"
 }
 
 
@@ -227,6 +232,6 @@ echo "[*] Setup complete!"
 echo "Activate the Python environment with: source $VENV_DIR/bin/activate"
 echo "Your Revizor repository is located at: $DEST_DIR"
 if [ "$BUILD_EXECUTABLES" = true ]; then
-    echo "Binaries 'executor_userland' and 'executor' are in $BASE_DIR"
+    echo "Binaries 'executor_userland' and 'revizor-executor.ko' are in $BASE_DIR"
 fi
 
