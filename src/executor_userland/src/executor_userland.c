@@ -72,6 +72,7 @@ static int read_device(int fd, char** buffer, size_t* size) {
 	}
 
 	free(temp_buffer);
+	temp_buffer = NULL;
 
 	*size = total_size;
 	return 0;
@@ -80,9 +81,13 @@ read_device_free_buffers:
 
 	if(*buffer) {
 		free(*buffer);
+		*buffer = NULL;
 	}
 
-	free(temp_buffer);
+	if(temp_buffer) {
+		free(temp_buffer);
+		temp_buffer = NULL;
+	}
 
 read_device_exit:
 	return -1;
