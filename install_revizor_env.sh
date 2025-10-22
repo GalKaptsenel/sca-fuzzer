@@ -35,23 +35,71 @@ VENV_DIR=$BASE_DIR/revizor-venv
 mkdir -p "$BASE_DIR"
 
 # -------------------------
+# Detect kernel GCC version
+# -------------------------
+detect_compiler() {
+    echo "[*] Detecting kernel compiler version..."
+    GCC_VERSION_STR=$(grep -o 'gcc version [0-9]\+' /proc/version 2>/dev/null | awk '{print $3}' || true)
+
+    if [ -z "$GCC_VERSION_STR" ]; then
+        # Try to read from kernel headers Makefile
+        HEADER_MAKEFILE="/usr/src/linux-headers-$(uname -r)/Makefile"
+        if [ -f "$HEADER_MAKEFILE" ]; then
+            GCC_VERSION_STR=$(grep -oP '(?<=GCC_VERSION = )\d+' "$HEADER_MAKEFILE" | head -n1 || true)
+        fi
+    fi
+
+    if [ -z "$GCC_VERSION_STR" ]; then
+        # Try system default GCC
+        if command -v gcc &>/dev/null; then
+            GCC_VERSION_STR=$(gcc -dumpversion | cut -d. -f1)
+        fi
+    fi
+
+    if [ -z "$GCC_VERSION_STR" ]; then
+        echo "[!] Could not detect kernel GCC version. Falling back to default aarch64-linux-gnu-gcc."
+        CROSS_GCC="aarch64-linux-gnu-gcc"
+    else
+        echo "[*] Kernel built with GCC version $GCC_VERSION_STR"
+        CROSS_GCC_VER="aarch64-linux-gnu-gcc-$GCC_VERSION_STR"
+
+        if command -v "$CROSS_GCC_VER" &>/dev/null; then
+            CROSS_GCC="$CROSS_GCC_VER"
+        else
+            echo "[!] $CROSS_GCC_VER not found, attempting installation..."
+            sudo apt install -y "gcc-$GCC_VERSION_STR-aarch64-linux-gnu" "g++-$GCC_VERSION_STR-aarch64-linux-gnu" || true
+            if command -v "$CROSS_GCC_VER" &>/dev/null; then
+                CROSS_GCC="$CROSS_GCC_VER"
+            else
+                echo "[!] Still not found. Falling back to default aarch64-linux-gnu-gcc."
+                CROSS_GCC="aarch64-linux-gnu-gcc"
+            fi
+        fi
+    fi
+
+    echo "[*] Using cross-compiler: $CROSS_GCC"
+}
+
+# -------------------------
 # Build executables function
 # -------------------------
 build_executables() {
+    detect_compiler
     echo "[*] Building executor_userland..."
-    pushd "$DEST_DIR/src/executor_userland" >/dev/null
-    make
+    pushd "$DEST_DIR/src/executor_userland"
+    make CC="$CROSS_GCC"
     cp executor_userland "$BASE_DIR/"
-    popd >/dev/null
+    popd
 
     echo "[*] Building kernel module (executor)..."
-    pushd "$DEST_DIR/src/aarch64/executor" >/dev/null
-    make
+    pushd "$DEST_DIR/src/aarch64/executor"
+    make CC="$CROSS_GCC"
     cp executor "$BASE_DIR/"
-    popd >/dev/null
+    popd
 
     echo "[*] Binaries 'executor_userland' and 'executor' are in $BASE_DIR"
 }
+
 
 # -------------------------
 # Build-only mode
