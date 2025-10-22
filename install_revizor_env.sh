@@ -57,7 +57,7 @@ sudo apt install -y \
     libcapstone-dev libelf-dev libdw-dev libffi-dev libssl-dev \
     zlib1g-dev libbz2-1.0 liblzma5 libzstd1 libncursesw6 libtinfo6 libxxhash0 \
     gdb gdb-multiarch lldb python3-lldb strace vbindiff \
-    git wget curl tar unzip screen tmux \
+    git gitk wget curl tar unzip screen tmux \
     linux-headers-$(uname -r)
 
 # Warn if headers not found
@@ -114,7 +114,7 @@ fi
 # -------------------------
 # 6️⃣ Set up Python virtual environment
 # -------------------------
-VENV_DIR=~/revizor-venv
+VENV_DIR=$BASE_DIR/revizor-venv
 if [ ! -d "$VENV_DIR" ]; then
     echo "[*] Creating Python virtual environment..."
     python3 -m venv "$VENV_DIR"
