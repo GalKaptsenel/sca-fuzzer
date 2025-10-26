@@ -727,6 +727,8 @@ class GenerateInputVariantsBlock(Block):
 
 
 	def _generate_single_input_mutation(self, input_to_mutate: Input, bitmap_aux_buffer: BitmapTaintsAuxBuffer, full_trace_buffer: FullTraceAux, p_high: float, p_low: float) -> Input:
+		from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
+		from capstone.arm64 import ARM64_OP_REG
 
 		def _classify_resources(W: int, R: int, IR: int, number_of_relevant_bits: int = 64) -> Tuple[int, int, int, int]:
 			if not isinstance(number_of_relevant_bits, int) or not(64 >= number_of_relevant_bits >= 0):
@@ -750,6 +752,17 @@ class GenerateInputVariantsBlock(Block):
 				prev = region[offset]
 				region[offset] = self.rng.integers(0, 256, dtype=np.uint8)
 				print(f"{self.__class__.__name__}: {region_name}[{offset}] {prev} ===> {region[offset]}")
+
+		def memory_access_size(insnt):
+			ops = insnt.operands
+			reg_op = ops[0]
+			assert len(ops) >= 2, "Unexpected number of operands"
+			if reg_op.type == ARM64_OP_REG and dis.reg_name(reg_op.reg).lower().startswith('w'):
+				access_size = 4
+			else:
+				access_size = 8
+			return access_size
+
 
 		num_of_gprs = input_to_mutate['gpr'].shape[0]
 
@@ -776,19 +789,57 @@ class GenerateInputVariantsBlock(Block):
 				if self.rng.random() < p_low:
 					prev = gpr_region[i]
 					gpr_region[i] = self.rng.integers(0, np.iinfo(np.uint64).max + 1, dtype=np.uint64)
-					print(f"{self.__class.__.__name__}: GPR[{i}] {prev} ===> {gpr_region[i]}")
+					print(f"{self.__class__.__name__}: GPR[{i}] {prev} ===> {gpr_region[i]}")
 
 		# Sandbox base is stored in x30 while executing the test case. It should not change while executing the test case. Take the first one.
 		sandbox_base = full_trace_buffer.instruction_logs[0].regs[30]
 		faulty_region_u8 = new_input[0]["faulty"].view(np.uint8)
 		main_region_u8 = new_input[0]["main"].view(np.uint8)
 		sandbox_size = main_region_u8.size + faulty_region_u8.size
+
+		NOT_ACCESSED, READ, WRITE = 0, 1, 2
+		access_table = np.zeros(sandbox_size, dtype=np.uint8)
+
+		dis = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
+		dis.detail = True
+
+		for inst_log in full_trace_buffer.instruction_logs:
+			encoding_bytes = inst_log.encoding.to_bytes(4, byteorder='little')
+			insns = list(dis.disasm(encoding_bytes, 0))
+			assert insns, f"Unable to decode Aarch64 instruction: {encoding_bytes.hex()}"
+
+			if inst_log.effective_address == 0xFFFFFFFFFFFFFFFF:
+				continue
+			offset = inst_log.effective_address - sandbox_base
+			mnem = insns[0].mnemonic.lower()
+			decoded = f"{mnem} {insns[0].op_str}"
+			msg = f"Unexpected offset into sandbox: {offset} = {inst_log.effective_address:#08x} - {sandbox_base:#08x} = inst_log.effective_address - sandbox_base: {decoded}"
+			assert 0 <= offset and offset < sandbox_size, msg
+
+			access_size = memory_access_size(insns[0])
+
+			is_write = "str" in mnem
+			is_read = "ldr" in mnem
+			for i in range(access_size):
+				idx = offset + i
+				if idx >= sandbox_size:
+					break
+
+				if is_read and access_table[idx] == NOT_ACCESSED:
+					access_table[idx] = READ
+				elif is_write and access_table[idx] == NOT_ACCESSED:
+					access_table[idx] = WRITE
+
+
 		for offset in range(sandbox_size):
-			if all(offset != (inst_log.effective_address - sandbox_base) for inst_log in full_trace_buffer.instruction_logs):
-				if offset < main_region_u8.size:
-					_mutate_region(main_region_u8, "main", offset, p_high)
-				else:
-					_mutate_region(faulty_region_u8, "faulty", offset - main_region_u8.size, p_high)
+			access = access_table[offset]
+			if access == READ:
+				continue
+
+			if offset < main_region_u8.size:
+				_mutate_region(main_region_u8, "main", offset, p_high)
+			else:
+				_mutate_region(faulty_region_u8, "faulty", offset - main_region_u8.size, p_high)
 
 		return new_input
 

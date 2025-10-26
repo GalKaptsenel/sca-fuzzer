@@ -827,7 +827,7 @@ class BitmapAccessor:
 @register_aux_buffer(AuxBufferType.BITMAP_TAINTS)
 @dataclass
 class BitmapTaintsAuxBuffer(ExecutorAuxBuffer):
-	_size_in_bits: int = 64
+	_size_in_bits: int = field(default=64, init=False)
 	_regs_write_bits: int = field(default=0, repr=False)
 	_regs_read_bits: int = field(default=0, repr=False)
 	_regs_input_read_bits: int = field(default=0, repr=False)

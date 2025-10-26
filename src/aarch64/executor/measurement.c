@@ -48,7 +48,22 @@
 //	return perf_event_to_pmevcntr_index(perf_events[current_index]);
 //}
 //
+
+static inline bool has_pmu(void)
+{
+    u64 dfr0 = read_sysreg(id_aa64dfr0_el1);
+    u64 pmuver = (dfr0 >> 8) & 0xF; // Bits [11:8]
+    module_err("PMEVER: 0x%llx", pmuver);
+    return (pmuver != 0 && pmuver != 0xF);
+}
+
 static int config_pfc(void) {
+
+    if(!has_pmu()) {
+	    module_err("DOES NOT SUPPORT PMU!");
+    } else {
+	    module_err("SUPPORT PMU :)");
+    }
 
     // disable PMU user-mode access (not necessary?)
     uint64_t val = 0;

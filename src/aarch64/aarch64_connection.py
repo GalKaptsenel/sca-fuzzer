@@ -358,10 +358,10 @@ class UserlandExecutorImp:
 	@property
 	def aux_buffer(self) -> bytes:
 		result = self._query_executor(12)
-		hex_lines = re.findall(r'^\s*(?:0x[0-9A-Fa-f]+|[0-9A-Fa-f]+)\s*:.*$', result, flags=re.MULTILINE)
+		hex_lines = re.findall(r'^\s*([0-9A-Fa-f]+)\s*:\s*(.*?)\s*(?:\|.*)?$', result, flags=re.MULTILINE)
 		hex_bytes = []
-		for line in hex_lines:
-			hex_bytes.extend(re.findall(r'\b[0-9a-fA-F]{2}\b', line))
+		for _, bytes_part in hex_lines:
+			hex_bytes.extend(re.findall(r'\b[0-9a-fA-F]{2}\b', bytes_part.strip()))
 
 		try:
 			return bytes(int(b, 16) for b in hex_bytes)

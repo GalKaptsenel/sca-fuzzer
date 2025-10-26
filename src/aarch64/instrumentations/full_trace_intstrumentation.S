@@ -22,6 +22,7 @@
 //	uint64_t effective_address;	// 264
 //	uint64_t mem_before;		// 272
 //	uint64_t mem_after;		// 280
+//	uint64_t encoding;		// 288
 //};
 
 

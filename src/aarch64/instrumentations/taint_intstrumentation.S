@@ -76,7 +76,6 @@
 
 /* Load from memory: mark read and input_read if not written yet */
 .macro TAINT_LOAD addr_reg, base_reg, tmp1, tmp2
-    TAINT_REG_READ \addr_reg, \base_reg, \tmp1, \tmp2
 
     // compute 64-bucket hash
     lsr     \tmp1, x\addr_reg, #6
@@ -103,7 +102,6 @@
 
 /* Store to memory: mark written */
 .macro TAINT_STORE addr_reg, base_reg, tmp1, tmp2
-    TAINT_REG_READ \addr_reg, \base_reg, \tmp1, \tmp2
     lsr     \tmp1, x\addr_reg, #6
     and     \tmp1, \tmp1, #0x3f           // idx
 
