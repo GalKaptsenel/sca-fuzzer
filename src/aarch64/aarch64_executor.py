@@ -22,10 +22,12 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from collections import defaultdict, OrderedDict, deque
 from enum import Enum, auto
+from contextlib import contextmanager
+
 
 from .aarch64_generator import Aarch64TagMemoryAccesses, Aarch64Printer, Aarch64MarkMemoryAccessesNEON, Aarch64SandboxPass, Aarch64MarkRegisterTaints, Aarch64MarkMemoryTaints, Aarch64FullTrace, FullTraceAuxBuffer, BitmapTaintsAuxBuffer
 from .. import ConfigurableGenerator
-from ..interfaces import HTrace, Input, TestCase, Executor, HardwareTracingError, Analyser, CTrace
+from ..interfaces import HTrace, Input, TestCase, Executor, HardwareTracingError, Analyser, CTrace, InputTaint
 from ..config import CONF
 from ..util import Logger, STAT
 from .aarch64_target_desc import Aarch64TargetDesc
@@ -216,10 +218,9 @@ def write_test_case_remotely(test_case: TestCase, connection: Connection, workdi
 
 
 def create_scenario_batch(remote_inputs: List[str],
-				remote_test_filename: str,
-				repeats: int,
-				workdir: str,
-				output: str = None) -> ExecutorBatch:
+						  remote_test_filename: str,
+						  repeats: int,
+						  remote_batch_output_filename: str) -> ExecutorBatch:
 	batch = ExecutorBatch()
 	batch.repeats = repeats
 
@@ -228,7 +229,7 @@ def create_scenario_batch(remote_inputs: List[str],
 
 	batch.add_test(remote_test_filename)
 
-	batch.output = output or f"{workdir}/remote_batch_output"
+	batch.output = remote_batch_output_filename or 'remote_batch_output'
 
 	return batch
 
@@ -545,11 +546,11 @@ class LoadInputsBlock(Block):
 	required_keys = {"inputs", "connection", "workdir"}
 	provided_keys = {"input_to_filename_dict"}
 
-	def __init__(self):
+	def __init__(self, executor: Cleanable):
 		super().__init__(StageType.LOAD)
+		self.executor = executor
 
-	@classmethod
-	def _upload_inputs(cls, inputs: List[Input], connection: Connection, workdir: str) -> OrderedDict[Input, str]:
+	def _upload_inputs(self, inputs: List[Input], connection: Connection, workdir: str) -> OrderedDict[Input, str]:
 		remote_filenames = OrderedDict()
 		for idx, inp in enumerate(inputs):
 			input_name = f"input{idx}.bin"
@@ -558,6 +559,7 @@ class LoadInputsBlock(Block):
 			connection.push(input_name, remote_filename)
 			os.remove(input_name)
 			remote_filenames[inp] = remote_filename
+			self.executor.add_temp_file(remote_filename)
 		return remote_filenames
 
 	def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
@@ -571,10 +573,11 @@ class LoadInputsBlock(Block):
 
 class LoadSandboxedTestCaseBlock(Block):
 	required_keys = {"test_case", "connection", "workdir"}
-	provided_keys = {"remote_sandboxed_test_filename", "sandboxed_test_case"}
+	provided_keys = {"remote_test_filename", "sandboxed_test_case"}
 
-	def __init__(self):
+	def __init__(self, executor: Cleanable):
 		super().__init__(StageType.TRANSFORM)
+		self.executor = executor
 
 	@classmethod
 	def _upload_sandboxed_test(cls, test_case: TestCase, connection: Connection, workdir: str) -> Tuple[str, TestCase]:
@@ -587,14 +590,171 @@ class LoadSandboxedTestCaseBlock(Block):
 		connection: Connection = ctx["connection"]
 		workdir: str= ctx["workdir"]
 
-		remote_sandboxed_test_filename, sandboxed_test_case = self._upload_sandboxed_test(test_case, connection, workdir)
+		remote_test_filename, sandboxed_test_case = self._upload_sandboxed_test(test_case, connection, workdir)
+		self.executor.add_temp_file(remote_test_filename)
 		ctx.update(
 				{
-					"remote_sandboxed_test_filename": remote_sandboxed_test_filename,
+					"remote_test_filename": remote_test_filename,
 					"sandboxed_test_case": sandboxed_test_case,
 				}
 		)
 		return ctx
+
+class LoadRawTestCaseBlock(Block):
+	required_keys = {"test_case", "connection", "workdir"}
+	provided_keys = {"remote_test_filename"}
+
+	def __init__(self, executor: Cleanable):
+		super().__init__(StageType.LOAD)
+		self.executor = executor
+
+	def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
+		test_case: TestCase = ctx["test_case"]
+		connection: Connection = ctx["connection"]
+		workdir: str= ctx["workdir"]
+
+		base_name = os.path.basename(test_case.bin_path)
+		remote_test_filename = write_test_case_remotely(test_case, connection, workdir, base_name)
+		self.executor.add_temp_file(remote_test_filename)
+
+		ctx.update(
+				{
+					"remote_test_filename": remote_test_filename,
+				}
+		)
+
+		return ctx
+
+class GenerateTaintsAndCTracesBlock(Block):
+	required_keys = {"input_to_bitmap_taints_buffer", "input_to_full_trace_buffer"}
+	provided_keys = {"input_to_taint", "input_to_ctrace"}
+
+	def __init__(self):
+		super().__init__(StageType.TRANSFORM)
+
+	def _process_input(self, input_to_process: Input, bitmap_aux_buffer: BitmapTaintsAuxBuffer, full_trace_buffer: FullTraceAuxBuff) -> Tuple[InputTaint, CTrace]:
+		from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
+		from capstone.arm64 import ARM64_OP_REG
+
+		def memory_access_size(insnt):
+			ops = insnt.operands
+			reg_op = ops[0]
+			assert len(ops) >= 2, "Unexpected number of operands"
+			if reg_op.type == ARM64_OP_REG and dis.reg_name(reg_op.reg).lower().startswith('w'):
+				access_size = 4
+			else:
+				access_size = 8
+			return access_size
+
+		num_of_gprs = input_to_process['gpr'].shape[1]
+
+		input_taint = InputTaint()
+
+		gpr_region = input_taint[0]['gpr']
+		for i in range(num_of_gprs):
+			mask: int = 1 << i
+			if bitmap_aux_buffer.regs_input_read_bits & mask:
+				gpr_region[i] = True
+
+		# Sandbox base is stored in x30 while executing the test case. It should not change while executing the test case. Take the first one.
+		sandbox_base = full_trace_buffer.instruction_logs[0].regs[30]
+		faulty_region_u8 = input_taint[0]["faulty"].view(np.uint8)
+		main_region_u8 = input_taint[0]["main"].view(np.uint8)
+		sandbox_size = main_region_u8.size + faulty_region_u8.size
+
+		NOT_ACCESSED, READ, WRITE = 0, 1, 2
+		access_table = np.zeros(sandbox_size, dtype=np.uint8)
+
+		dis = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
+		dis.detail = True
+
+		for inst_log in full_trace_buffer.instruction_logs:
+			encoding_bytes = inst_log.encoding.to_bytes(4, byteorder='little')
+			insns = list(dis.disasm(encoding_bytes, 0))
+			assert insns, f"Unable to decode Aarch64 instruction: {encoding_bytes.hex()}"
+
+			if inst_log.effective_address == 0xFFFFFFFFFFFFFFFF:
+				continue
+			offset = inst_log.effective_address - sandbox_base
+			mnem = insns[0].mnemonic.lower()
+			decoded = f"{mnem} {insns[0].op_str}"
+			msg = f"Unexpected offset into sandbox: {offset} = {inst_log.effective_address:#08x} - {sandbox_base:#08x} = inst_log.effective_address - sandbox_base: {decoded}"
+			assert 0 <= offset and offset < sandbox_size, msg
+
+			access_size = memory_access_size(insns[0])
+
+			is_write = "str" in mnem
+			is_read = "ldr" in mnem
+			for i in range(access_size):
+				idx = offset + i
+				if idx >= sandbox_size:
+					break
+
+				if is_read and access_table[idx] == NOT_ACCESSED:
+					access_table[idx] = READ
+				elif is_write and access_table[idx] == NOT_ACCESSED:
+					access_table[idx] = WRITE
+
+		accessed_addresses: List[int] = []
+
+		for offset in range(sandbox_size):
+			access = access_table[offset]
+			if access != NOT_ACCESSED:
+				accessed_addresses.append(offset)
+
+			if access == READ:
+				to_change_region = main_region_u8
+				to_change_offset = offset
+
+				if offset >= main_region_u8.size:
+					to_change_region = faulty_region_u8
+					to_change_offset = offset - main_region_u8.size
+            
+				to_change_region[to_change_offset] = True
+
+		line_size = 64
+		num_sets = 64
+		accessed_sets: List[int] = []
+		cache_sets = sorted(set(map(lambda addr: (addr // line_size) % num_sets, accessed_addresses)))
+		ctrace = CTrace(raw_trace=accessed_addresses)
+
+		return input_taint, ctrace
+
+
+	def _process_inputs(self, input_to_bitmap_taints_buffer: Dict[str, BitmapTaintsAuxBuffer], input_to_full_trace_buffer: Dict[str, FullTraceAuxBuffer]) -> Tuple[OrderedDict[Input, InputTaint], OrderedDict[Input, CTrace]]:
+
+		assert set(input_to_bitmap_taints_buffer) == set(input_to_full_trace_buffer)
+		inputs_to_process = list(input_to_bitmap_taints_buffer.keys())
+		if not inputs_to_process:
+			return {} 
+
+		taints: OrderedDict[Input, InputTaint] = OrderedDict()
+		ctraces: OrderedDict[Input, CTrace] = OrderedDict()
+
+		for input_to_process, bitmap_aux_buffer in input_to_bitmap_taints_buffer.items():
+			full_trace_buffer = input_to_full_trace_buffer[input_to_process]
+			taints[input_to_process], ctraces[input_to_process] = self._process_input(input_to_process, bitmap_aux_buffer, full_trace_buffer)
+		
+		return taints, ctraces
+
+
+
+	def run(self, ctx: dict[str, Any]) -> dict[str, Any]:
+		input_to_bitmap_taints_buffer = ctx['input_to_bitmap_taints_buffer']
+		input_to_full_trace_buffer = ctx['input_to_full_trace_buffer']
+
+		input_to_taint, input_to_ctrace = self._process_inputs(input_to_bitmap_taints_buffer, input_to_full_trace_buffer)
+
+		ctx.update({
+			"input_to_taint": input_to_taint,
+			"input_to_ctrace": input_to_ctrace
+		})
+
+		return ctx
+
+
+
+
 
 class GenerateInputArchFlowBlock(Block):
 	required_keys = {"test_case", "input_to_filename_dict", "connection", "workdir", "userland_executor"}
@@ -652,8 +812,6 @@ class GenerateInputArchFlowBlock(Block):
 
 		userland_executor.discard_all_inputs()
 		return input_to_bitmap_taints_buffer, input_to_full_trace_buffer
-
-
 
 	def run(self, ctx: dict[str, Any]) -> dict[str, Any]:
 		test_case: TestCase = ctx["test_case"]
@@ -764,7 +922,7 @@ class GenerateInputVariantsBlock(Block):
 			return access_size
 
 
-		num_of_gprs = input_to_mutate['gpr'].shape[0]
+		num_of_gprs = input_to_mutate['gpr'].shape[1]
 
 		_, high_priority_registers, low_priority_registers, _ = _classify_resources(
 				bitmap_aux_buffer.regs_write_bits,
@@ -983,73 +1141,71 @@ class GenerateMTETestVariants(Block):
 
 		return ctx
 
-class PrepareScenarioBatch(Block):
-	required_keys = {"input_equivalence_classes_filenames", "remote_sandboxed_test_filename", "repeats", "workdir"}
-	provided_keys = {"scenario_batch"}
+class ScenarioBatchGenerator:
+	def __init__(self,
+			  input_equivalence_classes_filenames: OrderedDict,
+			  remote_test_filename: str,
+			  workdir:str,
+			  n_repeats: List[int]
+			):
+		self.input_equivalence_classes_filenames = input_equivalence_classes_filenames
+		self.remote_test_filename = remote_test_filename
+		self.workdir = workdir
+		self.n_repeats = n_repeats
+		self._index = 0
+	
+	def __iter__(self) -> Iterator[ExecutorBatch]:
+		return self
 
-	def __init__(self):
-		super().__init__(StageType.EXECUTE)
+	def __next__(self) -> ExecutorBatch:
+		if self._index >= len(self.n_repeats):
+			return StopIteration
 
-	def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
-		input_equivalence_classes_filenames: OrderedDict[Input, OrderedDict[Input, str]] = ctx["input_equivalence_classes_filenames"]
-		remote_test_filename: str = ctx["remote_sandboxed_test_filename"]
-		repeats: int = ctx["repeats"]
-		workdir: str = ctx["workdir"]
+		repeat = self.n_repeats[self._index]
+		self._index += 1
+		remote_inputs = list(flatten_ordered_dict(self.input_equivalence_classes_filenames).values())
+		batch = create_scenario_batch(remote_inputs, self.remote_test_filename, repeat, self.workdir, f'remote_batch_output_r{repeats}')
 
-		batch = create_scenario_batch(flatten_ordered_dict(input_equivalence_classes_filenames).values(), remote_test_filename, repeats, workdir)
-
-		ctx.update({
-			"scenario_batch": batch,
-		})
-
-		return ctx
+		return batch
 
 
 class TraceScenarioBatch(Block):
-	required_keys = {"scenario_batch", "userland_executor", "input_equivalence_classes_filenames"}
-	provided_keys = {"filename_to_htraces_list"}  # keyed by remote input filename, values = list of HTrace objects
+	required_keys = {"input_to_filename_dict", "remote_test_filename", "repeats", "workdir", "userland_executor"}
+	provided_keys = {"filename_to_jsons"}  # keyed by remote input filename, values = list of HTrace objects
 
-	def __init__(self):
+	def __init__(self, executor: Cleanable):
 		super().__init__(StageType.EXECUTE)
+		self.executor = executor
 
 
 	def run(self, ctx: dict[str, Any]) -> dict[str, Any]:
-		batch: ExecutorBatch = ctx["scenario_batch"]
+		input_to_filename_dict: OrderedDict[Input, str] = ctx["input_to_filename_dict"]
+		remote_test_filename: str = ctx["remote_test_filename"]
+		repeats: List[int] = ctx["repeats"]
+		workdir: str = ctx["workdir"]
 		userland_executor: UserlandExecutor = ctx["userland_executor"]
-		input_equivalence_classes_filenames: OrderedDict[Input, OrderedDict[Input, str]] = ctx["input_equivalence_classes_filenames"]
 
-		# Temporary remote batch file
-		raw_output = userland_executor.trace(batch)
+		remote_inputs = input_to_filename_dict.values()
+		remote_batch_output = f'{workdir}/remote_batch_output_r{repeats}'
+		batch = create_scenario_batch(remote_inputs, remote_test_filename, repeats, remote_batch_output)
+		self.executor.add_temp_file(batch.output)
 
-		json_objs = extract_json_objects(raw_output)
+		import pdb; pdb.set_trace()
+		json_objs = extract_json_objects(userland_executor.trace(batch))
 
 		# Aggregate traces per remote input
-		filename_to_htraces_list: Dict[str, List[int]] = {input_name: [] for input_name in flatten_ordered_dict(input_equivalence_classes_filenames).values()}
+		filename_to_jsons: Dict[str, OrderedDict[str, object]] = {input_name: [] for input_name in remote_inputs}
 
 		for js in json_objs:
 			input_name = js.get('input_name')
-			if input_name not in filename_to_htraces_list:
+			if input_name not in remote_inputs:
 				warnings.warn(f"Unexpected input_name returned: {input_name}")
 				continue
 
-			trace_bin = js['htraces'][0]
-			trace_int = int(trace_bin, 2)
-
-			pfcs = tuple(js['pfcs'])
-
-			filename_to_htraces_list[input_name].append(trace_int)
-
-#			expected_size = int(js['aux_buffer']['size'])
-#			raw_aux_buffer = base64.b64decode(js['aux_buffer']['data_b64'])
-#			assert len(raw_aux_buffer) == expected_size, f"Decoded aux buffer size mismatch: got {len(raw_aux_buffer)}, expected {expected_size}"
-#			import pdb; pdb.set_trace()
-#			aux_buffer = aux_buffer_from_bytes(AuxBufferType.FULL_TRACE, raw_aux_buffer)
-
-#			print(aux_buffer)
-#			solve_for_inputs(aux_buffer.instruction_logs, 64, 64, userland_executor.sandbox_base, 4096*2)
+			filename_to_jsons[input_name].append(js)
 
 		ctx.update({
-			"filename_to_htraces_list": filename_to_htraces_list,
+			"filename_to_jsons": filename_to_jsons,
 		})
 
 		return ctx
@@ -1122,7 +1278,7 @@ class ArchiteturalFlowTraceBlock(Block):
 		return ctx
 
 class CleanupRemoteFiles(Block):
-	required_keys = {"input_to_filename_dict", "input_equivalence_classes_filenames", "remote_sandboxed_test_filename", "connection", "scenario_batch"}
+	required_keys = {"input_to_filename_dict", "input_equivalence_classes_filenames", "remote_sandboxed_test_filename", "connection", "scenario_batch_filenames"}
 	provided_keys = set()
 
 	def __init__(self):
@@ -1154,10 +1310,11 @@ class CleanupRemoteFiles(Block):
 		except Exception as e:
 			warnings.warn(f"Failed to remove test file: {remote_sandboxed_test_filename} ({e}).")
 
-		try:
-			connection.shell(f"rm {scenario_batch.output}", privileged=True)
-		except Exception as e:
-			warnings.warn(f"Failed to remove batch output file: {scenario_batch.output} ({e}).")
+		for filename in scenario_batch_filenames:
+			try:
+				connection.shell(f"rm {filename}", privileged=True)
+			except Exception as e:
+				warnings.warn(f"Failed to remove batch output file: {filename} ({e}).")
 
 		return ctx
 
@@ -1190,6 +1347,35 @@ class AnalyserBlock(Block):
 		ctx.update({"violations": violations})
 
 		return ctx
+
+
+class Cleanable:
+    def __init__(self):
+        self._temp_files = []
+
+    def add_temp_file(self, path):
+        if os.path.exists(path):
+            self._temp_files.append(path)
+
+    def _cleanup_temp_files(self):
+        for path in self._temp_files:
+            print(f"Cleaning up {path}")
+        self._temp_files.clear()
+
+    # Context manager support
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self._cleanup_temp_files()
+
+    # Destructor as a fallback
+    def __del__(self):
+        try:
+            self._cleanup_temp_files()
+        except Exception:
+            # Avoid raising exceptions in __del__
+            pass
 
 
 # ==================================================================================================
@@ -1320,7 +1506,7 @@ class Aarch64Executor(Executor):
 # ==================================================================================================
 # Vendor-specific executors
 # ==================================================================================================
-class Aarch64RemoteExecutor(Aarch64Executor):
+class Aarch64RemoteExecutor(Aarch64Executor, Cleanable):
 
     def __init__(self, connection: Connection, workdir: str, *args):
         self.connection = connection
@@ -1345,6 +1531,15 @@ class Aarch64RemoteExecutor(Aarch64Executor):
 
         return False
 
+    def _cleanup_temp_files(self):
+        for path in self._temp_files:
+            try:
+                self.connection.shell(f"rm {shlex.quote(path)}", privileged=True)
+            except Exception as e:
+                if getattr(self, "debug", False):
+                    print(f"[Executor] Warning: failed to remove remote file {path}: {e}")
+
+        self._temp_files.clear()
 
     def set_vendor_specific_features(self):
         pass
@@ -1360,7 +1555,7 @@ class Aarch64RemoteExecutor(Aarch64Executor):
     def _write_test_case(self, test_case: TestCase) -> None:
         self.test_case = test_case
 
-    def trace_test_case(self, inputs: List[Input], n_reps: int, analyser: Analyser) -> Dict[Input, List[HTrace]]:
+    def trace_test_case(self, inputs: List[Input], n_reps: int) -> List[HTrace]:
         """
         Call the executor kernel module to collect the hardware traces for
         the test case (previously loaded with `load_test_case`) and the given inputs.
@@ -1373,15 +1568,16 @@ class Aarch64RemoteExecutor(Aarch64Executor):
         # Skip if it's a dummy call
         if not inputs or self.test_case is None:
             return []
+
+
         
         # Store statistics
         n_inputs = len(inputs)
         STAT.executor_reruns += n_reps * n_inputs
         pipeline = (
-                    (LoadInputsBlock() & GenerateInputArchFlowBlock() & GenerateInputVariantsBlock() & LoadInputVariantsBlock()) | 
-                    (LoadSandboxedTestCaseBlock()) |
-					(PrepareScenarioBatch() & TraceScenarioBatch() & CleanupRemoteFiles()) |
-					AnalyserBlock(analyser)
+                    LoadInputsBlock(self) | 
+                    LoadSandboxedTestCaseBlock(self) |
+					TraceScenarioBatch(self)
                 ).build()
         
         initial_context = {
@@ -1391,12 +1587,79 @@ class Aarch64RemoteExecutor(Aarch64Executor):
             "workdir": self.workdir,
             "userland_executor": self.userland_executor,
             "connection": self.connection,
-            "variants_per_input": 1
         }
         
         ctx = pipeline.run(initial_context)
         
-        violations = ctx["violations"]
+        filename_to_jsons = ctx["filename_to_jsons"]
+        input_to_filename_dict = ctx["input_to_filename_dict"]
+
+		# Aggregate traces per remote input
+        filenames = input_to_filename_dict.values()
+
+        results = []
+        for i in inputs:
+            js_list = filename_to_jsons[input_to_filename_dict[i]]
+            trace_list = []
+
+            for js in js_list:
+
+                input_name = js.get('input_name')
+                if input_name not in filenames:
+                    warnings.warn(f"Unexpected input_name returned: {input_name}")
+                    continue
+    
+    
+                trace_bin = js['htraces'][0]
+                trace_int = int(trace_bin, 2)
+    
+                pfcs = tuple(js['pfcs'])
+                trace_list.append(trace_int)
+
+            htrace = HTrace(trace_list=trace_list)
+            results.append(htrace)
+
+        return results
+
+    def trace_test_case_with_taints(self, inputs: List[Input]) -> Tuple[List[CTrace], List[InputTaint]]:
+        """
+        Call the executor kernel module to collect the hardware traces for
+        the test case (previously loaded with `load_test_case`) and the given inputs.
+
+        :param inputs: list of inputs to be used for the test case
+        :return: a tuple of CTrace
+        """
+        # Skip if it's a dummy call
+        if not inputs or self.test_case is None:
+            return []
+
+        pipeline = (
+                    LoadInputsBlock(self) | 
+                    GenerateInputArchFlowBlock() |
+                    GenerateTaintsAndCTracesBlock()
+                ).build()
         
-        return violations
+        initial_context = {
+            "inputs": inputs,
+            "test_case": self.test_case,
+            "workdir": self.workdir,
+            "userland_executor": self.userland_executor,
+            "repeats": 1,
+            "connection": self.connection,
+        }
+        
+        ctx = pipeline.run(initial_context)
+        
+
+        input_to_taint = ctx["input_to_taint"]
+        input_to_ctrace = ctx["input_to_ctrace"]
+
+        taints = []
+        ctraces = []
+        for i in inputs:
+            taints.append(input_to_taint[i])
+            ctraces.append(input_to_ctrace[i])
+
+        return ctraces, taints
+
 
