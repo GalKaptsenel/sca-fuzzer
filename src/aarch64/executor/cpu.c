@@ -12,7 +12,7 @@ EXPORT_SYMBOL(get_cpu_info);
 int execute_on_pinned_cpu(int target_cpu, void (*fn)(void *), void *arg) {
 	int result = 0;
 
-	if(smp_processor_id() == target_cpu) {
+	if(smp_processor_id() == target_cpu || CPU_ID_DEFAULT == target_cpu) {
 		get_cpu();
 		fn(arg);
 		put_cpu();

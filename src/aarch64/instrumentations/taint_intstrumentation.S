@@ -37,13 +37,19 @@
  * -----------------------------------------------------------------------------
  */
 
+/* --- Helper: mark bit in a taint field --- */
+.macro _TAINT_SET_BIT bit, field_offset, base_reg, tmp1, tmp2
+    mov     \tmp1, #1
+    lsl     \tmp1, \tmp1, #\bit // tmp1 = 1 << dst
+    ldr     \tmp2, [\base_reg, #\field_offset] 
+    orr     \tmp2, \tmp2, \tmp1
+    str     \tmp2, [\base_reg, #\field_offset]
+.endm
+
+
 /* Mark register as written */
 .macro TAINT_REG_WRITE dst, base_reg, tmp1, tmp2
-    mov     \tmp1, #1
-    lsl     \tmp1, \tmp1, #\dst           // tmp1 = 1 << dst
-    ldr     \tmp2, [\base_reg, #0]       // load write_bits
-    orr     \tmp2, \tmp2, \tmp1
-    str     \tmp2, [\base_reg, #0]       // store back
+    _TAINT_SET_BIT \dst, 0, \base_reg, \tmp1, \tmp2 // regs_write_bits
 .endm
 
 /* Mark register as read; mark input_read if not written yet */
@@ -57,14 +63,60 @@
     cbnz    \tmp2, 1f                     // already written, skip input_read
 
     // mark input_read_bits |= tmp
-    ldr     \tmp2, [\base_reg, #16]       // regs_input_read_bits
-    orr     \tmp2, \tmp2, \tmp1
-    str     \tmp2, [\base_reg, #16]
+    _TAINT_SET_BIT \src, 16, \base_reg, \tmp1, \tmp2 // regs_input_read_bits
 
 1:  // mark read_bits |= tmp
-    ldr     \tmp2, [\base_reg, #8]        // regs_read_bits
-    orr     \tmp2, \tmp2, \tmp1
-    str     \tmp2, [\base_reg, #8]
+    _TAINT_SET_BIT \src, 8, \base_reg, \tmp1, \tmp2 // regs_read_bits
+.endm
+
+/* Mark FLAGS (NZCV) as written */
+.macro TAINT_FLAGS_WRITE n, z, c, v, base_reg, tmp1, tmp2
+    // Mark x8 (flags origin) as written
+    _TAINT_SET_BIT 8, 0, \base_reg, \tmp1, \tmp2
+
+    // Optionally mark individual bits
+    .if \n
+        _TAINT_SET_BIT 32, 0, \base_reg, \tmp1, \tmp2
+    .endif
+    .if \z
+        _TAINT_SET_BIT 33, 0, \base_reg, \tmp1, \tmp2
+    .endif
+    .if \c
+        _TAINT_SET_BIT 34, 0, \base_reg, \tmp1, \tmp2
+    .endif
+    .if \v
+        _TAINT_SET_BIT 35, 0, \base_reg, \tmp1, \tmp2
+    .endif
+.endm
+
+
+/* Mark FLAGS (NZCV) as read */
+.macro TAINT_FLAGS_READ n, z, c, v, base_reg, tmp1, tmp2
+    // Mark x8 (flags origin) as read
+    _TAINT_SET_BIT 8, 8, \base_reg, \tmp1, \tmp2
+
+    // Optionally mark individual bits
+    .if \n
+        _TAINT_SET_BIT 32, 8, \base_reg, \tmp1, \tmp2
+    .endif
+    .if \z
+        _TAINT_SET_BIT 33, 8, \base_reg, \tmp1, \tmp2
+    .endif
+    .if \c
+        _TAINT_SET_BIT 34, 8, \base_reg, \tmp1, \tmp2
+    .endif
+    .if \v
+        _TAINT_SET_BIT 35, 8, \base_reg, \tmp1, \tmp2
+    .endif
+.endm
+
+/* SP read/write mark x9 (SP origin) */
+.macro TAINT_SP_READ base_reg, tmp1, tmp2
+    _TAINT_SET_BIT 9, 8, \base_reg, \tmp1, \tmp2     // mark x7 itself
+.endm
+
+.macro TAINT_SP_WRITE base_reg, tmp1, tmp2
+    _TAINT_SET_BIT 9, 0, \base_reg, \tmp1, \tmp2     // mark x7 itself
 .endm
 
 /* -----------------------------------------------------------------------------

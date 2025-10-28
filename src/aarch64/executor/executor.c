@@ -8,24 +8,6 @@ static void init_executor_defaults(void) {
 	executor.config.pinned_cpu_id = CPU_ID_DEFAULT;
 }
 
-/*
-static bool set_prefetcher(bool to_set) {
-	uint64_t result = 0;
-
-	asm volatile (""			\
-		" mrs x0, SYS_IMP_CPUECTLR_EL1	\n"	\
-		" and %[output], x0, %[pf_dis]	\n"	\
-		" orr x0, x0, %[to_set_value]	\n"	\
-		" msr SYS_IMP_CPUECTLR_EL1, x0	\n"	\
-		: : [output] "r"(result), [to_set_value] "r"(((int)to_set) << PF_DIS) : );
-
-	return (bool)result;
-}
-
-static bool enable_data_hw_prefetching(void)	{ return set_prefetcher(true);	}
-static bool disable_data_hw_prefetching(void)	{ return set_prefetcher(false);	}
-*/
-
 int __nocfi initialize_executor(set_memory_t set_memory_x) {
 	int err = 0;
 

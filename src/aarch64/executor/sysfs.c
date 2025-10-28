@@ -40,9 +40,6 @@ static ssize_t measurement_mode_store(struct kobject *kobj, struct kobj_attribut
 		case 'P':
 			executor.config.measurement_template = PRIME_AND_PROBE_TEMPLATE;
 			break;
-		case 'V':
-			executor.config.measurement_template = FLUSH_AND_RELOAD_VIRTUAL_COUNTER_TEMPLATE;
-			break;
 		default:
 			module_err("Invalid measurement mode.. Clearing the measurement method, please chose an existing one!.\n");
 			executor.config.measurement_template = UNSET_TEMPLATE;
@@ -61,9 +58,6 @@ static ssize_t measurement_mode_show(struct kobject *kobj, struct kobj_attribute
 			break;
 		case PRIME_AND_PROBE_TEMPLATE:
 			result = sprintf(buf, "Prime and Probe (P+P)\n");
-			break;
-		case FLUSH_AND_RELOAD_VIRTUAL_COUNTER_TEMPLATE:
-			result = sprintf(buf, "Flush and Reload with Virtual Counter (F+R)\n");
 			break;
 		default:
 			result = sprintf(buf, "Measurement mode is unset!\n");
@@ -138,7 +132,7 @@ static ssize_t pin_to_core_store(struct kobject *kobj, struct kobj_attribute *at
 	    module_err("Requested CPU %d is invalid or offline, pinning cleared (will run on current CPU)\n", requested_cpu);
 	} else {
 	    executor.config.pinned_cpu_id = requested_cpu;
-	    module_err("Pinned execution to CPU %d\n", requested_cpu);
+	    module_info("Pinned execution to CPU %d\n", requested_cpu);
 	}
 	
 	return count;

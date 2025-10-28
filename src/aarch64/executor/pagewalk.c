@@ -267,11 +267,9 @@ void disable_mte_for_region(void* start, size_t size) {
 			continue;
 		}
 	
-		module_err("value before: %llx", pte_val(*pte) & PTE_ATTRINDX_MASK);
 		// Remove the MTE bit (bit 54) from the PTE
 		*pte = pte_clear_flags_custom(*pte, PTE_ATTRINDX_MASK);
 	
-		module_err("value after: %llx", pte_val(*pte) & PTE_ATTRINDX_MASK);
 		// Ensure the update takes effect
 		flush_tlb_kernel_range(addr, addr + PAGE_SIZE);
 	}

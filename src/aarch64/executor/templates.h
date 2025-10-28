@@ -9,7 +9,6 @@ enum Templates {
 	UNSET_TEMPLATE,
 	PRIME_AND_PROBE_TEMPLATE,
 	FLUSH_AND_RELOAD_TEMPLATE,
-	FLUSH_AND_RELOAD_VIRTUAL_COUNTER_TEMPLATE,
 };
 
 int load_template(size_t tc_size);

@@ -14,6 +14,7 @@ import os
 import json
 import warnings
 import base64
+import shlex
 
 import numpy as np
 import time
@@ -27,7 +28,7 @@ from contextlib import contextmanager
 
 from .aarch64_generator import Aarch64TagMemoryAccesses, Aarch64Printer, Aarch64MarkMemoryAccessesNEON, Aarch64SandboxPass, Aarch64MarkRegisterTaints, Aarch64MarkMemoryTaints, Aarch64FullTrace, FullTraceAuxBuffer, BitmapTaintsAuxBuffer
 from .. import ConfigurableGenerator
-from ..interfaces import HTrace, Input, TestCase, Executor, HardwareTracingError, Analyser, CTrace, InputTaint
+from ..interfaces import HTrace, Input, TestCase, Executor, HardwareTracingError, Analyser, CTrace, InputTaint, TargetDesc
 from ..config import CONF
 from ..util import Logger, STAT
 from .aarch64_target_desc import Aarch64TargetDesc
@@ -192,7 +193,7 @@ def pass_on_test_case(test_case: TestCase, passes: List[Pass]):
 	for p in passes:
 		p.run_on_test_case(test_case)
 
-def write_test_case_remotely(test_case: TestCase, connection: Connection, workdir: str, local_filename: str) -> str:
+def write_test_case_remotely(test_case: TestCase, connection: Connection, workdir: str, local_filename: str, target_desc: TargetDesc) -> str:
 
 	def upload_test(test_case: TestCase, connection: Connection, workdir: str) -> str:
 		remote_filename = f'{workdir}/remote_{os.path.basename(test_case.bin_path)}'
@@ -200,7 +201,7 @@ def write_test_case_remotely(test_case: TestCase, connection: Connection, workdi
 		return remote_filename
 
 	def assemble_local_test_case(test_case: TestCase, base_filename: str):
-		printer = Aarch64Printer(Aarch64TargetDesc())
+		printer = Aarch64Printer(target_desc)
 		test_case.bin_path, test_case.asm_path, test_case.obj_path = (f'{base_filename}.{suffix}' for suffix in ('bin', 'asm', 'o'))
 	
 		printer.print(test_case, test_case.asm_path)
@@ -418,7 +419,7 @@ class Stage:
         
 			before_keys = set(ctx.keys())
 
-			print(f"Executing block of type: {block.__class__.__name__}")
+#			print(f"Executing block of type: {block.__class__.__name__}")
 			provided = block.run(ctx)
 			if not isinstance(provided, dict):
 				raise TypeError(f"Block {block.name} must return a dict, got {type(provided)}")
@@ -546,9 +547,9 @@ class LoadInputsBlock(Block):
 	required_keys = {"inputs", "connection", "workdir"}
 	provided_keys = {"input_to_filename_dict"}
 
-	def __init__(self, executor: Cleanable):
+	def __init__(self, cleanable: Cleanable):
 		super().__init__(StageType.LOAD)
-		self.executor = executor
+		self.cleanable = cleanable
 
 	def _upload_inputs(self, inputs: List[Input], connection: Connection, workdir: str) -> OrderedDict[Input, str]:
 		remote_filenames = OrderedDict()
@@ -559,7 +560,7 @@ class LoadInputsBlock(Block):
 			connection.push(input_name, remote_filename)
 			os.remove(input_name)
 			remote_filenames[inp] = remote_filename
-			self.executor.add_temp_file(remote_filename)
+			self.cleanable.register_temp_file(remote_filename)
 		return remote_filenames
 
 	def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
@@ -575,15 +576,14 @@ class LoadSandboxedTestCaseBlock(Block):
 	required_keys = {"test_case", "connection", "workdir"}
 	provided_keys = {"remote_test_filename", "sandboxed_test_case"}
 
-	def __init__(self, executor: Cleanable):
+	def __init__(self, executor: Aarch64RemoteExecutor):
 		super().__init__(StageType.TRANSFORM)
 		self.executor = executor
 
-	@classmethod
-	def _upload_sandboxed_test(cls, test_case: TestCase, connection: Connection, workdir: str) -> Tuple[str, TestCase]:
+	def _upload_sandboxed_test(self, test_case: TestCase, connection: Connection, workdir: str) -> Tuple[str, TestCase]:
 		sandboxed_test_case = copy.deepcopy(test_case)
 		Aarch64SandboxPass().run_on_test_case(sandboxed_test_case)
-		return write_test_case_remotely(sandboxed_test_case, connection, workdir, f'sandboxed_test_case'), sandboxed_test_case
+		return write_test_case_remotely(sandboxed_test_case, connection, workdir, f'sandboxed_test_case', self.executor.target_desc), sandboxed_test_case
 
 	def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
 		test_case: TestCase = ctx["test_case"]
@@ -591,7 +591,7 @@ class LoadSandboxedTestCaseBlock(Block):
 		workdir: str= ctx["workdir"]
 
 		remote_test_filename, sandboxed_test_case = self._upload_sandboxed_test(test_case, connection, workdir)
-		self.executor.add_temp_file(remote_test_filename)
+		self.executor.register_temp_file(remote_test_filename)
 		ctx.update(
 				{
 					"remote_test_filename": remote_test_filename,
@@ -604,7 +604,7 @@ class LoadRawTestCaseBlock(Block):
 	required_keys = {"test_case", "connection", "workdir"}
 	provided_keys = {"remote_test_filename"}
 
-	def __init__(self, executor: Cleanable):
+	def __init__(self, executor: Aarch64RemoteExecutor):
 		super().__init__(StageType.LOAD)
 		self.executor = executor
 
@@ -614,8 +614,8 @@ class LoadRawTestCaseBlock(Block):
 		workdir: str= ctx["workdir"]
 
 		base_name = os.path.basename(test_case.bin_path)
-		remote_test_filename = write_test_case_remotely(test_case, connection, workdir, base_name)
-		self.executor.add_temp_file(remote_test_filename)
+		remote_test_filename = write_test_case_remotely(test_case, connection, workdir, base_name, self.executor.target_desc)
+		self.executor.register_temp_file(remote_test_filename)
 
 		ctx.update(
 				{
@@ -655,6 +655,17 @@ class GenerateTaintsAndCTracesBlock(Block):
 			mask: int = 1 << i
 			if bitmap_aux_buffer.regs_input_read_bits & mask:
 				gpr_region[i] = True
+
+		# currently, simd region used to store x8 and x9 initial values which corrently used to initialize flags and sp respectively (sp is being overriden with executor appropriate value)
+		simd_region = input_taint[0]['simd']
+
+		FLAGS_REG_INDEX = 8
+		if bitmap_aux_buffer.regs_input_read_bits & (1 << FLAGS_REG_INDEX):
+			simd_region[0] = True
+
+		SP_REG_INDEX = 9
+		if bitmap_aux_buffer.regs_input_read_bits & (1 << SP_REG_INDEX):
+			simd_region[1] = True
 
 		# Sandbox base is stored in x30 while executing the test case. It should not change while executing the test case. Take the first one.
 		sandbox_base = full_trace_buffer.instruction_logs[0].regs[30]
@@ -760,25 +771,24 @@ class GenerateInputArchFlowBlock(Block):
 	required_keys = {"test_case", "input_to_filename_dict", "connection", "workdir", "userland_executor"}
 	provided_keys = {"input_to_bitmap_taints_buffer", "input_to_full_trace_buffer"}
 
-	def __init__(self):
+	def __init__(self, executor: Aarch64Executor):
 		super().__init__(StageType.LOAD)
+		self.executor = executor
 
-	@classmethod
-	def _write_test_with_taint_tracker(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
+	def _write_test_with_taint_tracker(self, test_case: TestCase, connection: Connection, workdir: str) -> str:
 		patched_test_case = copy.deepcopy(test_case)
 		register_taints_pass = Aarch64MarkRegisterTaints()
 		sandbox_pass = Aarch64SandboxPass()
 		memory_taints_pass = Aarch64MarkMemoryTaints()
 		pass_on_test_case(patched_test_case, [register_taints_pass, sandbox_pass, memory_taints_pass])
-		return write_test_case_remotely(patched_test_case, connection, workdir, 'generated_taint_tracker')
+		return write_test_case_remotely(patched_test_case, connection, workdir, 'generated_taint_tracker', self.executor.target_desc)
 
-	@classmethod
-	def _write_test_with_full_trace_tracker(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
+	def _write_test_with_full_trace_tracker(self, test_case: TestCase, connection: Connection, workdir: str) -> str:
 		patched_test_case = copy.deepcopy(test_case)
 		sandbox_pass = Aarch64SandboxPass()
 		full_trace_pass = Aarch64FullTrace()
 		pass_on_test_case(patched_test_case, [sandbox_pass, full_trace_pass])
-		return write_test_case_remotely(patched_test_case, connection, workdir, 'generated_full_trace_tracker')
+		return write_test_case_remotely(patched_test_case, connection, workdir, 'generated_full_trace_tracker', self.executor.target_desc)
 
 
 	def _measure(cls, test_case: TestCase, input_to_filename: Dict[Input, str],  workdir: str, userland_executor: UserlandExecutor, connection: Connection) -> Tuple[OrderedDict[Input, BitmapTaintsAuxBuffer], OrderedDict[Input, FullTraceAuxBuffer]]:
@@ -1045,22 +1055,23 @@ class GenerateMTETestVariants(Block):
 	required_keys = {"test_case", "input_to_filename_dict", "connection", "workdir", "userland_executor"}
 	provided_keys = {"remote_test_filename_correct_tags", "remote_input_to_test_case_filename_incorrect_tags"}
 
-	def __init__(self):
+	def __init__(self, executor: Aarch64Executor):
 		super().__init__(StageType.TRANSFORM)
+		self.executor = executor
 
 	@classmethod
 	def _write_test_with_correct_tags(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
 		patched_test_case = copy.deepcopy(test_case)
 		tagging_pass = Aarch64TagMemoryAccesses(memory_accesses_to_guess_tag=None)
 		pass_on_test_case(patched_test_case, [tagging_pass])
-		return write_test_case_remotely(patched_test_case, connection, workdir, 'generated_correct_tags')
+		return write_test_case_remotely(patched_test_case, connection, workdir, 'generated_correct_tags', self.executor.target_desc)
 
 	@classmethod
 	def _write_test_with_incorrect_tags(cls, test_case: TestCase, connection: Connection, workdir: str, filename_suffix: str, tag_ids_to_guess: List[int]) -> str:
 		patched_test_case = copy.deepcopy(test_case)
 		tagging_pass = Aarch64TagMemoryAccesses(memory_accesses_to_guess_tag=tag_ids_to_guess)
 		pass_on_test_case(patched_test_case, [tagging_pass])
-		return write_test_case_remotely(patched_test_case, connection, workdir, f'generated_patched_{filename_suffix}')
+		return write_test_case_remotely(patched_test_case, connection, workdir, f'generated_patched_{filename_suffix}', self.executor.target_desc)
 
 	@classmethod
 	def _write_test_case_with_bitmap_trace(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
@@ -1068,7 +1079,7 @@ class GenerateMTETestVariants(Block):
 		tagging_pass = Aarch64TagMemoryAccesses(memory_accesses_to_guess_tag=None)
 		marking_pass = Aarch64MarkMemoryAccessesNEON()
 		pass_on_test_case(patched_test_case, [tagging_pass, marking_pass])
-		return write_test_case_remotely(patched_test_case, connection, workdir, 'generated_retrieve_bitmap')
+		return write_test_case_remotely(patched_test_case, connection, workdir, 'generated_retrieve_bitmap', self.executor.target_desc)
 
 	@classmethod
 	def _measure_architecturally_not_accessed_memory_addresses(cls, test_case: TestCase, input_to_filename: Dict[Input, str],  workdir: str, userland_executor: UserlandExecutor, connection: Connection) -> Dict[Input, List[int]]:
@@ -1141,41 +1152,13 @@ class GenerateMTETestVariants(Block):
 
 		return ctx
 
-class ScenarioBatchGenerator:
-	def __init__(self,
-			  input_equivalence_classes_filenames: OrderedDict,
-			  remote_test_filename: str,
-			  workdir:str,
-			  n_repeats: List[int]
-			):
-		self.input_equivalence_classes_filenames = input_equivalence_classes_filenames
-		self.remote_test_filename = remote_test_filename
-		self.workdir = workdir
-		self.n_repeats = n_repeats
-		self._index = 0
-	
-	def __iter__(self) -> Iterator[ExecutorBatch]:
-		return self
-
-	def __next__(self) -> ExecutorBatch:
-		if self._index >= len(self.n_repeats):
-			return StopIteration
-
-		repeat = self.n_repeats[self._index]
-		self._index += 1
-		remote_inputs = list(flatten_ordered_dict(self.input_equivalence_classes_filenames).values())
-		batch = create_scenario_batch(remote_inputs, self.remote_test_filename, repeat, self.workdir, f'remote_batch_output_r{repeats}')
-
-		return batch
-
-
 class TraceScenarioBatch(Block):
 	required_keys = {"input_to_filename_dict", "remote_test_filename", "repeats", "workdir", "userland_executor"}
 	provided_keys = {"filename_to_jsons"}  # keyed by remote input filename, values = list of HTrace objects
 
-	def __init__(self, executor: Cleanable):
+	def __init__(self, cleanable: Cleanable):
 		super().__init__(StageType.EXECUTE)
-		self.executor = executor
+		self.cleanable = cleanable
 
 
 	def run(self, ctx: dict[str, Any]) -> dict[str, Any]:
@@ -1188,9 +1171,8 @@ class TraceScenarioBatch(Block):
 		remote_inputs = input_to_filename_dict.values()
 		remote_batch_output = f'{workdir}/remote_batch_output_r{repeats}'
 		batch = create_scenario_batch(remote_inputs, remote_test_filename, repeats, remote_batch_output)
-		self.executor.add_temp_file(batch.output)
+		self.cleanable.register_temp_file(batch.output)
 
-		import pdb; pdb.set_trace()
 		json_objs = extract_json_objects(userland_executor.trace(batch))
 
 		# Aggregate traces per remote input
@@ -1215,8 +1197,9 @@ class ArchiteturalFlowTraceBlock(Block):
 	required_keys = {"test_case", "workdir", "connection", "userland_executor", "input_to_filename_dict"}
 	provided_keys = {"architectural_flows"}
 
-	def __init__(self):
+	def __init__(self, executor: Aarch64Executor):
 		super().__init__(StageType.LOAD)
+		self.executor = executor
 
 	@classmethod
 	def _write_test_case_with_bitmap_trace(cls, test_case: TestCase, connection: Connection, workdir: str) -> str:
@@ -1224,7 +1207,7 @@ class ArchiteturalFlowTraceBlock(Block):
 		marking_pass = Aarch64MarkMemoryAccessesNEON()
 		sandbox = Aarch64SandboxPass()
 		pass_on_test_case(patched_test_case, [sandbox, marking_pass])
-		return write_test_case_remotely(patched_test_case, connection, workdir, 'generated_retrieve_bitmap')
+		return write_test_case_remotely(patched_test_case, connection, workdir, 'generated_retrieve_bitmap', self.executor.target_desc)
 
 	@classmethod
 	def _measure_architecturally_not_accessed_memory_addresses(cls, test_case: TestCase, input_to_filename: Dict[Input, str],  workdir: str, userland_executor: UserlandExecutor, connection: Connection) -> OrderedDict[Input, List[int]]:
@@ -1350,32 +1333,40 @@ class AnalyserBlock(Block):
 
 
 class Cleanable:
-    def __init__(self):
-        self._temp_files = []
+	def __init__(self,
+			  check_file_exists: Callable[str, bool] = lambda p: os.path.exists(p),
+			  remove_file: Callable[str, None] = lambda p: os.remove(p),
+			  *args, **kwargs):
+		super().__init__(*args, **kwargs) # For cooperative MTO support
+		self._temp_files = []
+		self._check_file_exists = check_file_exists
+		self._remove_file = remove_file
 
-    def add_temp_file(self, path):
-        if os.path.exists(path):
-            self._temp_files.append(path)
+	def register_temp_file(self, path):
+		if self._check_file_exists(path) and path not in self._temp_files:
+			self._temp_files.append(path)
 
-    def _cleanup_temp_files(self):
-        for path in self._temp_files:
-            print(f"Cleaning up {path}")
-        self._temp_files.clear()
+	def _cleanup_temp_files(self):
+		import pdb; pdb.set_trace()
+		for path in self._temp_files:
+			print(f"Cleaning up {path}")
+			self._remove_file(path)
+		self._temp_files.clear()
 
-    # Context manager support
-    def __enter__(self):
-        return self
+	# Context manager support
+	def __enter__(self):
+		return self
 
-    def __exit__(self, exc_type, exc_value, traceback):
-        self._cleanup_temp_files()
+	def __exit__(self, exc_type, exc_value, traceback):
+		self._cleanup_temp_files()
 
-    # Destructor as a fallback
-    def __del__(self):
-        try:
-            self._cleanup_temp_files()
-        except Exception:
-            # Avoid raising exceptions in __del__
-            pass
+	# Destructor as a fallback
+	def __del__(self):
+		try:
+			self._cleanup_temp_files()
+		except Exception:
+			# Avoid raising exceptions in __del__
+			pass
 
 
 # ==================================================================================================
@@ -1508,18 +1499,29 @@ class Aarch64Executor(Executor):
 # ==================================================================================================
 class Aarch64RemoteExecutor(Aarch64Executor, Cleanable):
 
-    def __init__(self, connection: Connection, workdir: str, *args):
+    def __init__(self, connection: Connection, workdir: str, *args, **kwargs):
         self.connection = connection
-        super().__init__(*args)
+
+        Aarch64Executor.__init__(self, *args, **kwargs)
+
+        Cleanable.__init__(
+                self,
+                check_file_exists=lambda path: connection.is_file_present(path),
+                remove_file=lambda path: connection.shell(f"rm {shlex.quote(path)}", privileged=True),
+            )
         self.test_case: Optional[TestCase] = None
         self.workdir = workdir
-        self.userland_executor = UserlandExecutorImp(connection, f'{self.workdir}/executor_userland',
-                                                     '/dev/executor', '/sys/executor',
-                                                     f'{self.workdir}/revizor-executor.ko',
-                                                     )
-        if self.target_desc.cpu_desc.vendor.lower() != "arm":  # Technically ARM currently does not produce ARM processors, and other vendors do produce ARM processors
+        self.userland_executor = UserlandExecutorImp(
+				connection,
+				f'{self.workdir}/executor_userland',
+				'/dev/executor',
+				'/sys/executor',
+				f'{self.workdir}/revizor-executor.ko',
+			)
+
+        if self.target_desc.cpu_desc.vendor.lower() != "aarch64":  # Technically ARM currently does not produce ARM processors, and other vendors do produce ARM processors
             self.LOG.error(
-                "Attempting to run ARM executor on a non-ARM CPUs!\n"
+                "Attempting to run ARM aarch64 remote executor on a non-ARM CPUs!\n"
                 "Change the `executor` configuration option to the appropriate vendor value.")
 
 
@@ -1530,16 +1532,6 @@ class Aarch64RemoteExecutor(Aarch64Executor, Cleanable):
             return 'on' in result or '1' in result
 
         return False
-
-    def _cleanup_temp_files(self):
-        for path in self._temp_files:
-            try:
-                self.connection.shell(f"rm {shlex.quote(path)}", privileged=True)
-            except Exception as e:
-                if getattr(self, "debug", False):
-                    print(f"[Executor] Warning: failed to remove remote file {path}: {e}")
-
-        self._temp_files.clear()
 
     def set_vendor_specific_features(self):
         pass
@@ -1635,7 +1627,7 @@ class Aarch64RemoteExecutor(Aarch64Executor, Cleanable):
 
         pipeline = (
                     LoadInputsBlock(self) | 
-                    GenerateInputArchFlowBlock() |
+                    GenerateInputArchFlowBlock(self) |
                     GenerateTaintsAndCTracesBlock()
                 ).build()
         

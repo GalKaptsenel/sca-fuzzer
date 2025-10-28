@@ -434,6 +434,10 @@ class Aarch64MarkRegisterTaints(Pass):
 	"""
 	TEMPLATE_TAINT_REG_WRITE = "TAINT_REG_WRITE {dst}, {base}, {t0}, {t1}"
 	TEMPLATE_TAINT_REG_READ = "TAINT_REG_READ {src}, {base}, {t0}, {t1}"
+	TEMPLATE_TAINT_FLAGS_WRITE = "TAINT_FLAGS_WRITE {n}, {z}, {c}, {v}, {base}, {t0}, {t1}"
+	TEMPLATE_TAINT_FLAGS_READ = "TAINT_FLAGS_READ {n}, {z}, {c}, {v}, {base}, {t0}, {t1}"
+	TEMPLATE_TAINT_SP_READ = "TAINT_SP_READ {base}, {t1}, {t2}"
+	TEMPLATE_TAINT_SP_WRITE = "TAINT_SP_WRITE {base}, {t1}, {t2}"
 
 	def __init__(self, base_reg: str = "x7", temp_regs: List[str] = None):
 		super().__init__()
@@ -489,10 +493,64 @@ class Aarch64MarkRegisterTaints(Pass):
 
 		return src_idxs, dest_idxs
 
-	def mark_register_taints(self, bb: BasicBlock, inst: Instruction) -> None:
+	def _collect_src_dst_flags(self, inst: Instruction) ->Tuple[List[str], List[str]]:
+		map_x86_flags_to_aarch64_flags  = {
+				"CF": "C",
+				"ZF": "Z",
+				"SF": "N",
+				"OF": "V"
+			}
+
+		src_flags = []
+		dest_flags = []
+
+		for l in (inst.operands, inst.implicit_operands):
+			for op in l:
+				if op.type == OT.FLAGS:
+					for flag in op.get_read_flags():
+						src_flags.append(map_x86_flags_to_aarch64_flags[flag])
+					for flag in op.get_write_flags():
+						dest_flags.append(map_x86_flags_to_aarch64_flags[flag])
+
+		map_cond_to_flags = {
+				'eq': ['Z'],
+				'ne': ['Z'],
+				'cs': ['C'],
+				'cc': ['C'],
+				'mi': ['N'],
+				'pl': ['N'],
+				'vs': ['V'],
+				'vc': ['V'],
+				'hi': ['C', 'Z'],
+				'ls': ['C'],
+				'ge': ['N', 'V'],
+				'lt': ['N', 'V'],
+				'gt': ['Z', 'N', 'V'],
+				'le': ['Z', 'N', 'V'],
+				'al': [],
+				'nv': []
+		}
+
+		for l in (inst.operands, inst.implicit_operands):
+			for op in l:
+				if op.type == OT.COND:
+					src_flags.extend(map_cond_to_flags[op.value.lower()])
+
+		if inst.name.lower() in ('cbnz', 'cbz'):
+			src_flags.append('Z')
+
+		src_flags = sorted(set(src_flags))
+		dest_flags = sorted(set(dest_flags))
+
+		return src_flags, dest_flags
+
+	def _generate_instructions_for_mark_register_taints(self, inst: Instruction) -> List[Instruction]:
+
 		src_idxs, dst_idxs = self._collect_src_dst_indices(inst)
-		if not src_idxs and not dst_idxs:
-			return
+		src_flags, dest_flags = self._collect_src_dst_flags(inst)
+
+		if not src_idxs and not dst_idxs and not src_flags and not dest_flags:
+			return []
 
 		instrs_to_insert = []
 
@@ -503,7 +561,7 @@ class Aarch64MarkRegisterTaints(Pass):
 					src=src, base=self.base_reg,
                     t0=self.temp_regs[0], t1=self.temp_regs[1]
 			)
-			iobj = Instruction(f"TAINT_REG_READ_{src}", True, template=asm_text)
+			iobj = Instruction(f"TAINT_REG_READ_{src}_{inst.name}", True, template=asm_text)
 			instrs_to_insert.append(iobj)
 
 
@@ -513,11 +571,33 @@ class Aarch64MarkRegisterTaints(Pass):
                     dst=dst, base=self.base_reg,
                     t0=self.temp_regs[0], t1=self.temp_regs[1]
             )
-			iobj = Instruction(f"TAINT_REG_WRITE_{dst}", True, template=asm_text)
+			iobj = Instruction(f"TAINT_REG_WRITE_{dst}_{inst.name}", True, template=asm_text)
 			instrs_to_insert.append(iobj)
 
+		if src_flags:
+			asm_text = self.TEMPLATE_TAINT_FLAGS_READ.format(
+					n=int("N" in src_flags), z=int("Z" in src_flags),
+					c=int("C" in src_flags), v=int("V" in src_flags),
+					base=self.base_reg, t0=self.temp_regs[0], t1=self.temp_regs[1]
+			)
+			iobj = Instruction(f"TAINT_FLAGS_READ_{inst.name}", True, template=asm_text)
+			instrs_to_insert.append(iobj)
 
-		# insert after instruction (reverse so first ends up closest to inst if insert_after prepends)
+		if dest_flags:
+			asm_text = self.TEMPLATE_TAINT_FLAGS_WRITE.format(
+					n=int("N" in dest_flags), z=int("Z" in dest_flags),
+					c=int("C" in dest_flags), v=int("V" in dest_flags),
+					base=self.base_reg, t0=self.temp_regs[0], t1=self.temp_regs[1]
+			)
+			iobj = Instruction(f"TAINT_FLAGS_WRITE_{inst.name}", True, template=asm_text)
+			instrs_to_insert.append(iobj)
+
+		return instrs_to_insert
+
+
+	def mark_register_taints(self, bb: BasicBlock, inst: Instruction) -> None:
+		instrs_to_insert = self._generate_instructions_for_mark_register_taints(inst)
+
 		for i in instrs_to_insert:
 			bb.insert_before(position=inst, inst=i)
 
@@ -529,6 +609,12 @@ class Aarch64MarkRegisterTaints(Pass):
 						self.mark_register_taints(bb, inst)
 					except Exception as e:
 						print(f"[Aarch64MarkRegisterTaints] warn: failed to instrument {inst}: {e}")
+				else:
+					instrs_to_insert  = []
+					for inst in bb.terminators:
+						instrs_to_insert.extend(self._generate_instructions_for_mark_register_taints(inst))
+						instrs_to_insert.append(inst)
+					bb.terminators = instrs_to_insert
 
 
 

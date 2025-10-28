@@ -49,21 +49,15 @@
 //}
 //
 
-static inline bool has_pmu(void)
-{
-    u64 dfr0 = read_sysreg(id_aa64dfr0_el1);
-    u64 pmuver = (dfr0 >> 8) & 0xF; // Bits [11:8]
-    module_err("PMEVER: 0x%llx", pmuver);
-    return (pmuver != 0 && pmuver != 0xF);
-}
+//static inline bool has_pmu(void)
+//{
+//    u64 dfr0 = read_sysreg(id_aa64dfr0_el1);
+//    u64 pmuver = (dfr0 >> 8) & 0xF; // Bits [11:8]
+//    module_err("PMEVER: 0x%llx", pmuver);
+//    return (pmuver != 0 && pmuver != 0xF);
+//}
 
 static int config_pfc(void) {
-
-    if(!has_pmu()) {
-	    module_err("DOES NOT SUPPORT PMU!");
-    } else {
-	    module_err("SUPPORT PMU :)");
-    }
 
     // disable PMU user-mode access (not necessary?)
     uint64_t val = 0;
@@ -111,87 +105,81 @@ static int config_pfc(void) {
     
     // debug prints (view via 'sudo dmesg')
     
-     val = 0;
-     asm volatile("mrs %0, pmuserenr_el0" : "=r" (val));
-     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMUSERENR_EL0:", val);
-     asm volatile("mrs %0, pmcr_el0" : "=r" (val));
-     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMCR_EL0:", val);
-     asm volatile("mrs %0, pmselr_el0" : "=r" (val));
-     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMSELR_EL0:", val);
-     asm volatile("mrs %0, pmevtyper0_el0" : "=r" (val));
-     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMEVTYPER0_EL0:", val);
-     asm volatile("mrs %0, pmcntenset_el0" : "=r" (val));
-     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMCNTENSET_EL0:", val);
-     asm volatile("mrs %0, pmevcntr1_el0" : "=r" (val));
-     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMECNTR1_EL0:", val);
-     asm volatile("mrs %0, pmevcntr2_el0" : "=r" (val));
-     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMECNTR2_EL0:", val);
-     asm volatile("mrs %0, pmevcntr3_el0" : "=r" (val));
-     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMECNTR3_EL0:", val);
-     asm volatile("mrs %0, pmccntr_el0" : "=r"(val));
-     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PNCCNTR_EL0:", val);
+//     val = 0;
+//     asm volatile("mrs %0, pmuserenr_el0" : "=r" (val));
+//     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMUSERENR_EL0:", val);
+//     asm volatile("mrs %0, pmcr_el0" : "=r" (val));
+//     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMCR_EL0:", val);
+//     asm volatile("mrs %0, pmselr_el0" : "=r" (val));
+//     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMSELR_EL0:", val);
+//     asm volatile("mrs %0, pmevtyper0_el0" : "=r" (val));
+//     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMEVTYPER0_EL0:", val);
+//     asm volatile("mrs %0, pmcntenset_el0" : "=r" (val));
+//     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMCNTENSET_EL0:", val);
+//     asm volatile("mrs %0, pmevcntr1_el0" : "=r" (val));
+//     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMECNTR1_EL0:", val);
+//     asm volatile("mrs %0, pmevcntr2_el0" : "=r" (val));
+//     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMECNTR2_EL0:", val);
+//     asm volatile("mrs %0, pmevcntr3_el0" : "=r" (val));
+//     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMECNTR3_EL0:", val);
+//     asm volatile("mrs %0, pmccntr_el0" : "=r"(val));
+//     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PNCCNTR_EL0:", val);
 
     return 0;
 }
 
-static void pmu_discover(void *arg)
-{
-    unsigned long flags;
-    u64 pmcr, pmceid0, pmceid1, n, i;
-
-    preempt_disable();
-    local_irq_save(flags);
-
-    /* Read PMCR_EL0 */
-    asm volatile("mrs %0, pmcr_el0" : "=r"(pmcr));
-    pr_info("PMCR_EL0: 0x%016llx\n", pmcr);
-
-    /* Number of general-purpose counters: N = bits[15:11] + 1 */
-    n = ((pmcr >> 11) & 0x1f) + 1;
-    pr_info("Number of general-purpose counters: %llu\n", n);
-
-    /* Check cycle counter */
-    pr_info("Cycle counter exists: %s\n", (pmcr & (1<<31)) ? "YES" : "NO");
-
-    /* Read supported events (PMCEID0_EL0 and PMCEID1_EL0) */
-    asm volatile("mrs %0, pmceid0_el0" : "=r"(pmceid0));
-    asm volatile("mrs %0, pmceid1_el0" : "=r"(pmceid1));
-
-    pr_info("Supported event IDs 0-31 : 0x%016llx\n", pmceid0);
-    pr_info("Supported event IDs 32-63: 0x%016llx\n", pmceid1);
-
-    /* Print which counters are enabled (PMCNTENSET_EL0) */
-    u64 cntenset;
-    asm volatile("mrs %0, pmcntenset_el0" : "=r"(cntenset));
-    pr_info("PMCNTENSET_EL0: 0x%016llx\n", cntenset);
-
-    /* Print initial values of general-purpose counters and cycle counter */
-    for (i = 0; i < n; i++) {
-        u64 val;
-        switch(i) {
-            case 0: asm volatile("mrs %0, pmevcntr0_el0" : "=r"(val)); break;
-            case 1: asm volatile("mrs %0, pmevcntr1_el0" : "=r"(val)); break;
-            case 2: asm volatile("mrs %0, pmevcntr2_el0" : "=r"(val)); break;
-            case 3: asm volatile("mrs %0, pmevcntr3_el0" : "=r"(val)); break;
-            default: val = 0; break;
-        }
-        pr_info("PMEVCNTR%llu_EL0 initial value: %llu\n", i, val);
-    }
-
-    /* Cycle counter */
-    u64 cc;
-    asm volatile("mrs %0, pmccntr_el0" : "=r"(cc));
-    pr_info("PMCCNTR_EL0 initial value: %llu\n", cc);
-
-    local_irq_restore(flags);
-    preempt_enable();
-}
-
-static inline u64 read_inst_count(void) {
-	u64 val;
-	asm volatile("mrs %0, PMEVCNTR4_EL0" : "=r"(val));
-	return val;
-}
+//static void pmu_discover(void *arg)
+//{
+//    unsigned long flags;
+//    u64 pmcr, pmceid0, pmceid1, n, i;
+//
+//    preempt_disable();
+//    local_irq_save(flags);
+//
+//    /* Read PMCR_EL0 */
+//    asm volatile("mrs %0, pmcr_el0" : "=r"(pmcr));
+//    pr_info("PMCR_EL0: 0x%016llx\n", pmcr);
+//
+//    /* Number of general-purpose counters: N = bits[15:11] + 1 */
+//    n = ((pmcr >> 11) & 0x1f) + 1;
+//    pr_info("Number of general-purpose counters: %llu\n", n);
+//
+//    /* Check cycle counter */
+//    pr_info("Cycle counter exists: %s\n", (pmcr & (1<<31)) ? "YES" : "NO");
+//
+//    /* Read supported events (PMCEID0_EL0 and PMCEID1_EL0) */
+//    asm volatile("mrs %0, pmceid0_el0" : "=r"(pmceid0));
+//    asm volatile("mrs %0, pmceid1_el0" : "=r"(pmceid1));
+//
+//    pr_info("Supported event IDs 0-31 : 0x%016llx\n", pmceid0);
+//    pr_info("Supported event IDs 32-63: 0x%016llx\n", pmceid1);
+//
+//    /* Print which counters are enabled (PMCNTENSET_EL0) */
+//    u64 cntenset;
+//    asm volatile("mrs %0, pmcntenset_el0" : "=r"(cntenset));
+//    pr_info("PMCNTENSET_EL0: 0x%016llx\n", cntenset);
+//
+//    /* Print initial values of general-purpose counters and cycle counter */
+//    for (i = 0; i < n; i++) {
+//        u64 val;
+//        switch(i) {
+//            case 0: asm volatile("mrs %0, pmevcntr0_el0" : "=r"(val)); break;
+//            case 1: asm volatile("mrs %0, pmevcntr1_el0" : "=r"(val)); break;
+//            case 2: asm volatile("mrs %0, pmevcntr2_el0" : "=r"(val)); break;
+//            case 3: asm volatile("mrs %0, pmevcntr3_el0" : "=r"(val)); break;
+//            default: val = 0; break;
+//        }
+//        pr_info("PMEVCNTR%llu_EL0 initial value: %llu\n", i, val);
+//    }
+//
+//    /* Cycle counter */
+//    u64 cc;
+//    asm volatile("mrs %0, pmccntr_el0" : "=r"(cc));
+//    pr_info("PMCCNTR_EL0 initial value: %llu\n", cc);
+//
+//    local_irq_restore(flags);
+//    preempt_enable();
+//}
 
 static inline int setup_environment(void) {
     int err = 0;
@@ -201,9 +189,6 @@ static inline int setup_environment(void) {
     if (err)
         return err;
 
-    int cpu = smp_processor_id();
-    module_err("Starting PMU discovery on CPU %d\n", cpu);
-    smp_call_function_single(cpu, pmu_discover, NULL, 1);
     // TBD: configure faulty page
     return 0;
 }
@@ -241,7 +226,7 @@ static void load_registers_from_input(input_t* input, void* aux_buffer) {
 		((registers_t*)executor.sandbox.lower_overflow)->x7 = (size_t)aux_buffer;
 	}
 
-	module_err("Input regs: x0:%llx, x1:%llx, x2:%llx x3:%llx, x4:%llx, x5:%llx, x6:%llx, x7 (Debug Page):%llx, flags:%llx, sp:%llx\n",
+	module_debug("Input regs: x0:%llx, x1:%llx, x2:%llx x3:%llx, x4:%llx, x5:%llx, x6:%llx, x7 (Debug Page):%llx, flags:%llx, sp:%llx\n",
 			*(uint64_t*)executor.sandbox.lower_overflow,
 			*((uint64_t*)executor.sandbox.lower_overflow+1),
 			*((uint64_t*)executor.sandbox.lower_overflow+2),
@@ -303,38 +288,38 @@ static void measure(measurement_t* measurement) {
 	}
 }
 
-static void flush_l1d_cache(void) {
-	uint64_t clidr = 0, ccsidr = 0;
-	uint32_t line_size = 0, assoc = 0, num_sets = 0;
-
-	asm volatile("mrs %0, CLIDR_EL1" : "=r"(clidr) :: "memory");
-
-	for(int level = 0; level < 7; ++level) {
-		int ctype = (clidr >> (level * 3)) & 0b111;
-		if(ctype < 2) {
-			// no data/unified cache at this level
-			continue;
-		}
-
-		write_sysreg(level << 1, csselr_el1);
-		isb();
-
-		ccsidr = read_sysreg(ccsidr_el1);
-		line_size = (ccsidr & 0b111) + 4; // log2(words per line) + 2 for bytes: 2^line_size is the size of the line in bytes
-		assoc = ((ccsidr >> 3) & 0x3FF) + 1; // ways
-		num_sets = ((ccsidr >> 13) & 0x7FFF) + 1; // sets
-
-		for(int way = 0; way < assoc; ++way) {
-			for(int set = 0; set < num_sets; ++set) {
-				uint64_t sw = (way << (32 - __builtin_clz(assoc - 1))) | (set << line_size);
-				asm volatile("dc cisw, %0" :: "r"(sw) : "memory");
-			}
-		}
-	}
-
-	dsb(ish);
-	isb();
-}
+//static void flush_l1d_cache(void) {
+//	uint64_t clidr = 0, ccsidr = 0;
+//	uint32_t line_size = 0, assoc = 0, num_sets = 0;
+//
+//	asm volatile("mrs %0, CLIDR_EL1" : "=r"(clidr) :: "memory");
+//
+//	for(int level = 0; level < 7; ++level) {
+//		int ctype = (clidr >> (level * 3)) & 0b111;
+//		if(ctype < 2) {
+//			// no data/unified cache at this level
+//			continue;
+//		}
+//
+//		write_sysreg(level << 1, csselr_el1);
+//		isb();
+//
+//		ccsidr = read_sysreg(ccsidr_el1);
+//		line_size = (ccsidr & 0b111) + 4; // log2(words per line) + 2 for bytes: 2^line_size is the size of the line in bytes
+//		assoc = ((ccsidr >> 3) & 0x3FF) + 1; // ways
+//		num_sets = ((ccsidr >> 13) & 0x7FFF) + 1; // sets
+//
+//		for(int way = 0; way < assoc; ++way) {
+//			for(int set = 0; set < num_sets; ++set) {
+//				uint64_t sw = (way << (32 - __builtin_clz(assoc - 1))) | (set << line_size);
+//				asm volatile("dc cisw, %0" :: "r"(sw) : "memory");
+//			}
+//		}
+//	}
+//
+//	dsb(ish);
+//	isb();
+//}
 
 
 static void __nocfi run_experiments(void) {
@@ -348,8 +333,8 @@ static void __nocfi run_experiments(void) {
 		return;
 	}
 
-	module_err("inputs_root.rb_node=%zx, number_of_inputs=%llu\n", (size_t)executor.inputs_root.rb_node, executor.number_of_inputs);
-	module_err("measurement area is at =%zx\n", (size_t)executor.measurement_code);
+//	module_err("inputs_root.rb_node=%zx, number_of_inputs=%llu\n", (size_t)executor.inputs_root.rb_node, executor.number_of_inputs);
+//	module_err("measurement area is at =%zx\n", (size_t)executor.measurement_code);
 
 	current_input_node = rb_first(&executor.inputs_root);
 	BUG_ON(NULL == current_input_node);
@@ -390,18 +375,12 @@ static void __nocfi run_experiments(void) {
 
 		raw_local_irq_save(flags); // disable local interrupts and save current state
 
-		flush_l1d_cache();
+//		flush_l1d_cache();
 
 		// execute
-//		module_err("DEBUG 1: Before trace");
-//		aux_buffer_dump_range(current_input->measurement.aux_buffer, 0, 0x400);
 		((void(*)(void*))executor.measurement_code)(&executor.sandbox);
-//		module_err("DEBUG 2: After trace");
-//		aux_buffer_dump_range(current_input->measurement.aux_buffer, 0, 0x400);
 
-
-
-		//enable_mte_tag_checking();
+//		enable_mte_tag_checking();
 
 		raw_local_irq_restore(flags); // enable local interrupts with previously saved state
 
@@ -418,10 +397,6 @@ static void __nocfi run_experiments(void) {
 			module_err("pfc[0]: %llu", current_input->measurement.pfc[0]);
 			module_err("pfc[1]: %llu", current_input->measurement.pfc[1]);
 			module_err("pfc[2]: %llu", current_input->measurement.pfc[2]);
-//			module_err("DEBUG 3: Printer:");
-			aux_buffer_dump_range(current_input->measurement.aux_buffer, 0, 0x400);
-
-//			aux_buffer_dump(current_input->measurement.aux_buffer);
 		}
 
 	}

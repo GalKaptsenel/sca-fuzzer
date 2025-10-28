@@ -160,7 +160,6 @@ class FuzzerGeneric(Fuzzer):
                 continue
 
             # Fuzz the test case
-            import pdb; pdb.set_trace()
             violation = self.fuzzing_round(test_case, inputs)
 
             if violation:
@@ -343,7 +342,6 @@ class FuzzerGeneric(Fuzzer):
            - args.added_htraces: additional hardware traces to be added to the existing ones
         :return: a tuple of violations, contract traces, and hardware traces
         """
-        import pdb; pdb.set_trace()
         # Collect contract traces
         if args.reuse_ctraces:
             ctraces = args.ctraces
@@ -354,6 +352,8 @@ class FuzzerGeneric(Fuzzer):
             expected_ctraces = args.ctraces * CONF.inputs_per_class
             # compute ctraces separately for every boosted input
             ctraces, _ = self.executor.trace_test_case_with_taints(args.inputs)
+            if expected_ctraces != ctraces:
+                import pdb; pdb.set_trace()
             assert expected_ctraces == ctraces, f'Mismatching CTraces!\n\texpected_ctraces={[t.raw for t in expected_ctraces]}\n\tverified_ctraces={[t.raw for t in ctraces]}'
         assert len(ctraces) == len(args.inputs)
 
@@ -626,7 +626,7 @@ class FuzzerGeneric(Fuzzer):
 
                 # try the new input sequence and check if the traces observed for the new input
                 # are equivalent to the original ones
-                htraces: List[HTrace] = self.executor.trace_test_case(primer, n_reps, self.analyser)
+                htraces: List[HTrace] = self.executor.trace_test_case(primer, n_reps)
                 new_htrace = htraces[current_input_id]
 
                 # fast exit in case of a tracing error

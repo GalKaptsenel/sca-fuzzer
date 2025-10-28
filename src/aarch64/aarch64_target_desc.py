@@ -194,8 +194,9 @@ class Aarch64TargetDesc(TargetDesc):
                     filtered_decoding[size].append(register)
         self.registers = filtered_decoding
 
-        vendor = "arm"
-        model = "0xd46" # todo: manually added for now
+        vendor = "aarch64"
+        model = "0xd46" # TODO: manually added for now
+        family = "0x1"
         stepping = "1"
 
         self.cpu_desc = CPUDesc(vendor, model, family, stepping)
@@ -208,44 +209,6 @@ class Aarch64TargetDesc(TargetDesc):
     def is_call(inst: Instruction) -> bool:
         return inst.name in ["BL"]
 
-
-
-    def __init__(self):
-        super().__init__()
-        # remove blocked registers
-        filtered_decoding = {}
-        for size, registers in self.registers.items():
-            filtered_decoding[size] = []
-            for register in registers:
-                if register not in CONF.register_blocklist or register in CONF.register_allowlist:
-                    filtered_decoding[size].append(register)
-        self.registers = filtered_decoding
-
-        # identify the CPU model we are running on
-   #     with open("/proc/cpuinfo", "r") as f:
-   #         cpuinfo = f.read()
-
-   #         vendor_match = re.search(r"CPU implementer\s+:\s+(.*)", cpuinfo)
-   #         assert vendor_match, "Failed to find vendor in /proc/cpuinfo"
-   #         vendor = vendor_match.group(1)
-
-   #         family_match = "not applicable"  # TODO: not applicable for aarch64
-   #         assert family_match, "Failed to find family in /proc/cpuinfo"
-        family = "0x1" #family_match.group(1)
-
-   #         model_match = re.search(r"CPU part\s+:\s+(.*)", cpuinfo)
-   #         assert model_match, "Failed to find model name in /proc/cpuinfo"
-   #         model = model_match.group(1)
-
-   #         stepping_match = re.search(r"CPU revision\s+:\s+(.*)", cpuinfo)
-   #         assert stepping_match, "Failed to find stepping in /proc/cpuinfo"
-   #         stepping = stepping_match.group(1)
-
-        vendor = "arm"
-        model = "0xd46" # todo: manually added for now
-        stepping = "1"
-
-        self.cpu_desc = CPUDesc(vendor, model, family, stepping)
 
 class Aarch64UnicornTargetDesc(UnicornTargetDesc):
     reg_str_to_constant = {

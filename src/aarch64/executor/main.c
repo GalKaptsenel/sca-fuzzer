@@ -76,8 +76,6 @@ static int  __init executor_init(void) {
 		goto init_cleanup_sysfs;
 	}
 	
-	//enable_pmu_access_el0();
-
 	module_err("Loaded Successfully\n");
 	return 0;
 
@@ -102,7 +100,6 @@ static void __nocfi __exit executor_exit(void) {
 
 	free_executor(set_memory_nx);
 	
-//	restore_pmu_access_el0();
 }
 
 module_init(executor_init);
