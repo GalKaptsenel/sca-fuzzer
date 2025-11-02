@@ -1613,7 +1613,7 @@ class Aarch64RemoteExecutor(Aarch64Executor, Cleanable):
 
         return results
 
-    def trace_test_case_with_taints(self, inputs: List[Input]) -> Tuple[List[CTrace], List[InputTaint]]:
+    def trace_test_case_with_taints(self, inputs: List[Input], expected_ctraces = None) -> Tuple[List[CTrace], List[InputTaint], List[FullTraceAuxBuffer], List[BitmapTaintsAuxBuffer]]:
         """
         Call the executor kernel module to collect the hardware traces for
         the test case (previously loaded with `load_test_case`) and the given inputs.
@@ -1638,6 +1638,7 @@ class Aarch64RemoteExecutor(Aarch64Executor, Cleanable):
             "userland_executor": self.userland_executor,
             "repeats": 1,
             "connection": self.connection,
+            "expected_ctraces": expected_ctraces
         }
         
         ctx = pipeline.run(initial_context)
@@ -1645,13 +1646,183 @@ class Aarch64RemoteExecutor(Aarch64Executor, Cleanable):
 
         input_to_taint = ctx["input_to_taint"]
         input_to_ctrace = ctx["input_to_ctrace"]
+        input_to_bitmap_taints_buffer = ctx['input_to_bitmap_taints_buffer']
+        input_to_full_trace_buffer = ctx['input_to_full_trace_buffer']
+
 
         taints = []
         ctraces = []
+        full_trace = []
+        bitmaps = []
+
         for i in inputs:
             taints.append(input_to_taint[i])
             ctraces.append(input_to_ctrace[i])
+            full_trace.append(input_to_full_trace_buffer[i])
+            bitmaps.append(input_to_bitmap_taints_buffer[i])
 
-        return ctraces, taints
+        return ctraces, taints, full_trace, bitmaps
 
+def disassemble_instruction(encoding: int, pc: int):
+    from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
+    import json
+    
+    # Capstone disassembler instance
+    capstone_arm64 = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
+    capstone_arm64.detail = True
+
+    try:
+        code_bytes = encoding.to_bytes(4, byteorder="little")
+        insns = list(capstone_arm64.disasm(code_bytes, pc))
+        if insns:
+            insn = insns[0]
+            return f"{insn.mnemonic} {insn.op_str}".strip()
+        else:
+            return "<unknown>"
+    except Exception as e:
+        return f"<decode error: {e}>"
+
+
+def compare_traces(trace_ref, trace_new):
+    """Return (index, ref_inst, new_inst) if traces diverge, else (None, None, None)."""
+    min_len = min(trace_ref.instruction_log_entry_count, trace_new.instruction_log_entry_count)
+    for i in range(min_len):
+        ref = trace_ref.instruction_logs[i]
+        new = trace_new.instruction_logs[i]
+        if (ref.pc != new.pc or ref.flags != new.flags or ref.regs != new.regs):
+            return i, ref, new
+    if trace_ref.instruction_log_entry_count != trace_new.instruction_log_entry_count:
+        return min_len, None, None  # diverged by length
+    return None, None, None
+
+
+def show_context(trace, idx, window=-1):
+    if(window < 0):
+        window = trace.instruction_log_entry_count
+    start = max(0, idx - window)
+    end = min(trace.instruction_log_entry_count, idx + window + 1)
+    for j in range(start, end):
+        insn = trace.instruction_logs[j]
+        disas = disassemble_instruction(insn.encoding, insn.pc)
+        marker = "→" if j == idx else " "
+        print(f"{marker} [{j:03d}] 0x{insn.pc:016x}: {disas}")
+
+def print_taint(title, taint):
+    print(f"  {title}:")
+    print(f"    regs_write_bits       : {taint.regs_write_bits}")
+    print(f"    regs_read_bits        : {taint.regs_read_bits}")
+    print(f"    regs_input_read_bits  : {taint.regs_input_read_bits}")
+    print(f"    mem_write_bits        : {taint.mem_write_bits}")
+    print(f"    mem_read_bits         : {taint.mem_read_bits}")
+    print(f"    mem_input_read_bits   : {taint.mem_input_read_bits}")
+
+
+def dump_debug_to_file(prefix, input_ref, input_new, trace_ref, trace_new, taint_ref, taint_new):
+    with open(f"{prefix}_trace_ref.json", "w") as f:
+        json.dump([vars(x) for x in trace_ref.instruction_logs], f, indent=2)
+    with open(f"{prefix}_trace_new.json", "w") as f:
+        json.dump([vars(x) for x in trace_new.instruction_logs], f, indent=2)
+    with open(f"{prefix}_taint_ref.txt", "w") as f:
+        f.write(repr(taint_ref))
+    with open(f"{prefix}_taint_new.txt", "w") as f:
+        f.write(repr(taint_new))
+    with open(f"{prefix}_inputs.txt", "w") as f:
+        f.write(f"REF:\n{input_ref}\n\nNEW:\n{input_new}")
+
+def compare_and_debug_trace_pair(
+    input_ref,
+    input_new,
+    trace_ref,
+    trace_new,
+    taint_ref,
+    taint_new,
+    prefix="debug_trace",
+    dump_files=True
+):
+    """
+    Compare two FullTraceAuxBuffers and print a detailed divergence report.
+    If dump_files=True, saves traces and taint to disk.
+    """
+    idx, ref_inst, new_inst = compare_traces(trace_ref, trace_new)
+
+    if idx is None:
+        print(f"[✓] Traces are architecturally equivalent ({trace_ref.instruction_log_entry_count} instructions).")
+        return
+
+    print("=" * 100)
+    print(f"❗ Divergence detected at instruction #{idx}")
+
+    if ref_inst and new_inst:
+        ref_disas = disassemble_instruction(ref_inst.encoding, ref_inst.pc)
+        new_disas = disassemble_instruction(new_inst.encoding, new_inst.pc)
+        print(f"  Ref PC:  0x{ref_inst.pc:X}   ({ref_disas} [Encoding: 0x{ref_inst.encoding:08X}])")
+        print(f"  New PC:  0x{new_inst.pc:X}   ({new_disas} [Encoding: 0x{new_inst.encoding:08X}])")
+    else:
+        print("  Diverged by trace length")
+
+    print("\n--- Registers ---")
+    if ref_inst and new_inst:
+        same_regs = []
+        diff_regs = []
+        for i, (r_ref, r_new) in enumerate(zip(ref_inst.regs, new_inst.regs)):
+            if r_ref == r_new:
+                same_regs.append((i, r_ref))
+            else:
+                diff_regs.append((i, r_ref, r_new))
+
+        if same_regs:
+            print("  Common registers:")
+            for i, val in same_regs:
+                print(f"    X{i:02d}: {val:#018x}")
+        else:
+            print("  No common registers.")
+
+        if diff_regs:
+            print("\n  Differing registers:")
+            for i, r_ref, r_new in diff_regs:
+                print(f"    X{i:02d}: {r_ref:#018x} -> {r_new:#018x}")
+        else:
+            print("\n  No differing registers.")
+
+    print("\n--- Flags ---")
+    if ref_inst and new_inst and ref_inst.flags != new_inst.flags:
+        print(f"  Flags changed: {ref_inst.flags:#x} -> {new_inst.flags:#x}")
+    elif ref_inst and new_inst:
+        print(f"  Flags identical: {ref_inst.flags:#x}")
+
+    print("\n--- Memory ---")
+    if ref_inst and new_inst:
+        if ref_inst.effective_address != new_inst.effective_address:
+            print(f"  EA: {ref_inst.effective_address:#x} -> {new_inst.effective_address:#x}")
+        if ref_inst.mem_before != new_inst.mem_before:
+            print(f"  Mem before: {ref_inst.mem_before:#x} -> {new_inst.mem_before:#x}")
+        if ref_inst.mem_after != new_inst.mem_after:
+            print(f"  Mem after:  {ref_inst.mem_after:#x} -> {new_inst.mem_after:#x}")
+        if (
+            ref_inst.effective_address == new_inst.effective_address
+            and ref_inst.mem_before == new_inst.mem_before
+            and ref_inst.mem_after == new_inst.mem_after
+        ):
+            print("  Memory identical.")
+
+    print("\n--- Reference trace context ---")
+    show_context(trace_ref, idx)
+    print("\n--- New trace context ---")
+    show_context(trace_new, idx)
+
+    print("\n--- Taint Bitmaps ---")
+    print_taint("Reference Taint", taint_ref)
+    print_taint("New Taint", taint_new)
+
+    print("\n--- Inputs ---")
+    print("  Reference input:")
+    print(input_ref)
+    print("  New input:")
+    print(input_new)
+
+    print("=" * 100)
+
+    if dump_files:
+        dump_debug_to_file(prefix, input_ref, input_new, trace_ref, trace_new, taint_ref, taint_new)
+        print(f"[+] Debug data dumped to: {prefix}_*.json/txt")
 

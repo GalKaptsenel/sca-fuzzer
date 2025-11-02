@@ -21,6 +21,7 @@ from .util import Logger, STAT, pretty_htrace
 
 from .generator import Pass
 from .aarch64.aarch64_generator import Aarch64TagMemoryAccesses, Aarch64Printer, Aarch64MarkMemoryAccessesNEON, Aarch64SandboxPass, Aarch64MarkRegisterTaints, Aarch64MarkMemoryTaints, Aarch64FullTrace, FullTraceAuxBuffer, BitmapTaintsAuxBuffer
+from .aarch64.aarch64_executor import compare_and_debug_trace_pair
 
 
 class TracingArguments:
@@ -351,9 +352,26 @@ class FuzzerGeneric(Fuzzer):
         else:
             expected_ctraces = args.ctraces * CONF.inputs_per_class
             # compute ctraces separately for every boosted input
-            ctraces, _ = self.executor.trace_test_case_with_taints(args.inputs)
+            ctraces, _, full_trace, bitmaps = self.executor.trace_test_case_with_taints(args.inputs)
             if expected_ctraces != ctraces:
                 import pdb; pdb.set_trace()
+                diff_idx = None
+                for j, (exp, got) in enumerate(zip(expected_ctraces, ctraces)):
+                    if exp != got:
+                        diff_idx = j
+                        break
+                orig_input_idx = diff_idx - len(args.ctraces)
+                new_input_idx = diff_idx
+
+                compare_and_debug_trace_pair(
+                            input_ref=args.inputs[orig_input_idx],
+                            input_new=args.inputs[new_input_idx],
+                            trace_ref=full_trace[orig_input_idx],
+                            trace_new=full_trace[new_input_idx],
+                            taint_ref=bitmaps[orig_input_idx],
+                            taint_new=bitmaps[new_input_idx],
+                            prefix="debug_different_ctraces"
+                    )
             assert expected_ctraces == ctraces, f'Mismatching CTraces!\n\texpected_ctraces={[t.raw for t in expected_ctraces]}\n\tverified_ctraces={[t.raw for t in ctraces]}'
         assert len(ctraces) == len(args.inputs)
 
@@ -408,7 +426,7 @@ class FuzzerGeneric(Fuzzer):
 
         # collect taints and contract traces for initial inputs
         #ctraces, taints = self.model.trace_test_case_with_taints(inputs, nesting)
-        ctraces, taints = self.executor.trace_test_case_with_taints(inputs)
+        ctraces, taints, _, _ = self.executor.trace_test_case_with_taints(inputs)
 
         # ensure that we have many inputs in each input classes
         self.input_gen.reset_boosting_state()

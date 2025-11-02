@@ -39,7 +39,7 @@ class InstructionSet(InstructionSetAbstract):
             instruction.name = instruction_node["name"]
             instruction.category = instruction_node["category"]
             instruction.control_flow = instruction_node["control_flow"]
-            instruction.template = instruction_node["template"]
+            instruction.template = instruction_node.get("template", None)
 
             for op_node in instruction_node["operands"]:
                 op = self.parse_operand(op_node, instruction)
