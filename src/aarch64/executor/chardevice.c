@@ -65,12 +65,12 @@ static void checkout_into_input_id(void __user* arg) {
 }
 
 static void measurements_became_unavailable(void) {
-	module_info("Measurements became unavailable!\n");
+	//module_info("Measurements became unavailable!\n");
 }
 
 static void reset_state_and_region_after_unloading_all_inputs(void) {
 
-	module_info("all inputs were unloaded, checking out into TEST_REGION\n");
+	//module_info("all inputs were unloaded, checking out into TEST_REGION\n");
 	executor.checkout_region = TEST_REGION;
 
 	switch(executor.state) {
@@ -96,7 +96,7 @@ static void free_input_id(void __user* arg) {
 	if(0 <= input_id) {
 
 		if(input_id == executor.checkout_region) {
-			module_info("Freeing the currently checked out input, checking out into TEST_REGION.\n");
+			//module_info("Freeing the currently checked out input, checking out into TEST_REGION.\n");
 			executor.checkout_region = TEST_REGION;
 		}
 
@@ -193,7 +193,7 @@ static size_t load_test_and_update_state(const char __user* test, size_t length)
 
 	update_state_after_writing_test();
 
-	module_info("%zu bytes were written into test case memory!\n", length);
+	//module_info("%zu bytes were written into test case memory!\n", length);
 
 	return executor.test_case_length;
 }
@@ -218,7 +218,7 @@ static int trace(void) {
 		return full_test_case_size;
 	}
 
-	module_info("%u bytes were written into measurement memory!\n", full_test_case_size);
+	//module_info("%u bytes were written into measurement memory!\n", full_test_case_size);
 
 	int err = execute_on_pinned_cpu(executor.config.pinned_cpu_id, execute_on_target, NULL);
 	if(0 != err) {
@@ -275,7 +275,7 @@ static int64_t handle_batch(void __user* arg) {
 		goto handle_batch_end;
 	}
 
-	module_info("Loading a batch of %llu inputs", batch.size);
+	//module_info("Loading a batch of %llu inputs", batch.size);
 
 	if (copy_from_user_with_access_check(input_and_id_array,  user_batch->array, batch.size * sizeof(struct input_and_id_pair))) {
 		err = -EFAULT;
@@ -377,12 +377,12 @@ static int64_t handle_get_aux_buffer(void __user* user_req) {
 	}
 
 	if(NULL == req.data) {
-		module_debug("Retrieving auxiliary buffer size (cmd: %d)..\n", REVISOR_GET_AUX_BUFFER_CONSTANT);
+		//module_debug("Retrieving auxiliary buffer size (cmd: %d)..\n", REVISOR_GET_AUX_BUFFER_CONSTANT);
 		req.size = auxb->size;
 
 	} else {
 
-		module_debug("Retrieving auxiliary buffer (cmd: %d)..\n", REVISOR_GET_AUX_BUFFER_CONSTANT);
+		//module_debug("Retrieving auxiliary buffer (cmd: %d)..\n", REVISOR_GET_AUX_BUFFER_CONSTANT);
 
 		req.size = (req.size < auxb->size) ? req.size : auxb->size;
 
@@ -411,61 +411,61 @@ static long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg
 	switch(_IOC_NR(cmd)) {
 
 		case REVISOR_CHECKOUT_TEST_CONSTANT:
-			module_debug("Checking out test memory (cmd: %d)..\n", REVISOR_CHECKOUT_TEST_CONSTANT);
+			//module_debug("Checking out test memory (cmd: %d)..\n", REVISOR_CHECKOUT_TEST_CONSTANT);
 			executor.checkout_region = TEST_REGION;
 			break;
 
 		case REVISOR_UNLOAD_TEST_CONSTANT:
-			module_debug("Unloading test case (cmd: %d)..\n", REVISOR_UNLOAD_TEST_CONSTANT);
+			//module_debug("Unloading test case (cmd: %d)..\n", REVISOR_UNLOAD_TEST_CONSTANT);
 			unload_test_and_update_state();
 			break;
 
 		case REVISOR_GET_NUMBER_OF_INPUTS_CONSTANT:
-			module_debug("Querying number of inputs configured (cmd: %d)..\n",
-			REVISOR_GET_NUMBER_OF_INPUTS_CONSTANT);
+			//module_debug("Querying number of inputs configured (cmd: %d)..\n",
+			//REVISOR_GET_NUMBER_OF_INPUTS_CONSTANT);
 			result = executor.number_of_inputs;
 			result = copy_to_user_with_access_check((void __user*)arg, &result,
 			            sizeof(result));
 			break;
 
 		case REVISOR_CHECKOUT_INPUT_CONSTANT:
-			module_debug("Checking out an input (cmd: %d)..\n", REVISOR_CHECKOUT_INPUT_CONSTANT);
+			//module_debug("Checking out an input (cmd: %d)..\n", REVISOR_CHECKOUT_INPUT_CONSTANT);
 			checkout_into_input_id((void __user*)arg);
 			break;
 
 		case REVISOR_ALLOCATE_INPUT_CONSTANT:
-			module_debug("Allocating new input (cmd: %d)..\n", REVISOR_CHECKOUT_INPUT_CONSTANT);
+			//module_debug("Allocating new input (cmd: %d)..\n", REVISOR_CHECKOUT_INPUT_CONSTANT);
 			result = allocate_input();
 			result = copy_to_user_with_access_check((void __user*)arg, &result, sizeof(result));
 			break;
 
 		case REVISOR_FREE_INPUT_CONSTANT:
-			module_debug("Freeing input (cmd: %d)..\n", REVISOR_FREE_INPUT_CONSTANT);
+			//module_debug("Freeing input (cmd: %d)..\n", REVISOR_FREE_INPUT_CONSTANT);
 			free_input_id((void __user*)arg);
 			break;
 
 		case REVISOR_MEASUREMENT_CONSTANT:
-			module_debug("Querying measurement (cmd: %d)..\n", REVISOR_MEASUREMENT_CONSTANT);
+			//module_debug("Querying measurement (cmd: %d)..\n", REVISOR_MEASUREMENT_CONSTANT);
 			measure_input_id((void __user*)arg);
 			break;
 
 		case REVISOR_TRACE_CONSTANT:
-			module_debug("Beginning trace (cmd: %d)..\n", REVISOR_TRACE_CONSTANT);
+			//module_debug("Beginning trace (cmd: %d)..\n", REVISOR_TRACE_CONSTANT);
 			trace();
 			break;
 
 		case REVISOR_CLEAR_ALL_INPUTS_CONSTANT:
-			module_debug("Clearing all inputs (cmd: %d)..\n", REVISOR_CLEAR_ALL_INPUTS_CONSTANT);
+			//module_debug("Clearing all inputs (cmd: %d)..\n", REVISOR_CLEAR_ALL_INPUTS_CONSTANT);
 			clear_all_inputs();
 			break;
 
 		case REVISOR_GET_TEST_LENGTH_CONSTANT:
-			module_debug("Querying test case length (cmd: %d)..\n", REVISOR_GET_TEST_LENGTH_CONSTANT);
+			//module_debug("Querying test case length (cmd: %d)..\n", REVISOR_GET_TEST_LENGTH_CONSTANT);
 			get_test_length((void __user*)arg);
 			break;
 
 		case REVISOR_BATCHED_INPUTS_CONSTANT:
-			module_debug("Batch of inputs (cmd: %d)..\n", REVISOR_BATCHED_INPUTS_CONSTANT);
+			//module_debug("Batch of inputs (cmd: %d)..\n", REVISOR_BATCHED_INPUTS_CONSTANT);
 			handle_batch((void __user*)arg);
 		    break;
 

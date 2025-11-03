@@ -246,26 +246,31 @@ class X86TargetDesc(TargetDesc):
         self.registers = filtered_decoding
 
         # identify the CPU model we are running on
-        with open("/proc/cpuinfo", "r") as f:
-            cpuinfo = f.read()
-            if 'Intel' in cpuinfo:
-                vendor = 'Intel'
-            elif 'AMD' in cpuinfo:
-                vendor = 'AMD'
-            else:
-                vendor = 'Unknown'
-
-            family_match = re.search(r"cpu family\s+:\s+(.*)", cpuinfo)
-            assert family_match, "Failed to find family in /proc/cpuinfo"
-            family = family_match.group(1)
-
-            model_match = re.search(r"model\s+:\s+(.*)", cpuinfo)
-            assert model_match, "Failed to find model name in /proc/cpuinfo"
-            model = model_match.group(1)
-
-            stepping_match = re.search(r"stepping\s+:\s+(.*)", cpuinfo)
-            assert stepping_match, "Failed to find stepping in /proc/cpuinfo"
-            stepping = stepping_match.group(1)
+        import pdb; pdb.set_trace()
+#        with open("/proc/cpuinfo", "r") as f:
+#            cpuinfo = f.read()
+#            if 'Intel' in cpuinfo:
+#                vendor = 'Intel'
+#            elif 'AMD' in cpuinfo:
+#                vendor = 'AMD'
+#            else:
+#                vendor = 'Unknown'
+        model = "galm"
+        vendor = "galv"
+        family = "galf"
+        stepping = "gals"
+#
+#            family_match = re.search(r"cpu family\s+:\s+(.*)", cpuinfo)
+#            assert family_match, "Failed to find family in /proc/cpuinfo"
+#            family = family_match.group(1)
+#
+#            model_match = re.search(r"model\s+:\s+(.*)", cpuinfo)
+#            assert model_match, "Failed to find model name in /proc/cpuinfo"
+#            model = model_match.group(1)
+#
+#            stepping_match = re.search(r"stepping\s+:\s+(.*)", cpuinfo)
+#            assert stepping_match, "Failed to find stepping in /proc/cpuinfo"
+#            stepping = stepping_match.group(1)
 
         self.cpu_desc = CPUDesc(vendor, model, family, stepping)
 

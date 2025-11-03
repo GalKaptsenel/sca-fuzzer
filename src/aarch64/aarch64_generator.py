@@ -536,9 +536,6 @@ class Aarch64MarkRegisterTaints(Pass):
 				if op.type == OT.COND:
 					src_flags.extend(map_cond_to_flags[op.value.lower()])
 
-		if inst.name.lower() in ('cbnz', 'cbz'):
-			src_flags.append('Z')
-
 		src_flags = sorted(set(src_flags))
 		dest_flags = sorted(set(dest_flags))
 
@@ -615,7 +612,6 @@ class Aarch64MarkRegisterTaints(Pass):
 						instrs_to_insert.extend(self._generate_instructions_for_mark_register_taints(inst))
 						instrs_to_insert.append(inst)
 					bb.terminators = instrs_to_insert
-
 
 
 class Aarch64MarkMemoryAccessesNEON(Pass):

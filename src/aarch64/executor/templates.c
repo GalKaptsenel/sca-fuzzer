@@ -617,7 +617,7 @@ static measurement_template map_to_template(enum Templates required_template) {
 
 	for(int i = 0; i < (sizeof(methods) / sizeof(methods[0])); ++i) {
 		if(required_template == methods[i].type) {
-			module_info("loading %s!\n", methods[i].name);
+//			module_info("loading %s!\n", methods[i].name);
 			return methods[i].wrapper;
 		}
 	}
@@ -693,7 +693,7 @@ int load_template(size_t tc_size) {
 //	        ((uint32_t*)executor.measurement_code)[print_pos]);
 //        }
 //    }
-    module_err("executor is loaded at: %px", &executor);
+//    module_err("executor is loaded at: %px", &executor);
 
     return (sizeof(uint32_t) * code_pos);
 }

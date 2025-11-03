@@ -220,7 +220,7 @@ class Aarch64Transformer:
                 return text
 
             account_text = _get_full_text(account.find(".//para"))
-            src = any(word in account_text for word in ["loaded", "source"]) if src is None else src
+            src = any(word in account_text for word in ["loaded", "source", "tested"]) if src is None else src # the phrase "to be tested" used in the documentation
             dest = any(word in account_text for word in ["stored", "destination"]) if dest is None else dest
             values = []
             signed = False
