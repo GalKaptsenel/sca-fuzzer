@@ -720,7 +720,7 @@ class GenerateTaintsAndCTracesBlock(Block):
 				if offset >= main_region_u8.size:
 					to_change_region = faulty_region_u8
 					to_change_offset = offset - main_region_u8.size
-            
+
 				to_change_region[to_change_offset] = True
 
 		line_size = 64
@@ -737,7 +737,7 @@ class GenerateTaintsAndCTracesBlock(Block):
 		assert set(input_to_bitmap_taints_buffer) == set(input_to_full_trace_buffer)
 		inputs_to_process = list(input_to_bitmap_taints_buffer.keys())
 		if not inputs_to_process:
-			return {} 
+			return {}
 
 		taints: OrderedDict[Input, InputTaint] = OrderedDict()
 		ctraces: OrderedDict[Input, CTrace] = OrderedDict()
@@ -745,7 +745,7 @@ class GenerateTaintsAndCTracesBlock(Block):
 		for input_to_process, bitmap_aux_buffer in input_to_bitmap_taints_buffer.items():
 			full_trace_buffer = input_to_full_trace_buffer[input_to_process]
 			taints[input_to_process], ctraces[input_to_process] = self._process_input(input_to_process, bitmap_aux_buffer, full_trace_buffer)
-		
+
 		return taints, ctraces
 
 
@@ -1547,7 +1547,7 @@ class Aarch64RemoteExecutor(Aarch64Executor, Cleanable):
     def _write_test_case(self, test_case: TestCase) -> None:
         self.test_case = test_case
 
-    def trace_test_case(self, inputs: List[Input], n_reps: int) -> List[HTrace]:
+    def trace_test_case(self, inputs: List[Input], n_reps: int) -> Tuple[List[HTrace], List[TestCase]]:
         """
         Call the executor kernel module to collect the hardware traces for
         the test case (previously loaded with `load_test_case`) and the given inputs.
@@ -1562,7 +1562,7 @@ class Aarch64RemoteExecutor(Aarch64Executor, Cleanable):
             return []
 
 
-        
+
         # Store statistics
         n_inputs = len(inputs)
         STAT.executor_reruns += n_reps * n_inputs
@@ -1571,7 +1571,7 @@ class Aarch64RemoteExecutor(Aarch64Executor, Cleanable):
                     LoadSandboxedTestCaseBlock(self) |
 					TraceScenarioBatch(self)
                 ).build()
-        
+
         initial_context = {
             "inputs": inputs,
             "test_case": self.test_case,
@@ -1580,11 +1580,12 @@ class Aarch64RemoteExecutor(Aarch64Executor, Cleanable):
             "userland_executor": self.userland_executor,
             "connection": self.connection,
         }
-        
+
         ctx = pipeline.run(initial_context)
-        
+
         filename_to_jsons = ctx["filename_to_jsons"]
         input_to_filename_dict = ctx["input_to_filename_dict"]
+        sandboxed_testcase = ctx["sandboxed_test_case"]
 
 		# Aggregate traces per remote input
         filenames = input_to_filename_dict.values()
@@ -1600,18 +1601,18 @@ class Aarch64RemoteExecutor(Aarch64Executor, Cleanable):
                 if input_name not in filenames:
                     warnings.warn(f"Unexpected input_name returned: {input_name}")
                     continue
-    
-    
+
+
                 trace_bin = js['htraces'][0]
                 trace_int = int(trace_bin, 2)
-    
+
                 pfcs = tuple(js['pfcs'])
                 trace_list.append(trace_int)
 
             htrace = HTrace(trace_list=trace_list)
             results.append(htrace)
 
-        return results
+        return results, [sandboxed_testcase] * len(results)
 
     def trace_test_case_with_taints(self, inputs: List[Input], expected_ctraces = None) -> Tuple[List[CTrace], List[InputTaint], List[FullTraceAuxBuffer], List[BitmapTaintsAuxBuffer]]:
         """
@@ -1626,11 +1627,11 @@ class Aarch64RemoteExecutor(Aarch64Executor, Cleanable):
             return []
 
         pipeline = (
-                    LoadInputsBlock(self) | 
+                    LoadInputsBlock(self) |
                     GenerateInputArchFlowBlock(self) |
                     GenerateTaintsAndCTracesBlock()
                 ).build()
-        
+
         initial_context = {
             "inputs": inputs,
             "test_case": self.test_case,
@@ -1640,9 +1641,9 @@ class Aarch64RemoteExecutor(Aarch64Executor, Cleanable):
             "connection": self.connection,
             "expected_ctraces": expected_ctraces
         }
-        
+
         ctx = pipeline.run(initial_context)
-        
+
 
         input_to_taint = ctx["input_to_taint"]
         input_to_ctrace = ctx["input_to_ctrace"]

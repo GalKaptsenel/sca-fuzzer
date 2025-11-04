@@ -30,7 +30,8 @@ class EquivalenceAnalyserCommon(Analyser):
                           inputs: List[Input],
                           ctraces: List[CTrace],
                           htraces: List[HTrace],
-                          stats=False) -> List[Violation]:
+                          stats=False,
+			  test_cases=None) -> List[Violation]:
         """
         Group the measurements by their ctrace (i.e., build equivalence classes of measurements
         w.r.t. their ctrace) and check if all htraces in the same equivalence class are equal.
@@ -58,7 +59,7 @@ class EquivalenceAnalyserCommon(Analyser):
         for i, ctrace in enumerate(ctraces):
             # skip the measurements with corrupted/ignored htraces
             if not htraces[i].raw:
-                continue
+                 continue
             equivalent_inputs_ids[ctrace].append(i)
         
 
@@ -70,8 +71,10 @@ class EquivalenceAnalyserCommon(Analyser):
                 continue
 
             # get all measurements in the class
-            measurements = [Measurement(i, inputs[i], ctrace, htraces[i]) for i in ids]
-#            measurements = [Measurement(i, inputs[i], ctrace, htraces[i], test_cases[i]) for i in ids if  htraces[i].raw]
+            if test_cases:
+                measurements = [Measurement(i, inputs[i], ctrace, htraces[i], test_cases[i]) for i in ids]
+            else:
+                measurements = [Measurement(i, inputs[i], ctrace, htraces[i]) for i in ids]
              
 
             # Build htrace groups

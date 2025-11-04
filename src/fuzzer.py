@@ -377,7 +377,7 @@ class FuzzerGeneric(Fuzzer):
 
         # Collect hardware traces
         try:
-            htraces = self.executor.trace_test_case(args.inputs, args.n_reps)
+            htraces, test_cases = self.executor.trace_test_case(args.inputs, args.n_reps)
         except HardwareTracingError:
             return [], [], []
         assert len(htraces) == len(args.inputs)
@@ -389,7 +389,7 @@ class FuzzerGeneric(Fuzzer):
 
         # Check for violations
         violations = self.analyser.filter_violations(
-            args.inputs, ctraces, htraces, stats=args.record_stats)
+            args.inputs, ctraces, htraces, stats=args.record_stats, test_cases=test_cases)
         if not violations:
             # if violation is detected, print debug traces (if requested)
             #self.LOG.trc_fuzzer_dump_traces(self.model, args.inputs, htraces,
@@ -644,7 +644,7 @@ class FuzzerGeneric(Fuzzer):
 
                 # try the new input sequence and check if the traces observed for the new input
                 # are equivalent to the original ones
-                htraces: List[HTrace] = self.executor.trace_test_case(primer, n_reps)
+                htraces, _ = self.executor.trace_test_case(primer, n_reps)
                 new_htrace = htraces[current_input_id]
 
                 # fast exit in case of a tracing error
