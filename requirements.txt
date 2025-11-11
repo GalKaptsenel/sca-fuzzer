@@ -9,6 +9,6 @@ pure_python_adb==0.3.0.dev0
 pyelftools==0.32
 PyYAML==6.0.3
 scipy==1.16.2
-unicorn==2.0.1.post1
+unicorn==1.0.3
 xxhash==3.5.0
 z3_solver==4.15.3.0

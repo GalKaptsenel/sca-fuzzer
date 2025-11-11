@@ -14,6 +14,77 @@ import time
 import paramiko
 import os
 
+import time
+import ctypes
+from functools import wraps
+from collections import defaultdict
+from contextlib import contextmanager
+import fcntl
+
+
+op_timings = defaultdict(list)
+def profile_by_opcode(func):
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        cmd = args[1] if len(args) > 0 else None
+        print(f"running profiler with command {cmd}")
+        start = time.time()
+        try:
+            return func(*args, **kwargs)
+        finally:
+            duration = time.time() - start
+            op_timings[cmd].append(duration)
+            print(f"done {cmd}")
+
+    return wrapper
+
+@contextmanager
+def profile_op(name: str):
+    start = time.time()
+    try:
+        yield
+    finally:
+        op_timings[name].append(time.time() - start)
+
+
+def print_opcode_summary():
+    if not op_timings:
+        print("No opcode data collected.")
+        return
+
+    # Compute total runtime for all opcodes
+    total_runtime = sum(sum(times) for times in op_timings.values())
+
+    # Header
+    print("\n=== Opcode Profiling Summary ===")
+    print(f"{'Opcode':<30} | {'Count':>6} | {'Avg (ms)':>10} | {'Total (ms)':>11} | {'% of total':>10}")
+    print("-" * 80)
+
+    # Sort opcodes by total runtime descending
+    sorted_ops = sorted(op_timings.items(), key=lambda x: sum(x[1]), reverse=True)
+
+    for op, times in sorted_ops:
+        count = len(times)
+        total = sum(times)
+        avg = total / count
+        percent = (total / total_runtime) * 100 if total_runtime > 0 else 0
+        print(f"{op:<30} | {count:>6} | {avg*1000:>10.3f} | {total*1000:>11.3f} | {percent:>9.2f}%")
+
+    print("-" * 80)
+    print(f"{'Total':<30} | {'':>6} | {'':>10} | {total_runtime*1000:>11.3f} | {100:>9.2f}%\n")
+
+
+def read_device(fd, chunk_size=4*1024) -> bytes:
+    buffer = bytearray()
+    while True:
+        chunk = os.read(fd, chunk_size)
+        if not chunk:
+            break
+        buffer.extend(chunk)
+    return bytes(buffer)
+
+
 class Connection:
     def __init__(self):
         pass
@@ -29,6 +100,7 @@ class Connection:
 
     def is_file_present(self, filename: str) -> bool:
         raise NotImplementedError
+
 
 class SSHConnection(Connection):
     def __init__(self, host: str = '127.0.0.1', port: int = 22, username: str = None, password: str = None, key_filename: str = None):
@@ -71,10 +143,14 @@ class SSHConnection(Connection):
         return out if out else err
 
     def push(self, src, dst):
-        return self.sftp.put(src, dst)
+        print(f'push {src} -> {dst}')
+        with profile_op('push'):
+            return self.sftp.put(src, dst)
 
     def pull(self, src, dst):
-        return self.sftp.get(src, dst)
+        print(f'pull {src} -> {dst}')
+        with profile_op('pull'):
+            return self.sftp.get(src, dst)
 
     def is_file_present(self, filename: str) -> bool:
         try:
@@ -178,10 +254,6 @@ class UserlandExecutor(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def __len__(self):
-        raise NotImplementedError()
-
-    @abstractmethod
     def allocate_iid(self) -> int:
         raise NotImplementedError()
 
@@ -277,7 +349,7 @@ class ExecutorBatch:
         return config 
 
 
-class UserlandExecutorImp:
+class UserlandExecutorImp(UserlandExecutor):
 	_RETRIES = 100
 
 	def __init__(self, connection: Connection, userland_application_path: str,
@@ -313,9 +385,9 @@ class UserlandExecutorImp:
 		if executor_batch is not None:
 			remote_batch_file_path  = '/tmp/' + random_filename()
 			self._upload_batch(executor_batch, remote_batch_file_path)
-			output = self.connection.shell(
-					f'{self.userland_application_path} {self.executor_device_path} c {remote_batch_file_path}',
-					privileged=True)
+			cmd = f'{self.userland_application_path} {self.executor_device_path} c {remote_batch_file_path}',
+			with profile_op('batch execution'):
+				output = self.connection.shell(cmd, privileged=True)
 			self.connection.shell(f'rm {remote_batch_file_path}', privileged=True)
 
 			if executor_batch.output is not None:
@@ -373,9 +445,10 @@ class UserlandExecutorImp:
 		filename = f'{uuid.uuid4().hex}.bin'
 		remote_filename = f'remote_{filename}'
 
-		self.connection.shell(
-				f'{self.userland_application_path} {self.executor_device_path} r {remote_filename}',
-				privileged=True)
+		with profile_op('read'):
+			self.connection.shell(
+					f'{self.userland_application_path} {self.executor_device_path} r {remote_filename}',
+					privileged=True)
 
 		self.connection.pull(remote_filename, filename)
 		self.connection.shell(f'rm {remote_filename}')
@@ -387,9 +460,11 @@ class UserlandExecutorImp:
 		return ExecutorMemory(ret_data)
 
 	def write_file(self, filename: str) -> None:
-		self.connection.shell(f'{self.userland_application_path} {self.executor_device_path} w {filename}', privileged=True)
+		with profile_op('write'):
+			self.connection.shell(f'{self.userland_application_path} {self.executor_device_path} w {filename}', privileged=True)
 
 
+	@profile_by_opcode
 	def _query_executor(self, qid: int, *args) -> str:
 		return self.connection.shell(f'{self.userland_application_path} {self.executor_device_path} {qid} {" ".join(str(arg) for arg in args)}', privileged=True)
 
@@ -441,12 +516,225 @@ class UserlandExecutorImp:
 		return int(base, 16)
 
 	def _upload_batch(self, executor_batch: ExecutorBatch, remote_batch_file_path: str):
-		self.connection.shell(f'rm {remote_batch_file_path}')
-
 		with tempfile.NamedTemporaryFile(mode='w') as tmp_file:
 			tmp_file.write(str(executor_batch))
 			tmp_file.flush()
 			self.connection.push(tmp_file.name, remote_batch_file_path)
+
+class AuxBufferIoctl(ctypes.Structure):
+    _fields_ = [
+        ("size", ctypes.c_size_t),
+        ("data", ctypes.c_void_p),
+    ]
+
+class UserMeasurement(ctypes.Structure):
+    _fields_ = [
+        ("htrace", ctypes.c_uint64 * 1),
+        ("pfc", ctypes.c_uint64 * 3),
+        ("memory_ids_bitmap", ctypes.c_uint64 * 2),
+    ]
+
+REVISOR_IOC_MAGIC = ord('r')
+
+REVISOR_CHECKOUT_TEST_CONSTANT      = 1
+REVISOR_UNLOAD_TEST_CONSTANT        = 2
+REVISOR_GET_NUMBER_OF_INPUTS_CONSTANT = 3
+REVISOR_CHECKOUT_INPUT_CONSTANT     = 4
+REVISOR_ALLOCATE_INPUT_CONSTANT     = 5
+REVISOR_FREE_INPUT_CONSTANT         = 6
+REVISOR_MEASUREMENT_CONSTANT        = 7
+REVISOR_TRACE_CONSTANT              = 8
+REVISOR_CLEAR_ALL_INPUTS_CONSTANT   = 9
+REVISOR_GET_TEST_LENGTH_CONSTANT    = 10
+REVISOR_BATCHED_INPUTS_CONSTANT     = 11
+REVISOR_GET_AUX_BUFFER_CONSTANT     = 12
+
+IOCTL_NR_TO_NAME = {
+    1: "REVISOR_CHECKOUT_TEST",
+    2: "REVISOR_UNLOAD_TEST",
+    3: "REVISOR_GET_NUMBER_OF_INPUTS",
+    4: "REVISOR_CHECKOUT_INPUT",
+    5: "REVISOR_ALLOCATE_INPUT",
+    6: "REVISOR_FREE_INPUT",
+    7: "REVISOR_MEASUREMENT",
+    8: "REVISOR_TRACE",
+    9: "REVISOR_CLEAR_ALL_INPUTS",
+    10: "REVISOR_GET_TEST_LENGTH",
+    11: "REVISOR_BATCHED_INPUTS",
+    12: "REVISOR_GET_AUX_BUFFER",
+}
+
+
+# From asm-generic/ioctl.h
+_IOC_NRBITS = 8
+_IOC_TYPEBITS = 8
+_IOC_SIZEBITS = 14
+_IOC_DIRBITS = 2
+
+_IOC_NRSHIFT = 0
+_IOC_TYPESHIFT = _IOC_NRSHIFT + _IOC_NRBITS
+_IOC_SIZESHIFT = _IOC_TYPESHIFT + _IOC_TYPEBITS
+_IOC_DIRSHIFT = _IOC_SIZESHIFT + _IOC_SIZEBITS
+
+_IOC_NONE = 0
+_IOC_WRITE = 1
+_IOC_READ = 2
+
+def _IOC(dir, type, nr, size):
+	return ((dir << _IOC_DIRSHIFT) |
+	  (type << _IOC_TYPESHIFT) |
+	  (nr << _IOC_NRSHIFT) |
+	  (size << _IOC_SIZESHIFT))
+
+def _IO(type, nr):
+	return _IOC(_IOC_NONE, type, nr, 0)
+
+def _IOR(type, nr, datatype):
+	return _IOC(_IOC_READ, type, nr, ctypes.sizeof(datatype))
+
+def _IOW(type, nr, datatype):
+	return _IOC(_IOC_WRITE, type, nr, ctypes.sizeof(datatype))
+
+def _IOWR(type, nr, datatype):
+	return _IOC(_IOC_READ | _IOC_WRITE, type, nr, ctypes.sizeof(datatype))
+
+def decode_ioctl(cmd):
+    nr = (cmd >> _IOC_NRSHIFT) & ((1 << _IOC_NRBITS) - 1)
+    type_ = (cmd >> _IOC_TYPESHIFT) & ((1 << _IOC_TYPEBITS) - 1)
+    size = (cmd >> _IOC_SIZESHIFT) & ((1 << _IOC_SIZEBITS) - 1)
+    dir_ = (cmd >> _IOC_DIRSHIFT) & ((1 << _IOC_DIRBITS) - 1)
+    name = IOCTL_NR_TO_NAME.get(nr, f"UNKNOWN_IOCTL_{nr}")
+    return {'dir': dir_, 'type': type_, 'nr': nr, 'size': size, 'name': name}
+
+
+# Generate actual ioctl numbers
+REVISOR_CHECKOUT_TEST = _IO(REVISOR_IOC_MAGIC, REVISOR_CHECKOUT_TEST_CONSTANT)
+REVISOR_UNLOAD_TEST = _IO(REVISOR_IOC_MAGIC, REVISOR_UNLOAD_TEST_CONSTANT)
+REVISOR_GET_NUMBER_OF_INPUTS = _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_NUMBER_OF_INPUTS_CONSTANT, ctypes.c_uint64)
+REVISOR_CHECKOUT_INPUT = _IOW(REVISOR_IOC_MAGIC, REVISOR_CHECKOUT_INPUT_CONSTANT, ctypes.c_uint64)
+REVISOR_ALLOCATE_INPUT = _IOR(REVISOR_IOC_MAGIC, REVISOR_ALLOCATE_INPUT_CONSTANT, ctypes.c_uint64)
+REVISOR_FREE_INPUT = _IOW(REVISOR_IOC_MAGIC, REVISOR_FREE_INPUT_CONSTANT, ctypes.c_uint64)
+REVISOR_MEASUREMENT = _IOR(REVISOR_IOC_MAGIC, REVISOR_MEASUREMENT_CONSTANT, UserMeasurement)
+REVISOR_TRACE = _IO(REVISOR_IOC_MAGIC, REVISOR_TRACE_CONSTANT)
+REVISOR_CLEAR_ALL_INPUTS = _IO(REVISOR_IOC_MAGIC, REVISOR_CLEAR_ALL_INPUTS_CONSTANT)
+REVISOR_GET_TEST_LENGTH = _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_TEST_LENGTH_CONSTANT, ctypes.c_uint64)
+REVISOR_BATCHED_INPUTS = _IOWR(REVISOR_IOC_MAGIC, REVISOR_BATCHED_INPUTS_CONSTANT, ctypes.c_uint64)  # adjust struct
+REVISOR_GET_AUX_BUFFER = _IOWR(REVISOR_IOC_MAGIC, REVISOR_GET_AUX_BUFFER_CONSTANT, AuxBufferIoctl)
+
+
+class LocalExecutorImp(UserlandExecutor):
+
+	def __init__(self, device_path: str, sys_executor_path: str, module_path: str):
+		self.executor_device_path: str = device_path
+		self.executor_sysfs: str = sys_executor_path
+		self.current_region: ExecutorRegion = TestCaseRegion()
+		self.fd = os.open(self.executor_device_path, os.O_RDWR)
+		self._write_sysfs("measurement_mode", b"P")
+		self._write_sysfs("pin_to_core", b"0")
+		self.discard_all_inputs()
+		self.checkout_region(TestCaseRegion())
+		del self.contents 
+
+	def _write_sysfs(self, filename: str, value: bytes):
+		path = os.path.join(self.executor_sysfs, filename)
+		with open(path, "wb") as f:
+			f.write(value)
+	
+	def _read_sysfs(self, filename: str) -> str:
+		path = os.path.join(self.executor_sysfs, filename)
+		with open(path, "r") as f:
+			return f.read().strip()
+
+	def _ioctl(self, cmd: int, arg=None):
+		with profile_op(f'ioctl {decode_ioctl(cmd)["name"]}'):
+			if arg is None:
+				arg = 0
+			if isinstance(arg, int):
+				buf = ctypes.c_uint64(arg)
+				ret = fcntl.ioctl(self.fd, cmd, buf)
+				return buf.value
+			else:
+				return fcntl.ioctl(self.fd, cmd, arg)
+
+	def trace(self):
+		self._ioctl(REVISOR_TRACE)
+
+	def discard_all_inputs(self):
+		self._ioctl(REVISOR_CLEAR_ALL_INPUTS)
+
+	def checkout_region(self, region: ExecutorRegion):
+		self.current_region = region
+		if isinstance(region, TestCaseRegion):
+			self._ioctl(REVISOR_CHECKOUT_TEST)
+		elif isinstance(region, InputRegion):
+			self._ioctl(REVISOR_CHECKOUT_INPUT, region.iid)
+		else:
+			raise ValueError(f'Unsupported region type: {type(region)}')
+
+	def hardware_measurement(self) -> HWMeasurement:
+		measurement = UserMeasurement()
+		self._ioctl(REVISOR_MEASUREMENT, measurement)
+
+		htrace = measurement.htrace[0]
+		pfcs = list(measurement.pfc)
+		memory_ids = 0
+		for i, val in enumerate(measurement.memory_ids_bitmap):
+			memory_ids |= val << (i * 64)
+
+		return HWMeasurement(htrace=htrace, pfcs=pfcs, memory_ids=format(memory_ids, '0{}b'.format(128)))
+
+	@property
+	def aux_buffer(self) -> bytes:
+		buf = AuxBufferIoctl()
+		buf.data = 0 # NULL to get size
+		self._ioctl(REVISOR_GET_AUX_BUFFER, buf)
+		size_needed = buf.size
+		buf_data = (ctypes.c_uint8 * size_needed)()
+		buf.data = ctypes.cast(buf_data, ctypes.c_void_p)
+		buf.size = size_needed
+		self._ioctl(REVISOR_GET_AUX_BUFFER, buf)
+		return bytes(buf_data)
+
+	@property
+	def contents(self) -> ExecutorMemory:
+		with profile_op("read"):
+			raw = read_device(self.fd)
+			return ExecutorMemory(raw)
+
+	def write(self, data: bytes | ExecutorMemory) -> None:
+		if isinstance(data, ExecutorMemory):
+			data = bytes(data)
+
+		with profile_op('write'):
+			os.write(self.fd, data)
+
+	@contents.deleter
+	def contents(self) -> None:
+		if isinstance(self.current_region, TestCaseRegion):
+			self._ioctl(REVISOR_UNLOAD_TEST)
+		elif isinstance(self.current_region, InputRegion):
+			self._ioctl(REVISOR_FREE_INPUT)
+		else:
+			raise ValueError(f'Unsupported region type: {type(self.current_region)}')
+
+	def number_of_inputs(self) -> int:
+		return self._ioctl(REVISOR_GET_NUMBER_OF_INPUTS)
+
+	@property
+	def test_length(self) -> int:
+		return self._ioctl(REVISOR_GET_TEST_LENGTH)
+
+	def allocate_iid(self) -> int:
+		return self._ioctl(REVISOR_ALLOCATE_INPUT)
+
+	@property
+	def sandbox_base(self) -> int:
+		return int(self._read_sysfs('print_sandbox_base'), 16)
+
+	@property
+	def code_base(self) -> int:
+		return int(self._read_sysfs('print_code_base'), 16)
+
 
 # Auxiliary Buffer Managment
 class AuxBufferType(Enum):

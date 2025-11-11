@@ -401,7 +401,7 @@ handle_get_aux_buffer_end:
 	return err;
 }
 
-static long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
+long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
 	int64_t result = 0;
 
 	if(REVISOR_IOC_MAGIC != _IOC_TYPE(cmd)) {

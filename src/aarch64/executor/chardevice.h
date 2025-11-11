@@ -48,4 +48,6 @@ struct aux_buffer_ioctl {
 int initialize_device_interface(void);
 void free_device_interface(void);
 
+long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg);
+
 #endif // ARM64_EXECUTOR_CHARDEV_H

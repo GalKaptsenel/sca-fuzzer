@@ -404,7 +404,7 @@ class Conf:
         if self.instruction_set == "x86-64":
             config = x86_config
 
-        elif self.instruction_set == "aarch64":
+        elif "aarch64" in self.instruction_set:
             config = aarch64_config
 
         else:

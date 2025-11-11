@@ -67,7 +67,8 @@ X86_EXECUTION_CLAUSES: Dict[str, Type[x86_model.UnicornModel]] = {
 EXECUTORS = {
     'x86-64-intel': x86_executor.X86IntelExecutor,
     'x86-64-amd': x86_executor.X86AMDExecutor,
-    'aarch64': aarch64_executor.Aarch64RemoteExecutor,
+    'aarch64': aarch64_executor.Aarch64LocalExecutor,
+    'aarch64-remote': aarch64_executor.Aarch64RemoteExecutor,
     'aarch64-android': aarch64_executor.Aarch64RemoteExecutor,
 }
 
@@ -120,7 +121,7 @@ def get_fuzzer(instruction_set, working_directory, testcase, inputs):
     elif CONF.fuzzer == "basic":
         if CONF.instruction_set == "x86-64":
             return x86_fuzzer.X86Fuzzer(instruction_set, working_directory, testcase, inputs)
-        elif CONF.instruction_set == "aarch64":
+        elif "aarch64" in CONF.instruction_set:
             return aarch64_fuzzer.Aarch64Fuzzer(instruction_set, working_directory, testcase, inputs)
         raise ConfigException("ERROR: unknown value of `instruction_set` configuration option")
     raise ConfigException("ERROR: unknown value of `fuzzer` configuration option")
@@ -168,10 +169,13 @@ def get_executor(enable_mismatch_check_mode: bool = False) -> interfaces.Executo
         connection = aarch64_connection.ADBConnection()
         workdir = '/data/local/tmp/revizor'
         args = [connection, workdir] + args
-    elif 'aarch64' == CONF.executor:
+    elif 'aarch64-remote' == CONF.executor:
         connection = aarch64_connection.SSHConnection(username="rvzr_prj", password="Abc1234#")
         workdir = '/home/rvzr_prj/revizor'
         args = [connection, workdir] + args
+    elif 'aarch64' == CONF.executor:
+        workdir = '/home/rvzr_prj/revizor'
+        args = [workdir] + args
 
     return _get_from_config(EXECUTORS, CONF.executor, "executor", *args)
 

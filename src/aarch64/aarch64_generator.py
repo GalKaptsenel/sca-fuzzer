@@ -970,6 +970,9 @@ class BitmapTaintsAuxBuffer(ExecutorAuxBuffer):
 			f"mem_input_read_bits={self.mem_input_read_bits}>"
 		)
 
+	def __str__(self):
+		return self.__repr__()
+
 
 class Aarch64SandboxPass(Pass):
 	def __init__(self):

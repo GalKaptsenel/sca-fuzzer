@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from collections import defaultdict, OrderedDict, deque
 from enum import Enum, auto
 from contextlib import contextmanager
+from pathlib import Path
 
 
 from .aarch64_generator import Aarch64TagMemoryAccesses, Aarch64Printer, Aarch64MarkMemoryAccessesNEON, Aarch64SandboxPass, Aarch64MarkRegisterTaints, Aarch64MarkMemoryTaints, Aarch64FullTrace, FullTraceAuxBuffer, BitmapTaintsAuxBuffer
@@ -32,10 +33,12 @@ from ..interfaces import HTrace, Input, TestCase, Executor, HardwareTracingError
 from ..config import CONF
 from ..util import Logger, STAT
 from .aarch64_target_desc import Aarch64TargetDesc
-from .aarch64_connection import Connection, UserlandExecutorImp, TestCaseRegion, InputRegion, \
+from .aarch64_connection import Connection, UserlandExecutorImp, LocalExecutorImp, TestCaseRegion, InputRegion, \
     HWMeasurement, ExecutorBatch, aux_buffer_from_bytes, AuxBufferType, ExecutorAuxBuffer
 from .aarch64_generator import Pass
 from .aarch64_inputgen import solve_for_inputs
+
+from .aarch64_connection import profile_op, ExecutorMemory
 
 # ==================================================================================================
 # Helper functions
@@ -1173,7 +1176,9 @@ class TraceScenarioBatch(Block):
 		batch = create_scenario_batch(remote_inputs, remote_test_filename, repeats, remote_batch_output)
 		self.cleanable.register_temp_file(batch.output)
 
-		json_objs = extract_json_objects(userland_executor.trace(batch))
+		trace_output = userland_executor.trace(batch)
+		with profile_op('extract_jsons'):
+			json_objs = extract_json_objects(trace_output)
 
 		# Aggregate traces per remote input
 		filename_to_jsons: Dict[str, OrderedDict[str, object]] = {input_name: [] for input_name in remote_inputs}
@@ -1664,6 +1669,267 @@ class Aarch64RemoteExecutor(Aarch64Executor, Cleanable):
 
         return ctraces, taints, full_trace, bitmaps
 
+
+class Aarch64LocalExecutor(Aarch64Executor):
+
+    def __init__(self, workdir: str, *args, **kwargs):
+        Aarch64Executor.__init__(self, *args, **kwargs)
+
+        self.test_case: Optional[TestCase] = None
+        self.workdir = workdir
+        self.local_executor = LocalExecutorImp(
+				'/dev/executor',
+				'/sys/executor',
+				f'{self.workdir}/revizor-executor.ko',
+			)
+
+        if self.target_desc.cpu_desc.vendor.lower() != "aarch64":  # Technically ARM currently does not produce ARM processors, and other vendors do produce ARM processors
+            self.LOG.error(
+                "Attempting to run ARM aarch64 remote executor on a non-ARM CPUs!\n"
+                "Change the `executor` configuration option to the appropriate vendor value.")
+
+
+    def _is_smt_enabled(self):
+        smt_file = Path('/sys/devices/system/cpu/smt/control')
+        if smt_file.is_file():
+            result = file_path.read_text().strip()
+            return 'on' in result or '1' in result
+
+        return False
+
+    def set_vendor_specific_features(self):
+        pass
+
+    def read_base_addresses(self):
+        """
+        Read the base addresses of the code and the sandbox from the kernel module.
+        This function is used to synchronize the memory layout between the executor and the model
+        :return: a tuple (sandbox_base, code_base)
+        """
+        return self.local_executor.sandbox_base, self.local_executor.code_base
+
+    def _write_test_case(self, test_case: TestCase) -> None:
+        self.test_case = test_case
+
+    def _write_mod_test_case_to_local_executor(self, local_name: str, passes: List[Pass]):
+        patched = copy.deepcopy(self.test_case)
+        pass_on_test_case(patched, passes)
+
+        printer = Aarch64Printer(self.target_desc)
+        patched.bin_path, patched.asm_path, patched.obj_path = (f'{local_name}.{suffix}' for suffix in ('bin', 'asm', 'o'))
+        printer.print(patched, patched.asm_path)
+        ConfigurableGenerator.assemble(patched.asm_path, patched.obj_path, patched.bin_path)
+
+        self.local_executor.checkout_region(TestCaseRegion())
+        with open(patched.bin_path, "rb") as f:
+            self.local_executor.write(f.read())
+
+        os.remove(patched.bin_path)
+        os.remove(patched.obj_path)
+        #os.remove(patched.asm_path)
+
+    def trace_test_case(self, inputs: List[Input], n_reps: int) -> List[HTrace]:
+        """
+        Call the executor kernel module to collect the hardware traces for
+        the test case (previously loaded with `load_test_case`) and the given inputs.
+
+        :param inputs: list of inputs to be used for the test case
+        :param n_reps: number of times to repeat each measurement
+        :return: a list of HTrace objects, one for each input
+        :raises HardwareTracingError: if the kernel module output is malformed
+        """
+        # Skip if it's a dummy call
+        if not inputs or self.test_case is None:
+            return []
+
+        # Store statistics
+        n_inputs = len(inputs)
+        STAT.executor_reruns += n_reps * n_inputs
+
+        self.local_executor.discard_all_inputs()
+
+        input_to_iid = {}
+        for idx, i in enumerate(inputs):
+            input_to_iid[idx] = self.local_executor.allocate_iid()
+            self.local_executor.checkout_region(InputRegion(input_to_iid[idx]))
+            self.local_executor.write(ExecutorMemory(i.tobytes()))
+
+        self._write_mod_test_case_to_local_executor("sandboxed_test_case", [Aarch64SandboxPass()])
+
+        input_to_trace_list = defaultdict(list)
+
+        for _ in range(n_reps):
+            self.local_executor.trace()
+            for idx, i in enumerate(inputs):
+                self.local_executor.checkout_region(InputRegion(input_to_iid[idx]))
+                hwm = self.local_executor.hardware_measurement()
+                input_to_trace_list[idx].append(hwm.htrace)
+
+        results = []
+        for idx, i in enumerate(inputs):
+            htrace = HTrace(trace_list=input_to_trace_list[idx])
+            assert len(input_to_trace_list[idx]) == n_reps
+            results.append(htrace)
+
+        assert len(inputs) == len(results)
+        return results
+
+    def _process_input(self, input_to_process: Input, bitmap_aux_buffer: BitmapTaintsAuxBuffer, full_trace_buffer: FullTraceAuxBuff) -> Tuple[InputTaint, CTrace]:
+        from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
+        from capstone.arm64 import ARM64_OP_REG
+
+        def memory_access_size(insnt):
+            ops = insnt.operands
+            reg_op = ops[0]
+            assert len(ops) >= 2, "Unexpected number of operands"
+            if reg_op.type == ARM64_OP_REG and dis.reg_name(reg_op.reg).lower().startswith('w'):
+                access_size = 4
+            else:
+                access_size = 8
+            return access_size
+
+        num_of_gprs = input_to_process['gpr'].shape[1]
+
+        input_taint = InputTaint()
+
+        gpr_region = input_taint[0]['gpr']
+        for i in range(num_of_gprs):
+            mask: int = 1 << i
+            if bitmap_aux_buffer.regs_input_read_bits & mask:
+                gpr_region[i] = True
+
+		# currently, simd region used to store x8 and x9 initial values which corrently used to initialize flags and sp respectively (sp is being overriden with executor appropriate value)
+        simd_region = input_taint[0]['simd']
+
+        FLAGS_REG_INDEX = 8
+        if bitmap_aux_buffer.regs_input_read_bits & (1 << FLAGS_REG_INDEX):
+            simd_region[0] = True
+
+        SP_REG_INDEX = 9
+        if bitmap_aux_buffer.regs_input_read_bits & (1 << SP_REG_INDEX):
+            simd_region[1] = True
+
+        # Sandbox base is stored in x30 while executing the test case. It should not change while executing the test case. Take the first one.
+        sandbox_base = full_trace_buffer.instruction_logs[0].regs[30]
+        faulty_region_u8 = input_taint[0]["faulty"].view(np.uint8)
+        main_region_u8 = input_taint[0]["main"].view(np.uint8)
+        sandbox_size = main_region_u8.size + faulty_region_u8.size
+
+        NOT_ACCESSED, READ, WRITE = 0, 1, 2
+        access_table = np.zeros(sandbox_size, dtype=np.uint8)
+
+        dis = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
+        dis.detail = True
+
+        for inst_log in full_trace_buffer.instruction_logs:
+            encoding_bytes = inst_log.encoding.to_bytes(4, byteorder='little')
+            insns = list(dis.disasm(encoding_bytes, 0))
+            assert insns, f"Unable to decode Aarch64 instruction: {encoding_bytes.hex()}"
+
+            if inst_log.effective_address == 0xFFFFFFFFFFFFFFFF:
+                continue
+
+            offset = inst_log.effective_address - sandbox_base
+            mnem = insns[0].mnemonic.lower()
+            decoded = f"{mnem} {insns[0].op_str}"
+            msg = f"Unexpected offset into sandbox: {offset} = {inst_log.effective_address:#08x} - {sandbox_base:#08x} = inst_log.effective_address - sandbox_base: {decoded}"
+            assert 0 <= offset and offset < sandbox_size, msg
+
+            access_size = memory_access_size(insns[0])
+
+            is_write = "str" in mnem
+            is_read = "ldr" in mnem
+            for i in range(access_size):
+                idx = offset + i
+                if idx >= sandbox_size:
+                    break
+
+                if is_read and access_table[idx] == NOT_ACCESSED:
+                    access_table[idx] = READ
+                elif is_write and access_table[idx] == NOT_ACCESSED:
+                    access_table[idx] = WRITE
+
+        accessed_addresses: List[int] = []
+
+        for offset in range(sandbox_size):
+            access = access_table[offset]
+            if access != NOT_ACCESSED:
+                accessed_addresses.append(offset)
+
+            if access == READ:
+                to_change_region = main_region_u8
+                to_change_offset = offset
+
+                if offset >= main_region_u8.size:
+                    to_change_region = faulty_region_u8
+                    to_change_offset = offset - main_region_u8.size
+            
+                to_change_region[to_change_offset] = True
+
+        line_size = 64
+        num_sets = 64
+        accessed_sets: List[int] = []
+        cache_sets = sorted(set(map(lambda addr: (addr // line_size) % num_sets, accessed_addresses)))
+        ctrace = CTrace(raw_trace=accessed_addresses)
+
+        return input_taint, ctrace
+
+
+    def trace_test_case_with_taints(self, inputs: List[Input], expected_ctraces = None) -> Tuple[List[CTrace], List[InputTaint], List[FullTraceAuxBuffer], List[BitmapTaintsAuxBuffer]]:
+        """
+        Call the executor kernel module to collect the hardware traces for
+        the test case (previously loaded with `load_test_case`) and the given inputs.
+
+        :param inputs: list of inputs to be used for the test case
+        :return: a tuple of CTrace
+        """
+        # Skip if it's a dummy call
+        if not inputs or self.test_case is None:
+            return []
+
+        # Store statistics
+        n_inputs = len(inputs)
+
+        self.local_executor.discard_all_inputs()
+
+        input_to_iid = {}
+        for i in inputs:
+            input_to_iid[i] = self.local_executor.allocate_iid()
+            self.local_executor.checkout_region(InputRegion(input_to_iid[i]))
+            self.local_executor.write(ExecutorMemory(i.tobytes()))
+
+
+        self._write_mod_test_case_to_local_executor("generated_taint_tracker", [Aarch64MarkRegisterTaints(), Aarch64SandboxPass(), Aarch64MarkMemoryTaints()])
+
+        input_to_taints_buffer: OrderedDict[Input, BitmapTaintsAuxBuffer] = OrderedDict()
+
+        self.local_executor.trace()
+        for i in inputs:
+            self.local_executor.checkout_region(InputRegion(input_to_iid[i]))
+            input_to_taints_buffer[i] = aux_buffer_from_bytes(AuxBufferType.BITMAP_TAINTS, self.local_executor.aux_buffer)
+
+        self._write_mod_test_case_to_local_executor("generated_full_trace_tracker", [Aarch64SandboxPass(), Aarch64FullTrace()])
+
+
+        input_to_full_trace_buffer: OrderedDict[Input, FullTraceAuxBuffer] = OrderedDict()
+
+        self.local_executor.trace()
+        for i in inputs:
+            self.local_executor.checkout_region(InputRegion(input_to_iid[i]))
+            input_to_full_trace_buffer[i] = aux_buffer_from_bytes(AuxBufferType.FULL_TRACE, self.local_executor.aux_buffer)
+
+        taints, ctraces, full_traces, bitmaps = [], [], [], []
+
+        for i in inputs:
+            taint, ctrace = self._process_input(i, input_to_taints_buffer[i], input_to_full_trace_buffer[i])
+            taints.append(taint)
+            ctraces.append(ctrace)
+            full_traces.append(input_to_full_trace_buffer[i])
+            bitmaps.append(input_to_taints_buffer[i])
+
+        return ctraces, taints, full_traces, bitmaps
+
+
 def disassemble_instruction(encoding: int, pc: int):
     from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
     import json
@@ -1707,6 +1973,7 @@ def show_context(trace, idx, window=-1):
         disas = disassemble_instruction(insn.encoding, insn.pc)
         marker = "→" if j == idx else " "
         print(f"{marker} [{j:03d}] 0x{insn.pc:016x}: {disas}")
+
 
 def print_taint(title, taint):
     print(f"  {title}:")

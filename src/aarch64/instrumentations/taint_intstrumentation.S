@@ -46,7 +46,6 @@
     str     \tmp2, [\base_reg, #\field_offset]
 .endm
 
-
 /* Mark register as written */
 .macro TAINT_REG_WRITE dst, base_reg, tmp1, tmp2
     _TAINT_SET_BIT \dst, 0, \base_reg, \tmp1, \tmp2 // regs_write_bits
@@ -72,20 +71,20 @@
 /* Mark FLAGS (NZCV) as written */
 .macro TAINT_FLAGS_WRITE n, z, c, v, base_reg, tmp1, tmp2
     // Mark x8 (flags origin) as written
-    _TAINT_SET_BIT 8, 0, \base_reg, \tmp1, \tmp2
+    TAINT_REG_WRITE 8, \base_reg, \tmp1, \tmp2
 
     // Optionally mark individual bits
     .if \n
-        _TAINT_SET_BIT 32, 0, \base_reg, \tmp1, \tmp2
+        TAINT_REG_WRITE 32, \base_reg, \tmp1, \tmp2
     .endif
     .if \z
-        _TAINT_SET_BIT 33, 0, \base_reg, \tmp1, \tmp2
+        TAINT_REG_WRITE 33, \base_reg, \tmp1, \tmp2
     .endif
     .if \c
-        _TAINT_SET_BIT 34, 0, \base_reg, \tmp1, \tmp2
+        TAINT_REG_WRITE 34, \base_reg, \tmp1, \tmp2
     .endif
     .if \v
-        _TAINT_SET_BIT 35, 0, \base_reg, \tmp1, \tmp2
+        TAINT_REG_WRITE 35, \base_reg, \tmp1, \tmp2
     .endif
 .endm
 
@@ -93,30 +92,30 @@
 /* Mark FLAGS (NZCV) as read */
 .macro TAINT_FLAGS_READ n, z, c, v, base_reg, tmp1, tmp2
     // Mark x8 (flags origin) as read
-    _TAINT_SET_BIT 8, 8, \base_reg, \tmp1, \tmp2
+    TAINT_REG_READ 8, \base_reg, \tmp1, \tmp2
 
     // Optionally mark individual bits
     .if \n
-        _TAINT_SET_BIT 32, 8, \base_reg, \tmp1, \tmp2
+        TAINT_REG_READ 32, \base_reg, \tmp1, \tmp2
     .endif
     .if \z
-        _TAINT_SET_BIT 33, 8, \base_reg, \tmp1, \tmp2
+        TAINT_REG_READ 33, \base_reg, \tmp1, \tmp2
     .endif
     .if \c
-        _TAINT_SET_BIT 34, 8, \base_reg, \tmp1, \tmp2
+        TAINT_REG_READ 34, \base_reg, \tmp1, \tmp2
     .endif
     .if \v
-        _TAINT_SET_BIT 35, 8, \base_reg, \tmp1, \tmp2
+        TAINT_REG_READ 35, \base_reg, \tmp1, \tmp2
     .endif
 .endm
 
 /* SP read/write mark x9 (SP origin) */
 .macro TAINT_SP_READ base_reg, tmp1, tmp2
-    _TAINT_SET_BIT 9, 8, \base_reg, \tmp1, \tmp2     // mark x7 itself
+    TAINT_REG_READ 9, \base_reg, \tmp1, \tmp2     // mark x9 itself
 .endm
 
 .macro TAINT_SP_WRITE base_reg, tmp1, tmp2
-    _TAINT_SET_BIT 9, 0, \base_reg, \tmp1, \tmp2     // mark x7 itself
+    TAINT_REG_WRITE 9, \base_reg, \tmp1, \tmp2     // mark x9 itself
 .endm
 
 /* -----------------------------------------------------------------------------

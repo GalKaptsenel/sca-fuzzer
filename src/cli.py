@@ -11,6 +11,7 @@ import unicorn
 from argparse import ArgumentParser, ArgumentTypeError
 from .factory import get_minimizer, get_fuzzer, get_downloader
 from .config import CONF
+from .aarch64.aarch64_connection import print_opcode_summary
 
 
 def arg2bool(arg) -> bool:
@@ -395,6 +396,7 @@ def main() -> int:
         else:
             exit_code = fuzzer.start_random(args.num_test_cases, args.num_inputs, args.timeout,
                                             args.nonstop, args.save_violations)
+        print_opcode_summary()
         return exit_code
 
     # Reproducing a violation

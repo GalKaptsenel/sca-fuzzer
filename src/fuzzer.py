@@ -21,7 +21,8 @@ from .util import Logger, STAT, pretty_htrace
 
 from .generator import Pass
 from .aarch64.aarch64_generator import Aarch64TagMemoryAccesses, Aarch64Printer, Aarch64MarkMemoryAccessesNEON, Aarch64SandboxPass, Aarch64MarkRegisterTaints, Aarch64MarkMemoryTaints, Aarch64FullTrace, FullTraceAuxBuffer, BitmapTaintsAuxBuffer
-from .aarch64.aarch64_executor import compare_and_debug_trace_pair
+from .aarch64.aarch64_executor import compare_and_debug_trace_pair, show_context
+from contextlib import redirect_stdout
 
 
 class TracingArguments:
@@ -228,7 +229,7 @@ class FuzzerGeneric(Fuzzer):
 
         # 1. Fast path: Collect traces with minimal nesting and repetitions
         args.inputs, args.ctraces = self._boost_inputs(inputs, start_nesting)
-        violations, args.ctraces, htraces = self._collect_traces(args)
+        violations, args.ctraces, htraces, full_trace, bitmaps = self._collect_traces(args)
         if not violations:
             STAT.fast_path += 1
             return None
@@ -293,7 +294,7 @@ class FuzzerGeneric(Fuzzer):
             args.n_reps -= len(htraces[0].raw)  # subtract the number of repetitions already done
             args.added_htraces = htraces
 
-            violations, _, htraces = self._collect_traces(args)
+            violations, _, htraces, _, _ = self._collect_traces(args)
             if not violations:
                 STAT.fp_large_sample += 1
                 return None
@@ -321,6 +322,12 @@ class FuzzerGeneric(Fuzzer):
         # Violation survived all checks. Report it
 #        self.LOG.trc_fuzzer_dump_traces(self.model, args.inputs, htraces, self.reference_htraces,
 #                                        args.ctraces, end_nesting)
+        
+        for v in violations:
+            for idx, i in enumerate(v.input_sequence):
+                i.full_trace = full_trace[idx]
+                i.taints = bitmaps[idx]
+
         return violations[0]
 
     def _collect_traces(
@@ -344,6 +351,8 @@ class FuzzerGeneric(Fuzzer):
         :return: a tuple of violations, contract traces, and hardware traces
         """
         # Collect contract traces
+        full_trace = None
+        bitmaps = None
         if args.reuse_ctraces:
             ctraces = args.ctraces
         elif args.fast_boosting:
@@ -370,7 +379,7 @@ class FuzzerGeneric(Fuzzer):
                             trace_new=full_trace[new_input_idx],
                             taint_ref=bitmaps[orig_input_idx],
                             taint_new=bitmaps[new_input_idx],
-                            prefix="debug_different_ctraces"
+                            prefix=f"debug_different_ctraces_{orig_input_idx}"
                     )
             assert expected_ctraces == ctraces, f'Mismatching CTraces!\n\texpected_ctraces={[t.raw for t in expected_ctraces]}\n\tverified_ctraces={[t.raw for t in ctraces]}'
         assert len(ctraces) == len(args.inputs)
@@ -403,7 +412,7 @@ class FuzzerGeneric(Fuzzer):
             ignored_input_ids = [i for i in range(len(args.inputs)) if i not in violating_ids]
             self.executor.extend_ignore_list(ignored_input_ids)
 
-        return violations, ctraces, htraces
+        return violations, ctraces, htraces, full_trace, bitmaps
 
     def _boost_inputs(self, inputs: List[Input], nesting) -> Tuple[List[Input], List[CTrace]]:
         """
@@ -467,6 +476,12 @@ class FuzzerGeneric(Fuzzer):
         test_case.save(f"{violation_dir}/{test_case.asm_path}")
         for i, input_ in enumerate(violation.input_sequence):
             input_.save(f"{violation_dir}/input_{i:04}.bin")
+            with open(f"{violation_dir}/input_{i:04}_trace_log.txt", "w") as f:
+                with redirect_stdout(f):
+                    show_context(input_.full_trace, 0)
+                    print(input_.full_trace)
+                    print(input_.taints)
+
         for m in violation.measurements:
             if m.test_case is not None:
                 m.test_case.save(f"{violation_dir}/{m.test_case.asm_path}")
