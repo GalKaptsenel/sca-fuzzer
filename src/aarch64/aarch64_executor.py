@@ -1727,6 +1727,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
         os.remove(patched.bin_path)
         os.remove(patched.obj_path)
         #os.remove(patched.asm_path)
+        return patched
 
     def trace_test_case(self, inputs: List[Input], n_reps: int) -> List[HTrace]:
         """
@@ -1754,7 +1755,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
             self.local_executor.checkout_region(InputRegion(input_to_iid[idx]))
             self.local_executor.write(ExecutorMemory(i.tobytes()))
 
-        self._write_mod_test_case_to_local_executor("sandboxed_test_case", [Aarch64SandboxPass()])
+        sandboxed_test_case = self._write_mod_test_case_to_local_executor("sandboxed_test_case", [Aarch64SandboxPass()])
 
         input_to_trace_list = defaultdict(list)
 
@@ -1772,7 +1773,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
             results.append(htrace)
 
         assert len(inputs) == len(results)
-        return results
+        return results, len(inputs) * [sandboxed_test_case]
 
     def _process_input(self, input_to_process: Input, bitmap_aux_buffer: BitmapTaintsAuxBuffer, full_trace_buffer: FullTraceAuxBuff) -> Tuple[InputTaint, CTrace]:
         from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM

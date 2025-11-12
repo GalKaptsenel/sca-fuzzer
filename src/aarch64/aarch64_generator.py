@@ -200,6 +200,14 @@ class InstructionLog:
 			)
 
 	def __str__(self) -> str:
+		from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
+		capstone_arm64 = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
+		capstone_arm64.detail = True
+		code_bytes = self.encoding.to_bytes(4, byteorder="little")
+		insns = list(capstone_arm64.disasm(code_bytes, self.pc))
+		insn = insns[0] if insns else None
+		instruction_repr = f"{insn.mnemonic} {insn.op_str}" if insn else "<unable to disassemble>"
+
 		regs_str = "\n      ".join(
 					f"x{i:02d}: 0x{val:016x}" for i, val in enumerate(self.regs)
 				) if self.regs else "<no registers>"
@@ -210,7 +218,7 @@ class InstructionLog:
 				f"  EFFECTIVE_ADDR: 0x{self.effective_address:016x}\n"
 				f"  MEM_BEFORE:     0x{self.mem_before:016x}\n"
 				f"  MEM_AFTER:      0x{self.mem_after:016x}\n"
-                f"  ENCODING:       0x{self.encoding:08x}\n"
+                f"  ENCODING:       0x{self.encoding:08x} ({instruction_repr})\n"
 				f"  REGS:\n      {regs_str}"
 			)
     
