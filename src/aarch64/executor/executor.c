@@ -22,9 +22,13 @@ int __nocfi initialize_executor(set_memory_t set_memory_x) {
 
 	executor.test_case_length = 0;
 
-	err = set_memory_x((unsigned long)executor.measurement_code, sizeof(executor.measurement_code) / PAGESIZE);
+	err = set_memory_x(
+			(unsigned long)executor.measurement_code,
+			sizeof(executor.measurement_code) / PAGESIZE
+		);
+
 	if(err) {
-		module_err("Failed to make executor.measurement_code executable\n");
+		module_err("Failed to make executor.measurement_code executable (errcode: %d)\n", err);
 		goto executor_init_cleanup_free_test_case;
 	}
 
@@ -51,7 +55,9 @@ void __nocfi free_executor(set_memory_t set_memory_nx) {
 
 	destroy_inputs_db();
 
-	set_memory_nx((unsigned long)executor.measurement_code, sizeof(executor.measurement_code) / PAGESIZE);
+	set_memory_nx((unsigned long)executor.measurement_code,
+			sizeof(executor.measurement_code) / PAGESIZE
+		);
 
 	if (executor.test_case) {
 		kfree(executor.test_case);

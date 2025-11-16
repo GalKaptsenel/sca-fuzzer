@@ -1692,7 +1692,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
     def _is_smt_enabled(self):
         smt_file = Path('/sys/devices/system/cpu/smt/control')
         if smt_file.is_file():
-            result = file_path.read_text().strip()
+            result = smt_file.read_text().strip()
             return 'on' in result or '1' in result
 
         return False

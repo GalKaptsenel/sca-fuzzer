@@ -30,6 +30,10 @@ MODULE_DESCRIPTION("AArch64 implementation of Revisor's executor");
 #include <linux/cpumask.h>
 #include <linux/perf_event.h>
 #include <linux/hw_breakpoint.h>
+#include <linux/arm-smccc.h>
+#include <linux/cpufeature.h>
+#include <asm/processor.h>
+#include <asm/cpufeature.h>
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0)
 #include <linux/set_memory.h>

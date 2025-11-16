@@ -169,17 +169,34 @@ echo "[*] Updating system..."
 sudo apt update && sudo apt upgrade -y
 
 echo "[*] Installing essential build tools, libraries, and kernel headers..."
-sudo apt install -y \
-    build-essential \
-    gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-    binutils-aarch64-linux-gnu \
-    make cmake autoconf automake flex bison libtool pkg-config \
-    python3 python3-pip python3-venv python-is-python3 python3-dev \
-    libcapstone-dev libelf-dev libdw-dev libffi-dev libssl-dev \
-    zlib1g-dev libbz2-1.0 liblzma5 libzstd1 libncursesw6 libtinfo6 libxxhash0 \
-    gdb gdb-multiarch lldb python3-lldb strace vbindiff \
-    wget curl tar unzip screen tmux \
-    linux-headers-$(uname -r)
+install_if_missing() {
+    if ! dpkg -s "$1" >/dev/null 2>&1; then
+        echo "[+] Installing $1 ..."
+        sudo apt-get install -y "$1"
+    else
+        echo "[*] $1 already installed"
+    fi
+}
+
+for pkg in build-essential gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+		binutils-aarch64-linux-gnu make cmake autoconf automake flex bison libtool pkg-config \
+		python3 python3-pip python3-venv python-is-python3 python3-dev \
+		libcapstone-dev libelf-dev libdw-dev libffi-dev libssl-dev zlib1g-dev libbz2-1.0 liblzma5 libzstd1 libncursesw6 libtinfo6 libxxhash0 \
+		gdb gdb-multiarch lldb python3-lldb strace vbindiff wget curl tar unzip screen tmux; do
+	install_if_missing "$pkg"
+done
+
+echo "[*] Attempting to install kernel headers for $(uname -r)..."
+
+
+if apt-cache show "linux-headers-$(uname -r)" >/dev/null 2>&1; then
+    sudo apt install -y "linux-headers-$(uname -r)"
+else
+    echo "[!] WARNING: No prebuilt kernel headers found for version: $(uname -r)"
+    echo "    This is expected when running a custom kernel build."
+    echo "    Skipping kernel header installation."
+fi
+
 
 # -------------------------
 # Clone or update repository

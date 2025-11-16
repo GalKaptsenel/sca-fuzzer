@@ -37,12 +37,20 @@ revizor-executor-y := \
 	globals.o \
 	aux_buffer.o
 
+KDIR ?= /home/rvzr_prj/linux
+
+ifneq ($(KDIR),)
+    KERNEL_DIR := $(KDIR)
+else
+    KERNEL_DIR := /lib/modules/$(shell uname -r)/build
+endif
+
 # Default target: build kernel module
 all:
 	@echo "Building Revizor executor (MTE HW: $(HW_SUPPORTS_MTE))..."
-	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) CC=$(CC)
+	$(MAKE) -C $(KERNEL_DIR) M=$(PWD) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) CC=$(CC)
 
 # Cleanup
 clean:
-	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
+	$(MAKE) -C $(KERNEL_DIR) M=$(PWD) clean
 
