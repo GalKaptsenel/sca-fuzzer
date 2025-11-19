@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from collections import Counter
-from typing import Tuple
+from typing import Hashable
 
 import math
 import hashlib
@@ -21,7 +21,7 @@ class NoveltyScorer(ScorerInterface):
         self._calls = 0
 
     @staticmethod
-    def _state_signature(state: MicroarchState) -> Any:
+    def _state_signature(state: MicroarchState) -> Hashable:
         return state.snapshot()
 #        snapshot_bytes = bytes(state.snapshot())
 #        return int(hashlib.blake2b(snapshot_bytes, digest_size=8).hexdigest(), 16)
@@ -29,7 +29,6 @@ class NoveltyScorer(ScorerInterface):
     def __call__(self, state: MicroarchState) -> float:
         self._calls += 1
 
-        # decay all previous counts
         if self._calls % self._decay_interval == 0:
             for sig in list(self._seen_states.keys()):
                 self._seen_states[sig] *= self._decay
@@ -44,3 +43,5 @@ class NoveltyScorer(ScorerInterface):
         reward = max(reward, self._min_reward)
         return reward
 
+    def __repr__(self):
+        return f"<NoveltyScorer decay={self._decay}, min_reward={self._min_reward}, states_tracked={len(self._seen_states)}>"
