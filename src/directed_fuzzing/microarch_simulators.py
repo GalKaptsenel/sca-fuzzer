@@ -43,10 +43,10 @@ class MuSimulator(MicroarchSimulatorInterface):
 
 
     def _step(
-        self,
-        instr: Instruction,
-        mu_state: MicroarchState,
-        input_template: InputTemplate
+            self,
+            instr: Instruction,
+            mu_state: MicroarchState,
+            input_template: InputTemplate
     ) -> Tuple[MicroarchState, InputTemplate, List[MicroarchEvent]]:
 
         # Clone must be deep - for state not to leak to other steps
@@ -77,10 +77,10 @@ class MuSimulator(MicroarchSimulatorInterface):
         return new_mu_state, step.updated_input_template, events
 
     def simulate(
-        self,
-        sim_context: SimulationContext,
-        instructions: List[Instruction],
-        input_template: InputTemplate,
+            self,
+            sim_context: SimulationContext,
+            instructions: List[Instruction],
+            input_template: InputTemplate,
         ) -> Tuple[MicroarchSimulationTrace, SimulationContext]:
 
         mu_state = sim_context.mu_state.clone()
