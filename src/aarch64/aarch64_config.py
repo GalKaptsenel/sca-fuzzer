@@ -190,7 +190,11 @@ _buggy_instructions: List[str] = [
     # "maskmovdqu",  # incorrect emulation
 ]
 
-supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "ldr", "orr", "ands", "eor", "cbnz"]
+supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "ldr", "orr", "ands", "eor", "cbnz",
+                                     "csel", "csinc", "csinv", "csneg", "ccmn", "ccmp",
+                                     "sdiv", "udiv"
+                                     ]
+#                                     "ldp", "stp"]
 
 instruction_blocklist: List[str] = [
     # Currently don't support them - they require very specific order of instruction (they must appear one after the other, what happens otherwise? I don't know)
