@@ -1,23 +1,16 @@
 /* -----------------------------------------------------------------------------
  * simulation_manager.S
- *
- *
- * Requires:
- *   - tmp1, tmp2, tmp3: temporary scratch registers
- * ----------------------------------------------------------------------------- 
+ * -----------------------------------------------------------------------------
  */
 
-//
 // struct simulation_checkpoint {
 //    uint64_t FLAGS;
 //    uint64_t regs[31];
-//    uint8_t  memory[sizeof(sandbox_memory);
+//    uint8_t  memory[...];    // at offset 256
 // }
- 
-//    uint8_t  stack[sizeof(page)-offsetof(stack, struct simulation_checkpoint)];
 
-// CHECKPOINT_FLAGS_OFFSET = 0
-// CHECKPOINT_REGS_OFFSET = 8
+// CHECKPOINT_FLAGS_OFFSET  = 0
+// CHECKPOINT_REGS_OFFSET   = 8
 // CHECKPOINT_MEMORY_OFFSET = 256
 
 .macro LOG_FLAGS checkpoint_entry, tmp
@@ -34,9 +27,8 @@
 
 
 .macro LOG_REGS checkpoint_entry, tmp
-    .rept 31
-        LOG_REG %0, \checkpoint_entry, \tmp
-        .set %0, %0+1
+    .irp r,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30
+        LOG_REG \r, \checkpoint_entry, \tmp
     .endr
 .endm
 
@@ -53,9 +45,8 @@
 .endm
 
 .macro RELOAD_REGS checkpoint_entry, tmp
-    .rept 31
-        RELOAD_REG %0, \checkpoint_entry, \tmp
-        .set %0, %0+1
+    .irp r,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30
+        RELOAD_REG \r, \checkpoint_entry, \tmp
     .endr
 .endm
 
@@ -174,4 +165,5 @@
     stp     \tmp_zero, \tmp_addr, [\rsb_address, #-16]!
     str     \tmp_zero, [\nesting_window_counter_ptr]
 .endm
+
 
