@@ -13,6 +13,7 @@ from itertools import chain
 from typing import List, Tuple, Optional, Type
 from dataclasses import dataclass, field
 
+from ..config import CONF
 from ..isa_loader import InstructionSet
 from ..interfaces import TestCase, Operand, Instruction, BasicBlock, Function, InstructionSpec, \
     GeneratorException, RegisterOperand, ImmediateOperand, MAIN_AREA_SIZE, FAULTY_AREA_SIZE, \
@@ -222,6 +223,109 @@ class InstructionLog:
 				f"  REGS:\n      {regs_str}"
 			)
     
+
+class Aarch64SpecContractPass(Pass):
+    """
+    Pass that inserts simulation managment instruction for collecting speculative paths traces.
+    """
+    TEMPLATE_SIMULATION_INIT        = "SIMULATION_INIT {sim_mgmt}, {snapshot_array}, {snapshot_size}, {t0}, {t1}"
+    TEMPLATE_SIMULATION_SPEC_RET    = "SIMULATION_SPEC_RET {sim_mgmt}, {sandbox_addr}, {sandbox_size}, {t0}, {t1}, {t2}, {t3}, {t4}"
+    TEMPLATE_SIMULATION_COND_SPEC   = "SIMULATION_COND_SPECULATION {cond}, {taken_label}, {not_taken_label}, {sim_mgmt}, {snapshot_id}, {max_nesting}, {sandbox_address}, {sandbox_size}, {t0}, {t1}, {t2}, {t3}, {t4} {t5}"
+
+    def __init__(
+            self,
+            sandbox_address: int,
+            sandbox_size: int,
+            mgmt_struct_reg: str = "x8",
+            snapshot_array_reg: str = "x9",
+            temp_regs: List[str] = None
+        ):
+
+        default_registers = ["x10", "x11", "x12", "x13", "x14", "x15"]
+        if temp_regs is None:
+            temp_regs = default_registers
+        if len(temp_regs) < len(default_registers):
+            raise ValueError("Need at least {len(default_registers)} temporary registers")
+        self.mgmt_struct_pointer = mgmt_struct_reg
+        self.snapshot_array_pointer = snapshot_array_reg
+        self.temp_regs = temp_regs
+        self.sandbox_address = sandbox_address
+        self.sandbox_size = sandbox_size
+        self.max_nesting = CONF.model_max_nesting
+
+    def run_on_test_case(self, test_case: TestCase):
+        snapshot_cntr = 0
+        for func in test_case.functions:
+            root = None
+            last = None
+            visited = []
+            for bb in func:
+                if root is None:
+                    root = bb
+                last = bb
+
+            if root is not None:
+                dfs_stack = [root]
+                while dfs_stack:
+                    bb = dfs_stack.pop()
+                    names = [n.name for n in dfs_stack]
+
+                    if bb == root:
+                        simulation_init_template = self.TEMPLATE_SIMULATION_INIT.format(
+                                sim_mgmt=self.mgmt_struct_pointer, snapshot_array=self.snapshot_array_pointer,
+                                snapshot_size=self.sandbox_size+256, t0=self.temp_regs[0], t1=self.temp_regs[1]
+                        )
+                        sim_init_inst = Instruction(f"SIMULATION_INIT_{bb.name}", True, template=simulation_init_template)
+                        bb.insert_before(bb.start, sim_init_inst)
+    
+                    if bb == last:
+                        simulation_spec_ret_template = self.TEMPLATE_SIMULATION_SPEC_RET.format(
+                                sim_mgmt=self.mgmt_struct_pointer, sandbox_addr=self.sandbox_address, sandbox_size=self.sandbox_size,
+                                t0=self.temp_regs[0], t1=self.temp_regs[1], t2=self.temp_regs[2], t3=self.temp_regs[3], t4=self.temp_regs[4]
+                        )
+                        simulation_spec_ret_inst = Instruction(f"SIMULATION_SPEC_RET_{bb.name}", True, template=simulation_spec_ret_template)
+                        bb.terminators.insert(0, simulation_spec_ret_inst)
+                        #bb.insert_after(bb.end, simulation_spec_ret_inst)
+    
+                    else: # bb != last:
+                        if len(bb.successors) == 2:
+                            import pdb; pdb.set_trace()
+                            for terminator in bb.terminators:
+                                if terminator.control_flow and terminator.category == "UNCOND_BR":
+                                    for op in terminator.operands:
+                                        if op.type == OT.LABEL:
+                                            not_taken_label = op.value
+                                elif terminator.control_flow and terminator.category != "UNCOND_BR":
+                                    if terminator.name == "cbz":
+                                        cond = "eq"
+                                    elif terminator.name == "cbnz":
+                                        cond = "ne"
+
+                                    for op in terminator.operands:
+                                        if op.type == OT.LABEL:
+                                            taken_label = op.value
+                                        elif op.type == OT.COND:
+                                            cond = op.value
+                            sim_cond_spec_template = self.TEMPLATE_SIMULATION_COND_SPEC.format(
+                                    cond=cond, taken_label=taken_label, not_taken_label=not_taken_label,
+                                    sim_mgmt=self.mgmt_struct_pointer, snapshot_id=snapshot_cntr, max_nesting=self.max_nesting,
+                                    sandbox_address=self.sandbox_address, sandbox_size=self.sandbox_size,
+                                    t0=self.temp_regs[0], t1=self.temp_regs[1], t2=self.temp_regs[2],
+                                    t3=self.temp_regs[3], t4=self.temp_regs[4], t5=self.temp_regs[5]
+                            )
+                            sim_cond_spec_inst = Instruction(f"SIMULATION_SPEC_RET_{bb.name}", True, template=sim_cond_spec_template)
+                            bb.insert_after(bb.end, sim_cond_spec_inst)
+                            
+                            snapshot_cntr += 1
+
+                    for successor in bb.successors:
+                        if successor in visited:
+                            continue
+                        visited.append(successor)
+                        dfs_stack.insert(0, successor)
+                        names = [n.name for n in dfs_stack]
+
+
 @register_aux_buffer(AuxBufferType.FULL_TRACE)
 @dataclass
 class FullTraceAuxBuffer(ExecutorAuxBuffer):

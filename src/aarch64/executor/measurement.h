@@ -15,7 +15,7 @@ typedef struct measurement {
 } measurement_t;
 
 int execute(void);
-void initialize_measurement(measurement_t*);
+int64_t initialize_measurement(measurement_t*);
 void free_measurement(measurement_t*);
 
 #endif // ARM64_EXECUTOR_MEASUREMENT_H

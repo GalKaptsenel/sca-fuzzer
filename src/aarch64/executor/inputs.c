@@ -24,13 +24,10 @@ int64_t allocate_input(void) {
 	RB_CLEAR_NODE(&new_node->node);
 
 	new_node->id = input_id;
-	initialize_measurement(&new_node->measurement);
-
-	/* If aux allocation failed inside initialize_measurement, clean up */
-	if (new_node->measurement.aux_buffer == NULL) {
-		module_err("aux_buffer_alloc failed for new input node, cleaning up\n");
+	int64_t success = initialize_measurement(&new_node->measurement);
+	if (0 != success) {
 		vfree(new_node);
-		return -ENOMEM;
+		return success;
 	}
 
 	while(*link) {

@@ -38,6 +38,7 @@ revizor-executor-y := \
 	aux_buffer.o
 
 KDIR ?= /home/rvzr_prj/linux
+KDIR := /lib/modules/$(shell uname -r)/build
 
 ifneq ($(KDIR),)
     KERNEL_DIR := $(KDIR)

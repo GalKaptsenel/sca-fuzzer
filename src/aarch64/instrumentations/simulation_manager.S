@@ -9,9 +9,26 @@
 //    uint8_t  memory[...];    // at offset 256
 // }
 
-// CHECKPOINT_FLAGS_OFFSET  = 0
-// CHECKPOINT_REGS_OFFSET   = 8
-// CHECKPOINT_MEMORY_OFFSET = 256
+// CHECKPOINT_FLAGS_OFFSET	= 0
+// CHECKPOINT_REGS_OFFSET	= 8
+// CHECKPOINT_MEMORY_OFFSET	= 256
+
+// struct simulation_mgmt{
+//    uint64_t  current_nesting;
+//    uint64_t* stack_top;
+//    struct simulation_checkpoint snapshots_array[];
+//    uint64_t  snapshot_size;
+//    uint8_t stack[...];
+// }
+
+// SIM_MGMT_CURRENT_NESTING_OFFSET	= 0
+// SIM_MGMT_STACK_TOP_OFFSET		= 8
+// SIM_MGMT_SNAPSHOTS_ARRAY_OFFSET	= 16
+// SIM_MGMT_SNAPSHOT_SIZE_OFFSET	= 24
+// SIM_MGMT_STACK_END_OFFSET		= 32
+// SIM_MGMT_STACK_BASE_OFFSET		= sizeof(PAGE) - SIM_MGMT_STACK_END_OFFSET = 4096-32 = 4064
+// SIM_MGMT_SIM_MGMT_SIZEOF		= sizeof(struct simulation_mgmt)
+
 
 .macro LOG_FLAGS checkpoint_entry, tmp
     mrs     \tmp, nzcv
@@ -53,117 +70,167 @@
 
 // MOV_BUFFER: copy `size` bytes from [src] -> [dst] using caller-provided temps
 // params: src, dst, size, tmp_ptr_src, tmp_ptr_dst, tmp_size, tmp_val
-.macro MOV_BUFFER src, dst, size, tmp_ptr_src, tmp_ptr_dst, tmp_size, tmp_val
-    mov     \tmp_ptr_src, \src      // Xn holding source pointer
-    mov     \tmp_ptr_dst, \dst      // Xn holding destination pointer
-    mov     \tmp_size, \size        // Xn holding remaining size
+.macro MOV_BUFFER src, dst, size, tmp_size, tmp_val
+    mov     \tmp_size, \size
 
 1:
-    ldrb    \tmp_val, [\tmp_ptr_src], #1
-    strb    \tmp_val, [\tmp_ptr_dst], #1
-    subs    \tmp_size, \tmp_size, #1
+    subs    \tmp_size, \tmp_size, #8
+
+    add     \tmp_size, \tmp_size, \src
+    ldr    \tmp_val, [\tmp_size]
+    sub     \tmp_size, \tmp_size, \src
+
+    add     \tmp_size, \tmp_size, \dst
+    str    \tmp_val, [\tmp_size]
+    sub     \tmp_size, \tmp_size, \dst
+
     b.ne    1b
 .endm
 
 
-// TAKE_SNAPSHOT: log regs/flags then copy sandbox -> snapshot
-// params: sandbox_addr, snapshot_buffer, size, regs_buffer, tmp_ptr_src, tmp_ptr_dst, tmp_size, tmp_val
-.macro TAKE_SNAPSHOT checkpoint_entry, sandbox_addr, size, tmp_ptr_src, tmp_ptr_dst, tmp_size, tmp_val, tmp
-    LOG_FLAGS  \checkpoint_entry, \tmp
-    LOG_REGS   \checkpoint_entry, \tmp
-    add        \tmp, \checkpoint_entry, #256 // #CHECKPOINT_MEMORY_OFFSET
-    MOV_BUFFER \sandbox_addr, \tmp, \size, \
-               \tmp_ptr_src, \tmp_ptr_dst, \tmp_size, \tmp_val
+// Compute simulation_checkpoint entry address
+// checkpoint_id is register or immidiate
+.macro GET_SNAPSHOT_ADDRESS sim_mgmt, checkpoint_id, result, tmp
+    // tmp_ptr_src = (byte)sim_mgmt->snapshots_array + sim_mgmt->snapshot_size * checkpoint_id
+    ldr	       \tmp, [\sim_mgmt, #24]			// #SIM_MGMT_SNAPSHOT_SIZE_OFFSET
+    mov        \result, \checkpoint_id
+    mul        \result, \tmp, \result
+    ldr	       \tmp, [\sim_mgmt, #16]			// #SIM_MGMT_SNAPSHOTS_ARRAY_OFFSET
+    add        \result, \tmp, \result
+.endm
+
+.macro TAKE_SNAPSHOT sim_mgmt, checkpoint_id, sandbox_addr, size, tmp1, tmp2, tmp3, tmp4
+    GET_SNAPSHOT_ADDRESS \sim_mgmt, \checkpoint_id, \tmp1, \tmp2
+    LOG_FLAGS  \tmp1, \tmp2
+    LOG_REGS   \tmp1, \tmp2
+
+    add        \tmp1, \tmp1, #256 	// #CHECKPOINT_MEMORY_OFFSET
+
+    movz       \tmp4, #(\sandbox_addr & 0xFFFF)
+    movk       \tmp4, #(\sandbox_addr & 0xFFFF), lsl #16
+    movk       \tmp4, #(\sandbox_addr & 0xFFFF), lsl #32
+    movk       \tmp4, #(\sandbox_addr & 0xFFFF), lsl #48
+
+    MOV_BUFFER \tmp4, \tmp1, \size, \tmp2, \tmp3
 .endm
 
 
-// RELOAD_SNAPSHOT: copy snapshot -> sandbox, then reload regs/flags
-// params: snapshot_buffer, sandbox_addr, size, regs_buffer, tmp_ptr_src, tmp_ptr_dst, tmp_size, tmp_val
-.macro RELOAD_SNAPSHOT checkpoint_entry, sandbox_addr, size, tmp_ptr_src, tmp_ptr_dst, tmp_size, tmp_val, tmp
-    add        \tmp, \checkpoint_entry, #256 // #CHECKPOINT_MEMORY_OFFSET
-    MOV_BUFFER  \tmp, \sandbox_addr, \size, \
-                \tmp_ptr_src, \tmp_ptr_dst, \tmp_size, \tmp_val
-    RELOAD_REGS  \checkpoint_entry, \tmp
-    RELOAD_FLAGS \checkpoint_entry, \tmp
+.macro RELOAD_SNAPSHOT sim_mgmt, snapshot_address, sandbox_addr, size, tmp1, tmp2, tmp3, tmp4
+    add          \tmp1, \snapshot_address, #256 // #CHECKPOINT_MEMORY_OFFSET
+
+    movz         \tmp4, #(\sandbox_addr & 0xFFFF)
+    movk         \tmp4, #(\sandbox_addr & 0xFFFF), lsl #16
+    movk         \tmp4, #(\sandbox_addr & 0xFFFF), lsl #32
+    movk         \tmp4, #(\sandbox_addr & 0xFFFF), lsl #48
+
+    MOV_BUFFER   \tmp1, \tmp4, \size, \tmp2, \tmp3
+    RELOAD_REGS  \snapshot_address, \tmp1
+    RELOAD_FLAGS \snapshot_address, \tmp1
 .endm
 
+.macro SAFE_SIMULATION_SPEC_RET sim_mgmt, sandbox_addr, size, tmp1, tmp2, tmp3, tmp4, tmp5
+    // exhausted -> pop (counter, return_addr, snapshot_id, reserved) from software RSB and branch to return_addr
 
-// RET_IF_EXHAUSTED_WINDOW: if window_counter >= max_window pop RSB and return
-// params: window_counter_ptr, max_window_imm_or_reg, rsb_address, tmp_load, tmp_addr
-.macro RET_IF_EXHAUSTED_WINDOW window_counter_ptr, max_window, rsb_address, tmp_load, tmp_addr
-    ldr     \tmp_load, [\window_counter_ptr]    // load current counter
-    cmp     \tmp_load, \max_window
+    ldr     \tmp1, [\sim_mgmt, #8] 	// #SIM_MGMT_STACK_TOP_OFFSET
+    ldp     \tmp2, xzr, [\tmp1], #16
+    str     \tmp1, [\sim_mgmt, #8]     	// #SIM_MGMT_STACK_TOP_OFFSET
+
+    GET_SNAPSHOT_ADDRESS \sim_mgmt, \tmp2, \tmp3, \tmp4
+    RELOAD_SNAPSHOT \sim_mgmt, \tmp3, \sandbox_addr, \size, \tmp1, \tmp2, \tmp4, \tmp5
+
+    ldr     \tmp1, [\sim_mgmt, #8] 	// #SIM_MGMT_STACK_TOP_OFFSET
+    ldp     \tmp3, \tmp4, [\tmp1], #16
+    str     \tmp1, [\sim_mgmt, #8]     	// #SIM_MGMT_STACK_TOP_OFFSET
+    str     \tmp3, [\sim_mgmt, #0]    	// #SIM_MGMT_CURRENT_NESTING_OFFSET
+
+    br      \tmp4
+.endm
+
+.macro _RET_IF_EXHAUSTED_WINDOW sim_mgmt, max_window, sandbox_addr, size, tmp1, tmp2, tmp3, tmp4, tmp5
+    ldr     \tmp1, [\sim_mgmt, #0]    	// #SIM_MGMT_CURRENT_NESTING_OFFSET
+    cmp     \tmp1, \max_window
     b.lt    1f
 
-    // exhausted -> pop (counter, return_addr) from software RSB and branch to return_addr
-    ldp     \tmp_load, \tmp_addr, [\rsb_address], #16
-
-    str     \tmp_load, [\window_counter_ptr]
-    br      \tmp_addr
+    SAFE_SIMULATION_SPEC_RET \sim_mgmt, \sandbox_addr, \size, \tmp1, \tmp2, \tmp3, \tmp4, \tmp5
 1:
 .endm
 
-
-.macro RET_IF_EXHAUSTED_NESTING_WINDOW nesting_window_counter_ptr, max_window, rsb_address, tmp_load, tmp_addr
-    RET_IF_EXHAUSTED_WINDOW \nesting_window_counter_ptr, \max_window, \rsb_address, \tmp_load, \tmp_addr
+.macro _RET_IF_EXHAUSTED_NESTING_WINDOW sim_mgmt, max_window, sandbox_addr, size, tmp1, tmp2, tmp3, tmp4, tmp5
+    _RET_IF_EXHAUSTED_WINDOW \sim_mgmt, \max_window, \sandbox_addr, \size, \tmp1, \tmp2, \tmp3, \tmp4, \tmp5
 .endm
 
 
-// COND_SPECULATION_SIMULATION:
-// - computes primary target and opposite target using ADR/CSEL
-// - pushes (window_counter, opposite_target) onto software RSB
-// - increments window_counter and branches to primary_target
-//
-// params:
-//   cond              - condition code token (eq/ne/lt/...)
-//   taken_label       - label (symbol) for taken path
-//   not_taken_label   - label (symbol) for not-taken path
-//   window_counter_ptr
-//   nesting_window_counter_ptr
-//   nesting_max_window
-//   rsb_address
-//   tmp_load      - temp reg for loads/counters
-//   tmp_at       - temp reg for address taken
-//   tmp_nt       - temp reg for address not-taken
-//   tmp_sel      - temp reg for selected primary/opposite target
-.macro COND_SPECULATION_SIMULATION cond, taken_label, not_taken_label, \
-                                      window_counter_ptr, nesting_window_counter_ptr, nesting_max_window, \
-                                      rsb_address, tmp_load, tmp_at, tmp_nt, tmp_sel
-    // Check nested speculation exhaustion
-    RET_IF_EXHAUSTED_NESTING_WINDOW \nesting_window_counter_ptr, \
-                                    \nesting_max_window, \
-                                    \rsb_address, \tmp_load, \tmp_sel
+.macro SIMULATION_COND_SPECULATION cond, taken_label, not_taken_label, sim_mgmt, snapshot_id, max_nesting,  sandbox_addr, sandbox_size tmp1, tmp2, tmp3, tmp4, tmp5, tmp6
 
-    ldr     \tmp_load, [\window_counter_ptr]
+    mrs     \tmp1, nzcv
 
-    adr     \tmp_at, \taken_label
-    adr     \tmp_nt, \not_taken_label
+    // Check for nested speculation exhaustion
+    _RET_IF_EXHAUSTED_NESTING_WINDOW \sim_mgmt, \max_nesting, \sandbox_addr, \sandbox_size, \tmp2, \tmp3, \tmp4, \tmp5, \tmp6
+
+    msr     nzcv, \tmp1
+
+    adr     \tmp1, \taken_label
+    adr     \tmp2, \not_taken_label
 
     // primary = cond ? taken : not_taken
-    csel    \tmp_sel, \tmp_at, \tmp_nt, \cond
+    csel    \tmp3, \tmp1, \tmp2, \cond
 
     // opposite = cond ? not_taken : taken
-    csel    \tmp_at, \tmp_nt, \tmp_at, \cond   // reuse tmp_at as opposite
+    csel    \tmp4, \tmp2, \tmp1, \cond
 
-    // push (window_counter, primary) onto software RSB (pre-decrement)
-    stp     \tmp_load, \tmp_sel, [\rsb_address, #-16]!
+
+    // If nesting is 0, we are actually not speculating, and therefore push 0 nesting to the "architectualy*
+    // Otherwise, increment and store window_counter
+
+    mov     \tmp5, \snapshot_id
+    ldr     \tmp2, [\sim_mgmt, #8]	// #SIM_MGMT_STACK_TOP_OFFSET
+    ldr     \tmp1, [\sim_mgmt, #0] 	// #SIM_MGMT_CURRENT_NESTING_OFFSET
+    cbz     \tmp1, 1f 	
+
+    // Increment and then push pair
+			
+    add     \tmp1, \tmp1, #1
+    str     \tmp1, [\sim_mgmt, #0]	// #SIM_MGMT_CURRENT_NESTING_OFFSET
+
+    // push (nesting_counter, primary, snapshot_id, reserved) onto software RSB (pre-decrement)
+    stp     \tmp1, \tmp3, [\tmp2, #-16]!
+    stp     \tmp5, xzr, [\tmp2, #-16]!
+    str     \tmp2, [\sim_mgmt, #8]	// #SIM_MGMT_STACK_TOP_OFFSET
+
+    b 2f
+1:
+    // Push pair and then increment
+
+    // push (nesting_counter, primary, snapshot_id, reserved) onto software RSB (pre-decrement)
+    stp     \tmp1, \tmp3, [\tmp2, #-16]!
+    stp     \tmp5, xzr, [\tmp2, #-16]!
+    str     \tmp2, [\sim_mgmt, #8]	// #SIM_MGMT_STACK_TOP_OFFSET
 
     // increment and store window_counter
-    add     \tmp_load, \tmp_load, #1
-    str     \tmp_load, [\window_counter_ptr]
+    add     \tmp1, \tmp1, #1
+    str     \tmp1, [\sim_mgmt, #0]	// #SIM_MGMT_CURRENT_NESTING_OFFSET
 
+2:
     // jump to opposite target
-    br      \tmp_at
+    br      \tmp4
 .endm
 
-
-// SIMULATE_INIT: initialize nesting counter and push exit address onto RSB
-// params: nesting_window_counter_ptr, rsb_address, exit_address_symbol, tmp_zero, tmp_addr
-.macro SIMULATE_INIT nesting_window_counter_ptr, rsb_address, exit_address, tmp_zero, tmp_addr
-    mov     \tmp_zero, #0
-    adr     \tmp_addr, \exit_address
-    stp     \tmp_zero, \tmp_addr, [\rsb_address, #-16]!
-    str     \tmp_zero, [\nesting_window_counter_ptr]
+.macro SIMULATION_INIT sim_mgmt, snapshot_array, snapshot_size, tmp, tmp_addr
+    str     xzr, [\sim_mgmt, #0]			// #SIM_MGMT_CURRENT_NESTING_OFFSET
+    mov     \tmp, \snapshot_array
+    str     \tmp, [\sim_mgmt, #16]			// #SIM_MGMT_SNAPSHOTS_ARRAY_OFFSET
+    mov     \tmp, \snapshot_size
+    str     \tmp, [\sim_mgmt, #24]			// #SIM_MGMT_SNAPSHOT_SIZE_OFFSET
+    add     \tmp, \sim_mgmt, #4064			// #SIM_MGMT_STACK_BASE_OFFSET
+    str     \tmp, [\sim_mgmt, #8]			// #SIM_MGMT_STACK_TOP_OFFSET
 .endm
 
+.macro SIMULATION_SPEC_RET sim_mgmt, sandbox_addr, size, tmp1, tmp2, tmp3, tmp4, tmp5
+
+    ldr     \tmp1, [\sim_mgmt, #0]    	// #SIM_MGMT_CURRENT_NESTING_OFFSET
+    cbz     \tmp1, 1f
+
+    SAFE_SIMULATION_SPEC_RET \sim_mgmt, \sandbox_addr, \size, \tmp1, \tmp2, \tmp3, \tmp4, \tmp5
+1:
+.endm
 

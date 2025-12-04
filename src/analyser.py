@@ -231,6 +231,8 @@ class ChiSquaredAnalyser(EquivalenceAnalyserCommon):
 
     def homogeneity_test(self, x: List[int], y: List[int]) -> bool:
         """ Use the chi-squared test to compare htraces """
+        if len(x) != len(y):
+            import pdb; pdb.set_trace()
         assert len(x) == len(y)
         counter1 = Counter(x)
         counter2 = Counter(y)

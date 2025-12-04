@@ -255,13 +255,15 @@ static void initialize_overflow_pages(void) {
 	}
 }
 
-void initialize_measurement(measurement_t* measurement) {
-	if(NULL == measurement) return;
+int64_t initialize_measurement(measurement_t* measurement) {
+	if(NULL == measurement) return -EINVAL;
 	memset(measurement, 0, sizeof(measurement_t));
-	measurement->aux_buffer = aux_buffer_alloc(19 * PAGE_SIZE); // For Full trace support, we allocate 19 pages of 4096 bytes. This allows us to log 255 instructions in total.
+	measurement->aux_buffer = aux_buffer_alloc(1024 * PAGE_SIZE);
 	if (NULL == measurement->aux_buffer) {
 		module_err("initialize_measurement: aux_buffer_alloc returned NULL\n");
+		return -ENOMEM;
 	}
+	return 0;
 }
 EXPORT_SYMBOL(initialize_measurement);
 
