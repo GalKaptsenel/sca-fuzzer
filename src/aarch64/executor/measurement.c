@@ -226,17 +226,20 @@ static void load_registers_from_input(input_t* input, void* aux_buffer) {
 		((registers_t*)executor.sandbox.lower_overflow)->x7 = (size_t)aux_buffer;
 	}
 
-//	module_debug("Input regs: x0:%llx, x1:%llx, x2:%llx x3:%llx, x4:%llx, x5:%llx, x6:%llx, x7 (Debug Page):%llx, flags:%llx, sp:%llx\n",
-//			*(uint64_t*)executor.sandbox.lower_overflow,
-//			*((uint64_t*)executor.sandbox.lower_overflow+1),
-//			*((uint64_t*)executor.sandbox.lower_overflow+2),
-//			*((uint64_t*)executor.sandbox.lower_overflow+3),
-//			*((uint64_t*)executor.sandbox.lower_overflow+4),
-//			*((uint64_t*)executor.sandbox.lower_overflow+5),
-//			*((uint64_t*)executor.sandbox.lower_overflow+6),
-//			*((uint64_t*)executor.sandbox.lower_overflow+7),
-//			*((uint64_t*)executor.sandbox.lower_overflow+8),
-//			*((uint64_t*)executor.sandbox.lower_overflow+9));
+	((registers_t*)executor.sandbox.lower_overflow)->x8 = (size_t)executor.sandbox_scratchpad_memory;
+
+	module_debug("Input regs: x0:%llx, x1:%llx, x2:%llx x3:%llx, x4:%llx, x5:%llx, x6:%llx, x7 (Debug Page):%llx, x8: (Scratchpad): %llx, flags:%llx, sp:%llx\n",
+			*(uint64_t*)executor.sandbox.lower_overflow,
+			*((uint64_t*)executor.sandbox.lower_overflow+1),
+			*((uint64_t*)executor.sandbox.lower_overflow+2),
+			*((uint64_t*)executor.sandbox.lower_overflow+3),
+			*((uint64_t*)executor.sandbox.lower_overflow+4),
+			*((uint64_t*)executor.sandbox.lower_overflow+5),
+			*((uint64_t*)executor.sandbox.lower_overflow+6),
+			*((uint64_t*)executor.sandbox.lower_overflow+7),
+			*((uint64_t*)executor.sandbox.lower_overflow+8),
+			*((uint64_t*)executor.sandbox.lower_overflow+9),
+			*((uint64_t*)executor.sandbox.lower_overflow+10));
 }
 
 static void load_input_to_sandbox(input_t* input, void* aux_buffer) {

@@ -123,7 +123,8 @@ inline void epilogue(void) {
     "ldp x4, x5, ["TMP"], #16\n"						                                        \
     "ldp x6, x7, ["TMP"], #16\n"						                                        \
     "ldp x8, x9, ["TMP"], #16\n"						                                        \
-    "msr nzcv, x8\n"							                                                \
+    "msr nzcv, x9\n"							                                                \
+    "ldr x9, ["TMP"], #8\n"						                                        \
     "mov sp, x9\n"							                                                    \
 	:								                                                            \
 	: [lower_overflow] "i"(offsetof(sandbox_t, lower_overflow))	                                \

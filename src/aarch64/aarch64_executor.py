@@ -27,7 +27,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 
-from .aarch64_generator import Aarch64TagMemoryAccesses, Aarch64Printer, Aarch64MarkMemoryAccessesNEON, Aarch64SandboxPass, Aarch64MarkRegisterTaints, Aarch64MarkMemoryTaints, Aarch64FullTrace, FullTraceAuxBuffer, BitmapTaintsAuxBuffer
+from .aarch64_generator import Aarch64TagMemoryAccesses, Aarch64Printer, Aarch64MarkMemoryAccessesNEON, Aarch64SandboxPass, Aarch64SpecContractPass, Aarch64MarkRegisterTaints, Aarch64MarkMemoryTaints, Aarch64FullTrace, FullTraceAuxBuffer, BitmapTaintsAuxBuffer
 from .. import ConfigurableGenerator
 from ..interfaces import HTrace, Input, TestCase, Executor, HardwareTracingError, Analyser, CTrace, InputTaint, TargetDesc
 from ..config import CONF
@@ -1908,12 +1908,17 @@ class Aarch64LocalExecutor(Aarch64Executor):
         for i in inputs:
             self.local_executor.checkout_region(InputRegion(input_to_iid[i]))
             input_to_taints_buffer[i] = aux_buffer_from_bytes(AuxBufferType.BITMAP_TAINTS, self.local_executor.aux_buffer)
-
-        self._write_mod_test_case_to_local_executor("generated_full_trace_tracker", [Aarch64SandboxPass(), Aarch64FullTrace()])
-
+#        self._write_mod_test_case_to_local_executor("generated_full_trace_tracker_arch", [Aarch64SandboxPass(), Aarch64FullTrace()])
 
         input_to_full_trace_buffer: OrderedDict[Input, FullTraceAuxBuffer] = OrderedDict()
 
+#        self.local_executor.trace()
+#        for i in inputs:
+#            self.local_executor.checkout_region(InputRegion(input_to_iid[i]))
+#            input_to_full_trace_buffer[i] = aux_buffer_from_bytes(AuxBufferType.FULL_TRACE, self.local_executor.aux_buffer)
+
+        sandbox_base, _ = self.read_base_addresses()
+        self._write_mod_test_case_to_local_executor("generated_full_trace_tracker_spec", [Aarch64SandboxPass(), Aarch64FullTrace(), Aarch64SpecContractPass(sandbox_memory_address=sandbox_base, sandbox_memory_size=4096*2)])
         self.local_executor.trace()
         for i in inputs:
             self.local_executor.checkout_region(InputRegion(input_to_iid[i]))

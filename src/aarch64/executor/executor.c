@@ -32,6 +32,14 @@ int __nocfi initialize_executor(set_memory_t set_memory_x) {
 		goto executor_init_cleanup_free_test_case;
 	}
 
+	executor.sandbox_scratchpad_size = SANDBOX_SCRATCHPAD_MEMORY_SIZE;
+	executor.sandbox_scratchpad_memory = kmalloc(executor.sandbox_scratchpad_size, GFP_KERNEL);
+	if(NULL == executor.sandbox_scratchpad_memory) {
+        	module_err("Could not allocate memory for scratchpad\n");
+		err = -ENOMEM;
+		goto executor_init_cleanup_free_test_case;
+	}
+
 	initialize_inputs_db();
 
 	executor.tracing_error = 0;
@@ -43,6 +51,7 @@ int __nocfi initialize_executor(set_memory_t set_memory_x) {
 	return 0;
 
 executor_init_cleanup_free_test_case:
+	executor.sandbox_scratchpad_size = 0;
 	kfree(executor.test_case);
 	executor.test_case = NULL;
 
@@ -62,6 +71,13 @@ void __nocfi free_executor(set_memory_t set_memory_nx) {
 	if (executor.test_case) {
 		kfree(executor.test_case);
 		executor.test_case = NULL;
+	}
+
+
+	if (executor.sandbox_scratchpad_memory) {
+		kfree(executor.sandbox_scratchpad_memory);
+		executor.sandbox_scratchpad_size = 0;
+		executor.sandbox_scratchpad_memory = NULL;
 	}
 }
 EXPORT_SYMBOL(free_executor);

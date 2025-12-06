@@ -14,11 +14,11 @@ static ssize_t warmups_store(struct kobject *kobj, struct kobj_attribute *attr, 
 }
 
 static ssize_t print_sandbox_base_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
-    return sprintf(buf, "%p\n", executor.sandbox.main_region);
+    return sprintf(buf, "%px\n", executor.sandbox.main_region);
 }
 
 static ssize_t print_code_base_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
-    return sprintf(buf, "%p\n", executor.test_case);
+    return sprintf(buf, "%px\n", executor.test_case);
 }
 
 static ssize_t enable_pre_run_flush_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {

@@ -27,6 +27,7 @@ enum State {
 #define MAX_MEASUREMENT_CODE_SIZE       (MAX_TEST_CASE_SIZE * 4)
 
 #define TEST_REGION				        (-1)
+#define SANDBOX_SCRATCHPAD_MEMORY_SIZE				(64*PAGE_SIZE)
 
 typedef struct executor_config {
 	long uarch_reset_rounds;
@@ -53,6 +54,8 @@ typedef struct executor {
 	int64_t checkout_region;
 	int tracing_error;
 	enum State state;
+	char* sandbox_scratchpad_memory;
+	size_t sandbox_scratchpad_size;
 	device_management_t device_mgmt;
 } executor_t;
 
