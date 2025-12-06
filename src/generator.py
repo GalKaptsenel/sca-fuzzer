@@ -198,7 +198,6 @@ class ConfigurableGenerator(Generator, abc.ABC):
         try:
             out = run(f"cat src/aarch64/instrumentations/simulation_manager.S src/aarch64/instrumentations/full_trace_intstrumentation.S src/aarch64/instrumentations/taint_intstrumentation.S {asm_file} > {asm_file}_tmp", shell=True, check=True, capture_output=True) # TODO: extract assembler to configuration
             out = run(f"aarch64-linux-gnu-as -march=armv9-a+sve+memtag {asm_file}_tmp -o {obj_file}", shell=True, check=True, capture_output=True) # TODO: extract assembler to configuration
-            import pdb; pdb.set_trace()
             out = run(f"rm {asm_file}_tmp", shell=True, check=True, capture_output=True) # TODO: extract assembler to configuration
         except CalledProcessError as e:
             error_msg = e.stderr.decode()
