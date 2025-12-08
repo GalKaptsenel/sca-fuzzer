@@ -292,12 +292,14 @@ class Aarch64SpecContractPass(Pass):
     
                     else: # bb != fanc.exit:
                         if len(bb.successors) == 2:
-                            for terminator in bb.terminators:
+                            insert_idx = 0
+                            for idx, terminator in enumerate(bb.terminators):
                                 if terminator.control_flow and terminator.category == "UNCOND_BR":
                                     for op in terminator.operands:
                                         if op.type == OT.LABEL:
                                             not_taken_label = op.value
                                 elif terminator.control_flow and terminator.category != "UNCOND_BR":
+                                    insert_idx = idx
                                     if terminator.name == "cbz":
                                         cond = "eq"
                                     elif terminator.name == "cbnz":
@@ -316,8 +318,7 @@ class Aarch64SpecContractPass(Pass):
                                     t3=self.temp_regs[3], t4=self.temp_regs[4], t5=self.temp_regs[5]
                             )
                             sim_cond_spec_inst = Instruction(f"SIMULATION_SPEC_RET_{bb.name}", True, template=sim_cond_spec_template)
-                            bb.insert_after(bb.end, sim_cond_spec_inst)
-                            
+                            bb.terminators = bb.terminators[:insert_idx] + [sim_cond_spec_inst] + bb.terminators[insert_idx:]
                             snapshot_cntr += 1
 
                     for successor in bb.successors:
@@ -883,14 +884,14 @@ class Aarch64MarkMemoryTaints(Pass):
 		left_operand = next((op for op in inst.operands if op.type == OT.REG))
 		
         # write macro (for loads)
-		if left_operand.src:
+		if left_operand.dest:
 			asm_text = self.MEM_TEMPLATE_LOAD.format(addr=addr_idx, base=self.base_reg,
 											 t0=self.temp_regs[1], t1=self.temp_regs[2])
 			instrs_to_insert.append(Instruction(f"TAINT_LOAD_{addr_idx}", True, template=asm_text))
 
 
 		# write macro (for stores)
-		if left_operand.dest:
+		if left_operand.src:
 			asm_text = self.MEM_TEMPLATE_STORE.format(addr=addr_idx, base=self.base_reg,
 											 t0=self.temp_regs[1], t1=self.temp_regs[2])
 			instrs_to_insert.append(Instruction(f"TAINT_STORE_{addr_idx}", True, template=asm_text))

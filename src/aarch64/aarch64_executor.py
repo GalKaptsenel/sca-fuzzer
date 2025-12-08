@@ -1900,7 +1900,8 @@ class Aarch64LocalExecutor(Aarch64Executor):
             self.local_executor.write(ExecutorMemory(i.tobytes()))
 
 
-        self._write_mod_test_case_to_local_executor("generated_taint_tracker", [Aarch64MarkRegisterTaints(), Aarch64SandboxPass(), Aarch64MarkMemoryTaints()])
+        sandbox_base, _ = self.read_base_addresses()
+        self._write_mod_test_case_to_local_executor("generated_taint_tracker", [Aarch64MarkRegisterTaints(), Aarch64SandboxPass(), Aarch64MarkMemoryTaints(), Aarch64SpecContractPass(sandbox_memory_address=sandbox_base, sandbox_memory_size=4096*2)])
 
         input_to_taints_buffer: OrderedDict[Input, BitmapTaintsAuxBuffer] = OrderedDict()
 
@@ -1917,7 +1918,6 @@ class Aarch64LocalExecutor(Aarch64Executor):
 #            self.local_executor.checkout_region(InputRegion(input_to_iid[i]))
 #            input_to_full_trace_buffer[i] = aux_buffer_from_bytes(AuxBufferType.FULL_TRACE, self.local_executor.aux_buffer)
 
-        sandbox_base, _ = self.read_base_addresses()
         self._write_mod_test_case_to_local_executor("generated_full_trace_tracker_spec", [Aarch64SandboxPass(), Aarch64FullTrace(), Aarch64SpecContractPass(sandbox_memory_address=sandbox_base, sandbox_memory_size=4096*2)])
         self.local_executor.trace()
         for i in inputs:

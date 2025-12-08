@@ -643,7 +643,6 @@ class FuzzerGeneric(Fuzzer):
 
         for current_measurement in measurements_to_test:
             current_input_id = current_measurement.input_id
-            print(f"\nPriming iid: {current_input_id}")
             htrace_to_reproduce = current_measurement.htrace
             other_measurements = [m for m in measurements_to_test if m != current_measurement]
 
@@ -652,7 +651,6 @@ class FuzzerGeneric(Fuzzer):
 
             # iterate over all inputs in the violation and insert swap them with current_input_id
             for input_id in input_ids_to_test:
-                print(f"\n\tComparing:\t{current_input_id} <=> {input_id}")
                 self.LOG.dbg_priming_progress(input_id, current_input_id)
 
                 # insert the tested input into its new place
@@ -671,7 +669,6 @@ class FuzzerGeneric(Fuzzer):
                     return False
 
                 if self.analyser.htraces_are_equivalent(new_htrace, htrace_to_reproduce):
-                    print(f"\n\t\t\t {current_input_id} is False Positive! reproduced!")
                     continue
 
                 self.LOG.dbg_priming_fail(input_id, current_input_id, htrace_to_reproduce,

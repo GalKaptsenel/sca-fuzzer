@@ -70,8 +70,8 @@
 
 /* Mark FLAGS (NZCV) as written */
 .macro TAINT_FLAGS_WRITE n, z, c, v, base_reg, tmp1, tmp2
-    // Mark x8 (flags origin) as written
-    TAINT_REG_WRITE 8, \base_reg, \tmp1, \tmp2
+    // Mark x9 (flags origin) as written
+    TAINT_REG_WRITE 9, \base_reg, \tmp1, \tmp2
 
     // Optionally mark individual bits
     .if \n
@@ -91,8 +91,8 @@
 
 /* Mark FLAGS (NZCV) as read */
 .macro TAINT_FLAGS_READ n, z, c, v, base_reg, tmp1, tmp2
-    // Mark x8 (flags origin) as read
-    TAINT_REG_READ 8, \base_reg, \tmp1, \tmp2
+    // Mark x9 (flags origin) as read
+    TAINT_REG_READ 9, \base_reg, \tmp1, \tmp2
 
     // Optionally mark individual bits
     .if \n

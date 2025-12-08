@@ -666,9 +666,9 @@ class Aarch64Transformer:
         for line in element.find("ps_section/ps/pstext").itertext():
             match = re.search(r"(=?) *PSTATE\.<?([NZCV,]+)>? *(=?)", line)
             if match:
-                affected_flags = match.group(2).split(",")
-                is_read = (match.group(1) == "=")
-                is_write = (match.group(3) == "=")
+                affected_flags = match1.group(2).split(",")
+                is_read = (match1.group(1) == "=")
+                is_write = (match1.group(3) == "=")
                 if not is_read and not is_write:
                     continue
 
@@ -676,6 +676,7 @@ class Aarch64Transformer:
                 for f in affected_flags:
                     flag_values[f][0] |= is_read
                     flag_values[f][1] |= is_write
+
         if uses_flags:
             flag_op = OperandSpec(name="flags", type="FLAGS", values=[],
                                   src=False, dest=False, width=0, signed=False)
