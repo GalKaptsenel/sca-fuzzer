@@ -120,6 +120,8 @@ class AsmParserGeneric(AsmParser):
                         parser_assert(not terminators_started, line.line_num,
                                       "Terminator not at the end of BB")
                         bb.insert_after(bb.get_last(), inst)
+                if bb_name.lower() == func.exit.name.lower():
+                    func.exit.name += "_rep"
 
         # connect basic blocks
         bb_names = {bb.name.lower(): bb for func in test_case for bb in func}
@@ -195,9 +197,10 @@ class AsmParserGeneric(AsmParser):
             macro_spec.name = "macro"
             macro_spec.category = "macro"
             macro_spec.operands = [
-                OperandSpec([], OT.LABEL, False, False),
-                OperandSpec([], OT.LABEL, False, False)
+                OperandSpec([], OT.LABEL, False, False, "L1"),
+                OperandSpec([], OT.LABEL, False, False, "L2")
             ]
+            macro_spec.template = "macro{L1}{L2}"
             instruction_map["macro"] = [macro_spec]
         return instruction_map
 

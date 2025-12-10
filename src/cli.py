@@ -11,6 +11,7 @@ import unicorn
 from argparse import ArgumentParser, ArgumentTypeError
 from .factory import get_minimizer, get_fuzzer, get_downloader
 from .config import CONF
+from typing import List
 from .aarch64.aarch64_connection import print_opcode_summary
 
 
@@ -24,6 +25,15 @@ def arg2bool(arg) -> bool:
     else:
         raise ArgumentTypeError('Boolean value expected.')
 
+def comma_separated_list(value: str) -> List[str]:
+    """
+    Converts a comma-separated string into a list of strings.
+    Strips whitespace and optional quotes.
+    """
+    # Split by comma
+    parts = value.split(",")
+    # Remove whitespace and optional quotes
+    return [p.strip().strip('"').strip("'") for p in parts if p.strip()]
 
 def main() -> int:
     parser = ArgumentParser(add_help=False)
@@ -171,10 +181,10 @@ def main() -> int:
     parser_reproduce.add_argument(
         '-i',
         '--inputs',
-        type=str,
-        nargs='*',
+        type=comma_separated_list,
+#        nargs='*',
         default=None,
-        help="Path to the directory with inputs")
+        help="Comma-separated list of input file paths")
     parser_reproduce.add_argument(
         "-n",
         "--num-inputs",
@@ -402,7 +412,7 @@ def main() -> int:
     # Reproducing a violation
     if args.subparser_name == 'reproduce':
         fuzzer = get_fuzzer(args.instruction_set, "", args.testcase, args.inputs)
-        exit_code = fuzzer.start_from_asm(1, args.num_inputs, 0, False, False)
+        exit_code = fuzzer.start_from_asm(1, args.num_inputs, 0, False, True)
         return exit_code
 
     # Stand-alone generation

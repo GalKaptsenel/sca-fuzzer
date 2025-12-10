@@ -1,7 +1,8 @@
 # Force AArch64 cross-compiler
 ARCH := arm64
 CROSS_COMPILE := aarch64-linux-gnu-
-CC := aarch64-linux-gnu-gcc-13
+# CC := aarch64-linux-gnu-gcc-13
+CC := aarch64-linux-gnu-gcc
 
 # Module name
 obj-m := revizor-executor.o
@@ -37,7 +38,6 @@ revizor-executor-y := \
 	globals.o \
 	aux_buffer.o
 
-KDIR ?= /home/rvzr_prj/linux
 KDIR := /lib/modules/$(shell uname -r)/build
 
 ifneq ($(KDIR),)

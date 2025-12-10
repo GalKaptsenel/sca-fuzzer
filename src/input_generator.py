@@ -123,6 +123,7 @@ class NumpyRandomInputGenerator(InputGenerator):
 
         inputs = []
         for input_path in input_paths:
+            print(f"Loading input: {input_path}")
             input_ = Input(self.n_actors)
 
             # check that the file is not corrupted

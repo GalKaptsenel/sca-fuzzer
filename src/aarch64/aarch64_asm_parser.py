@@ -7,6 +7,7 @@ SPDX-License-Identifier: MIT
 """
 import re
 import os
+import itertools
 from typing import List, Dict
 
 from .aarch64_generator import Aarch64Generator
@@ -20,6 +21,25 @@ PATTERN_CONST_BIN = re.compile("^-?0b[01]+$")
 PATTERN_CONST_SUM = re.compile("^-?[0-9]+ *[+-] *[0-9]+$")
 
 
+TOKEN_REGEX = re.compile(r"""
+    \[          |   # left bracket
+    \]!         |   # post-index close with '!'
+    \]          |   # right bracket
+    \#          |   # immidiate symbol (optional)
+    [.A-Za-z0-9_\-]+ |  # identifiers: registers, labels, shifts
+    !           |   # stand-alone '!' (pre/post-index)
+""", re.VERBOSE)
+
+def tokenize_operands(tokens):
+    out = []
+    for tok in tokens:
+        tok = tok.strip()
+        parts = TOKEN_REGEX.findall(tok)
+        for p in parts:
+            if p.strip() and "#" not in p:
+                out.append(p)
+    return out
+
 class Aarch64AsmParser(AsmParserGeneric):
     generator: Aarch64Generator
 
@@ -32,98 +52,143 @@ class Aarch64AsmParser(AsmParserGeneric):
 
     def parse_line(self, line: str, line_num: int,
                    instruction_map: Dict[str, List[InstructionSpec]]) -> Instruction:
-        line = line.lower()
 
-        # instrumentation?
+        raw_line = line
+        line = line.strip().lower()
+
+        # detect instrumentation & noremove
         is_instrumentation = "instrumentation" in line
         is_noremove = "noremove" in line
 
         re_tokenize = re.compile(
-            r"^([^ .]+\.?)([^ ]+)? ([^ ,]+)(,[^ ,]+)?(,[^ ,]+)?(,[^ ,]+)?( //.*)?")
-        matches = re_tokenize.findall(line)
-        if not matches:
-            re_tokenize_nops = re.compile(r"^([^ .]+\.?)([^ ]+)?")
-            matches = re_tokenize_nops.findall(line)
+            r""" ^
+                \s*
+                (?P<mnemonic>[a-z][a-z0-9.]*)
+                (?:\s+(?P<operands>[^/]+?))?
+                \s*(?://\s*(?P<comment>.*))?
+                $
+            """,
+            re.VERBOSE
+        )
 
-        parser_assert([] != matches, line_num, f"Failure to parse the line: {line}")
+        m = re_tokenize.match(line)
+        parser_assert(m is not None, line_num, f"Failure to parse instruction: {raw_line}")
 
-        name = matches[0][0]
-        operand_tokens = ["COND"] if matches[0][1] else []
-        operand_tokens += [op.value.removeprefix(",") for op in matches[0][2:6] if op]
-        comment = matches[0][-1][3:]
+        name = m.group("mnemonic")
+        operands_raw = m.group("operands")
+        comment = m.group("comment") or ""
 
-        # find a spec that describes this instruction
+        if operands_raw:
+            operand_tokens = [op.strip() for op in operands_raw.split(",")]
+            operand_tokens = list(itertools.chain.from_iterable(tok.split(" ") for tok in operand_tokens))
+            operand_tokens = tokenize_operands(operand_tokens)
+        else:
+            operand_tokens = []
+
+        # fix conditional suffix in the mnemonic ("b.eq", "csel.ne", etc.)
+        if "." in name:
+            mnemonic, cond = name.split(".", 1)
+            mnemonic += "."
+            operand_tokens = [cond] + operand_tokens
+            name = mnemonic
+
         spec_candidates = instruction_map.get(name, [])
         parser_assert(len(spec_candidates) > 0, line_num, f"Unknown instruction {line}")
 
-        # find a matching spec:
-        # - check the number of operands
-        matching_specs = [s for s in spec_candidates if len(s.operands) == len(operand_tokens)]
+        operand_tokens_clean = [o for o in operand_tokens if not o.startswith(("[", "]"))]
+        matching_specs = [s for s in spec_candidates if len(s.operands) == len(operand_tokens_clean)]
 
-        # - check the other operands
         size_map = {"x": 64, "w": 32, "v": 128, "q": 128, "d": 64, "s": 32, "h": 16, "b": 8}
 
-        for op_id, op_raw in enumerate(operand_tokens):
-            if "COND" == op_raw or op_raw in self.target_desc.branch_conditions:
+        inside_mem = False
+        op_id = 0
+        for op_raw in operand_tokens:
+            if op_raw == "COND" or op_raw in self.target_desc.branch_conditions:
                 matching_specs = [s for s in matching_specs if s.operands[op_id].type == OT.COND]
-            elif "." == op_raw[0]:  # match label
+
+            elif op_raw.startswith("."):  # label operand
                 matching_specs = [s for s in matching_specs if s.operands[op_id].type == OT.LABEL]
-            elif "[" in op_raw:  # match address
-                matching_specs = [s for s in matching_specs if s.operands[op_id].type == OT.MEM]
-            elif "#" == op_raw[0]:  # match immediate
+
+            elif "[" in op_raw or "]" in op_raw:  # memory addressing mode
+                inside_mem = "[" in op_raw
+                continue
+
+            elif op_raw.startswith("#") or op_raw.startswith("0b") or op_raw.startswith("0x") or re.match(r"^[+-]?\d+$", op_raw) or op_raw in ["asr", "lsl", "lsr", "ror"]:  # immediates
                 matching_specs = [s for s in matching_specs if s.operands[op_id].type == OT.IMM]
-            elif "sp" == op_raw:
+
+            elif op_raw == "sp":
                 matching_specs = [s for s in matching_specs if s.operands[op_id].width == 64]
-            elif op_raw[0] in size_map.keys():  # match register
-                matching_specs = [s for s in matching_specs if s.operands[op_id].type == OT.REG and
-                                  s.operands[op_id].width == size_map[op_raw[0]]]
-            elif op_raw in ["SY", "LD", "ST"]:  # match keyword immediate
+
+            elif op_raw[0] in size_map:  # register (x0, w3, v2, q1, etc.)
+                type_to_check = OT.MEM if inside_mem else OT.REG
+                matching_specs = [
+                    s for s in matching_specs
+                    if s.operands[op_id].type == type_to_check and
+                    s.operands[op_id].width == size_map[op_raw[0]]
+                ]
+
+            elif op_raw in ["sy", "ld", "st"]:  # system immediates
                 matching_specs = [s for s in matching_specs if s.operands[op_id].type == OT.IMM]
+
             else:
-                parser_error(line_num, f"Unknown type of the operand |{op_raw}|")
+                parser_error(line_num, f"Unknown type of operand: {op_raw}")
+
+            op_id += 1
+        parser_assert(
+            len(matching_specs) != 0,
+            line_num,
+            f"Could not find matching spec for {line}"
+        )
 
         parser_assert(
-            len(matching_specs) != 0, line_num, f"Could not find a matching spec for {line}")
+            not inside_mem,
+            line_num,
+            f"Memory operand was not closed: {line}"
+        )
 
-        # we might find several matches if the instruction has a magic operand value
+
+        # resolve magic-value overload
         if len(matching_specs) > 1:
-            magic_value_specs = list(filter(lambda x: (x.has_magic_value), matching_specs))
+            magic_value_specs = [s for s in matching_specs if s.has_magic_value]
             if magic_value_specs:
                 matching_specs = magic_value_specs
 
-        # at this point we should have only one spec, but even if we don't, all of them should
-        # be equivalent. Just pick the first
-        spec: InstructionSpec = matching_specs[0]
+        # pick first (they should be equivalent)
+        spec = matching_specs[0]
         inst = Instruction.from_spec(spec, is_instrumentation=is_instrumentation)
         inst.is_noremove = is_noremove
 
-        op: Operand
-        for op_id, op_raw in enumerate(operand_tokens):
+        # build operand objects
+        for op_id, op_raw in enumerate(operand_tokens_clean):
             op_spec = spec.operands[op_id]
+
             if op_spec.type == OT.REG:
                 op = RegisterOperand(op_raw, op_spec.width, op_spec.src, op_spec.dest)
+
             elif op_spec.type == OT.MEM:
-                address_match = re.search(r'\[(.*)\]', op_raw)
-                parser_assert(address_match is not None, line_num, "Invalid memory address")
-                address = address_match.group(1)  # type: ignore
-                op = MemoryOperand(address, op_spec.width, op_spec.src, op_spec.dest)
+                op = MemoryOperand(op_raw, op_spec.width, op_spec.src, op_spec.dest)
+
             elif op_spec.type == OT.IMM:
                 op = ImmediateOperand(op_raw, op_spec.width)
+
             elif op_spec.type == OT.LABEL:
-                assert spec.control_flow
                 op = LabelOperand(op_raw)
+
             elif op_spec.type == OT.COND:
                 op = CondOperand(op_raw)
-            else:
-                parser_error(line_num, f"Unknown spec operand type {op_spec.type}")
 
+            else:
+                parser_error(line_num, f"Unknown operand type {op_spec.type}")
+
+            op.name = op_spec.name
             inst.operands.append(op)
 
+        # implicit operands
         for op_spec in spec.implicit_operands:
-            op = self.generator.generate_operand(op_spec, inst)
-            inst.implicit_operands.append(op)
+            inst.implicit_operands.append(self.generator.generate_operand(op_spec, inst))
 
         return inst
+
 
     def _patch_asm(self, asm_file: str, patched_asm_file: str):
         """
@@ -131,7 +196,7 @@ class Aarch64AsmParser(AsmParserGeneric):
           - Adds a global function label if missing.
           - Adds NOP at function end for easier size calculations.
           - Inserts `.function_0` if missing.
-          - Ensures `.test_case_exit` is within `.data.main` with a single NOP.
+          - Ensures `.test_case_exit` is within `.data.main` //with a single NOP.
         """
 
         def is_instruction(line: str) -> bool:
@@ -171,7 +236,7 @@ class Aarch64AsmParser(AsmParserGeneric):
                             main_function_label = ".function_0"
                         if ".data.main" not in prev_line or "measurement_end" in prev_line:
                             patched.write(".section .data.main\n")
-                        patched.write(".test_case_exit:\n    nop\n")
+                        patched.write(".test_case_exit:\n")
                         continue
 
                     if line.startswith(".function_") and not main_function_label:

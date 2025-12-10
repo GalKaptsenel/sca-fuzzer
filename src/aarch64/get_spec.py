@@ -82,6 +82,45 @@ class ParseFailed(Exception):
     pass
 
 
+def ror(x, r, bits):
+    r %= bits
+    return ((x >> r) | (x << (bits - r))) & ((1 << bits) - 1)
+
+
+def generate_logical_immediates(bits=64, limit=None):
+    """
+    Generate valid ARM bitmask-immediate values ON THE FLY,
+    sorted from small to large, stopping after `limit` values
+    (if limit is None, generate all).
+
+    bits = 32 or 64
+    """
+    immediates = set()
+
+    # Iterate by element-size S in ascending order → small values first
+    for S in [2, 4, 8, 16, 32, 64][: 5 if bits == 32 else 6]:
+        for ones in range(1, S):
+            pattern = (1 << ones) - 1
+
+            for immr in range(S):
+                rotated = ror(pattern, immr, S)
+
+                repeat_count = bits // S
+                full = 0
+                for _ in range(repeat_count):
+                    full = (full << S) | rotated
+
+                immediates.add(full)
+
+                if limit is not None and len(immediates) >= limit:
+                    for v in sorted(immediates):
+                        yield v
+                    return
+
+    for v in sorted(immediates):
+        yield v
+
+
 class Aarch64Transformer:
     tree: ET.ElementTree
     instructions: List[InstructionSpec]
@@ -150,7 +189,7 @@ class Aarch64Transformer:
 
 
     @staticmethod
-    def parse_explanations(mnemonic: str, explanations: ET.Element, variant_name: str, variable: str, hint: str) -> OperandSpec:
+    def parse_explanations(mnemonic: str, explanations: ET.Element, variant_name: str, variable: str, hint: str, data_size_hint: Optional[int]) -> OperandSpec:
         def set_if_memory_access(mnemonic: str, hint: str) -> Tuple[Optional[str], Optional[str]]:
             def is_store(mnemonic: str, hint: str) -> bool:
                 store_prefixes = ["str", "stg", "stp", "st2", "stl", "stn", "sts", "stt", "stu", "stx", "stz"]
@@ -263,6 +302,14 @@ class Aarch64Transformer:
                 assert width in Aarch64TargetDesc.simd_registers
                 values = Aarch64TargetDesc.simd_registers[width]
 
+            elif "bitmask" in account_text:
+                assert data_size_hint is not None
+                values = [str(v) for v in generate_logical_immediates(bits=data_size_hint)]
+                width = data_size_hint
+                signed = False
+                src = True
+                dest = False
+
             elif "scalable vector" in account_text:
                 values = Aarch64TargetDesc.sve_scalable_vector_registers
                 width = 0 # it is implementation specific
@@ -285,8 +332,6 @@ class Aarch64Transformer:
                         m = int(multiple_match.group(1))
 
                     values = [str(i) for i in range(a, b+1) if i % m == 0]
-#                       else:
-#                           values = [f'[{a}-{b}]']
                 else:
                     raise ParseFailed(
                             f"Unexpected Error Parsing Explanation Fields of {variant_name}:{variable}")
@@ -378,6 +423,7 @@ class Aarch64Transformer:
 
         default_hint = "REG"
         hint = default_hint
+        data_size_hint = None
 
         while index < len(template):
             ch = template[index]
@@ -391,11 +437,13 @@ class Aarch64Transformer:
                     variable = template[index+1:closing_bracket_index]
                     current_instruction.template += f"{{{variable}}}"
                     operand = Aarch64Transformer.parse_explanations(current_instruction.name, explanations, variant_name,
-                                                                   variable, hint)
+                                                                   variable, hint, data_size_hint)
 
                     # TODO: make it cleaner and clearer! should not be here!
                     if recursive != 0:
                         operand.type_ = "MEM"
+                    else:
+                        data_size_hint = operand.width
 
                     current_instruction.operands.append(operand)
                     index = closing_bracket_index + 1
