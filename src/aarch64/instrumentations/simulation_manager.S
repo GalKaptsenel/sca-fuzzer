@@ -276,7 +276,7 @@
 .endm
 
 
-.macro SIMULATION_COND_SPECULATION cond, taken_label, not_taken_label, sim_mgmt, snapshot_id, max_nesting,  sandbox_addr, sandbox_size, tmp1, tmp2, tmp3, tmp4, tmp5, tmp6
+.macro SIMULATION_COND_SPECULATION cond, taken_label, not_taken_label, sim_mgmt, snapshot_id, max_nesting,  sandbox_addr, sandbox_size, tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, cmpre_reg=-1
 
     mrs     \tmp1, nzcv
 
@@ -288,11 +288,31 @@
     adr     \tmp1, \taken_label
     adr     \tmp2, \not_taken_label
 
-    // primary = cond ? taken : not_taken
-    csel    \tmp3, \tmp1, \tmp2, \cond
+    .ifc \cmpre_reg, -1
 
-    // opposite = cond ? not_taken : taken
-    csel    \tmp4, \tmp2, \tmp1, \cond
+        // primary = cond ? taken : not_taken
+        csel    \tmp3, \tmp1, \tmp2, \cond
+    
+        // opposite = cond ? not_taken : taken
+        csel    \tmp4, \tmp2, \tmp1, \cond
+
+    .else
+
+        .ifc \cond, eq
+            cbz \cmpre_reg, 6f
+        .else
+            cbnz \cmpre_reg, 6f
+        .endif
+
+        mov \tmp3, \tmp2
+        mov \tmp4, \tmp1
+        b 7f
+6:
+        mov \tmp3, \tmp1
+        mov \tmp4, \tmp2
+7:
+
+    .endif
 
 
     // If nesting is 0, we are actually not speculating, and therefore push 0 nesting to the "architectualy*

@@ -228,9 +228,10 @@ class Aarch64SpecContractPass(Pass):
     """
     Pass that inserts simulation managment instruction for collecting speculative paths traces.
     """
-    TEMPLATE_SIMULATION_INIT        = "SIMULATION_INIT {sim_mgmt}, {snapshot_size}, {t0}"
-    TEMPLATE_SIMULATION_SPEC_RET    = "SIMULATION_SPEC_RET {sim_mgmt}, 0x{sandbox_mem_addr:016x}, {sandbox_mem_size}, {t0}, {t1}, {t2}, {t3}, {t4}"
-    TEMPLATE_SIMULATION_COND_SPEC   = "SIMULATION_COND_SPECULATION {cond}, {taken_label}, {not_taken_label}, {sim_mgmt}, {snapshot_id}, {max_nesting}, 0x{sandbox_mem_addr:016x}, {sandbox_mem_size}, {t0}, {t1}, {t2}, {t3}, {t4}, {t5}"
+    TEMPLATE_SIMULATION_INIT            = "SIMULATION_INIT {sim_mgmt}, {snapshot_size}, {t0}"
+    TEMPLATE_SIMULATION_SPEC_RET        = "SIMULATION_SPEC_RET {sim_mgmt}, 0x{sandbox_mem_addr:016x}, {sandbox_mem_size}, {t0}, {t1}, {t2}, {t3}, {t4}"
+    TEMPLATE_SIMULATION_COND_SPEC       = "SIMULATION_COND_SPECULATION {cond}, {taken_label}, {not_taken_label}, {sim_mgmt}, {snapshot_id}, {max_nesting}, 0x{sandbox_mem_addr:016x}, {sandbox_mem_size}, {t0}, {t1}, {t2}, {t3}, {t4}, {t5}"
+    TEMPLATE_SIMULATION_COND_SPEC_CBREG = "SIMULATION_COND_SPECULATION {cond}, {taken_label}, {not_taken_label}, {sim_mgmt}, {snapshot_id}, {max_nesting}, 0x{sandbox_mem_addr:016x}, {sandbox_mem_size}, {t0}, {t1}, {t2}, {t3}, {t4}, {t5}, cmpre_reg={cmpre_reg}"
 
     def __init__(
             self,
@@ -293,6 +294,8 @@ class Aarch64SpecContractPass(Pass):
                     else: # bb != fanc.exit:
                         if len(bb.successors) == 2:
                             insert_idx = 0
+                            args = {}
+                            template_to_use = self.TEMPLATE_SIMULATION_COND_SPEC
                             for idx, terminator in enumerate(bb.terminators):
                                 if terminator.control_flow and terminator.category == "UNCOND_BR":
                                     for op in terminator.operands:
@@ -300,24 +303,39 @@ class Aarch64SpecContractPass(Pass):
                                             not_taken_label = op.value
                                 elif terminator.control_flow and terminator.category != "UNCOND_BR":
                                     insert_idx = idx
-                                    if terminator.name == "cbz":
-                                        cond = "eq"
-                                    elif terminator.name == "cbnz":
-                                        cond = "ne"
+                                    if terminator.name.lower() in ("cbz", "cbnz"):
+                                        template_to_use = self.TEMPLATE_SIMULATION_COND_SPEC_CBREG
+                                        cond = "eq" if terminator.name == "cbz" else "ne"
+                                        for op in terminator.operands:
+                                            if op.type == OT.REG:
+                                                args["cmpre_reg"] = op.value
+                                            if op.type == OT.LABEL:
+                                                taken_label = op.value
+                                    else:
+                                        for op in terminator.operands:
+                                            if op.type == OT.LABEL:
+                                                taken_label = op.value
+                                            elif op.type == OT.COND:
+                                                cond = op.value
+                            args.update({
+                                    "cond": cond,
+                                    "taken_label": taken_label,
+                                    "not_taken_label": not_taken_label,
+                                    "sim_mgmt": self.mgmt_struct_pointer,
+                                    "snapshot_id": snapshot_cntr,
+                                    "max_nesting": self.max_nesting,
+                                    "sandbox_mem_addr": self.sandbox_address,
+                                    "sandbox_mem_size": self.sandbox_size,
+                                    "t0": self.temp_regs[0],
+                                    "t1": self.temp_regs[1],
+                                    "t2": self.temp_regs[2],
+                                    "t3": self.temp_regs[3],
+                                    "t4": self.temp_regs[4],
+                                    "t5": self.temp_regs[5]
+                            })
 
-                                    for op in terminator.operands:
-                                        if op.type == OT.LABEL:
-                                            taken_label = op.value
-                                        elif op.type == OT.COND:
-                                            cond = op.value
-                            sim_cond_spec_template = self.TEMPLATE_SIMULATION_COND_SPEC.format(
-                                    cond=cond, taken_label=taken_label, not_taken_label=not_taken_label,
-                                    sim_mgmt=self.mgmt_struct_pointer, snapshot_id=snapshot_cntr, max_nesting=self.max_nesting,
-                                    sandbox_mem_addr=self.sandbox_address, sandbox_mem_size=self.sandbox_size,
-                                    t0=self.temp_regs[0], t1=self.temp_regs[1], t2=self.temp_regs[2],
-                                    t3=self.temp_regs[3], t4=self.temp_regs[4], t5=self.temp_regs[5]
-                            )
-                            sim_cond_spec_inst = Instruction(f"SIMULATION_SPEC_RET_{bb.name}", True, template=sim_cond_spec_template)
+                            sim_cond_spec_template = template_to_use.format(**args)
+                            sim_cond_spec_inst = Instruction(f"SIMULATION_SPEC_COND_{bb.name}", True, template=sim_cond_spec_template)
                             bb.terminators = bb.terminators[:insert_idx] + [sim_cond_spec_inst] + bb.terminators[insert_idx:]
                             snapshot_cntr += 1
 
