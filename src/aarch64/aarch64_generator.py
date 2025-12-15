@@ -237,6 +237,7 @@ class Aarch64SpecContractPass(Pass):
             self,
             sandbox_memory_address: int,
             sandbox_memory_size: int,
+            speculation_nesting: int,
             mgmt_struct_reg: str = "x8",
             temp_regs: List[str] = None
         ):
@@ -250,7 +251,7 @@ class Aarch64SpecContractPass(Pass):
         self.temp_regs = temp_regs
         self.sandbox_address = sandbox_memory_address
         self.sandbox_size = sandbox_memory_size
-        self.max_nesting = CONF.model_max_nesting
+        self.max_nesting = speculation_nesting
 
     def run_on_test_case(self, test_case: TestCase):
         snapshot_cntr = 0
@@ -295,7 +296,6 @@ class Aarch64SpecContractPass(Pass):
                         if len(bb.successors) == 2:
                             insert_idx = 0
                             args = {}
-                            template_to_use = self.TEMPLATE_SIMULATION_COND_SPEC
                             for idx, terminator in enumerate(bb.terminators):
                                 if terminator.control_flow and terminator.category == "UNCOND_BR":
                                     for op in terminator.operands:
@@ -312,11 +312,13 @@ class Aarch64SpecContractPass(Pass):
                                             if op.type == OT.LABEL:
                                                 taken_label = op.value
                                     else:
+                                        template_to_use = self.TEMPLATE_SIMULATION_COND_SPEC
                                         for op in terminator.operands:
                                             if op.type == OT.LABEL:
                                                 taken_label = op.value
                                             elif op.type == OT.COND:
                                                 cond = op.value
+
                             args.update({
                                     "cond": cond,
                                     "taken_label": taken_label,

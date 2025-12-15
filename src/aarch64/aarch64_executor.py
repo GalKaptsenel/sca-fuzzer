@@ -1796,7 +1796,8 @@ class Aarch64LocalExecutor(Aarch64Executor):
         gpr_region = input_taint[0]['gpr']
         for i in range(num_of_gprs):
             mask: int = 1 << i
-            if bitmap_aux_buffer.regs_input_read_bits & mask:
+#            if bitmap_aux_buffer.regs_input_read_bits & mask:
+            if bitmap_aux_buffer.regs_read_bits & mask:
                 gpr_region[i] = True
 
 		# currently, simd region used to store x8 and x9 initial values which corrently used to initialize flags and sp respectively (sp is being overriden with executor appropriate value)
@@ -1845,7 +1846,12 @@ class Aarch64LocalExecutor(Aarch64Executor):
                 if idx >= sandbox_size:
                     break
 
-                if is_read and access_table[idx] == NOT_ACCESSED:
+#                if is_read and access_table[idx] == NOT_ACCESSED:
+#                    access_table[idx] = READ
+#                elif is_write and access_table[idx] == NOT_ACCESSED:
+#                    access_table[idx] = WRITE
+
+                if is_read:
                     access_table[idx] = READ
                 elif is_write and access_table[idx] == NOT_ACCESSED:
                     access_table[idx] = WRITE
@@ -1876,7 +1882,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
         return input_taint, ctrace
 
 
-    def trace_test_case_with_taints(self, inputs: List[Input], expected_ctraces = None) -> Tuple[List[CTrace], List[InputTaint], List[FullTraceAuxBuffer], List[BitmapTaintsAuxBuffer]]:
+    def trace_test_case_with_taints(self, inputs: List[Input], nesting: int) -> Tuple[List[CTrace], List[InputTaint], List[FullTraceAuxBuffer], List[BitmapTaintsAuxBuffer]]:
         """
         Call the executor kernel module to collect the hardware traces for
         the test case (previously loaded with `load_test_case`) and the given inputs.
@@ -1901,7 +1907,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
 
 
         sandbox_base, _ = self.read_base_addresses()
-        self._write_mod_test_case_to_local_executor("generated_taint_tracker", [Aarch64MarkRegisterTaints(), Aarch64SandboxPass(), Aarch64MarkMemoryTaints(), Aarch64SpecContractPass(sandbox_memory_address=sandbox_base, sandbox_memory_size=4096*2)])
+        self._write_mod_test_case_to_local_executor("generated_taint_tracker", [Aarch64MarkRegisterTaints(), Aarch64SandboxPass(), Aarch64MarkMemoryTaints(), Aarch64SpecContractPass(sandbox_memory_address=sandbox_base, sandbox_memory_size=4096*2, speculation_nesting=CONF.model_max_nesting)])
 
         input_to_taints_buffer: OrderedDict[Input, BitmapTaintsAuxBuffer] = OrderedDict()
 
@@ -1918,7 +1924,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
 #            self.local_executor.checkout_region(InputRegion(input_to_iid[i]))
 #            input_to_full_trace_buffer[i] = aux_buffer_from_bytes(AuxBufferType.FULL_TRACE, self.local_executor.aux_buffer)
 
-        self._write_mod_test_case_to_local_executor("generated_full_trace_tracker_spec", [Aarch64SandboxPass(), Aarch64FullTrace(), Aarch64SpecContractPass(sandbox_memory_address=sandbox_base, sandbox_memory_size=4096*2)])
+        self._write_mod_test_case_to_local_executor("generated_full_trace_tracker_spec", [Aarch64SandboxPass(), Aarch64FullTrace(), Aarch64SpecContractPass(sandbox_memory_address=sandbox_base, sandbox_memory_size=4096*2, speculation_nesting=CONF.model_max_nesting)])
         self.local_executor.trace()
         for i in inputs:
             self.local_executor.checkout_region(InputRegion(input_to_iid[i]))
@@ -2002,6 +2008,8 @@ def dump_debug_to_file(prefix, input_ref, input_new, trace_ref, trace_new, taint
         f.write(repr(taint_new))
     with open(f"{prefix}_inputs.txt", "w") as f:
         f.write(f"REF:\n{input_ref}\n\nNEW:\n{input_new}")
+    input_ref.save(f"{prefix}_input_ref.bin")
+    input_new.save(f"{prefix}_input_new.bin")
 
 def compare_and_debug_trace_pair(
     input_ref,

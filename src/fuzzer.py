@@ -244,13 +244,13 @@ class FuzzerGeneric(Fuzzer):
         #     To remove such FPs, we re-run the model tracing with max nesting. As taints depend on
         #     contract traces, we also have to re-boost the inputs, and re-collect hardware traces
         #     for the new inputs
-        #if start_nesting != end_nesting:
-        #    args.model_nesting = end_nesting
-        #    args.inputs, args.ctraces = self._boost_inputs(inputs, end_nesting)
-        #    violations, args.ctraces, htraces = self._collect_traces(args)
-        #    if not violations:
-        #        STAT.fp_nesting += 1
-        #        return None
+        if start_nesting != end_nesting:
+            args.model_nesting = end_nesting
+            args.inputs, args.ctraces = self._boost_inputs(inputs, end_nesting)
+            violations, args.ctraces, htraces, full_trace, bitmaps = self._collect_traces(args)
+            if not violations:
+                STAT.fp_nesting += 1
+                return None
 
         # 2.2 FP might appear because of imperfect tainting (e.g., due to a bug in taint tracker).
         #     To remove such FPs, we collect contract traces for all boosted inputs, and check if
@@ -361,7 +361,7 @@ class FuzzerGeneric(Fuzzer):
         else:
             expected_ctraces = args.ctraces * CONF.inputs_per_class
             # compute ctraces separately for every boosted input
-            ctraces, _, full_trace, bitmaps = self.executor.trace_test_case_with_taints(args.inputs)
+            ctraces, _, full_trace, bitmaps = self.executor.trace_test_case_with_taints(args.inputs, args.model_nesting)
             if expected_ctraces != ctraces:
                 import pdb; pdb.set_trace()
                 diff_idx = None
@@ -435,7 +435,7 @@ class FuzzerGeneric(Fuzzer):
 
         # collect taints and contract traces for initial inputs
         #ctraces, taints = self.model.trace_test_case_with_taints(inputs, nesting)
-        ctraces, taints, _, _ = self.executor.trace_test_case_with_taints(inputs)
+        ctraces, taints, _, _ = self.executor.trace_test_case_with_taints(inputs, nesting)
 
         # ensure that we have many inputs in each input classes
         self.input_gen.reset_boosting_state()
