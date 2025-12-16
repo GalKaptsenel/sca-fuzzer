@@ -49,6 +49,6 @@ typedef struct user_input {
 	};
 } user_input_t;
 
-#define USER_CONTROLLED_INPUT_LENGTH	(MAIN_REGION_SIZE + FAULTY_REGION_SIZE + sizeof(registers_t))
+#define USER_CONTROLLED_INPUT_LENGTH	(MAIN_REGION_SIZE + FAULTY_REGION_SIZE + sizeof(user_registers_t))
 
 #endif // EXECUTOR_USERAPI_H

@@ -1790,28 +1790,25 @@ class Aarch64LocalExecutor(Aarch64Executor):
             return access_size
 
         num_of_gprs = input_to_process['gpr'].shape[1]
+        assert num_of_gprs == 8, "Assumed the area allocated for GPRs is 64 bytes, 6 registers x0-x5, nzcv register and sp register"
 
         input_taint = InputTaint()
 
+        FLAGS_REG_INDEX = 36
+        SP_REG_INDEX = 31
         gpr_region = input_taint[0]['gpr']
         for i in range(num_of_gprs):
-            mask: int = 1 << i
+            mask: int = None
+            if 0 <= i <= 5:
+                mask = 1 << i
+            elif i == 6:
+                mask = 1 << FLAGS_REG_INDEX
+            elif i == 7:
+                mask = 1 << SP_REG_INDEX
+
 #            if bitmap_aux_buffer.regs_input_read_bits & mask:
             if bitmap_aux_buffer.regs_read_bits & mask:
                 gpr_region[i] = True
-
-		# currently, simd region used to store x8 and x9 initial values which corrently used to initialize flags and sp respectively (sp is being overriden with executor appropriate value)
-        simd_region = input_taint[0]['simd']
-
-        FLAGS_REG_INDEX = 36
-#        if bitmap_aux_buffer.regs_input_read_bits & (1 << FLAGS_REG_INDEX):
-        if bitmap_aux_buffer.regs_read_bits & (1 << FLAGS_REG_INDEX):
-            simd_region[0] = True
-
-        SP_REG_INDEX = 31
-#        if bitmap_aux_buffer.regs_input_read_bits & (1 << SP_REG_INDEX):
-        if bitmap_aux_buffer.regs_read_bits & (1 << SP_REG_INDEX):
-            simd_region[1] = True
 
         # Sandbox base is stored in x30 while executing the test case. It should not change while executing the test case. Take the first one.
         sandbox_base = full_trace_buffer.instruction_logs[0].regs[30]

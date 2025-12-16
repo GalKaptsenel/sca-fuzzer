@@ -538,6 +538,12 @@ static void copy_input_from_user_and_update_state(const char __user* user_buffer
 		update_state_after_writing_input();
 
 	}
+
+	((input_t*)(to_buffer))->regs.flags	=  ((user_input_t*)(to_buffer))->regs.flags;
+	((input_t*)(to_buffer))->regs.sp	=  ((user_input_t*)(to_buffer))->regs.sp;
+	((input_t*)(to_buffer))->regs.x6	=  0;
+	((input_t*)(to_buffer))->regs.x7	=  0;
+	((input_t*)(to_buffer))->regs.x8	=  0;
 }
 
 static ssize_t revisor_write(struct file* File, const char __user* user_buffer,

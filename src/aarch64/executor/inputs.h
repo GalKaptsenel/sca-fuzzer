@@ -13,8 +13,8 @@ typedef struct registers {
 	uint64_t x4;
 	uint64_t x5;
 	uint64_t x6;
-	uint64_t x7; // AUX BUFFER
-	uint64_t x8; // SCRATCHPAD
+	uint64_t x7; // AUX BUFFER - value is not taken from user input
+	uint64_t x8; // SCRATCHPAD - value is not taken from user input
 	uint64_t flags;
 	uint64_t sp;
 } registers_t;
@@ -45,8 +45,6 @@ struct input_batch {
     uint64_t size;
     struct input_and_id_pair array[];
 };
-
-#define USER_CONTROLLED_INPUT_LENGTH	(MAIN_REGION_SIZE + FAULTY_REGION_SIZE + sizeof(registers_t))
 
 void initialize_inputs_db(void);
 int64_t allocate_input(void);

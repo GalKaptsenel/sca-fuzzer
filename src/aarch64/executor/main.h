@@ -53,6 +53,7 @@ MODULE_DESCRIPTION("AArch64 implementation of Revisor's executor");
 #include "mte.h"
 #include "cpu.h"
 #include "globals.h"
+#include "userapi/executor_user_api.h"
 
 #define DEBUG 0
 
