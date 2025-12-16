@@ -1803,12 +1803,14 @@ class Aarch64LocalExecutor(Aarch64Executor):
 		# currently, simd region used to store x8 and x9 initial values which corrently used to initialize flags and sp respectively (sp is being overriden with executor appropriate value)
         simd_region = input_taint[0]['simd']
 
-        FLAGS_REG_INDEX = 8
-        if bitmap_aux_buffer.regs_input_read_bits & (1 << FLAGS_REG_INDEX):
+        FLAGS_REG_INDEX = 36
+#        if bitmap_aux_buffer.regs_input_read_bits & (1 << FLAGS_REG_INDEX):
+        if bitmap_aux_buffer.regs_read_bits & (1 << FLAGS_REG_INDEX):
             simd_region[0] = True
 
-        SP_REG_INDEX = 9
-        if bitmap_aux_buffer.regs_input_read_bits & (1 << SP_REG_INDEX):
+        SP_REG_INDEX = 31
+#        if bitmap_aux_buffer.regs_input_read_bits & (1 << SP_REG_INDEX):
+        if bitmap_aux_buffer.regs_read_bits & (1 << SP_REG_INDEX):
             simd_region[1] = True
 
         # Sandbox base is stored in x30 while executing the test case. It should not change while executing the test case. Take the first one.

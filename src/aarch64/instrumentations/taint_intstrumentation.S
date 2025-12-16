@@ -68,10 +68,9 @@
     _TAINT_SET_BIT \src, 8, \base_reg, \tmp1, \tmp2 // regs_read_bits
 .endm
 
-/* Mark FLAGS (NZCV) as written */
+/* Mark FLAGS (NZCV) as written using bit 36*/
 .macro TAINT_FLAGS_WRITE n, z, c, v, base_reg, tmp1, tmp2
-    // Mark x9 (flags origin) as written
-    TAINT_REG_WRITE 9, \base_reg, \tmp1, \tmp2
+    TAINT_REG_WRITE 36, \base_reg, \tmp1, \tmp2
 
     // Optionally mark individual bits
     .if \n
@@ -89,10 +88,9 @@
 .endm
 
 
-/* Mark FLAGS (NZCV) as read */
+/* Mark FLAGS (NZCV) as read using bit 36*/
 .macro TAINT_FLAGS_READ n, z, c, v, base_reg, tmp1, tmp2
-    // Mark x9 (flags origin) as read
-    TAINT_REG_READ 9, \base_reg, \tmp1, \tmp2
+    TAINT_REG_READ 36, \base_reg, \tmp1, \tmp2
 
     // Optionally mark individual bits
     .if \n
@@ -109,13 +107,13 @@
     .endif
 .endm
 
-/* SP read/write mark x9 (SP origin) */
+/* SP read/write marks bit 31 (SP origin) */
 .macro TAINT_SP_READ base_reg, tmp1, tmp2
-    TAINT_REG_READ 9, \base_reg, \tmp1, \tmp2     // mark x9 itself
+    TAINT_REG_READ 31, \base_reg, \tmp1, \tmp2     // mark x9 itself
 .endm
 
 .macro TAINT_SP_WRITE base_reg, tmp1, tmp2
-    TAINT_REG_WRITE 9, \base_reg, \tmp1, \tmp2     // mark x9 itself
+    TAINT_REG_WRITE 31, \base_reg, \tmp1, \tmp2     // mark x9 itself
 .endm
 
 /* -----------------------------------------------------------------------------
