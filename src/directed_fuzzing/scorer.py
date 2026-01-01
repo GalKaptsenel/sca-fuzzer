@@ -5,7 +5,7 @@ from typing import Hashable
 import math
 import hashlib
 
-from .microarch import MicroarchState
+from .microarch_state import MicroarchState
 
 class ScorerInterface(ABC):
     @abstractmethod

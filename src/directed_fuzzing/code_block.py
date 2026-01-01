@@ -21,6 +21,10 @@ class CodeBlock:
         return self._allocator.get_block_address(self)
 
     @property
+    def label(self) -> int:
+        return self._allocator.get_block_label(self)
+
+    @property
     def size(self) -> int:
         # AArch64 has 4-byte fixed width instructions
         return len(self.instructions) * 4
@@ -40,14 +44,17 @@ class CodeAllocator:
 
         self._base_address = base_address
         self._write_ptr = base_address
+        self._counter = 0
 
         # Mapping of blocks
         self._block_to_address: Dict[CodeBlock, int] = {}
+        self._block_to_label: Dict[CodeBlock, str] = {}
         self._block_to_committed_flag: Dict[CodeBlock, bool] = {}
 
     def allocate_block(self) -> CodeBlock:
         block = CodeBlock(self)
         self._block_to_address[block] = self._write_ptr
+        self._block_to_label[block] = f'.bb_{self._counter}'
         self._block_to_committed_flag[block] = False
         return block
 
@@ -59,6 +66,15 @@ class CodeAllocator:
             raise ValueError(f"Unknown block: {block}")
 
         return self._block_to_address[block]
+
+    def get_block_label(self, block: CodeBlock) -> str:
+        if not isinstance(block, CodeBlock):
+            raise ValueError(f"Unexpected block type: {type(block)}")
+
+        if block not in self._block_to_label:
+            raise ValueError(f"Unknown block: {block}")
+
+        return self._block_to_label[block]
 
     def commit_block(self, block: CodeBlock):
         if not isinstance(block, CodeBlock):

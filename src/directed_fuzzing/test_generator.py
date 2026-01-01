@@ -1,13 +1,13 @@
 import random
 from typing import Callable, Optional, List
 from .block_graph import BlockGraph, BlockNode, BranchOutcome
-from .code_block_generator import CodeBlockGenerator
+from .code_block_generator import BlockGenerator
 from .input_template import InputTemplate
-from .microarch_simulators import SimulationContext
+from .simulation import SimulationContext
 
 def generate_block_and_split(
     graph: BlockGraph,
-    block_gen: CodeBlockGenerator,
+    block_gen: BlockGenerator,
     template: InputTemplate,
     context: SimulationContext,
     commit: bool = True,
@@ -32,7 +32,7 @@ def generate_block_and_split(
 
 def generate_graph(
     graph: BlockGraph,
-    block_gen: CodeBlockGenerator,
+    block_gen: BlockGenerator,
     root_template: InputTemplate,
     root_context: SimulationContext,
     max_blocks: int = 10,

@@ -17,7 +17,7 @@ from ..config import CONF
 from ..isa_loader import InstructionSet
 from ..interfaces import TestCase, Operand, Instruction, BasicBlock, Function, InstructionSpec, \
     GeneratorException, RegisterOperand, ImmediateOperand, MAIN_AREA_SIZE, FAULTY_AREA_SIZE, \
-    MemoryOperand, AgenOperand, OT, OperandSpec, CondOperand
+    MemoryOperand, AgenOperand, OT, OperandSpec, CondOperand, TargetDesc
 from ..generator import ConfigurableGenerator, RandomGenerator, Pass, Printer
 from ..config import CONF
 from .aarch64_target_desc import Aarch64TargetDesc
@@ -239,7 +239,8 @@ class Aarch64SpecContractPass(Pass):
             sandbox_memory_size: int,
             speculation_nesting: int,
             mgmt_struct_reg: str = "x8",
-            temp_regs: List[str] = None
+            temp_regs: List[str] = None,
+            target_desc: Optional[TargetDesc] = None
         ):
 
         default_registers = ["x10", "x11", "x12", "x13", "x14", "x15"]
@@ -252,6 +253,10 @@ class Aarch64SpecContractPass(Pass):
         self.sandbox_address = sandbox_memory_address
         self.sandbox_size = sandbox_memory_size
         self.max_nesting = speculation_nesting
+
+        self._target_desc: Aarch64TargetDesc = Aarch64TargetDesc()
+        if target_desc is not None:
+            self._target_desc: Aarch64TargetDesc = target_desc
 
     def run_on_test_case(self, test_case: TestCase):
         snapshot_cntr = 0
@@ -297,11 +302,11 @@ class Aarch64SpecContractPass(Pass):
                             insert_idx = 0
                             args = {}
                             for idx, terminator in enumerate(bb.terminators):
-                                if terminator.control_flow and terminator.category == "UNCOND_BR":
+                                if self._target_desc.is_unconditional_branch(terminator):
                                     for op in terminator.operands:
                                         if op.type == OT.LABEL:
                                             not_taken_label = op.value
-                                elif terminator.control_flow and terminator.category != "UNCOND_BR":
+                                elif terminator.control_flow:
                                     insert_idx = idx
                                     if terminator.name.lower() in ("cbz", "cbnz"):
                                         template_to_use = self.TEMPLATE_SIMULATION_COND_SPEC_CBREG
@@ -1237,7 +1242,8 @@ class Aarch64Printer(Printer):
         for op in inst.operands:
             values[op.name] = op.value
 
-        instruction = inst.template.format(**values)
+#        instruction = inst.template.format(**values)
+        instruction = inst.to_asm_string()
 
         if inst.is_instrumentation:
             comment = "// instrumentation"

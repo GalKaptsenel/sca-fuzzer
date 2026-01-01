@@ -647,6 +647,14 @@ class Instruction:
         self._inst_brief = brief
         return brief
 
+    def to_asm_string(self) -> str:
+        if self.template is None:
+            raise RuntimeError("Unavailable, template member is not set!")
+        values = {}
+        for op in self.operands:
+            values[op.name] = op.value
+        return self.template.format(**values)
+
 
 class BasicBlock:
     name: str
@@ -815,6 +823,7 @@ class TestCase:
         raise Exception(f"ERROR: Actor {aid} not found")
 
     def save(self, path: str) -> None:
+        import pdb; pdb.set_trace()
         shutil.copy2(self.asm_path, path)
 
 

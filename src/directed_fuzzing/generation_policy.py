@@ -1,54 +1,88 @@
 import random
 from abc import ABC, abstractmethod
-from typing import Optional, List
+from typing import Optional, List, Type
 
 from .common import BranchType
 from ..interfaces import Instruction
 
 
+# ==================== Mixin Interfaces ====================
+
 class DynamicInstructionLimitMixin(ABC):
-    """Mixin interface for determining how many instruction left to generate."""
+    """
+    Mixin interface for determining how many instructions are left to generate.
+
+    Return value semantics:
+    - None  : this mixin has no opinion
+    - int>=0 : maximum remaining instructions (0 means stop immediately)
+    """
+
     @abstractmethod
     def remaining_instructions(self, insts: List[Instruction]) -> Optional[int]:
-        pass
+        raise NotImplementedError
 
 
 class BranchChooserMixin(ABC):
-    """Mixin interface deciding what branch type should terminate the block."""
+    """
+    Mixin interface deciding what branch type should terminate the block.
+    """
+
     @abstractmethod
     def choose_branch_type(self, insts: List[Instruction]) -> Optional[BranchType]:
-        pass
+        raise NotImplementedError
 
+
+# ==================== Core Policy Interface ====================
 
 class GenerationPolicy(ABC):
-    """Interface for a code block generation policy."""
+    """
+    Interface for a concrete code block generation policy.
+    """
+
     @abstractmethod
     def remaining_instructions(self, insts: List[Instruction]) -> int:
-        pass
+        raise NotImplementedError
 
     @abstractmethod
     def choose_branch_type(self, insts: List[Instruction]) -> BranchType:
-        pass
+        raise NotImplementedError
 
+
+# ==================== Instruction Limit Mixins ====================
 
 class MaxInstructionCountMixin(DynamicInstructionLimitMixin):
-    """Stops when a block reaches a maximum number of instructions."""
+    """
+    Stops when a block reaches a maximum number of instructions.
+    """
+
     def __init__(self, max_instructions: int, **kwargs):
         super().__init__(**kwargs)
         if not isinstance(max_instructions, int) or max_instructions < 0:
-            raise ValueError(f"max_instructions must a non-negative integer (got {max_instructions})")
+            raise ValueError(
+                f"max_instructions must be a non-negative integer (got {max_instructions})"
+            )
         self._max_instructions = max_instructions
 
     def remaining_instructions(self, insts: List[Instruction]) -> Optional[int]:
-        return self._max_instructions - len(insts)
+        return max(self._max_instructions - len(insts), 0)
 
 
 class EarlyStoppingInstructionCountMixin(DynamicInstructionLimitMixin):
-    """Randomly stops a block with a given probability."""
-    def __init__(self, early_stop_prob: float, rnd: Optional[random.Random] = None, **kwargs):
+    """
+    Randomly stops a block with a given probability.
+    """
+
+    def __init__(
+        self,
+        early_stop_prob: float,
+        rnd: Optional[random.Random] = None,
+        **kwargs
+    ):
         super().__init__(**kwargs)
-        if not (0 <= early_stop_prob <= 1):
-            raise ValueError(f"early_stop_prob must be in [0,1] (got {early_stop_prob})")
+        if not (0.0 <= early_stop_prob <= 1.0):
+            raise ValueError(
+                f"early_stop_prob must be in [0,1] (got {early_stop_prob})"
+            )
         self._early_stop_prob = early_stop_prob
         self._rnd = rnd or random.Random()
 
@@ -58,81 +92,146 @@ class EarlyStoppingInstructionCountMixin(DynamicInstructionLimitMixin):
         return None
 
 
+# ==================== Branch Choice Mixins ====================
+
 class RandomBranchTypeMixin(BranchChooserMixin):
-    """Chooses a random branch type from a list of options."""
-    def __init__(self, options: List[BranchType], **kwargs):
+    """
+    Chooses a random branch type from a list of options.
+    """
+
+    def __init__(
+        self,
+        options: List[BranchType],
+        rnd: Optional[random.Random] = None,
+        **kwargs
+    ):
         super().__init__(**kwargs)
         if not options or any(not isinstance(o, BranchType) for o in options):
-            raise ValueError(f"options must be a non-empty list of BranchType (got {options})")
+            raise ValueError(
+                f"options must be a non-empty list of BranchType (got {options})"
+            )
         self._options = list(options)
+        self._rnd = rnd or random.Random()
 
     def choose_branch_type(self, insts: List[Instruction]) -> BranchType:
-        return random.choice(self._options)
+        return self._rnd.choice(self._options)
 
 
-# -------------------- Combining Mixin --------------------
+# ==================== Combining Policy ====================
 
 class CombiningGenerationPolicy(GenerationPolicy):
     """
-    Automatically combines all DynamicInstructionLimitMixin and BranchChooserMixin behaviors
+    Combines all DynamicInstructionLimitMixin and BranchChooserMixin behaviors
     from its base classes.
+
+    Instruction limit semantics:
+    - All limits are combined using `min`
+    - Any mixin may veto generation by returning 0
     """
-    def remaining_instructions(self, insts: List[Instruction]) -> int:
-        remaining = None
+
+    def __init_subclass__(cls):
+        super().__init_subclass__()
+
+        # Check that all concrete mixins appear before CombiningGenerationPolicy
+        combining_index = cls.__mro__.index(CombiningGenerationPolicy)
+        for mixin in (DynamicInstructionLimitMixin, BranchChooserMixin,
+                      MaxInstructionCountMixin, EarlyStoppingInstructionCountMixin,
+                      RandomBranchTypeMixin):
+            if mixin in cls.__mro__ and cls.__mro__.index(mixin) > combining_index:
+                raise TypeError(
+                        f"{mixin.__name__} must appear before CombiningGenerationPolicy in bases"
+                    )
+
+    def _iter_concrete_mixins(
+        self,
+        mixin_type: Type[ABC],
+        method_name: str,
+    ):
         for base in type(self).__mro__:
-            if issubclass(base, DynamicInstructionLimitMixin) and base is not DynamicInstructionLimitMixin:
-                limit: Optional[int] = base.remaining_instructions(self, insts)
-                if limit is None:
-                    continue
-                if remaining is None:
-                    remaining = limit
-                else:
-                    remaining = min(limit, remaining)
+            if (
+                base is mixin_type
+                or not issubclass(base, mixin_type)
+                or method_name not in base.__dict__
+            ):
+                continue
+            yield base
+
+    def remaining_instructions(self, insts: List[Instruction]) -> int:
+        remaining: Optional[int] = None
+
+        for base in self._iter_concrete_mixins(
+            DynamicInstructionLimitMixin, "remaining_instructions"
+        ):
+            limit = base.remaining_instructions(self, insts)
+            if limit is None:
+                continue
+            remaining = limit if remaining is None else min(remaining, limit)
 
         if remaining is None:
-            raise RuntimeError("None of the DynamicInstructionLimitMixin provided a max instruction number!")
+            raise RuntimeError(
+                "No DynamicInstructionLimitMixin provided a maximum instruction count"
+            )
 
-        assert isinstance(remaining, int)
         return remaining
 
-
     def choose_branch_type(self, insts: List[Instruction]) -> BranchType:
-        for base in type(self).__mro__:
-            if issubclass(base, BranchChooserMixin) and base is not BranchChooserMixin:
-                branch = base.choose_branch_type(self, insts)
-                if branch is not None:
-                    return branch
-        raise RuntimeError("No BranchChooserMixin provided a branch type")
+        for base in self._iter_concrete_mixins(
+            BranchChooserMixin, "choose_branch_type"
+        ):
+            branch = base.choose_branch_type(self, insts)
+            if branch is not None:
+                return branch
+
+        raise RuntimeError(
+            "No BranchChooserMixin provided a branch type"
+        )
 
 
-# -------------------- Concrete Policies --------------------
+# ==================== Concrete Policies ====================
 
 class RandomMaxInstRandomBranchGenerationPolicy(
-        MaxInstructionCountMixin,
-        EarlyStoppingInstructionCountMixin,
-        RandomBranchTypeMixin,
-        CombiningGenerationPolicy
+    MaxInstructionCountMixin,
+    EarlyStoppingInstructionCountMixin,
+    RandomBranchTypeMixin,
+    CombiningGenerationPolicy,
+):
+    """
+    Max instructions + random early stop + random branch type.
+    """
+
+    def __init__(
+        self,
+        max_instructions: int,
+        early_stop_prob: float,
+        branch_options: List[BranchType],
+        rnd: Optional[random.Random] = None,
     ):
-    """Max instructions + random early stop + random branch type."""
-    def __init__(self, max_instructions: int, early_stop_prob: float, branch_options: List[BranchType], rnd: Optional[random.Random] = None):
         super().__init__(
             max_instructions=max_instructions,
             early_stop_prob=early_stop_prob,
             options=branch_options,
-            rnd=rnd
+            rnd=rnd,
         )
 
 
 class MaxInstRandomBranchGenerationPolicy(
-        MaxInstructionCountMixin,
-        RandomBranchTypeMixin,
-        CombiningGenerationPolicy
+    MaxInstructionCountMixin,
+    RandomBranchTypeMixin,
+    CombiningGenerationPolicy,
+):
+    """
+    Max instructions + random branch type.
+    """
+
+    def __init__(
+        self,
+        max_instructions: int,
+        branch_options: List[BranchType],
+        rnd: Optional[random.Random] = None,
     ):
-    """Max instructions + random branch type."""
-    def __init__(self, max_instructions: int, branch_options: List[BranchType], rnd: Optional[random.Random] = None):
         super().__init__(
             max_instructions=max_instructions,
             options=branch_options,
-            rnd=rnd
+            rnd=rnd,
         )
 

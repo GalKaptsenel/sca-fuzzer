@@ -46,7 +46,7 @@ class Aarch64TargetDesc(TargetDesc):
         **{f"SP_EL{i}": 64 for i in range(4)},
         **{f"ELR_EL{i}": 64 for i in range(1, 4)},
         "pc": 64,
-        "xzr": 64, "wzr": 32,
+        "xzr": 64, "wzr": 32, "sp": 64, "nzcv": 4
     }  # yapf: disable
 
     reg_normalized = {
@@ -97,6 +97,7 @@ class Aarch64TargetDesc(TargetDesc):
         "SP": {64: "sp", 32: "wsp"},
         "ZERO": {64: "xzr", 32: "wzr"},
         "PC": {64: "pc", 32: "pc", 16: "pc", 8: "pc"},
+        "FLAGS": {4: "nzcv"},
     }  # yapf: disable
     registers = {
             32:     [*[f"w{i}" for i in range(31)]], # TODO: For now we are ommiting wzr because it complecates the instrumentation for memory access
@@ -204,11 +205,11 @@ class Aarch64TargetDesc(TargetDesc):
 
     @staticmethod
     def is_unconditional_branch(inst: Instruction) -> bool:
-        return inst.name in ["B"]
+        return inst.name.lower() in ["b"]
 
     @staticmethod
     def is_call(inst: Instruction) -> bool:
-        return inst.name in ["BL"]
+        return inst.name.lower() in ["bl"]
 
 
 class Aarch64UnicornTargetDesc(UnicornTargetDesc):
@@ -285,6 +286,7 @@ class Aarch64UnicornTargetDesc(UnicornTargetDesc):
         "wsp": ucc.UC_ARM64_REG_WSP,
         "xzr": ucc.UC_ARM64_REG_XZR,
         "wzr": ucc.UC_ARM64_REG_WZR,
+        'pc': ucc.UC_ARM64_REG_PC,
     }
 
     reg_decode = {

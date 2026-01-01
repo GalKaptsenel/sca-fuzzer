@@ -146,7 +146,7 @@ class AsmParserGeneric(AsmParser):
                             bb.successors.append(successor)
 
             # last BB always falls through to the exit
-            func[-1].successors.append(func.exit)
+        #    func[-1].successors.append(func.exit)
 
         # special case: empty test case
         if not test_case.functions:

@@ -71,9 +71,11 @@ class ArchSimulatorInterface(ABC):
             template = step.updated_input_template
         return template
 
+    @abstractmethod
     def take_snapshot(self) -> ArchSnapshotInterface:
         pass
 
+    @abstractmethod
     def restore_snapshot(self, snap: ArchSnapshotInterface):
         pass
 

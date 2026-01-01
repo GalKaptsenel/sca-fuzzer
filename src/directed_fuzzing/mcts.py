@@ -9,7 +9,7 @@ from .input_template import InputTemplate
 from .microarch_simulators import MicroarchSimulatorInterface, SimulationContext
 from .scorer import ScorerInterface
 from .code_block import CodeBlock
-from .code_block_generator import CodeBlockGenerator 
+from .code_block_generator import BlockGenerator 
 from .generation_policy import GenerationPolicy
 from .common import BranchOutcome, BranchType
 from ..interfaces import Instruction
@@ -41,7 +41,7 @@ class MCTSNode:
         return max(self.children, key=lambda child: child.uct_score(exploration_c))
 
 
-class MCTS(CodeBlockGenerator):
+class MCTS(BlockGenerator):
     def __init__(
         self,
         mu_simulator: MicroarchSimulatorInterface,
@@ -102,12 +102,12 @@ class MCTS(CodeBlockGenerator):
         if not node.untried_actions:
             number_of_instructions_to_gen = min(
                     self._max_instructions_batch_size,
-                    self.generation_policy.remaining_instructions(node.instr_seq)
+                    self._generation_policy.remaining_instructions(node.instr_seq)
             )
 
             if 0 >= number_of_instructions_to_gen:
                 return node
-
+    
             for _ in range(self._variants_per_batch):
                 candidate_batch: List[Instruction] = self._instr_generator.sample(number_of_instructions_to_gen)
                 if not candidate_batch:
@@ -127,15 +127,15 @@ class MCTS(CodeBlockGenerator):
                 input_template=node.template,
         )
 
-        assert trace.input_templates
-        assert trace.input_templates[0] is not node.template
+        assert trace.templates
+        assert trace.templates[0] is not node.template
         assert new_context is not node.context
 
         child_seq = node.instr_seq + instr_batch
         child = MCTSNode(
                 parent=node,
                 context=new_context,
-                template=trace.input_templates[-1],
+                template=trace.templates[-1],
                 instr_seq=child_seq
         )
 
@@ -153,6 +153,7 @@ class MCTS(CodeBlockGenerator):
         depth_factor = max(1.0, len(node.instr_seq) / max(1, self._max_instructions_batch_size))
         max_possible_rollouts = int(self._max_rollout_depth / depth_factor)
         simulation_instruction_count = max(1, min(self._max_instructions_batch_size * self._rollout_depth, max_possible_rollouts))
+
         instr_batch: List[Instruction] = self._instr_generator.sample(simulation_instruction_count)
 
         _, new_context = self._mu_simulator.simulate(
@@ -200,7 +201,7 @@ class MCTS(CodeBlockGenerator):
         context  = node.context
         template = node.template
     
-        free_regs = [r for r in template.regs if not template.is_concrete(r)]
+        free_regs = [r for r in template.regs if not template.get_ccell(r).is_concrete()]
     
         cond_branch, name, taken_val, not_taken_val = (
             self._instr_generator.generate_conditional_branch(
@@ -212,8 +213,9 @@ class MCTS(CodeBlockGenerator):
             return []
     
         # split the template into TAKEN and NOT_TAKEN constraints
-        template_taken     = template.clone().set_concrete(name, taken_val)
-        template_not_taken = template.clone().set_concrete(name, not_taken_val)
+        template.get_cell(name).set_gen(GEN_MAP('concrete'))
+        template_taken     = template.clone().get_cell(name).set_params({'value': taken_value})
+        template_not_taken = template.clone().get_cell(name).set_params({'value': not_taken_value})
     
         uncond_branch = self._instr_generator.generate_unconditional_branch()
         instr_seq = [cond_branch, uncond_branch]
@@ -223,14 +225,14 @@ class MCTS(CodeBlockGenerator):
             instructions=instr_seq,
             input_template=template_taken,
         )
-        final_template_taken = taken_trace.input_templates[-1]
+        final_template_taken = taken_trace.templates[-1]
     
         not_taken_trace, not_taken_context = self._mu_simulator.simulate(
             sim_context=context,
             instructions=instr_seq,
             input_template=template_not_taken,
         )
-        final_template_not_taken = not_taken_trace.input_templates[-1]
+        final_template_not_taken = not_taken_trace.templates[-1]
     
         # store results
         block_node.contexts[BranchOutcome.TAKEN]     = taken_context
@@ -242,40 +244,6 @@ class MCTS(CodeBlockGenerator):
         block_node.code_block.instructions.extend(instr_seq)
     
         return instr_seq
-
-    def _generate_unconditional_branch(
-            self,
-            node: MCTSNode,
-            block_node: BlockNode,
-        ) -> List[Instruction]:
-        """
-        Generate a terminal unconditional branch.
-        update block_node with only TAKEN outgoing context and template.
-
-        Returns:
-            [uncond_branch]
-        """
-
-        context  = node.context
-        template = node.template
-    
-        uncond_branch = self._instr_generator.generate_unconditional_branch()
-        instr_seq = [uncond_branch]
-    
-        trace, new_context = self._mu_simulator.simulate(
-            sim_context=context,
-            instructions=instr_seq,
-            input_template=template,
-        )
-        final_template = trace.input_templates[-1]
-    
-        block_node.contexts[BranchOutcome.TAKEN]         = new_context
-        block_node.output_templates[BranchOutcome.TAKEN] = final_template
-    
-        block_node.code_block.instructions.extend(instr_seq)
-    
-        return instr_seq
-
 
     def _generate_unconditional_branch(
             self,
@@ -299,7 +267,7 @@ class MCTS(CodeBlockGenerator):
                 instructions=instr_seq,
                 input_template=template,
             )
-        final_template = trace.input_templates[-1]
+        final_template = trace.templates[-1]
         
         block_node.contexts[BranchOutcome.TAKEN]          = new_context
         block_node.output_templates[BranchOutcome.TAKEN]  = final_template
@@ -328,6 +296,7 @@ class MCTS(CodeBlockGenerator):
             if self._verbose and (i + 1) % 100 == 0:
                 print(f"Iteration {i + 1}/{iterations}")
     
+        import pdb; pdb.set_trace()
         best_node = self._best_node()
     
         seq = best_node.instr_seq

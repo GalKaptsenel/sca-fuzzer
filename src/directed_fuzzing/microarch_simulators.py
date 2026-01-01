@@ -4,14 +4,11 @@ from dataclasses import dataclass
 
 from ..interfaces import Instruction
 from .input_template import InputTemplate
-from .microarch import MicroarchEvent, BPMicroarchEvent, MicroarchState
-from .arch_simulator import ArchSimulatorInterface, ArchSimStep, ArchSnapshotInterface
-
-
-@dataclass
-class SimulationContext:
-    arch_snapshot: ArchSnapshotInterface
-    mu_state: MicroarchState
+from .microarch_state import MicroarchState
+from .microarch_event import MicroarchEvent
+from .arch_simulator import ArchSimulatorInterface, ArchSimStep
+from .simulation import SimulationContext
+from .bp import BPMicroarchEvent
 
 
 @dataclass

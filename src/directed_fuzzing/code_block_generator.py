@@ -2,15 +2,15 @@ from abc import ABC, abstractmethod
 from typing import Tuple, List
 
 from .input_template import InputTemplate
-from .code_block import CodeBlock
+from .block_graph import BlockNode
 
 
-class CodeBlockGenerator(ABC):
+class BlockGenerator(ABC):
     @abstractmethod
     def extend_block(
             self,
-            code_block: BlockNode,
-    ) -> 
+            block: BlockNode,
+        ):
         """
         Extend the provided block with a newly generated sequence of instructions.
         Updates code_block's output fields

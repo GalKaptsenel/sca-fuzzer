@@ -34,7 +34,10 @@ class BlockNode:
 
     committed: bool = False
 
-    def set_successor(self, outcome: BranchOutcome, node: Optional[BlockNode]):
+    def connect_to(self, outcome: BranchOutcome, node: BlockNode):
+        branch_instruction = block_node.code_block.instructions[-1]
+        assert branch_instruction.control_flow, "Last instruction in a code block is expected to be a control flow instruction"
+        branch_instruction.add_op(node.code_block.label)
         self.successors[outcome] = node
 
     def set_output_template(self, outcome: BranchOutcome, tpl: Optional[InputTemplate]):
