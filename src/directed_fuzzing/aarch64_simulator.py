@@ -146,6 +146,7 @@ class UnicornArchSimulator(ArchSimulatorInterface):
         self._instr_size = 10 * PAGE_SIZE
 
         self._uc.mem_map(self._instr_base, self._instr_size, UC_PROT_READ | UC_PROT_EXEC)
+        self._uc.reg_write(UC_ARM64_REG_PC, self._instr_base)
 
     def _make_concrete(self, key: Union[str, int], template: InputTemplate) -> int:
         """
@@ -215,7 +216,7 @@ class UnicornArchSimulator(ArchSimulatorInterface):
         snapshot = self._snapshot_regs_save(regs_to_snapshot)
         hook = self._uc.hook_add(UC_HOOK_MEM_READ, self._mem_hook, user_data=eas_log)
         asm = instr.to_asm_string()
-        instr_addr = self._instr_base + 0 #instr.address
+        instr_addr = self._uc.reg_read(UC_ARM64_REG_PC)
         raw_bytes = self._encoder.encode(asm, instr_addr)
         self._uc.mem_write(instr_addr, raw_bytes)
         self._uc.emu_start(instr_addr, instr_addr + len(raw_bytes))
@@ -249,7 +250,8 @@ class UnicornArchSimulator(ArchSimulatorInterface):
         template = template.clone()
 
 
-        print(f'Running {instr.to_asm_string()}')
+        instr_addr = self._uc.reg_read(UC_ARM64_REG_PC)
+        print(f'Running {instr.to_asm_string()} at address 0x{instr_addr:X}')
         # lazy concretization
         initialize_memory = False
         for op in instr.get_src_operands(include_implicit=True):
@@ -263,14 +265,13 @@ class UnicornArchSimulator(ArchSimulatorInterface):
 
         # encode instruction and write bytes
         asm = instr.to_asm_string()
-        instr_addr = self._instr_base + 0 #instr.address
         raw_bytes = self._encoder.encode(asm, instr_addr)
         self._uc.mem_write(instr_addr, raw_bytes)
 
         # execute instruction and log memory write operations
         ea_logs = []
         hook = self._uc.hook_add(UC_HOOK_MEM_WRITE, self._mem_hook, user_data=ea_logs)
-        self._uc.emu_start(instr_addr, 0, count=1) #instr_addr + len(raw_bytes))
+        self._uc.emu_start(instr_addr, 0, count=1)
         self._uc.hook_del(hook)
 
         # No need to add to the InputTemplate, because it is a destination,
