@@ -1,13 +1,17 @@
 #ifndef SIMULATION_INPUT_H
-#define SIMULATIN_INPUT_H 
+#define SIMULATION_INPUT_H 
 
-#include "main.h"
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 /* ============================
  * Constants & magic
  * ============================ */
 
-#define RVZR_MAGIC 0x52565A52u  /* "RVZR" */
+#define RVZR_MAGIC 0x525A5652u  /* "RVZR" */
 #define RVZR_VERSION 1
 
 /* Architectures */
@@ -77,5 +81,5 @@ int simulation_input_validate_header(const struct input_header* hdr);
 /* Utility: total payload size */
 size_t simulation_input_payload_size(const struct input_header* hdr);
 
-#endif // SIMULATIN_INPUT_H
+#endif // SIMULATION_INPUT_H
 

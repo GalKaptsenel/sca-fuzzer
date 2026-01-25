@@ -1,4 +1,4 @@
-#include "main.h"
+#include "simulation_input.h"
 
 static int read_full(int fd, void* buf, size_t size) {
 	uint8_t *p = buf;
@@ -65,7 +65,7 @@ int simulation_input_load_fd(int fd, struct simulation_input* sim_input) {
 		goto load_fd_fail;
 	}
 
-	if (0 > simulation_input_validate_header(&sim_inut->hdr)) {
+	if (0 > simulation_input_validate_header(&sim_input->hdr)) {
 		goto load_fd_fail;
 	}
 
@@ -115,7 +115,7 @@ int simulation_input_load(const char* path, struct simulation_input* sim_input) 
 		return -1;
 	}
 
-	int ret = simulation_input_load_fd(fd, tc);
+	int ret = simulation_input_load_fd(fd, sim_input);
 	close(fd);
 	return ret;
 }

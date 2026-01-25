@@ -1,4 +1,5 @@
-.global base_hook
+.section .data
+.global base_hook, base_hook_end, base_hook_c_target
 .type base_hook, %function
 
 base_hook:
@@ -30,8 +31,9 @@ base_hook:
 
 	// call the hook with x0 is the start of the above struct (aka its top)
 	// Notice that LR is overriden by the bl instruction, which is ok because we already saved it above
+	ldr lr, base_hook_c_target
 	mov x0, sp
-	bl base_hook_c               // call C helper
+	blr lr               // call C helper
 
 
 	ldp xzr, x0, [sp], #16 // pops out the SP and NZCV values, we don't need to restore SP as it will be restored by the following 'ldp' instructions
@@ -56,3 +58,8 @@ base_hook:
 	ldp x1, x0, [sp], #16
 	ret
 
+        .align 3              // 8-byte alignment
+base_hook_c_target:
+        .quad 0               // patched at runtime
+
+base_hook_end:

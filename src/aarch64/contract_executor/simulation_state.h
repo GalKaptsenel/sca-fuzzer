@@ -1,7 +1,8 @@
 #ifndef SIMULATION_STATE_H
 #define SIMULATION_STATE_H
 
-#include "main.h"
+#include <stdint.h>
+#include <stddef.h>
 
 struct gprs {
 	uintptr_t x29;

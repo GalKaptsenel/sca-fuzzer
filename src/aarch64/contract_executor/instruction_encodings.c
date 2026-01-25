@@ -1,4 +1,4 @@
-#include "main.h"
+#include "instruction_encodings.h"
 
 uint32_t encode_bl(uintptr_t from, uintptr_t to) {
     int64_t diff = (int64_t)to - (int64_t)from;

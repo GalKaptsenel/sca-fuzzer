@@ -1,14 +1,13 @@
-#include "main.h"
+#include "simulation_code.h"
 
-
-static int sim_code_init(const struct simulation_input* sim_input,
-                         struct sim_code *out) {
+int simulation_code_init(const struct simulation_input* sim_input,
+		struct simulation_code *out) {
 	memset(out, 0, sizeof(*out));
 
 	out->code_size = sim_input->hdr.code_size;
 
 	/* RWX simulation code */
-	out->simulation_code = mmap(
+	out->code = mmap(
 			NULL,
 			out->code_size,
 			PROT_READ | PROT_WRITE | PROT_EXEC,
@@ -17,21 +16,21 @@ static int sim_code_init(const struct simulation_input* sim_input,
 			0
 		);
 
-	if (MAP_FAILED == out->simulation_code) {
+	if (MAP_FAILED == out->code) {
 		return -1;
 	}
 
     return 0;
 }
 
-void sim_code_free(struct sim_code *code) {
+void simulation_code_free(struct simulation_code *code) {
 	if (NULL == code) return;
 
-	if (NULL != code->simulation_code) {
-		munmap(code->simulation_code, code->code_size);
+	if (NULL != code->code) {
+		munmap(code->code, code->code_size);
 	}
 
-	code->simulation_code = NULL;
+	code->code = NULL;
 	code->code_size = 0;
 }
 
