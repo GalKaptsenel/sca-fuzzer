@@ -1,0 +1,224 @@
+
+static inline bool get_bit(uint32_t val, int n) {
+	return (val >> n) & 1;
+}
+
+static bool condition_passed(uint32_t cond, uint32_t nzcv) {
+	bool N = get_bit(nzcv, 31);
+	bool Z = get_bit(nzcv, 30);
+	bool C = get_bit(nzcv, 29);
+	bool V = get_bit(nzcv, 28);
+
+	switch (cond) {
+		case 0x0: return Z;			// EQ
+		case 0x1: return !Z;			// NE
+		case 0x2: return C;			// CS\HS
+		case 0x3: return !C;			// CC\LO
+		case 0x4: return N;			// MI
+		case 0x5: return !N;			// PL
+		case 0x6: return V;			// VS
+		case 0x7: return !V;			// VC
+		case 0x8: return !Z && C;		// HI
+		case 0x9: return Z || !C;		// LS
+		case 0xA: return N == V;		// GE
+		case 0xB: return N != V;		// LT
+		case 0xC: return !Z && (N == V);	// GT
+		case 0xD: return Z || (N != V);		// LE
+		case 0xE: return true;			// AL (always)
+		case 0xF: return false;			// NV (always)
+		default:  return false;			// invalid
+	}
+}
+
+static uintptr_t gpr_x(const struct cpu_state* state, uint64_t n) {
+	switch (n) {
+		case 0: return state->gpr.x0;
+		case 1: return state->gpr.x1;
+		case 2: return state->gpr.x2;
+		case 3: return state->gpr.x3;
+		case 4: return state->gpr.x4;
+		case 5: return state->gpr.x5;
+		case 6: return state->gpr.x6;
+		case 7: return state->gpr.x7;
+		case 8: return state->gpr.x8;
+		case 9: return state->gpr.x9;
+		case 10: return state->gpr.x10;
+		case 11: return state->gpr.x11;
+		case 12: return state->gpr.x12;
+		case 13: return state->gpr.x13;
+		case 14: return state->gpr.x14;
+		case 15: return state->gpr.x15;
+		case 16: return state->gpr.x16;
+		case 17: return state->gpr.x17;
+		case 18: return state->gpr.x18;
+		case 19: return state->gpr.x19;
+		case 20: return state->gpr.x20;
+		case 21: return state->gpr.x21;
+		case 22: return state->gpr.x22;
+		case 23: return state->gpr.x23;
+		case 24: return state->gpr.x24;
+		case 25: return state->gpr.x25;
+		case 26: return state->gpr.x26;
+		case 27: return state->gpr.x27;
+		case 28: return state->gpr.x28;
+		case 29: return state->gpr.x29;
+		case 30: return state->lr;
+		default:  return 0;			// invalid
+	}
+}
+
+static uintptr_t evaluate_cond_target(const struct cpu_state* state) {
+	uintptr_t pc = state->pc;
+	uint32_t insn = *(uint32_t*)pc;
+	branch_type_t btype = classify_branch(insn);
+
+	if(BRANCH_B_COND == btype) {
+		int32_t imm19 = (insn >> 5) & 0x7FFFF;
+		if (imm19 & 0x40000) imm19 |= 0xFFF80000; // Sign Extend
+		return pc + (imm19 << 2);
+	}
+
+	if (BRANCH_CBZ == btype || BRANCH_CBNZ == btype) {
+		int32_t imm19 = (insn >> 5) & 0x7FFFF;
+		if (imm19 & 0x40000) imm19 |= 0xFFF80000;  // Sign Extend
+		return pc + (imm19 << 2);
+	}
+
+	if (BRANCH_TBZ == btype || BRANCH_TBNZ == btype) {
+		int32_t imm14 = (insn >> 5) & 0x3FFF;
+		if (imm14 & 0x2000) imm14 |= 0xFFFFC000; // sign extend 14-bit
+		return pc + (imm14 << 2);
+	}
+
+	// Not a conditional branch we recognize
+	return pc + 4;
+}
+
+static uintptr_t evaluate_cond_branch_bool(const struct cpu_state* state, bool req_direction) {
+	uintptr_t pc = state->pc;
+	uint32_t insn = *(uint32_t*)pc;
+	branch_type_t btype = classify_branch(insn);
+	uintptr_t target = evaluate_cond_target(state);
+
+	if(BRANCH_B_COND == btype) {
+		uint32_t cond = insn & 0xF;
+		if (condition_passed(cond, state->nzcv)) {
+			return req_direction ? target : pc + 4;
+		} else {
+			return req_direction ? pc + 4: target;
+		}
+	}
+
+	if (BRANCH_CBZ == btype || BRANCH_CBNZ == btype) {
+		uint32_t Rt = insn & 0x1F;
+		bool zero = gpr_x(state, Rt) == 0;
+		bool is_cbz = BRANCH_CBZ == btype;
+		bool take = is_cbz ? zero : !zero;
+		if(take) {
+			return req_direction ? target : pc + 4;
+		} else {
+			return req_direction ? pc + 4 : target;
+		}
+	}
+
+	if (BRANCH_TBZ == btype || BRANCH_TBNZ == btype) {
+		uint32_t Rt = insn & 0x1F;
+		uint32_t b5 = (insn >> 19) & 0x1F;     // bit to test
+		bool bit_set = (gpr_x(state, Rt) >> b5) & 1;
+		bool is_tbz = BRANCH_TBZ == btype;
+		bool take = is_tbz ? !bit_set : bit_set;
+		if(take) {
+			return req_direction ? target : pc + 4;
+		} else {
+			return req_direction ? pc + 4 : target;
+		}
+	}
+
+	// Not a conditional branch we recognize
+	return pc + 4;
+}
+
+static uintptr_t evaluate_cond_branch_taken(const struct cpu_state* state) {
+	return evaluate_cond_branch_bool(state, true)
+}
+static uintptr_t evaluate_cond_branch_not_taken(const struct cpu_state* state) {
+	return evaluate_cond_branch_bool(state, false)
+}
+
+static struct execution_mgmt mgmt = { 0 };
+static int initialized = 0;
+
+static uint64_t take_checkpoint(struct simulation_state* sim_state) {
+	if(mgmt.current_checkpoint_id >= mgmt.max_checkpoints) {
+		__builtin_trap(); // sanity check
+	}
+	mgmt.checkpoints_array[mgmt.current_checkpoint_id].cpu_state = sim_state->cpu_state;
+	memcpy(mgmt.checkpoints_array[mgmt.current_checkpoint_id].memory, sim_state->memory, mgmt.memory_size);
+	uint64_t checkpoint_id = mgmt.current_checkpoint_id;
+	++mgmt.current_checkpoint_id;
+	return checkpoint_id;
+}
+
+static void reload_checkpoint(struct simulation_state* sim_state, uint64_t checkpoint_id) {
+	if(checkpoint_id >= mgmt.max_checkpoints) {
+		__builtin_trap(); // sanity check
+	}
+
+	sim_state->cpu_state = mgmt.checkpoints_array[checkpoint_id].cpu_state;
+	memcpy(sim_state->memory, mgmt.checkpoints_array[checkpoint_id].memory, mgmt.memory_size);
+}
+
+void* execution_clause_hook(struct simulation_state* sim_state) {
+	if(NULL == sim_state) return NULL;
+
+	if(!initialized) {
+		mgmt.current_nesting = 0;
+		mgmt.max_nesting = 5; // TODO: CONFIGURABLE
+		mgmt.stack_top = 0;
+		memset(mgmt.stack, 0, PAGE_SIZE); // TODO: CONFIGURABLE
+		mgmt.max_checkpoints = 1024; // TODO: CONFIGURABLE
+		mgmt.current_checkpoint_id = 0;
+		mgmt.memory_size = 0x1000 * 2; // TODO: CONFIGURABLE
+		size_t checkpoints_array_size = mgmt.max_checkpoints * sizeof(execution_checkpoint);
+		mgmt.checkpoints_array = malloc(checkpoints_array_size);
+		if(NULL == mgmt.checkpoints_array) return NULL;
+		memset(mgmt.checkpoints_array, 0, checkpoints_array_size);
+		initialized = 1;
+	}
+
+	uint32_t branch_type = classify_branch(*(uint32_t*)sim_state->pc);
+	if(BRANCH_NONE == branch_type) return NULL;
+
+	// OR MAYBE HERE !
+	if(mgmt.max_nesting <= mgmt.current_nesting) {
+		--mgmt.stack_top;
+		mgmt.current_nesting = mgmt.stack[mgmt.stack_top].nesting;
+		reload_checkpoint(sim_state, mgmt.stack[mgmt.stack_top].checkpoint_id);
+		return (void*)mgmt.stack[mgmt.stack_top].return_addr;
+	}
+
+	// HERE (?)- check what the BPU says, is it is the same as evaluate_cond_branch_taken(..) then no speculation needed, otherwise speculate to the mispredicted direction
+
+	if(0 == mgmt.current_nesting) {
+		mgmt.stack[mgmt.stack_top].nesting = 0;
+		++mgmt.current_nesting;
+	} else {
+		++mgmt.current_nesting;
+		mgmt.stack[mgmt.stack_top].nesting = mgmt.current_nesting;
+	}
+	
+	uint64_t checkpoint_id = take_checkpoint(sim_state);
+	mgmt.stack[mgmt.stack_top].return_addr = evaluate_cond_branch_taken(sim_state);
+	mgmt.stack[mgmt.stack_top].checkpoint_id = checkpoint_id;
+	mgmt.stack[mgmt.stack_top].reserved = 0;
+	++mgmt.stack_top;
+
+	return evaluate_cond_branch_not_taken(sim_state);
+}
+
+void destroy_execution_clause(struct simulation_state* sim_state) {
+	if(initialized) {
+		free(mgmt.checkpoints_array);
+		initialized = 0;
+	}
+}

@@ -143,3 +143,4 @@ void* handle_ret_hook(struct simulation_state* sim_state) {
 	if(0xd65f03c0 == *(uint32_t*)sim_state->cpu_state.pc) return (void*)sim_state->cpu_state.lr;
 	return NULL;
 }
+
