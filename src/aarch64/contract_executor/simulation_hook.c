@@ -2,26 +2,69 @@
 #include "simulation.h"
 #include "simulation_execution_clause_hook.h"
 
+//static uint32_t* emit_stub(uintptr_t src_pc, uint32_t* stub, uint32_t** hole) {
+//
+//	size_t idx = 0;
+//
+//	stub[idx++] = 0xA9BF7BFF; // stp xzr, x30 [sp, #-16]!
+//
+//	// x30 <- src_pc + 4
+//	idx += emit_mov64((uintptr_t)(stub + idx), 30, src_pc + 4);
+//
+//	
+//	// b hook --> hole to be filled
+//	*hole = stub + idx;
+//	++idx;
+//
+//	stub[idx++] = 0xA8C17BFF; // LDP xzr, x30, [sp], 16
+//
+//	// b srcpc - to be filled
+//
+//	stub[idx] = encode_b((uintptr_t)(stub + idx), src_pc + 4);
+//	++idx;
+//
+//	return stub + idx;
+//}
+//
+//#define MAX_INSTRUCTIONS (4096UL)
+//static uint32_t* holes[MAX_INSTRUCTIONS] = { 0 };
+
 static void* inner_hook_aarch64_instructions(struct simulation_code* sc) {
 	if(NULL == sc) return NULL;
 
 	size_t n_instructions = (sc->code_size / 4) + 1; // Add space for 1 additional instruction for our use (we would use this for  a default RET instruction at the end of the testcase)
+	
+//	if(MAX_INSTRUCTIONS < n_instructions) {
+//		fprintf(stderr, "Supports at most %ld instructions, got %ld\n", MAX_INSTRUCTIONS, n_instructions);
+//		return NULL;
+//	}
+
 	uint32_t* sim_code = (uint32_t*)sc->code;
-	void* copied_hook_addr = sim_code + n_instructions; 
+
+//	uint32_t* stub = sim_code + n_instructions;
+
+	void* hook = sim_code + n_instructions;
 
 	for (size_t i = 0; i < n_instructions; ++i) {
 		uintptr_t pc = (uintptr_t)(sim_code + i);
-
-        	uint32_t bl = encode_bl(pc, (uintptr_t)copied_hook_addr);
+        	uint32_t bl = encode_bl(pc, (uintptr_t)hook);
         	if (0 == bl) {
 			return NULL;
 		}
 
+//		stub = emit_stub(pc, stub, holes + i);
 		sim_code[i] = bl;
 	}
 
-	__builtin___clear_cache((char*)sim_code, (char*)(sim_code + n_instructions));
-	return copied_hook_addr;
+//	void* copied_hook_addr = stub;
+
+//	for (size_t i = 0; i < n_instructions; ++i) {
+//		*holes[i] = encode_b((uintptr_t)holes[i], (uintptr_t)copied_hook_addr);
+//		holes[i] = 0;
+//	}
+
+	__builtin___clear_cache((char*)sim_code, (char*)hook);
+	return hook;
 }
 int hook_aarch64_instructions(
 		const struct simulation_input* sim_input,
@@ -90,7 +133,6 @@ void base_hook_c(struct cpu_state* state) {
 
 	*state = sim_state.cpu_state;
 	state->lr = current_ret_address;
-	printf("[LOG base_hook_c] Returning to address %lx: (%x)\n", state->lr, *(uint32_t*)state->lr);
 
 	if(!out_of_simulation(state)) {
 		*((uint32_t*)state->pc) = pc_to_orig_instruction(state->pc); // Fix the hooked instruction
@@ -100,7 +142,6 @@ void base_hook_c(struct cpu_state* state) {
 		*((uint32_t*)state->pc) = 0xd65f03c0; // Manually insert RET
 	}
 
-	printf("[LOG base_hook_c] Returning to address %lx: (%x, %x, %x, %x, %x)\n", state->lr, *(uint32_t*)state->lr, *((uint32_t*)state->lr+1), *((uint32_t*)state->lr+2), *((uint32_t*)state->lr+3), *((uint32_t*)state->lr+4));
 	__builtin___clear_cache((char*)state->pc, (char*)state->pc + 4);
 }
 
@@ -158,7 +199,6 @@ void* stdout_print_hook(struct simulation_state* sim_state) {
 void* handle_ret_hook(struct simulation_state* sim_state) {
 	if(NULL == sim_state) return NULL;
 	if(0xd65f03c0 == *(uint32_t*)sim_state->cpu_state.pc) { // Identify RET
-		printf("[LOG ret hook] RET Identified\n");
 	       	return (void*)sim_state->cpu_state.lr;
 	}
 	return NULL;

@@ -9,6 +9,7 @@
 #include "simulation.h"
 #include "simulation_state.h"
 #include "instruction_encodings.h"
+#include "tage_py.h"
 
 struct execution_checkpoint {
 	struct cpu_state cpu_state;

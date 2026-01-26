@@ -1,6 +1,14 @@
-CC=gcc
-CFLAGS=-Wall -Wextra -O0 -g
+CC = gcc
 
+# Base flags
+CFLAGS = -Wall -Wextra -O0 -g
+LDFLAGS =
+
+# Add Python3 embedding flags
+PYTHON_CFLAGS = $(shell python3-config --embed --cflags)
+PYTHON_LDFLAGS = $(shell python3-config --embed --ldflags)
+
+# Source files
 SRCS = \
   base_hook.S \
   instruction_encodings.c \
@@ -9,8 +17,10 @@ SRCS = \
   simulation_input.c \
   simulation.c \
   simulation_execution_clause_hook.c \
+  tage_py.c \
   main.c
 
+# Target
 contract_executor: $(SRCS)
-	$(CC) $(CFLAGS) $(SRCS) -o $@
+	$(CC) $(CFLAGS) $(PYTHON_CFLAGS) $(SRCS) -o $@ $(PYTHON_LDFLAGS)
 

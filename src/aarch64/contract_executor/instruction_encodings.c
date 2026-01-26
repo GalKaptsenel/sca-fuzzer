@@ -1,5 +1,45 @@
 #include "instruction_encodings.h"
 
+size_t emit_mov64(uintptr_t buff, int reg, uint64_t imm) {
+	size_t ctr = 0;
+	uint32_t* p = (uint32_t*)buff;
+
+	// MOVZ Xd, imm16, LSL #0
+	*p++ = 0xD2800000 | ((imm & 0xFFFF) << 5) | reg;
+	++ctr;
+
+	// MOVK Xd, imm16, LSL #16
+	if ((imm >> 16) & 0xFFFF) {
+		*p++ = 0xF2A00000 | (((imm >> 16) & 0xFFFF) << 5) | reg;
+		++ctr;
+	}
+
+	// MOVK Xd, imm16, LSL #32
+	if ((imm >> 32) & 0xFFFF) {
+		*p++ = 0xF2C00000 | (((imm >> 32) & 0xFFFF) << 5) | reg;
+		++ctr;
+	}
+
+	// MOVK Xd, imm16, LSL #48
+	if ((imm >> 48) & 0xFFFF) {
+		*p++ = 0xF2E00000 | (((imm >> 48) & 0xFFFF) << 5) | reg;
+		++ctr;
+	}
+
+	return ctr;
+}
+
+uint32_t encode_b(uintptr_t from, uintptr_t to) {
+    int64_t diff = (int64_t)to - (int64_t)from;
+    int64_t imm26 = diff >> 2;
+
+    if (imm26 < -(1LL << 25) || imm26 >= (1LL << 25)) {
+        return 0;
+    }
+
+    return 0x14000000 | (imm26 & 0x03FFFFFF);
+}
+
 uint32_t encode_bl(uintptr_t from, uintptr_t to) {
     int64_t diff = (int64_t)to - (int64_t)from;
     int64_t imm26 = diff >> 2;

@@ -1,4 +1,5 @@
 #include "simulation_execution_clause_hook.h"
+#include "tage_py.h"
 
 static inline bool get_bit(uint32_t val, int n) {
 	return (val >> n) & 1;
@@ -148,10 +149,32 @@ static void reload_checkpoint(struct simulation_state* sim_state, uint64_t check
 	memcpy(sim_state->memory, mgmt.checkpoints_array[checkpoint_id].memory, mgmt.memory_size);
 }
 
+static void initialize_director() {
+	printf("[LOG] init director\n");
+	if(0 != tagebp_init(".", "bootstrap_director", 2, 4, 4096)) {
+		__builtin_trap(); // sanity check
+	}
+}
+
+static void destroy_director() {
+	printf("[LOG] destroy director\n");
+	tagebp_finalize();
+}
+
+static uintptr_t director_predict(uintptr_t pc) {
+	uintptr_t res = tagebp_predict(pc);
+	printf("[LOG] predict director at 0x%" PRIxPTR ": 0x%" PRIxPTR "\n", pc, res);
+	return res;
+}
+
+static void director_update(uintptr_t pc, bool taken) {
+	printf("[LOG] predict update at 0x%" PRIxPTR " with %s\n", pc, taken ? "taken" : "not-taken");
+	tagebp_update(pc, taken);
+}
 static void destroy_execution_clause() {
 	// When adding support for call and ret, I should make this a hook, that catches RET + no calls inside stack + no speculation
-	printf("[LOG] destrying!\n");
 	if(initialized) {
+		destroy_director();
 		for(size_t i = 0; i < mgmt.current_checkpoint_id; ++i) {
 			free(mgmt.checkpoints_array[i].memory);
 			mgmt.checkpoints_array[i].memory = NULL;
@@ -177,19 +200,20 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 		mgmt.checkpoints_array = malloc(checkpoints_array_size);
 		if(NULL == mgmt.checkpoints_array) return NULL;
 		memset(mgmt.checkpoints_array, 0, checkpoints_array_size);
+
+		initialize_director();
+
 		initialized = 1;
 	}
 
 	if(out_of_simulation(&sim_state->cpu_state)) {
 		if(0 == mgmt.current_nesting) {
-			printf("[LOG] FINISHED\n");
 			destroy_execution_clause();
 			return NULL;
 		}
 
 		if(0 == mgmt.stack_top) __builtin_trap(); // Should never happen
 		--mgmt.stack_top;
-		printf("[LOG] out of simulation - Returning to address %p\n", (void*)mgmt.stack[mgmt.stack_top].return_addr);
 		mgmt.current_nesting = mgmt.stack[mgmt.stack_top].nesting;
 		reload_checkpoint(sim_state, mgmt.stack[mgmt.stack_top].checkpoint_id);
 		return (void*)mgmt.stack[mgmt.stack_top].return_addr;
@@ -200,7 +224,6 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 
 	// OR MAYBE HERE !
 	if(mgmt.max_nesting <= mgmt.current_nesting) {
-		printf("[LOG] out of nesting window - Returning to address %p\n", (void*)mgmt.stack[mgmt.stack_top].return_addr);
 		if(0 == mgmt.current_nesting) __builtin_trap(); // Should never happen
 		if(0 == mgmt.stack_top) __builtin_trap(); // Should never happen
 		--mgmt.stack_top;
@@ -209,8 +232,17 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 		return (void*)mgmt.stack[mgmt.stack_top].return_addr;
 	}
 
-	// HERE (?)- check what the BPU says, is it is the same as evaluate_cond_branch_taken(..) then no speculation needed, otherwise speculate to the mispredicted direction
+	const uintptr_t target_addr = evaluate_cond_target(sim_state->cpu_state.pc, *(uint32_t*)sim_state->cpu_state.pc);
+	// check what the director says, if it is the same as real direction, then no deeper speculation needed, otherwise speculate to the mispredicted direction
+	const uintptr_t taken_addr = evaluate_cond_branch_taken(&sim_state->cpu_state);
+	const uintptr_t predicted = director_predict(sim_state->cpu_state.pc);
+	director_update(sim_state->cpu_state.pc, target_addr == taken_addr);
+	if((target_addr == taken_addr && predicted) || (target_addr != taken_addr && !predicted)) {
+		printf("[LOG] currect prediction\n");
+		return (void*)taken_addr;
+	}
 
+	printf("[LOG] incurrect prediction\n");
 	if(0 == mgmt.current_nesting) {
 		mgmt.stack[mgmt.stack_top].nesting = 0;
 		++mgmt.current_nesting;
@@ -220,12 +252,11 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 	}
 	
 	uint64_t checkpoint_id = take_checkpoint(sim_state);
-	mgmt.stack[mgmt.stack_top].return_addr = evaluate_cond_branch_taken(&sim_state->cpu_state);
+	mgmt.stack[mgmt.stack_top].return_addr = taken_addr;
 	mgmt.stack[mgmt.stack_top].checkpoint_id = checkpoint_id;
 	mgmt.stack[mgmt.stack_top].reserved = 0;
 	++mgmt.stack_top;
 
-	printf("[LOG] out of simulation - branching to address %p\n", (void*)evaluate_cond_branch_not_taken(&sim_state->cpu_state));
 	return (void*)evaluate_cond_branch_not_taken(&sim_state->cpu_state);
 }
 
