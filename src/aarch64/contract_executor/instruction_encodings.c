@@ -23,3 +23,27 @@ branch_type_t classify_branch(uint32_t instr) {
     return BRANCH_NONE;
 }
 
+uintptr_t evaluate_cond_target(uintptr_t pc, uint32_t insn) {
+	branch_type_t btype = classify_branch(insn);
+
+	if(BRANCH_B_COND == btype) {
+		int32_t imm19 = (insn >> 5) & 0x7FFFF;
+		if (imm19 & 0x40000) imm19 |= 0xFFF80000; // Sign Extend
+		return pc + (imm19 << 2);
+	}
+
+	if (BRANCH_CBZ == btype || BRANCH_CBNZ == btype) {
+		int32_t imm19 = (insn >> 5) & 0x7FFFF;
+		if (imm19 & 0x40000) imm19 |= 0xFFF80000;  // Sign Extend
+		return pc + (imm19 << 2);
+	}
+
+	if (BRANCH_TBZ == btype || BRANCH_TBNZ == btype) {
+		int32_t imm14 = (insn >> 5) & 0x3FFF;
+		if (imm14 & 0x2000) imm14 |= 0xFFFFC000; // sign extend 14-bit
+		return pc + (imm14 << 2);
+	}
+
+	// Not a conditional branch we recognize
+	return 0;
+}

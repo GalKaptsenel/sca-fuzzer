@@ -1,11 +1,13 @@
 #include "main.h"
 #include "simulation.h"
+#include "simulation_execution_clause_hook.h"
 
 extern void base_hook();
 extern void base_hook_end();
 extern uint64_t base_hook_c_target;
 
 simulation_hook_fn hooks_to_install[] = {
+	execution_clause_hook,
 	stdout_print_hook,
 	handle_ret_hook,
 };
@@ -59,31 +61,37 @@ int main(int argc, char** argv) {
 	}
 	memcpy(simulation.simulation_memory, simulation.sim_input.memory, simulation.sim_input.hdr.mem_size);
 
-	simulation.code_tmp = (uint8_t*)malloc(simulation.sim_input.hdr.code_size);
-	if(NULL == simulation.code_tmp) {
-		fprintf(stderr, "was unable to allocate enough memory for code tmp variable\n");
-		ret = -1;
-		goto main_sim_mem_free;
-	}
-
 	simulation.n_hooks = 0;
 	memset(simulation.hooks, 0, sizeof(simulation.hooks));
 	simulation.return_address = 0;
 
 	simulation.n_hooks = install_hooks(&simulation, MAX_HOOKS, hooks_to_install, (sizeof(hooks_to_install)/sizeof(hooks_to_install[0])));
 	
+	uint64_t* regs_blob = (uint64_t*)simulation.sim_input.regs;
+
 	asm volatile (
+			"mov x29, %2\n"
 			"adr x9, 1f\n"
 			"str x9, %0\n"
+			"mov x0, %3\n"
+			"mov x1, %4\n"
+			"mov x2, %5\n"
+			"mov x3, %6\n"
+			"mov x4, %7\n"
+			"mov x5, %8\n"
+			"mov x6, %9\n"
+			"mov x7, %10\n"
+			"mov x8, %11\n"
 			"blr %1\n"
 			"1:\n"
 			: "=m"(simulation.return_address)
-			: "r"(simulation.sim_code.code)
-			: "x9", "memory", "cc"
+			: "r"(simulation.sim_code.code), "r"(simulation.simulation_memory),
+			"r"(regs_blob[0]), "r"(regs_blob[1]), "r"(regs_blob[2]), "r"(regs_blob[3]),
+			"r"(regs_blob[4]), "r"(regs_blob[5]), "r"(regs_blob[6]), "r"(regs_blob[7]),
+			"r"(regs_blob[8])
+			: "x9", "x29", "memory", "cc", "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8", "x10", "x30"
 		);
 
-	free(simulation.code_tmp);
-main_sim_mem_free:
 	free(simulation.simulation_memory);
 main_code_free:
 	simulation_code_free(&simulation.sim_code);

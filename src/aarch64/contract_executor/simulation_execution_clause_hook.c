@@ -1,3 +1,4 @@
+#include "simulation_execution_clause_hook.h"
 
 static inline bool get_bit(uint32_t val, int n) {
 	return (val >> n) & 1;
@@ -32,73 +33,46 @@ static bool condition_passed(uint32_t cond, uint32_t nzcv) {
 
 static uintptr_t gpr_x(const struct cpu_state* state, uint64_t n) {
 	switch (n) {
-		case 0: return state->gpr.x0;
-		case 1: return state->gpr.x1;
-		case 2: return state->gpr.x2;
-		case 3: return state->gpr.x3;
-		case 4: return state->gpr.x4;
-		case 5: return state->gpr.x5;
-		case 6: return state->gpr.x6;
-		case 7: return state->gpr.x7;
-		case 8: return state->gpr.x8;
-		case 9: return state->gpr.x9;
-		case 10: return state->gpr.x10;
-		case 11: return state->gpr.x11;
-		case 12: return state->gpr.x12;
-		case 13: return state->gpr.x13;
-		case 14: return state->gpr.x14;
-		case 15: return state->gpr.x15;
-		case 16: return state->gpr.x16;
-		case 17: return state->gpr.x17;
-		case 18: return state->gpr.x18;
-		case 19: return state->gpr.x19;
-		case 20: return state->gpr.x20;
-		case 21: return state->gpr.x21;
-		case 22: return state->gpr.x22;
-		case 23: return state->gpr.x23;
-		case 24: return state->gpr.x24;
-		case 25: return state->gpr.x25;
-		case 26: return state->gpr.x26;
-		case 27: return state->gpr.x27;
-		case 28: return state->gpr.x28;
-		case 29: return state->gpr.x29;
+		case 0: return state->gprs.x0;
+		case 1: return state->gprs.x1;
+		case 2: return state->gprs.x2;
+		case 3: return state->gprs.x3;
+		case 4: return state->gprs.x4;
+		case 5: return state->gprs.x5;
+		case 6: return state->gprs.x6;
+		case 7: return state->gprs.x7;
+		case 8: return state->gprs.x8;
+		case 9: return state->gprs.x9;
+		case 10: return state->gprs.x10;
+		case 11: return state->gprs.x11;
+		case 12: return state->gprs.x12;
+		case 13: return state->gprs.x13;
+		case 14: return state->gprs.x14;
+		case 15: return state->gprs.x15;
+		case 16: return state->gprs.x16;
+		case 17: return state->gprs.x17;
+		case 18: return state->gprs.x18;
+		case 19: return state->gprs.x19;
+		case 20: return state->gprs.x20;
+		case 21: return state->gprs.x21;
+		case 22: return state->gprs.x22;
+		case 23: return state->gprs.x23;
+		case 24: return state->gprs.x24;
+		case 25: return state->gprs.x25;
+		case 26: return state->gprs.x26;
+		case 27: return state->gprs.x27;
+		case 28: return state->gprs.x28;
+		case 29: return state->gprs.x29;
 		case 30: return state->lr;
 		default:  return 0;			// invalid
 	}
-}
-
-static uintptr_t evaluate_cond_target(const struct cpu_state* state) {
-	uintptr_t pc = state->pc;
-	uint32_t insn = *(uint32_t*)pc;
-	branch_type_t btype = classify_branch(insn);
-
-	if(BRANCH_B_COND == btype) {
-		int32_t imm19 = (insn >> 5) & 0x7FFFF;
-		if (imm19 & 0x40000) imm19 |= 0xFFF80000; // Sign Extend
-		return pc + (imm19 << 2);
-	}
-
-	if (BRANCH_CBZ == btype || BRANCH_CBNZ == btype) {
-		int32_t imm19 = (insn >> 5) & 0x7FFFF;
-		if (imm19 & 0x40000) imm19 |= 0xFFF80000;  // Sign Extend
-		return pc + (imm19 << 2);
-	}
-
-	if (BRANCH_TBZ == btype || BRANCH_TBNZ == btype) {
-		int32_t imm14 = (insn >> 5) & 0x3FFF;
-		if (imm14 & 0x2000) imm14 |= 0xFFFFC000; // sign extend 14-bit
-		return pc + (imm14 << 2);
-	}
-
-	// Not a conditional branch we recognize
-	return pc + 4;
 }
 
 static uintptr_t evaluate_cond_branch_bool(const struct cpu_state* state, bool req_direction) {
 	uintptr_t pc = state->pc;
 	uint32_t insn = *(uint32_t*)pc;
 	branch_type_t btype = classify_branch(insn);
-	uintptr_t target = evaluate_cond_target(state);
+	uintptr_t target = evaluate_cond_target(pc, insn);
 
 	if(BRANCH_B_COND == btype) {
 		uint32_t cond = insn & 0xF;
@@ -135,14 +109,14 @@ static uintptr_t evaluate_cond_branch_bool(const struct cpu_state* state, bool r
 	}
 
 	// Not a conditional branch we recognize
-	return pc + 4;
+	return 0;
 }
 
 static uintptr_t evaluate_cond_branch_taken(const struct cpu_state* state) {
-	return evaluate_cond_branch_bool(state, true)
+	return evaluate_cond_branch_bool(state, true);
 }
 static uintptr_t evaluate_cond_branch_not_taken(const struct cpu_state* state) {
-	return evaluate_cond_branch_bool(state, false)
+	return evaluate_cond_branch_bool(state, false);
 }
 
 static struct execution_mgmt mgmt = { 0 };
@@ -153,7 +127,13 @@ static uint64_t take_checkpoint(struct simulation_state* sim_state) {
 		__builtin_trap(); // sanity check
 	}
 	mgmt.checkpoints_array[mgmt.current_checkpoint_id].cpu_state = sim_state->cpu_state;
-	memcpy(mgmt.checkpoints_array[mgmt.current_checkpoint_id].memory, sim_state->memory, mgmt.memory_size);
+	void* checkpoint_memory = malloc(mgmt.memory_size);
+	if(NULL == checkpoint_memory) {
+		fprintf(stderr, "OUT OF MEMORY - Unable to allocate a new checkpoint!");
+		__builtin_trap(); // sanity check
+	}
+	mgmt.checkpoints_array[mgmt.current_checkpoint_id].memory = checkpoint_memory;
+	memcpy(checkpoint_memory, sim_state->memory, mgmt.memory_size);
 	uint64_t checkpoint_id = mgmt.current_checkpoint_id;
 	++mgmt.current_checkpoint_id;
 	return checkpoint_id;
@@ -168,6 +148,20 @@ static void reload_checkpoint(struct simulation_state* sim_state, uint64_t check
 	memcpy(sim_state->memory, mgmt.checkpoints_array[checkpoint_id].memory, mgmt.memory_size);
 }
 
+static void destroy_execution_clause() {
+	// When adding support for call and ret, I should make this a hook, that catches RET + no calls inside stack + no speculation
+	printf("[LOG] destrying!\n");
+	if(initialized) {
+		for(size_t i = 0; i < mgmt.current_checkpoint_id; ++i) {
+			free(mgmt.checkpoints_array[i].memory);
+			mgmt.checkpoints_array[i].memory = NULL;
+		}
+		free(mgmt.checkpoints_array);
+		mgmt.checkpoints_array = NULL;
+		initialized = 0;
+	}
+}
+
 void* execution_clause_hook(struct simulation_state* sim_state) {
 	if(NULL == sim_state) return NULL;
 
@@ -175,22 +169,40 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 		mgmt.current_nesting = 0;
 		mgmt.max_nesting = 5; // TODO: CONFIGURABLE
 		mgmt.stack_top = 0;
-		memset(mgmt.stack, 0, PAGE_SIZE); // TODO: CONFIGURABLE
+		memset(mgmt.stack, 0, sizeof(mgmt.stack));
 		mgmt.max_checkpoints = 1024; // TODO: CONFIGURABLE
 		mgmt.current_checkpoint_id = 0;
 		mgmt.memory_size = 0x1000 * 2; // TODO: CONFIGURABLE
-		size_t checkpoints_array_size = mgmt.max_checkpoints * sizeof(execution_checkpoint);
+		size_t checkpoints_array_size = mgmt.max_checkpoints * sizeof(struct execution_checkpoint);
 		mgmt.checkpoints_array = malloc(checkpoints_array_size);
 		if(NULL == mgmt.checkpoints_array) return NULL;
 		memset(mgmt.checkpoints_array, 0, checkpoints_array_size);
 		initialized = 1;
 	}
 
-	uint32_t branch_type = classify_branch(*(uint32_t*)sim_state->pc);
-	if(BRANCH_NONE == branch_type) return NULL;
+	if(out_of_simulation(&sim_state->cpu_state)) {
+		if(0 == mgmt.current_nesting) {
+			printf("[LOG] FINISHED\n");
+			destroy_execution_clause();
+			return NULL;
+		}
+
+		if(0 == mgmt.stack_top) __builtin_trap(); // Should never happen
+		--mgmt.stack_top;
+		printf("[LOG] out of simulation - Returning to address %p\n", (void*)mgmt.stack[mgmt.stack_top].return_addr);
+		mgmt.current_nesting = mgmt.stack[mgmt.stack_top].nesting;
+		reload_checkpoint(sim_state, mgmt.stack[mgmt.stack_top].checkpoint_id);
+		return (void*)mgmt.stack[mgmt.stack_top].return_addr;
+	}
+
+	uint32_t branch_type = classify_branch(*(uint32_t*)sim_state->cpu_state.pc);
+	if(BRANCH_NONE == branch_type || BRANCH_B == branch_type || BRANCH_BL == branch_type || BRANCH_BLR == branch_type) return NULL;
 
 	// OR MAYBE HERE !
 	if(mgmt.max_nesting <= mgmt.current_nesting) {
+		printf("[LOG] out of nesting window - Returning to address %p\n", (void*)mgmt.stack[mgmt.stack_top].return_addr);
+		if(0 == mgmt.current_nesting) __builtin_trap(); // Should never happen
+		if(0 == mgmt.stack_top) __builtin_trap(); // Should never happen
 		--mgmt.stack_top;
 		mgmt.current_nesting = mgmt.stack[mgmt.stack_top].nesting;
 		reload_checkpoint(sim_state, mgmt.stack[mgmt.stack_top].checkpoint_id);
@@ -208,17 +220,12 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 	}
 	
 	uint64_t checkpoint_id = take_checkpoint(sim_state);
-	mgmt.stack[mgmt.stack_top].return_addr = evaluate_cond_branch_taken(sim_state);
+	mgmt.stack[mgmt.stack_top].return_addr = evaluate_cond_branch_taken(&sim_state->cpu_state);
 	mgmt.stack[mgmt.stack_top].checkpoint_id = checkpoint_id;
 	mgmt.stack[mgmt.stack_top].reserved = 0;
 	++mgmt.stack_top;
 
-	return evaluate_cond_branch_not_taken(sim_state);
+	printf("[LOG] out of simulation - branching to address %p\n", (void*)evaluate_cond_branch_not_taken(&sim_state->cpu_state));
+	return (void*)evaluate_cond_branch_not_taken(&sim_state->cpu_state);
 }
 
-void destroy_execution_clause(struct simulation_state* sim_state) {
-	if(initialized) {
-		free(mgmt.checkpoints_array);
-		initialized = 0;
-	}
-}

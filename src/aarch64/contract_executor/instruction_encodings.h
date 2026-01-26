@@ -16,8 +16,7 @@ typedef enum {
 } branch_type_t;
 
 branch_type_t classify_branch(uint32_t instr);
-
-
+uintptr_t evaluate_cond_target(uintptr_t pc, uint32_t insn);
 uint32_t encode_bl(uintptr_t from, uintptr_t to);
 
 #endif // SIMULATION_INSTRUCTION_ENCODINGS_H

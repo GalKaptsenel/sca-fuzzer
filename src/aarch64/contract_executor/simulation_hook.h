@@ -3,6 +3,7 @@
 
 #include <inttypes.h>
 #include <stdio.h>
+#include <stdbool.h>
 #include "instruction_encodings.h"
 #include "simulation_state.h"
 
@@ -17,6 +18,7 @@ int hook_aarch64_instructions(
 );
 
 void base_hook_c(struct cpu_state *state);
+bool out_of_simulation(struct cpu_state* state);
 
 typedef void* (*simulation_hook_fn)(struct simulation_state* sim_state);
 

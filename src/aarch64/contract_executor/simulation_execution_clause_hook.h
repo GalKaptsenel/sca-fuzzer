@@ -2,9 +2,16 @@
 #define SIMULATION_EXECUTION_CLAUSE_H
 
 #include <stdlib.h>
+#include <stdio.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
+#include "simulation.h"
+#include "simulation_state.h"
+#include "instruction_encodings.h"
 
 struct execution_checkpoint {
-	struct cpu_state;
+	struct cpu_state cpu_state;
 	uint8_t* memory;
 };
 
@@ -13,17 +20,17 @@ struct execution_checkpoint_desc {
 	uintptr_t return_addr;
 	uint64_t checkpoint_id;
 	uint64_t reserved;
-}
+};
 
 struct execution_mgmt {
 	uint64_t current_nesting;
 	uint64_t max_nesting;
 	uint64_t memory_size;
 	uint64_t stack_top;
-	struct execution_checkpoint_desc stack[PAGE_SIZE];
+	struct execution_checkpoint_desc stack[4096];
 	uint64_t max_checkpoints;
 	uint64_t current_checkpoint_id;
-	uint8_t checkpoints_array[];
+	struct execution_checkpoint* checkpoints_array;
 };
 
 void* execution_clause_hook(struct simulation_state* sim_state);

@@ -13,7 +13,6 @@ struct simulation {
 	struct simulation_input sim_input;
 	struct simulation_code sim_code;
 	uint8_t* simulation_memory;
-	uint8_t* code_tmp;
 	size_t n_hooks;
 	simulation_hook_fn hooks[MAX_HOOKS];
 };

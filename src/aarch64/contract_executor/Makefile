@@ -8,6 +8,7 @@ SRCS = \
   simulation_hook.c \
   simulation_input.c \
   simulation.c \
+  simulation_execution_clause_hook.c \
   main.c
 
 contract_executor: $(SRCS)
