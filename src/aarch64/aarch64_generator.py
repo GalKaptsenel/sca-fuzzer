@@ -1167,8 +1167,8 @@ class Aarch64SandboxPass(Pass):
 			apply_mask.template = template
 			parent.insert_before(instr, apply_mask)
 			
-			x30_register = RegisterOperand("x30", 64, True, False)
-			x30_register.name = "x30_reg"
+			x30_register = RegisterOperand("x29", 64, True, False) # TODO: IMPORTANT! REMEMBER: I changed from x30 to x29
+			x30_register.name = "x29_reg"
 			template, op0, op1, op2 = generate_template("ADD", base_operand_copy, base_operand_copy,
 			                                            x30_register)
 			add_base = Instruction("ADD", True).add_op(op0).add_op(op1).add_op(op2)

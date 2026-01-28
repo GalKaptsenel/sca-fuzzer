@@ -17,7 +17,7 @@
 #include <stddef.h>
 #include <inttypes.h>
 
-#define SHM_NAME "/contract_executor_stream_shm"
+#define DEFAULT_SHM_NAME "/contract_executor_stream_shm"
 #define REQ_RING_SIZE  (1 << 21)  // 2 MB
 #define RESP_RING_SIZE (1 << 21)  // 2 MB
 
@@ -36,6 +36,7 @@ struct shm_region {
 void ring_write(void* shm_base, struct ring *r, const void *src, uint32_t len);
 void ring_read(void* shm_base, struct ring *r, void *dst, uint32_t len);
 struct shm_region* init_shm();
+void destroy_shm(struct shm_region* shm);
 
 // Message format protocol
 struct header {

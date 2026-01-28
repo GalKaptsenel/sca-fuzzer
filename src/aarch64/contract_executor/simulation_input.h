@@ -6,6 +6,7 @@
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include "stream_ipc.h"
 
 /* ============================
  * Constants & magic
@@ -22,10 +23,18 @@ enum sim_arch {
 
 /* Flags */
 enum sim_flags {
-    RVZR_FLAG_NONE        = 0,
-    RVZR_FLAG_HAS_CODE    = 1 << 0,
-    RVZR_FLAG_HAS_REGS    = 1 << 1,
-    RVZR_FLAG_HAS_MEMORY  = 1 << 2,
+	RVZR_FLAG_NONE		= 0,
+	RVZR_FLAG_HAS_CODE	= 1 << 0,
+	RVZR_FLAG_HAS_REGS	= 1 << 1,
+	RVZR_FLAG_HAS_MEMORY	= 1 << 2,
+};
+
+enum config_flags {
+	CONFIG_FLAG_NONE		= 0,
+	CONFIG_FLAG_REQ_CODE_BASE_PHYS	= 1 << 0,
+	CONFIG_FLAG_REQ_CODE_BASE_VIRT	= 1 << 1,
+	CONFIG_FLAG_REQ_MEM_BASE_PHYS	= 1 << 2,
+	CONFIG_FLAG_REQ_MEM_BASE_VIRT	= 1 << 3,
 };
 
 /* ============================
@@ -36,12 +45,24 @@ enum sim_flags {
  * This struct is written verbatim to disk.
  * All fields are little-endian.
  */
+
+struct configuration {
+	uint64_t flags;
+	uint64_t max_misspred_branch_nesting;
+	uint64_t max_misspred_instructioins; // NOT SUPPPORTED
+	uint64_t requested_code_base_phys; // NOT SUPPORTED
+	uint64_t requested_code_base_virt;
+	uint64_t requested_mem_base_phys; // NOT SUPPORTED
+	uint64_t requested_mem_base_virt;
+};
+
 struct input_header {
     uint32_t magic;
     uint16_t version;
     uint16_t arch;
 
     uint64_t flags;
+    struct configuration config;
 
     uint64_t code_size;   /* bytes */
     uint64_t mem_size;    /* bytes */
@@ -71,6 +92,9 @@ int simulation_input_load(const char* path, struct simulation_input* sim_input);
 
 /* Load test case from file descriptor (supports stdin) */
 int simulation_input_load_fd(int fd, struct simulation_input* sim_input);
+
+/* Load test case from shared memory */
+int simulation_input_load_shm(struct shm_region* shm, struct simulation_input* sim_input);
 
 /* Free all allocated buffers */
 void simulation_input_free(struct simulation_input* sim_input);

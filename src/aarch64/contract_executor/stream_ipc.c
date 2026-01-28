@@ -22,6 +22,7 @@ static inline uint32_t ring_free(struct ring* r) {
 
 void ring_write(void* shm_base, struct ring* r, const void* src, uint32_t len) {
 	while (ring_free(r) < len) {
+        	fprintf(stderr, "[C] ring write loop\n");
 		uint32_t tail_val = atomic_load_explicit(&r->tail, memory_order_acquire);
 		futex_wait((uint32_t*)&r->tail, tail_val);  // sleep until space
 	}
@@ -30,7 +31,7 @@ void ring_write(void* shm_base, struct ring* r, const void* src, uint32_t len) {
 	uint32_t off = head & (r->size - 1);
 	uint32_t first = r->size - off;
 
-        printf("[C] Write at offset: %lx\n", r->offset_from_shm_base + off);
+        fprintf(stderr, "[C] Write at offset: %lx\n", r->offset_from_shm_base + off);
 	if (first >= len) {
 		memcpy((char*)shm_base + r->offset_from_shm_base + off, src, len);
 	} else {
@@ -44,6 +45,7 @@ void ring_write(void* shm_base, struct ring* r, const void* src, uint32_t len) {
 
 void ring_read(void* shm_base, struct ring* r, void* dst, uint32_t len) {
 	while (ring_used(r) < len) {
+        	fprintf(stderr, "[C] ring read loop\n");
 		uint32_t head_val = atomic_load_explicit(&r->head, memory_order_acquire);
 		futex_wait((uint32_t*)&r->head, head_val);  // sleep until enough data
 	}
@@ -52,7 +54,7 @@ void ring_read(void* shm_base, struct ring* r, void* dst, uint32_t len) {
 	uint32_t off = tail & (r->size - 1);
 	uint32_t first = r->size - off;
 
-        printf("[C] Read at offset: %lx\n", r->offset_from_shm_base + off);
+        fprintf(stderr, "[C] Read at offset: %lx\n", r->offset_from_shm_base + off);
 
 	if (first >= len) {
 		memcpy(dst, (char*)shm_base + r->offset_from_shm_base + off, len);
@@ -66,6 +68,7 @@ void ring_read(void* shm_base, struct ring* r, void* dst, uint32_t len) {
 }
 
 void ring_send(void* shm_base, struct ring* r, uint32_t msg_type, const uint8_t* payload, uint32_t payload_len) {
+	fprintf(stderr, "rind_send start\n");
 	struct header header = { 0 };
 
 	if (sizeof(header) + payload_len > r->size) {
@@ -75,28 +78,38 @@ void ring_send(void* shm_base, struct ring* r, uint32_t msg_type, const uint8_t*
 
 	header.length = payload_len;
 	header.type = msg_type;
+	fprintf(stderr, "rind_send send header\n");
 	ring_write(shm_base, r, &header, sizeof(header));
+	fprintf(stderr, "rind_send send payload\n");
 	ring_write(shm_base, r, payload, payload_len);
+	fprintf(stderr, "rind_send end\n");
 }
 
 void ring_recv(void* shm_base, struct ring* r, uint32_t* msg_type, uint8_t* payload, uint32_t* payload_len) {
+	fprintf(stderr, "rind_recv start\n");
 	struct header header = { 0 };
+	fprintf(stderr, "rind_recv read header\n");
 	ring_read(shm_base, r, &header, sizeof(header));
 	*msg_type = header.type;
 	*payload_len = header.length;
 	if (0 < *payload_len) {
+		fprintf(stderr, "rind_recv read payload\n");
 		ring_read(shm_base, r, payload, *payload_len);
+	} else {
+		fprintf(stderr, "rind_recv no payload\n");
 	}
+	fprintf(stderr, "rind_recv end\n");
 }
 
-struct shm_region* init_shm() {
-	int fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0600);
+static const size_t shm_total_size = sizeof(struct shm_region) + REQ_RING_SIZE + RESP_RING_SIZE;
+struct shm_region* init_shm(const char* shm_name) {
+	if(NULL == shm_name) shm_name = DEFAULT_SHM_NAME;
+	int fd = shm_open(shm_name, O_CREAT | O_RDWR, 0600);
 	if (fd < 0) { perror("shm_open"); exit(1); }
 
-	size_t total_size = sizeof(struct shm_region) + REQ_RING_SIZE + RESP_RING_SIZE;
-	if (ftruncate(fd, total_size) < 0) { perror("ftruncate"); exit(1); }
+	if (ftruncate(fd, shm_total_size) < 0) { perror("ftruncate"); exit(1); }
 
-	struct shm_region* shm = mmap(NULL, total_size,
+	struct shm_region* shm = mmap(NULL, shm_total_size,
 			PROT_READ | PROT_WRITE,
 			MAP_SHARED, fd, 0);
 	if (shm == MAP_FAILED) { perror("mmap"); exit(1); }
@@ -116,22 +129,30 @@ struct shm_region* init_shm() {
 	return shm;
 }
 
-int main() {
-    struct shm_region* shm = init_shm(); // Already sets up rings
-
-    uint32_t* buffer = (uint32_t*)malloc(1024*1024*4);
-
-    while (1) {
-        uint32_t type = 0;
-        uint32_t len = 0;
-        ring_recv(shm, &shm->req, &type, (uint8_t*)buffer, &len);
-
-        printf("[C] Type: %d, Received: %.*s\n", type, (int)len, (char*)buffer);
-
-        // Echo back
-        ring_send(shm, &shm->resp, type, (uint8_t*)buffer, len);
-        printf("[C] Sent back");
-    }
-    free(buffer);
-    return 0;
+void destroy_shm(struct shm_region* shm) {
+	if(shm) {
+		if(-1 == munmap(shm, shm_total_size)) {
+			perror("munmap");
+		}
+	}
 }
+
+//int main() {
+//    struct shm_region* shm = init_shm(); // Already sets up rings
+//
+//    uint32_t* buffer = (uint32_t*)malloc(1024*1024*4);
+//
+//    while (1) {
+//        uint32_t type = 0;
+//        uint32_t len = 0;
+//        ring_recv(shm, &shm->req, &type, (uint8_t*)buffer, &len);
+//
+//        printf("[C] Type: %d, Received: %.*s\n", type, (int)len, (char*)buffer);
+//
+//        // Echo back
+//        ring_send(shm, &shm->resp, type, (uint8_t*)buffer, len);
+//        printf("[C] Sent back\n");
+//    }
+//    free(buffer);
+//    return 0;
+//}

@@ -109,7 +109,7 @@ load_fd_fail:
 	return -1;
 }
 
-int simulation_input_load(const char* path, struct simulation_input* sim_input) {
+int simulation_input_load_path(const char* path, struct simulation_input* sim_input) {
 	int fd = open(path, O_RDONLY);
 	if (fd < 0) {
 		return -1;
@@ -117,6 +117,75 @@ int simulation_input_load(const char* path, struct simulation_input* sim_input) 
 
 	int ret = simulation_input_load_fd(fd, sim_input);
 	close(fd);
+	return ret;
+}
+
+static uint8_t tmp_buffer[REQ_RING_SIZE] = { 0 };
+int simulation_input_load_shm(struct shm_region* shm, struct simulation_input* sim_input) {
+	if(NULL == shm || NULL == sim_input) return -1;
+
+	int ret = 0;
+
+        uint32_t type = 0;
+        uint32_t len = 0;
+        ring_recv(shm, &shm->req, &type, tmp_buffer, &len);
+
+	const uint8_t* current_ptr = tmp_buffer;
+	memset(sim_input, 0, sizeof(*sim_input));
+	memcpy(&sim_input->hdr, current_ptr, sizeof(sim_input->hdr));
+	current_ptr += sizeof(sim_input->hdr);
+
+
+	if (0 > simulation_input_validate_header(&sim_input->hdr)) {
+		fprintf(stderr, "[C] Input validation failed!\n");
+		ret = -1;
+		goto load_shm_fail;
+	}
+
+	if (sim_input->hdr.flags & RVZR_FLAG_HAS_CODE) {
+		sim_input->code = malloc(sim_input->hdr.code_size);
+		if (NULL == sim_input->code) {
+			ret = -1;
+			fprintf(stderr, "[C] failed malloc code!\n");
+			goto load_shm_fail;
+		}
+
+		memcpy(sim_input->code, current_ptr, sim_input->hdr.code_size);
+		current_ptr += sim_input->hdr.code_size;
+	}
+
+	if (sim_input->hdr.flags & RVZR_FLAG_HAS_MEMORY) {
+		sim_input->memory = malloc(sim_input->hdr.mem_size);
+		if (NULL == sim_input->memory) {
+			fprintf(stderr, "[C] failed malloc memory!\n");
+			ret = -1;
+			goto load_shm_fail;
+		}
+
+		memcpy(sim_input->memory, current_ptr, sim_input->hdr.mem_size);
+		current_ptr += sim_input->hdr.mem_size;
+	}
+
+	if (sim_input->hdr.flags & RVZR_FLAG_HAS_REGS) {
+		sim_input->regs = malloc(sim_input->hdr.regs_size);
+		if (NULL == sim_input->regs) {
+			fprintf(stderr, "[C] failed malloc regs!\n");
+			ret = -1;
+			goto load_shm_fail;
+		}
+		memcpy(sim_input->regs, current_ptr, sim_input->hdr.regs_size);
+		current_ptr += sim_input->hdr.regs_size;
+	}
+
+	goto load_shm_success;
+
+load_shm_fail:
+	simulation_input_free(sim_input);
+
+load_shm_success:
+	memset(tmp_buffer, 0, current_ptr - tmp_buffer);
+	current_ptr = NULL;
+
 	return ret;
 }
 

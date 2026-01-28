@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+#include <assert.h>
 #include "simulation.h"
 #include "simulation_state.h"
 #include "instruction_encodings.h"

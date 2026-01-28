@@ -1,4 +1,5 @@
 #include "simulation_execution_clause_hook.h"
+#include "simulation.h"
 #include "tage_py.h"
 
 static inline bool get_bit(uint32_t val, int n) {
@@ -150,25 +151,26 @@ static void reload_checkpoint(struct simulation_state* sim_state, uint64_t check
 }
 
 static void initialize_director() {
-	printf("[LOG] init director\n");
-	if(0 != tagebp_init(".", "bootstrap_director", 2, 4, 4096)) {
+	fprintf(stderr, "[LOG] init director\n");
+	if(0 != tagebp_init("src/aarch64/contract_executor", "bootstrap_director", 2, 4, 4096)) {
 		__builtin_trap(); // sanity check
 	}
 }
 
 static void destroy_director() {
-	printf("[LOG] destroy director\n");
-	tagebp_finalize();
+	fprintf(stderr, "[LOG] destroy director instance\n");
+	tagebp_destroy_instance();
+	fprintf(stderr, "[LOG] destroy director instance finished\n");
 }
 
 static uintptr_t director_predict(uintptr_t pc) {
 	uintptr_t res = tagebp_predict(pc);
-	printf("[LOG] predict director at 0x%" PRIxPTR ": 0x%" PRIxPTR "\n", pc, res);
+	fprintf(stderr, "[LOG] predict director at 0x%" PRIxPTR ": 0x%" PRIxPTR "\n", pc, res);
 	return res;
 }
 
 static void director_update(uintptr_t pc, bool taken) {
-	printf("[LOG] predict update at 0x%" PRIxPTR " with %s\n", pc, taken ? "taken" : "not-taken");
+	fprintf(stderr, "[LOG] predict update at 0x%" PRIxPTR " with %s\n", pc, taken ? "taken" : "not-taken");
 	tagebp_update(pc, taken);
 }
 static void destroy_execution_clause() {
@@ -190,12 +192,12 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 
 	if(!initialized) {
 		mgmt.current_nesting = 0;
-		mgmt.max_nesting = 5; // TODO: CONFIGURABLE
+		mgmt.max_nesting = simulation.sim_input.hdr.config.max_misspred_branch_nesting;
 		mgmt.stack_top = 0;
 		memset(mgmt.stack, 0, sizeof(mgmt.stack));
-		mgmt.max_checkpoints = 1024; // TODO: CONFIGURABLE
+		mgmt.max_checkpoints = 1024;
 		mgmt.current_checkpoint_id = 0;
-		mgmt.memory_size = 0x1000 * 2; // TODO: CONFIGURABLE
+		mgmt.memory_size = simulation.sim_input.hdr.mem_size;
 		size_t checkpoints_array_size = mgmt.max_checkpoints * sizeof(struct execution_checkpoint);
 		mgmt.checkpoints_array = malloc(checkpoints_array_size);
 		if(NULL == mgmt.checkpoints_array) return NULL;
@@ -222,7 +224,6 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 	uint32_t branch_type = classify_branch(*(uint32_t*)sim_state->cpu_state.pc);
 	if(BRANCH_NONE == branch_type || BRANCH_B == branch_type || BRANCH_BL == branch_type || BRANCH_BLR == branch_type) return NULL;
 
-	// OR MAYBE HERE !
 	if(mgmt.max_nesting <= mgmt.current_nesting) {
 		if(0 == mgmt.current_nesting) __builtin_trap(); // Should never happen
 		if(0 == mgmt.stack_top) __builtin_trap(); // Should never happen
@@ -238,11 +239,11 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 	const uintptr_t predicted = director_predict(sim_state->cpu_state.pc);
 	director_update(sim_state->cpu_state.pc, target_addr == taken_addr);
 	if((target_addr == taken_addr && predicted) || (target_addr != taken_addr && !predicted)) {
-		printf("[LOG] currect prediction\n");
+		fprintf(stderr, "[LOG] currect prediction\n");
 		return (void*)taken_addr;
 	}
 
-	printf("[LOG] incurrect prediction\n");
+	fprintf(stderr, "[LOG] incurrect prediction\n");
 	if(0 == mgmt.current_nesting) {
 		mgmt.stack[mgmt.stack_top].nesting = 0;
 		++mgmt.current_nesting;
@@ -257,6 +258,7 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 	mgmt.stack[mgmt.stack_top].reserved = 0;
 	++mgmt.stack_top;
 
+	fprintf(stderr, "[LOG] returning from hook\n");
 	return (void*)evaluate_cond_branch_not_taken(&sim_state->cpu_state);
 }
 

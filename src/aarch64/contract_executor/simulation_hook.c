@@ -102,6 +102,7 @@ bool out_of_simulation(struct cpu_state* state) {
 }
 
 void base_hook_c(struct cpu_state* state) {
+	fprintf(stderr, "entrting base c hook\n");
 	if (NULL == state) __builtin_trap();
 
 	struct simulation_state sim_state = { 0 };
@@ -135,58 +136,62 @@ void base_hook_c(struct cpu_state* state) {
 	state->lr = current_ret_address;
 
 	if(!out_of_simulation(state)) {
+		fprintf(stderr, "inside simulation, changing at %p from %x ", (void*)state->pc, *(uint32_t*)state->pc);
 		*((uint32_t*)state->pc) = pc_to_orig_instruction(state->pc); // Fix the hooked instruction
+		fprintf(stderr, "to %x\n", *(uint32_t*)state->pc);
 
 	} else {
-
+		fprintf(stderr, "out of simulation, changing at %p from %x ", (void*)state->pc, *(uint32_t*)state->pc);
 		*((uint32_t*)state->pc) = 0xd65f03c0; // Manually insert RET
+		fprintf(stderr, "to %x\n", *(uint32_t*)state->pc);
 	}
 
 	__builtin___clear_cache((char*)state->pc, (char*)state->pc + 4);
+	fprintf(stderr, "returning from base c hook to %p\n", (void*)state->lr);
 }
 
 void* stdout_print_hook(struct simulation_state* sim_state) {
 	if(NULL == sim_state) return NULL;
-	printf("X0 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x0);
-	printf("X1 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x1);
-	printf("X2 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x2);
-	printf("X3 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x3);
-	printf("X4 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x4);
-	printf("X5 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x5);
-	printf("X6 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x6);
-	printf("X7 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x7);
-	printf("X8 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x8);
-	printf("X9 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x9);
-	printf("X10 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x10);
-	printf("X11 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x11);
-	printf("X12 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x12);
-	printf("X13 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x13);
-	printf("X14 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x14);
-	printf("X15 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x15);
-	printf("X16 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x16);
-	printf("X17 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x17);
-	printf("X18 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x18);
-	printf("X19 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x19);
-	printf("X20 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x20);
-	printf("X21 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x21);
-	printf("X22 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x22);
-	printf("X23 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x23);
-	printf("X24 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x24);
-	printf("X25 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x25);
-	printf("X26 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x26);
-	printf("X27 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x27);
-	printf("X28 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x28);
-	printf("X29 (FP) = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x29);
-	printf("X30 (LR) = 0x%016" PRIxPTR "\n", sim_state->cpu_state.lr);
-	printf("SP = 0x%016" PRIxPTR "\n", sim_state->cpu_state.sp);
-	printf("PC = 0x%016" PRIxPTR "\n", sim_state->cpu_state.pc);
-	printf("\tINSTR = 0x%08x\n", *(uint32_t*)sim_state->cpu_state.pc);
+	fprintf(stderr, "X0 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x0);
+	fprintf(stderr, "X1 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x1);
+	fprintf(stderr, "X2 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x2);
+	fprintf(stderr, "X3 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x3);
+	fprintf(stderr, "X4 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x4);
+	fprintf(stderr, "X5 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x5);
+	fprintf(stderr, "X6 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x6);
+	fprintf(stderr, "X7 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x7);
+	fprintf(stderr, "X8 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x8);
+	fprintf(stderr, "X9 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x9);
+	fprintf(stderr, "X10 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x10);
+	fprintf(stderr, "X11 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x11);
+	fprintf(stderr, "X12 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x12);
+	fprintf(stderr, "X13 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x13);
+	fprintf(stderr, "X14 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x14);
+	fprintf(stderr, "X15 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x15);
+	fprintf(stderr, "X16 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x16);
+	fprintf(stderr, "X17 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x17);
+	fprintf(stderr, "X18 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x18);
+	fprintf(stderr, "X19 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x19);
+	fprintf(stderr, "X20 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x20);
+	fprintf(stderr, "X21 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x21);
+	fprintf(stderr, "X22 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x22);
+	fprintf(stderr, "X23 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x23);
+	fprintf(stderr, "X24 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x24);
+	fprintf(stderr, "X25 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x25);
+	fprintf(stderr, "X26 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x26);
+	fprintf(stderr, "X27 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x27);
+	fprintf(stderr, "X28 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x28);
+	fprintf(stderr, "X29 (FP) = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x29);
+	fprintf(stderr, "X30 (LR) = 0x%016" PRIxPTR "\n", sim_state->cpu_state.lr);
+	fprintf(stderr, "SP = 0x%016" PRIxPTR "\n", sim_state->cpu_state.sp);
+	fprintf(stderr, "PC = 0x%016" PRIxPTR "\n", sim_state->cpu_state.pc);
+	fprintf(stderr, "\tINSTR = 0x%08x\n", *(uint32_t*)sim_state->cpu_state.pc);
 	uintptr_t nzcv = sim_state->cpu_state.nzcv;
 	uint32_t N = (nzcv >> 31) & 1;
 	uint32_t Z = (nzcv >> 30) & 1;
 	uint32_t C = (nzcv >> 29) & 1;
 	uint32_t V = (nzcv >> 28) & 1;
-	printf("NZCV   = 0x%016" PRIxPTR "  [N=%u Z=%u C=%u V=%u]  (%c%c%c%c)\n",
+	fprintf(stderr, "NZCV   = 0x%016" PRIxPTR "  [N=%u Z=%u C=%u V=%u]  (%c%c%c%c)\n",
            nzcv,
            N, Z, C, V,
            N ? 'N' : '-',
@@ -199,8 +204,10 @@ void* stdout_print_hook(struct simulation_state* sim_state) {
 void* handle_ret_hook(struct simulation_state* sim_state) {
 	if(NULL == sim_state) return NULL;
 	if(0xd65f03c0 == *(uint32_t*)sim_state->cpu_state.pc) { // Identify RET
+		fprintf(stderr, "Found RET\n");
 	       	return (void*)sim_state->cpu_state.lr;
 	}
+	fprintf(stderr, "NOT Found RET\n");
 	return NULL;
 }
 

@@ -40,6 +40,7 @@ from .aarch64_inputgen import solve_for_inputs
 
 from .aarch64_connection import profile_op, ExecutorMemory
 
+from .aarch64_contract_executor import *
 # ==================================================================================================
 # Helper functions
 # ==================================================================================================
@@ -1895,49 +1896,74 @@ class Aarch64LocalExecutor(Aarch64Executor):
 
         # Store statistics
         n_inputs = len(inputs)
+        patched = copy.deepcopy(self.test_case)
+        pass_on_test_case(patched, [Aarch64SandboxPass()])
 
-        self.local_executor.discard_all_inputs()
+        printer = Aarch64Printer(self.target_desc)
+        patched.bin_path, patched.asm_path, patched.obj_path = (f'sandboxed_test_case.{suffix}' for suffix in ('bin', 'asm', 'o'))
+        printer.print(patched, patched.asm_path)
+        ConfigurableGenerator.assemble(patched.asm_path, patched.obj_path, patched.bin_path)
+        with open(patched.bin_path, "rb") as f:
+            tc_bytes = f.read()
 
-        input_to_iid = {}
+        sandbox_base, code_base = self.read_base_addresses()
+
+        executor = ContractExecutorService("/home/gal_k_1_1998/revizor/sca-fuzzer/src/aarch64/contract_executor/contract_executor")
+        executor.start("shm_gal")
         for i in inputs:
-            input_to_iid[i] = self.local_executor.allocate_iid()
-            self.local_executor.checkout_region(InputRegion(input_to_iid[i]))
-            self.local_executor.write(ExecutorMemory(i.tobytes()))
+            data = i.tobytes()
+            tc_memory = data[:0x2000]
+            tc_regs = data[0x2000:]
 
+            execution = ContractExecution(tc_bytes, tc_memory, tc_regs, SimArch.RVZR_ARCH_AARCH64, 5, 10, req_code_base_virt=code_base,
+                                      req_mem_base_virt=sandbox_base)
+            executor.run(execution)
+        executor.stop()
 
-        sandbox_base, _ = self.read_base_addresses()
-        self._write_mod_test_case_to_local_executor("generated_taint_tracker", [Aarch64MarkRegisterTaints(), Aarch64SandboxPass(), Aarch64MarkMemoryTaints(), Aarch64SpecContractPass(sandbox_memory_address=sandbox_base, sandbox_memory_size=4096*2, speculation_nesting=CONF.model_max_nesting)])
-
-        input_to_taints_buffer: OrderedDict[Input, BitmapTaintsAuxBuffer] = OrderedDict()
-
-        self.local_executor.trace()
-        for i in inputs:
-            self.local_executor.checkout_region(InputRegion(input_to_iid[i]))
-            input_to_taints_buffer[i] = aux_buffer_from_bytes(AuxBufferType.BITMAP_TAINTS, self.local_executor.aux_buffer)
-#        self._write_mod_test_case_to_local_executor("generated_full_trace_tracker_arch", [Aarch64SandboxPass(), Aarch64FullTrace()])
-
-        input_to_full_trace_buffer: OrderedDict[Input, FullTraceAuxBuffer] = OrderedDict()
-
+#        self.local_executor.discard_all_inputs()
+#
+#        input_to_iid = {}
+#        for i in inputs:
+#            input_to_iid[i] = self.local_executor.allocate_iid()
+#            self.local_executor.checkout_region(InputRegion(input_to_iid[i]))
+#            self.local_executor.write(ExecutorMemory(i.tobytes()))
+#
+#
+#        sandbox_base, _ = self.read_base_addresses()
+##        self._write_mod_test_case_to_local_executor("generated_taint_tracker", [Aarch64MarkRegisterTaints(), Aarch64SandboxPass(), Aarch64MarkMemoryTaints(), Aarch64SpecContractPass(sandbox_memory_address=sandbox_base, sandbox_memory_size=4096*2, speculation_nesting=CONF.model_max_nesting)])
+#        self._write_mod_test_case_to_local_executor("generated_taint_tracker", [Aarch64MarkRegisterTaints(), Aarch64SandboxPass(), Aarch64MarkMemoryTaints()])
+#
+#        input_to_taints_buffer: OrderedDict[Input, BitmapTaintsAuxBuffer] = OrderedDict()
+#
+#        self.local_executor.trace()
+#        for i in inputs:
+#            self.local_executor.checkout_region(InputRegion(input_to_iid[i]))
+#            input_to_taints_buffer[i] = aux_buffer_from_bytes(AuxBufferType.BITMAP_TAINTS, self.local_executor.aux_buffer)
+##        self._write_mod_test_case_to_local_executor("generated_full_trace_tracker_arch", [Aarch64SandboxPass(), Aarch64FullTrace()])
+#
+#        input_to_full_trace_buffer: OrderedDict[Input, FullTraceAuxBuffer] = OrderedDict()
+#
+##        self.local_executor.trace()
+##        for i in inputs:
+##            self.local_executor.checkout_region(InputRegion(input_to_iid[i]))
+##            input_to_full_trace_buffer[i] = aux_buffer_from_bytes(AuxBufferType.FULL_TRACE, self.local_executor.aux_buffer)
+#
+##        self._write_mod_test_case_to_local_executor("generated_full_trace_tracker_spec", [Aarch64SandboxPass(), Aarch64FullTrace(), Aarch64SpecContractPass(sandbox_memory_address=sandbox_base, sandbox_memory_size=4096*2, speculation_nesting=CONF.model_max_nesting)])
+#        self._write_mod_test_case_to_local_executor("generated_full_trace_tracker", [Aarch64SandboxPass(), Aarch64FullTrace()])
 #        self.local_executor.trace()
 #        for i in inputs:
 #            self.local_executor.checkout_region(InputRegion(input_to_iid[i]))
 #            input_to_full_trace_buffer[i] = aux_buffer_from_bytes(AuxBufferType.FULL_TRACE, self.local_executor.aux_buffer)
-
-        self._write_mod_test_case_to_local_executor("generated_full_trace_tracker_spec", [Aarch64SandboxPass(), Aarch64FullTrace(), Aarch64SpecContractPass(sandbox_memory_address=sandbox_base, sandbox_memory_size=4096*2, speculation_nesting=CONF.model_max_nesting)])
-        self.local_executor.trace()
-        for i in inputs:
-            self.local_executor.checkout_region(InputRegion(input_to_iid[i]))
-            input_to_full_trace_buffer[i] = aux_buffer_from_bytes(AuxBufferType.FULL_TRACE, self.local_executor.aux_buffer)
-
-        taints, ctraces, full_traces, bitmaps = [], [], [], []
-
-        for i in inputs:
-            taint, ctrace = self._process_input(i, input_to_taints_buffer[i], input_to_full_trace_buffer[i])
-            taints.append(taint)
-            ctraces.append(ctrace)
-            full_traces.append(input_to_full_trace_buffer[i])
-            bitmaps.append(input_to_taints_buffer[i])
-
+#
+#        taints, ctraces, full_traces, bitmaps = [], [], [], []
+#
+#        for i in inputs:
+#            taint, ctrace = self._process_input(i, input_to_taints_buffer[i], input_to_full_trace_buffer[i])
+#            taints.append(taint)
+#            ctraces.append(ctrace)
+#            full_traces.append(input_to_full_trace_buffer[i])
+#            bitmaps.append(input_to_taints_buffer[i])
+#
         return ctraces, taints, full_traces, bitmaps
 
 

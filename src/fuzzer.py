@@ -24,14 +24,15 @@ from .aarch64.aarch64_generator import Aarch64TagMemoryAccesses, Aarch64Printer,
 from .aarch64.aarch64_executor import compare_and_debug_trace_pair, show_context
 from contextlib import redirect_stdout
 
-from .directed_fuzzing.value_selector import InputForwarder
-from .directed_fuzzing.arch_input_templates import build_aarch64_input_template
-from .directed_fuzzing.aarch64_simulator import UnicornArchSimulator
-from .directed_fuzzing.two_bit_saturating_bp import TwoBitBP
-from .directed_fuzzing.microarch_state import MicroarchState
-from .directed_fuzzing.simulation import SimulationContext
-from .directed_fuzzing.microarch_simulators import MuSimulator
-from .directed_fuzzing.bp import BPMicroarchEvent
+#from .directed_fuzzing.value_selector import InputForwarder
+#from .directed_fuzzing.arch_input_templates import build_aarch64_input_template
+#from .directed_fuzzing.aarch64_simulator import UnicornArchSimulator
+#from .directed_fuzzing.two_bit_saturating_bp import TwoBitBP
+#from .directed_fuzzing.tage_predictor import TageBP
+#from .directed_fuzzing.microarch_state import MicroarchState
+#from .directed_fuzzing.simulation import SimulationContext
+#from .directed_fuzzing.microarch_simulators import MuSimulator
+#from .directed_fuzzing.bp import BPMicroarchEvent
 from .aarch64.aarch64_target_desc import Aarch64TargetDesc
 from .aarch64.aarch64_generator import Aarch64SandboxPass
 from .interfaces import OT
@@ -139,246 +140,292 @@ class FuzzerGeneric(Fuzzer):
         self.generation_function = self.asm_parser.parse_file
         return self._start(num_test_cases, num_inputs, timeout, nonstop, save_violations)
 
-    def _print_state_deltas(self, change_log, input_value):
-        for index, change_list in change_log.items():
-            print(f"{input_value}:{index}: "),
-            for (old, new) in change_list:
-                print(f'{old} -> {new};')
+#    def _print_state_deltas(self, change_log, input_value, access_taint):
+#        for index, change_list in change_log.items():
+#            #print(f"{input_value}:{index}: "),
+#            if index not in access_taint:
+#                access_taint[index] = {}
+#            if input_value not in access_taint[index]:
+#                access_taint[index][input_value] = []
+#            for (old, new) in change_list:
+#                access_taint[index][input_value].append((old, new))
+#                #print(f'{old} -> {new};')
+#
+#    def _extract_bp_event(self, trace):
+#        if not trace.events or not trace.events[-1]:
+#            raise RuntimeError("Expected BPU event after control-flow instruction")
+#    
+#        for ev in trace.events[-1]:
+#            if isinstance(ev, BPMicroarchEvent):
+#                return ev
+#    
+#        raise RuntimeError("Missing BPMicroarchEvent")
+#    
+#    def _is_valid_instruction(self, instr):
+#        try:
+#            asm = instr.to_asm_string()
+#            return "macro" not in asm.lower()
+#        except Exception:
+#            return False
+#
+#    def _resolve_branch(self, bb, instr, bp_event):
+#        taken = instr.operands[-1].value
+#        not_taken = next(
+#            (succ.name for succ in bb.successors if succ.name != taken),
+#            None,
+#        )
+#        return taken if bp_event.taken else not_taken
+#
+#    def _patch_branch(self, instr):
+#        dest = next(o for o in instr.operands if o.type == OT.LABEL)
+#        orig_label = dest.value
+#        orig_template = instr.template
+#    
+#        tmp_label = f"{orig_label}_tmp"
+#        instr.template = f"{tmp_label}:{orig_template}"
+#        dest.value = tmp_label
+#    
+#        def restore():
+#            dest.value = orig_label
+#            instr.template = orig_template
+#    
+#        return restore
+#    
+#    def _execute_terminator(
+#        self,
+#        instr,
+#        bb,
+#        sim_context,
+#        mu_simulator,
+#        input_template,
+#        name_to_bb,
+#    ):
+#        restore = None
+#    
+#        if instr.control_flow:
+#            restore = self._patch_branch(instr)
+#    
+#        trace, sim_context  = mu_simulator.simulate(
+#            sim_context=sim_context,
+#            instructions=[instr],
+#            input_template=input_template,
+#        )
+#        change_log = {}
+##        next_snapshot = trace.states[0].snapshot()
+##        for current_trace_index in range(1, len(trace.states)):
+##            prev_snapshot = next_snapshot
+##            next_snapshot = trace.states[current_trace_index].snapshot()
+##            for set_idx, (old_entries, new_entries) in enumerate(zip(prev_snapshot, next_snapshot)):
+##                for new_entry in new_entries:
+##                    if new_entry.tag is None:
+##                        continue
+##                    if any(old_entry.tag == new_entry.tag for old_entry in old_entries):
+##                        matched_entry = next(filter(lambda o: o.tag == new_entry.tag, old_entries))
+##                        assert matched_entry is not None
+##                        old_state = matched_entry.state
+##                    else:
+##                        old_state = 1 # Weakly , this is the default
+##
+##                    if old_state != new_entry.state:
+##                        if set_idx not in change_log:
+##                            change_log[set_idx] = []
+##                        change_log[set_idx].append((old_state, new_entry.state))
+#    
+#        if restore:
+#            restore()
+#    
+#            bp_event = self._extract_bp_event(trace)
+#            next_label = self._resolve_branch(bb, instr, bp_event)
+#    
+#            #print(
+#            #    f"current_block: {bb.name}:{instr.to_asm_string()} -> "
+#            #    f"{next_label} ({'TAKEN' if bp_event.taken else 'NOT TAKEN'})"
+#            #)
+#    
+#            return name_to_bb.get(next_label), change_log, trace.states[-1].snapshot(), sim_context
+#        
+#    
+#        return None, change_log, trace.states[-1].snapshot(), sim_context
+#    
+#
+#    def _execute_basic_block(
+#        self,
+#        bb,
+#        cfg,
+#        sim_context,
+#        mu_simulator,
+#        input_template,
+#    ) -> dict:
+#        # Normal instructions
+#        for instr in bb:
+#            if not self._is_valid_instruction(instr):
+#                continue
+#    
+#            _, sim_context = mu_simulator.simulate(
+#                sim_context=sim_context,
+#                instructions=[instr],
+#                input_template=input_template,
+#            )
+#    
+#        # Terminators
+#        change_log = {}
+#        last_snapshot = None
+#        for instr in bb.terminators:
+#            taken_bb, changes, last_snapshot, sim_context = self._execute_terminator(
+#                instr,
+#                bb,
+#                sim_context,
+#                mu_simulator,
+#                input_template,
+#                cfg["name_to_bb"],
+#            )
+#
+#            for index, change_list in changes.items():
+#                if index not in change_log:
+#                    change_log[index] = []
+#                change_log[index].extend(change_list)
+#
+#            if taken_bb is not None:
+#                cfg["next"] = taken_bb
+#                return change_log, last_snapshot, sim_context
+#    
+#        # Fallthrough
+#        cfg["next"] = cfg["fallthrough"][bb]
+#        return change_log, last_snapshot, sim_context
+#    
+#
+#    def _build_cfg(self, func):
+#        name_to_bb = {}
+#        fallthrough = {}
+#    
+#        prev = None
+#        for bb in func:
+#            name_to_bb[bb.name] = bb
+#            fallthrough[prev] = bb
+#            prev = bb
+#        fallthrough[prev] = None
+#    
+#        return {
+#            "name_to_bb": name_to_bb,
+#            "fallthrough": fallthrough,
+#            "next": None,
+#        }
+#    
+#
+#    def _execute_function(self, func, sim_context, mu_simulator, input_template):
+#        cfg = self._build_cfg(func)
+#        current_bb = func.get_first_bb()
+#
+#    
+#        change_log = {}
+#        last_snapshot = None
+#        while current_bb:
+#            changes, last_snapshot, sim_context = self._execute_basic_block(
+#                current_bb,
+#                cfg,
+#                sim_context,
+#                mu_simulator,
+#                input_template,
+#            )
+#
+#            for index, changes_list in changes.items():
+#                if index not in change_log:
+#                    change_log[index] = []
+#                change_log[index].extend(changes_list)
+#
+#            current_bb = cfg["next"]
+#
+#        return change_log, last_snapshot, sim_context
+#    
+#
+#    def _init_simulation(self, input_value: Input, mu_state: MicroarchState):
+#        fuzzed_registers = ["x0", "x1", "x2", "x3", "x4", "x5", "sp", "nzcv"]
+#    
+#        input_template = build_aarch64_input_template(
+#            Aarch64TargetDesc(),
+#            fuzzed_registers,
+#            8192,
+#        )
+#    
+#        arch_sim = UnicornArchSimulator(
+#            value_strategy=InputForwarder(input_value)
+#        )
+#    
+#        sim_context = SimulationContext(
+#            arch_snapshot=arch_sim.take_snapshot(),
+#            mu_state=mu_state,
+#        )
+#    
+#        mu_simulator = MuSimulator(arch_simulator=arch_sim)
+#        return sim_context, mu_simulator, input_template
+#    
+#    def _run_single_input(self, test_case: TestCase, input_value: Input, mu_state: MicroarchState, access_taint):
+#        sim_context, mu_simulator, input_template = self._init_simulation(input_value, mu_state)
+#    
+#        change_log = {}
+#        last_snapshot = None
+#        for func in test_case:
+#            changes, last_snapshot, sim_context  = self._execute_function(func, sim_context, mu_simulator, input_template)
+#            for index, changes_list in changes.items():
+#                if index not in change_log:
+#                    change_log[index] = []
+#                change_log[index].extend(changes_list)
+#
+#        self._print_state_deltas(change_log, input_value, access_taint)
+#        return last_snapshot, sim_context.mu_state
+#    
+#    def _prepare_test_case(self, test_case: TestCase) -> TestCase:
+#        cloned = copy.deepcopy(test_case)
+#        Aarch64SandboxPass().run_on_test_case(cloned)
+#
+#        for func in cloned:
+#            for bb in func:
+#                print(f'{bb.name}:')
+#                for inst in bb:
+#                    try:
+#                        print(inst.to_asm_string())
+#                    except:
+#                        continue
+#    
+#                for inst in bb.terminators:
+#                    print(inst.to_asm_string())
+#
+#        return cloned
+#
+#    def _mu_simulation(self, test_case: TestCase, inputs: List[Input], mu_state: MicroarchState, access_taint) -> Any:
+#        """
+#        Run microarchitectural simulation for each input and return
+#        immutable snapshots suitable for hashing.
+#        """
+#        if not inputs:
+#            return None
+#    
+#        import copy
+#        from .directed_fuzzing import tage_predictor as tgp
+#    
+#        cloned_tc = self._prepare_test_case(test_case)
+#    
+#        snapshots = {}
+#        for idx, input_value in enumerate(inputs):
+#            tgp.current_iid = idx
+#            snapshots[input_value], mu_state = self._run_single_input(cloned_tc, input_value, mu_state, access_taint)
+#    
+#        assert len(snapshots) == len(inputs)
+#        return snapshots, mu_state
 
-    def _extract_bp_event(self, trace):
-        if not trace.events or not trace.events[-1]:
-            raise RuntimeError("Expected BPU event after control-flow instruction")
+    def _print_index_map(self, d, index_name="Index", value_name="Count"):
+        if not d:
+            print("<empty>")
+            return
     
-        for ev in trace.events[-1]:
-            if isinstance(ev, BPMicroarchEvent):
-                return ev
+        w1 = max(len(index_name), max(len(str(k)) for k in d))
+        w2 = max(len(value_name), max(len(str(v)) for v in d.values()))
     
-        raise RuntimeError("Missing BPMicroarchEvent")
+        print(f"{index_name:<{w1}}  {value_name:>{w2}}")
+        print(f"{'-'*w1}  {'-'*w2}")
     
-    def _is_valid_instruction(self, instr):
-        try:
-            instr.to_asm_string()
-            return True
-        except Exception:
-            return False
-
-    def _resolve_branch(self, bb, instr, bp_event):
-        taken = instr.operands[-1].value
-        not_taken = next(
-            (succ.name for succ in bb.successors if succ.name != taken),
-            None,
-        )
-        return taken if bp_event.taken else not_taken
-
-    def _patch_branch(self, instr):
-        dest = next(o for o in instr.operands if o.type == OT.LABEL)
-        orig_label = dest.value
-        orig_template = instr.template
-    
-        tmp_label = f"{orig_label}_tmp"
-        instr.template = f"{tmp_label}:{orig_template}"
-        dest.value = tmp_label
-    
-        def restore():
-            dest.value = orig_label
-            instr.template = orig_template
-    
-        return restore
-    
-    def _execute_terminator(
-        self,
-        instr,
-        bb,
-        sim_context,
-        mu_simulator,
-        input_template,
-        name_to_bb,
-    ):
-        restore = None
-    
-        if instr.control_flow:
-            restore = self._patch_branch(instr)
-    
-        trace, sim_context  = mu_simulator.simulate(
-            sim_context=sim_context,
-            instructions=[instr],
-            input_template=input_template,
-        )
-        change_log = {}
-        next_snapshot = trace.states[0].snapshot()
-        for current_trace_index in range(1, len(trace.states)):
-            prev_snapshot = next_snapshot
-            next_snapshot = trace.states[current_trace_index].snapshot()
-            for index, (old, new) in enumerate(zip(prev_snapshot, next_snapshot)):
-                if old != new:
-                    if index not in change_log:
-                        change_log[index] = []
-                    change_log[index].append((old, new))
-    
-        if restore:
-            restore()
-    
-            bp_event = self._extract_bp_event(trace)
-            next_label = self._resolve_branch(bb, instr, bp_event)
-    
-            print(
-                f"current_block: {bb.name}:{instr.to_asm_string()} -> "
-                f"{next_label} ({'TAKEN' if bp_event.taken else 'NOT TAKEN'})"
-            )
-    
-            return name_to_bb.get(next_label), change_log, trace.states[-1].snapshot(), sim_context
-    
-        return None, change_log, trace.states[-1].snapshot(), sim_context
-    
-
-    def _execute_basic_block(
-        self,
-        bb,
-        cfg,
-        sim_context,
-        mu_simulator,
-        input_template,
-    ) -> dict:
-        # Normal instructions
-        for instr in bb:
-            if not self._is_valid_instruction(instr):
-                continue
-    
-            _, sim_context = mu_simulator.simulate(
-                sim_context=sim_context,
-                instructions=[instr],
-                input_template=input_template,
-            )
-    
-        # Terminators
-        change_log = {}
-        last_snapshot = None
-        for instr in bb.terminators:
-            taken_bb, changes, last_snapshot, sim_context = self._execute_terminator(
-                instr,
-                bb,
-                sim_context,
-                mu_simulator,
-                input_template,
-                cfg["name_to_bb"],
-            )
-
-            for index, change_list in changes.items():
-                if index not in change_log:
-                    change_log[index] = []
-                change_log[index].extend(change_list)
-
-            if taken_bb is not None:
-                cfg["next"] = taken_bb
-                return change_log, last_snapshot, sim_context
-    
-        # Fallthrough
-        cfg["next"] = cfg["fallthrough"][bb]
-        return change_log, last_snapshot, sim_context
-    
-
-    def _build_cfg(self, func):
-        name_to_bb = {}
-        fallthrough = {}
-    
-        prev = None
-        for bb in func:
-            name_to_bb[bb.name] = bb
-            fallthrough[prev] = bb
-            prev = bb
-        fallthrough[prev] = None
-    
-        return {
-            "name_to_bb": name_to_bb,
-            "fallthrough": fallthrough,
-            "next": None,
-        }
-    
-
-    def _execute_function(self, func, sim_context, mu_simulator, input_template):
-        cfg = self._build_cfg(func)
-        current_bb = func.get_first_bb()
-    
-        change_log = {}
-        last_snapshot = None
-        while current_bb:
-            changes, last_snapshot, sim_context = self._execute_basic_block(
-                current_bb,
-                cfg,
-                sim_context,
-                mu_simulator,
-                input_template,
-            )
-
-            for index, changes_list in changes.items():
-                if index not in change_log:
-                    change_log[index] = []
-                change_log[index].extend(changes_list)
-
-            current_bb = cfg["next"]
-
-        return change_log, last_snapshot
-    
-
-    def _init_simulation(self, input_value: Input):
-        fuzzed_registers = ["x0", "x1", "x2", "x3", "x4", "x5", "sp", "nzcv"]
-    
-        input_template = build_aarch64_input_template(
-            Aarch64TargetDesc(),
-            fuzzed_registers,
-            8192,
-        )
-    
-        arch_sim = UnicornArchSimulator(
-            value_strategy=InputForwarder(input_value)
-        )
-    
-        sim_context = SimulationContext(
-            arch_snapshot=arch_sim.take_snapshot(),
-            mu_state=MicroarchState(bp=TwoBitBP()),
-        )
-    
-        mu_simulator = MuSimulator(arch_simulator=arch_sim)
-        return sim_context, mu_simulator, input_template
-    
-    def _run_single_input(self, test_case: TestCase, input_value: Input):
-        sim_context, mu_simulator, input_template = self._init_simulation(input_value)
-    
-        change_log = {}
-        last_snapshot = None
-        for func in test_case:
-            changes, last_snapshot = self._execute_function(func, sim_context, mu_simulator, input_template)
-            for index, changes_list in changes.items():
-                if index not in change_log:
-                    change_log[index] = []
-                change_log[index].extend(changes_list)
-
-        self._print_state_deltas(change_log, input_value)
-        return last_snapshot
-    
-    def _prepare_test_case(self, test_case: TestCase) -> TestCase:
-        cloned = copy.deepcopy(test_case)
-        Aarch64SandboxPass().run_on_test_case(cloned)
-        return cloned
-
-    def _mu_simulation(self, test_case: TestCase, inputs: List[Input]) -> Any:
-        """
-        Run microarchitectural simulation for each input and return
-        immutable snapshots suitable for hashing.
-        """
-        if not inputs:
-            return None
-    
-        import copy
-    
-        cloned_tc = self._prepare_test_case(test_case)
-    
-        snapshots = {}
-        for input_value in inputs:
-            snapshots[input_value] = self._run_single_input(cloned_tc, input_value)
-    
-        assert len(snapshots) == len(inputs)
-        return snapshots
+        for k in sorted(d):
+            print(f"{k:<{w1}}  {d[k]:>{w2}}")
     
     def _start(self, num_test_cases: int, num_inputs: int, timeout: int, nonstop: bool,
                save_violations: bool) -> bool:
@@ -413,7 +460,6 @@ class FuzzerGeneric(Fuzzer):
             if self.filter(test_case, inputs):
                 continue
 
-            self._mu_simulation(test_case, inputs)
 
             # Fuzz the test case
             violation = self.fuzzing_round(test_case, inputs)

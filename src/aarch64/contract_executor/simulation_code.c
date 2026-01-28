@@ -6,9 +6,14 @@ int simulation_code_init(const struct simulation_input* sim_input,
 
 	out->code_size = sim_input->hdr.code_size;
 
+	void* req_code_base = NULL;
+	if(CONFIG_FLAG_REQ_CODE_BASE_VIRT | sim_input->hdr.config.flags) {
+		req_code_base = (void*)sim_input->hdr.config.requested_code_base_virt;
+	}
+
 	/* RWX simulation code */
 	out->code = mmap(
-			NULL,
+			req_code_base,
 			out->code_size,
 			PROT_READ | PROT_WRITE | PROT_EXEC,
 			MAP_PRIVATE | MAP_ANONYMOUS,

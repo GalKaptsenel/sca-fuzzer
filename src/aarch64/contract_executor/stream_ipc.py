@@ -76,10 +76,10 @@ class ShmRegion(ctypes.Structure):
 
 TMP_BASE = 0
 
-def attach_shm() -> Tuple[ShmRegion, mmap.mmap, ctypes.Array[ctypes.c_uint8], ctypes.Array[ctypes.c_uint8]]:
+def attach_shm(shm_name: str) -> Tuple[ShmRegion, mmap.mmap, ctypes.Array[ctypes.c_uint8], ctypes.Array[ctypes.c_uint8]]:
     global TMP_BASE
     """Attach to the C-created shared memory"""
-    fd = os.open(f"/dev/shm{SHM_NAME}", os.O_RDWR)
+    fd = os.open(f"/dev/shm{shm_name}", os.O_RDWR)
     total_size = ctypes.sizeof(ShmRegion) + REQ_RING_SIZE + RESP_RING_SIZE
     mem = mmap.mmap(fd, total_size, mmap.MAP_SHARED, mmap.PROT_READ | mmap.PROT_WRITE)
     os.close(fd)
@@ -88,7 +88,6 @@ def attach_shm() -> Tuple[ShmRegion, mmap.mmap, ctypes.Array[ctypes.c_uint8], ct
     base = ctypes.addressof(shm)
     TMP_BASE = base
     
-    TMP_BASE  = base
     # Use the offset_from_shm_base already set by C
     req_buf = (ctypes.c_uint8 * shm.req.size).from_address(base + shm.req.offset_from_shm_base)
     resp_buf = (ctypes.c_uint8 * shm.resp.size).from_address(base + shm.resp.offset_from_shm_base)
@@ -116,7 +115,7 @@ class RingBuffer:
 
         off = self._head.value & (self._ring.size - 1)
         first = self._ring.size - off
-        print(f"[Python] Write at offset {ctypes.addressof(self._buf) + off- TMP_BASE}")
+        print(f"[Python] Write at offset {ctypes.addressof(self._buf) + off- TMP_BASE:x}")
 
         if first >= length:
             ctypes.memmove(ctypes.addressof(self._buf) + off, data, length)
@@ -134,19 +133,14 @@ class RingBuffer:
         off = self._tail.value & (self._ring.size - 1)
         first = self._ring.size - off
 
-        print(f"[Python] Read at offset {ctypes.addressof(self._buf) + off- TMP_BASE}")
+        print(f"[Python] Read at offset {ctypes.addressof(self._buf) + off- TMP_BASE:x}")
         result = (ctypes.c_uint8 * length)()
         dest_base = ctypes.addressof(result)
         if first >= length:
-            print("1")
             ctypes.memmove(dest_base, ctypes.addressof(self._buf) + off, length)
-            print("2")
         else:
-            print("3")
             ctypes.memmove(dest_base, ctypes.addressof(self._buf) + off, first)
-            print("4")
             ctypes.memmove(dest_base + first, ctypes.addressof(self._buf), length - first)
-            print("5")
 
         self._tail.value += length
         self._tail.wake()
@@ -166,32 +160,4 @@ class RingBuffer:
         length, msg_type = HEADER_STRUCT.unpack(header_bytes)
         payload = self.read(length) if length > 0 else b""
         return msg_type, payload
-
-MSG_TYPE_TEST = 1
-
-def main():
-    # Attach to the shared memory (C already initialized it)
-    shm, mem, req_buf, resp_buf = attach_shm()
-
-    # Wrap the rings
-    req_ring = RingBuffer(shm.req, req_buf)
-    resp_ring = RingBuffer(shm.resp, resp_buf)
-
-    # Example: send a message to C
-    counter = 0
-    while True:
-        payload = b"H"* (100)
-        print(f"[Python] Sending: {payload!r}")
-        print(f"[Python] Sending: {counter}")
-        counter += 1
-        req_ring.send(payload, MSG_TYPE_TEST)
-        
-        # Optionally wait for a reply
-        print("[Python] Waiting for reply...")
-        msg_type, reply = resp_ring.recv()
-        print(f"[Python] Received reply (type {msg_type}): {reply!r}")
-
-
-if __name__ == "__main__":
-    main()
 

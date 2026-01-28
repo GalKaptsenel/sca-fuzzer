@@ -3,11 +3,32 @@
 #include <stdint.h>
 
 static PyObject *tage_instance = NULL;
+static int python_initialized = 0;
+
+int python_init() {
+    if (!python_initialized) {
+        Py_Initialize();
+        if (!Py_IsInitialized()) {
+            fprintf(stderr, "Failed to initialize Python\n");
+            return -1;
+        }
+        python_initialized = 1;
+    }
+    return 0;
+}
 
 int tagebp_init(const char *module_dir, const char *module_name,
 		int num_state_bits, int init_state_val, int num_base_entries) {
 
-	Py_Initialize();
+	if (!python_initialized) {
+		if (python_init() != 0) return -1;
+	}
+
+	// If a previous instance exists, release it
+	if (tage_instance) {
+		Py_DECREF(tage_instance);
+		tage_instance = NULL;
+	}
 
 	// Add module_dir to sys.path
 	PyObject *sys_path = PySys_GetObject("path"); // Borrowed reference
@@ -83,12 +104,32 @@ void tagebp_update(uintptr_t address, int taken) {
 	}
 }
 
-void tagebp_finalize() {
-	if (tage_instance) {
-		Py_DECREF(tage_instance);
-		tage_instance = NULL;
-	}
-	Py_Finalize();
+void tagebp_destroy_instance() {
+	fprintf(stderr, "In tagebp destroy instance start\n");
+    if (tage_instance) {
+	fprintf(stderr, "In tagebp destroy instance tage_isntance DECREF\n");
+        Py_DECREF(tage_instance);
+	fprintf(stderr, "In tagebp destroy instance tage_isntance DECREF - finished\n");
+        tage_instance = NULL;
+    }
+	fprintf(stderr, "In tagebp destroy instance end\n");
 }
 
+void python_finalize() {
+    // Destroy any remaining instance
+    tagebp_destroy_instance();
+
+    if (python_initialized) {
+        // Optional: remove module from sys.modules to reduce hanging
+        PyObject *modules = PyImport_GetModuleDict();
+        if (modules) {
+            PyDict_DelItemString(modules, "bootstrap_director");
+        }
+
+	fprintf(stderr, "In python finilize calling Py_FinalizeEx()\n");
+        Py_FinalizeEx();
+	fprintf(stderr, "In python finilize out of Py_FinalizeEx()\n");
+        python_initialized = 0;
+    }
+}
 
