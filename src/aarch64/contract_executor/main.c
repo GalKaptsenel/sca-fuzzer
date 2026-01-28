@@ -41,8 +41,6 @@ int main(int argc, char** argv) {
 			goto main_input_free;
 		}
 	
-//		printf("Loaded test case (%zu bytes)\n", simulation.sim_code.code_size);
-	
 		if(RVZR_ARCH_AARCH64 == simulation.sim_input.hdr.arch) {
 			hook_aarch64_instructions(&simulation.sim_input, &simulation.sim_code, base_hook, base_hook_size);
 		} else {
@@ -89,8 +87,6 @@ int main(int argc, char** argv) {
 				"r"(regs_blob[8])
 				: "x9", "x29", "memory", "cc", "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8", "x10", "x30"
 			);
-		fprintf(stderr, "Finished");	
-		break;
 	}
 
 

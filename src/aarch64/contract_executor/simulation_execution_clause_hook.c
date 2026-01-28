@@ -151,16 +151,13 @@ static void reload_checkpoint(struct simulation_state* sim_state, uint64_t check
 }
 
 static void initialize_director() {
-	fprintf(stderr, "[LOG] init director\n");
 	if(0 != tagebp_init("src/aarch64/contract_executor", "bootstrap_director", 2, 4, 4096)) {
 		__builtin_trap(); // sanity check
 	}
 }
 
 static void destroy_director() {
-	fprintf(stderr, "[LOG] destroy director instance\n");
 	tagebp_destroy_instance();
-	fprintf(stderr, "[LOG] destroy director instance finished\n");
 }
 
 static uintptr_t director_predict(uintptr_t pc) {
@@ -258,7 +255,6 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 	mgmt.stack[mgmt.stack_top].reserved = 0;
 	++mgmt.stack_top;
 
-	fprintf(stderr, "[LOG] returning from hook\n");
 	return (void*)evaluate_cond_branch_not_taken(&sim_state->cpu_state);
 }
 

@@ -6,15 +6,15 @@ static PyObject *tage_instance = NULL;
 static int python_initialized = 0;
 
 int python_init() {
-    if (!python_initialized) {
-        Py_Initialize();
-        if (!Py_IsInitialized()) {
-            fprintf(stderr, "Failed to initialize Python\n");
-            return -1;
-        }
-        python_initialized = 1;
-    }
-    return 0;
+	if (!python_initialized) {
+		Py_Initialize();
+		if (!Py_IsInitialized()) {
+			fprintf(stderr, "Failed to initialize Python\n");
+			return -1;
+		}
+		python_initialized = 1;
+	}
+	return 0;
 }
 
 int tagebp_init(const char *module_dir, const char *module_name,
@@ -105,14 +105,10 @@ void tagebp_update(uintptr_t address, int taken) {
 }
 
 void tagebp_destroy_instance() {
-	fprintf(stderr, "In tagebp destroy instance start\n");
-    if (tage_instance) {
-	fprintf(stderr, "In tagebp destroy instance tage_isntance DECREF\n");
-        Py_DECREF(tage_instance);
-	fprintf(stderr, "In tagebp destroy instance tage_isntance DECREF - finished\n");
-        tage_instance = NULL;
-    }
-	fprintf(stderr, "In tagebp destroy instance end\n");
+	if (tage_instance) {
+		Py_DECREF(tage_instance);
+		tage_instance = NULL;
+	}
 }
 
 void python_finalize() {
@@ -120,15 +116,12 @@ void python_finalize() {
     tagebp_destroy_instance();
 
     if (python_initialized) {
-        // Optional: remove module from sys.modules to reduce hanging
         PyObject *modules = PyImport_GetModuleDict();
         if (modules) {
             PyDict_DelItemString(modules, "bootstrap_director");
         }
 
-	fprintf(stderr, "In python finilize calling Py_FinalizeEx()\n");
         Py_FinalizeEx();
-	fprintf(stderr, "In python finilize out of Py_FinalizeEx()\n");
         python_initialized = 0;
     }
 }

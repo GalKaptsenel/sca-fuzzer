@@ -22,7 +22,6 @@ static inline uint32_t ring_free(struct ring* r) {
 
 void ring_write(void* shm_base, struct ring* r, const void* src, uint32_t len) {
 	while (ring_free(r) < len) {
-        	fprintf(stderr, "[C] ring write loop\n");
 		uint32_t tail_val = atomic_load_explicit(&r->tail, memory_order_acquire);
 		futex_wait((uint32_t*)&r->tail, tail_val);  // sleep until space
 	}
@@ -45,7 +44,6 @@ void ring_write(void* shm_base, struct ring* r, const void* src, uint32_t len) {
 
 void ring_read(void* shm_base, struct ring* r, void* dst, uint32_t len) {
 	while (ring_used(r) < len) {
-        	fprintf(stderr, "[C] ring read loop\n");
 		uint32_t head_val = atomic_load_explicit(&r->head, memory_order_acquire);
 		futex_wait((uint32_t*)&r->head, head_val);  // sleep until enough data
 	}
@@ -68,7 +66,6 @@ void ring_read(void* shm_base, struct ring* r, void* dst, uint32_t len) {
 }
 
 void ring_send(void* shm_base, struct ring* r, uint32_t msg_type, const uint8_t* payload, uint32_t payload_len) {
-	fprintf(stderr, "rind_send start\n");
 	struct header header = { 0 };
 
 	if (sizeof(header) + payload_len > r->size) {
@@ -78,27 +75,18 @@ void ring_send(void* shm_base, struct ring* r, uint32_t msg_type, const uint8_t*
 
 	header.length = payload_len;
 	header.type = msg_type;
-	fprintf(stderr, "rind_send send header\n");
 	ring_write(shm_base, r, &header, sizeof(header));
-	fprintf(stderr, "rind_send send payload\n");
 	ring_write(shm_base, r, payload, payload_len);
-	fprintf(stderr, "rind_send end\n");
 }
 
 void ring_recv(void* shm_base, struct ring* r, uint32_t* msg_type, uint8_t* payload, uint32_t* payload_len) {
-	fprintf(stderr, "rind_recv start\n");
 	struct header header = { 0 };
-	fprintf(stderr, "rind_recv read header\n");
 	ring_read(shm_base, r, &header, sizeof(header));
 	*msg_type = header.type;
 	*payload_len = header.length;
 	if (0 < *payload_len) {
-		fprintf(stderr, "rind_recv read payload\n");
 		ring_read(shm_base, r, payload, *payload_len);
-	} else {
-		fprintf(stderr, "rind_recv no payload\n");
 	}
-	fprintf(stderr, "rind_recv end\n");
 }
 
 static const size_t shm_total_size = sizeof(struct shm_region) + REQ_RING_SIZE + RESP_RING_SIZE;

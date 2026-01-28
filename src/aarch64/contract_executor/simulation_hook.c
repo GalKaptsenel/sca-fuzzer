@@ -34,14 +34,7 @@ static void* inner_hook_aarch64_instructions(struct simulation_code* sc) {
 
 	size_t n_instructions = (sc->code_size / 4) + 1; // Add space for 1 additional instruction for our use (we would use this for  a default RET instruction at the end of the testcase)
 	
-//	if(MAX_INSTRUCTIONS < n_instructions) {
-//		fprintf(stderr, "Supports at most %ld instructions, got %ld\n", MAX_INSTRUCTIONS, n_instructions);
-//		return NULL;
-//	}
-
 	uint32_t* sim_code = (uint32_t*)sc->code;
-
-//	uint32_t* stub = sim_code + n_instructions;
 
 	void* hook = sim_code + n_instructions;
 
@@ -52,16 +45,8 @@ static void* inner_hook_aarch64_instructions(struct simulation_code* sc) {
 			return NULL;
 		}
 
-//		stub = emit_stub(pc, stub, holes + i);
 		sim_code[i] = bl;
 	}
-
-//	void* copied_hook_addr = stub;
-
-//	for (size_t i = 0; i < n_instructions; ++i) {
-//		*holes[i] = encode_b((uintptr_t)holes[i], (uintptr_t)copied_hook_addr);
-//		holes[i] = 0;
-//	}
 
 	__builtin___clear_cache((char*)sim_code, (char*)hook);
 	return hook;
@@ -102,7 +87,6 @@ bool out_of_simulation(struct cpu_state* state) {
 }
 
 void base_hook_c(struct cpu_state* state) {
-	fprintf(stderr, "entrting base c hook\n");
 	if (NULL == state) __builtin_trap();
 
 	struct simulation_state sim_state = { 0 };
@@ -136,18 +120,13 @@ void base_hook_c(struct cpu_state* state) {
 	state->lr = current_ret_address;
 
 	if(!out_of_simulation(state)) {
-		fprintf(stderr, "inside simulation, changing at %p from %x ", (void*)state->pc, *(uint32_t*)state->pc);
 		*((uint32_t*)state->pc) = pc_to_orig_instruction(state->pc); // Fix the hooked instruction
-		fprintf(stderr, "to %x\n", *(uint32_t*)state->pc);
 
 	} else {
-		fprintf(stderr, "out of simulation, changing at %p from %x ", (void*)state->pc, *(uint32_t*)state->pc);
 		*((uint32_t*)state->pc) = 0xd65f03c0; // Manually insert RET
-		fprintf(stderr, "to %x\n", *(uint32_t*)state->pc);
 	}
 
 	__builtin___clear_cache((char*)state->pc, (char*)state->pc + 4);
-	fprintf(stderr, "returning from base c hook to %p\n", (void*)state->lr);
 }
 
 void* stdout_print_hook(struct simulation_state* sim_state) {
@@ -204,10 +183,8 @@ void* stdout_print_hook(struct simulation_state* sim_state) {
 void* handle_ret_hook(struct simulation_state* sim_state) {
 	if(NULL == sim_state) return NULL;
 	if(0xd65f03c0 == *(uint32_t*)sim_state->cpu_state.pc) { // Identify RET
-		fprintf(stderr, "Found RET\n");
 	       	return (void*)sim_state->cpu_state.lr;
 	}
-	fprintf(stderr, "NOT Found RET\n");
 	return NULL;
 }
 

@@ -137,7 +137,7 @@ int simulation_input_load_shm(struct shm_region* shm, struct simulation_input* s
 
 
 	if (0 > simulation_input_validate_header(&sim_input->hdr)) {
-		fprintf(stderr, "[C] Input validation failed!\n");
+		fprintf(stderr, "Input validation failed!\n");
 		ret = -1;
 		goto load_shm_fail;
 	}
@@ -146,7 +146,6 @@ int simulation_input_load_shm(struct shm_region* shm, struct simulation_input* s
 		sim_input->code = malloc(sim_input->hdr.code_size);
 		if (NULL == sim_input->code) {
 			ret = -1;
-			fprintf(stderr, "[C] failed malloc code!\n");
 			goto load_shm_fail;
 		}
 
@@ -157,7 +156,6 @@ int simulation_input_load_shm(struct shm_region* shm, struct simulation_input* s
 	if (sim_input->hdr.flags & RVZR_FLAG_HAS_MEMORY) {
 		sim_input->memory = malloc(sim_input->hdr.mem_size);
 		if (NULL == sim_input->memory) {
-			fprintf(stderr, "[C] failed malloc memory!\n");
 			ret = -1;
 			goto load_shm_fail;
 		}
@@ -169,7 +167,6 @@ int simulation_input_load_shm(struct shm_region* shm, struct simulation_input* s
 	if (sim_input->hdr.flags & RVZR_FLAG_HAS_REGS) {
 		sim_input->regs = malloc(sim_input->hdr.regs_size);
 		if (NULL == sim_input->regs) {
-			fprintf(stderr, "[C] failed malloc regs!\n");
 			ret = -1;
 			goto load_shm_fail;
 		}
