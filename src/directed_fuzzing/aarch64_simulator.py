@@ -251,7 +251,7 @@ class UnicornArchSimulator(ArchSimulatorInterface):
 
 
         instr_addr = self._uc.reg_read(UC_ARM64_REG_PC)
-        print(f'Running {instr.to_asm_string()} at address 0x{instr_addr:X}')
+#        print(f'Running {instr.to_asm_string()} at address 0x{instr_addr:X}')
         # lazy concretization
         initialize_memory = False
         for op in instr.get_src_operands(include_implicit=True):
