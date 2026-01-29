@@ -1899,13 +1899,8 @@ class Aarch64LocalExecutor(Aarch64Executor):
         patched = copy.deepcopy(self.test_case)
         pass_on_test_case(patched, [Aarch64SandboxPass()])
 
-        printer = Aarch64Printer(self.target_desc)
-        patched.bin_path, patched.asm_path, patched.obj_path = (f'sandboxed_test_case.{suffix}' for suffix in ('bin', 'asm', 'o'))
-        printer.print(patched, patched.asm_path)
-        ConfigurableGenerator.assemble(patched.asm_path, patched.obj_path, patched.bin_path)
-        with open(patched.bin_path, "rb") as f:
-            tc_bytes = f.read()
-
+        assembly = Aarch64Printer(self.target_desc).print(patched)
+        tc_bytes = ConfigurableGenerator.in_memory_assemble(assembly)
         sandbox_base, code_base = self.read_base_addresses()
 
         executor = ContractExecutorService("/home/gal_k_1_1998/revizor/sca-fuzzer/src/aarch64/contract_executor/contract_executor")

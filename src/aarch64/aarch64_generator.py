@@ -1205,34 +1205,45 @@ class Aarch64Printer(Printer):
     def __init__(self, _: Aarch64TargetDesc) -> None:
         super().__init__()
 
-    def print(self, test_case: TestCase, outfile: str) -> None:
-        with open(outfile, "w") as f:
-            # print prologue
-            for line in self.prologue_template:
-                f.write(line)
+    def print(self, test_case: TestCase, outfile: str = None) -> str:
+        data = ""
+        # print prologue
+        for line in self.prologue_template:
+            data += line
 
-            # print the test case
-            for func in test_case.functions:
-                self.print_function(func, f)
+        # print the test case
+        for func in test_case.functions:
+            data += self.print_function(func)
 
-            # print epilogue
-            for line in self.epilogue_template:
-                f.write(line)
+        # print epilogue
+        for line in self.epilogue_template:
+            data += line
 
-    def print_function(self, func: Function, file):
-        file.write(f".section .data.{func.owner.name}\n")
-        file.write(f"{func.name}:\n")
+        if outfile is not None:
+            with open(outfile, "w") as f:
+                f.write(data)
+
+        return data
+
+
+    def print_function(self, func: Function) -> str:
+        data = ""
+        data += f".section .data.{func.owner.name}\n"
+        data += f"{func.name}:\n"
         for bb in func:
-            self.print_basic_block(bb, file)
+            data += self.print_basic_block(bb)
 
-        self.print_basic_block(func.exit, file)
+        data += self.print_basic_block(func.exit)
+        return data
 
-    def print_basic_block(self, bb: BasicBlock, file):
-        file.write(f"{bb.name.lower()}:\n")
+    def print_basic_block(self, bb: BasicBlock) -> str:
+        data = ""
+        data += f"{bb.name.lower()}:\n"
         for inst in bb:
-            file.write(self.instruction_to_str(inst) + "\n")
+            data += self.instruction_to_str(inst) + "\n"
         for inst in bb.terminators:
-            file.write(self.instruction_to_str(inst) + "\n")
+            data += self.instruction_to_str(inst) + "\n"
+        return data
 
     def instruction_to_str(self, inst: Instruction):
         if inst.name == "macro":

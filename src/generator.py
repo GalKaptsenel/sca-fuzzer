@@ -10,7 +10,7 @@ import random
 import abc
 import re
 from typing import List, Tuple, Optional
-from subprocess import CalledProcessError, run
+from subprocess import CalledProcessError, run, Popen, PIPE
 from copy import deepcopy
 
 from .isa_loader import InstructionSet
@@ -174,6 +174,26 @@ class ConfigurableGenerator(Generator, abc.ABC):
         self.test_case.symbol_table = []
         self.get_elf_data(self.test_case, obj_file)
         return test_case
+
+    @staticmethod
+    def in_memory_assemble(asm: str) -> bytes:
+        if not asm.endswith('\n'):
+            asm += '\n'
+
+        p = Popen(
+                ["/home/gal_k_1_1998/revizor/sca-fuzzer/src/aarch64/contract_executor/asm_to_bytes"],
+                stdin=PIPE,
+                stdout=PIPE,
+                stderr=PIPE,
+                text=False,
+        )
+
+        machine_code, err = p.communicate(asm.encode("ascii"))
+
+        if p.returncode != 0:
+            raise RuntimeError(f"asm_to_bytes failed:\n{err.decode()}")
+
+        return machine_code
 
     @staticmethod
     def assemble(asm_file: str, obj_file: str, bin_file: str) -> None:
