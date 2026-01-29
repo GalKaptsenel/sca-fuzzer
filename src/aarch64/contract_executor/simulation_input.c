@@ -16,10 +16,6 @@ static int read_full(int fd, void* buf, size_t size) {
 	return 0;
 }
 
-/* ============================
- * Validation
- * ============================ */
-
 int simulation_input_validate_header(const struct input_header* hdr) {
 	if (NULL == hdr) return -1;
 	
@@ -53,10 +49,6 @@ size_t simulation_input_payload_size(const struct input_header* hdr) {
 	if(NULL == hdr) return 0;
 	return hdr->code_size + hdr->mem_size + hdr->regs_size;
 }
-
-/* ============================
- * Loader
- * ============================ */
 
 int simulation_input_load_fd(int fd, struct simulation_input* sim_input) {
 	memset(sim_input, 0, sizeof(*sim_input));

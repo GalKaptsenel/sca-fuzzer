@@ -15,6 +15,7 @@ SRCS = \
   simulation_code.c \
   simulation_hook.c \
   simulation_input.c \
+  simulation_output.c \
   simulation.c \
   simulation_execution_clause_hook.c \
   stream_ipc.c \
