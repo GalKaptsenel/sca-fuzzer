@@ -1903,6 +1903,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
         tc_bytes = ConfigurableGenerator.in_memory_assemble(assembly)
         sandbox_base, code_base = self.read_base_addresses()
 
+        traces: List[ContractExecutionResult] = []
         executor = ContractExecutorService("/home/gal_k_1_1998/revizor/sca-fuzzer/src/aarch64/contract_executor/contract_executor")
         executor.start("shm_gal")
         for i in inputs:
@@ -1912,7 +1913,9 @@ class Aarch64LocalExecutor(Aarch64Executor):
 
             execution = ContractExecution(tc_bytes, tc_memory, tc_regs, SimArch.RVZR_ARCH_AARCH64, 5, 10, req_code_base_virt=code_base,
                                       req_mem_base_virt=sandbox_base)
-            executor.run(execution)
+            traces.append(executor.run(execution))
+
+        import pdb; pdb.set_trace()
         executor.stop()
 
 #        self.local_executor.discard_all_inputs()

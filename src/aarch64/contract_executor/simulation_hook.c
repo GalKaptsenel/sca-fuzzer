@@ -83,7 +83,7 @@ static inline uint32_t pc_to_orig_instruction(uintptr_t pc) {
 
 bool out_of_simulation(struct cpu_state* state) {
 	if(NULL == state) __builtin_trap(); // sanity_check
-	return state->pc - (uintptr_t)simulation.sim_code.code >= simulation.sim_input.hdr.code_size;
+	return (state->pc - (uintptr_t)simulation.sim_code.code) >= simulation.sim_input.hdr.code_size;
 }
 
 void base_hook_c(struct cpu_state* state) {

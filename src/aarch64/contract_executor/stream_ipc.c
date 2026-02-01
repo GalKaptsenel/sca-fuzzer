@@ -67,11 +67,15 @@ void ring_read(void* shm_base, struct ring* r, void* dst, uint32_t len) {
 
 void ring_send(void* shm_base, struct ring* r, uint32_t msg_type, const uint8_t* payload, uint32_t payload_len) {
 	struct header header = { 0 };
+	fprintf(stderr, "[C] ring_send!\n");
 
 	if (sizeof(header) + payload_len > r->size) {
 		fprintf(stderr, "Payload+header too big!\n");
+		while(1);
 		exit(1);
 	}
+
+	fprintf(stderr, "[C] sending %d type msg of length %d!\n", msg_type, payload_len);
 
 	header.length = payload_len;
 	header.type = msg_type;

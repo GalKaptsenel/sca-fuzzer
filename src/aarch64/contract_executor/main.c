@@ -1,5 +1,6 @@
 #include "main.h"
 #include "simulation.h"
+#include "simulation_output.h"
 #include "simulation_execution_clause_hook.h"
 #include "tage_py.h"
 
@@ -10,6 +11,7 @@ extern uint64_t base_hook_c_target;
 simulation_hook_fn hooks_to_install[] = {
 	execution_clause_hook,
 	stdout_print_hook,
+	log_instr_hook,
 	handle_ret_hook,
 };
 
@@ -87,6 +89,9 @@ int main(int argc, char** argv) {
 				"r"(regs_blob[8])
 				: "x9", "x29", "memory", "cc", "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8", "x10", "x30"
 			);
+		fprintf(stderr,"Finished -> sending trace log\n");
+		destroy_trace_log(shm);
+		fprintf(stderr,"Finished\n");
 	}
 
 

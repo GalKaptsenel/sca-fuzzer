@@ -14,7 +14,6 @@
 #include "common_msg_constants.h"
 
 #define NUM_GPRS 31
-#define EXTRA_DATA_SIZE 128
 
 typedef struct {
 	uint64_t effective_address;		// effective memory address
@@ -32,7 +31,7 @@ typedef struct {
 	uint64_t encoding;		// Upper bits are 0 for aarch64
 	mem_access_t mem_access;
 	size_t extra_data_size;
-	uint8_t* extra_data;		// dynamic array of size extra_data_size
+	// dynamic array of size extra_data_size
 } cpu_state_t;
 
 typedef struct {
@@ -45,11 +44,11 @@ typedef struct {
 } instr_trace_entry_t;
 
 typedef struct {
-    size_t entry_count;
-    instr_trace_entry_t *entries;	// dynamic array of trace entries
+	size_t entry_count;
+	// dynamic array of trace entries
 } contract_trace_t;
 
 void init_trace_log(size_t test_size);
 void* log_instr_hook(struct simulation_state* sim_state);
-void destroy_trace_log();
+void destroy_trace_log(struct shm_region* shm);
 #endif // SIMULATION_OUTPUT_H

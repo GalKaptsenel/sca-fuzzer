@@ -1,5 +1,6 @@
 import subprocess
 import tempfile
+import struct
 from pathlib import Path
 from typing import Optional
 from dataclasses import dataclass, field
@@ -114,9 +115,83 @@ class ContractExecution:
 
         return bytes(data)
 
+U64 = struct.Struct("<Q")
+SIZE_T = struct.Struct("<Q")   # size_t = 8
+
+class MemAccess:
+    _STRUCT = struct.Struct("<QQQQQ")
+
+    def __init__(self, buf: memoryview, offset: int):
+        (self.effective_address,
+        self.before,
+        self.after,
+        self.element_size,
+        self.is_write) = self._STRUCT.unpack_from(buf, offset)
+
+        self.size = self._STRUCT.size
+
+
+class CPUState:
+    def __init__(self, buf: memoryview, offset: int, num_gprs: int):
+        self._buf = buf
+        self._base = offset
+
+        off = offset
+
+        # gprs
+        self.gpr = list(struct.unpack_from(
+            f"<{num_gprs}Q", buf, off
+        ))
+        off += U64.size * num_gprs
+
+        self.sp, = U64.unpack_from(buf, off); off += U64.size
+        self.pc, = U64.unpack_from(buf, off); off += U64.size
+        self.nzcv, = U64.unpack_from(buf, off); off += U64.size
+        self.encoding, = U64.unpack_from(buf, off); off += U64.size
+
+        self.mem_access = MemAccess(buf, off)
+        off += self.mem_access.size
+
+        self.extra_data_size, = SIZE_T.unpack_from(buf, off); off += SIZE_T.size
+
+        self.extra_data = buf[off:off + self.extra_data_size]
+        off += self.extra_data_size
+
+        self.size = off - offset
+
+class InstrMetadata:
+    _STRUCT = struct.Struct("<Q")
+
+    def __init__(self, buf: memoryview, offset: int):
+        (self.instr_index,) = self._STRUCT.unpack_from(buf, offset)
+        self.size = self._STRUCT.size
+
+class InstrTraceEntry:
+    def __init__(self, buf: memoryview, offset: int, num_gprs: int):
+        self.cpu = CPUState(buf, offset, num_gprs)
+        off = offset + self.cpu.size
+
+        self.meta = InstrMetadata(buf, off)
+        off += self.meta.size
+
+        self.size = off - offset
+
 class ContractExecutionResult:
-    def decode(self) -> bytes:
-        pass
+    def __init__(self, blob: bytes, num_gprs: int):
+        self._buf = memoryview(blob)
+
+        off = 0
+        self.entry_count, = SIZE_T.unpack_from(self._buf, off)
+        off += SIZE_T.size
+
+        self.entries = []
+        for _ in range(self.entry_count):
+            entry = InstrTraceEntry(self._buf, off, num_gprs)
+            self.entries.append(entry)
+            off += entry.size
+
+        self.size = off
+
 
 class ContractExecutorService:
     def __init__(self, binary: Path):
@@ -172,6 +247,7 @@ class ContractExecutorService:
         data = execution.encode()
         self._req_ring.send(data, 1)
         msg_type, reply = self._resp_ring.recv()
-        return ContractExecutionResult(reply)
+        assert msg_type == 2
+        return ContractExecutionResult(reply, 31) # NUM GPRS of aarch64 is 31 (x0 to x30)
 
 
