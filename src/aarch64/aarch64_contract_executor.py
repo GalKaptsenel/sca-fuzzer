@@ -66,24 +66,24 @@ class ContractExecution:
         config_flags = ConfigFlags.CONFIG_FLAG_NONE
 
         req_code_base_phys = 0
-#        if self.req_code_base_phys is not None:
-#            req_code_base_phys = self.req_code_base_phys
-#            config_flags |= ConfigFlags.CONFIG_FLAG_REQ_CODE_BASE_PHYS
-#
+        if self.req_code_base_phys is not None:
+            req_code_base_phys = self.req_code_base_phys
+            config_flags |= ConfigFlags.CONFIG_FLAG_REQ_CODE_BASE_PHYS
+
         req_code_base_virt = 0
-#        if self.req_code_base_virt is not None:
-#            req_code_base_virt = self.req_code_base_virt
-#            config_flags |= ConfigFlags.CONFIG_FLAG_REQ_CODE_BASE_VIRT
-#
+        if self.req_code_base_virt is not None:
+            req_code_base_virt = self.req_code_base_virt
+            config_flags |= ConfigFlags.CONFIG_FLAG_REQ_CODE_BASE_VIRT
+
         req_mem_base_phys = 0
-#        if self.req_mem_base_phys is not None:
-#            req_mem_base_phys = self.req_mem_base_phys
-#            config_flags |= ConfigFlags.CONFIG_FLAG_REQ_MEM_BASE_PHYS
-#
+        if self.req_mem_base_phys is not None:
+            req_mem_base_phys = self.req_mem_base_phys
+            config_flags |= ConfigFlags.CONFIG_FLAG_REQ_MEM_BASE_PHYS
+
         req_mem_base_virt = 0
-#        if self.req_mem_base_virt is not None:
-#            req_mem_base_virt = self.req_mem_base_virt
-#            config_flags |= ConfigFlags.CONFIG_FLAG_REQ_MEM_BASE_VIRT
+        if self.req_mem_base_virt is not None:
+            req_mem_base_virt = self.req_mem_base_virt
+            config_flags |= ConfigFlags.CONFIG_FLAG_REQ_MEM_BASE_VIRT
 
         code_size: int = len(self.machine_code)
         mem_size: int = len(self.memory)
@@ -149,9 +149,6 @@ class CPUState:
         self.nzcv, = U64.unpack_from(buf, off); off += U64.size
         self.encoding, = U64.unpack_from(buf, off); off += U64.size
 
-        self.mem_access = MemAccess(buf, off)
-        off += self.mem_access.size
-
         self.extra_data_size, = SIZE_T.unpack_from(buf, off); off += SIZE_T.size
 
         self.extra_data = buf[off:off + self.extra_data_size]
@@ -160,19 +157,27 @@ class CPUState:
         self.size = off - offset
 
 class InstrMetadata:
-    _STRUCT = struct.Struct("<Q")
+    _STRUCT = struct.Struct("<QQ")
 
     def __init__(self, buf: memoryview, offset: int):
-        (self.instr_index,) = self._STRUCT.unpack_from(buf, offset)
-        self.size = self._STRUCT.size
+        off = offset
+
+        (self.instr_index, self.has_memory_access) = self._STRUCT.unpack_from(buf, offset)
+        off += self._STRUCT.size
+
+        self.memory_access = MemAccess(buf, off)
+        off += self.memory_access.size
+
+
+        self.size = off - offset
 
 class InstrTraceEntry:
     def __init__(self, buf: memoryview, offset: int, num_gprs: int):
         self.cpu = CPUState(buf, offset, num_gprs)
         off = offset + self.cpu.size
 
-        self.meta = InstrMetadata(buf, off)
-        off += self.meta.size
+        self.metadata = InstrMetadata(buf, off)
+        off += self.metadata.size
 
         self.size = off - offset
 
@@ -191,6 +196,19 @@ class ContractExecutionResult:
             off += entry.size
 
         self.size = off
+
+    def __len__(self) -> int:
+        return self.entry_count
+
+    def __iter__(self) -> InstrTraceEntry:
+        for i in range(self.entry_count):
+            yield self[i]
+
+    def __getitem__(self, idx) -> InstrTraceEntry:
+        if not (0 <= idx < self.entry_count):
+            raise IndexError(idx)
+
+        return self.entries[idx]
 
 
 class ContractExecutorService:

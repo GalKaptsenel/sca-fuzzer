@@ -16,9 +16,11 @@ import warnings
 import base64
 import shlex
 
+import time # TODO: temporary!
+
 import numpy as np
 import time
-from typing import List, Tuple, Set, Generator, Optional, Any, Dict, Iterable, Callable, Protocol, runtime_checkable, Type
+from typing import List, Union, Tuple, Set, Generator, Optional, Any, Dict, Iterable, Callable, Protocol, runtime_checkable, Type
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from collections import defaultdict, OrderedDict, deque
@@ -26,6 +28,9 @@ from enum import Enum, auto
 from contextlib import contextmanager
 from pathlib import Path
 
+
+from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM, CS_AC_READ, CS_AC_WRITE
+from capstone.arm64 import ARM64_OP_REG, ARM64_OP_MEM
 
 from .aarch64_generator import Aarch64TagMemoryAccesses, Aarch64Printer, Aarch64MarkMemoryAccessesNEON, Aarch64SandboxPass, Aarch64SpecContractPass, Aarch64MarkRegisterTaints, Aarch64MarkMemoryTaints, Aarch64FullTrace, FullTraceAuxBuffer, BitmapTaintsAuxBuffer
 from .. import ConfigurableGenerator
@@ -1882,7 +1887,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
         return input_taint, ctrace
 
 
-    def trace_test_case_with_taints(self, inputs: List[Input], nesting: int) -> Tuple[List[CTrace], List[InputTaint], List[FullTraceAuxBuffer], List[BitmapTaintsAuxBuffer]]:
+    def trace_test_case_with_taints(self, inputs: List[Input], nesting: int) -> Tuple[List[CTrace], List[InputTaint]]:
         """
         Call the executor kernel module to collect the hardware traces for
         the test case (previously loaded with `load_test_case`) and the given inputs.
@@ -1903,66 +1908,143 @@ class Aarch64LocalExecutor(Aarch64Executor):
         tc_bytes = ConfigurableGenerator.in_memory_assemble(assembly)
         sandbox_base, code_base = self.read_base_addresses()
 
-        traces: List[ContractExecutionResult] = []
+        traces: OrderedDict[Input, ContractExecutionResult] = OrderedDict()
         executor = ContractExecutorService("/home/gal_k_1_1998/revizor/sca-fuzzer/src/aarch64/contract_executor/contract_executor")
         executor.start("shm_gal")
         for i in inputs:
+            time.sleep(0.1)
             data = i.tobytes()
             tc_memory = data[:0x2000]
             tc_regs = data[0x2000:]
 
             execution = ContractExecution(tc_bytes, tc_memory, tc_regs, SimArch.RVZR_ARCH_AARCH64, 5, 10, req_code_base_virt=code_base,
                                       req_mem_base_virt=sandbox_base)
-            traces.append(executor.run(execution))
+            traces[i] = executor.run(execution)
 
-        import pdb; pdb.set_trace()
         executor.stop()
 
-#        self.local_executor.discard_all_inputs()
-#
-#        input_to_iid = {}
-#        for i in inputs:
-#            input_to_iid[i] = self.local_executor.allocate_iid()
-#            self.local_executor.checkout_region(InputRegion(input_to_iid[i]))
-#            self.local_executor.write(ExecutorMemory(i.tobytes()))
-#
-#
-#        sandbox_base, _ = self.read_base_addresses()
-##        self._write_mod_test_case_to_local_executor("generated_taint_tracker", [Aarch64MarkRegisterTaints(), Aarch64SandboxPass(), Aarch64MarkMemoryTaints(), Aarch64SpecContractPass(sandbox_memory_address=sandbox_base, sandbox_memory_size=4096*2, speculation_nesting=CONF.model_max_nesting)])
-#        self._write_mod_test_case_to_local_executor("generated_taint_tracker", [Aarch64MarkRegisterTaints(), Aarch64SandboxPass(), Aarch64MarkMemoryTaints()])
-#
-#        input_to_taints_buffer: OrderedDict[Input, BitmapTaintsAuxBuffer] = OrderedDict()
-#
-#        self.local_executor.trace()
-#        for i in inputs:
-#            self.local_executor.checkout_region(InputRegion(input_to_iid[i]))
-#            input_to_taints_buffer[i] = aux_buffer_from_bytes(AuxBufferType.BITMAP_TAINTS, self.local_executor.aux_buffer)
-##        self._write_mod_test_case_to_local_executor("generated_full_trace_tracker_arch", [Aarch64SandboxPass(), Aarch64FullTrace()])
-#
-#        input_to_full_trace_buffer: OrderedDict[Input, FullTraceAuxBuffer] = OrderedDict()
-#
-##        self.local_executor.trace()
-##        for i in inputs:
-##            self.local_executor.checkout_region(InputRegion(input_to_iid[i]))
-##            input_to_full_trace_buffer[i] = aux_buffer_from_bytes(AuxBufferType.FULL_TRACE, self.local_executor.aux_buffer)
-#
-##        self._write_mod_test_case_to_local_executor("generated_full_trace_tracker_spec", [Aarch64SandboxPass(), Aarch64FullTrace(), Aarch64SpecContractPass(sandbox_memory_address=sandbox_base, sandbox_memory_size=4096*2, speculation_nesting=CONF.model_max_nesting)])
-#        self._write_mod_test_case_to_local_executor("generated_full_trace_tracker", [Aarch64SandboxPass(), Aarch64FullTrace()])
-#        self.local_executor.trace()
-#        for i in inputs:
-#            self.local_executor.checkout_region(InputRegion(input_to_iid[i]))
-#            input_to_full_trace_buffer[i] = aux_buffer_from_bytes(AuxBufferType.FULL_TRACE, self.local_executor.aux_buffer)
-#
-#        taints, ctraces, full_traces, bitmaps = [], [], [], []
-#
-#        for i in inputs:
-#            taint, ctrace = self._process_input(i, input_to_taints_buffer[i], input_to_full_trace_buffer[i])
-#            taints.append(taint)
-#            ctraces.append(ctrace)
-#            full_traces.append(input_to_full_trace_buffer[i])
-#            bitmaps.append(input_to_taints_buffer[i])
-#
-        return ctraces, taints, full_traces, bitmaps
+        taints, ctraces = [], []
+
+        for i in inputs:
+            cer: ContractExecutionResult = traces[i]
+            if 0 == len(cer):
+                continue
+
+            NOT_ACCESSED, READ, WRITE = 0, 1, 2
+            access_table: defaultdict[int, int] = defaultdict(int) # NOT_ACCESSED  (0) is default value
+
+            for ite in cer:
+                if ite.metadata.has_memory_access:
+                    if ite.metadata.memory_access.is_write:
+                        access_type = WRITE
+                    else:
+                        access_type = READ
+
+
+                    for byte_idx in range(ite.metadata.memory_access.element_size):
+                        byte_address = ite.metadata.memory_access.effective_address + byte_idx
+                        if access_table[byte_address] == NOT_ACCESSED:
+                            access_table[byte_address] = access_type 
+                srcs, dests = disassemble_instruction_srcs_dests(ite.cpu.encoding, ite.cpu.pc)
+                import pdb; pdb.set_trace()
+
+                for src in srcs:
+                    pass
+
+                for dest in dests:
+                    pass
+
+            input_taint = InputTaint()
+            faulty_region_u8 = input_taint[0]["faulty"].view(np.uint8)
+            main_region_u8 = input_taint[0]["main"].view(np.uint8)
+            sandbox_base = cer[0].cpu.gpr[29]
+
+            for byte_address, access_type in access_table.items():
+                if access_type == READ:
+                    offset = byte_address - sandbox_base
+                    region = main_region_u8
+                    if offset >= main_region_u8.size:
+                        region = faulty_region_u8
+                        offset = offset - main_region_u8.size
+                    if 0 <= offset < region.size:
+                        region[offset] = True
+
+
+            line_size = 64
+            num_sets = 64
+            accessed_sets: List[int] = []
+            cache_sets = sorted(set(map(lambda addr: (addr // line_size) % num_sets, access_table.keys())))
+            ctrace = CTrace(raw_trace=cache_sets)
+
+            taints.append(input_taint)
+            ctraces.append(ctrace)
+
+        return ctraces, taints
+
+def disassemble_instruction_srcs_dests(encoding: int, pc: int) -> Union[List, List]:
+    FLAG_BITS = {"N", "Z", "C", "V"}
+
+    def cc_to_read_flags(cc: int):
+        cond_map = {
+                0: set(),
+                1: {"Z"},
+                2: {"Z"},
+                3: {"C"},
+                4: {"C"},
+                5: {"N"},
+                6: {"N"},
+                7: {"V"},
+                8: {"V"},
+                9: {"C", "Z"},
+                10: {"C"},
+                11: {"N", "V"},
+                12: {"N", "V"},
+                13: {"Z", "N", "V"},
+                14: {"Z"},
+                15: set(),
+                16: set(),
+        }
+        assert cc in cond_map
+        return cond_map[cc]
+
+    capstone_arm64 = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
+    capstone_arm64.detail = True
+
+    dest = set()
+    src = set()
+    try:
+        code_bytes = encoding.to_bytes(4, byteorder="little")
+        insns = list(capstone_arm64.disasm(code_bytes, pc))
+        assert insns and len(insns) == 1
+        insn = insns[0]
+        if insn.update_flags:
+            dest |= FLAG_BITS
+        if insn.cc is not None:
+            src |= cc_to_read_flags(insn.cc)
+
+        for op in insn.operands:
+            if op.type == ARM64_OP_REG:
+                reg = insn.reg_name(op.reg)
+                if op.access & CS_AC_WRITE:
+                    dest.add(reg)
+                if op.access & CS_AC_READ:
+                    src.add(reg)
+
+            elif op.type == ARM64_OP_MEM:
+                if op.mem.base != 0:
+                    src.add(insn.reg_name(op.mem.base))
+
+                if op.mem.index != 0:
+                    src.add(insn.reg_name(op.mem.index))
+
+
+        return sorted(src), sorted(dest)
+
+    except Exception as e:
+        import pdb; pdb.set_trace()
+        return f"<decode error: {e}>"
+
+
 
 
 def disassemble_instruction(encoding: int, pc: int):

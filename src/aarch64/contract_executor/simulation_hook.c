@@ -1,6 +1,10 @@
 #include "simulation_hook.h"
 #include "simulation.h"
 #include "simulation_execution_clause_hook.h"
+#include "instruction_encodings.h"
+
+#include "simulation_output.h"
+#define SCRATCH_REG 10
 
 //static uint32_t* emit_stub(uintptr_t src_pc, uint32_t* stub, uint32_t** hole) {
 //
@@ -28,6 +32,37 @@
 //
 //#define MAX_INSTRUCTIONS (4096UL)
 //static uint32_t* holes[MAX_INSTRUCTIONS] = { 0 };
+
+typedef struct {
+	void *addr;        // Address of the instruction or memory
+	uint32_t original; // Original instruction
+	uint8_t overriden_reg;
+} fixup_t;
+
+#define MAX_FIXUPS 1024
+static fixup_t fixups[MAX_FIXUPS] = { 0 };
+static size_t fixup_count = 0;
+
+static void revert_log_fixup(void) {
+	memset(fixups, 0, fixup_count * sizeof(fixups[0]));
+	fixup_count = 0;
+}
+static void log_fixup(void *addr, uint32_t original, uint8_t scratch) {
+	fprintf(stderr, "[FIXUP] at %p log original instruction 0x%x\n", addr, original);
+	if (fixup_count >= MAX_FIXUPS) return;
+	fixups[fixup_count].addr = addr;
+	fixups[fixup_count].original = original;
+	fixups[fixup_count].overriden_reg = scratch;
+	++fixup_count;
+}
+
+static void apply_fixups(struct cpu_state* state) {
+	for (size_t i = 0; i < fixup_count; ++i) {
+	       	*(uint64_t*)fixups[i].addr = fixups[i].original;
+		state->gpr[29-get_rn(fixups[i].original)] = (uintptr_t)uaddr2kaddr((void*)state->gpr[29-fixups[i].overriden_reg]);
+	}
+	revert_log_fixup();
+}
 
 static void* inner_hook_aarch64_instructions(struct simulation_code* sc) {
 	if(NULL == sc) return NULL;
@@ -87,7 +122,11 @@ bool out_of_simulation(struct cpu_state* state) {
 }
 
 void base_hook_c(struct cpu_state* state) {
+	fprintf(stderr, "base hook c start\n");
 	if (NULL == state) __builtin_trap();
+	fprintf(stderr, "base hook c before fixups\n");
+	apply_fixups(state);
+	fprintf(stderr, "base hook c after fixups\n");
 
 	struct simulation_state sim_state = { 0 };
 
@@ -126,7 +165,21 @@ void base_hook_c(struct cpu_state* state) {
 		*((uint32_t*)state->pc) = 0xd65f03c0; // Manually insert RET
 	}
 
+	fprintf(stderr, "base hook c check if memory\n");
+	if(is_memory_access(*(uint32_t*)state->pc)) {
+
+		fprintf(stderr, "base hook c is indeed memory\n");
+		uint32_t original_reg = get_rn(*(uint32_t*)state->pc);
+		state->gpr[29-SCRATCH_REG] = (uintptr_t)kaddr2uaddr((void*)state->gpr[29-original_reg]);
+		log_fixup((void*)state->pc, *(uint32_t*)state->pc, SCRATCH_REG);
+		fprintf(stderr, "[FIXUP] 0x%x --> ", *(uint32_t*)state->pc);
+		*(uint32_t*)state->pc = set_rn(*(uint32_t*)state->pc, SCRATCH_REG);
+		fprintf(stderr, "0x%x\n", *(uint32_t*)state->pc);
+		fprintf(stderr, "[FIXUP] x%d <-- X[%d] = %p\n", SCRATCH_REG, original_reg, kaddr2uaddr((void*)state->gpr[29-original_reg]));
+	}
+
 	__builtin___clear_cache((char*)state->pc, (char*)state->pc + 4);
+	fprintf(stderr, "base hook c flush instruction cache\n");
 }
 
 void* stdout_print_hook(struct simulation_state* sim_state) {

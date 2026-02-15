@@ -76,7 +76,7 @@ struct simulation_input {
  * ============================ */
 
 /* Load test case from file path */
-int simulation_input_load(const char* path, struct simulation_input* sim_input);
+int simulation_input_load_path(const char* path, struct simulation_input* sim_input);
 
 /* Load test case from file descriptor (supports stdin) */
 int simulation_input_load_fd(int fd, struct simulation_input* sim_input);

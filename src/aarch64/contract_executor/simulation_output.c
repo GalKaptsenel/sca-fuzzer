@@ -1,5 +1,8 @@
 #include "simulation.h"
 #include "simulation_output.h"
+#include <stdint.h>
+#include <stddef.h>
+#include <string.h>
 
 static contract_trace_t* trace_log = NULL;
 static size_t current_log_index = 0;
@@ -25,86 +28,6 @@ static inline void free_contract_trace(contract_trace_t* trace) {
 static inline uint64_t read_reg(const cpu_state_t *s, unsigned r) {
 	if (r == 31) return s->sp;
 	return s->gpr[r];
-}
-
-static inline int is_memory_access(uint32_t inst) {
-	return ((inst >> 25) & 0x7) == 0b100;
-}
-static inline int is_regular_load_store(uint32_t inst) {
-	return ((inst >> 27) & 0x7) == 0b111;
-}
-static inline int is_pair_load_store(uint32_t inst) {
-	return ((inst >> 27) & 0x7) == 0b101;
-}
-
-static inline int is_literal_pc_relative(uint32_t inst) {
-	return ((inst >> 27) & 0x7) == 0b011;
-}
-
-static inline uint64_t access_size(uint32_t inst) {
-	uint64_t size = ((inst >> 30) & 0x3);
-	return 1u << size;
-}
-static inline uint64_t pair_element_access_size(uint32_t inst) {
-	uint64_t size = ((inst >> 30) & 0x3);
-	if(0 == size) return 4;
-	if(2 == size) return 8;
-	__builtin_unreachable();
-}
-static inline uint64_t literal_pc_relative_access_size(uint32_t inst) {
-	uint64_t size = ((inst >> 30) & 0x3);
-	if(0 == size) return 4;
-	if(1 == size) return 8;
-	if(2 == size) return 8;
-	if(3 == size) return 0; // PRFM
-	__builtin_unreachable();
-}
-static inline int is_load(uint32_t inst) {
-	return (inst >> 22) & 0x1;
-}
-
-static inline int is_store(uint32_t inst) {
-	return !is_load(inst);
-}
-
-static inline int is_pre_index(uint32_t inst) {
-	return ((inst >> 24) & 0x3) == 0x0 && ((inst >> 10) & 0x3) == 0x3;
-}
-
-static inline int is_post_index(uint32_t inst) {
-	return ((inst >> 24) & 0x3) == 0x0 && ((inst >> 10) & 0x3) == 0x1;
-}
-
-static inline int is_reg_offset(uint32_t inst) {
-	return ((inst >> 24) & 0x3) == 0x0 && ((inst >> 10) & 0x3) == 0x2;
-}
-
-static inline int is_64bit_rm(uint32_t inst) {
-	if(!is_reg_offset(inst)) return 0;
-	return ((inst >> 13) & 0x1);
-}
-
-static inline int is_32bit_rm(uint32_t inst) {
-	if(!is_reg_offset(inst)) return 0;
-	return !is_64bit_rm(inst);
-}
-
-static inline int is_unsigned_offset(uint32_t inst) {
-	return ((inst >> 24) & 0x3) == 0x1;
-}
-
-static inline int is_pair_pre_index(uint32_t inst) {
-	return ((inst >> 23) & 0x7) == 0b011;
-}
-static inline int is_pair_post_index(uint32_t inst) {
-	return ((inst >> 23) & 0x7) == 0b001;
-}
-static inline int is_pair_signed_offset(uint32_t inst) {
-	return ((inst >> 23) & 0x7) == 0b010;
-}
-
-static inline int is_immidiate_offset(uint32_t inst) {
-	return is_pre_index(inst) || is_post_index(inst) || is_unsigned_offset(inst);
 }
 
 static uint64_t decode_imm9(uint32_t inst) {
@@ -134,46 +57,6 @@ static inline int64_t get_offset(uint32_t inst) {
 	}
 	__builtin_unreachable();
 }
-static uint32_t get_rm(uint32_t inst) {
-	return (inst >> 16) & 0x1F;
-}
-static uint32_t get_rn(uint32_t inst) {
-	return (inst >> 5) & 0x1F;
-}
-static uint32_t get_rt(uint32_t inst) {
-	return (inst) & 0x1F;
-}
-static uint32_t get_rt2(uint32_t inst) {
-	return (inst >> 10) & 0x1F;
-}
-
-typedef enum {
-	EXT_UXTB, EXT_UXTH, EXT_UXTW, EXT_UXTX,
-	EXT_SXTB, EXT_SXTH, EXT_SXTW, EXT_SXTX
-} extend_t;
-
-
-static extend_t decode_extend(uint32_t inst) {
-	switch(((inst >> 13) & 0x7)) {
-		case 0b000: return EXT_UXTB;
-		case 0b001: return EXT_UXTH;
-		case 0b010: return EXT_UXTW;
-		case 0b011: return EXT_UXTX;
-		case 0b100: return EXT_SXTB;
-		case 0b101: return EXT_SXTH;
-		case 0b110: return EXT_SXTW;
-		case 0b111: return EXT_SXTX;
-	}
-	__builtin_unreachable();
-}
-
-static size_t decode_amount_log2(uint32_t inst) {
-	if(((inst >> 12) & 0x1)) {
-		size_t size = ((inst >> 30) & 0x3);
-		return size;
-	}
-	return 0;
-}
 
 // TODO: Verify corrctness!
 static int64_t signextend(size_t orig_len, size_t dest_len, int64_t value) {
@@ -187,6 +70,25 @@ static int64_t signextend(size_t orig_len, size_t dest_len, int64_t value) {
 	fprintf(stderr, "signextend: after extension with %lx: %lx\n", extension, extension | value);
 	return extension | value;
 }
+
+void* kaddr2uaddr(void* kaddr) {
+	void* uaddr = kaddr;
+	if(CONFIG_FLAG_REQ_MEM_BASE_VIRT | simulation.sim_input.hdr.config.flags) {
+		uaddr = (char*)simulation.simulation_memory + ((uintptr_t)kaddr - simulation.sim_input.hdr.config.requested_mem_base_virt);
+	}
+	fprintf(stderr, "translation from kaddr to uaddr: %p --> %p\n", kaddr, uaddr);
+	return uaddr;
+}
+
+void* uaddr2kaddr(void* uaddr) {
+	void* kaddr = uaddr;
+	if(CONFIG_FLAG_REQ_MEM_BASE_VIRT | simulation.sim_input.hdr.config.flags) {
+		kaddr = (char*)simulation.sim_input.hdr.config.requested_mem_base_virt + ((uintptr_t)uaddr - (uintptr_t)simulation.simulation_memory);
+	}
+	fprintf(stderr, "translation from uaddr to kaddr: %p --> %p\n", uaddr, kaddr);
+	return kaddr;
+}
+
 
 // TODO: Verify corrctness!
 static uint64_t zeroextend(size_t orig_len, size_t dest_len, uint64_t value) {
@@ -384,7 +286,7 @@ void* log_instr_hook(struct simulation_state* sim_state) {
 
 	trace_log->entry_count = current_index; 
 	++current_log_index;
-	entry->meta.instr_index = current_index;
+	entry->metadata.instr_index = current_index;
 	entry->cpu.gpr[0] = sim_state->cpu_state.gprs.x0;
 	entry->cpu.gpr[1] = sim_state->cpu_state.gprs.x1;
 	entry->cpu.gpr[2] = sim_state->cpu_state.gprs.x2;
@@ -427,30 +329,34 @@ void* log_instr_hook(struct simulation_state* sim_state) {
 	uint32_t target_register = (uint32_t)-1;
 	uint32_t target_register2 = (uint32_t)-1;
 	int is_memory_access = parse_memory_access_instruction(entry->cpu.encoding, &entry->cpu,
-			&entry->cpu.mem_access.effective_address,
+			&entry->metadata.memory_access.effective_address,
 			&target_register,
 			NULL,
 			NULL,
 			&target_register2,
 			NULL,
-			(bool*)&entry->cpu.mem_access.is_write,
-			&entry->cpu.mem_access.element_size
+			(bool*)&entry->metadata.memory_access.is_write,
+			&entry->metadata.memory_access.element_size
 	);
 
 	fprintf(stderr, "[C] log_instr_hook:parse memory access finished\n");
 	fprintf(stderr, "[C] log_instr_hook:check if memory access\n");
+	entry->metadata.has_memory_access = is_memory_access ? 1 : 0;
+
 	if(is_memory_access) {
 		fprintf(stderr, "[C] log_instr_hook:it is memory access\n");
-		fprintf(stderr, "[C] log_instr_hook:parse memory access: target register %d, is_write: %ld, element_size: %ld, ea: %p\n", target_register, entry->cpu.mem_access.is_write, entry->cpu.mem_access.element_size, (void*)entry->cpu.mem_access.effective_address);
+		fprintf(stderr, "[C] log_instr_hook:parse memory access: target register %d, is_write: %ld, element_size: %ld, ea: %p\n", target_register, entry->metadata.memory_access.is_write, entry->metadata.memory_access.element_size, (void*)entry->metadata.memory_access.effective_address);
 		fprintf(stderr, "[C] log_instr_hook:check assert\n");
-		assert((uintptr_t)-1 != entry->cpu.mem_access.effective_address && "Effective address should have been set by parse_memory_access_instruction function");
+		assert((uintptr_t)-1 != entry->metadata.memory_access.effective_address && "Effective address should have been set by parse_memory_access_instruction function");
 		fprintf(stderr, "[C] log_instr_hook:passed assert\n");
 
-		fprintf(stderr, "[C] log_instr_hook: load value of effective address %p\n", (void*)entry->cpu.mem_access.effective_address);
-		uint64_t value_64bit = *(uint64_t*)entry->cpu.mem_access.effective_address;
-		fprintf(stderr, "[C] log_instr_hook: loaded value of effective address %p: %p \n", (void*)entry->cpu.mem_access.effective_address, (void*)value_64bit);
+		void* kaddr = (void*)entry->metadata.memory_access.effective_address;
+		fprintf(stderr, "[C] log_instr_hook: load value of effective address %p\n", kaddr);
+		void* uaddr = kaddr2uaddr(kaddr);
+		uint64_t value_64bit = *(uint64_t*)uaddr;
+		fprintf(stderr, "[C] log_instr_hook: loaded value of effective address [kernel: %p, user: %p]: %p \n", kaddr, uaddr, (void*)value_64bit);
 		uint64_t mask = 0;
-		switch(entry->cpu.mem_access.element_size) {
+		switch(entry->metadata.memory_access.element_size) {
 			case 1: mask = 0xFF; break;
 			case 2: mask = 0xFFFF; break;
 			case 4: mask = 0xFFFFFFFF; break;
@@ -465,18 +371,19 @@ void* log_instr_hook(struct simulation_state* sim_state) {
 		mask = 0xFFFFFFFFFFFFFFFF; // For now at least, force to log the entire 64 bits at this address
 		fprintf(stderr, "[C] log_instr_hook: modified to use mask of: %lx\n", mask);
 
-		entry->cpu.mem_access.before = value_64bit & mask;
-		entry->cpu.mem_access.after = entry->cpu.mem_access.before;
-		if(entry->cpu.mem_access.is_write) {
+		entry->metadata.memory_access.before = value_64bit & mask;
+
+		entry->metadata.memory_access.after = entry->metadata.memory_access.before;
+		if(entry->metadata.memory_access.is_write) {
 			fprintf(stderr, "[C] log_instr_hook: write verification of register %d, it has value of %lx\n", target_register, entry->cpu.gpr[target_register]);
-			entry->cpu.mem_access.after = entry->cpu.gpr[target_register] & mask; // TODO: Notice that is for example this was a pair store instruction (STP), we log only the first operand written!
+			entry->metadata.memory_access.after = entry->cpu.gpr[target_register] & mask; // TODO: Notice that is for example this was a pair store instruction (STP), we log only the first operand written!
 																		    // We assume, wrongly but okay for now, that only the target register is written, but also target_register2 is written
 		}
 		fprintf(stderr, "[C] log_instr_hook: finished parseing memory access\n");
 	}
+
 	fprintf(stderr, "[C] log_instr_hook: end!\n");
 	return NULL;
-
 }
 
 void init_trace_log(size_t test_size) {

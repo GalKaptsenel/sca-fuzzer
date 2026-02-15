@@ -29,18 +29,19 @@ typedef struct {
 	uint64_t pc;
 	uint64_t nzcv;
 	uint64_t encoding;		// Upper bits are 0 for aarch64
-	mem_access_t mem_access;
 	size_t extra_data_size;
 	// dynamic array of size extra_data_size
 } cpu_state_t;
 
 typedef struct {
-    uint64_t instr_index;		// instruction index in trace
+	uint64_t instr_index;		// instruction index in trace
+	uint64_t has_memory_access;		// does the instruction accesses memory
+	mem_access_t memory_access;
 } instr_metadata_t;
 
 typedef struct {
     cpu_state_t cpu;
-    instr_metadata_t meta;
+    instr_metadata_t metadata;
 } instr_trace_entry_t;
 
 typedef struct {
@@ -51,4 +52,8 @@ typedef struct {
 void init_trace_log(size_t test_size);
 void* log_instr_hook(struct simulation_state* sim_state);
 void destroy_trace_log(struct shm_region* shm);
+
+// TODO: TMP
+void* kaddr2uaddr(void*);
+void* uaddr2kaddr(void*);
 #endif // SIMULATION_OUTPUT_H

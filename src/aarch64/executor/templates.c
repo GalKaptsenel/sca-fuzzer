@@ -7,7 +7,7 @@
 //   * X20 - performance counter 1
 //   * X21 - performance counter 2
 //   * X22 - performance counter 3
-//   * X30 - address of sandbox_t
+//   * X29 - address of sandbox_t
 
 // clang-format off
 
@@ -65,18 +65,18 @@ inline void prologue(void)
 	"stp x28, x29, [sp, #-16]!                                                              \n" \
 	"str x30, [sp, #-16]!                                                                   \n" \
 
-	// x30 <- input base address (stored in x0, the first argument of measurement_code)
-	"mov x30, x0                                                                            \n" \
+	// x29 <- input base address (stored in x0, the first argument of measurement_code)
+	"mov x29, x0                                                                            \n" \
 
 	// stored_rsp <- sp
-	// "str sp, [x30, #"xstr(offsetof(sandbox_t, stored_rsp))"]\n"
+	// "str sp, [x29, #"xstr(offsetof(sandbox_t, stored_rsp))"]\n"
 	"mov x0, sp                                                                             \n" \
 	"movi v0.16b, #0\n" \
  
     );
-	ADJUST_REGISTER_TO("x30", sandbox_t, stored_rsp);
-    asm volatile("str x0, [x30]\n");
-	ADJUST_REGISTER_FROM("x30", sandbox_t, stored_rsp);
+	ADJUST_REGISTER_TO("x29", sandbox_t, stored_rsp);
+    asm volatile("str x0, [x29]\n");
+	ADJUST_REGISTER_FROM("x29", sandbox_t, stored_rsp);
 
 }
 
@@ -87,7 +87,7 @@ inline void epilogue(void) {
 
     asm volatile(""
         // store the hardware trace (x15) and pfc readings (x20-x22)
-        "add x16, x16, x30                                                                  \n" \
+        "add x16, x16, x29                                                                  \n" \
         "stp x15, x20, [x16], #16                                                           \n" \
         "stp x21, x22, [x16], #16                                                           \n" \
 //	"ptrue p0.b, ALL\n"
@@ -96,7 +96,7 @@ inline void epilogue(void) {
 	"sub x16, x16, #32	 							    \n" \
 
         // rsp <- stored_rsp
-        "ldr x0, [x30, x0]                                                                  \n" \
+        "ldr x0, [x29, x0]                                                                  \n" \
         "mov sp, x0                                                                         \n" \
 
         // restore registers
@@ -117,7 +117,7 @@ inline void epilogue(void) {
 
 
 #define SET_REGISTER_FROM_INPUT(TMP) asm volatile(""			                                \
-    "add "TMP", x30, #%[lower_overflow]\n"					                                    \
+    "add "TMP", x29, #%[lower_overflow]\n"					                                    \
     "ldp x0, x1, ["TMP"], #16\n"						                                        \
     "ldp x2, x3, ["TMP"], #16\n"						                                        \
     "ldp x4, x5, ["TMP"], #16\n"						                                        \
@@ -540,9 +540,9 @@ MEASUREMENT_METHOD(template_l1d_prime_probe)
 	// Initialize registers
 	SET_REGISTER_FROM_INPUT("sp");
 
-	PRIME("x30", "x16", "x17", "x18", "x19", "32");
+	PRIME("x29", "x16", "x17", "x18", "x19", "32");
 
-	ADJUST_REGISTER_TO("x30", sandbox_t, main_region);
+	ADJUST_REGISTER_TO("x29", sandbox_t, main_region);
 
 	READ_PFC_START();
 
@@ -555,10 +555,10 @@ MEASUREMENT_METHOD(template_l1d_prime_probe)
 
 	READ_PFC_END();
 
-	ADJUST_REGISTER_FROM("x30", sandbox_t, main_region);
+	ADJUST_REGISTER_FROM("x29", sandbox_t, main_region);
 
 	// Probe and store the resulting eviction bitmap map into x15
-	PROBE_SCATTERED("x30", "x16", "x17", "x18", "x19", "x15");
+	PROBE_SCATTERED("x29", "x16", "x17", "x18", "x19", "x15");
 
 	epilogue();
 	asm volatile(".long "xstr(TEMPLATE_RETURN));
@@ -575,9 +575,9 @@ MEASUREMENT_METHOD(template_l1d_flush_reload)
 	// Initialize registers
 	SET_REGISTER_FROM_INPUT("sp");
 
-	ADJUST_REGISTER_TO("x30", sandbox_t, main_region);
+	ADJUST_REGISTER_TO("x29", sandbox_t, main_region);
 
-	FLUSH("x30", "x16", "x17");
+	FLUSH("x29", "x16", "x17");
 
 	READ_PFC_START();
 
@@ -591,9 +591,9 @@ MEASUREMENT_METHOD(template_l1d_flush_reload)
 	READ_PFC_END();
 
 	// Reload and store the resulting eviction bitmap map into x15
-	RELOAD_SCATTERED("x30", "x16", "x17", "x18", "x19", "x15");
+	RELOAD_SCATTERED("x29", "x16", "x17", "x18", "x19", "x15");
 
-	ADJUST_REGISTER_FROM("x30", sandbox_t, main_region);
+	ADJUST_REGISTER_FROM("x29", sandbox_t, main_region);
 
 	epilogue();
 	asm volatile(".long "xstr(TEMPLATE_RETURN));

@@ -393,15 +393,11 @@ instruction_blocklist.extend(_buggy_instructions)
 
 register_allowlist: List[str] = [
     ]
-# aarch64 executor internally uses x15...x22, x30, SP, thus, they are excluded
+# aarch64 executor internally uses x15...x22, x29, SP, thus, they are excluded
 register_blocklist: List[str] = [
     # free - x0 - x14, x23-x29
-    *[f'x{number}' for number in range(15, 23)], 'x30', 'sp',
-    *[f'x{number}' for number in range(23, 30)],
-    *[f'x{number}' for number in range(6, 15)],
-    *[f'w{number}' for number in range(15, 23)], 'w30', 'wsp',
-    *[f'w{number}' for number in range(23, 30)],
-    *[f'w{number}' for number in range(6, 15)],
+    *[f'x{number}' for number in range(6, 31)], 'sp',
+    *[f'w{number}' for number in range(6, 31)], 'wsp',
     *[f'q{number}' for number in range(32)],
     *[f'v{number}' for number in range(32)],
     *[f'b{number}' for number in range(32)],

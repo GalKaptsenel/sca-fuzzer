@@ -77,7 +77,11 @@ struct cpu_state {
 	uintptr_t nzcv;
 	uintptr_t pc;
 	uintptr_t lr;
-	struct gprs gprs;
+	union {
+		struct gprs gprs;
+		uintptr_t gpr[sizeof(struct gprs) / sizeof(uintptr_t)];
+
+	};
 };
 
 _Static_assert(sizeof(struct cpu_state) == 34 * sizeof(uintptr_t),

@@ -42,7 +42,14 @@ int main(int argc, char** argv) {
 			fprintf(stderr, "Failed to allocate simulation code\n");
 			goto main_input_free;
 		}
-	
+
+		simulation.simulation_memory = (uint8_t*)malloc(simulation.sim_input.hdr.mem_size);
+		if(NULL == simulation.simulation_memory) {
+			fprintf(stderr, "was unable to allocate enough memory for sandbox\n");
+			ret = -1;
+			goto main_code_free;
+		}
+
 		if(RVZR_ARCH_AARCH64 == simulation.sim_input.hdr.arch) {
 			hook_aarch64_instructions(&simulation.sim_input, &simulation.sim_code, base_hook, base_hook_size);
 		} else {
@@ -51,14 +58,8 @@ int main(int argc, char** argv) {
 			goto main_code_free;
 		}
 	
-		simulation.simulation_memory = (uint8_t*)malloc(simulation.sim_input.hdr.mem_size);
-		if(NULL == simulation.simulation_memory) {
-			fprintf(stderr, "was unable to allocate enough memory for sandbox\n");
-			ret = -1;
-			goto main_code_free;
-		}
 		memcpy(simulation.simulation_memory, simulation.sim_input.memory, simulation.sim_input.hdr.mem_size);
-	
+
 		simulation.n_hooks = 0;
 		memset(simulation.hooks, 0, sizeof(simulation.hooks));
 		simulation.return_address = 0;
@@ -66,7 +67,16 @@ int main(int argc, char** argv) {
 		simulation.n_hooks = install_hooks(&simulation, MAX_HOOKS, hooks_to_install, (sizeof(hooks_to_install)/sizeof(hooks_to_install[0])));
 		
 		uint64_t* regs_blob = (uint64_t*)simulation.sim_input.regs;
+
+		void* kernel_sandbox_base = 0;
+		if(CONFIG_FLAG_REQ_MEM_BASE_VIRT | simulation.sim_input.hdr.config.flags) {
+			kernel_sandbox_base = (void*)simulation.sim_input.hdr.config.requested_mem_base_virt;
+		} else {
+			fprintf(stderr, "[ERR] Expected memory base for the sandbox!\n");
+			exit(0);
+		}
 	
+		fprintf(stderr,"kernel address is: %p\n", kernel_sandbox_base);
 		asm volatile (
 				"mov x29, %2\n"
 				"adr x9, 1f\n"
@@ -83,7 +93,7 @@ int main(int argc, char** argv) {
 				"blr %1\n"
 				"1:\n"
 				: "=m"(simulation.return_address)
-				: "r"(simulation.sim_code.code), "r"(simulation.simulation_memory),
+				: "r"(simulation.sim_code.code), "r"(kernel_sandbox_base),
 				"r"(regs_blob[0]), "r"(regs_blob[1]), "r"(regs_blob[2]), "r"(regs_blob[3]),
 				"r"(regs_blob[4]), "r"(regs_blob[5]), "r"(regs_blob[6]), "r"(regs_blob[7]),
 				"r"(regs_blob[8])
@@ -91,6 +101,7 @@ int main(int argc, char** argv) {
 			);
 		fprintf(stderr,"Finished -> sending trace log\n");
 		destroy_trace_log(shm);
+		free(simulation.simulation_memory);
 		fprintf(stderr,"Finished\n");
 	}
 

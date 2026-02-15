@@ -87,3 +87,75 @@ uintptr_t evaluate_cond_target(uintptr_t pc, uint32_t insn) {
 	// Not a conditional branch we recognize
 	return 0;
 }
+
+inline int is_memory_access(uint32_t inst) { return ((inst >> 25) & 0x7) == 0b100; }
+inline int is_regular_load_store(uint32_t inst) { return ((inst >> 27) & 0x7) == 0b111; }
+inline int is_pair_load_store(uint32_t inst) { return ((inst >> 27) & 0x7) == 0b101; }
+inline int is_literal_pc_relative(uint32_t inst) { return ((inst >> 27) & 0x7) == 0b011; }
+inline uint64_t access_size(uint32_t inst) {
+	uint64_t size = ((inst >> 30) & 0x3);
+	return 1u << size;
+}
+inline uint64_t pair_element_access_size(uint32_t inst) {
+	uint64_t size = ((inst >> 30) & 0x3);
+	if(0 == size) return 4;
+	if(2 == size) return 8;
+	__builtin_unreachable();
+}
+inline uint64_t literal_pc_relative_access_size(uint32_t inst) {
+	uint64_t size = ((inst >> 30) & 0x3);
+	if(0 == size) return 4;
+	if(1 == size) return 8;
+	if(2 == size) return 8;
+	if(3 == size) return 0; // PRFM
+	__builtin_unreachable();
+}
+inline int is_load(uint32_t inst) { return (inst >> 22) & 0x1; }
+inline int is_store(uint32_t inst) { return !is_load(inst); }
+inline int is_pre_index(uint32_t inst) { return ((inst >> 24) & 0x3) == 0x0 && ((inst >> 10) & 0x3) == 0x3; }
+inline int is_post_index(uint32_t inst) { return ((inst >> 24) & 0x3) == 0x0 && ((inst >> 10) & 0x3) == 0x1; }
+inline int is_reg_offset(uint32_t inst) { return ((inst >> 24) & 0x3) == 0x0 && ((inst >> 10) & 0x3) == 0x2; }
+inline int is_64bit_rm(uint32_t inst) {
+	if(!is_reg_offset(inst)) return 0;
+	return ((inst >> 13) & 0x1);
+}
+inline int is_32bit_rm(uint32_t inst) {
+	if(!is_reg_offset(inst)) return 0;
+	return !is_64bit_rm(inst);
+}
+
+inline int is_unsigned_offset(uint32_t inst) { return ((inst >> 24) & 0x3) == 0x1; }
+inline int is_pair_pre_index(uint32_t inst) { return ((inst >> 23) & 0x7) == 0b011; }
+inline int is_pair_post_index(uint32_t inst) { return ((inst >> 23) & 0x7) == 0b001; }
+inline int is_pair_signed_offset(uint32_t inst) { return ((inst >> 23) & 0x7) == 0b010; }
+inline int is_immidiate_offset(uint32_t inst) { return is_pre_index(inst) || is_post_index(inst) || is_unsigned_offset(inst); }
+inline uint32_t get_rm(uint32_t inst) { return (inst >> 16) & 0x1F; }
+inline uint32_t get_rn(uint32_t inst) { return (inst >> 5) & 0x1F; }
+inline uint32_t get_rt(uint32_t inst) { return (inst) & 0x1F; }
+inline uint32_t get_rt2(uint32_t inst) { return (inst >> 10) & 0x1F; }
+inline uint32_t set_rn(uint32_t inst, uint8_t rn) {
+	return (inst & ~(0x1F << 5)) | rn << 5;
+}
+
+extend_t decode_extend(uint32_t inst) {
+	switch(((inst >> 13) & 0x7)) {
+		case 0b000: return EXT_UXTB;
+		case 0b001: return EXT_UXTH;
+		case 0b010: return EXT_UXTW;
+		case 0b011: return EXT_UXTX;
+		case 0b100: return EXT_SXTB;
+		case 0b101: return EXT_SXTH;
+		case 0b110: return EXT_SXTW;
+		case 0b111: return EXT_SXTX;
+	}
+	__builtin_unreachable();
+}
+
+size_t decode_amount_log2(uint32_t inst) {
+	if(((inst >> 12) & 0x1)) {
+		size_t size = ((inst >> 30) & 0x3);
+		return size;
+	}
+	return 0;
+}
+

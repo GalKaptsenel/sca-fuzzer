@@ -20,16 +20,19 @@ int python_init() {
 int tagebp_init(const char *module_dir, const char *module_name,
 		int num_state_bits, int init_state_val, int num_base_entries) {
 
+	fprintf(stderr, "tagebp_init 1\n");
 	if (!python_initialized) {
 		if (python_init() != 0) return -1;
 	}
 
+	fprintf(stderr, "tagebp_init 2\n");
 	// If a previous instance exists, release it
 	if (tage_instance) {
 		Py_DECREF(tage_instance);
 		tage_instance = NULL;
 	}
 
+	fprintf(stderr, "tagebp_init 3\n");
 	// Add module_dir to sys.path
 	PyObject *sys_path = PySys_GetObject("path"); // Borrowed reference
 	PyObject *py_path = PyUnicode_FromString(module_dir);
@@ -40,15 +43,22 @@ int tagebp_init(const char *module_dir, const char *module_name,
 	PyList_Append(sys_path, py_path);
 	Py_DECREF(py_path);
 
+	fprintf(stderr, "tagebp_init 4: import module %s\n", module_name);
 	// Import the module
 	PyObject *py_module_name = PyUnicode_FromString(module_name);
+	fprintf(stderr, "tagebp_init 41\n");
 	PyObject *module = PyImport_Import(py_module_name);
+	fprintf(stderr, "tagebp_init 42\n");
 	Py_DECREF(py_module_name);
+	fprintf(stderr, "tagebp_init 43\n");
 	if (!module) {
+	fprintf(stderr, "tagebp_init 44\n");
 		PyErr_Print();
+	fprintf(stderr, "tagebp_init 45\n");
 		return -1;
 	}
 
+	fprintf(stderr, "tagebp_init 5\n");
 	// Get the TageBP class
 	PyObject *tage_class = PyObject_GetAttrString(module, "TageBP");
 	Py_DECREF(module);
@@ -57,6 +67,7 @@ int tagebp_init(const char *module_dir, const char *module_name,
 		return -1;
 	}
 
+	fprintf(stderr, "tagebp_init 6\n");
 	// Build constructor arguments and create instance
 	PyObject *args = Py_BuildValue("(iii)", num_state_bits, init_state_val, num_base_entries);
 	tage_instance = PyObject_CallObject(tage_class, args);
@@ -68,6 +79,7 @@ int tagebp_init(const char *module_dir, const char *module_name,
 		return -1;
 	}
 
+	fprintf(stderr, "tagebp_init 7\n");
 	return 0;
 }
 
