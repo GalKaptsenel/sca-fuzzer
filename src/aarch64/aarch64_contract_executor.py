@@ -208,11 +208,13 @@ class ContractExecutionResult:
 
 class ContractExecutorService:
     def __init__(self, binary: Path):
+        MB: int = 1 << 20
         self._proc: subprocess.Popen = subprocess.Popen(
                 [binary],
-                bufsize=1<<21,
+                bufsize=MB,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
+                pipesize=MB,
         )
         self._stream_ipc = StreamIPC(self._proc.stdin, self._proc.stdout)
 
