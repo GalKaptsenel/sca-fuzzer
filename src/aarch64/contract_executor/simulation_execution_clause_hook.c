@@ -151,13 +151,10 @@ static void reload_checkpoint(struct simulation_state* sim_state, uint64_t check
 }
 
 static void initialize_director() {
-	fprintf(stderr, "init director 1\n");
 	//if(0 != tagebp_init(".", "bootstrap_director", 2, 4, 4096)) {
 	if(0 != tagebp_init("src/aarch64/contract_executor", "bootstrap_director", 2, 4, 4096)) {
-		fprintf(stderr, "init director trapped\n");
 		__builtin_trap(); // sanity check
 	}
-	fprintf(stderr, "init director 2\n");
 }
 
 static void destroy_director() {
@@ -189,51 +186,37 @@ static void destroy_execution_clause() {
 }
 
 void* execution_clause_hook(struct simulation_state* sim_state) {
-	fprintf(stderr, "inside execution clause hook\n");
 	if(NULL == sim_state) return NULL;
-	fprintf(stderr, "1\n");
 
 	if(!initialized) {
-		fprintf(stderr, "2\n");
 		mgmt.current_nesting = 0;
 		mgmt.max_nesting = simulation.sim_input.hdr.config.max_misspred_branch_nesting;
 		mgmt.stack_top = 0;
 		memset(mgmt.stack, 0, sizeof(mgmt.stack));
 		mgmt.max_checkpoints = 1024;
 		mgmt.current_checkpoint_id = 0;
-		mgmt.memory_size = simulation.sim_input.hdr.mem_size;
+		mgmt.memory_size = simulation.sim_input.hdr.mem_size + 0x1000; // Including the overflow page
 		size_t checkpoints_array_size = mgmt.max_checkpoints * sizeof(struct execution_checkpoint);
 		mgmt.checkpoints_array = malloc(checkpoints_array_size);
-		fprintf(stderr, "3\n");
 		if(NULL == mgmt.checkpoints_array) return NULL;
 		memset(mgmt.checkpoints_array, 0, checkpoints_array_size);
 
-		fprintf(stderr, "3a\n");
 		initialize_director();
-		fprintf(stderr, "3b\n");
-
 		initialized = 1;
-		fprintf(stderr, "4\n");
 	}
 
-	fprintf(stderr, "5\n");
 	if(out_of_simulation(&sim_state->cpu_state)) {
-		fprintf(stderr, "6\n");
 		if(0 == mgmt.current_nesting) {
-			fprintf(stderr, "7\n");
 			destroy_execution_clause();
 			return NULL;
 		}
-		fprintf(stderr, "8\n");
 
 		if(0 == mgmt.stack_top) __builtin_trap(); // Should never happen
-		fprintf(stderr, "9\n");
 		--mgmt.stack_top;
 		mgmt.current_nesting = mgmt.stack[mgmt.stack_top].nesting;
 		reload_checkpoint(sim_state, mgmt.stack[mgmt.stack_top].checkpoint_id);
 		return (void*)mgmt.stack[mgmt.stack_top].return_addr;
 	}
-	fprintf(stderr, "10\n");
 
 	uint32_t branch_type = classify_branch(*(uint32_t*)sim_state->cpu_state.pc);
 	if(BRANCH_NONE == branch_type || BRANCH_B == branch_type || BRANCH_BL == branch_type || BRANCH_BLR == branch_type) return NULL;
@@ -272,7 +255,6 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 	mgmt.stack[mgmt.stack_top].reserved = 0;
 	++mgmt.stack_top;
 
-	fprintf(stderr, "finished execution clause hook\n");
 	return (void*)evaluate_cond_branch_not_taken(&sim_state->cpu_state);
 }
 

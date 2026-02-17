@@ -10,7 +10,7 @@ extern uint64_t base_hook_c_target;
 
 simulation_hook_fn hooks_to_install[] = {
 	execution_clause_hook,
-	stdout_print_hook,
+//	stdout_print_hook,
 	log_instr_hook,
 	handle_ret_hook,
 };
@@ -43,12 +43,14 @@ int main(int argc, char** argv) {
 			goto main_input_free;
 		}
 
-		simulation.simulation_memory = (uint8_t*)malloc(simulation.sim_input.hdr.mem_size);
+		size_t sandbox_size = simulation.sim_input.hdr.mem_size + 0x1000; // Add a single page for overflow
+		simulation.simulation_memory = (uint8_t*)malloc(sandbox_size);
 		if(NULL == simulation.simulation_memory) {
 			fprintf(stderr, "was unable to allocate enough memory for sandbox\n");
 			ret = -1;
 			goto main_code_free;
 		}
+
 
 		if(RVZR_ARCH_AARCH64 == simulation.sim_input.hdr.arch) {
 			hook_aarch64_instructions(&simulation.sim_input, &simulation.sim_code, base_hook, base_hook_size);
@@ -58,6 +60,7 @@ int main(int argc, char** argv) {
 			goto main_code_free;
 		}
 	
+		memset(simulation.simulation_memory, 0, sandbox_size); 
 		memcpy(simulation.simulation_memory, simulation.sim_input.memory, simulation.sim_input.hdr.mem_size);
 
 		simulation.n_hooks = 0;

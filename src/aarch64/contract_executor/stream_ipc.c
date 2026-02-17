@@ -1,4 +1,5 @@
 #include "stream_ipc.h"
+#include <limits.h>
 
 static inline int futex_wait(uint32_t* addr, uint32_t val) {
 	return syscall(SYS_futex, addr, FUTEX_WAIT, val, NULL, NULL, 0);
@@ -104,6 +105,7 @@ struct shm_region* init_shm(const char* shm_name) {
 	struct shm_region* shm = mmap(NULL, shm_total_size,
 			PROT_READ | PROT_WRITE,
 			MAP_SHARED, fd, 0);
+	close(fd);
 	if (shm == MAP_FAILED) { perror("mmap"); exit(1); }
 
 	shm->req.size = REQ_RING_SIZE;
@@ -127,6 +129,49 @@ void destroy_shm(struct shm_region* shm) {
 			perror("munmap");
 		}
 	}
+}
+
+// ---- Python-friendly wrapper API ----
+
+void* stream_attach_shm(const char* shm_name) {
+	char path[NAME_MAX] = { 0 };
+	if(NULL == shm_name) shm_name = DEFAULT_SHM_NAME;
+	snprintf(path, sizeof(path), "/dev/shm%s", shm_name);
+	int fd = open(path, O_RDWR);
+	if (0 > fd) { return NULL; }
+	void* shm = mmap(NULL,
+			shm_total_size,
+			PROT_READ | PROT_WRITE,
+			MAP_SHARED,
+			fd,
+			0);
+	close(fd);
+	if (shm == MAP_FAILED) { return NULL; }
+	return shm;
+}
+
+void stream_send_req(void* shm, uint32_t type,
+		const uint8_t* payload, uint32_t len) {
+	struct shm_region* s = (struct shm_region*)shm;
+	ring_send(s, &s->req, type, payload, len);
+}
+
+void stream_recv_resp(void* shm, uint32_t* type,
+		uint8_t* payload, uint32_t* len) {
+	struct shm_region* s = (struct shm_region*)shm;
+	ring_recv(s, &s->resp, type, payload, len);
+}
+
+void stream_send_resp(void* shm, uint32_t type,
+		const uint8_t* payload, uint32_t len) {
+	struct shm_region* s = (struct shm_region*)shm;
+	ring_send(s, &s->resp, type, payload, len);
+}
+
+void stream_recv_req(void* shm, uint32_t* type,
+		uint8_t* payload, uint32_t* len) {
+	struct shm_region* s = (struct shm_region*)shm;
+	ring_recv(s, &s->req, type, payload, len);
 }
 
 //int main() {

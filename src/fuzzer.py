@@ -661,9 +661,16 @@ class FuzzerGeneric(Fuzzer):
         else:
             expected_ctraces = args.ctraces * CONF.inputs_per_class
             # compute ctraces separately for every boosted input
-            ctraces, _, = self.executor.trace_test_case_with_taints(args.inputs, args.model_nesting)
+            ctraces, taints, traces = self.executor.trace_test_case_with_taints(args.inputs, args.model_nesting)
             if expected_ctraces != ctraces:
                 import pdb; pdb.set_trace()
+                for i, (exp_c, ver_c) in enumerate(zip(expected_ctraces, ctraces)):
+                    if exp_c != ver_c:
+                        original_i = i - len(args.ctraces)
+                        original_tr = traces[original_i]
+                        original_ta = taints[original_i]
+                        original_inp = args.inputs[original_i]
+                        compare_and_debug_trace_pair(original_inp, args.inputs[i], original_tr, traces[i], original_ta, taints[i])
 
             assert expected_ctraces == ctraces, f'Mismatching CTraces!\n\texpected_ctraces={[t.raw for t in expected_ctraces]}\n\tverified_ctraces={[t.raw for t in ctraces]}'
         assert len(ctraces) == len(args.inputs)
@@ -719,7 +726,7 @@ class FuzzerGeneric(Fuzzer):
 
         # collect taints and contract traces for initial inputs
         #ctraces, taints = self.model.trace_test_case_with_taints(inputs, nesting)
-        ctraces, taints = self.executor.trace_test_case_with_taints(inputs, nesting)
+        ctraces, taints, _= self.executor.trace_test_case_with_taints(inputs, nesting)
 
         # ensure that we have many inputs in each input classes
         self.input_gen.reset_boosting_state()

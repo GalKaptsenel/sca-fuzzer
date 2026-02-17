@@ -36,7 +36,6 @@ revizor-executor-y := \
 	sysfs.o \
 	templates.o \
 	globals.o \
-	aux_buffer.o
 
 KDIR := /lib/modules/$(shell uname -r)/build
 

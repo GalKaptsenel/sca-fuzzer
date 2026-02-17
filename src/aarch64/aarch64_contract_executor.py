@@ -1,16 +1,11 @@
 import subprocess
-import tempfile
 import struct
 from pathlib import Path
 from typing import Optional
-from dataclasses import dataclass, field
-from functools import reduce
+from dataclasses import dataclass
 from enum import IntFlag
-import operator
 import time
-from .contract_executor.stream_ipc import *
-
-
+from .contract_executor.stream_ipc import StreamIPC
 
 class SimFlags(IntFlag):
     RVZR_FLAG_NONE          = 0
@@ -214,19 +209,15 @@ class ContractExecutionResult:
 class ContractExecutorService:
     def __init__(self, binary: Path):
         self._binary = binary
-
         self._proc: subprocess.Popen | None = None
-        self._shm: ShmRegion | None = None
-        self._mmap: mmap.mmap | None = None
-        self._req_ring: RingBuffer | None = None
-        self._resp_ring: RingBuffer | None = None
+        self._ipc: StreamIPC | None = None
 
     def _attach_shm_busy_loop(self, shm_name: str, timeout: float | None = None):
         start = time.time()
         while True:
             try:
-                return attach_shm(shm_name)
-            except FileNotFoundError:
+                return StreamIPC(shm_name)
+            except RuntimeError:
                 if timeout is not None and (time.time() - start) > timeout:
                     raise TimeoutError(f"Timed out waiting for shm '{name}'")
                 time.sleep(0.001)  # 1 ms backoff
@@ -239,20 +230,14 @@ class ContractExecutorService:
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
         )
-
-        self._shm, self._mmap, req_buf, resp_buf = self._attach_shm_busy_loop(shm_name, 1)
-        self._req_ring = RingBuffer(self._shm.req, req_buf)
-        self._resp_ring = RingBuffer(self._shm.resp, resp_buf)
+        self._ipc = self._attach_shm_busy_loop(shm_name, 5)
     
     def stop(self):
         if self.is_running():
             self._proc.terminate()
             self._proc.wait()
             self._proc = None
-            self._shm = None
-            self._mmap = None
-            self._req_ring = None
-            self._resp_ring = None
+            self._ipc = None
 
 
     def is_running(self):
@@ -263,8 +248,8 @@ class ContractExecutorService:
         Run a single execution and return raw result.
         """
         data = execution.encode()
-        self._req_ring.send(data, 1)
-        msg_type, reply = self._resp_ring.recv()
+        self._ipc.send_req(1, data)
+        msg_type, reply = self._ipc.recv_resp()
         assert msg_type == 2
         return ContractExecutionResult(reply, 31) # NUM GPRS of aarch64 is 31 (x0 to x30)
 

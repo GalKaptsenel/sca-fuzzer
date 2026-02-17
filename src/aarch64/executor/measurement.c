@@ -211,7 +211,7 @@ static size_t get_stack_base_address(void) {
 	return PTR_ALIGN(address, 16); // Technically, kernel stack should be aligned to THREAD_SIZE, for example it allows access the thread_indo structure. But it is fine to just align to 16 bytes, due to hardware only checks this constraint.
 }
 
-static void load_registers_from_input(input_t* input, void* aux_buffer) {
+static void load_registers_from_input(input_t* input) {
 
 	// Initial register values
 	*((registers_t*)executor.sandbox.lower_overflow) = input->regs;
@@ -222,13 +222,7 @@ static void load_registers_from_input(input_t* input, void* aux_buffer) {
 	// - RSP and RBP
 	((registers_t*)executor.sandbox.lower_overflow)->sp = get_stack_base_address();
 
-	if(NULL != aux_buffer) {
-		((registers_t*)executor.sandbox.lower_overflow)->x7 = (size_t)aux_buffer;
-	}
-
-	((registers_t*)executor.sandbox.lower_overflow)->x8 = (size_t)executor.sandbox_scratchpad_memory;
-
-//	module_debug("Input regs: x0:%llx, x1:%llx, x2:%llx x3:%llx, x4:%llx, x5:%llx, x6:%llx, x7 (Debug Page):%llx, x8: (Scratchpad): %llx, flags:%llx, sp:%llx\n",
+//	module_debug("Input regs: x0:%llx, x1:%llx, x2:%llx x3:%llx, x4:%llx, x5:%llx, flags:%llx, sp:%llx\n",
 //			*(uint64_t*)executor.sandbox.lower_overflow,
 //			*((uint64_t*)executor.sandbox.lower_overflow+1),
 //			*((uint64_t*)executor.sandbox.lower_overflow+2),
@@ -236,15 +230,12 @@ static void load_registers_from_input(input_t* input, void* aux_buffer) {
 //			*((uint64_t*)executor.sandbox.lower_overflow+4),
 //			*((uint64_t*)executor.sandbox.lower_overflow+5),
 //			*((uint64_t*)executor.sandbox.lower_overflow+6),
-//			*((uint64_t*)executor.sandbox.lower_overflow+7),
-//			*((uint64_t*)executor.sandbox.lower_overflow+8),
-//			*((uint64_t*)executor.sandbox.lower_overflow+9),
-//			*((uint64_t*)executor.sandbox.lower_overflow+10));
+//			*((uint64_t*)executor.sandbox.lower_overflow+7));
 }
 
-static void load_input_to_sandbox(input_t* input, void* aux_buffer) {
+static void load_input_to_sandbox(input_t* input) {
 	load_memory_from_input(input);
-	load_registers_from_input(input, aux_buffer);
+	load_registers_from_input(input);
 }
 
 static void initialize_overflow_pages(void) {
@@ -261,11 +252,6 @@ static void initialize_overflow_pages(void) {
 int64_t initialize_measurement(measurement_t* measurement) {
 	if(NULL == measurement) return -EINVAL;
 	memset(measurement, 0, sizeof(measurement_t));
-	measurement->aux_buffer = aux_buffer_alloc(1024 * PAGE_SIZE);
-	if (NULL == measurement->aux_buffer) {
-		module_err("initialize_measurement: aux_buffer_alloc returned NULL\n");
-		return -ENOMEM;
-	}
 	return 0;
 }
 EXPORT_SYMBOL(initialize_measurement);
@@ -273,7 +259,6 @@ EXPORT_SYMBOL(initialize_measurement);
 
 void free_measurement(measurement_t* measurement) {
 	if(NULL == measurement) return;
-	aux_buffer_free(measurement->aux_buffer);
 }
 EXPORT_SYMBOL(free_measurement);
 
@@ -367,8 +352,7 @@ static void __nocfi run_experiments(void) {
 		current_input = rb_entry(current_input_node, struct input_node, node);
 
 		initialize_overflow_pages();
-		aux_buffer_init(current_input->measurement.aux_buffer);
-		load_input_to_sandbox(&current_input->input, current_input->measurement.aux_buffer->addr);
+		load_input_to_sandbox(&current_input->input);
 
 		// flush some of the uarch state
 		if (1 == executor.config.pre_run_flush) {

@@ -1912,7 +1912,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
         executor = ContractExecutorService("/home/gal_k_1_1998/revizor/sca-fuzzer/src/aarch64/contract_executor/contract_executor")
         executor.start("shm_gal")
         for i in inputs:
-            time.sleep(0.1)
+#            time.sleep(0.1)
             data = i.tobytes()
             tc_memory = data[:0x2000]
             tc_regs = data[0x2000:]
@@ -1923,15 +1923,17 @@ class Aarch64LocalExecutor(Aarch64Executor):
 
         executor.stop()
 
-        taints, ctraces = [], []
+        taints, ctraces, traces_arr = [], [], []
 
         for i in inputs:
             cer: ContractExecutionResult = traces[i]
             if 0 == len(cer):
                 continue
 
+            input_taint = InputTaint()
             NOT_ACCESSED, READ, WRITE = 0, 1, 2
             access_table: defaultdict[int, int] = defaultdict(int) # NOT_ACCESSED  (0) is default value
+            reg_access_table: defaultdict[int, int] = defaultdict(int) # NOT_ACCESSED  (0) is default value
 
             for ite in cer:
                 if ite.metadata.has_memory_access:
@@ -1940,35 +1942,66 @@ class Aarch64LocalExecutor(Aarch64Executor):
                     else:
                         access_type = READ
 
-
                     for byte_idx in range(ite.metadata.memory_access.element_size):
-                        byte_address = ite.metadata.memory_access.effective_address + byte_idx
-                        if access_table[byte_address] == NOT_ACCESSED:
-                            access_table[byte_address] = access_type 
+                        byte_address = ite.metadata.memory_access.effective_address + byte_idx - ite.cpu.gpr[29]
+                        if access_table[byte_address] == NOT_ACCESSED and ite.metadata.memory_access.is_write:
+                            access_table[byte_address] = WRITE
+                        elif not ite.metadata.memory_access.is_write:
+                            access_table[byte_address] = READ
+
                 srcs, dests = disassemble_instruction_srcs_dests(ite.cpu.encoding, ite.cpu.pc)
-                import pdb; pdb.set_trace()
 
                 for src in srcs:
-                    pass
+                    if src.lower().startswith(("x", "w")):
+                        n = int(src[1:])
+                        if n < 0 or n > 5:
+                            raise ValueError(f"Register index must be 0–7, got {src}")
+                        size = 8 if src.lower().startswith("x") else 4
+                    elif src in ("N", "Z", "C", "V"):
+                        n = 6
+                        size = 8
+                    elif src.lower() == "sp":
+                        n = 7
+                        size = 8
+                    elif src.lower() == "fp":
+                        continue
+                    else:
+                        raise RuntimeError(f"Unexpected src register '{src}'")
+                    for byte_idx in range(size):
+                        reg_access_table[n * 8 + byte_idx] = READ
 
                 for dest in dests:
-                    pass
+                    if dest.lower().startswith(("x", "w")):
+                        n = int(dest[1:])
+                        if n < 0 or n > 6:
+                            raise ValueError(f"Register index must be 0–6 got {dest}")
+                        size = 8 if dest.lower().startswith("x") else 4
+                    elif dest in ("N", "Z", "C", "V"):
+                        n = 6
+                        size = 8
+                    elif dest.lower() == "sp":
+                        n = 7
+                        size = 8
+                    elif dest.lower() == "fp":
+                        continue
+                    else:
+                        raise RuntimeError(f"Unexpected dest register '{dest}'")
+                    for byte_idx in range(size):
+                        if reg_access_table[n * 8 + byte_idx] == NOT_ACCESSED:
+                            reg_access_table[n * 8 + byte_idx] = WRITE 
 
-            input_taint = InputTaint()
-            faulty_region_u8 = input_taint[0]["faulty"].view(np.uint8)
+            sandbox_u8 = input_taint.view(np.uint8)
             main_region_u8 = input_taint[0]["main"].view(np.uint8)
-            sandbox_base = cer[0].cpu.gpr[29]
+            faulty_region_u8 = input_taint[0]["faulty"].view(np.uint8)
+            gpr_region_u8 = input_taint[0]["gpr"].view(np.uint8)
 
-            for byte_address, access_type in access_table.items():
+            for byte_offset, access_type in access_table.items():
                 if access_type == READ:
-                    offset = byte_address - sandbox_base
-                    region = main_region_u8
-                    if offset >= main_region_u8.size:
-                        region = faulty_region_u8
-                        offset = offset - main_region_u8.size
-                    if 0 <= offset < region.size:
-                        region[offset] = True
-
+                    if 0 <= byte_offset < main_region_u8.size + faulty_region_u8.size:
+                        sandbox_u8[byte_offset] = True
+            for byte_address, access_type in reg_access_table.items():
+                if access_type == READ:
+                    gpr_region_u8[byte_address] = True
 
             line_size = 64
             num_sets = 64
@@ -1978,8 +2011,9 @@ class Aarch64LocalExecutor(Aarch64Executor):
 
             taints.append(input_taint)
             ctraces.append(ctrace)
+            traces_arr.append(traces[i])
 
-        return ctraces, taints
+        return ctraces, taints, traces_arr
 
 def disassemble_instruction_srcs_dests(encoding: int, pc: int) -> Union[List, List]:
     FLAG_BITS = {"N", "Z", "C", "V"}
@@ -1996,11 +2030,11 @@ def disassemble_instruction_srcs_dests(encoding: int, pc: int) -> Union[List, Li
                 7: {"V"},
                 8: {"V"},
                 9: {"C", "Z"},
-                10: {"C"},
+                10: {"C", "Z"},
                 11: {"N", "V"},
                 12: {"N", "V"},
                 13: {"Z", "N", "V"},
-                14: {"Z"},
+                14: {"Z", "N", "V"},
                 15: set(),
                 16: set(),
         }
@@ -2069,37 +2103,35 @@ def disassemble_instruction(encoding: int, pc: int):
 
 def compare_traces(trace_ref, trace_new):
     """Return (index, ref_inst, new_inst) if traces diverge, else (None, None, None)."""
-    min_len = min(trace_ref.instruction_log_entry_count, trace_new.instruction_log_entry_count)
+    min_len = min(len(trace_ref), len(trace_new))
     for i in range(min_len):
-        ref = trace_ref.instruction_logs[i]
-        new = trace_new.instruction_logs[i]
-        if (ref.pc != new.pc or ref.flags != new.flags or ref.regs != new.regs):
+        ref = trace_ref[i]
+        new = trace_new[i]
+#        if (ref.cpu.pc != new.cpu.pc or ref.cpu.nzcv != new.cpu.nzcv or ref.cpu.gprs != new.cpu.gprs):
+        if (ref.cpu.nzcv != new.cpu.nzcv or \
+                ref.cpu.sp != new.cpu.sp or \
+                ref.cpu.gpr[0] != new.cpu.gpr[0] or \
+                ref.cpu.gpr[1] != new.cpu.gpr[1] or \
+                ref.cpu.gpr[2] != new.cpu.gpr[2] or \
+                ref.cpu.gpr[3] != new.cpu.gpr[3] or \
+                ref.cpu.gpr[4] != new.cpu.gpr[4] or \
+                ref.cpu.gpr[5] != new.cpu.gpr[5]):
             return i, ref, new
-    if trace_ref.instruction_log_entry_count != trace_new.instruction_log_entry_count:
+    if len(trace_ref) != len(trace_new):
         return min_len, None, None  # diverged by length
     return None, None, None
 
 
 def show_context(trace, idx, window=-1):
     if(window < 0):
-        window = trace.instruction_log_entry_count
+        window = len(trace)
     start = max(0, idx - window)
-    end = min(trace.instruction_log_entry_count, idx + window + 1)
+    end = min(len(trace), idx + window + 1)
     for j in range(start, end):
-        insn = trace.instruction_logs[j]
-        disas = disassemble_instruction(insn.encoding, insn.pc)
+        insn = trace[j]
+        disas = disassemble_instruction(insn.cpu.encoding, insn.cpu.pc)
         marker = "→" if j == idx else " "
-        print(f"{marker} [{j:03d}] 0x{insn.pc:016x}: {disas}")
-
-
-def print_taint(title, taint):
-    print(f"  {title}:")
-    print(f"    regs_write_bits       : {taint.regs_write_bits}")
-    print(f"    regs_read_bits        : {taint.regs_read_bits}")
-    print(f"    regs_input_read_bits  : {taint.regs_input_read_bits}")
-    print(f"    mem_write_bits        : {taint.mem_write_bits}")
-    print(f"    mem_read_bits         : {taint.mem_read_bits}")
-    print(f"    mem_input_read_bits   : {taint.mem_input_read_bits}")
+        print(f"{marker} [{j:03d}] 0x{insn.cpu.pc:016x}: {disas}")
 
 
 def dump_debug_to_file(prefix, input_ref, input_new, trace_ref, trace_new, taint_ref, taint_new):
@@ -2140,10 +2172,10 @@ def compare_and_debug_trace_pair(
     print(f"❗ Divergence detected at instruction #{idx}")
 
     if ref_inst and new_inst:
-        ref_disas = disassemble_instruction(ref_inst.encoding, ref_inst.pc)
-        new_disas = disassemble_instruction(new_inst.encoding, new_inst.pc)
-        print(f"  Ref PC:  0x{ref_inst.pc:X}   ({ref_disas} [Encoding: 0x{ref_inst.encoding:08X}])")
-        print(f"  New PC:  0x{new_inst.pc:X}   ({new_disas} [Encoding: 0x{new_inst.encoding:08X}])")
+        ref_disas = disassemble_instruction(ref_inst.cpu.encoding, ref_inst.cpu.pc)
+        new_disas = disassemble_instruction(new_inst.cpu.encoding, new_inst.cpu.pc)
+        print(f"  Ref PC:  0x{ref_inst.cpu.pc:X}   ({ref_disas} [Encoding: 0x{ref_inst.cpu.encoding:08X}])")
+        print(f"  New PC:  0x{new_inst.cpu.pc:X}   ({new_disas} [Encoding: 0x{new_inst.cpu.encoding:08X}])")
     else:
         print("  Diverged by trace length")
 
@@ -2151,7 +2183,7 @@ def compare_and_debug_trace_pair(
     if ref_inst and new_inst:
         same_regs = []
         diff_regs = []
-        for i, (r_ref, r_new) in enumerate(zip(ref_inst.regs, new_inst.regs)):
+        for i, (r_ref, r_new) in enumerate(zip(ref_inst.cpu.gpr, new_inst.cpu.gpr)):
             if r_ref == r_new:
                 same_regs.append((i, r_ref))
             else:
@@ -2172,23 +2204,23 @@ def compare_and_debug_trace_pair(
             print("\n  No differing registers.")
 
     print("\n--- Flags ---")
-    if ref_inst and new_inst and ref_inst.flags != new_inst.flags:
-        print(f"  Flags changed: {ref_inst.flags:#x} -> {new_inst.flags:#x}")
+    if ref_inst and new_inst and ref_inst.cpu.nzcv != new_inst.cpu.nzcv:
+        print(f"  Flags changed: {ref_inst.cpu.nzcv:#x} -> {new_inst.cpu.nzcv:#x}")
     elif ref_inst and new_inst:
-        print(f"  Flags identical: {ref_inst.flags:#x}")
+        print(f"  Flags identical: {ref_inst.cpu.nzcv:#x}")
 
     print("\n--- Memory ---")
     if ref_inst and new_inst:
-        if ref_inst.effective_address != new_inst.effective_address:
-            print(f"  EA: {ref_inst.effective_address:#x} -> {new_inst.effective_address:#x}")
-        if ref_inst.mem_before != new_inst.mem_before:
-            print(f"  Mem before: {ref_inst.mem_before:#x} -> {new_inst.mem_before:#x}")
-        if ref_inst.mem_after != new_inst.mem_after:
-            print(f"  Mem after:  {ref_inst.mem_after:#x} -> {new_inst.mem_after:#x}")
+        if ref_inst.metadata.memory_access.effective_address != new_inst.metadata.memory_access.effective_address:
+            print(f"  EA: {ref_inst.metadata.memory_access.effective_address:#x} -> {new_inst.metadata.memory_access.effective_address:#x}")
+        if ref_inst.metadata.memory_access.before != new_inst.metadata.memory_access.before:
+            print(f"  Mem before: {ref_inst.metadata.memory_access.before:#x} -> {new_inst.metadata.memory_access.before:#x}")
+        if ref_inst.metadata.memory_access.after != new_inst.metadata.memory_access.after:
+            print(f"  Mem after:  {ref_inst.metadata.memory_access.after:#x} -> {new_inst.metadata.memory_access.after:#x}")
         if (
-            ref_inst.effective_address == new_inst.effective_address
-            and ref_inst.mem_before == new_inst.mem_before
-            and ref_inst.mem_after == new_inst.mem_after
+            ref_inst.metadata.memory_access.effective_address == new_inst.metadata.memory_access.effective_address
+            and ref_inst.metadata.memory_access.before == new_inst.metadata.memory_access.before
+            and ref_inst.metadata.memory_access.after == new_inst.metadata.memory_access.after
         ):
             print("  Memory identical.")
 
@@ -2197,19 +2229,19 @@ def compare_and_debug_trace_pair(
     print("\n--- New trace context ---")
     show_context(trace_new, idx)
 
-    print("\n--- Taint Bitmaps ---")
-    print_taint("Reference Taint", taint_ref)
-    print_taint("New Taint", taint_new)
+#    print("\n--- Taint Bitmaps ---")
+#    print_taint("Reference Taint", taint_ref)
+#    print_taint("New Taint", taint_new)
 
-    print("\n--- Inputs ---")
-    print("  Reference input:")
-    print(input_ref)
-    print("  New input:")
-    print(input_new)
+#    print("\n--- Inputs ---")
+#    print("  Reference input:")
+#    print(input_ref)
+#    print("  New input:")
+#    print(input_new)
 
     print("=" * 100)
 
-    if dump_files:
-        dump_debug_to_file(prefix, input_ref, input_new, trace_ref, trace_new, taint_ref, taint_new)
-        print(f"[+] Debug data dumped to: {prefix}_*.json/txt")
+#    if dump_files:
+#        dump_debug_to_file(prefix, input_ref, input_new, trace_ref, trace_new, taint_ref, taint_new)
+#        print(f"[+] Debug data dumped to: {prefix}_*.json/txt")
 

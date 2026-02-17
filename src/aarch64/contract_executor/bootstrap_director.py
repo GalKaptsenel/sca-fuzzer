@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 
+print("directed_fuzzing init")
 # The root of the package is two levels above this file: src/
 package_root = Path(__file__).resolve().parents[2]
 if str(package_root) not in sys.path:

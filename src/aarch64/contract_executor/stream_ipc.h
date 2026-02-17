@@ -35,7 +35,7 @@ struct shm_region {
 
 void ring_write(void* shm_base, struct ring *r, const void *src, uint32_t len);
 void ring_read(void* shm_base, struct ring *r, void *dst, uint32_t len);
-struct shm_region* init_shm();
+struct shm_region* init_shm(const char* shm_name);
 void destroy_shm(struct shm_region* shm);
 
 // Message format protocol
@@ -46,5 +46,30 @@ struct header {
 
 void ring_send(void* shm_base, struct ring *r, uint32_t msg_type, const uint8_t *payload, uint32_t payload_len);
 void ring_recv(void* shm_base, struct ring *r, uint32_t *msg_type, uint8_t *payload, uint32_t *payload_len);
+
+// ---- External opaque API (for Python / FFI use) ----
+
+void* stream_attach_shm(const char* shm_name);
+
+void stream_send_req(void* shm,
+		uint32_t msg_type,
+		const uint8_t* payload,
+		uint32_t payload_len);
+
+void stream_recv_req(void* shm,
+		uint32_t* msg_type,
+		uint8_t* payload,
+		uint32_t* payload_len);
+
+void stream_send_resp(void* shm,
+		uint32_t msg_type,
+		const uint8_t* payload,
+		uint32_t payload_len);
+
+void stream_recv_resp(void* shm,
+		uint32_t* msg_type,
+		uint8_t* payload,
+		uint32_t* payload_len);
+
 
 #endif

@@ -1,5 +1,4 @@
 #include "main.h"
-#include <executor_user_api.h>
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
 #define CLASS_CREATE(DEV_CLASS, DEV_NAME) class_create(DEV_NAME);
@@ -343,64 +342,6 @@ handle_batch_end:
 	return err;
 }
 
-static int64_t handle_get_aux_buffer(void __user* user_req) {
-	int64_t err = 0;
-	struct aux_buffer_ioctl req = { 0 };
-	if(copy_from_user_with_access_check(&req, user_req, sizeof(req))) {
-		err = -EFAULT;
-		goto handle_get_aux_buffer_end;
-	}
-
-	struct aux_buffer_t* auxb = NULL;
-	if(TRACED_STATE != executor.state) {
-		err = -EINVAL;
-		module_err("Measurements are available only after performing a trace!\n");
-		goto handle_get_aux_buffer_end;
-
-	} else if(TEST_REGION == executor.checkout_region) {
-		err = -EINVAL;
-		module_err("Checkout into the desired input!\n");
-		goto handle_get_aux_buffer_end;
-
-	} else {
-
-		measurement_t* current_measurement = get_measurement(executor.checkout_region);
-		BUG_ON(NULL == current_measurement);
-		if(NULL == current_measurement->aux_buffer) {
-			err = -ENODATA;
-			module_err("Checkout input (%lld) does not have an auxiliary buffer.\n", executor.checkout_region);
-			goto handle_get_aux_buffer_end;
-		}
-
-		auxb = current_measurement->aux_buffer;
-		BUG_ON(NULL == auxb->addr);
-	}
-
-	if(NULL == req.data) {
-		//module_debug("Retrieving auxiliary buffer size (cmd: %d)..\n", REVISOR_GET_AUX_BUFFER_CONSTANT);
-		req.size = auxb->size;
-
-	} else {
-
-		//module_debug("Retrieving auxiliary buffer (cmd: %d)..\n", REVISOR_GET_AUX_BUFFER_CONSTANT);
-
-		req.size = (req.size < auxb->size) ? req.size : auxb->size;
-
-		if(copy_to_user_with_access_check(req.data, auxb->addr, req.size)) {
-			err = -EFAULT;
-			goto handle_get_aux_buffer_end;
-		}
-	}
-
-	if(copy_to_user_with_access_check(user_req, &req, sizeof(req))) {
-		err = -EFAULT;
-		goto handle_get_aux_buffer_end;
-	}
-
-handle_get_aux_buffer_end:
-	return err;
-}
-
 long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
 	int64_t result = 0;
 
@@ -469,9 +410,6 @@ long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
 			handle_batch((void __user*)arg);
 		    break;
 
-		case REVISOR_GET_AUX_BUFFER_CONSTANT:
-			result = handle_get_aux_buffer((void __user*)arg);
-		    break;
 		default:
 			module_err("Invalid IOCTL! Entered default case..\n");
 			return -ENOTTY;
@@ -538,12 +476,6 @@ static void copy_input_from_user_and_update_state(const char __user* user_buffer
 		update_state_after_writing_input();
 
 	}
-
-	((input_t*)(to_buffer))->regs.flags	=  ((user_input_t*)(to_buffer))->regs.flags;
-	((input_t*)(to_buffer))->regs.sp	=  ((user_input_t*)(to_buffer))->regs.sp;
-	((input_t*)(to_buffer))->regs.x6	=  0;
-	((input_t*)(to_buffer))->regs.x7	=  0;
-	((input_t*)(to_buffer))->regs.x8	=  0;
 }
 
 static ssize_t revisor_write(struct file* File, const char __user* user_buffer,

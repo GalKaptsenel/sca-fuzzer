@@ -46,7 +46,7 @@ typedef struct {
 
 typedef struct {
 	size_t entry_count;
-	// dynamic array of trace entries
+	instr_trace_entry_t entries[1];// dynamic array of trace entries
 } contract_trace_t;
 
 void init_trace_log(size_t test_size);
