@@ -9,6 +9,8 @@
 #include "stream_ipc.h"
 #include "common_msg_constants.h"
 
+#define MAX_PAYLOAD_SIZE	(1 << 21)
+
 /* Flags */
 enum sim_flags {
 	RVZR_FLAG_NONE		= 0,
@@ -82,7 +84,7 @@ int simulation_input_load_path(const char* path, struct simulation_input* sim_in
 int simulation_input_load_fd(int fd, struct simulation_input* sim_input);
 
 /* Load test case from shared memory */
-int simulation_input_load_shm(struct shm_region* shm, struct simulation_input* sim_input);
+int simulation_input_from_file(FILE* f, struct simulation_input* sim_input);
 
 /* Free all allocated buffers */
 void simulation_input_free(struct simulation_input* sim_input);

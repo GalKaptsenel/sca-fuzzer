@@ -1,86 +1,69 @@
-import ctypes
+#import ctypes
+import struct
+import subprocess
 from typing import Tuple, Union
 
-SHM_NAME = b"/contract_executor_stream_shm"
-LIB_PATH = "/home/gal_k_1_1998/revizor/sca-fuzzer/src/aarch64/contract_executor/libstream_ipc.so"
+#SHM_NAME = b"/contract_executor_stream_shm"
+#LIB_PATH = "/home/gal_k_1_1998/revizor/sca-fuzzer/src/aarch64/contract_executor/libstream_ipc.so"
+#
+## Load C library
+#lib = ctypes.CDLL(LIB_PATH)
+#
+## ---- Function prototypes ----
+#
+#lib.stream_attach_shm.argtypes = [ctypes.c_char_p]
+#lib.stream_attach_shm.restype = ctypes.c_void_p
+#
+#lib.stream_send_req.argtypes = [
+#    ctypes.c_void_p,
+#    ctypes.c_uint32,
+#    ctypes.c_void_p,
+#    ctypes.c_uint32,
+#]
+#
+#lib.stream_send_resp.argtypes = [
+#    ctypes.c_void_p,
+#    ctypes.c_uint32,
+#    ctypes.c_void_p,
+#    ctypes.c_uint32,
+#]
+#
+#lib.stream_recv_req.argtypes = [
+#    ctypes.c_void_p,
+#    ctypes.POINTER(ctypes.c_uint32),
+#    ctypes.c_void_p,
+#    ctypes.POINTER(ctypes.c_uint32),
+#]
+#
+#lib.stream_recv_resp.argtypes = [
+#    ctypes.c_void_p,
+#    ctypes.POINTER(ctypes.c_uint32),
+#    ctypes.c_void_p,
+#    ctypes.POINTER(ctypes.c_uint32),
+#]
 
-# Load C library
-lib = ctypes.CDLL(LIB_PATH)
-
-# ---- Function prototypes ----
-
-lib.stream_attach_shm.argtypes = [ctypes.c_char_p]
-lib.stream_attach_shm.restype = ctypes.c_void_p
-
-lib.stream_send_req.argtypes = [
-    ctypes.c_void_p,
-    ctypes.c_uint32,
-    ctypes.c_void_p,
-    ctypes.c_uint32,
-]
-
-lib.stream_send_resp.argtypes = [
-    ctypes.c_void_p,
-    ctypes.c_uint32,
-    ctypes.c_void_p,
-    ctypes.c_uint32,
-]
-
-lib.stream_recv_req.argtypes = [
-    ctypes.c_void_p,
-    ctypes.POINTER(ctypes.c_uint32),
-    ctypes.c_void_p,
-    ctypes.POINTER(ctypes.c_uint32),
-]
-
-lib.stream_recv_resp.argtypes = [
-    ctypes.c_void_p,
-    ctypes.POINTER(ctypes.c_uint32),
-    ctypes.c_void_p,
-    ctypes.POINTER(ctypes.c_uint32),
-]
-
+HEADER_STRUCT = struct.Struct("<II")  # little-endian: length:uint32_t, type:uint32_t
 
 # ---- High-level Python wrapper ----
 
 class StreamIPC:
-    def __init__(self, shm_name: Union[str, bytes] = SHM_NAME):
-        if isinstance(shm_name, str):
-            shm_name = shm_name.encode('utf-8')
-        self._shm = lib.stream_attach_shm(shm_name)
-        if not self._shm:
-            raise RuntimeError("Failed to initialize shared memory")
-
-        self._buffer_len = 1024*1024*4 # 4MB buffer
-        self._buf = ctypes.create_string_buffer(self._buffer_len)
+    def __init__(self, write_stream: subprocess.PIPE, read_stream: subprocess.PIPE):
+        self._write_stream: subprocess.PIPE = write_stream
+        self._read_stream: subprocess.PIPE = read_stream
 
     def send_req(self, msg_type: int, payload: bytes) -> None:
-        if len(payload) > self._buffer_len:
-            raise ValueError("Payload too large")
-        if len(payload):
-            ctypes.memmove(self._buf, payload, len(payload))
-        print("[StreamIPC] send request")
-        lib.stream_send_req(
-                self._shm,
-                msg_type,
-                self._buf,
-                len(payload),
-            )
+        header = HEADER_STRUCT.pack(len(payload), msg_type)
+        self._write_stream.write(header)
+        self._write_stream.flush()
+        if payload:
+            self._write_stream.write(payload)
+            self._write_stream.flush()
 
     def recv_resp(self) -> Tuple[int, bytes]:
-        msg_type = ctypes.c_uint32()
-        payload_len = ctypes.c_uint32()
-
-        print("[StreamIPC] recieve response")
-        lib.stream_recv_resp(
-            self._shm,
-            ctypes.byref(msg_type),
-            self._buf,
-            ctypes.byref(payload_len),
-        )
-        if payload_len.value > self._buffer_len:
-            raise RuntimeError(f"C returned oversized payload: {payload_len.value} > {self._buffer_len}")
-        return msg_type.value, bytes(self._buf[:payload_len.value])
+        header_bytes: bytes = self._read_stream.read1(HEADER_STRUCT.size)
+        length, msg_type = HEADER_STRUCT.unpack(header_bytes)
+        payload: bytes = self._read_stream.read1(length) if length > 0 else b""
+        return msg_type, payload
 
 #
 #

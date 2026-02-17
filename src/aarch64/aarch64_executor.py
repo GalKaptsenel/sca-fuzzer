@@ -1910,7 +1910,6 @@ class Aarch64LocalExecutor(Aarch64Executor):
 
         traces: OrderedDict[Input, ContractExecutionResult] = OrderedDict()
         executor = ContractExecutorService("/home/gal_k_1_1998/revizor/sca-fuzzer/src/aarch64/contract_executor/contract_executor")
-        executor.start("shm_gal")
         for i in inputs:
 #            time.sleep(0.1)
             data = i.tobytes()

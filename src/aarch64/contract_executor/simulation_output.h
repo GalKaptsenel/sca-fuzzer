@@ -46,12 +46,12 @@ typedef struct {
 
 typedef struct {
 	size_t entry_count;
-	instr_trace_entry_t entries[1];// dynamic array of trace entries
+	// dynamic array of trace entries
 } contract_trace_t;
 
 void init_trace_log(size_t test_size);
 void* log_instr_hook(struct simulation_state* sim_state);
-void destroy_trace_log(struct shm_region* shm);
+void destroy_trace_log();
 
 // TODO: TMP
 void* kaddr2uaddr(void*);

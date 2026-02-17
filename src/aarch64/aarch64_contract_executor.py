@@ -208,36 +208,19 @@ class ContractExecutionResult:
 
 class ContractExecutorService:
     def __init__(self, binary: Path):
-        self._binary = binary
-        self._proc: subprocess.Popen | None = None
-        self._ipc: StreamIPC | None = None
-
-    def _attach_shm_busy_loop(self, shm_name: str, timeout: float | None = None):
-        start = time.time()
-        while True:
-            try:
-                return StreamIPC(shm_name)
-            except RuntimeError:
-                if timeout is not None and (time.time() - start) > timeout:
-                    raise TimeoutError(f"Timed out waiting for shm '{name}'")
-                time.sleep(0.001)  # 1 ms backoff
-
-    def start(self, shm_name: str):
-        assert isinstance(shm_name, str) and len(shm_name) > 0
-        shm_name = shm_name if shm_name[0] == "/" else "/" + shm_name
-        self._proc = subprocess.Popen(
-                [self._binary, shm_name],
+        self._proc: subprocess.Popen = subprocess.Popen(
+                [binary],
+                bufsize=1<<21,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
         )
-        self._ipc = self._attach_shm_busy_loop(shm_name, 5)
-    
+        self._stream_ipc = StreamIPC(self._proc.stdin, self._proc.stdout)
+
     def stop(self):
         if self.is_running():
             self._proc.terminate()
             self._proc.wait()
             self._proc = None
-            self._ipc = None
 
 
     def is_running(self):
@@ -248,9 +231,8 @@ class ContractExecutorService:
         Run a single execution and return raw result.
         """
         data = execution.encode()
-        self._ipc.send_req(1, data)
-        msg_type, reply = self._ipc.recv_resp()
+        self._stream_ipc.send_req(1, data)
+        msg_type, reply = self._stream_ipc.recv_resp()
         assert msg_type == 2
         return ContractExecutionResult(reply, 31) # NUM GPRS of aarch64 is 31 (x0 to x30)
-
 

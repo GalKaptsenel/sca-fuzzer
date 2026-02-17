@@ -342,9 +342,45 @@ void init_trace_log(size_t test_size) {
 	trace_log = alloc_contract_trace(max_log_index);
 }
 
-void destroy_trace_log(struct shm_region* shm) {
+static bool safe_file_write(FILE* f, const void* buff, size_t size) {
+	size_t result = 0;
+	while(true) {
+		result = fwrite(buff, size, 1, f);
+		if(1 == result) {
+			fflush(f);
+		       	return true;
+		}
+		if(ferror(f) && EINTR == errno) {
+			clearerr(f);
+			continue;
+		}
+		__builtin_unreachable();
+	}
+}
+
+static int transmit_payload_to_file(FILE* f, const void* payload, size_t payload_length) {
+	if(NULL == f || NULL == payload) return -1;
+
+	struct header hdr = { 0 };
+	hdr.length = payload_length;
+	hdr.type = 2;
+
+	if(!safe_file_write(f, &hdr, sizeof(hdr))) {
+		return -1;
+	}
+
+	if(0 < hdr.length) {
+		if(!safe_file_write(f, payload, hdr.length)) {
+			return -2;
+		}
+	}
+
+	return hdr.length;
+}
+
+void destroy_trace_log() {
 	if(NULL == trace_log) return;
-	ring_send(shm, &shm->resp, 2, (uint8_t*)trace_log, current_log_index * sizeof(instr_trace_entry_t) + sizeof(contract_trace_t));
+	transmit_payload_to_file(stdout, trace_log, current_log_index * sizeof(instr_trace_entry_t) + sizeof(contract_trace_t));
 	free_contract_trace(trace_log);
 	trace_log = NULL;
 	current_log_index = 0;

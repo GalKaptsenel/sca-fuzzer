@@ -15,26 +15,27 @@ simulation_hook_fn hooks_to_install[] = {
 	handle_ret_hook,
 };
 
-int main(int argc, char** argv) {
+int main() {
 	int ret = 0;
 	ret = python_init();
 	if(ret < 0) {
 		fprintf(stderr, "Failed to init python interpreter\n");
 		goto main_out;
 	}
-	const char* shm_name = (argc > 1) ? argv[1] : NULL;
-	struct shm_region* shm = init_shm(shm_name);
-	assert(NULL != shm && "init_shm should never return NULL");
 
 	const size_t base_hook_size = (size_t)(base_hook_end - base_hook);
 	base_hook_c_target = (uint64_t)base_hook_c;
 
 	while(1) {
-		ret = simulation_input_load_shm(shm, &simulation.sim_input);
+		ret = simulation_input_from_file(stdin, &simulation.sim_input);
 
-		if (0 > ret) {
-			fprintf(stderr, "Failed to load input from shared memory\n");
-			goto main_destroy_shm;
+		if (0 >= ret) {
+			if(-1 != ret) {
+				fprintf(stderr, "Failed to load input from stdin\n");
+			} else {
+				fprintf(stderr, "EOF reached\n");
+			}
+			goto main_failure;
 		}
 
 		ret = simulation_code_init(&simulation.sim_input, &simulation.sim_code);
@@ -103,7 +104,7 @@ int main(int argc, char** argv) {
 				: "x9", "x29", "memory", "cc", "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8", "x10", "x30"
 			);
 		fprintf(stderr,"Finished -> sending trace log\n");
-		destroy_trace_log(shm);
+		destroy_trace_log();
 		free(simulation.simulation_memory);
 		fprintf(stderr,"Finished\n");
 	}
@@ -114,8 +115,7 @@ main_code_free:
 	simulation_code_free(&simulation.sim_code);
 main_input_free:
 	simulation_input_free(&simulation.sim_input);
-main_destroy_shm:
-	destroy_shm(shm);
+main_failure:
 	python_finalize();
 main_out:
 	return ret;

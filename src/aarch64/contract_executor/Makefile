@@ -18,7 +18,6 @@ SRCS = \
   simulation_output.c \
   simulation.c \
   simulation_execution_clause_hook.c \
-  stream_ipc.c \
   tage_py.c \
   main.c
 

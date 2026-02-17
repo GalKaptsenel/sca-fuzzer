@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include "simulation_input.h"
 
 static int read_full(int fd, void* buf, size_t size) {
@@ -112,33 +113,70 @@ int simulation_input_load_path(const char* path, struct simulation_input* sim_in
 	return ret;
 }
 
-static uint8_t tmp_buffer[REQ_RING_SIZE] = { 0 };
-int simulation_input_load_shm(struct shm_region* shm, struct simulation_input* sim_input) {
-	if(NULL == shm || NULL == sim_input) return -1;
+static bool safe_file_read(FILE* f, void* buff, size_t size) {
+	size_t result = 0;
+	while(true) {
+		result = fread(buff, size, 1, f);
+		if(1 == result) {
+		       	return true;
+		}
+		if(ferror(f) && EINTR == errno) {
+			clearerr(f);
+			continue;
+		} else if(feof(f)) {
+			return false;
+		}
+		__builtin_unreachable();
+	}
+}
 
-	int ret = 0;
+static int recieve_payload_from_file(FILE* f, void* payload, size_t buffer_size) {
+	if(NULL == f || NULL == payload) return -1;
 
-        uint32_t type = 0;
-        uint32_t len = 0;
-        ring_recv(shm, &shm->req, &type, tmp_buffer, &len);
+	struct header hdr = { 0 };
+	if(!safe_file_read(f, &hdr, sizeof(hdr))) {
+		return -1;
+	}
+
+	if(0 == hdr.length) {
+		return 0;
+	}
+
+	if(buffer_size < hdr.length) {
+		return -2;
+	}
+
+	if(!safe_file_read(f, payload, hdr.length)) {
+		return -1;
+	}
+
+	return hdr.length;
+}
+
+static uint8_t tmp_buffer[MAX_PAYLOAD_SIZE] = { 0 };
+int simulation_input_from_file(FILE* f, struct simulation_input* sim_input) {
+	if(NULL == f || NULL == sim_input) return -1;
+
+	int ret = recieve_payload_from_file(f, tmp_buffer, sizeof(tmp_buffer));
+	if(ret <= 0) return ret;
+
 
 	const uint8_t* current_ptr = tmp_buffer;
 	memset(sim_input, 0, sizeof(*sim_input));
 	memcpy(&sim_input->hdr, current_ptr, sizeof(sim_input->hdr));
 	current_ptr += sizeof(sim_input->hdr);
 
-
 	if (0 > simulation_input_validate_header(&sim_input->hdr)) {
 		fprintf(stderr, "Input validation failed!\n");
 		ret = -1;
-		goto load_shm_fail;
+		goto simulation_input_from_file_err;
 	}
 
 	if (sim_input->hdr.flags & RVZR_FLAG_HAS_CODE) {
 		sim_input->code = malloc(sim_input->hdr.code_size);
 		if (NULL == sim_input->code) {
 			ret = -1;
-			goto load_shm_fail;
+			goto simulation_input_from_file_err;
 		}
 
 		memcpy(sim_input->code, current_ptr, sim_input->hdr.code_size);
@@ -149,7 +187,7 @@ int simulation_input_load_shm(struct shm_region* shm, struct simulation_input* s
 		sim_input->memory = malloc(sim_input->hdr.mem_size);
 		if (NULL == sim_input->memory) {
 			ret = -1;
-			goto load_shm_fail;
+			goto simulation_input_from_file_err;
 		}
 
 		memcpy(sim_input->memory, current_ptr, sim_input->hdr.mem_size);
@@ -160,18 +198,17 @@ int simulation_input_load_shm(struct shm_region* shm, struct simulation_input* s
 		sim_input->regs = malloc(sim_input->hdr.regs_size);
 		if (NULL == sim_input->regs) {
 			ret = -1;
-			goto load_shm_fail;
+			goto simulation_input_from_file_err;
 		}
 		memcpy(sim_input->regs, current_ptr, sim_input->hdr.regs_size);
 		current_ptr += sim_input->hdr.regs_size;
 	}
 
-	goto load_shm_success;
+	goto simulation_input_from_file_success;
 
-load_shm_fail:
+simulation_input_from_file_err:
 	simulation_input_free(sim_input);
-
-load_shm_success:
+simulation_input_from_file_success:
 	memset(tmp_buffer, 0, current_ptr - tmp_buffer);
 	current_ptr = NULL;
 
