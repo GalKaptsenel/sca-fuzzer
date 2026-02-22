@@ -246,8 +246,8 @@ void* log_instr_hook(struct simulation_state* sim_state) {
 
 	instr_trace_entry_t* entry = (instr_trace_entry_t*)(trace_log + 1) + current_index;
 
-	trace_log->entry_count = current_index; 
 	++current_log_index;
+	trace_log->entry_count = current_log_index; 
 	entry->metadata.instr_index = current_index;
 	entry->cpu.gpr[0] = sim_state->cpu_state.gprs.x0;
 	entry->cpu.gpr[1] = sim_state->cpu_state.gprs.x1;
@@ -303,13 +303,11 @@ void* log_instr_hook(struct simulation_state* sim_state) {
 	entry->metadata.has_memory_access = is_memory_access ? 1 : 0;
 
 	if(is_memory_access) {
-//		fprintf(stderr, "[C] log_instr_hook:parse memory access: target register %d, is_write: %ld, element_size: %ld, ea: %p\n", target_register, entry->metadata.memory_access.is_write, entry->metadata.memory_access.element_size, (void*)entry->metadata.memory_access.effective_address);
 		assert((uintptr_t)-1 != entry->metadata.memory_access.effective_address && "Effective address should have been set by parse_memory_access_instruction function");
 
 		void* kaddr = (void*)entry->metadata.memory_access.effective_address;
 		void* uaddr = kaddr2uaddr(kaddr);
 		uint64_t value_64bit = *(uint64_t*)uaddr;
-//		fprintf(stderr, "[C] log_instr_hook: loaded value of effective address [kernel: %p, user: %p]: %p \n", kaddr, uaddr, (void*)value_64bit);
 		uint64_t mask = 0;
 		switch(entry->metadata.memory_access.element_size) {
 			case 1: mask = 0xFF; break;

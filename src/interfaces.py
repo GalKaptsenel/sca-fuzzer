@@ -823,8 +823,14 @@ class TestCase:
         raise Exception(f"ERROR: Actor {aid} not found")
 
     def save(self, path: str) -> None:
-        import pdb; pdb.set_trace()
-        shutil.copy2(self.asm_path, path)
+#        import pdb; pdb.set_trace()
+#        if self.asm_path:
+#            shutil.copy2(self.asm_path, path)
+#        else:
+        with open(path, 'w') as f:
+            from .aarch64.aarch64_generator import Aarch64Printer
+            from .aarch64.aarch64_target_desc import Aarch64TargetDesc
+            f.write(Aarch64Printer(Aarch64TargetDesc()).print(self))
 
 
 # ==================================================================================================

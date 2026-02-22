@@ -68,8 +68,6 @@ EXECUTORS = {
     'x86-64-intel': x86_executor.X86IntelExecutor,
     'x86-64-amd': x86_executor.X86AMDExecutor,
     'aarch64': aarch64_executor.Aarch64LocalExecutor,
-    'aarch64-remote': aarch64_executor.Aarch64RemoteExecutor,
-    'aarch64-android': aarch64_executor.Aarch64RemoteExecutor,
 }
 
 ANALYSERS: Dict[str, Type[interfaces.Analyser]] = {

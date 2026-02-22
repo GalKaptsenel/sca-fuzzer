@@ -31,7 +31,6 @@ void ring_write(void* shm_base, struct ring* r, const void* src, uint32_t len) {
 	uint32_t off = head & (r->size - 1);
 	uint32_t first = r->size - off;
 
-        fprintf(stderr, "[C] Write at offset: %lx\n", r->offset_from_shm_base + off);
 	if (first >= len) {
 		memcpy((char*)shm_base + r->offset_from_shm_base + off, src, len);
 	} else {
@@ -53,7 +52,6 @@ void ring_read(void* shm_base, struct ring* r, void* dst, uint32_t len) {
 	uint32_t off = tail & (r->size - 1);
 	uint32_t first = r->size - off;
 
-        fprintf(stderr, "[C] Read at offset: %lx\n", r->offset_from_shm_base + off);
 
 	if (first >= len) {
 		memcpy(dst, (char*)shm_base + r->offset_from_shm_base + off, len);
@@ -68,7 +66,6 @@ void ring_read(void* shm_base, struct ring* r, void* dst, uint32_t len) {
 
 void ring_send(void* shm_base, struct ring* r, uint32_t msg_type, const uint8_t* payload, uint32_t payload_len) {
 	struct header header = { 0 };
-	fprintf(stderr, "[C] ring_send!\n");
 
 	if (sizeof(header) + payload_len > r->size) {
 		fprintf(stderr, "Payload+header too big!\n");
@@ -76,7 +73,6 @@ void ring_send(void* shm_base, struct ring* r, uint32_t msg_type, const uint8_t*
 		exit(1);
 	}
 
-	fprintf(stderr, "[C] sending %d type msg of length %d!\n", msg_type, payload_len);
 
 	header.length = payload_len;
 	header.type = msg_type;

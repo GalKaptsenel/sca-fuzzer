@@ -80,7 +80,6 @@ int main() {
 			exit(0);
 		}
 	
-		fprintf(stderr,"kernel address is: %p\n", kernel_sandbox_base);
 		asm volatile (
 				"mov x29, %2\n"
 				"adr x9, 1f\n"
@@ -103,10 +102,8 @@ int main() {
 				"r"(regs_blob[8])
 				: "x9", "x29", "memory", "cc", "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8", "x10", "x30"
 			);
-		fprintf(stderr,"Finished -> sending trace log\n");
 		destroy_trace_log();
 		free(simulation.simulation_memory);
-		fprintf(stderr,"Finished\n");
 	}
 
 

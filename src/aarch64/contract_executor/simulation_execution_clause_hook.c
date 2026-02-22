@@ -162,13 +162,12 @@ static void destroy_director() {
 }
 
 static uintptr_t director_predict(uintptr_t pc) {
+	return 0;
 	uintptr_t res = tagebp_predict(pc);
-	fprintf(stderr, "[LOG] predict director at 0x%" PRIxPTR ": 0x%" PRIxPTR "\n", pc, res);
 	return res;
 }
 
 static void director_update(uintptr_t pc, bool taken) {
-	fprintf(stderr, "[LOG] predict update at 0x%" PRIxPTR " with %s\n", pc, taken ? "taken" : "not-taken");
 	tagebp_update(pc, taken);
 }
 static void destroy_execution_clause() {
@@ -235,12 +234,10 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 	const uintptr_t taken_addr = evaluate_cond_branch_taken(&sim_state->cpu_state);
 	const uintptr_t predicted = director_predict(sim_state->cpu_state.pc);
 	director_update(sim_state->cpu_state.pc, target_addr == taken_addr);
-	if((target_addr == taken_addr && predicted) || (target_addr != taken_addr && !predicted)) {
-		fprintf(stderr, "[LOG] currect prediction\n");
-		return (void*)taken_addr;
-	}
+//	if((target_addr == taken_addr && predicted) || (target_addr != taken_addr && !predicted)) {
+//		return (void*)taken_addr;
+//	}
 
-	fprintf(stderr, "[LOG] incurrect prediction\n");
 	if(0 == mgmt.current_nesting) {
 		mgmt.stack[mgmt.stack_top].nesting = 0;
 		++mgmt.current_nesting;

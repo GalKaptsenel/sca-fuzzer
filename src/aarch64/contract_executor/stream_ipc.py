@@ -51,18 +51,38 @@ class StreamIPC:
         self._write_stream: subprocess.PIPE = write_stream
         self._read_stream: subprocess.PIPE = read_stream
 
+    def _safe_write(self, data: bytes):
+        total_sent = 0
+        while total_sent < len(data):
+            n = self._write_stream.write(data[total_sent:])
+            if n is None:
+                n = 0
+            total_sent += n
+
+        self._write_stream.flush()
+        assert total_sent == len(data)
+
     def send_req(self, msg_type: int, payload: bytes) -> None:
         header = HEADER_STRUCT.pack(len(payload), msg_type)
-        self._write_stream.write(header)
-        self._write_stream.flush()
+        self._safe_write(header)
         if payload:
-            self._write_stream.write(payload)
-            self._write_stream.flush()
+            self._safe_write(payload)
+
+    def _safe_read(self, amount: int) -> bytes:
+        buff: bytes = bytes()
+        while amount > len(buff):
+            chunk = self._read_stream.read1(amount - len(buff))
+            if not chunk:
+                raise EOFError(f"Stream closed while reading {amount} bytes. Readed {len(buff)} bytes.")
+            buff += chunk
+
+        assert len(buff) == amount
+        return buff
 
     def recv_resp(self) -> Tuple[int, bytes]:
-        header_bytes: bytes = self._read_stream.read1(HEADER_STRUCT.size)
+        header_bytes: bytes = self._safe_read(HEADER_STRUCT.size)
         length, msg_type = HEADER_STRUCT.unpack(header_bytes)
-        payload: bytes = self._read_stream.read1(length) if length > 0 else b""
+        payload: bytes = self._safe_read(length)
         return msg_type, payload
 
 #

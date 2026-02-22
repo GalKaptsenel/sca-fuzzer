@@ -125,6 +125,23 @@ class MemAccess:
 
         self.size = self._STRUCT.size
 
+    def __repr__(self):
+        return (f"<MemAccess ea=0x{self.effective_address:x} "
+                f"before=0x{self.before:x} after=0x{self.after:x} "
+                f"size={self.element_size} "
+                f"{'WRITE' if self.is_write else 'READ'}>")
+
+    def pretty_print(self, indent=0):
+        prefix = " " * indent
+        print(f"{prefix}MemAccess:")
+        print(f"{prefix}  EA: 0x{self.effective_address:x}")
+        print(f"{prefix}  Before: 0x{self.before:x}")
+        print(f"{prefix}  After: 0x{self.after:x}")
+        print(f"{prefix}  Size: {self.element_size}")
+        print(f"{prefix}  Type: {'WRITE' if self.is_write else 'READ'}")
+
+
+
 
 class CPUState:
     def __init__(self, buf: memoryview, offset: int, num_gprs: int):
@@ -151,6 +168,25 @@ class CPUState:
 
         self.size = off - offset
 
+    def __repr__(self):
+        gprs_str = ", ".join(f"x{i}=0x{val:x}" for i, val in enumerate(self.gpr))
+        return (f"<CPUState {gprs_str} SP=0x{self.sp:x} PC=0x{self.pc:x} "
+                f"NZCV=0x{self.nzcv:x} ENC=0x{self.encoding:x} "
+                f"extra_data_len={self.extra_data_size}>")
+
+    def pretty_print(self, indent=0):
+        from .aarch64_executor import disassemble_instruction
+        prefix = " " * indent
+        print(f"{prefix}CPUState:")
+        for i, val in enumerate(self.gpr):
+            print(f"{prefix}  x{i:02d}: 0x{val:016x}")
+        print(f"{prefix}  SP : 0x{self.sp:016x}")
+        print(f"{prefix}  PC : 0x{self.pc:016x}")
+        print(f"{prefix}  NZCV: 0x{self.nzcv:016x}")
+        print(f"{prefix}  Encoding: 0x{self.encoding:08x} ({disassemble_instruction(self.encoding, self.pc)})")
+        print(f"{prefix}  Extra data size: {self.extra_data_size}")
+
+
 class InstrMetadata:
     _STRUCT = struct.Struct("<QQ")
 
@@ -166,6 +202,20 @@ class InstrMetadata:
 
         self.size = off - offset
 
+    def __repr__(self):
+        return (f"<InstrMetadata idx={self.instr_index} "
+                f"has_mem={self.has_memory_access} "
+                f"{self.memory_access}>")
+
+    def pretty_print(self, indent=0):
+        prefix = " " * indent
+        print(f"{prefix}InstrMetadata:")
+        print(f"{prefix}  Index: {self.instr_index}")
+        print(f"{prefix}  Has memory access: {self.has_memory_access}")
+        self.memory_access.pretty_print(indent + 2)
+
+
+
 class InstrTraceEntry:
     def __init__(self, buf: memoryview, offset: int, num_gprs: int):
         self.cpu = CPUState(buf, offset, num_gprs)
@@ -175,6 +225,17 @@ class InstrTraceEntry:
         off += self.metadata.size
 
         self.size = off - offset
+
+    def __repr__(self):
+        return f"<InstrTraceEntry {self.cpu} {self.metadata}>"
+
+    def pretty_print(self, indent=0):
+        prefix = " " * indent
+        print(f"{prefix}=== InstrTraceEntry ===")
+        self.cpu.pretty_print(indent + 2)
+        self.metadata.pretty_print(indent + 2)
+        print()
+
 
 class ContractExecutionResult:
     def __init__(self, blob: bytes, num_gprs: int):
@@ -204,6 +265,15 @@ class ContractExecutionResult:
             raise IndexError(idx)
 
         return self.entries[idx]
+
+    def __repr__(self):
+        return f"<ContractExecutionResult entries={self.entry_count}>"
+
+    def pretty_print(self):
+        print(f"ContractExecutionResult: {self.entry_count} entries")
+        for i, entry in enumerate(self.entries):
+            print(f"\n--- Entry {i} ---")
+            entry.pretty_print(indent=2)
 
 
 class ContractExecutorService:
@@ -237,4 +307,3 @@ class ContractExecutorService:
         msg_type, reply = self._stream_ipc.recv_resp()
         assert msg_type == 2
         return ContractExecutionResult(reply, 31) # NUM GPRS of aarch64 is 31 (x0 to x30)
-
