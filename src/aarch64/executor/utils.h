@@ -31,11 +31,10 @@
                 module_debug("%s = (%s)%s(\"%s\") = %px", #local_symbol, #type, #lookup_fn, #symbol, local_symbol);   \
        } while(0)
 
-#endif // ARM64_EXECUTOR_UTILS_H
 
 
 // Typedefs
 typedef unsigned long (*kallsyms_lookup_name_t)(const char *name);
 typedef int (*set_memory_t)(unsigned long, int);
-typedef unsigned long (*kallsyms_lookup_name_t)(const char *name);
 
+#endif // ARM64_EXECUTOR_UTILS_H

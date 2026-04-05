@@ -629,7 +629,7 @@ int load_template(size_t tc_size) {
 	unsigned code_pos = 0;
 	uint32_t* template_ptr = 0;
 	const uint64_t max_size_of_template = MAX_MEASUREMENT_CODE_SIZE - 4; // guarantee enough memory for "ret" instruction
-
+	uint32_t* destination_code = (uint32_t*)executor.measurement_code_views[0];
 	if(UNSET_TEMPLATE == executor.config.measurement_template) {
 		module_err("Template is not set!");
 		return -5;
@@ -656,13 +656,13 @@ int load_template(size_t tc_size) {
 	        return -1;
 	    }
 
-	    ((uint32_t*)executor.measurement_code)[code_pos] = template_ptr[template_pos];
+	    destination_code[code_pos] = template_ptr[template_pos];
 	}
 
 	++template_pos; // skip TEMPLATE_INSERT_TC
 
 	// copy the test case into the template
-	memcpy((uint32_t*)executor.measurement_code + code_pos, executor.test_case, tc_size);
+	memcpy(destination_code + code_pos, executor.test_case, tc_size);
 	code_pos += (tc_size/sizeof(uint32_t));
 
 	// write the rest of the template
@@ -677,24 +677,23 @@ int load_template(size_t tc_size) {
 	        return -3;
 	    }
 
-	    ((uint32_t*)executor.measurement_code)[code_pos] = template_ptr[template_pos];
+	    destination_code[code_pos] = template_ptr[template_pos];
 	}
 
     // RET encoding: 0xd65f03c0
-    ((uint32_t*)executor.measurement_code)[code_pos] = 0xd65f03c0;
+    destination_code[code_pos] = 0xd65f03c0;
     code_pos += 1;
 
-//    {
-//    	size_t print_pos = 0;
-//    	for(; print_pos < code_pos; ++print_pos) {
-//
-//	        module_err("%px -> %x\n", ((uint32_t*)executor.measurement_code) + print_pos,
-//	        ((uint32_t*)executor.measurement_code)[print_pos]);
-//        }
-//    }
-//    module_err("executor is loaded at: %px", &executor);
+    size_t total_size = sizeof(uint32_t) * code_pos;
+    if(MAX_MEASUREMENT_CODE_SIZE < total_size) {
+	    module_err("Test expantion is too big! Got %lu bytes after template  expantion", total_size);
+	    return -4;
+    }
 
-    return (sizeof(uint32_t) * code_pos);
+    dsb(ish); // make sure all views are synced
+    isb();
+
+    return total_size;
 }
 EXPORT_SYMBOL(load_template);
 

@@ -337,7 +337,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
         tc_bytes = ConfigurableGenerator.in_memory_assemble(assembly)
         sandbox_base, code_base = self.read_base_addresses()
 
-        traces: OrderedDict[Input, ContractExecutionResult] = OrderedDict()
+        traces: List[ContractExecutionResult] = []
         for i in inputs:
             data = i.tobytes()
             tc_memory = data[:0x2000]
@@ -345,11 +345,11 @@ class Aarch64LocalExecutor(Aarch64Executor):
 
             execution = ContractExecution(tc_bytes, tc_memory, tc_regs, SimArch.RVZR_ARCH_AARCH64, 5, 10, req_code_base_virt=code_base,
                                       req_mem_base_virt=sandbox_base)
-            traces[i] = self._contract_executor.run(execution)
+            traces.append(self._contract_executor.run(execution))
 
-        taints, ctraces, traces_arr = [], [], []
+        taints, ctraces, = [], []
 
-        for cer in traces.values():
+        for cer in traces:
             if 0 == len(cer):
                 continue
 
@@ -377,9 +377,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
             cache_sets = sorted(set(map(lambda addr: (addr // line_size) % num_sets, accessed_memory)))
             ctraces.append(CTrace(raw_trace=cache_sets))
 
-            traces_arr.append(cer)
-
-        return ctraces, taints, traces_arr
+        return ctraces, taints, traces
 
 def map_operand_to_input_offsets(op: str) -> List[int]:
     if op.lower().startswith(("x", "w")):

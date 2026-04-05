@@ -145,7 +145,9 @@ static void measure_input_id(void __user* arg) {
 
 static void unload_test_and_update_state(void) {
 	memset(executor.test_case, 0, MAX_TEST_CASE_SIZE);
-	memset(executor.measurement_code, 0, MAX_MEASUREMENT_CODE_SIZE);
+	memset(executor.measurement_code_views[0], 0, MAX_MEASUREMENT_CODE_SIZE);
+    	dsb(ish); // make sure all views are synced
+	isb();
 	executor.test_case_length = 0;
 
 	switch(executor.state) {

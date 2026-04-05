@@ -31,7 +31,7 @@ revizor-executor-y := \
 	inputs.o \
 	measurement.o \
 	mte.o \
-	pagewalk.o \
+	pagetable.o \
 	sandbox.o \
 	sysfs.o \
 	templates.o \

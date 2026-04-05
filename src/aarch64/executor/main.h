@@ -56,7 +56,7 @@ MODULE_DESCRIPTION("AArch64 implementation of Revisor's executor");
 
 #define DEBUG 0
 
-#include "pagewalk.h"
+#include "pagetable.h"
 
 #define kernel_module_name	"executor"
 

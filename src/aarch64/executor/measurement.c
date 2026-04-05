@@ -278,39 +278,23 @@ static void measure(measurement_t* measurement) {
 	}
 }
 
-//static void flush_l1d_cache(void) {
-//	uint64_t clidr = 0, ccsidr = 0;
-//	uint32_t line_size = 0, assoc = 0, num_sets = 0;
-//
-//	asm volatile("mrs %0, CLIDR_EL1" : "=r"(clidr) :: "memory");
-//
-//	for(int level = 0; level < 7; ++level) {
-//		int ctype = (clidr >> (level * 3)) & 0b111;
-//		if(ctype < 2) {
-//			// no data/unified cache at this level
-//			continue;
-//		}
-//
-//		write_sysreg(level << 1, csselr_el1);
-//		isb();
-//
-//		ccsidr = read_sysreg(ccsidr_el1);
-//		line_size = (ccsidr & 0b111) + 4; // log2(words per line) + 2 for bytes: 2^line_size is the size of the line in bytes
-//		assoc = ((ccsidr >> 3) & 0x3FF) + 1; // ways
-//		num_sets = ((ccsidr >> 13) & 0x7FFF) + 1; // sets
-//
-//		for(int way = 0; way < assoc; ++way) {
-//			for(int set = 0; set < num_sets; ++set) {
-//				uint64_t sw = (way << (32 - __builtin_clz(assoc - 1))) | (set << line_size);
-//				asm volatile("dc cisw, %0" :: "r"(sw) : "memory");
-//			}
-//		}
-//	}
-//
-//	dsb(ish);
-//	isb();
-//}
+static void flush_bpu_phr(void) {
+	asm volatile (
+		"mov x0, #300\n"
+		"1:\n"
+		"nop\n"
+		"subs x0, x0, #1\n"
+		"b.ne 1b\n"
+		:
+		:
+		: "x0", "cc"
+	);
+}
 
+static void* invalidate_bpu_entries(void) {
+	static size_t current_view = 0;
+	return executor.measurement_code_views[current_view++ % MAX_MEASUREMENT_VIEWS];
+}
 
 static void __nocfi run_experiments(void) {
 	int64_t rounds = (int64_t)executor.number_of_inputs;
@@ -322,9 +306,6 @@ static void __nocfi run_experiments(void) {
 		module_err("No inputs were set!\n");
 		return;
 	}
-
-//	module_err("inputs_root.rb_node=%zx, number_of_inputs=%llu\n", (size_t)executor.inputs_root.rb_node, executor.number_of_inputs);
-//	module_err("measurement area is at =%zx\n", (size_t)executor.measurement_code);
 
 	current_input_node = rb_first(&executor.inputs_root);
 	BUG_ON(NULL == current_input_node);
@@ -354,39 +335,26 @@ static void __nocfi run_experiments(void) {
 		initialize_overflow_pages();
 		load_input_to_sandbox(&current_input->input);
 
+		raw_local_irq_save(flags); // disable local interrupts and save current state
+
+		void* measurement_code = executor.measurement_code_views[0];
+
 		// flush some of the uarch state
 		if (1 == executor.config.pre_run_flush) {
-			// TBD
+			flush_bpu_phr();
+			measurement_code = invalidate_bpu_entries();
 		}
-
 
 //		config_pfc();
 
-		raw_local_irq_save(flags); // disable local interrupts and save current state
-
-//		flush_l1d_cache();
-
 		// execute
-		((void(*)(void*))executor.measurement_code)(&executor.sandbox);
+		((void(*)(void*))measurement_code)(&executor.sandbox);
 
 //		enable_mte_tag_checking();
 
 		raw_local_irq_restore(flags); // enable local interrupts with previously saved state
 
 		measure(&current_input->measurement);
-//		module_err("htrace: %llu", current_input->measurement.htrace[0]);
-//		{
-//			char buff[65] = { 0 };
-//			for(int i = 0; i < 64; ++i) {
-//				buff[63-i] = (current_input->measurement.htrace[0] & ((uint64_t)1 << i)) ? '1' : '0';
-//			}
-//			buff[64] = 0;
-//	
-//			module_err("htrace: %s", buff);
-//			module_err("pfc[0]: %llu", current_input->measurement.pfc[0]);
-//			module_err("pfc[1]: %llu", current_input->measurement.pfc[1]);
-//			module_err("pfc[2]: %llu", current_input->measurement.pfc[2]);
-//		}
 
 	}
 }

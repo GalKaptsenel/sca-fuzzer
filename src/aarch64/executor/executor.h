@@ -23,8 +23,10 @@ enum State {
 #define CPU_ID_DEFAULT				(-1)	
 #define REGION_DEFFAULT			        (TEST_REGION)
 
-#define MAX_TEST_CASE_SIZE              (PAGESIZE * 128)
+#define MAX_TEST_CASE_SIZE              (1 * PAGESIZE)
 #define MAX_MEASUREMENT_CODE_SIZE       (MAX_TEST_CASE_SIZE * 4)
+
+#define MAX_MEASUREMENT_VIEWS		(16)
 
 #define TEST_REGION				        (-1)
 
@@ -45,15 +47,15 @@ typedef struct device_managment {
 typedef struct executor {
 	sandbox_t sandbox;
 	executor_config_t config;
-	char measurement_code[MAX_MEASUREMENT_CODE_SIZE] __aligned(PAGESIZE);
 	volatile uint64_t number_of_inputs;
-	char* test_case; // The member test_case is NOT embedded inside the struct (as opposed to measurement_code member) because we require that it wll be continuous within physical memory, and therefore it should be acquired by kmalloc
+	char* test_case; // The member test_case is NOT embedded inside the struct because we require that it wll be continuous within physical memory, and therefore it should be acquired by kmalloc
 	size_t test_case_length;
 	struct rb_root inputs_root;
 	int64_t checkout_region;
 	int tracing_error;
 	enum State state;
 	device_management_t device_mgmt;
+	void* measurement_code_views[MAX_MEASUREMENT_VIEWS];
 } executor_t;
 
 int __nocfi initialize_executor(set_memory_t);

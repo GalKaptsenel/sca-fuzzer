@@ -24,7 +24,7 @@ static ssize_t print_code_base_show(struct kobject *kobj, struct kobj_attribute 
 static ssize_t enable_pre_run_flush_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
     unsigned int value = 0;
     sscanf(buf, "%u", &value);
-    executor.config.pre_run_flush = (0 == value) ? 0 : 1;
+    executor.config.pre_run_flush = !!value;
     return count;
 }
 
@@ -153,7 +153,7 @@ static struct attribute *sysfs_attributes[] = {
 	&print_code_base_attribute.attr,
 	&enable_pre_run_flush_attribute.attr,
 	&measurement_mode_attribute.attr,
-	&pin_to_core_attribute.attr, 
+	&pin_to_core_attribute.attr,
 	NULL, /* need to NULL terminate the list of attributes */
 };
 
