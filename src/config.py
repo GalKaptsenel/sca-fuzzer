@@ -250,7 +250,7 @@ class Conf:
     # ==============================================================================================
     # Alternatives for config options (also extended by ISA-specific config.py)
     _option_values: Dict[str, List] = {
-        "fuzzer": ["basic", "architectural", "archdiff"],
+        "fuzzer": ["basic", "architectural", "archdiff", "non-iterfearence"],
         "generator": ["random"],
         "instruction_set": ["x86-64"],
         "input_generator": ["random"],

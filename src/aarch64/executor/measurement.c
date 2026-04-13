@@ -61,7 +61,7 @@ static int config_pfc(void) {
 
     // disable PMU user-mode access (not necessary?)
     uint64_t val = 0;
-    uint64_t filter_events = (1 << 30) | (1 << 27);
+    uint64_t filter_events = (1 << 30) | (1 << 27) | (1 << 26);
 
     asm volatile("msr pmuserenr_el0, %0" :: "r" (0x1));
     asm volatile("isb\n");
@@ -81,15 +81,16 @@ static int config_pfc(void) {
     asm volatile("isb\n");
 
     // 2. Instructions retired (0x08)
-    asm volatile("msr pmevtyper1_el0, %0" :: "r" ((uint64_t)(filter_events | 0x08)));
+    // 2. Branch instruction architecturally executed, mispredicted immediate (0x8111)
+    asm volatile("msr pmevtyper1_el0, %0" :: "r" ((uint64_t)(filter_events | 0x8111)));
     asm volatile("isb\n");
 
     // 3. Instruction speculatively executed (0x1b)
     asm volatile("msr pmevtyper2_el0, %0" :: "r" ((uint64_t)(filter_events | 0x1b)));
     asm volatile("isb\n");
 
-    // 4. L1D cache refills (0x3)
-    asm volatile("msr pmevtyper3_el0, %0" :: "r" ((uint64_t)(filter_events | 0x3)));
+    // 4. Branch instruction architecturally executed, mispredicted immediate (0x8111)
+    asm volatile("msr pmevtyper3_el0, %0" :: "r" ((uint64_t)(filter_events | 0x8111)));
     asm volatile("isb\n");
 
     // enable counting
@@ -244,9 +245,10 @@ static void initialize_overflow_pages(void) {
 	// NOTE: memset is not used intentionally! somehow, it messes up with P+P measurements
 	// - overflows are initialized with zeroes
 	memset(executor.sandbox.lower_overflow, 0, sizeof(executor.sandbox.lower_overflow));
-	for (int j = 0; j < (sizeof(executor.sandbox.upper_overflow) / sizeof(uint64_t)); ++j) {
-	    ((uint64_t *)executor.sandbox.upper_overflow)[j] = 0;
-	}
+	memset(executor.sandbox.upper_overflow, 0, sizeof(executor.sandbox.upper_overflow));
+//	for (int j = 0; j < (sizeof(executor.sandbox.upper_overflow) / sizeof(uint64_t)); ++j) {
+//	    ((uint64_t *)executor.sandbox.upper_overflow)[j] = 0;
+//	}
 }
 
 int64_t initialize_measurement(measurement_t* measurement) {
@@ -345,7 +347,7 @@ static void __nocfi run_experiments(void) {
 			measurement_code = invalidate_bpu_entries();
 		}
 
-//		config_pfc();
+		config_pfc();
 
 		// execute
 		((void(*)(void*))measurement_code)(&executor.sandbox);

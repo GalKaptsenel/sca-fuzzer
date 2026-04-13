@@ -190,7 +190,7 @@ static void* early_decision(const struct cpu_state* state) {
 
 	// check what the director says, if it is the same as real direction, then no deeper speculation needed, otherwise speculate to the mispredicted direction
 	const uintptr_t predicted = director_predict(state->pc);
-	director_update(state->pc, target_address == arch_taken_address);
+	director_update(state->pc, target_address == arch_taken_address); // BUG when target address is PC + 4 (same target for taken and not taken)
 	if(((target_address == arch_taken_address) && predicted) || ((target_address != arch_taken_address) && !predicted)) {
 		return (void*)arch_taken_address;
 	}
@@ -256,7 +256,7 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 	}
 	
 	uint64_t checkpoint_id = take_checkpoint(sim_state);
-	mgmt.stack[mgmt.stack_top].return_addr = evaluate_cond_target(sim_state->cpu_state.pc, *(uint32_t*)sim_state->cpu_state.pc);
+	mgmt.stack[mgmt.stack_top].return_addr = evaluate_cond_branch_arch_taken(&sim_state->cpu_state);
 	mgmt.stack[mgmt.stack_top].checkpoint_id = checkpoint_id;
 	mgmt.stack[mgmt.stack_top].reserved = 0;
 	++mgmt.stack_top;

@@ -341,7 +341,11 @@ class Aarch64LocalExecutor(Aarch64Executor):
         for i in inputs:
             data = i.tobytes()
             tc_memory = data[:0x2000]
-            tc_regs = data[0x2000:]
+
+            tc_regs = bytearray(data[0x2000:])
+            view = memoryview(tc_regs).cast('Q')
+            view[6] = (view[6] << 28) & ((1 << 64) - 1) # in the executor we shift left 28 bits the value for the flags register
+            tc_regs = bytes(tc_regs)
 
             execution = ContractExecution(tc_bytes, tc_memory, tc_regs, SimArch.RVZR_ARCH_AARCH64, 5, 10, req_code_base_virt=code_base,
                                       req_mem_base_virt=sandbox_base)

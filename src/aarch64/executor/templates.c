@@ -416,20 +416,17 @@ inline void epilogue(void) {
 // clobber: -
 #define FLUSH(BASE, OFFSET, TMP) asm volatile(""                                                \
     "isb; dsb SY							                                                \n"	\
-    "eor "OFFSET", "OFFSET", "OFFSET"					                                    \n"	\
+    "mov "OFFSET", #%[main_region_size]				                                        \n"	\
     										                                                    \
     "_arm64_executor_flush_loop:					                                        \n"	\
+    "	sub "OFFSET", "OFFSET", #64					                                        \n"	\
     "	add "TMP", "BASE", "OFFSET"					                                        \n"	\
     										                                                    \
     "	isb; dsb SY							                                                \n"	\
     "	dc civac, "TMP"							                                            \n"	\
     "	isb; dsb SY							                                                \n"	\
     										                                                    \
-    "	add "OFFSET", "OFFSET", #64					                                        \n"	\
-    										                                                    \
-    "	mov "TMP", #%[main_region_size]				                                        \n"	\
-    "	cmp "TMP", "OFFSET"						                                            \n"	\
-    "	b.gt _arm64_executor_flush_loop					                                    \n"	\
+    "	cbnz "OFFSET", _arm64_executor_flush_loop					                                    \n"	\
     										                                                    \
     "isb; dsb SY							                                                \n"	\
 	:									                                                        \

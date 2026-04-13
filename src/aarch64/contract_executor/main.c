@@ -91,6 +91,7 @@ int main() {
 				"mov x4, %7\n"
 				"mov x5, %8\n"
 				"mov x6, %9\n"
+				"msr nzcv, x6\n"
 				"mov x7, %10\n"
 				"mov x8, %11\n"
 				"blr %1\n"

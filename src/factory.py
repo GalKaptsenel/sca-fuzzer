@@ -13,6 +13,7 @@ from .x86 import (x86_model, x86_executor, x86_fuzzer, x86_generator, x86_asm_pa
 from .aarch64 import (aarch64_model, aarch64_executor, aarch64_fuzzer, aarch64_generator, aarch64_asm_parser,
                       get_spec as aarch64_get_spec, aarch64_connection)
 from .config import CONF, ConfigException
+from .fuzzer import NoninterfearenceFuzzer
 
 GENERATORS: Dict[str, Type[interfaces.Generator]] = {
     "x86-64-random": x86_generator.X86RandomGenerator,
@@ -122,6 +123,9 @@ def get_fuzzer(instruction_set, working_directory, testcase, inputs):
         elif "aarch64" in CONF.instruction_set:
             return aarch64_fuzzer.Aarch64Fuzzer(instruction_set, working_directory, testcase, inputs)
         raise ConfigException("ERROR: unknown value of `instruction_set` configuration option")
+    elif CONF.fuzzer == "non-iterfearence":
+        return NoninterfearenceFuzzer(instruction_set, working_directory, testcase, inputs)
+
     raise ConfigException("ERROR: unknown value of `fuzzer` configuration option")
 
 

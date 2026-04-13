@@ -127,8 +127,6 @@ void destroy_shm(struct shm_region* shm) {
 	}
 }
 
-// ---- Python-friendly wrapper API ----
-
 void* stream_attach_shm(const char* shm_name) {
 	char path[NAME_MAX] = { 0 };
 	if(NULL == shm_name) shm_name = DEFAULT_SHM_NAME;
@@ -170,22 +168,3 @@ void stream_recv_req(void* shm, uint32_t* type,
 	ring_recv(s, &s->req, type, payload, len);
 }
 
-//int main() {
-//    struct shm_region* shm = init_shm(); // Already sets up rings
-//
-//    uint32_t* buffer = (uint32_t*)malloc(1024*1024*4);
-//
-//    while (1) {
-//        uint32_t type = 0;
-//        uint32_t len = 0;
-//        ring_recv(shm, &shm->req, &type, (uint8_t*)buffer, &len);
-//
-//        printf("[C] Type: %d, Received: %.*s\n", type, (int)len, (char*)buffer);
-//
-//        // Echo back
-//        ring_send(shm, &shm->resp, type, (uint8_t*)buffer, len);
-//        printf("[C] Sent back\n");
-//    }
-//    free(buffer);
-//    return 0;
-//}
