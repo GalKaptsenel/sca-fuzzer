@@ -11,7 +11,7 @@ class BPMicroarchEvent(MicroarchEvent):
 
 class BP(ABC):
     @abstractmethod
-    def update(self, address: int, taken: bool) -> None:
+    def update(self, address: int, taken: bool, target: Optional[int]) -> None:
         pass
 
     @abstractmethod

@@ -36,5 +36,6 @@ struct execution_mgmt {
 };
 
 void* execution_clause_hook(struct simulation_state* sim_state);
+void* log_instr_execution_cluase_hook(struct simulation_state* sim_state);
 
 #endif // SIMULATION_EXECUTION_CLAUSE_H

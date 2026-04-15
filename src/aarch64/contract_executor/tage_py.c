@@ -17,8 +17,7 @@ int python_init() {
 	return 0;
 }
 
-int tagebp_init(const char *module_dir, const char *module_name,
-		int num_state_bits, int init_state_val, int num_base_entries) {
+int tagebp_init(const char *module_dir, const char *module_name) {
 
 	if (!python_initialized) {
 		if (python_init() != 0) return -1;
@@ -50,7 +49,7 @@ int tagebp_init(const char *module_dir, const char *module_name,
 	}
 
 	// Get the TageBP class
-	PyObject *tage_class = PyObject_GetAttrString(module, "TageBP");
+	PyObject *tage_class = PyObject_GetAttrString(module, "Aarch64NeoverseN3BPU");
 	Py_DECREF(module);
 	if (!tage_class) {
 		PyErr_Print();
@@ -58,7 +57,7 @@ int tagebp_init(const char *module_dir, const char *module_name,
 	}
 
 	// Build constructor arguments and create instance
-	PyObject *args = Py_BuildValue("(iii)", num_state_bits, init_state_val, num_base_entries);
+	PyObject *args = Py_BuildValue("()");
 	tage_instance = PyObject_CallObject(tage_class, args);
 	Py_DECREF(args);
 	Py_DECREF(tage_class);
@@ -88,12 +87,13 @@ int tagebp_predict(uintptr_t address) {
 	return prediction;
 }
 
-void tagebp_update(uintptr_t address, int taken) {
+void tagebp_update(uintptr_t address, int taken, uintptr_t target) {
 	if (!tage_instance) return;
 
 	PyObject *py_addr = PyLong_FromUnsignedLong(address);
 	PyObject *py_taken = PyBool_FromLong(taken);
-	PyObject *result = PyObject_CallMethod(tage_instance, "update", "OO", py_addr, py_taken);
+	PyObject *py_target = PyLong_FromUnsignedLong(target);
+	PyObject *result = PyObject_CallMethod(tage_instance, "update", "OOO", py_addr, py_taken, py_target);
 	Py_DECREF(py_addr);
 	Py_DECREF(py_taken);
 

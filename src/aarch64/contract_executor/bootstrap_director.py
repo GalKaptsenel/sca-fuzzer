@@ -9,8 +9,7 @@ if str(package_root) not in sys.path:
 
 try:
     from directed_fuzzing.bp import BP
-    from bp.predictors import ConditionalTAGE
-    from directed_fuzzing.tage_predictor import TageBP
+    from directed_fuzzing.saturating_bp import Aarch64NeoverseN3BPU, SaturatingCounterBPCommon
 except ImportError as e:
     print("Failed to import directed_fuzzing modules:", e)
     raise

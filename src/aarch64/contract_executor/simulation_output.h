@@ -36,6 +36,7 @@ typedef struct {
 typedef struct {
 	uint64_t instr_index;		// instruction index in trace
 	uint64_t has_memory_access;		// does the instruction accesses memory
+	uint64_t speculation_nesting;	// Speculation nesting (0 for no speculation)
 	mem_access_t memory_access;
 } instr_metadata_t;
 
@@ -51,6 +52,7 @@ typedef struct {
 
 void init_trace_log(size_t test_size);
 void* log_instr_hook(struct simulation_state* sim_state);
+void* log_instr_with_speculation_nesting(struct simulation_state* sim_state, uint64_t speculation_nesting);
 void destroy_trace_log();
 
 // TODO: TMP

@@ -387,7 +387,7 @@ def map_operand_to_input_offsets(op: str) -> List[int]:
     if op.lower().startswith(("x", "w")):
         n = int(op[1:])
         if n < 0 or n > 5:
-            raise ValueError(f"Register index must be 0–7, got {op}")
+            raise ValueError(f"Register index must be 0–5, got {op}")
         size = 8 if op.lower().startswith("x") else 4
     elif op.lower() in ("n", "z", "c", "v"):
         n = 6

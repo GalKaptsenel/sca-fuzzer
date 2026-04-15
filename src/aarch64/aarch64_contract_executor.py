@@ -188,12 +188,12 @@ class CPUState:
 
 
 class InstrMetadata:
-    _STRUCT = struct.Struct("<QQ")
+    _STRUCT = struct.Struct("<QQQ")
 
     def __init__(self, buf: memoryview, offset: int):
         off = offset
 
-        (self.instr_index, self.has_memory_access) = self._STRUCT.unpack_from(buf, offset)
+        (self.instr_index, self.has_memory_access, self.speculation_nesting) = self._STRUCT.unpack_from(buf, offset)
         off += self._STRUCT.size
 
         self.memory_access = MemAccess(buf, off)
@@ -204,6 +204,7 @@ class InstrMetadata:
 
     def __repr__(self):
         return (f"<InstrMetadata idx={self.instr_index} "
+                f"speculation_nesting={self.speculation_nesting} "
                 f"has_mem={self.has_memory_access} "
                 f"{self.memory_access}>")
 
@@ -211,6 +212,7 @@ class InstrMetadata:
         prefix = " " * indent
         print(f"{prefix}InstrMetadata:")
         print(f"{prefix}  Index: {self.instr_index}")
+        print(f"{prefix}  Speculation nesting: {self.speculation_nesting}")
         print(f"{prefix}  Has memory access: {self.has_memory_access}")
         self.memory_access.pretty_print(indent + 2)
 

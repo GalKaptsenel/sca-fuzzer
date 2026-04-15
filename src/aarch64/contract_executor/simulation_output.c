@@ -232,7 +232,7 @@ static int parse_memory_access_instruction(
 	return 1;
 }
 
-void* log_instr_hook(struct simulation_state* sim_state) {
+static instr_trace_entry_t* log_sim_state(struct simulation_state* sim_state) {
 	if(NULL == sim_state) return NULL;
 	if(out_of_simulation(&sim_state->cpu_state)) return NULL;
 
@@ -331,6 +331,19 @@ void* log_instr_hook(struct simulation_state* sim_state) {
 		}
 	}
 
+	return entry;
+}
+
+void* log_instr_with_speculation_nesting(struct simulation_state* sim_state, uint64_t speculation_nesting) {
+	instr_trace_entry_t* entry = log_sim_state(sim_state);
+	if(NULL != entry) {
+		entry->metadata.speculation_nesting = speculation_nesting;
+	}
+	return NULL;
+}
+
+void* log_instr_hook(struct simulation_state* sim_state) {
+	log_sim_state(sim_state);
 	return NULL;
 }
 

@@ -5,23 +5,24 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional, List, Any, Tuple
 from functools import reduce
+from .bp import BP
 
-class BP(ABC):
-    @abstractmethod
-    def update(self, address: int, taken: bool, target: Optional[int] = None) -> None:
-        pass
-
-    @abstractmethod
-    def predict(self, address: int) -> bool:
-        pass
-
-    @abstractmethod
-    def snapshot(self) -> Any:
-        """
-        Return an immutable representation of the BP (all sets and entries)
-        suitable for hashing or scoring.
-        """
-        pass
+#class BP(ABC):
+#    @abstractmethod
+#    def update(self, address: int, taken: bool, target: Optional[int] = None) -> None:
+#        pass
+#
+#    @abstractmethod
+#    def predict(self, address: int) -> bool:
+#        pass
+#
+#    @abstractmethod
+#    def snapshot(self) -> Any:
+#        """
+#        Return an immutable representation of the BP (all sets and entries)
+#        suitable for hashing or scoring.
+#        """
+#        pass
 
 
 class LRUCache:
@@ -53,7 +54,7 @@ class SaturatingCounterBP:
 
         def __init__(self, n: int, initial_state: Optional[int] = None):
             self._n: int = n
-            self._state = initial_state if initial_state is not None else (1 << (n - 1))
+            self._state = initial_state if initial_state is not None else ((1 << (n - 1)) - 1) # initialize to weakly not taken
             self._min = 0
             self._max = (1 << self._n) - 1
             self._threshold = (1 << (self._n - 1))
@@ -172,7 +173,7 @@ class SaturatingCounterBPCommon(BP):
         tag_fn = lambda pc: pc >> (pc_shift + index_bits)
         self._bp = SaturatingCounterBP(counter_bit_width, num_sets, assoc, index_fn, tag_fn)
 
-    def update(self, address: int, taken: bool, touch_lru: bool = True) -> None:
+    def update(self, address: int, taken: bool, target: int = None, touch_lru: bool = True) -> None:
         self._bp.update(address, taken, touch_lru)
 
     def predict(self, address: int, touch_lru: bool = False) -> bool:
@@ -234,7 +235,7 @@ class TAGEBase(BP):
         tag_fn = lambda pc: pc >> (pc_shift + index_bits)
         self._bp = SaturatingCounterBP(counter_bit_width, num_sets, assoc, index_fn, tag_fn)
 
-    def update(self, address: int, taken: bool, touch_lru: bool = True) -> None:
+    def update(self, address: int, taken: bool, target: int = None, touch_lru: bool = True) -> None:
         self._bp.update(address, taken, touch_lru)
 
     def predict(self, address: int, touch_lru: bool = False) -> bool:
@@ -292,7 +293,7 @@ class Aarch64NeoverseN3BPU(BP):
 
         def generate_index_fn(phr_len: int) -> int:
             def index_fn(address: int):
-                return (address ^ (self._phr.read() & ((1 << phr_len) - 1))) & (num_sets_phts - 1)
+                return ((address >> 7) ^ (self._phr.read() & ((1 << phr_len) - 1))) & (num_sets_phts - 1)
             return index_fn
 
         def generate_tag_fn(phr_len: int) -> int:

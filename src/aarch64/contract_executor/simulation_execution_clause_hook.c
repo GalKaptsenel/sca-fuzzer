@@ -1,5 +1,6 @@
 #include "simulation_execution_clause_hook.h"
 #include "simulation.h"
+#include "simulation_output.h"
 #include "tage_py.h"
 
 static inline bool get_bit(uint32_t val, int n) {
@@ -27,8 +28,8 @@ static bool condition_passed(uint32_t cond, uint32_t nzcv) {
 		case 0xB: return N != V;		// LT
 		case 0xC: return !Z && (N == V);	// GT
 		case 0xD: return Z || (N != V);		// LE
-		case 0xE: return true;			// AL (always)
-		case 0xF: return false;			// NV (always)
+		case 0xE: return true;			// AL (always taken)
+		case 0xF: return true;			// NV (always taken): According to "https://developer.arm.com/documentation/ddi0487/mb/-Part-J-Architectural-Pseudocode/-Chapter-J1-A-profile-Architecture-Pseudocode/-J1-4-Shared-pseudocode/-J1-4-508-ConditionHolds?lang=en#asl_func_conditionholds_1", the pseudo code confirms that NV behaves exactly as AL
 		default:  return false;			// invalid
 	}
 }
@@ -78,36 +79,27 @@ static uintptr_t evaluate_cond_branch_bool(const struct cpu_state* state, bool r
 
 	if(BRANCH_B_COND == btype) {
 		uint32_t cond = insn & 0xF;
-		if (condition_passed(cond, state->nzcv)) {
-			return req_direction ? target : pc + 4;
-		} else {
-			return req_direction ? pc + 4: target;
-		}
+		bool arch_take = condition_passed(cond, state->nzcv) == req_direction;
+		return arch_take ? target : pc + 4;
 	}
 
 	if (BRANCH_CBZ == btype || BRANCH_CBNZ == btype) {
 		uint32_t Rt = insn & 0x1F;
-		bool zero = gpr_x(state, Rt) == 0;
-		bool is_cbz = BRANCH_CBZ == btype;
-		bool take = is_cbz ? zero : !zero;
-		if(take) {
-			return req_direction ? target : pc + 4;
-		} else {
-			return req_direction ? pc + 4 : target;
-		}
+		uint32_t is_64bit = (insn >> 31) & 1;
+		uint64_t value = gpr_x(state, Rt);
+		value = is_64bit ? value : (uint32_t)value;
+		bool take = (0 == value) == (BRANCH_CBZ == btype);
+		bool arch_take = take == req_direction;
+		return arch_take ? target : pc + 4;
 	}
 
 	if (BRANCH_TBZ == btype || BRANCH_TBNZ == btype) {
 		uint32_t Rt = insn & 0x1F;
 		uint32_t b5 = (insn >> 19) & 0x1F;     // bit to test
 		bool bit_set = (gpr_x(state, Rt) >> b5) & 1;
-		bool is_tbz = BRANCH_TBZ == btype;
-		bool take = is_tbz ? !bit_set : bit_set;
-		if(take) {
-			return req_direction ? target : pc + 4;
-		} else {
-			return req_direction ? pc + 4 : target;
-		}
+		bool take = (0 == bit_set) == (BRANCH_TBZ == btype);
+		bool arch_take = take == req_direction;
+		return arch_take ? target : pc + 4;
 	}
 
 	// Not a conditional branch we recognize
@@ -152,7 +144,7 @@ static void reload_checkpoint(struct simulation_state* sim_state, uint64_t check
 
 static void initialize_director() {
 	//if(0 != tagebp_init(".", "bootstrap_director", 2, 4, 4096)) {
-	if(0 != tagebp_init("src/aarch64/contract_executor", "bootstrap_director", 2, 4, 4096)) {
+	if(0 != tagebp_init("src/aarch64/contract_executor", "bootstrap_director")) {
 		__builtin_trap(); // sanity check
 	}
 }
@@ -165,8 +157,8 @@ static uintptr_t director_predict(uintptr_t pc) {
 	return tagebp_predict(pc);
 }
 
-static void director_update(uintptr_t pc, bool taken) {
-	tagebp_update(pc, taken);
+static void director_update(uintptr_t pc, bool taken, uintptr_t target) {
+	tagebp_update(pc, taken, target);
 }
 
 static void destroy_execution_clause() {
@@ -184,17 +176,22 @@ static void destroy_execution_clause() {
 }
 
 static void* early_decision(const struct cpu_state* state) {
-	return NULL;
 	const uintptr_t target_address = evaluate_cond_target(state->pc, *(uint32_t*)state->pc);
 	const uintptr_t arch_taken_address = evaluate_cond_branch_arch_taken(state);
+	const bool arch_taken = target_address == arch_taken_address;
 
 	// check what the director says, if it is the same as real direction, then no deeper speculation needed, otherwise speculate to the mispredicted direction
 	const uintptr_t predicted = director_predict(state->pc);
-	director_update(state->pc, target_address == arch_taken_address); // BUG when target address is PC + 4 (same target for taken and not taken)
-	if(((target_address == arch_taken_address) && predicted) || ((target_address != arch_taken_address) && !predicted)) {
+	director_update(state->pc, arch_taken, arch_taken_address); // BUG when target address is PC + 4 (same target for taken and not taken)
+	if((arch_taken && predicted) || (!arch_taken && !predicted)) {
 		return (void*)arch_taken_address;
 	}
 	return NULL; // No early decision been made
+}
+
+void* log_instr_execution_cluase_hook(struct simulation_state* sim_state) {
+	log_instr_with_speculation_nesting(sim_state, mgmt.current_nesting);
+	return NULL;
 }
 
 void* execution_clause_hook(struct simulation_state* sim_state) {
@@ -247,13 +244,9 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 		return skip_mispredict;
 	}
 
-	if(0 == mgmt.current_nesting) {
-		mgmt.stack[mgmt.stack_top].nesting = 0;
-		++mgmt.current_nesting;
-	} else {
-		++mgmt.current_nesting;
-		mgmt.stack[mgmt.stack_top].nesting = mgmt.current_nesting;
-	}
+
+	mgmt.stack[mgmt.stack_top].nesting = mgmt.current_nesting;
+	++mgmt.current_nesting;
 	
 	uint64_t checkpoint_id = take_checkpoint(sim_state);
 	mgmt.stack[mgmt.stack_top].return_addr = evaluate_cond_branch_arch_taken(&sim_state->cpu_state);

@@ -11,22 +11,24 @@ extern uint64_t base_hook_c_target;
 simulation_hook_fn hooks_to_install[] = {
 	execution_clause_hook,
 //	stdout_print_hook,
-	log_instr_hook,
+	log_instr_execution_cluase_hook,
+//	log_instr_hook,
 	handle_ret_hook,
 };
 
 int main() {
 	int ret = 0;
-	ret = python_init();
-	if(ret < 0) {
-		fprintf(stderr, "Failed to init python interpreter\n");
-		goto main_out;
-	}
 
 	const size_t base_hook_size = (size_t)(base_hook_end - base_hook);
 	base_hook_c_target = (uint64_t)base_hook_c;
 
 	while(1) {
+		ret = python_init();
+		if(ret < 0) {
+			fprintf(stderr, "Failed to init python interpreter\n");
+			goto main_out;
+		}
+
 		ret = simulation_input_from_file(stdin, &simulation.sim_input);
 
 		if (0 >= ret) {
