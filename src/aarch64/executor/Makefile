@@ -35,6 +35,8 @@ revizor-executor-y := \
 	sandbox.o \
 	sysfs.o \
 	templates.o \
+	jit.o \
+	templates_jit.o \
 	globals.o \
 
 KDIR := /lib/modules/$(shell uname -r)/build

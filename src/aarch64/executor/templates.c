@@ -138,19 +138,19 @@ inline void epilogue(void) {
     "eor x21, x21, x21\n"		                                                                \
     "eor x22, x22, x22\n"		                                                                \
     "isb; dsb SY \n"		                                                                    \
-    "mrs x20, pmevcntr0_el0 \n"                                                                 \
-    "mrs x21, pmevcntr1_el0 \n"	                                                                \
-    "mrs x22, pmevcntr2_el0 \n");
+    "mrs x20, pmevcntr1_el0 \n"                                                                 \
+    "mrs x21, pmevcntr2_el0 \n"	                                                                \
+    "mrs x22, pmevcntr3_el0 \n");
 
 // clobber: x1
 // dest: x20, x21, x22
 #define READ_PFC_END() asm volatile(""                                                          \
     "isb; dsb SY \n"		                                                                    \
-    "mrs x1, pmevcntr0_el0 \n"	                                                                \
-    "sub x20, x1, x20 \n"	                                                                    \
     "mrs x1, pmevcntr1_el0 \n"	                                                                \
-    "sub x21, x1, x21 \n"	                                                                    \
+    "sub x20, x1, x20 \n"	                                                                    \
     "mrs x1, pmevcntr2_el0 \n"	                                                                \
+    "sub x21, x1, x21 \n"	                                                                    \
+    "mrs x1, pmevcntr3_el0 \n"	                                                                \
     "sub x22, x1, x22 \n");
 
 // =================================================================================================
@@ -418,7 +418,7 @@ inline void epilogue(void) {
     "isb; dsb SY							                                                \n"	\
     "mov "OFFSET", #%[main_region_size]				                                        \n"	\
     										                                                    \
-    "_arm64_executor_flush_loop:					                                        \n"	\
+    "_arm64_executor_flush_loop_main:					                                        \n"	\
     "	sub "OFFSET", "OFFSET", #64					                                        \n"	\
     "	add "TMP", "BASE", "OFFSET"					                                        \n"	\
     										                                                    \
@@ -426,11 +426,29 @@ inline void epilogue(void) {
     "	dc civac, "TMP"							                                            \n"	\
     "	isb; dsb SY							                                                \n"	\
     										                                                    \
-    "	cbnz "OFFSET", _arm64_executor_flush_loop					                                    \n"	\
+    "	cbnz "OFFSET", _arm64_executor_flush_loop_main					                                    \n"	\
+    "isb; dsb SY							                                                \n"	\
+    "mov "OFFSET", #%[faulty_region_size]				                                        \n"	\
+    										                                                    \
+    "_arm64_executor_flush_loop_faulty:					                                        \n"	\
+    "	sub "OFFSET", "OFFSET", #64					                                        \n"	\
+    "	add "TMP", "BASE", "OFFSET"					                                        \n"	\
+    "	add "TMP", "TMP", #%[main_region_size]				                                        \n"	\
+    										                                                    \
+    "	isb; dsb SY							                                                \n"	\
+    "	dc civac, "TMP"							                                            \n"	\
+    "	isb; dsb SY							                                                \n"	\
+    										                                                    \
+    "	cbnz "OFFSET", _arm64_executor_flush_loop_faulty					                                    \n"	\
     										                                                    \
     "isb; dsb SY							                                                \n"	\
+    "	add "TMP", "BASE", #%[main_region_size]				                                        \n"	\
+    "	add "TMP", "TMP", #%[faulty_region_size]				                                        \n"	\
+    "isb; dsb SY							                                                \n"	\
+    "	dc civac, "TMP"							                                            \n"	\
+    "isb; dsb SY							                                                \n"	\
 	:									                                                        \
-	: [main_region_size] "i"(sizeof(executor.sandbox.main_region))			                    \
+	: [main_region_size] "i"(sizeof(executor.sandbox.main_region)), [faulty_region_size] "i"(sizeof(executor.sandbox.faulty_region))			                    \
 	:									                                                        \
 )
 
@@ -455,6 +473,7 @@ inline void epilogue(void) {
                                                                                     \
     "_arm64_executor_reload_failed_"LABEL_NUM":                                 \n" \
 
+
 #define SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, INIT_LABEL_NUM)                          \
     SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 0))   \
     SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 1))   \
@@ -464,6 +483,17 @@ inline void epilogue(void) {
     SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 5))   \
     SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 6))   \
     SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 7))   \
+    "	add "BASE", "BASE", #%[main_region_size]					                                        \n"	\
+    SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 8))   \
+    SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 9))   \
+    SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 10))   \
+    SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 11))   \
+    SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 12))   \
+    SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 13))   \
+    SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 14))   \
+    SETS_RELOAD_INNER(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, COMBINE_TO_LABEL(INIT_LABEL_NUM, 15))   \
+    "	sub "BASE", "BASE", #%[main_region_size]					                                        \n"	\
+ 
 
 // clobber: -
 #define RELOAD_SCATTERED(BASE, OFFSET, OFFSETS, TMP, ACC, DEST) asm volatile (""	\
@@ -508,6 +538,26 @@ inline void epilogue(void) {
     "movk "OFFSETS", #0x390B,	lsl #32						\n" \
     "movk "OFFSETS", #0x2521,	lsl #48 					\n" \
     SETS_RELOAD(BASE, OFFSET, OFFSETS, TMP, ACC, DEST, 56)				\
+    "	add "BASE", "BASE", #%[main_region_size]					                                        \n"	\
+    "	add "BASE", "BASE", #%[faulty_region_size]					                                        \n"	\
+    "   mrs "ACC", pmevcntr0_el0						\n" \
+                                                                                    \
+    "   isb; dsb SY                                                             \n" \
+    "   ldr xzr, ["BASE"]                                             \n" \
+    "   isb; dsb SY                                                             \n" \
+                                                                                    \
+    "   mrs "TMP", pmevcntr0_el0						\n" \
+    "   isb; dsb SY                                                             \n" \
+    "   cmp "ACC", "TMP"                                                        \n" \
+    "   b.ne _arm64_executor_reload_failed_upper_overflow                                \n" \
+    "   orr "DEST", "DEST", #1                                                  \n" \
+                                                                                    \
+    "_arm64_executor_reload_failed_upper_overflow:                                 \n" \
+    "	sub "BASE", "BASE", #%[faulty_region_size]					                                        \n"	\
+    "	sub "BASE", "BASE", #%[main_region_size]					                                        \n"	\
+	:									                                                        \
+	: [main_region_size] "i"(sizeof(executor.sandbox.main_region)), [faulty_region_size] "i"(sizeof(executor.sandbox.faulty_region))			                    \
+	:									                                                        \
    )
 
 

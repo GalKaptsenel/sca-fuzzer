@@ -81,8 +81,7 @@ static int config_pfc(void) {
     asm volatile("isb\n");
 
     // 2. Instructions retired (0x08)
-    // 2. Branch instruction architecturally executed, mispredicted immediate (0x8111)
-    asm volatile("msr pmevtyper1_el0, %0" :: "r" ((uint64_t)(filter_events | 0x8111)));
+    asm volatile("msr pmevtyper1_el0, %0" :: "r" ((uint64_t)(filter_events | 0x3)));
     asm volatile("isb\n");
 
     // 3. Instruction speculatively executed (0x1b)

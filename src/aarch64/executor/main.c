@@ -10,10 +10,10 @@
 #include "main.h"
 
 // STATICS
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
-static int (*set_memory_x)(unsigned long, int)		=	NULL;
-static int (*set_memory_nx)(unsigned long, int)		=	NULL;
-#endif
+int (*set_memory_x_fn)(unsigned long, int)		=	NULL;
+int (*set_memory_nx_fn)(unsigned long, int)		=	NULL;
+int (*set_memory_rw_fn)(unsigned long, int)		=	NULL;
+int (*set_memory_ro_fn)(unsigned long, int)		=	NULL;
 
 static size_t __nocfi kprobe_trick(char* function_symbol) {
 	size_t address = 0;
@@ -26,10 +26,17 @@ static size_t __nocfi kprobe_trick(char* function_symbol) {
 
 static bool __nocfi load_set_memory_permissions_handling(void) {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
-	load_global_symbol(kallsyms_lookup_name_fn, set_memory_t, set_memory_x, set_memory_x);
-	load_global_symbol(kallsyms_lookup_name_fn, set_memory_t, set_memory_nx, set_memory_nx);
+	load_global_symbol(kallsyms_lookup_name_fn, set_memory_t, set_memory_x_fn, set_memory_x);
+	load_global_symbol(kallsyms_lookup_name_fn, set_memory_t, set_memory_nx_fn, set_memory_nx);
+	load_global_symbol(kallsyms_lookup_name_fn, set_memory_t, set_memory_rw_fn, set_memory_rw);
+	load_global_symbol(kallsyms_lookup_name_fn, set_memory_t, set_memory_ro_fn, set_memory_ro);
+#else
+	set_memory_x_fn = set_memory_x;
+	set_memory_nx_fn = set_memory_nx;
+	set_memory_rw_fn = set_memory_rw;
+	set_memory_ro_fn = set_memory_ro;
 #endif
-	return set_memory_x && set_memory_nx;
+	return set_memory_x_fn && set_memory_nx_fn && set_memory_rw_fn && set_memory_ro_fn;
 }
 
 static bool load_kallsyms_lookup_name(void) {
@@ -58,7 +65,7 @@ static int  __init executor_init(void) {
 		goto init_failed_execution;
 	}
 
-	err = initialize_executor(set_memory_x);
+	err = initialize_executor(set_memory_x_fn);
 	if(err) {
 	    module_err("Unable to initialize executor\n");
 	    goto init_failed_execution;
@@ -82,7 +89,7 @@ static int  __init executor_init(void) {
 init_cleanup_sysfs:
     free_sysfs();
 init_cleanup_executor:
-    free_executor(set_memory_nx);
+    free_executor(set_memory_nx_fn);
 init_failed_execution:
 	return err;
 }
@@ -99,8 +106,7 @@ static void __nocfi __exit executor_exit(void) {
 
 	free_sysfs();
 
-	free_executor(set_memory_nx);
-
+	free_executor(set_memory_nx_fn);
 }
 
 module_init(executor_init);

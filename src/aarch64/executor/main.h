@@ -45,6 +45,7 @@ MODULE_DESCRIPTION("AArch64 implementation of Revisor's executor");
 #include "sandbox.h"
 #include "executor.h"
 #include "templates.h"
+#include "templates_jit.h"
 #include "chardevice.h"
 #include "sysfs.h"
 #include "pfc.h"
