@@ -17,8 +17,9 @@ ssize_t install_hooks(struct simulation* simulation, size_t max_hooks, simulatio
 	for(size_t i = 0; i < max_hooks && i < new_hooks_length; ++i) {
 		if(-1 == install_hook(simulation, max_hooks, hooks[i])) {
 			fprintf(stderr, "Unable to install hook!\n");
+			size_t prev_n = simulation->n_hooks;
 			simulation->n_hooks = current_length;
-			for(size_t j = current_length; j < simulation->n_hooks; ++j) simulation->hooks[j] = 0;
+			for(size_t j = current_length; j < prev_n; ++j) simulation->hooks[j] = NULL;
 			return -1;
 		}
 	}

@@ -109,6 +109,9 @@ static void __nocfi __exit executor_exit(void) {
 	free_executor(set_memory_nx_fn);
 }
 
+
+MODULE_LICENSE("GPL");
+
 module_init(executor_init);
 module_exit(executor_exit);
 

@@ -187,20 +187,32 @@ class AsmParserGeneric(AsmParser):
                 instruction_map[spec.name] = [spec]
 
             # add an entry for direct opcodes
-            opcode_spec = InstructionSpec()
-            opcode_spec.name = "opcode"
-            opcode_spec.category = "opcode"
+            opcode_spec = InstructionSpec(
+                    name = "opcode",
+                    category = "opcode",
+                    control_flow = False,
+                    datatype = "",
+                    template = "",
+                    operands = (),
+                    implicit_operands = (),
+                    tags = (),
+                    )
             instruction_map["opcode"] = [opcode_spec]
 
             # entry for macros
-            macro_spec = InstructionSpec()
-            macro_spec.name = "macro"
-            macro_spec.category = "macro"
-            macro_spec.operands = [
-                OperandSpec([], OT.LABEL, False, False, "L1"),
-                OperandSpec([], OT.LABEL, False, False, "L2")
-            ]
-            macro_spec.template = "macro{L1}{L2}"
+            macro_spec = InstructionSpec(
+                    name = "macro",
+                    category = "macro",
+                    control_flow = False,
+                    datatype = "",
+                    template = "macro{L1}{L2}",
+                    operands = (
+                        OperandSpec(OT.LABEL, 0, False, False, False, [], "L1"),
+                        OperandSpec(OT.LABEL, 0, False, False, False, [], "L2")
+                    ),
+                    implicit_operands = (),
+                    tags = ()
+                )
             instruction_map["macro"] = [macro_spec]
         return instruction_map
 

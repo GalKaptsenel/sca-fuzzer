@@ -40,7 +40,7 @@ int main() {
 			goto main_failure;
 		}
 
-		ret = simulation_code_init(&simulation.sim_input, &simulation.sim_code);
+		ret = simulation_code_init(&simulation.sim_input, &simulation.sim_code, 4 + base_hook_size);
 		if (ret < 0) {
 			fprintf(stderr, "Failed to allocate simulation code\n");
 			goto main_input_free;
@@ -56,11 +56,15 @@ int main() {
 
 
 		if(RVZR_ARCH_AARCH64 == simulation.sim_input.hdr.arch) {
-			hook_aarch64_instructions(&simulation.sim_input, &simulation.sim_code, base_hook, base_hook_size);
+			if(0 != hook_aarch64_instructions(&simulation.sim_input, &simulation.sim_code, base_hook, base_hook_size)) {
+				fprintf(stderr, "Failed installing hooks\n");
+				ret = -1;
+				goto main_simulation_memory_free;
+			}
 		} else {
 			fprintf(stderr, "ONLY AARCH64 arch currently supported for simulation\n");
 			ret = -1;
-			goto main_code_free;
+			goto main_simulation_memory_free;
 		}
 	
 		memset(simulation.simulation_memory, 0, sandbox_size); 
@@ -75,7 +79,7 @@ int main() {
 		uint64_t* regs_blob = (uint64_t*)simulation.sim_input.regs;
 
 		void* kernel_sandbox_base = 0;
-		if(CONFIG_FLAG_REQ_MEM_BASE_VIRT | simulation.sim_input.hdr.config.flags) {
+		if(CONFIG_FLAG_REQ_MEM_BASE_VIRT & simulation.sim_input.hdr.config.flags) {
 			kernel_sandbox_base = (void*)simulation.sim_input.hdr.config.requested_mem_base_virt;
 		} else {
 			fprintf(stderr, "[ERR] Expected memory base for the sandbox!\n");
@@ -110,9 +114,10 @@ int main() {
 	}
 
 
+main_simulation_memory_free:
 	free(simulation.simulation_memory);
 main_code_free:
-	simulation_code_free(&simulation.sim_code);
+	simulation_code_free(&simulation.sim_code, 4 + base_hook_size);
 main_input_free:
 	simulation_input_free(&simulation.sim_input);
 main_failure:

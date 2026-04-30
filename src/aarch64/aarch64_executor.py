@@ -31,16 +31,14 @@ from itertools import chain
 from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM, CS_AC_READ, CS_AC_WRITE
 from capstone.arm64 import ARM64_OP_REG, ARM64_OP_MEM
 
-from .aarch64_generator import Aarch64TagMemoryAccesses, Aarch64Printer, Aarch64MarkMemoryAccessesNEON, Aarch64SandboxPass, Aarch64SpecContractPass, Aarch64MarkRegisterTaints, Aarch64MarkMemoryTaints, Aarch64FullTrace, FullTraceAuxBuffer, BitmapTaintsAuxBuffer
+from .aarch64_generator import Aarch64Printer, Aarch64ASMLayout, Aarch64Generator
 from .. import ConfigurableGenerator
 from ..interfaces import HTrace, Input, TestCase, Executor, HardwareTracingError, Analyser, CTrace, InputTaint, TargetDesc
 from ..config import CONF
 from ..util import Logger, STAT
 from .aarch64_target_desc import Aarch64TargetDesc
-from .aarch64_connection import Connection, UserlandExecutorImp, LocalExecutorImp, TestCaseRegion, InputRegion, \
-    HWMeasurement, ExecutorBatch, aux_buffer_from_bytes, AuxBufferType, ExecutorAuxBuffer
-from .aarch64_generator import Pass
-from .aarch64_inputgen import solve_for_inputs
+from .aarch64_connection import LocalExecutorImp, TestCaseRegion, InputRegion
+from .aarch64_generator import Pass, Aarch64SandboxPass, PACInstrumentation
 
 from .aarch64_connection import profile_op, ExecutorMemory
 
@@ -49,7 +47,8 @@ from .aarch64_contract_executor import *
 # Helper functions
 # ==================================================================================================
 def km_write(value, path: str) -> None:
-    subprocess.run(f"echo -n {value} > {path}", shell=True, check=True)
+    with open(path, 'w') as f:
+        f.write(str(value))
 
 
 def km_write_bytes(value: bytes, path: str) -> None:
@@ -169,7 +168,7 @@ class Aarch64Executor(Executor):
         This function is used to synchronize the memory layout between the executor and the model
         :return: a tuple (sandbox_base, code_base)
         """
-        raise NotImplemented()
+        raise NotImplementedError()
 
     # ==============================================================================================
     # Interface: Test Case Loading
@@ -194,7 +193,7 @@ class Aarch64Executor(Executor):
         return written_tc
 
     def _write_test_case(self, test_case: TestCase):
-        raise NotImplemented()
+        raise NotImplementedError()
 
     # ==============================================================================================
     # Interface: Test Case Tracing
@@ -208,7 +207,7 @@ class Aarch64Executor(Executor):
         :return: a list of HTrace objects, one for each input
         :raises HardwareTracingError: if the kernel module output is malformed
         """
-        raise NotImplemented()
+        raise NotImplementedError()
 
 
 # ==================================================================================================
@@ -260,7 +259,8 @@ class Aarch64LocalExecutor(Aarch64Executor):
     def _write_mod_test_case_to_local_executor(self, local_name: str, passes: List[Pass]):
         patched = copy.deepcopy(self.test_case)
         pass_on_test_case(patched, passes)
-        assembly = Aarch64Printer(self.target_desc).print(patched)
+        layout: Aarch64ASMLayout = Aarch64ASMLayout(patched)
+        assembly = Aarch64Printer(self.target_desc).print_layout(layout)
         tc_bytes = ConfigurableGenerator.in_memory_assemble(assembly)
 
         patched.asm_path, patched.obj_path, patched.bin_path = local_name, local_name, local_name 
@@ -282,7 +282,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
         """
         # Skip if it's a dummy call
         if not inputs or self.test_case is None:
-            return []
+            return [], []
 
         # Store statistics
         n_inputs = len(inputs)
@@ -354,9 +354,6 @@ class Aarch64LocalExecutor(Aarch64Executor):
         taints, ctraces, = [], []
 
         for cer in traces:
-            if 0 == len(cer):
-                continue
-
             input_taint = InputTaint()
             accessed_memory = []
             sandbox_u8 = input_taint.view(np.uint8)
@@ -398,7 +395,7 @@ def map_operand_to_input_offsets(op: str) -> List[int]:
     elif op.lower() == "fp":
         return []
     else:
-        raise RuntimeError(f"Unexpected src register '{src}'")
+        raise RuntimeError(f"Unexpected src register '{op}'")
 
     return list(map(lambda byte_index: n * 8 + byte_index, range(size)))
 
@@ -462,8 +459,7 @@ def get_srcs_dests_operands(encoding: int, pc: int) -> Union[List, List]:
         return sorted(src), sorted(dest)
 
     except Exception as e:
-        import pdb; pdb.set_trace()
-        return f"<decode error: {e}>"
+        return [], []
 
 
 
@@ -488,27 +484,6 @@ def disassemble_instruction(encoding: int, pc: int):
         return f"<decode error: {e}>"
 
 
-def compare_traces(trace_ref, trace_new):
-    """Return (index, ref_inst, new_inst) if traces diverge, else (None, None, None)."""
-    min_len = min(len(trace_ref), len(trace_new))
-    for i in range(min_len):
-        ref = trace_ref[i]
-        new = trace_new[i]
-#        if (ref.cpu.pc != new.cpu.pc or ref.cpu.nzcv != new.cpu.nzcv or ref.cpu.gprs != new.cpu.gprs):
-        if (ref.cpu.nzcv != new.cpu.nzcv or \
-                ref.cpu.sp != new.cpu.sp or \
-                ref.cpu.gpr[0] != new.cpu.gpr[0] or \
-                ref.cpu.gpr[1] != new.cpu.gpr[1] or \
-                ref.cpu.gpr[2] != new.cpu.gpr[2] or \
-                ref.cpu.gpr[3] != new.cpu.gpr[3] or \
-                ref.cpu.gpr[4] != new.cpu.gpr[4] or \
-                ref.cpu.gpr[5] != new.cpu.gpr[5]):
-            return i, ref, new
-    if len(trace_ref) != len(trace_new):
-        return min_len, None, None  # diverged by length
-    return None, None, None
-
-
 def show_context(trace, idx, window=-1):
     if(window < 0):
         window = len(trace)
@@ -520,115 +495,4 @@ def show_context(trace, idx, window=-1):
         marker = "→" if j == idx else " "
         print(f"{marker} [{j:03d}] 0x{insn.cpu.pc:016x}: {disas}")
 
-
-def dump_debug_to_file(prefix, input_ref, input_new, trace_ref, trace_new, taint_ref, taint_new):
-    with open(f"{prefix}_trace_ref.json", "w") as f:
-        json.dump([vars(x) for x in trace_ref.instruction_logs], f, indent=2)
-    with open(f"{prefix}_trace_new.json", "w") as f:
-        json.dump([vars(x) for x in trace_new.instruction_logs], f, indent=2)
-    with open(f"{prefix}_taint_ref.txt", "w") as f:
-        f.write(repr(taint_ref))
-    with open(f"{prefix}_taint_new.txt", "w") as f:
-        f.write(repr(taint_new))
-    with open(f"{prefix}_inputs.txt", "w") as f:
-        f.write(f"REF:\n{input_ref}\n\nNEW:\n{input_new}")
-    input_ref.save(f"{prefix}_input_ref.bin")
-    input_new.save(f"{prefix}_input_new.bin")
-
-def compare_and_debug_trace_pair(
-    input_ref,
-    input_new,
-    trace_ref,
-    trace_new,
-    taint_ref,
-    taint_new,
-    prefix="debug_trace",
-    dump_files=True
-):
-    """
-    Compare two FullTraceAuxBuffers and print a detailed divergence report.
-    If dump_files=True, saves traces and taint to disk.
-    """
-    idx, ref_inst, new_inst = compare_traces(trace_ref, trace_new)
-
-    if idx is None:
-        print(f"[✓] Traces are architecturally equivalent ({trace_ref.instruction_log_entry_count} instructions).")
-        return
-
-    print("=" * 100)
-    print(f"❗ Divergence detected at instruction #{idx}")
-
-    if ref_inst and new_inst:
-        ref_disas = disassemble_instruction(ref_inst.cpu.encoding, ref_inst.cpu.pc)
-        new_disas = disassemble_instruction(new_inst.cpu.encoding, new_inst.cpu.pc)
-        print(f"  Ref PC:  0x{ref_inst.cpu.pc:X}   ({ref_disas} [Encoding: 0x{ref_inst.cpu.encoding:08X}])")
-        print(f"  New PC:  0x{new_inst.cpu.pc:X}   ({new_disas} [Encoding: 0x{new_inst.cpu.encoding:08X}])")
-    else:
-        print("  Diverged by trace length")
-
-    print("\n--- Registers ---")
-    if ref_inst and new_inst:
-        same_regs = []
-        diff_regs = []
-        for i, (r_ref, r_new) in enumerate(zip(ref_inst.cpu.gpr, new_inst.cpu.gpr)):
-            if r_ref == r_new:
-                same_regs.append((i, r_ref))
-            else:
-                diff_regs.append((i, r_ref, r_new))
-
-        if same_regs:
-            print("  Common registers:")
-            for i, val in same_regs:
-                print(f"    X{i:02d}: {val:#018x}")
-        else:
-            print("  No common registers.")
-
-        if diff_regs:
-            print("\n  Differing registers:")
-            for i, r_ref, r_new in diff_regs:
-                print(f"    X{i:02d}: {r_ref:#018x} -> {r_new:#018x}")
-        else:
-            print("\n  No differing registers.")
-
-    print("\n--- Flags ---")
-    if ref_inst and new_inst and ref_inst.cpu.nzcv != new_inst.cpu.nzcv:
-        print(f"  Flags changed: {ref_inst.cpu.nzcv:#x} -> {new_inst.cpu.nzcv:#x}")
-    elif ref_inst and new_inst:
-        print(f"  Flags identical: {ref_inst.cpu.nzcv:#x}")
-
-    print("\n--- Memory ---")
-    if ref_inst and new_inst:
-        if ref_inst.metadata.memory_access.effective_address != new_inst.metadata.memory_access.effective_address:
-            print(f"  EA: {ref_inst.metadata.memory_access.effective_address:#x} -> {new_inst.metadata.memory_access.effective_address:#x}")
-        if ref_inst.metadata.memory_access.before != new_inst.metadata.memory_access.before:
-            print(f"  Mem before: {ref_inst.metadata.memory_access.before:#x} -> {new_inst.metadata.memory_access.before:#x}")
-        if ref_inst.metadata.memory_access.after != new_inst.metadata.memory_access.after:
-            print(f"  Mem after:  {ref_inst.metadata.memory_access.after:#x} -> {new_inst.metadata.memory_access.after:#x}")
-        if (
-            ref_inst.metadata.memory_access.effective_address == new_inst.metadata.memory_access.effective_address
-            and ref_inst.metadata.memory_access.before == new_inst.metadata.memory_access.before
-            and ref_inst.metadata.memory_access.after == new_inst.metadata.memory_access.after
-        ):
-            print("  Memory identical.")
-
-    print("\n--- Reference trace context ---")
-    show_context(trace_ref, idx)
-    print("\n--- New trace context ---")
-    show_context(trace_new, idx)
-
-#    print("\n--- Taint Bitmaps ---")
-#    print_taint("Reference Taint", taint_ref)
-#    print_taint("New Taint", taint_new)
-
-#    print("\n--- Inputs ---")
-#    print("  Reference input:")
-#    print(input_ref)
-#    print("  New input:")
-#    print(input_new)
-
-    print("=" * 100)
-
-#    if dump_files:
-#        dump_debug_to_file(prefix, input_ref, input_new, trace_ref, trace_new, taint_ref, taint_new)
-#        print(f"[+] Debug data dumped to: {prefix}_*.json/txt")
 

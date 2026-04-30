@@ -1,0 +1,11 @@
+#ifndef ARM64_EXECUTOR_TEMPLATES_JIT_H
+#define ARM64_EXECUTOR_TEMPLATES_JIT_H
+//enum Templates {
+//	UNSET_TEMPLATE,
+//	PRIME_AND_PROBE_TEMPLATE,
+//	FLUSH_AND_RELOAD_TEMPLATE,
+//};
+
+int load_jit_template(size_t tc_size);
+
+#endif // ARM64_EXECUTOR_TEMPLATES_JIT_H

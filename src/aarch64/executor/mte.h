@@ -10,5 +10,6 @@ uint8_t disable_TCMA1_bit(void);
 void enable_mte_tag_checking(void);
 uint8_t enable_TCO_bit(void);
 uint8_t disable_TCO_bit(void);
+int mte_ext(void);
 
 #endif // ARM64_MTE_H

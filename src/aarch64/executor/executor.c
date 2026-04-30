@@ -57,7 +57,7 @@ create_aliasing_mappings_free_phys:
 static void destroy_aliasing_mappings(void** buffer, size_t aliasing_count) {
 	size_t num_phys_pages = sizeof(phys_pages) / sizeof(phys_pages[0]);
 	if(NULL != base_va) {
-		vfree(base_va);
+		vunmap(base_va);
 		base_va = NULL;
 	}
 

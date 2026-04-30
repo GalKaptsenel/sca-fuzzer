@@ -210,15 +210,12 @@ class ConfigurableGenerator(Generator, abc.ABC):
                 if not line_num_str:
                     msg += line
                 else:
-                    import pdb; pdb.set_trace()
                     parsed = lines[int(line_num_str.group(1)) - 1]
                     msg += f"\n  Line {line}\n    (the line was parsed as {parsed})"
             return msg
 
         try:
-            out = run(f"cat src/aarch64/instrumentations/simulation_manager.S src/aarch64/instrumentations/full_trace_intstrumentation.S src/aarch64/instrumentations/taint_intstrumentation.S {asm_file} > {asm_file}_tmp", shell=True, check=True, capture_output=True) # TODO: extract assembler to configuration
-            out = run(f"aarch64-linux-gnu-as -march=armv9-a+sve+memtag {asm_file}_tmp -o {obj_file}", shell=True, check=True, capture_output=True) # TODO: extract assembler to configuration
-            out = run(f"rm {asm_file}_tmp", shell=True, check=True, capture_output=True) # TODO: extract assembler to configuration
+            out = run(f"aarch64-linux-gnu-as -march=armv9-a+sve+memtag {asm_file} -o {obj_file}", shell=True, check=True, capture_output=True) # TODO: extract assembler to configuration
         except CalledProcessError as e:
             error_msg = e.stderr.decode()
             if "Assembler messages:" in error_msg:
@@ -509,8 +506,8 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
                     range_ = range_[1:]
                     range_[0] = "-" + range_[0]
                 assert len(range_) == 2
-                num0 = int(range_[0]) - 1
-                num1 = int(range_[1]) - 1
+                num0 = int(range_[0])
+                num1 = int(range_[1])
                 smaller = min(num0, num1)
                 bigger = max(num0, num1)
                 value = str(random.randint(smaller, bigger))

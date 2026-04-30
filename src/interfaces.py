@@ -6,6 +6,7 @@ SPDX-License-Identifier: MIT
 """
 from __future__ import annotations
 
+import json
 import random
 import shutil
 import xxhash
@@ -14,6 +15,7 @@ from collections import defaultdict
 from abc import ABC, abstractmethod
 import numpy as np
 from enum import Enum
+from dataclasses import dataclass, field
 
 PAGE_SIZE = 4096
 
@@ -36,25 +38,26 @@ class OT(Enum):
 
 
 class OperandSpec:
-    name: str
-    values: List[str]
     type: OT
     width: int
-    signed: bool = True
+    signed: bool
     src: bool
     dest: bool
+    values: Tuple[str]
+    name: str = "n/a"
 
     # certain operand values have special handling (e.g., separate opcode when RAX is a destination)
     # magic_value attribute indicates a specification for this special value
     magic_value: bool = False
 
-    def __init__(self, values: List[str], type_: OT, src: bool, dest: bool, name: str = "n/a"):
-        self.name = name
-        self.values = values
-        self.type = type_
+    def __init__(self, type: OT, width: int, signed: bool, src: bool, dest: bool, values: Tuple[str], name:str = "n/a"):
+        self.type = type
+        self.width = width
+        self.signed = signed
         self.src = src
         self.dest = dest
-        self.width = 0
+        self.values = values
+        self.name = name
 
     def __str__(self):
         return f"{self.values}" # TODO: Maybe it is better to print the name?
@@ -62,19 +65,31 @@ class OperandSpec:
 
 class InstructionSpec:
     name: str
-    operands: List[OperandSpec]
-    implicit_operands: List[OperandSpec]
     category: str
-    control_flow = False
+    control_flow: bool
+    datatype: str
     template: str
+    operands: Tuple[OperandSpec]
+    implicit_operands: Tuple[OperandSpec]
+    tags: Tuple[str]
 
-    has_mem_operand = False
-    has_write = False
+    has_mem_operand: bool = False
+    has_write: bool = False
     has_magic_value: bool = False
 
-    def __init__(self):
-        self.operands = []
-        self.implicit_operands = []
+    def __init__(self, name: str = "", category: str = "", control_flow: bool = False,
+                 datatype: str = "", template: str = "", operands=None,
+                 implicit_operands=None, tags: Tuple[str] = ()):
+        self.name = name
+        self.category = category
+        self.control_flow = control_flow
+        self.datatype = datatype
+        self.template = template
+        self.operands = list(operands) if operands is not None else []
+        self.implicit_operands = list(implicit_operands) if implicit_operands is not None else []
+        self.tags = tags
+        self.has_mem_operand = any(op.type == OT.MEM for op in self.operands + self.implicit_operands)
+        self.has_write = any(op.dest and op.type == OT.MEM for op in self.operands + self.implicit_operands)
 
     def __str__(self):
         ops = ""
@@ -897,8 +912,7 @@ class HTrace:
             self.perf_counters_max = [0, 0, 0, 0, 0]
         else:
             self.perf_counters = perf_counters
-            #self.perf_counters_max = max(perf_counters, key=lambda x: x[0])
-            self.perf_counters_max = max(perf_counters)
+            self.perf_counters_max = perf_counters.max(axis=0)
 
     def __eq__(self, other):
         return self.hash_ == other.hash_
@@ -1288,7 +1302,7 @@ class Fuzzer(ABC):
     def fuzzing_round(self,
                       test_case: TestCase,
                       inputs: List[Input],
-                      ignore_list: List[int] = []) -> Optional[Violation]:
+                      ignore_list: Optional[List[int]] = None) -> Optional[Violation]:
         pass
 
 

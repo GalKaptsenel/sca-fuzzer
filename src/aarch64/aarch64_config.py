@@ -79,71 +79,41 @@ _option_values = {
 
     ],
     'instruction_categories': [
-        "general",
-        "BASE-BINARY",
-        "BASE-BITBYTE",
-        "BASE-CMOV",
-        "BASE-COND_BR",
-        "BASE-CONVERT",
-        "BASE-DATAXFER",
-        "BASE-FLAGOP",
-        "BASE-LOGICAL",
-        "BASE-MISC",
-        "BASE-NOP",
-        "BASE-POP",
-        "BASE-PUSH",
-        "BASE-SEMAPHORE",
-        "BASE-SETCC",
-        "BASE-STRINGOP",
-        "BASE-WIDENOP",
-
-        # Base x86 - system instructions
-        "BASE-INTERRUPT",
-        # "BASE-ROTATE",      # Unknown bug in Unicorn - emulated incorrectly
-        # "BASE-SHIFT",       # Unknown bug in Unicorn - emulated incorrectly
-        # "BASE-UNCOND_BR",   # Not supported: Complex control flow
-        # "BASE-CALL",        # Not supported: Complex control flow
-        # "BASE-RET",         # Not supported: Complex control flow
-        # "BASE-SEGOP",       # Not supported: System instructions
-        # "BASE-IO",          # Not supported: System instructions
-        # "BASE-IOSTRINGOP",  # Not supported: System instructions
-        # "BASE-SYSCALL",     # Not supported: System instructions
-        # "BASE-SYSRET",      # Not supported: System instructions
-        "BASE-SYSTEM",
-        "LONGMODE-CONVERT",
-        "LONGMODE-DATAXFER",
-        "LONGMODE-SEMAPHORE",
-        "LONGMODE-SYSCALL",
-        "LONGMODE-SYSRET",
-
-        # SIMD extensions
-        "SSE-SSE",
-        "SSE-DATAXFER",
-        "SSE-MISC",
-        "SSE-LOGICAL_FP",
-        # "SSE-CONVERT",  # require MMX
-        # "SSE-PREFETCH",  # prefetch does not trigger a mem access in unicorn
-        "SSE2-SSE",
-        "SSE2-DATAXFER",
-        "SSE2-MISC",
-        "SSE2-LOGICAL_FP",
-        "SSE2-LOGICAL",
-        # "SSE2-CONVERT",  # require MMX
-        # "SSE2-MMX",   # require MMX
-        "SSE3-SSE",
-        "SSE3-DATAXFER",
-        # "SSE4-SSE",  # not tested yet
-        "SSE4-LOGICAL",
-        "SSE4a-BITBYTE",
-        "SSE4a-DATAXFER",
-
-        # Misc
-        "CLFLUSHOPT-CLFLUSHOPT",
-        "CLFSH-MISC",
-        "MPX-MPX",
-        "SMX-SYSTEM",
-        "VTX-VTX",
-        "XSAVE-XSAVE",
+            "BASE-ARITH",
+            "BASE-LOGICAL",
+            "BASE-SHIFT",
+            "BASE-BITFIELD",
+            "BASE-BITCOUNT",
+            "BASE-CONDSEL",
+            "BASE-BRANCH",
+            "BASE-MEMORY-LOAD",
+            "BASE-MEMORY-STORE",
+            "BASE-ATOMIC",
+            "BASE-EXCLUSIVE",
+            "BASE-ACQUIRE",
+            "BASE-CRC",
+            "BASE-MTE",
+            "BASE-PAC",
+            "BASE-COPY",
+            "BASE-SYSTEM",
+            "BASE-FLAG",
+            "SVE-ARITH",
+            "SVE-LOGICAL",
+            "SVE-MEMORY-LOAD",
+            "SVE-MEMORY-STORE",
+            "SVE-PREDICATE",
+            "SVE-MOVE",
+            "SVE-REDUCE",
+            "SVE-BITCOUNT",
+            "SVE-PERMUTE",
+            "SVE-COMPARE",
+            "SVE-MISC",
+            "SVE2-ARITH",
+            "SVE2-CRYPTO",
+            "SVE2-BITMANIP",
+            "SVE2-HISTCNT",
+            "SVE2-MATCH",
+            "SVE2-MMLA",
     ],
 }
 
@@ -364,6 +334,9 @@ instruction_blocklist: List[str] = [
     "brabz",
     "st64bv0",
     "rcwswppal",
+    "stlp",
+    "ldap",
+    "ldapp",
 
     # Assembel says the cpu does not cupport those instructions
 

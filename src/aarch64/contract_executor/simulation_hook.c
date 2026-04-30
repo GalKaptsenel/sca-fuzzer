@@ -57,7 +57,7 @@ static void log_fixup(void *addr, uint32_t original, uint8_t scratch) {
 
 static void apply_fixups(struct cpu_state* state) {
 	for (size_t i = 0; i < fixup_count; ++i) {
-	       	*(uint64_t*)fixups[i].addr = fixups[i].original;
+	       	*(uint32_t*)fixups[i].addr = fixups[i].original;
 		state->gpr[29-get_rn(fixups[i].original)] = (uintptr_t)uaddr2kaddr((void*)state->gpr[29-fixups[i].overriden_reg]);
 	}
 	revert_log_fixup();
@@ -93,8 +93,6 @@ int hook_aarch64_instructions(
 
 	if(NULL == sim_input || NULL == sc || NULL == hook_addr) return -1;
 	if (sim_input->hdr.code_size % 4 != 0) return -1;
-
-	sc->code_size = sim_input->hdr.code_size;
 
 	void* copied_hook_addr = inner_hook_aarch64_instructions(sc);
 	if(NULL == copied_hook_addr) return -1;

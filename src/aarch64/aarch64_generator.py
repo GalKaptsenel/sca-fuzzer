@@ -10,7 +10,7 @@ import random
 import copy
 import struct
 from itertools import chain
-from typing import List, Tuple, Optional, Type
+from typing import List, Tuple, Optional, Type, Callable, Set, Dict
 from dataclasses import dataclass, field
 
 from ..config import CONF
@@ -22,7 +22,7 @@ from ..generator import ConfigurableGenerator, RandomGenerator, Pass, Printer
 from ..config import CONF
 from .aarch64_target_desc import Aarch64TargetDesc
 from .aarch64_elf_parser import Aarch64ElfParser
-from .aarch64_connection import ExecutorAuxBuffer, AuxBufferType, register_aux_buffer
+from .aarch64_contract_executor import InstrTraceEntry, ContractExecutionResult
 
 
 class FaultFilter:
@@ -43,10 +43,15 @@ class Aarch64Generator(ConfigurableGenerator, abc.ABC):
         self.target_desc = Aarch64TargetDesc()
         self.elf_parser = Aarch64ElfParser(self.target_desc)
         self.faults = FaultFilter()
+        pac_instructions = [i for i in self.instruction_set.instruction_unfiltered if "BASE-PAC" in i.tags and i.name in CONF.supported_instructions]
+        self._signing_instructions = list(filter(lambda i: i.name.lower().startswith('aut'), pac_instructions))
+        self._verification_instructions = list(filter(lambda i: i.name.lower().startswith('pac'), pac_instructions))
+        self._strip_sign_instructions  = list(filter(lambda i: i.name.lower().startswith('xpac'), pac_instructions))
 
         # configure instrumentation passes
         self.passes = [
-            Aarch64PatchUndefinedLoadsPass(self.target_desc),
+#            Aarch64PatchUndefinedLoadsPass(self.target_desc),
+            Aarch64PatchUndefinedLoadsStoresPass(self.target_desc),
 #            Aarch64SandboxPass(),
 #            Aarch64DsbSyPass(),
         ]
@@ -77,6 +82,234 @@ class Aarch64DsbSyPass(Pass):
                     bb.insert_after(instr, Instruction("DSB SY", True, template="DSB SY"))
 
 
+# Single-dest load with base writeback (post/pre-index).
+# dest == base → UNPREDICTABLE.
+_LDR_WRITEBACK = frozenset({
+    "ldr", "ldrb", "ldrh", "ldrsb", "ldrsh", "ldrsw",
+})
+
+# Two-dest load, all address forms.
+# dest0 == dest1 → UNPREDICTABLE.
+# Post/pre-index additionally: dest0|dest1 == base → UNPREDICTABLE.
+_LDP_ANY = frozenset({"ldp", "ldpsw"})
+
+# Exclusive two-dest load (always has a base, no explicit writeback field,
+# but the base register must not alias either destination).
+_LDXP = frozenset({"ldxp", "ldaxp"})
+
+# Store-exclusive: status register must not alias data or base.
+_STXR = frozenset({"stxr", "stlxr", "stxrb", "stlxrb", "stxrh", "stlxrh"})
+
+# Store-exclusive pair: same as STXR plus data0==data1 check on status.
+_STXP = frozenset({"stxp", "stlxp"})
+
+# Store pair with writeback: src0|src1 == base → UNPREDICTABLE.
+_STP_WRITEBACK = frozenset({"stp"})
+
+
+class Aarch64PatchUndefinedLoadsStoresPass(Pass):
+    """
+    Patch all UNPREDICTABLE register-collision constraints for AArch64
+    load and store instructions.
+    """
+
+    def __init__(self, target_desc) -> None:
+        self.target_desc: Aarch64TargetDesc = target_desc
+        super().__init__()
+
+    # ------------------------------------------------------------------
+    # Pass entry point
+    # ------------------------------------------------------------------
+
+    def run_on_test_case(self, test_case: TestCase) -> None:
+        for func in test_case.functions:
+            for bb in func:
+                for inst in bb:
+                    self._patch_instruction(inst)
+
+    def _patch_instruction(self, inst: Instruction) -> None:
+        name = inst.name.lower()
+
+        if any(name.startswith(m) for m in _LDR_WRITEBACK):
+            self._patch_ldr_writeback(inst)
+
+        elif any(name.startswith(m) for m in _LDP_ANY):
+            self._patch_ldp(inst)
+
+        elif any(name.startswith(m) for m in _LDXP):
+            self._patch_ldxp(inst)
+
+        elif any(name.startswith(m) for m in _STXR):
+            self._patch_stxr(inst)
+
+        elif any(name.startswith(m) for m in _STXP):
+            self._patch_stxp(inst)
+
+        elif any(name.startswith(m) for m in _STP_WRITEBACK):
+            self._patch_stp_writeback(inst)
+
+    def _patch_ldr_writeback(self, inst: Instruction) -> None:
+        if not inst.get_imm_operands():
+            return  # unsigned-offset or register-offset form — no writeback
+
+        ops = inst.operands
+        if len(ops) < 2:
+            return
+
+        assert isinstance(ops[0], RegisterOperand)
+        assert isinstance(ops[1], MemoryOperand)
+
+        norm_dest = self._norm(ops[0].value)
+        if norm_dest in self._mem_regs_normalized(ops[1]):
+            self._replace_reg(ops[0], forbidden={norm_dest} | self._mem_regs_normalized(ops[1]))
+
+    def _patch_ldp(self, inst: Instruction) -> None:
+        ops = inst.operands
+        if len(ops) < 3:
+            return
+
+        assert isinstance(ops[0], RegisterOperand)
+        assert isinstance(ops[1], RegisterOperand)
+        assert isinstance(ops[2], MemoryOperand)
+
+        has_writeback = bool(inst.get_imm_operands())
+        norm0 = self._norm(ops[0].value)
+        norm1 = self._norm(ops[1].value)
+        base_norms = self._mem_regs_normalized(ops[2])
+
+        # Constraint: dest0 != dest1
+        if norm0 == norm1:
+            self._replace_reg(ops[1], forbidden={norm1})
+            norm1 = self._norm(ops[1].value)  # refresh after patch
+
+        if has_writeback:
+            # Constraint: dest0 not in base
+            if norm0 in base_norms:
+                self._replace_reg(ops[0], forbidden=base_norms | {norm1})
+                norm0 = self._norm(ops[0].value)
+
+            # Constraint: dest1 not in base
+            if norm1 in base_norms:
+                self._replace_reg(ops[1], forbidden=base_norms | {norm0})
+
+    def _patch_ldxp(self, inst: Instruction) -> None:
+        ops = inst.operands
+        if len(ops) < 3:
+            return
+
+        assert isinstance(ops[0], RegisterOperand)
+        assert isinstance(ops[1], RegisterOperand)
+        assert isinstance(ops[2], MemoryOperand)
+
+        base_norms = self._mem_regs_normalized(ops[2])
+        norm0 = self._norm(ops[0].value)
+        norm1 = self._norm(ops[1].value)
+
+        if norm0 == norm1:
+            self._replace_reg(ops[1], forbidden={norm1})
+            norm1 = self._norm(ops[1].value)
+
+        if norm0 in base_norms:
+            self._replace_reg(ops[0], forbidden=base_norms | {norm1})
+            norm0 = self._norm(ops[0].value)
+
+        if norm1 in base_norms:
+            self._replace_reg(ops[1], forbidden=base_norms | {norm0})
+
+    def _patch_stp_writeback(self, inst: Instruction) -> None:
+        if not inst.get_imm_operands():
+            return  # unsigned-offset form — no writeback constraint
+
+        ops = inst.operands
+        if len(ops) < 3:
+            return
+
+        assert isinstance(ops[0], RegisterOperand)
+        assert isinstance(ops[1], RegisterOperand)
+        assert isinstance(ops[2], MemoryOperand)
+
+        base_norms = self._mem_regs_normalized(ops[2])
+
+        if self._norm(ops[0].value) in base_norms:
+            self._replace_reg(ops[0], forbidden=base_norms)
+
+        if self._norm(ops[1].value) in base_norms:
+            self._replace_reg(ops[1], forbidden=base_norms)
+
+    def _patch_stxr(self, inst: Instruction) -> None:
+        ops = inst.operands
+        if len(ops) < 3:
+            return
+
+        assert isinstance(ops[0], RegisterOperand)  # Ws (status)
+        assert isinstance(ops[1], RegisterOperand)  # Rt (data)
+        assert isinstance(ops[2], MemoryOperand)
+
+        norm_status = self._norm(ops[0].value)
+        norm_data = self._norm(ops[1].value)
+        base_norms = self._mem_regs_normalized(ops[2])
+
+        forbidden = {norm_data} | base_norms
+        if norm_status in forbidden:
+            self._replace_reg(ops[0], forbidden=forbidden)
+
+    def _patch_stxp(self, inst: Instruction) -> None:
+        ops = inst.operands
+        if len(ops) < 4:
+            return
+
+        assert isinstance(ops[0], RegisterOperand)  # Ws (status)
+        assert isinstance(ops[1], RegisterOperand)  # Rt1
+        assert isinstance(ops[2], RegisterOperand)  # Rt2
+        assert isinstance(ops[3], MemoryOperand)
+
+        norm_status = self._norm(ops[0].value)
+        forbidden = {
+            self._norm(ops[1].value),
+            self._norm(ops[2].value),
+        } | self._mem_regs_normalized(ops[3])
+
+        if norm_status in forbidden:
+            self._replace_reg(ops[0], forbidden=forbidden)
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _norm(self, reg: str) -> str:
+        """Normalise a register name through the target descriptor."""
+        return self.target_desc.reg_normalized[reg]
+
+    def _mem_regs_normalized(self, mem_op: MemoryOperand) -> Set[str]:
+        """
+        Return the set of normalised register names referenced by a
+        MemoryOperand.  mem_op.value is a string like "x1" or "x1, x2"
+        depending on the addressing mode.
+        """
+        result = set()
+        result.add(self._norm(mem_op.value))
+#        for reg in mem_op.value.split(","):
+#            reg = reg.strip()
+#            if reg:
+#                result.add(self._norm(reg))
+        return result
+
+    def _replace_reg(self, operand: RegisterOperand, forbidden: Set[str]) -> None:
+        """
+        Replace operand.value with a randomly chosen register of the same
+        width that is not in *forbidden* (compared after normalisation).
+        """
+        candidates = [
+            r for r in self.target_desc.registers[operand.width]
+            if self._norm(r) not in forbidden
+        ]
+        if not candidates:
+            # Should not happen in a correctly configured target descriptor,
+            # but guard against it rather than crashing the fuzzer.
+            raise RuntimeError("unable to solve constraints! unexpected!")
+
+        operand.value = random.choice(candidates)
+
 class Aarch64PatchUndefinedLoadsPass(Pass):
     def __init__(self, target_desc) -> None:
         self.target_desc: Aarch64TargetDesc = target_desc
@@ -95,15 +328,23 @@ class Aarch64PatchUndefinedLoadsPass(Pass):
                         assert isinstance(ops[1], MemoryOperand)
                         normalized_dest = self.target_desc.reg_normalized[ops[0].value]
                         if normalized_dest in ops[1].value:
-                            to_patch.append(inst)
+                            to_patch.append(inst.operands[0])
+
+                    if "ldp" in inst.name:
+                        ops = inst.operands
+                        assert isinstance(ops[0], RegisterOperand)
+                        assert isinstance(ops[1], RegisterOperand)
+                        normalized_dest0 = self.target_desc.reg_normalized[ops[0].value]
+                        normalized_dest1 = self.target_desc.reg_normalized[ops[1].value]
+                        if normalized_dest0 == normalized_dest1:
+                            to_patch.append(inst.operands[0])
 
                 # fix operands
-                for inst in to_patch:
-                    org_dest = inst.operands[0]
+                for org_dest in to_patch:
                     options = self.target_desc.registers[org_dest.width]
                     options = [i for i in options if i != org_dest.value]
                     new_value = random.choice(options)
-                    inst.operands[0].value = new_value
+                    org_dest.value = new_value
 
 
 class Aarch64NonCanonicalAddressPass(Pass):
@@ -179,762 +420,249 @@ class Aarch64TagMemoryAccesses(Pass):
                             bb.insert_before(inst, sub_inst)
 
 
-@dataclass
-class InstructionLog:
-	pc: int = 0
-	flags: int = 0
-	regs: List[int] = field(default_factory=lambda: [0]*31)
-	effective_address: int = 0
-	mem_before: int = 0
-	mem_after: int = 0
-	encoding: int = 0
+class Aarch64ASMLayout:
+    prologue_template = [
+        ".test_case_enter:",
+    ]
 
-	def __repr__(self) -> str:
-		regs_preview = ", ".join(f"x{i}=0x{r:x}" for i, r in enumerate(self.regs[:4]))
-		if len(self.regs) > 4:
-			regs_preview += ", ..."
-		return (
-				f"InstructionLog(pc=0x{self.pc:x}, flags=0x{self.flags:x}, "
-				f"{regs_preview}, ea=0x{self.effective_address:x}, "
-				f"mem_before=0x{self.mem_before:x}, mem_after=0x{self.mem_after:x}), "
-                f"encoding=0x{self.encoding:08x})"
-			)
+    epilogue_template = [
+        ".section .data.main",
+        ".test_case_exit:",
+        ""
+    ]
+ 
 
-	def __str__(self) -> str:
-		from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
-		capstone_arm64 = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
-		capstone_arm64.detail = True
-		code_bytes = self.encoding.to_bytes(4, byteorder="little")
-		insns = list(capstone_arm64.disasm(code_bytes, self.pc))
-		insn = insns[0] if insns else None
-		instruction_repr = f"{insn.mnemonic} {insn.op_str}" if insn else "<unable to disassemble>"
+    def __init__(self, test_case: TestCase):
+        self._instruction_counter = 0
+        self.content: List[str] = []
+        self.instruction_address: Dict[Instruction, int] = {}
+        self._create_asm(test_case)
 
-		regs_str = "\n      ".join(
-					f"x{i:02d}: 0x{val:016x}" for i, val in enumerate(self.regs)
-				) if self.regs else "<no registers>"
-		return (
-				f"InstructionLog:\n"
-				f"  PC:             0x{self.pc:016x}\n"
-				f"  FLAGS:          0x{self.flags:016x}\n"
-				f"  EFFECTIVE_ADDR: 0x{self.effective_address:016x}\n"
-				f"  MEM_BEFORE:     0x{self.mem_before:016x}\n"
-				f"  MEM_AFTER:      0x{self.mem_after:016x}\n"
-                f"  ENCODING:       0x{self.encoding:08x} ({instruction_repr})\n"
-				f"  REGS:\n      {regs_str}"
-			)
-    
 
-class Aarch64SpecContractPass(Pass):
-    """
-    Pass that inserts simulation managment instruction for collecting speculative paths traces.
-    """
-    TEMPLATE_SIMULATION_INIT            = "SIMULATION_INIT {sim_mgmt}, {snapshot_size}, {t0}"
-    TEMPLATE_SIMULATION_SPEC_RET        = "SIMULATION_SPEC_RET {sim_mgmt}, 0x{sandbox_mem_addr:016x}, {sandbox_mem_size}, {t0}, {t1}, {t2}, {t3}, {t4}"
-    TEMPLATE_SIMULATION_COND_SPEC       = "SIMULATION_COND_SPECULATION {cond}, {taken_label}, {not_taken_label}, {sim_mgmt}, {snapshot_id}, {max_nesting}, 0x{sandbox_mem_addr:016x}, {sandbox_mem_size}, {t0}, {t1}, {t2}, {t3}, {t4}, {t5}"
-    TEMPLATE_SIMULATION_COND_SPEC_CBREG = "SIMULATION_COND_SPECULATION {cond}, {taken_label}, {not_taken_label}, {sim_mgmt}, {snapshot_id}, {max_nesting}, 0x{sandbox_mem_addr:016x}, {sandbox_mem_size}, {t0}, {t1}, {t2}, {t3}, {t4}, {t5}, cmpre_reg={cmpre_reg}"
+    def _create_asm(self, test_case: TestCase):
 
-    def __init__(
-            self,
-            sandbox_memory_address: int,
-            sandbox_memory_size: int,
-            speculation_nesting: int,
-            mgmt_struct_reg: str = "x8",
-            temp_regs: List[str] = None,
-            target_desc: Optional[TargetDesc] = None
-        ):
+        for line in self.prologue_template:
+            self.content.append(line)
 
-        default_registers = ["x10", "x11", "x12", "x13", "x14", "x15"]
-        if temp_regs is None:
-            temp_regs = default_registers
-        if len(temp_regs) < len(default_registers):
-            raise ValueError("Need at least {len(default_registers)} temporary registers")
-        self.mgmt_struct_pointer = mgmt_struct_reg
-        self.temp_regs = temp_regs
-        self.sandbox_address = sandbox_memory_address
-        self.sandbox_size = sandbox_memory_size
-        self.max_nesting = speculation_nesting
-
-        self._target_desc: Aarch64TargetDesc = Aarch64TargetDesc()
-        if target_desc is not None:
-            self._target_desc: Aarch64TargetDesc = target_desc
-
-    def run_on_test_case(self, test_case: TestCase):
-        snapshot_cntr = 0
         for func in test_case.functions:
-            root_initilized = False
-            ret_initialized = False
-            root = None
-            visited = []
-            for bb in func:
-                if root is None:
-                    root = bb
-                    break
-
-            if root is not None:
-                dfs_stack = [root]
-                while dfs_stack:
-                    bb = dfs_stack.pop()
-                    names = [n.name for n in dfs_stack]
-
-                    bti_inst = Instruction(f"BTI_{bb.name}", True, template="bti j")
-                    bb.insert_before(bb.start, bti_inst)
-
-                    if not root_initilized and bb == root:
-                        simulation_init_template = self.TEMPLATE_SIMULATION_INIT.format(
-                                sim_mgmt=self.mgmt_struct_pointer, snapshot_size=self.sandbox_size+256, t0=self.temp_regs[0]
-                        )
-                        sim_init_inst = Instruction(f"SIMULATION_INIT_{bb.name}", True, template=simulation_init_template)
-                        bb.insert_before(bb.start, sim_init_inst)
-                        root_initialized = True
-    
-                    if not ret_initialized and bb == func.exit:
-                        simulation_spec_ret_template = self.TEMPLATE_SIMULATION_SPEC_RET.format(
-                                sim_mgmt=self.mgmt_struct_pointer, sandbox_mem_addr=self.sandbox_address,
-                                sandbox_mem_size=self.sandbox_size, t0=self.temp_regs[0], t1=self.temp_regs[1],
-                                t2=self.temp_regs[2], t3=self.temp_regs[3], t4=self.temp_regs[4]
-                        )
-                        simulation_spec_ret_inst = Instruction(f"SIMULATION_SPEC_RET_{bb.name}", True, template=simulation_spec_ret_template)
-                        bb.terminators.insert(0, simulation_spec_ret_inst)
-                        ret_initialized = True
-    
-                    else: # bb != fanc.exit:
-                        if len(bb.successors) == 2:
-                            insert_idx = 0
-                            args = {}
-                            for idx, terminator in enumerate(bb.terminators):
-                                if self._target_desc.is_unconditional_branch(terminator):
-                                    for op in terminator.operands:
-                                        if op.type == OT.LABEL:
-                                            not_taken_label = op.value
-                                elif terminator.control_flow:
-                                    insert_idx = idx
-                                    if terminator.name.lower() in ("cbz", "cbnz"):
-                                        template_to_use = self.TEMPLATE_SIMULATION_COND_SPEC_CBREG
-                                        cond = "eq" if terminator.name == "cbz" else "ne"
-                                        for op in terminator.operands:
-                                            if op.type == OT.REG:
-                                                args["cmpre_reg"] = op.value
-                                            if op.type == OT.LABEL:
-                                                taken_label = op.value
-                                    else:
-                                        template_to_use = self.TEMPLATE_SIMULATION_COND_SPEC
-                                        for op in terminator.operands:
-                                            if op.type == OT.LABEL:
-                                                taken_label = op.value
-                                            elif op.type == OT.COND:
-                                                cond = op.value
-
-                            args.update({
-                                    "cond": cond,
-                                    "taken_label": taken_label,
-                                    "not_taken_label": not_taken_label,
-                                    "sim_mgmt": self.mgmt_struct_pointer,
-                                    "snapshot_id": snapshot_cntr,
-                                    "max_nesting": self.max_nesting,
-                                    "sandbox_mem_addr": self.sandbox_address,
-                                    "sandbox_mem_size": self.sandbox_size,
-                                    "t0": self.temp_regs[0],
-                                    "t1": self.temp_regs[1],
-                                    "t2": self.temp_regs[2],
-                                    "t3": self.temp_regs[3],
-                                    "t4": self.temp_regs[4],
-                                    "t5": self.temp_regs[5]
-                            })
-
-                            sim_cond_spec_template = template_to_use.format(**args)
-                            sim_cond_spec_inst = Instruction(f"SIMULATION_SPEC_COND_{bb.name}", True, template=sim_cond_spec_template)
-                            bb.terminators = bb.terminators[:insert_idx] + [sim_cond_spec_inst] + bb.terminators[insert_idx:]
-                            snapshot_cntr += 1
-
-                    for successor in bb.successors:
-                        if successor in visited:
-                            continue
-                        visited.append(successor)
-                        dfs_stack.insert(0, successor)
-                        names = [n.name for n in dfs_stack]
-
-
-@register_aux_buffer(AuxBufferType.FULL_TRACE)
-@dataclass
-class FullTraceAuxBuffer(ExecutorAuxBuffer):
-	instruction_log_array_offset: int = 0
-	instruction_log_entry_count: int = 0
-	instruction_log_max_count: int = 0
-	instruction_logs: List[InstructionLog] = field(default_factory=list)
-
-	def __post_init__(self):
-		super().__init__(AuxBufferType.FULL_TRACE)
-
-	@classmethod
-	def from_bytes(cls: Type["FullTraceAuxBuffer"], data: bytes):
-		"""
-		Parse binary data into a FullTraceAuxBuffer.
-
-		Expected binary layout:
-			3 consecutive 8-byte unsigned integers (little-endian):
-                instruction_log_array_offset
-                instruction_log_entry_count
-                instruction_log_max_count
-            and then, from offset 'instruction_log_array_offset' an array of 'instruction_log_entry_count' entries of the format:
-                pc
-                flags
-                regs[31]
-                affective_address
-                memory_before
-                memory_after
-                encoding (lower 32 bits are valid encoding)
-		"""
-		header_size = 3 * 8
-		if len(data) < header_size:
-			raise ValueError(f"Invalid data size ({len(data)} bytes), expected >= {header_size} bytes")
-
-		# Little-endian unsigned 64-bit integers
-		instruction_log_array_offset, entry_count, max_count = struct.unpack("<3Q", data[:header_size])
-
-		logs = []
-		offset = instruction_log_array_offset
-		entry_size = 8 + 8 + 31*8 + 8 + 8 + 8 + 8 # pc + flags + regs[31] + effective_address + mem_before + mem_after + encoding
-
-		for i in range(entry_count):
-			entry_data = data[offset:offset+entry_size]
-			if len(entry_data) < entry_size:
-				raise ValueError(f"Incomplete instruction log entry {i} out of {entry_count} logged instructions")
-			pc, flags = struct.unpack("<2Q", entry_data[:16])
-			regs = list(struct.unpack("<31Q", entry_data[16:16+31*8]))
-			effective_address, mem_before, mem_after, raw_encoding = struct.unpack("<4Q", entry_data[16+31*8:])
-			encoding = raw_encoding & 0xFFFFFFFF
-			logs.append(InstructionLog(pc, flags, regs, effective_address, mem_before, mem_after, encoding))
-			offset += entry_size
-
-		return cls(
-				instruction_log_array_offset=instruction_log_array_offset,
-				instruction_log_entry_count=entry_count,
-				instruction_log_max_count=max_count,
-				instruction_logs=logs
-			)
-
-	def to_bytes(self) -> bytes:
-		"""Serialize the buffer back into bytes."""
-		header = struct.pack(
-				"<3Q",
-				self.instruction_log_array_offset,
-				self.instruction_log_entry_count,
-				self.instruction_log_max_count
-			)
-		logs_bytes = b""
-		for log in self.instruction_logs:
-			logs_bytes += struct.pack(
-					"<2Q31Q3QQ",
-					log.pc,
-					log.flags,
-					*log.regs,
-					log.effective_address,
-					log.mem_before,
-					log.mem_after,
-                    log.encoding & 0xFFFFFFFF
-				)
-
-		return header + logs_bytes
-
-
-	def __repr__(self) -> str:
-		return (
-				f"{self.__class__.__name__}("
-				f"offset=0x{self.instruction_log_array_offset:x}, "
-				f"entry_count={self.instruction_log_entry_count}, "
-				f"max_count={self.instruction_log_max_count}, "
-				f"instruction_logs=[{len(self.instruction_logs)} entries])"
-			)
-
-	def __str__(self) -> str:
-		lines = [
-				f"FullTraceAuxBuffer:",
-				f"  instruction_log_array_offset = 0x{self.instruction_log_array_offset:x}",
-				f"  instruction_log_entry_count  = {self.instruction_log_entry_count}",
-				f"  instruction_log_max_count    = {self.instruction_log_max_count}",
-				f"  instruction_logs ({len(self.instruction_logs)} entries):",
-			]
-
-		for i, log in enumerate(self.instruction_logs):
-			lines.append(
-					f"    [{i}] {str(log)}"
-				)
-
-		return "\n".join(lines)
-
-
-
-class Aarch64FullTrace(Pass):
-	"""
-	Pass that inserts full tracing instrumentation for each instruction.
-	Logs PC, operands, flags, and memory accesses into the auxiliary buffer.
-	"""
-
-	TEMPLATE_TRACE_INSTRUCTION = "TRACE_INSTRUCTION {base_reg}, {t0}, {t1}, {t2}, {mem_type}, {addr_reg}, {val_reg}"
-	TEMPLATE_TRACE_INIT = "TRACE_INIT {base_reg}, {t0}, {t1}"
-
-	def __init__(self, base_reg="x7", temp_regs=None):
-		default_registers = ["x9","x10", "x11", "x12"]
-		if temp_regs is None:
-			temp_regs = default_registers
-		if len(temp_regs) < 4:
-			raise ValueError("Need at least {len(default_registers)} temporary registers")
-		self.base_reg = base_reg
-		self.temp_regs = temp_regs
-
-	@staticmethod
-	def _reg_name_to_index(reg_name: str) -> int:
-		if not isinstance(reg_name, str):
-			return -1
-
-		rn = reg_name.strip().lower()
-		if rn.startswith('x') or rn.startswith('w'):
-			try:
-				num = int(rn[1:])
-				if 0 <= num <= 30:
-					return num
-			except ValueError:
-				return -1
-
-		return -1
-
-
-
-	def instrument_inst(self, bb: BasicBlock, inst: Instruction) -> None:
-		instrs_to_insert = []
-
-		value_reg = "-"
-		addr_reg = "-"
-		mem_type = 0
-
-		if inst.has_memory_access:
-			mem_operands = inst.get_mem_operands()
-
-			base_template = f"MOV {self.temp_regs[0]}, {mem_operands[0].value}"
-			instrs_to_insert.append(Instruction(f"MOV", True, template=base_template))
-			for op in mem_operands[1:]:
-
-				add_template = f"ADD {self.temp_regs[0]}, {self.temp_regs[0]}, {op.value}"
-				instrs_to_insert.append(Instruction(f"ADD", True, template=add_template))
-
-			addr_reg = self.temp_regs[0]
-			mem_type = 1 if mem_operands[0].src else 2
-
-			if mem_type == 2:
-				value_operand = [op for op in inst.operands if op.src and op.type == OT.REG]
-				assert len(value_operand) == 1
-				value_reg = value_operand[0].value
-
-		asm_trace = self.TEMPLATE_TRACE_INSTRUCTION.format(
-				base_reg=self.base_reg, t0=self.temp_regs[1], t1=self.temp_regs[2], t2=self.temp_regs[3],
-				mem_type=mem_type, addr_reg=addr_reg, val_reg=value_reg
-			)
-		instrs_to_insert.append(Instruction(f"TRACE_INSTRUCTION_{inst.name}", True, template=asm_trace))
-
-		# Insert all
-		for i in instrs_to_insert:
-			bb.insert_before(inst, i)
-
-	def run_on_test_case(self, test_case: TestCase):
-		initialized = False
-		for func in test_case.functions:
-			for bb in func:
-				instructions = []
-				for inst in bb:
-					if not initialized:
-						trace_init_template = self.TEMPLATE_TRACE_INIT.format(
-								base_reg=self.base_reg, t0=self.temp_regs[1], t1=self.temp_regs[2]
-							)
-						trace_init_inst = Instruction(f"TRACE_INIT", True, template=trace_init_template)
-						bb.insert_before(inst, trace_init_inst)
-						initialized = True
-					try:
-						self.instrument_inst(bb, inst)
-					except Exception as e:
-						print(f"[Aarch64FullTrace] failed on {inst}: {e}")
-				else:
-					trace_bb_exit_template =  self.TEMPLATE_TRACE_INSTRUCTION.format(
-							base_reg=self.base_reg, t0=self.temp_regs[1], t1=self.temp_regs[2], t2=self.temp_regs[3],
-							mem_type=0, addr_reg='-', val_reg='-'
-						)
-					trace_bb_exit_inst = Instruction(f"TRACE_INSTRUCTION_EXIT_{bb.name}", True, template=trace_bb_exit_template)
-#					bb.insert_after(bb.end, trace_bb_exit_inst)
-					bb.terminators = [elem for pair in zip([trace_bb_exit_inst]*len(bb.terminators), bb.terminators) for elem in pair]
-
-class Aarch64MarkRegisterTaints(Pass):
-	"""
-	Pass that inserts taint instrumentation for GPR register reads/writes.
-	It emits macro invocations that take the auxiliary buffer base register and temporary regs.
-	
-	Constructor args:
-	  base_reg: str, e.g. "x7"  -- the register containing base address of auxiliary buffer
-	  temp_regs: List[str] -- list of available temporary registers, e.g. ["x9","x10","x11"]
-	    - For TAINT_REG_WRITE we use temp_regs[0], temp_regs[1]
-	    - For TAINT_REG_PROPAGATE_OR_USED we use temp_regs[0], temp_regs[1]
-	"""
-	TEMPLATE_TAINT_REG_WRITE = "TAINT_REG_WRITE {dst}, {base}, {t0}, {t1}"
-	TEMPLATE_TAINT_REG_READ = "TAINT_REG_READ {src}, {base}, {t0}, {t1}"
-	TEMPLATE_TAINT_FLAGS_WRITE = "TAINT_FLAGS_WRITE {n}, {z}, {c}, {v}, {base}, {t0}, {t1}"
-	TEMPLATE_TAINT_FLAGS_READ = "TAINT_FLAGS_READ {n}, {z}, {c}, {v}, {base}, {t0}, {t1}"
-	TEMPLATE_TAINT_SP_READ = "TAINT_SP_READ {base}, {t1}, {t2}"
-	TEMPLATE_TAINT_SP_WRITE = "TAINT_SP_WRITE {base}, {t1}, {t2}"
-
-	def __init__(self, base_reg: str = "x7", temp_regs: List[str] = None):
-		super().__init__()
-		self.base_reg = base_reg
-		if temp_regs is None:
-			temp_regs = ["x9", "x10"]
-		if len(temp_regs) < 2:
-			raise ValueError(f"temp_regs must contain at least 2 registers other then base_reg ({base_reg}), now it containts {temp_regs}")
-		self.temp_regs = temp_regs
-
-	@staticmethod
-	def _reg_name_to_index(reg_name: str) -> int:
-		if not isinstance(reg_name, str):
-			return -1
-	
-		rn = reg_name.strip().lower()
-		if rn.startswith('x') or rn.startswith('w'):
-			try:
-				num = int(rn[1:])
-				if 0 <= num <= 30:
-					return num
-			except ValueError:
-				return -1
-	
-		return -1
-
-	@classmethod
-	def _get_regs_from_inst(cls, inst: Instruction) -> List[Operand]:
-		regs = []
-		for op in inst.operands:
-			if op.type == OT.REG:
-				regs.append(op)
-
-
-		for op in inst.implicit_operands:
-			if op.type == OT.REG:
-				regs.append(op)
-
-		return regs
-
-	def _collect_src_dst_indices(self, inst: Instruction) ->Tuple[List[int], List[int]]:
-		register_names = [x for lst in Aarch64TargetDesc.registers.values() for x in lst]
-		mem_src_regs = [op for op in inst.get_mem_operands() if op.value in register_names]
-
-		regs = self._get_regs_from_inst(inst)
-
-		src_idxs = [self._reg_name_to_index(r.value) for r in regs if r.src]
-		src_idxs += [self._reg_name_to_index(r.value) for r in mem_src_regs]
-		src_idxs = [idx for idx in src_idxs if idx >= 0]
-
-		dest_idxs = [self._reg_name_to_index(r.value) for r in regs if r.dest]
-		dest_idxs = [idx for idx in dest_idxs if idx >= 0]
-
-		return src_idxs, dest_idxs
-
-	def _collect_src_dst_flags(self, inst: Instruction) ->Tuple[List[str], List[str]]:
-		map_x86_flags_to_aarch64_flags  = {
-				"CF": "C",
-				"ZF": "Z",
-				"SF": "N",
-				"OF": "V"
-			}
-
-		src_flags = []
-		dest_flags = []
-
-		for l in (inst.operands, inst.implicit_operands):
-			for op in l:
-				if op.type == OT.FLAGS:
-					for flag in op.get_read_flags():
-						src_flags.append(map_x86_flags_to_aarch64_flags[flag])
-					for flag in op.get_write_flags():
-						dest_flags.append(map_x86_flags_to_aarch64_flags[flag])
-
-		map_cond_to_flags = {
-				'eq': ['Z'],
-				'ne': ['Z'],
-				'cs': ['C'],
-				'cc': ['C'],
-				'mi': ['N'],
-				'pl': ['N'],
-				'vs': ['V'],
-				'vc': ['V'],
-				'hi': ['C', 'Z'],
-				'ls': ['C'],
-				'ge': ['N', 'V'],
-				'lt': ['N', 'V'],
-				'gt': ['Z', 'N', 'V'],
-				'le': ['Z', 'N', 'V'],
-				'al': [],
-				'nv': []
-		}
-
-		for l in (inst.operands, inst.implicit_operands):
-			for op in l:
-				if op.type == OT.COND:
-					src_flags.extend(map_cond_to_flags[op.value.lower()])
-
-		src_flags = sorted(set(src_flags))
-		dest_flags = sorted(set(dest_flags))
-
-		return src_flags, dest_flags
-
-	def _generate_instructions_for_mark_register_taints(self, inst: Instruction) -> List[Instruction]:
-
-		src_idxs, dst_idxs = self._collect_src_dst_indices(inst)
-		src_flags, dest_flags = self._collect_src_dst_flags(inst)
-
-		if not src_idxs and not dst_idxs and not src_flags and not dest_flags:
-			return []
-
-		instrs_to_insert = []
-
-        # Create macro invocations. First MUST do src operands, and only later dst operands.
-		# create macro invocations for each src
-		for src in src_idxs:
-			asm_text = self.TEMPLATE_TAINT_REG_READ.format(
-					src=src, base=self.base_reg,
-                    t0=self.temp_regs[0], t1=self.temp_regs[1]
-			)
-			iobj = Instruction(f"TAINT_REG_READ_{src}_{inst.name}", True, template=asm_text)
-			instrs_to_insert.append(iobj)
-
-
-		# create macro invocations for each dst 
-		for dst in dst_idxs:
-			asm_text = self.TEMPLATE_TAINT_REG_WRITE.format(
-                    dst=dst, base=self.base_reg,
-                    t0=self.temp_regs[0], t1=self.temp_regs[1]
-            )
-			iobj = Instruction(f"TAINT_REG_WRITE_{dst}_{inst.name}", True, template=asm_text)
-			instrs_to_insert.append(iobj)
-
-		if src_flags:
-			asm_text = self.TEMPLATE_TAINT_FLAGS_READ.format(
-					n=int("N" in src_flags), z=int("Z" in src_flags),
-					c=int("C" in src_flags), v=int("V" in src_flags),
-					base=self.base_reg, t0=self.temp_regs[0], t1=self.temp_regs[1]
-			)
-			iobj = Instruction(f"TAINT_FLAGS_READ_{inst.name}", True, template=asm_text)
-			instrs_to_insert.append(iobj)
-
-		if dest_flags:
-			asm_text = self.TEMPLATE_TAINT_FLAGS_WRITE.format(
-					n=int("N" in dest_flags), z=int("Z" in dest_flags),
-					c=int("C" in dest_flags), v=int("V" in dest_flags),
-					base=self.base_reg, t0=self.temp_regs[0], t1=self.temp_regs[1]
-			)
-			iobj = Instruction(f"TAINT_FLAGS_WRITE_{inst.name}", True, template=asm_text)
-			instrs_to_insert.append(iobj)
-
-		return instrs_to_insert
-
-
-	def mark_register_taints(self, bb: BasicBlock, inst: Instruction) -> None:
-		instrs_to_insert = self._generate_instructions_for_mark_register_taints(inst)
-
-		for i in instrs_to_insert:
-			bb.insert_before(position=inst, inst=i)
-
-	def run_on_test_case(self, test_case: TestCase) -> None:
-		for func in test_case.functions:
-			for bb in func:
-				for inst in list(bb):
-					try:
-						self.mark_register_taints(bb, inst)
-					except Exception as e:
-						print(f"[Aarch64MarkRegisterTaints] warn: failed to instrument {inst}: {e}")
-				else:
-					instrs_to_insert  = []
-					for inst in bb.terminators:
-						instrs_to_insert.extend(self._generate_instructions_for_mark_register_taints(inst))
-						instrs_to_insert.append(inst)
-					bb.terminators = instrs_to_insert
-
-
-class Aarch64MarkMemoryAccessesNEON(Pass):
-
-    @staticmethod
-    def mark_memory_access(bb: BasicBlock, inst: Instruction):
-
-        access_id = inst.memory_access_id
-
-        if not (0 <= access_id <= 127):
-            raise ValueError("NEON bit must be between 0 and 127, inclusive")
-
-
-        neon_register_bitmap = 'v0'
-        neon_register_temporary = 'v1'
-        scalar_register_temporary = 'w7'
-
-        byte_index = access_id // 8
-        bit_shift = access_id % 8
-        bit_mask = 1 << bit_shift
-
-        mov_scalar_template = f"mov {scalar_register_temporary}, #{bit_mask}"
-        movi_template = f"movi {neon_register_temporary}.16b, #0"
-        ins_template  = f"ins {neon_register_temporary}.b[{byte_index}], {scalar_register_temporary}"
-        orr_template = f"orr {neon_register_bitmap}.16b, {neon_register_bitmap}.16b, {neon_register_temporary}.16b"
-
-        mov_instruction = Instruction("MOV", True, template=mov_scalar_template)
-        movi_instruction = Instruction("MOVI", True, template=movi_template)
-        ins_instruction  = Instruction("INS", True, template=ins_template)
-        orr_instruction  = Instruction("ORR", True, template=orr_template)
-
-        bb.insert_after(position=inst, inst=orr_instruction)
-        bb.insert_after(position=inst, inst=ins_instruction)
-        bb.insert_after(position=inst, inst=movi_instruction)
-        bb.insert_after(position=inst, inst=mov_instruction)
-
-    def run_on_test_case(self, test_case: TestCase) -> None:
+            self._create_function(func)
+
+        for line in self.epilogue_template:
+            self.content.append(line)
+
+
+    def _create_function(self, func: Function):
+        self.content.append(f'.section .data.{func.owner.name}')
+        self.content.append(func.name + ":")
+
+        for bb in func:
+            self._create_basic_block(bb)
+
+        self._create_basic_block(func.exit)
+
+
+    def _create_basic_block(self, bb: BasicBlock):
+        self.content.append(bb.name.lower() + ":")
+
+        for inst in bb:
+            string, instruction_count = self._instruction_to_str(inst)
+            self.instruction_address[inst] = self._instruction_counter * 4
+            self.content.append(string)
+            self._instruction_counter += 1
+
+        for inst in bb.terminators:
+            string, instruction_count = self._instruction_to_str(inst)
+            self.instruction_address[inst] = self._instruction_counter * 4
+            self.content.append(string)
+            self._instruction_counter += 1
+
+
+    def _instruction_to_str(self, inst: Instruction) -> Tuple[str, int]:
+        if inst.name == "macro":
+            return self._macro_to_str(inst)
+
+        instruction = inst.to_asm_string()
+
+        if inst.is_instrumentation:
+            comment = "// instrumentation"
+        elif inst.is_noremove:
+            comment = "// noremove"
+        else:
+            comment = ""
+
+        return f"{instruction} {comment}", 1
+
+    def _macro_to_str(self, inst: Instruction) -> Tuple[str, int]:
+        macro_placeholder = "NOP"
+        if inst.operands[1].value.lower() == ".noarg":
+            return f".macro{inst.operands[0].value}: {macro_placeholder}", 1 # For now, assume macro adds exactly 1 instruction
+        else:
+            return f".macro{inst.operands[0].value}{inst.operands[1].value}: {macro_placeholder}", 1 # For now, assume macro adds exactly 1 instruction
+
+
+
+class Aarch64Printer(Printer):
+
+    def __init__(self, _: Aarch64TargetDesc) -> None:
+        super().__init__()
+
+    def print_layout(self, layout: Aarch64ASMLayout, outfile: str = None) -> str:
+        data = "\n".join(layout.content)
+
+        if outfile is not None:
+            with open(outfile, "w") as f:
+                f.write(data)
+
+        return data
+
+    def print(self, test_case: TestCase, outfile: str = None) -> str:
+        return self.print_layout(Aarch64ASMLayout(test_case), outfile)
+
+
+
+
+class PACInstrumentation:
+    @dataclass(frozen=True)
+    class SignPair:
+        sign_inst: Instruction
+        signed_value: int
+
+    class custom_comperator_operand:
+        def __init__(self, op):
+            self.op = op
+        def __eq__(self, other):
+            return self.op.value == other.op.value
+        def __hash__(self):
+            return hash(self.op.value[1:]) # TODO better to conf.normalize
+
+
+    def __init__(self, aarch64_generator: Aarch64Generator, xpac_weight: int, auth_weight: int, sign_weight: int):
+        xpac_weight = max(xpac_weight, 0)
+        auth_weight = max(auth_weight, 0)
+        sign_weight = max(sign_weight, 0)
+        total_weight = (xpac_weight + auth_weight + sign_weight) * 1.0
+        self._xpac_prob = xpac_weight / total_weight
+        self._auth_prob = auth_weight / total_weight
+        self._sign_prob = sign_weight / total_weight
+        self.generator = aarch64_generator
+
+    def _sign_inst(self):
+        return self.generator.get_signing_instruction()
+
+    def _auth_inst(self):
+        return self.generator.get_verification_instruction()
+
+    def _xpac_inst(self, reg_operand: Optional[Operand] = None):
+        return self.generator.get_strip_sign_instruction(reg_operand)
+
+    def _inner_collect_instructions(self, func: Function, pred: Callable[Instruction, bool]) -> Set[Tuple[BasicBlock, Instruction]]:
+        collected = set()
+        for bb in func:
+            for inst in bb:
+                if pred(inst):
+                    collected.add((bb, inst))
+
+        return collected
+
+    def _build_signs(self, func: Function, layout: Aarch64ASMLayout) -> Dict[int, Tuple[Instruction, BasicBlock, Instruction]]:
+        instructions = self._inner_collect_instructions(func, lambda inst: random.random() < self._sign_prob)
+        offsets = map(lambda tupl: layout.instruction_address[tupl[1]], instructions)
+        signed_instructions: Dict[int, Tuple[Instruction, BasicBlock, Instruction]] = {}
+        for offset, (bb, next_instruction) in zip(offsets, instructions):
+            signed_instructions[offset] = (self._sign_inst() , bb, next_instruction) # sign instruction
+        return signed_instructions
+
+    def _build_authentications(self, func: Function, layout: Aarch64ASMLayout) -> Dict[int, Tuple[Instruction, BasicBlock, Instruction]]:
+        instructions = self._inner_collect_instructions(func, lambda inst: random.random() < self._auth_prob)
+        offsets = map(lambda tupl: layout.instruction_address[tupl[1]], instructions)
+        authentication_instructions: Dict[int, Tuple[Instruction, BasicBlock, Instruction]] = {}
+        for offset, (bb, next_instruction) in zip(offsets, instructions):
+            authentication_instructions[offset] = (self._auth_inst() , bb, next_instruction) # auth instruction
+        return authentication_instructions
+
+    def _build_xpac_stage1(self, func: Function, layout: Aarch64ASMLayout, sign_taints: Dict[Instruction, Set[custom_comperator_operand]]) -> Dict[int, Tuple[Instruction, BasicBlock, Instruction]]:
+        instructions = self._inner_collect_instructions(func,
+                        lambda inst: inst.has_memory_access and list(filter(lambda op: op.type == OT.MEM and self.custom_comperator_operand(op) in sign_taints[inst], chain(inst.operands, inst.implicit_operands))))
+        offsets = map(lambda tupl: layout.instruction_address[tupl[1]], instructions)
+        xpac_instructions: Dict[int, Tuple[Instruction, BasicBlock, Instruction]] = {}
+        for offset, (bb, next_instruction) in zip(offsets, instructions):
+            reg_op_list = list(filter(lambda op: op.type == OT.MEM and self.custom_comperator_operand(op) in sign_taints[next_instruction], chain(next_instruction.operands, next_instruction.implicit_operands)))
+            for reg_op in reg_op_list:
+                xpac_instructions[offset] = (self._xpac_inst(reg_op), bb, next_instruction) # xpac instruction
+        return xpac_instructions
+
+    def _taint_by_instruction(self, inst: Instruction, address: int, signed_op: Set[custom_comperator_operand], address_to_sign_inst: Dict[int, Instruction], address_to_auth_inst: Dict[int, Instruction]) -> Set[custom_comperator_operand]:
+
+        signed_op = set(signed_op)
+        if address in address_to_sign_inst:
+            for op in address_to_sign_inst[address][0].operands + address_to_sign_inst[address][0].implicit_operands:
+                if op.dest:
+                    signed_op.add(self.custom_comperator_operand(op))
+
+        if address in address_to_auth_inst:
+            for op in address_to_auth_inst[address][0].operands + address_to_auth_inst[address][0].implicit_operands:
+                if op.dest:
+                    signed_op.add(self.custom_comperator_operand(op))
+
+        for op in inst.operands + inst.implicit_operands:
+            if op.dest:
+                signed_op.add(self.custom_comperator_operand(op))
+
+        return signed_op
+
+    def _collect_sign_taints_inner(self, bb: BasicBlock, input_signed_set: Set[custom_comperator_operand], inst_to_address: Dict[Instruction, int], address_to_sign_inst: Dict[int, Instruction], address_to_auth_inst: Dict[int, Instruction], visited: Optional[Set] = None) -> Dict[Instruction, Set[custom_comperator_operand]]:
+        if visited is None:
+            visited = set()
+        if bb in visited:
+            return {}
+        visited.add(bb)
+
+        sign_map: Dict[Instruction, Set[custom_comperator_operand]] = {}
+        curr_signed_set  = set(input_signed_set)
+
+        for inst in bb:
+            curr_signed_set = self._taint_by_instruction(inst, inst_to_address[inst], curr_signed_set, address_to_sign_inst, address_to_auth_inst)
+            sign_map[inst] = curr_signed_set
+
+        for next_bb in bb.successors:
+            sign_map.update(self._collect_sign_taints_inner(next_bb, curr_signed_set, inst_to_address, address_to_sign_inst, address_to_auth_inst, visited=visited))
+
+        return sign_map
+
+    def _collect_sign_taints(self, func: Function, inst_to_address: Dict[Instruction, int], address_to_sign_inst: Dict[int, Instruction], address_to_auth_inst: Dict[int, Instruction]) -> Dict[Instruction, Set[custom_comperator_operand]]:
+        return self._collect_sign_taints_inner(func.get_first_bb(), set(), inst_to_address, address_to_sign_inst, address_to_auth_inst)
+
+    def instrument_stage1(self, test_case: TestCase) -> TestCase:
+        test_case = copy.deepcopy(test_case)
+        layout: Aarch64ASMLayout = Aarch64ASMLayout(test_case)
+        import pdb;pdb.set_trace()
         for func in test_case.functions:
-            for bb in func:
-                memory_instructions = [inst for inst in bb if inst.has_memory_access]
-
-                for inst in memory_instructions:
-                    self.mark_memory_access(bb, inst)
-
-
-
-class Aarch64MarkMemoryAccessesSVE(Pass):
-
-    @staticmethod
-    def mark_memory_access(bb: BasicBlock, inst: Instruction):
-
-        access_id = inst.memory_access_id
-
-        if not (0 <= access_id <= 127):
-            raise ValueError("SVE bit must be between 0 and 127, inclusive")
+            sign_inst = self._build_signs(func, layout)
+            auth_inst = self._build_authentications(func, layout)
+            sign_taints = self._collect_sign_taints(func, layout.instruction_address, sign_inst, auth_inst)
+            xpac_inst = self._build_xpac_stage1(func, layout, sign_taints)
+            for (new_inst, bb, next_inst) in chain(sign_inst.values(), auth_inst.values(), xpac_inst.values()):
+                bb.insert_before(next_inst, new_inst)
+        return test_case
 
 
-        sve_register_bitmap = 'z0'
-        sve_register_temporary_1 = 'z1'
-        sve_register_temporary_2 = 'z2'
-        predicate_register = 'p1'
-
-        byte_index = access_id // 8
-        bit_shift = access_id % 8
-
-        ptrue_template = f"ptrue {predicate_register}.B, ALL"
-        index_template = f"index {sve_register_temporary_2}.B, #0, #1"
-        compeq_template = f"cmpeq {predicate_register}.B, {predicate_register}/z, {sve_register_temporary_2}.B, #{byte_index}"
-        mov_template = f"mov {sve_register_temporary_1}.B, #0b{1 << bit_shift:08b}"
-        orr_template = f"orr {sve_register_bitmap}.B, {predicate_register}/M, {sve_register_bitmap}.B, {sve_register_temporary_1}.B"
-
-        ptrue_instruction = Instruction("PTRUE", True, template=ptrue_template)
-        index_instruction = Instruction("INDEX", True, template=index_template)
-        cmpeq_instruction = Instruction("CMPEQ", True, template=compeq_template)
-        mov_instruction = Instruction("MOV", True, template=mov_template)
-        orr_instruction = Instruction("ORR", True, template=orr_template)
-
-        bb.insert_after(position=inst, inst=orr_instruction)
-        bb.insert_after(position=inst, inst=mov_instruction)
-        bb.insert_after(position=inst, inst=cmpeq_instruction)
-        bb.insert_after(position=inst, inst=index_instruction)
-        bb.insert_after(position=inst, inst=ptrue_instruction)
-
-    def run_on_test_case(self, test_case: TestCase) -> None:
+    def instrument_stage2(self, test_case: TestCase, contract_trace: ContractExecutionResult, inst_to_ite: Dict[Instruction, InstrTraceEntry]) -> Tuple[TestCase, TestCase, TestCase]:
+        layout: Aarch64ASMLayout = Aarch64ASMLayout(test_case)
         for func in test_case.functions:
-            for bb in func:
+            sign_inst = self._build_signs(func, layout)
+            auth_inst = self._build_authentications(func, layout)
+            sign_taints = self._collect_sign_taints(func, sign_inst, auth_inst)
+            auth_inst_arch = self._build_arch_norm(func, layout, inst_to_ite, sign_taints)
+            auth_inst_spec = self._build_spec_versions(func, layout, inst_to_ite, sign_taints)
+            assert 0 == len(auth_inst_arch & auth_inst_spec)
+            # add manual fix for correct verification for any arch verification instruction for operand that is dirty (aka written after signing)
+            # similar, create 3 options for speculative paths: correct fix, nop and xpac
 
-                memory_instructions = []
-
-                for inst in bb:
-                    if inst.has_memory_access:
-                        memory_instructions.append(inst)
-
-                for inst in memory_instructions:
-                    Aarch64MarkMemoryAccesses.mark_memory_access(bb, inst)
-
-
-class Aarch64MarkMemoryTaints(Pass):
-	"""
-	Pass that inserts taint instrumentation for memory accesses.
-	It emits macro invocations that take the auxiliary buffer base register and temporary regs.
-	
-	Constructor args:
-	  base_reg: str, e.g. "x7"  -- register holding base address of auxiliary buffer
-	  temp_regs: List[str] -- list of temp registers, e.g. ["x9","x10"]
-	    - temp_regs[0], temp_regs[1] are used for address computation and bit masking
-	"""
-	
-	# Templates for memory taint macros (you can create these in taint_instrument.S later)
-	MEM_TEMPLATE_LOAD = "TAINT_LOAD {addr}, {base}, {t0}, {t1}"
-	MEM_TEMPLATE_STORE = "TAINT_STORE {addr}, {base}, {t0}, {t1}"
-	
-	def __init__(self, base_reg: str = "x7", temp_regs: List[str] = None):
-		super().__init__()
-		self.base_reg = base_reg
-		if temp_regs is None:
-			temp_regs = ["x9", "x10", "x11"]
-		if len(temp_regs) < 3:
-			raise ValueError("temp_regs must contain at least 3 registers other than base_reg")
-		self.temp_regs = temp_regs
-	
-	@staticmethod
-	def _reg_name_to_index(reg_name: str) -> int:
-		if not isinstance(reg_name, str):
-			return -1
-	
-		rn = reg_name.strip().lower()
-		if rn.startswith('x') or rn.startswith('w'):
-			try:
-				num = int(rn[1:])
-				if 0 <= num <= 30:
-					return num
-			except ValueError:
-				return -1
-
-		return -1
-
-	def mark_memory_taint(self, bb: BasicBlock, inst: Instruction) -> None:
-		instrs_to_insert = []
-
-		mem_operands = inst.get_mem_operands()
-
-		base_template = f"MOV {self.temp_regs[0]}, {mem_operands[0].value}"
-		instrs_to_insert.append(Instruction(f"MOV", True, template=base_template))
-		for op in mem_operands[1:]:
-
-			add_template = f"ADD {self.temp_regs[0]}, {self.temp_regs[0]}, {op.value}"
-			instrs_to_insert.append(Instruction(f"ADD", True, template=add_template))
-
-		addr_reg = self.temp_regs[0]
-
-		addr_idx = self._reg_name_to_index(addr_reg)
-		assert 0 <= addr_idx <= 30, "Register name in Aarch64 is expected to have id between 0 to 30"
-
-		left_operand = next((op for op in inst.operands if op.type == OT.REG))
-		
-        # write macro (for loads)
-		if left_operand.dest:
-			asm_text = self.MEM_TEMPLATE_LOAD.format(addr=addr_idx, base=self.base_reg,
-											 t0=self.temp_regs[1], t1=self.temp_regs[2])
-			instrs_to_insert.append(Instruction(f"TAINT_LOAD_{addr_idx}", True, template=asm_text))
-
-
-		# write macro (for stores)
-		if left_operand.src:
-			asm_text = self.MEM_TEMPLATE_STORE.format(addr=addr_idx, base=self.base_reg,
-											 t0=self.temp_regs[1], t1=self.temp_regs[2])
-			instrs_to_insert.append(Instruction(f"TAINT_STORE_{addr_idx}", True, template=asm_text))
-
-		# Insert all
-		for i in instrs_to_insert:
-			bb.insert_before(inst, i)
-
-	def run_on_test_case(self, test_case: TestCase):
-		for func in test_case.functions:
-			for bb in func:
-				for inst in bb:
-					if inst.has_memory_access:
-						try:
-							self.mark_memory_taint(bb, inst)
-						except Exception as e:
-							print(f"[Aarch64MarkMemoryTaints] failed on {inst}: {e}")
-
+            for bb, bb_holes in sign_inst.items():
+                for inst in bb_holes:
+                    ite = mapper[inst]
+                    for _ in range(4):
+                        bb.insert_before(position=inst, inst=Instruction("nop", False, "", True, template="NOP"))
 
 
 class BitmapAccessor:
@@ -1046,73 +774,6 @@ class BitmapAccessor:
 	def __ge__(self, other): return int(self) >= int(other)
 
 
-@register_aux_buffer(AuxBufferType.BITMAP_TAINTS)
-@dataclass
-class BitmapTaintsAuxBuffer(ExecutorAuxBuffer):
-	_size_in_bits: int = field(default=64, init=False)
-	_regs_write_bits: int = field(default=0, repr=False)
-	_regs_read_bits: int = field(default=0, repr=False)
-	_regs_input_read_bits: int = field(default=0, repr=False)
-	_mem_write_bits: int = field(default=0, repr=False)
-	_mem_read_bits: int = field(default=0, repr=False)
-	_mem_input_read_bits: int = field(default=0, repr=False)
-
-	def __post_init__(self):
-		super().__init__(AuxBufferType.BITMAP_TAINTS)
-		self.regs_write_bits = BitmapAccessor(self, "_regs_write_bits", self._size_in_bits)
-		self.regs_read_bits = BitmapAccessor(self, "_regs_read_bits", self._size_in_bits)
-		self.regs_input_read_bits = BitmapAccessor(self, "_regs_input_read_bits", self._size_in_bits)
-		self.mem_write_bits = BitmapAccessor(self, "_mem_write_bits", self._size_in_bits)
-		self.mem_read_bits = BitmapAccessor(self, "_mem_read_bits", self._size_in_bits)
-		self.mem_input_read_bits = BitmapAccessor(self, "_mem_input_read_bits", self._size_in_bits)
-
-	@classmethod
-	def from_bytes(cls: Type["BitmapTaintsAuxBuffer"], data: bytes):
-		"""
-		Parse binary data into a BitmapTaintsAuxBuffer.
-
-		Expected binary layout:
-			6 consecutive 8-byte unsigned integers (little-endian):
-				regs_write_bits
-				regs_read_bits
-				regs_input_read_bits
-				mem_write_bits
-				mem_read_bits
-				mem_input_read_bits
-		"""
-		expected_size = 6 * 8
-		if len(data) < expected_size:
-			raise ValueError(f"Invalid data size ({len(data)} bytes), expected >= {expected_size} bytes")
-		# Little-endian unsigned 64-bit integers
-		fields = struct.unpack("<6Q", data[:expected_size])
-		return cls(*fields)
-
-	def to_bytes(self) -> bytes:
-		"""Serialize the buffer back into bytes."""
-		return struct.pack(
-				"<6Q",
-				self.regs_write_bits,
-				self.regs_read_bits,
-				self.regs_input_read_bits,
-				self.mem_write_bits,
-				self.mem_read_bits,
-				self.mem_input_read_bits,
-			)
-
-	def __repr__(self):
-		return (
-			f"<BitmapTaintsAuxBuffer "
-			f"regs_write_bits={self.regs_write_bits}, "
-			f"regs_read_bits={self.regs_read_bits}, "
-			f"regs_input_read_bits={self.regs_input_read_bits}, "
-			f"mem_write_bits={self.mem_write_bits}, "
-			f"mem_read_bits={self.mem_read_bits}, "
-			f"mem_input_read_bits={self.mem_input_read_bits}>"
-		)
-
-	def __str__(self):
-		return self.__repr__()
-
 
 class Aarch64SandboxPass(Pass):
 	def __init__(self):
@@ -1176,13 +837,24 @@ class Aarch64SandboxPass(Pass):
 			parent.insert_before(instr, add_base)
 			
 			for op in mem_operands[1:]:
-            
-				template, op0, op1, op2 = generate_template("SUB", base_operand_copy, base_operand_copy, op)
-				op2.dest = False
-				op2.src = True
-				sub_inst = Instruction("SUB", True).add_op(op0).add_op(op1).add_op(op2)
-				sub_inst.template = template  # TODO: this should be done in the constructor
-				parent.insert_before(instr, sub_inst)
+				if op.name.lower() == "pimm":
+					current = int(op.value)
+					while current > 0:
+						offset_op = ImmediateOperand(str(min(4095, current)), 12)
+						template, op0, op1, op2 = generate_template("SUB", base_operand_copy, base_operand_copy, offset_op)
+						op2.dest = False
+						op2.src = True
+						sub_inst = Instruction("SUB", True).add_op(op0).add_op(op1).add_op(op2)
+						sub_inst.template = template  # TODO: this should be done in the constructor
+						parent.insert_before(instr, sub_inst)
+						current -= 4095
+				else:
+				    template, op0, op1, op2 = generate_template("SUB", base_operand_copy, base_operand_copy, op)
+				    op2.dest = False
+				    op2.src = True
+				    sub_inst = Instruction("SUB", True).add_op(op0).add_op(op1).add_op(op2)
+				    sub_inst.template = template  # TODO: this should be done in the constructor
+				    parent.insert_before(instr, sub_inst)
 
 			return
 
@@ -1190,95 +862,6 @@ class Aarch64SandboxPass(Pass):
 			raise GeneratorException("Implicit memory accesses are not supported")
 
 		raise GeneratorException("Attempt to sandbox an instruction without memory operands")
-
-
-class Aarch64Printer(Printer):
-    prologue_template = [
-        ".test_case_enter:\n",
-    ]
-
-    epilogue_template = [
-        ".section .data.main\n",
-        ".test_case_exit:\n",
-    ]
-
-    def __init__(self, _: Aarch64TargetDesc) -> None:
-        super().__init__()
-
-    def print(self, test_case: TestCase, outfile: str = None) -> str:
-        data = ""
-        # print prologue
-        for line in self.prologue_template:
-            data += line
-
-        # print the test case
-        for func in test_case.functions:
-            data += self.print_function(func)
-
-        # print epilogue
-        for line in self.epilogue_template:
-            data += line
-
-        if outfile is not None:
-            with open(outfile, "w") as f:
-                f.write(data)
-
-        return data
-
-
-    def print_function(self, func: Function) -> str:
-        data = ""
-        data += f".section .data.{func.owner.name}\n"
-        data += f"{func.name}:\n"
-        for bb in func:
-            data += self.print_basic_block(bb)
-
-        data += self.print_basic_block(func.exit)
-        return data
-
-    def print_basic_block(self, bb: BasicBlock) -> str:
-        data = ""
-        data += f"{bb.name.lower()}:\n"
-        for inst in bb:
-            data += self.instruction_to_str(inst) + "\n"
-        for inst in bb.terminators:
-            data += self.instruction_to_str(inst) + "\n"
-        return data
-
-    def instruction_to_str(self, inst: Instruction):
-        if inst.name == "macro":
-            return self.macro_to_str(inst)
-
-        values = {}
-        for op in inst.operands:
-            values[op.name] = op.value
-
-#        instruction = inst.template.format(**values)
-        instruction = inst.to_asm_string()
-
-        if inst.is_instrumentation:
-            comment = "// instrumentation"
-        elif inst.is_noremove:
-            comment = "// noremove"
-        else:
-            comment = ""
-        return f"{instruction} {comment}"
-
-    def operand_to_str(self, op: Operand) -> str:
-        if isinstance(op, MemoryOperand) or isinstance(op, AgenOperand):
-            return f"[{op.value}]"
-
-        if isinstance(op, ImmediateOperand) or isinstance(op, AgenOperand):
-            return f"#{op.value}"
-
-        return op.value
-
-    def macro_to_str(self, inst: Instruction):
-        macro_placeholder = "NOP"
-        if inst.operands[1].value.lower() == ".noarg":
-            return f".macro{inst.operands[0].value}: {macro_placeholder}"
-        else:
-            return f".macro{inst.operands[0].value}{inst.operands[1].value}: {macro_placeholder}"
 
 
 class Aarch64RandomGenerator(Aarch64Generator, RandomGenerator):

@@ -32,8 +32,11 @@ MODULE_DESCRIPTION("AArch64 implementation of Revisor's executor");
 #include <linux/hw_breakpoint.h>
 #include <linux/arm-smccc.h>
 #include <linux/cpufeature.h>
+#include <linux/slab.h>
 #include <asm/processor.h>
 #include <asm/cpufeature.h>
+#include <asm/mte.h>
+#include <asm/mmu.h>
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0)
 #include <linux/set_memory.h>
@@ -51,6 +54,7 @@ MODULE_DESCRIPTION("AArch64 implementation of Revisor's executor");
 #include "pfc.h"
 #include "inputs.h"
 #include "mte.h"
+#include "pac.h"
 #include "cpu.h"
 #include "globals.h"
 #include "userapi/executor_user_api.h"

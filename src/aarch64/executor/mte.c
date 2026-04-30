@@ -1,5 +1,4 @@
 #include "main.h"
-
 #if CONFIG_ARM64_MTE_HW	// Real MTE hardware implementation
 
 inline void stg(const void* ptr) {
@@ -10,14 +9,18 @@ inline void stg(const void* ptr) {
 }
 EXPORT_SYMBOL(stg);
 
+static inline void *tag_ptr(void *p, u8 tag) {
+    return (void *)(((u64)p & 0x00FFFFFFFFFFFFFFULL) | ((u64)tag << 56));
+}
+
+
 void mte_randomly_tag_region(const void* ptr, uint64_t length) {
 	uint64_t loc = 0;
 
 	for (; loc < length; loc += MTE_GRANULE_SIZE) {
 		uintptr_t current_ptr = (uintptr_t)ptr + loc;
-		module_err("tagging address %p", (void*)current_ptr);
 		uint8_t tag = 6; // mte_get_random_tag();
-		const void* tagged_ptr = __tag_set((void*)current_ptr, tag);
+		const void* tagged_ptr = tag_ptr((void*)current_ptr, tag);
 		stg(tagged_ptr);
 	}
 }
@@ -98,4 +101,17 @@ void enable_mte_tag_checking(void)				{ }
 EXPORT_SYMBOL(enable_mte_tag_checking);
 
 #endif
+
+static inline unsigned long read_id_aa64pfr1_el1(void) {
+	unsigned long val = 0;
+	asm volatile("mrs %0, ID_AA64PFR1_EL1" : "=r"(val));
+	return val;
+}
+
+int mte_ext(void) {
+	unsigned long val = read_id_aa64pfr1_el1();
+	unsigned long mte = (val >> 8) & 0xF;
+	return mte;
+}
+
 

@@ -342,8 +342,8 @@ static void __nocfi run_experiments(void) {
 
 		// flush some of the uarch state
 		if (1 == executor.config.pre_run_flush) {
-			flush_bpu_phr();
 			measurement_code = invalidate_bpu_entries();
+			flush_bpu_phr();
 		}
 
 		config_pfc();

@@ -11,7 +11,7 @@ from . import input_generator, analyser, postprocessor, interfaces, model
 from .x86 import (x86_model, x86_executor, x86_fuzzer, x86_generator, x86_asm_parser,
                   get_spec as x86_get_spec)
 from .aarch64 import (aarch64_model, aarch64_executor, aarch64_fuzzer, aarch64_generator, aarch64_asm_parser,
-                      get_spec as aarch64_get_spec, aarch64_connection)
+                      get_spec as aarch64_get_spec, aarch64_connection, arm_isa_parser)
 from .config import CONF, ConfigException
 from .fuzzer import NoninterfearenceFuzzer
 
@@ -87,7 +87,7 @@ MINIMIZERS: Dict[str, Type[interfaces.Minimizer]] = {
 
 SPEC_DOWNLOADERS: Dict[str, Type] = {
     'x86-64': x86_get_spec.Downloader,
-    'aarch64': aarch64_get_spec.Downloader,
+    'aarch64': arm_isa_parser.pipeline.Downloader,
 }
 
 ASM_PARSERS: Dict[str, Type] = {

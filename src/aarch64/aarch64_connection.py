@@ -165,7 +165,7 @@ class SSHConnection(Connection):
 
 class ADBConnection(Connection):
     def __init__(self, host: str = '127.0.0.1', port: int = 5037, serial: str = None):
-        super(USBConnection, self).__init__()
+        super().__init__()
         self.host = host
         self.port = port
         self.client = AdbClient(host=self.host, port=self.port)
@@ -257,10 +257,6 @@ class UserlandExecutor(ABC):
     def allocate_iid(self) -> int:
         raise NotImplementedError()
 
-    @property
-    @abstractmethod
-    def aux_buffer(self) -> bytes:
-        raise NotImplementedError()
 
 class TestCaseRegion(ExecutorRegion):
     def __init__(self):
@@ -427,18 +423,6 @@ class UserlandExecutorImp(UserlandExecutor):
 
 		return HWMeasurement(htrace=htrace, pfcs=pfc_list, memory_ids=architectural_memory_accesses_bitmap)
 
-	@property
-	def aux_buffer(self) -> bytes:
-		result = self._query_executor(12)
-		hex_lines = re.findall(r'^\s*([0-9A-Fa-f]+)\s*:\s*(.*?)\s*(?:\|.*)?$', result, flags=re.MULTILINE)
-		hex_bytes = []
-		for _, bytes_part in hex_lines:
-			hex_bytes.extend(re.findall(r'\b[0-9a-fA-F]{2}\b', bytes_part.strip()))
-
-		try:
-			return bytes(int(b, 16) for b in hex_bytes)
-		except ValueError as e:
-			raise ValueError(f"Invalid hexdump format: {e}")
 
 	@property
 	def contents(self) -> ExecutorMemory:
@@ -521,12 +505,6 @@ class UserlandExecutorImp(UserlandExecutor):
 			tmp_file.flush()
 			self.connection.push(tmp_file.name, remote_batch_file_path)
 
-class AuxBufferIoctl(ctypes.Structure):
-    _fields_ = [
-        ("size", ctypes.c_size_t),
-        ("data", ctypes.c_void_p),
-    ]
-
 class UserMeasurement(ctypes.Structure):
     _fields_ = [
         ("htrace", ctypes.c_uint64 * 1),
@@ -547,7 +525,6 @@ REVISOR_TRACE_CONSTANT              = 8
 REVISOR_CLEAR_ALL_INPUTS_CONSTANT   = 9
 REVISOR_GET_TEST_LENGTH_CONSTANT    = 10
 REVISOR_BATCHED_INPUTS_CONSTANT     = 11
-REVISOR_GET_AUX_BUFFER_CONSTANT     = 12
 
 IOCTL_NR_TO_NAME = {
     1: "REVISOR_CHECKOUT_TEST",
@@ -561,7 +538,6 @@ IOCTL_NR_TO_NAME = {
     9: "REVISOR_CLEAR_ALL_INPUTS",
     10: "REVISOR_GET_TEST_LENGTH",
     11: "REVISOR_BATCHED_INPUTS",
-    12: "REVISOR_GET_AUX_BUFFER",
 }
 
 
@@ -619,7 +595,6 @@ REVISOR_TRACE = _IO(REVISOR_IOC_MAGIC, REVISOR_TRACE_CONSTANT)
 REVISOR_CLEAR_ALL_INPUTS = _IO(REVISOR_IOC_MAGIC, REVISOR_CLEAR_ALL_INPUTS_CONSTANT)
 REVISOR_GET_TEST_LENGTH = _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_TEST_LENGTH_CONSTANT, ctypes.c_uint64)
 REVISOR_BATCHED_INPUTS = _IOWR(REVISOR_IOC_MAGIC, REVISOR_BATCHED_INPUTS_CONSTANT, ctypes.c_uint64)  # adjust struct
-REVISOR_GET_AUX_BUFFER = _IOWR(REVISOR_IOC_MAGIC, REVISOR_GET_AUX_BUFFER_CONSTANT, AuxBufferIoctl)
 
 
 class LocalExecutorImp(UserlandExecutor):
@@ -684,18 +659,6 @@ class LocalExecutorImp(UserlandExecutor):
 		return HWMeasurement(htrace=htrace, pfcs=pfcs, memory_ids=format(memory_ids, '0{}b'.format(128)))
 
 	@property
-	def aux_buffer(self) -> bytes:
-		buf = AuxBufferIoctl()
-		buf.data = 0 # NULL to get size
-		self._ioctl(REVISOR_GET_AUX_BUFFER, buf)
-		size_needed = buf.size
-		buf_data = (ctypes.c_uint8 * size_needed)()
-		buf.data = ctypes.cast(buf_data, ctypes.c_void_p)
-		buf.size = size_needed
-		self._ioctl(REVISOR_GET_AUX_BUFFER, buf)
-		return bytes(buf_data)
-
-	@property
 	def contents(self) -> ExecutorMemory:
 		with profile_op("read"):
 			raw = read_device(self.fd)
@@ -735,122 +698,4 @@ class LocalExecutorImp(UserlandExecutor):
 	def code_base(self) -> int:
 		return int(self._read_sysfs('print_code_base'), 16)
 
-
-# Auxiliary Buffer Managment
-class AuxBufferType(Enum):
-	RAW_BYTES = "raw_bytes"
-	BITMAP_TAINTS = "bitmap_taints"
-	FULL_TRACE = "full_trace"
-
-class ExecutorAuxBuffer(ABC):
-	"""Base class for all executor auxiliary buffers."""
-
-	def __init__(self, buffer_type: AuxBufferType):
-		self.buffer_type = buffer_type
-
-	@classmethod
-	def from_json(cls, data: dict):
-		"""
-		Generic from_json constructor: maps JSON keys to dataclass fields.
-		Ignores extra keys and sets missing keys to default.
-		"""
-		if not hasattr(cls, "__dataclass_fields__"):
-			raise TypeError(f"{cls.__name__} must be a dataclass")
-
-		init_kwargs = {}
-
-		for name, field in cls.__dataclass_fields__.items():
-			if name in data:
-				init_kwargs[name] = data[name]
-			elif field.default is not MISSING:
-				init_kwargs[name] = field.default
-			elif field.default_factory is not MISSING:
-				init_kwargs[name] = field.default_factory()
-			else:
-				raise ValueError(f"Missing required field '{name}' for {cls.__name__}")
-
-		obj = cls(**init_kwargs)
-		if "buffer_type" not in cls.__dataclass_fields__:
-			obj.buffer_type = AuxBufferType(data["type"])
-
-		return obj
-
-	@classmethod
-	@abstractmethod
-	def from_bytes(cls, data: bytes):
-		"""Construct buffer from raw byte array (must be implemented in subclass)."""
-		raise NotImplementedError
-
-	@abstractmethod
-	def to_bytes(self) -> bytes:
-		"""Serialize this buffer into raw bytes (must be implemented in subclass)."""
-		raise NotImplementedError
-
-
-	def to_dict(self) -> dict:
-		"""Generic serialization to dict/JSON."""
-		d = asdict(self)
-		d["type"] = getattr(self, "buffer_type", self.__class__.__name__).value
-		return d
-
-AUX_BUFFER_TYPES: dict[AuxBufferType, Type[ExecutorAuxBuffer]] = {}
-
-def register_aux_buffer(buffer_type: AuxBufferType):
-
-	def wrapper(cls: Type[ExecutorAuxBuffer]):
-		AUX_BUFFER_TYPES[buffer_type] = cls
-		return cls
-
-	return wrapper
-
-def aux_buffer_from_json(data: dict) -> ExecutorAuxBuffer:
-	buffer_type_str = data.get("type")
-	if not buffer_type_str:
-		raise ValueError("JSON missing 'type' field")
-
-	try:
-		buffer_type = AuxBufferType(buffer_type_str)
-	except ValueError:
-		raise ValueError(f"Unknown buffer type: {buffer_type_str}")
-
-	cls = AUX_BUFFER_TYPES.get(buffer_type)
-	if cls is None:
-		raise ValueError(f"No registered class for buffer type: {buffer_type}")
-	return cls.from_json(data)
-
-def aux_buffer_from_bytes(buffer_type: AuxBufferType, data: bytes) -> ExecutorAuxBuffer:
-	cls = AUX_BUFFER_TYPES.get(buffer_type)
-	if cls is None:
-		raise ValueError(f"No registered class for buffer type: {buffer_type}")
-	return cls.from_bytes(data)
-
-
-@register_aux_buffer(AuxBufferType.RAW_BYTES)
-@dataclass
-class RawBytesAuxBuffer(ExecutorAuxBuffer):
-	data: bytes = b""
-
-	def __post_init__(self):
-		super().__init__(AuxBufferType.RAW_BYTES)
-
-	@classmethod
-	def from_bytes(cls, data: bytes):
-		return cls(data=data)
-
-	@classmethod
-	def from_json(cls, data: dict):
-		# support JSON too, e.g., base64-encoded bytes
-		import base64
-		raw = base64.b64decode(data.get("data", ""))
-		return cls(data=raw)
-
-	def to_dict(self) -> dict:
-		import base64
-		return {
-			"type": self.buffer_type.value,
-			"data": base64.b64encode(self.data).decode()
-		}
-
-	def __repr__(self):
-		return f"<RawBytesAuxBuffer len={len(self.data)} bytes>"
 

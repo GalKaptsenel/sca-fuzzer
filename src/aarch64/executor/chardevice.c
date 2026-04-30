@@ -270,6 +270,11 @@ static int64_t handle_batch(void __user* arg) {
 		goto handle_batch_end;
 	}
 
+	if(batch.size >= (SIZE_MAX / sizeof(struct input_and_id_pair))) {
+		err = -EFAULT;
+		goto handle_batch_end;
+	}
+
 	input_and_id_array = vmalloc_array(batch.size, sizeof(struct input_and_id_pair));
 	if(NULL == input_and_id_array) {
 		err = -ENOMEM;

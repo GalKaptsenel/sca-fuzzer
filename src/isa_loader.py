@@ -9,6 +9,7 @@ from typing import Dict, List
 from copy import deepcopy
 from .interfaces import OT, InstructionSetAbstract, OperandSpec, InstructionSpec
 from .config import CONF
+from .aarch64 import arm_isa_parser
 
 
 class InstructionSet(InstructionSetAbstract):
@@ -32,6 +33,10 @@ class InstructionSet(InstructionSetAbstract):
         self.dedup()
 
     def init_from_file(self, filename: str):
+        if CONF.instruction_set == "aarch64":
+            self.instructions = arm_isa_parser.load_json(filename)
+            return
+
         with open(filename, "r") as f:
             root = json.load(f)
         for instruction_node in root:
@@ -59,9 +64,7 @@ class InstructionSet(InstructionSetAbstract):
         if op_type == "REG":
             op_values = sorted(op_values)
         op_name = op.get("name", "")
-        spec = OperandSpec(op_values, op_type, op["src"], op["dest"], op_name)
-        spec.width = op["width"]
-        spec.signed = op.get("signed", True)
+        spec = OperandSpec(op_type, op["width"], op.get("signed", True), op["src"], op["dest"], op_values, op_name)
 
         if op_type == OT.MEM:
             parent.has_mem_operand = True
@@ -75,8 +78,12 @@ class InstructionSet(InstructionSetAbstract):
 
         def is_supported(spec: InstructionSpec):
 
-            if CONF.supported_instructions is not None:
-                return spec.name in CONF.supported_instructions
+            if CONF.supported_instructions and spec.name not in CONF.supported_instructions:
+                return False
+#            if include_categories and spec.category not in include_categories:
+#                return False
+            if spec.category != "general":
+                return False # For now we don't support anything not in general category
 
             if CONF._no_generation:
                 # if we use an existing test case, then instruction filtering is irrelevant
@@ -86,11 +93,14 @@ class InstructionSet(InstructionSetAbstract):
             if spec.name in CONF.instruction_allowlist:
                 return True
 
-            if include_categories and spec.category not in include_categories:
-                return False
-
             if spec.name in CONF.instruction_blocklist:
                 return False
+
+            if include_categories and all(category in include_categories for category in spec.tags):
+                return True
+
+#            if CONF.supported_instructions is not None:
+#                return spec.name in CONF.supported_instructions
 
             for operand in spec.operands:
                 if operand.type == OT.MEM and operand.values \
@@ -107,7 +117,7 @@ class InstructionSet(InstructionSetAbstract):
                         and implicit_operand.values[0] in register_blocklist:
                     assert len(implicit_operand.values) == 1
                     return False
-            return True
+            return False
 
         skip_list = []
         register_blocklist = set(CONF.register_blocklist) - set(CONF.register_allowlist)

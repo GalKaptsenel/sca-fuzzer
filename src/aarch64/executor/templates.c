@@ -688,7 +688,7 @@ int load_template(size_t tc_size) {
 	for (;	TEMPLATE_ENTER != template_ptr[template_pos]; ++template_pos) {
 
 		size_t current_offset = sizeof(uint32_t) * template_pos;
-		if (max_size_of_template <= current_offset) {
+		if (100 * 4 <= current_offset) { // limit of search depth
 			return -1;
 		}
 	}
@@ -698,12 +698,11 @@ int load_template(size_t tc_size) {
 	// copy the first part of the template
 	for (;	TEMPLATE_INSERT_TC != template_ptr[template_pos]; ++template_pos, ++code_pos) {
 
-		size_t current_offset = sizeof(uint32_t) * template_pos;
-	    if (max_size_of_template <= current_offset) {
-	        return -1;
-	    }
-
-	    destination_code[code_pos] = template_ptr[template_pos];
+		size_t current_offset = sizeof(uint32_t) * code_pos;
+		if (max_size_of_template <= current_offset) {
+			return -1;
+		}
+	    	destination_code[code_pos] = template_ptr[template_pos];
 	}
 
 	++template_pos; // skip TEMPLATE_INSERT_TC
@@ -715,32 +714,31 @@ int load_template(size_t tc_size) {
 	// write the rest of the template
 	for (;	TEMPLATE_RETURN != template_ptr[template_pos]; ++template_pos, ++code_pos) {
 
-		size_t current_offset = sizeof(uint32_t) * template_pos;
-	    if (max_size_of_template <= current_offset) {
-	        return -2;
-	    }
+		size_t current_offset = sizeof(uint32_t) * code_pos;
+		if (max_size_of_template <= current_offset) {
+			return -2;
+		}
 
-	    if (TEMPLATE_INSERT_TC == template_ptr[template_pos]) {
-	        return -3;
-	    }
+		if (TEMPLATE_INSERT_TC == template_ptr[template_pos]) {
+			return -3;
+		}
 
-	    destination_code[code_pos] = template_ptr[template_pos];
+		destination_code[code_pos] = template_ptr[template_pos];
 	}
 
-    // RET encoding: 0xd65f03c0
-    destination_code[code_pos] = 0xd65f03c0;
-    code_pos += 1;
+	// RET encoding: 0xd65f03c0
+	destination_code[code_pos] = 0xd65f03c0;
+	code_pos += 1;
 
-    size_t total_size = sizeof(uint32_t) * code_pos;
-    if(MAX_MEASUREMENT_CODE_SIZE < total_size) {
-	    module_err("Test expantion is too big! Got %lu bytes after template  expantion", total_size);
-	    return -4;
-    }
+	size_t total_size = sizeof(uint32_t) * code_pos;
+	if(MAX_MEASUREMENT_CODE_SIZE < total_size) {
+		__builtin_unreachable();
+	}
 
-    dsb(ish); // make sure all views are synced
-    isb();
+	dsb(ish); // make sure all views are synced
+	isb();
 
-    return total_size;
+	return total_size;
 }
 EXPORT_SYMBOL(load_template);
 
