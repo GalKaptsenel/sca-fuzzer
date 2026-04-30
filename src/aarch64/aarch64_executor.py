@@ -354,6 +354,9 @@ class Aarch64LocalExecutor(Aarch64Executor):
         taints, ctraces, = [], []
 
         for cer in traces:
+            import pdb; pdb.set_trace()
+            overriden_gprs = set()
+            overriden_memory = set()
             input_taint = InputTaint()
             accessed_memory = []
             sandbox_u8 = input_taint.view(np.uint8)
@@ -367,10 +370,19 @@ class Aarch64LocalExecutor(Aarch64Executor):
                         if not ite.metadata.memory_access.is_write:
                             if 0 <= byte_offset < actual_sandbox_memory_size: # sometimes overflow may occur, we won't taint the overflows
                                 sandbox_u8[byte_offset] = True
+                        else:
+                            if not sandbox_u8[byte_offset]:
+                                overriden_memory.add(byte_offset)
 
-                srcs, _ = get_srcs_dests_operands(ite.cpu.encoding, ite.cpu.pc)
+                srcs, dests = get_srcs_dests_operands(ite.cpu.encoding, ite.cpu.pc)
+                input_overriden_dests = set(filter(lambda op: op not in srcs and all(not gpr_region_u8[offset] for offset in map_operand_to_input_offsets(op)), dests))
+                overriden_gprs |= input_overriden_dests
                 for offset in chain.from_iterable(map(map_operand_to_input_offsets, srcs)):
                     gpr_region_u8[offset] = True
+            for offset in overriden_memory:
+                sandbox_u8[offset] = False
+            for offset in chain.from_iterable(map(map_operand_to_input_offsets, overriden_gprs)):
+                gpr_region_u8[offset] = False
             taints.append(input_taint)
 
             line_size = 64

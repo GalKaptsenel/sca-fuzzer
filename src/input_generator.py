@@ -106,7 +106,8 @@ class NumpyRandomInputGenerator(InputGenerator):
                 taint = taints[i].linear_view(actor_id)
                 input_old = input_.linear_view(actor_id)
                 input_new = new_input.linear_view(actor_id)
-                for j in range(input_.data_size):
+                assert len(input_new) == len(input_old) == len(taint)
+                for j in range(len(input_new)):
                     if taint[j]:
                         input_new[j] = input_old[j]
             new_inputs.append(new_input)

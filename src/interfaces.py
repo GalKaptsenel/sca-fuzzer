@@ -262,7 +262,8 @@ class Input(np.ndarray):
         return str(self.seed)
 
     def linear_view(self, actor_id) -> np.ndarray:
-        return self[actor_id].view((np.uint64, self[actor_id].itemsize // 8))
+        #return self[actor_id].view((np.uint64, self[actor_id].itemsize // 8))
+        return self[actor_id:actor_id+1].view(np.uint64)
 
     def save(self, path: str) -> None:
         with open(path, 'wb') as f:
