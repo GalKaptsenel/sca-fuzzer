@@ -20,6 +20,9 @@ BASE-BITFIELD       Bitfield manipulation (UBFM, SBFM, BFM, EXTR, …)
 BASE-BITCOUNT       Bit-counting / reverse (CLZ, CLS, RBIT, REV, CNT, CTZ)
 BASE-CONDSEL        Conditional select / compare (CSEL, CSINC, CCMP, RMIF, …)
 BASE-BRANCH         All branches (B, BL, CBZ, TBZ, …)
+BASE-COND-BRANCH    Conditional branches (B.cond, BC.cond, CBZ, CBNZ, TBZ, TBNZ)
+BASE-UNCOND-BRANCH  Unconditional branches (B, BL, BLR*, BR*, RET*)
+BASE-RET            Return instructions (RET, RETAA, RETAB, ERETAA, ERETAB, …)
 BASE-MEMORY-LOAD    Plain loads (LDR, LDRB, LDP, …)
 BASE-MEMORY-STORE   Plain stores (STR, STRB, STP, …)
 BASE-ATOMIC         Atomic RMW ops (LDADD, CAS, SWP, …)
@@ -437,6 +440,18 @@ _SVE2_PREFIX_FALLBACKS: list[tuple[str, str]] = [
 
 
 # ---------------------------------------------------------------------------
+# Branch sub-classification helpers
+# ---------------------------------------------------------------------------
+
+_COND_BRANCH_EXACT: frozenset[str] = frozenset({"cbz", "cbnz", "tbz", "tbnz"})
+_COND_BRANCH_PREFIXES: tuple[str, ...] = ("b.", "bc.")
+
+_RET_EXACT: frozenset[str] = frozenset({
+    "ret", "retaa", "retab", "retaasppcr", "retabsppcr",
+    "eretaa", "eretab",
+})
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -536,6 +551,15 @@ def get_tags(inst: InstructionSpec) -> list[str]:
                 if op.dest:
                     tags.add("BASE-MEMORY-STORE")
                 break # classify based on first operand of the memory operand - workaround!
+
+    # ------------------------------------------------------------------
+    # Branch sub-classification (runs after all BASE-BRANCH assignments)
+    # ------------------------------------------------------------------
+    if "BASE-BRANCH" in tags:
+        is_cond = name in _COND_BRANCH_EXACT or any(name.startswith(p) for p in _COND_BRANCH_PREFIXES)
+        tags.add("BASE-COND-BRANCH" if is_cond else "BASE-UNCOND-BRANCH")
+        if name in _RET_EXACT:
+            tags.add("BASE-RET")
 
     # ------------------------------------------------------------------
     # Final fallback

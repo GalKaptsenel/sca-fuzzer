@@ -25,4 +25,9 @@ typedef void* (*simulation_hook_fn)(struct simulation_state* sim_state);
 void* stdout_print_hook(struct simulation_state* sim_state);
 void* handle_ret_hook(struct simulation_state* sim_state);
 
+/* Debug: last CPU state seen by base_hook_c and the original instruction at that PC */
+extern volatile struct cpu_state g_last_hook_cpu_state;
+extern volatile uint32_t g_last_hook_orig_instr;
+void ce_debug_print_last_sim_state(FILE *out);
+
 #endif // SIMULATION_HOOK_H

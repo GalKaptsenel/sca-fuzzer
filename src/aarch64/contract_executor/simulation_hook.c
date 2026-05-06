@@ -6,6 +6,28 @@
 #include "simulation_output.h"
 #define SCRATCH_REG 10
 
+volatile struct cpu_state g_last_hook_cpu_state;
+volatile uint32_t g_last_hook_orig_instr;
+
+void ce_debug_print_last_sim_state(FILE *out) {
+	struct cpu_state s;
+	memcpy((void*)&s, (const void*)&g_last_hook_cpu_state, sizeof(s));
+	uint32_t instr = g_last_hook_orig_instr;
+	fprintf(out, "[CE DEBUG] Last simulated CPU state at hook entry:\n");
+	fprintf(out, "  PC    = 0x%016" PRIxPTR "\n", s.pc);
+	fprintf(out, "  LR    = 0x%016" PRIxPTR "\n", s.lr);
+	fprintf(out, "  SP    = 0x%016" PRIxPTR "\n", s.sp);
+	uintptr_t nzcv = s.nzcv;
+	fprintf(out, "  NZCV  = 0x%016" PRIxPTR "  [N=%u Z=%u C=%u V=%u]\n", nzcv,
+		(unsigned)((nzcv >> 31) & 1), (unsigned)((nzcv >> 30) & 1),
+		(unsigned)((nzcv >> 29) & 1), (unsigned)((nzcv >> 28) & 1));
+	for (int i = 0; i <= 29; i++) {
+		fprintf(out, "  X%-2d   = 0x%016" PRIxPTR "\n", i, s.gpr[29 - i]);
+	}
+	fprintf(out, "  INSTR = 0x%08x  (original instruction at simulated PC)\n", instr);
+	fflush(out);
+}
+
 //static uint32_t* emit_stub(uintptr_t src_pc, uint32_t* stub, uint32_t** hole) {
 //
 //	size_t idx = 0;
@@ -120,6 +142,8 @@ bool out_of_simulation(struct cpu_state* state) {
 
 void base_hook_c(struct cpu_state* state) {
 	if (NULL == state) __builtin_trap();
+	g_last_hook_cpu_state = *state;
+	g_last_hook_orig_instr = out_of_simulation(state) ? 0xd65f03c0 : pc_to_orig_instruction(state->pc);
 	apply_fixups(state);
 
 	struct simulation_state sim_state = { 0 };

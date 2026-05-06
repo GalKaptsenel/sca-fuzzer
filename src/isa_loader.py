@@ -61,7 +61,7 @@ class InstructionSet(InstructionSetAbstract):
     def parse_operand(self, op: Dict, parent: InstructionSpec) -> OperandSpec:
         op_type = self.ot_str_to_enum[op["type_"]]
         op_values = op.get("values", [])
-        if op_type == "REG":
+        if op_type == OT.REG:
             op_values = sorted(op_values)
         op_name = op.get("name", "")
         spec = OperandSpec(op_type, op["width"], op.get("signed", True), op["src"], op["dest"], op_values, op_name)
@@ -75,6 +75,11 @@ class InstructionSet(InstructionSetAbstract):
 
     def reduce(self, include_categories):
         """ Remove unsupported instructions and operand values """
+
+        # If BASE-BRANCH is requested, automatically include its sub-tags so that
+        # the all(tag in include_categories) filter keeps passing after retagging.
+        if include_categories and "BASE-BRANCH" in include_categories:
+            include_categories = set(include_categories) | {"BASE-COND-BRANCH", "BASE-UNCOND-BRANCH"}
 
         def is_supported(spec: InstructionSpec):
 
@@ -155,10 +160,9 @@ class InstructionSet(InstructionSetAbstract):
         # set parameters
         for inst in self.instructions:
             if inst.control_flow:
-                for op in inst.operands:
-                    if op.type == OT.COND:
-                        self.has_conditional_branch = True
-                if not self.has_conditional_branch:
+                if "BASE-COND-BRANCH" in inst.tags:
+                    self.has_conditional_branch = True
+                else:
                     self.has_unconditional_branch = True
 
             elif inst.has_mem_operand:

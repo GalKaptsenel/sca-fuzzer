@@ -67,7 +67,13 @@ static int64_t signextend(size_t orig_len, size_t dest_len, int64_t value) {
 void* kaddr2uaddr(void* kaddr) {
 	void* uaddr = kaddr;
 	if(CONFIG_FLAG_REQ_MEM_BASE_VIRT & simulation.sim_input.hdr.config.flags) {
-		uaddr = (char*)simulation.simulation_memory + ((uintptr_t)kaddr - simulation.sim_input.hdr.config.requested_mem_base_virt);
+		uintptr_t kbase  = simulation.sim_input.hdr.config.requested_mem_base_virt;
+		uintptr_t kaddr_ = (uintptr_t)kaddr;
+		/* No bounds check: pre-indexed instructions use a base register that is
+		 * offset-adjusted (e.g. STR X4, [X5, #0x82]! where X5 = kbase-0x82).
+		 * The arithmetic translation is correct regardless; truly OOB accesses
+		 * will fault on the resulting user pointer and get caught by SIGSEGV. */
+		uaddr = (char*)simulation.simulation_memory + (kaddr_ - kbase);
 	}
 	return uaddr;
 }

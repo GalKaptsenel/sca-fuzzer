@@ -19,9 +19,6 @@ class OperandSpec:
     signed: bool
 
     def to_dict(self) -> dict:
-        if len(self.values) < 5 and self.type_ == "FLAGS":
-            import pdb; pdb.set_trace()
-
         return {
             "name": self.name,
             "type_": self.type_,

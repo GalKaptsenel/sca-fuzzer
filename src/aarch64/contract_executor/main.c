@@ -5,6 +5,8 @@
 #include "pac_sign_plugin.h"
 #include "tage_py.h"
 #include <signal.h>
+#include <ucontext.h>
+#include <unistd.h>
 
 extern void base_hook();
 extern void base_hook_end();
@@ -19,6 +21,99 @@ simulation_hook_fn hooks_to_install[] = {
 //	log_instr_hook,
 	handle_ret_hook,
 };
+
+/* ---- crash debug handler ----------------------------------------------- */
+
+/* Async-signal-safe helpers: only write() is safe inside a signal handler. */
+static int g_crash_log_fd = -1;
+
+static void dbg_write(const char *s) {
+	size_t len = strlen(s);
+	const char *p = s;
+	while (len > 0) {
+		ssize_t n = write(STDERR_FILENO, p, len);
+		if (n <= 0) break;
+		p += n; len -= (size_t)n;
+	}
+	if (g_crash_log_fd >= 0) {
+		p = s; len = strlen(s);
+		while (len > 0) {
+			ssize_t n = write(g_crash_log_fd, p, len);
+			if (n <= 0) break;
+			p += n; len -= (size_t)n;
+		}
+	}
+}
+
+static void dbg_hex64(uint64_t v) {
+	char buf[19]; /* "0x" + 16 hex digits + NUL */
+	static const char hex[] = "0123456789abcdef";
+	buf[0] = '0'; buf[1] = 'x';
+	for (int i = 15; i >= 0; i--) {
+		buf[2 + (15 - i)] = hex[(v >> (i * 4)) & 0xf];
+	}
+	buf[18] = '\0';
+	dbg_write(buf);
+}
+
+static void dbg_uint(unsigned long v) {
+	char buf[22];
+	int i = sizeof(buf) - 1;
+	buf[i] = '\0';
+	if (v == 0) { buf[--i] = '0'; }
+	while (v) { buf[--i] = '0' + (v % 10); v /= 10; }
+	dbg_write(buf + i);
+}
+
+static uint8_t g_sigstack[65536];
+
+static void ce_crash_handler(int sig, siginfo_t *info, void *uctx) {
+	/* Absolute first thing: raw write to prove handler is running */
+	{ const char probe[] = "\n[CE CRASH PROBE]\n"; write(2, probe, sizeof(probe)-1); }
+	{ int fd = open("/tmp/ce_crash.log", O_WRONLY|O_CREAT|O_TRUNC, 0644);
+	  if (fd >= 0) { write(fd, "probe\n", 6); close(fd); } }
+
+	ucontext_t *uc = (ucontext_t *)uctx;
+	mcontext_t *mc = &uc->uc_mcontext;
+
+	/* Also write to a dedicated log file in case fd 2 is not inherited correctly */
+	if (g_crash_log_fd < 0)
+		g_crash_log_fd = open("/tmp/ce_crash.log",
+		                      O_WRONLY | O_CREAT | O_APPEND, 0644);
+
+	const char *signame = (sig == SIGSEGV) ? "SIGSEGV" :
+	                      (sig == SIGBUS)  ? "SIGBUS"  :
+	                      (sig == SIGILL)  ? "SIGILL"  : "SIG???";
+
+	dbg_write("\n[CE CRASH] "); dbg_write(signame);
+	dbg_write("  fault_addr="); dbg_hex64((uint64_t)(uintptr_t)info->si_addr);
+	dbg_write("\n[CE CRASH] Native CPU state at fault:\n");
+	dbg_write("  PC    = "); dbg_hex64(mc->pc);    dbg_write("\n");
+	dbg_write("  SP    = "); dbg_hex64(mc->sp);    dbg_write("\n");
+	dbg_write("  PSTATE= "); dbg_hex64(mc->pstate);
+	dbg_write("  [N="); dbg_uint((mc->pstate >> 31) & 1);
+	dbg_write(" Z="); dbg_uint((mc->pstate >> 30) & 1);
+	dbg_write(" C="); dbg_uint((mc->pstate >> 29) & 1);
+	dbg_write(" V="); dbg_uint((mc->pstate >> 28) & 1);
+	dbg_write("]\n");
+	for (int i = 0; i <= 30; i++) {
+		dbg_write("  X");
+		dbg_uint((unsigned long)i);
+		dbg_write(i < 10 ? "     = " : "    = ");
+		dbg_hex64(mc->regs[i]);
+		dbg_write("\n");
+	}
+
+	/* Last simulated state — uses ce_debug_print_last_sim_state which calls fprintf.
+	 * Safe here because we run on an alternate stack and the saved sim state lives
+	 * in a global (not on the JIT stack that may be corrupted). */
+	ce_debug_print_last_sim_state(stderr);
+	fflush(stderr);
+
+	signal(sig, SIG_DFL);
+	raise(sig);
+}
+/* ----------------------------------------------------------------------- */
 
 /* ---- watchdog ---------------------------------------------------------- */
 #define CE_ITERATION_TIMEOUT_SEC 30
@@ -52,6 +147,23 @@ int main() {
 	sigemptyset(&sa.sa_mask);
 	sigaction(SIGALRM, &sa, NULL);
 
+	/* Set up alternate signal stack so the handler runs even if the JIT stack is corrupted */
+	stack_t ss = { .ss_sp = g_sigstack, .ss_size = sizeof(g_sigstack), .ss_flags = 0 };
+	sigaltstack(&ss, NULL);
+
+	/* Install crash debug handlers (also reinstalled after every python_init because
+	 * Py_Initialize can install its own SIGSEGV handler via faulthandler). */
+	struct sigaction sa_crash = { 0 };
+	sa_crash.sa_sigaction = ce_crash_handler;
+	sa_crash.sa_flags = (long)SA_SIGINFO | (long)SA_ONSTACK; /* omit SA_RESETHAND so the handler survives multiple crashes */
+	sigemptyset(&sa_crash.sa_mask);
+#define CE_INSTALL_CRASH_HANDLERS() do { \
+		sigaction(SIGSEGV, &sa_crash, NULL); \
+		sigaction(SIGBUS,  &sa_crash, NULL); \
+		sigaction(SIGILL,  &sa_crash, NULL); \
+	} while(0)
+	CE_INSTALL_CRASH_HANDLERS();
+
 	while(1) {
 		++g_iter_num;
 
@@ -64,6 +176,7 @@ int main() {
 			fprintf(stderr, "Failed to init python interpreter\n");
 			goto main_out;
 		}
+		CE_INSTALL_CRASH_HANDLERS(); /* Python may have overridden our handlers */
 
 		g_iter_phase = 1; /* read-input */
 
@@ -131,6 +244,7 @@ int main() {
 		}
 
 		g_iter_phase = 2; /* simulation */
+		CE_INSTALL_CRASH_HANDLERS(); /* reinstall in case Python code (TAGE) overrode them */
 
 		asm volatile (
 				"mov x29, %2\n"

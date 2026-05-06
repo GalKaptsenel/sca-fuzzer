@@ -79,7 +79,6 @@ class StreamIPC:
         while amount > len(buff):
             ready, _, _ = _select.select([self._read_stream], [], [], CE_READ_TIMEOUT)
             if not ready:
-                import pdb; pdb.set_trace()
                 # Timeout — collect process debug info before raising
                 pid = self._proc.pid if self._proc is not None else "?"
                 alive = (self._proc is not None and self._proc.poll() is None)

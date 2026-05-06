@@ -394,9 +394,8 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
 
     def __init__(self, instruction_set: InstructionSet, seed: int):
         super().__init__(instruction_set, seed)
-        uncond_name = self.get_unconditional_jump_instruction().name.lower()
         self.cond_branches = \
-            [i for i in self.control_flow_instructions if i.name.lower() != uncond_name]
+            [i for i in self.control_flow_instructions if "BASE-COND-BRANCH" in i.tags]
 
     def generate_function(self, label: str, owner: Actor, parent: TestCase):
         """ Generates a random DAG of basic blocks within a function """
