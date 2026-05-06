@@ -735,8 +735,15 @@ int load_template(size_t tc_size) {
 		__builtin_unreachable();
 	}
 
-	dsb(ish); // make sure all views are synced
-	isb();
+	/* Views no longer share physical pages, so explicitly propagate the
+	 * assembled code from view[0] to all other views and flush icache. */
+	for (int v = 1; v < MAX_MEASUREMENT_VIEWS; ++v) {
+		memcpy(executor.measurement_code_views[v], destination_code, total_size);
+		flush_icache_range((unsigned long)executor.measurement_code_views[v],
+		                   (unsigned long)executor.measurement_code_views[v] + total_size);
+	}
+	flush_icache_range((unsigned long)destination_code,
+	                   (unsigned long)destination_code + total_size);
 
 	return total_size;
 }

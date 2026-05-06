@@ -1,0 +1,154 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="LDAPRB" title="LDAPRB -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="general"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="LDAPRB"/>
+  </docvars>
+  <heading>LDAPRB</heading>
+  <desc>
+    <brief>
+      <para>Load-acquire RCpc register byte</para>
+    </brief>
+    <authored>
+      <para>This instruction derives an address from a base
+register value, loads a byte from the derived address in memory,
+zero-extends it and writes it to a register.</para>
+      <para>If the destination register is not one of <value>WZR</value> or <value>XZR</value>, <instruction>LDAPRB</instruction> loads from memory with AcquirePC semantics.</para>
+      <para>For more information about memory ordering semantics, see <xref linkend="ARMARM_BEIHCHEF">Load-Acquire, Load-AcquirePC, and Store-Release</xref>.</para>
+      <para>For information about addressing modes, see
+<xref linkend="ARMARM_CHDIIIBB">Load/Store addressing modes</xref>.</para>
+    </authored>
+  </desc>
+  <operationalnotes>
+    <operationalnote>
+      <operationalnote_content>
+        <para>This instruction is a data-independent-time instruction as described in <xref linkend="ARMARM_BEICCDDAB3">About PSTATE.DIT</xref>.</para>
+      </operationalnote_content>
+    </operationalnote>
+  </operationalnotes>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="Integer" oneof="1" id="iclass_integer" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="general"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="LDAPRB"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_LRCPC" name="v8Ap3"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.ldst.memop.LDAPRB_32L_memop" tworows="1">
+        <box hibit="31" width="2" name="size" usename="1" settings="2" psbits="xx">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="29" width="2" settings="2">
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="27" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="26" name="VR" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="25" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="23" name="A" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="22" name="R" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="20" width="5" name="Rs" usename="1" settings="5" psbits="xxxxx">
+          <c>(1)</c>
+          <c>(1)</c>
+          <c>(1)</c>
+          <c>(1)</c>
+          <c>(1)</c>
+        </box>
+        <box hibit="15" name="o3" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="14" width="3" name="opc" usename="1" settings="3" psbits="xxx">
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="11" width="2" settings="2">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="9" width="5" name="Rn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Rt" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="LDAPRB_32L_memop" oneofinclass="1" oneof="1" label="">
+        <docvars>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="LDAPRB"/>
+        </docvars>
+        <asmtemplate><text>LDAPRB  </text><a hover="Is the 32-bit name of the general-purpose register to be loaded, encoded in the &quot;Rt&quot; field." link="WtOrWZR__2">&lt;Wt&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text> {, #0}]</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.ldst.memop.LDAPRB_32L_memop" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_LRCPC) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+let t : integer{} = UInt(Rt);
+let n : integer{} = UInt(Rn);
+let acquirepc : boolean = t != 31;
+let tagchecked : boolean = n != 31;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="LDAPRB_32L_memop" symboldefcount="1">
+      <symbol link="WtOrWZR__2">&lt;Wt&gt;</symbol>
+      <account encodedin="Rt">
+        <intro>
+          <para>Is the 32-bit name of the general-purpose register to be loaded, encoded in the &quot;Rt&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDAPRB_32L_memop" symboldefcount="1">
+      <symbol link="XnSP_option">&lt;Xn|SP&gt;</symbol>
+      <account encodedin="Rn">
+        <intro>
+          <para>Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.ldst.memop.LDAPRB_32L_memop" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">var address : bits(64);
+var data : bits(8);
+
+let accdesc : <a link="type_AccessDescriptor" file="shared_pseudocode.xml">AccessDescriptor</a> = <a link="func_CreateAccDescLDAcqPC_3" file="shared_pseudocode.xml">CreateAccDescLDAcqPC</a>(tagchecked, acquirepc, t);
+
+if n == 31 then
+    CheckSPAlignment();
+    address = <a link="accessor_SP_1" file="shared_pseudocode.xml">SP</a>{64}();
+else
+    address = <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(n);
+end;
+
+data = <a link="accessor_Mem_3" file="shared_pseudocode.xml">Mem</a>{8}(address, accdesc);
+<a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{32}(t) = ZeroExtend{32}(data);</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

@@ -1,0 +1,248 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="LDRA" title="LDRAA, LDRAB -- A64" type="instruction">
+  <docvars>
+    <docvar key="address-form" value="base-plus-offset"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="offset-type" value="off9s_u"/>
+  </docvars>
+  <heading>LDRAA, LDRAB</heading>
+  <desc>
+    <brief>
+      <para>Load register, with pointer authentication</para>
+    </brief>
+    <authored>
+      <para>This instruction authenticates an address from a base register using
+a modifier of zero and the specified key, adds an immediate offset
+to the authenticated address, and loads a 64-bit doubleword from
+memory at this resulting address into a register.</para>
+      <para>Key A is used for <instruction>LDRAA</instruction>. Key B is used for <instruction>LDRAB</instruction>.</para>
+      <para>If the authentication passes, the PE behaves the same as for an <instruction>LDR</instruction> instruction.
+For information on behavior if the authentication fails, see
+<xref linkend="ARMARM_MDSec.Faulting_on_pointer_authentication">Faulting on pointer authentication</xref>.</para>
+      <para>The authenticated address is not written back to the base register,
+unless the pre-indexed variant of the instruction is used. In this
+case, the address that is written back to the base register does not
+include the pointer authentication code.</para>
+      <para>For information about addressing modes, see
+<xref linkend="ARMARM_CHDIIIBB">Load/Store addressing modes</xref>.</para>
+    </authored>
+  </desc>
+  <operationalnotes>
+    <operationalnote>
+      <operationalnote_content>
+        <para>This instruction is a data-independent-time instruction as described in <xref linkend="ARMARM_BEICCDDAB3">About PSTATE.DIT</xref>.</para>
+      </operationalnote_content>
+    </operationalnote>
+  </operationalnotes>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="PAC" oneof="1" id="iclass_pac" no_encodings="4" isa="A64">
+      <docvars>
+        <docvar key="address-form" value="base-plus-offset"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="offset-type" value="off9s_u"/>
+      </docvars>
+      <iclassintro count="4"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_PAuth" name="v8Ap3"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.ldst.ldst_pac.LDRAA_64_ldst_pac" tworows="1">
+        <box hibit="31" width="2" name="size" usename="1" settings="2" psbits="xx">
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="29" width="3" settings="3">
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="26" name="VR" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="25" width="2" settings="2">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="23" width="1" name="M" usename="1">
+          <c colspan="1"/>
+        </box>
+        <box hibit="22" width="1" name="S" usename="1">
+          <c colspan="1"/>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="20" width="9" name="imm9" usename="1">
+          <c colspan="9"/>
+        </box>
+        <box hibit="11" width="1" name="W" usename="1">
+          <c colspan="1"/>
+        </box>
+        <box hibit="10" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="9" width="5" name="Rn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Rt" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="LDRAA_64_ldst_pac" oneofinclass="4" oneof="4" label="Key A, offset" bitdiffs="M == 0 &amp;&amp; W == 0">
+        <docvars>
+          <docvar key="isa" value="A64"/>
+          <docvar key="address-form" value="base-plus-offset"/>
+          <docvar key="loadstore-pa" value="key-a-offs"/>
+          <docvar key="offset-type" value="off9s_u"/>
+          <docvar key="mnemonic" value="LDRAA"/>
+        </docvars>
+        <box hibit="23" width="1" name="M">
+          <c>0</c>
+        </box>
+        <box hibit="11" width="1" name="W">
+          <c>0</c>
+        </box>
+        <asmtemplate><text>LDRAA  </text><a hover="Is the 64-bit name of the general-purpose register to be transferred, encoded in the &quot;Rt&quot; field." link="XtOrXZR__11">&lt;Xt&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>{, #</text><a hover="Is the optional signed immediate byte offset, a multiple of 8 in the range -4096 to 4088, defaulting to 0 and encoded in the &quot;S:imm9&quot; field as &lt;simm&gt;/8." link="S_imm9">&lt;simm&gt;</a><text>}]</text></asmtemplate>
+      </encoding>
+      <encoding name="LDRAA_64W_ldst_pac" oneofinclass="4" oneof="4" label="Key A, pre-indexed" bitdiffs="M == 0 &amp;&amp; W == 1">
+        <docvars>
+          <docvar key="isa" value="A64"/>
+          <docvar key="address-form" value="base-plus-offset"/>
+          <docvar key="loadstore-pa" value="key-a-preind"/>
+          <docvar key="offset-type" value="off9s_u"/>
+          <docvar key="mnemonic" value="LDRAA"/>
+        </docvars>
+        <box hibit="23" width="1" name="M">
+          <c>0</c>
+        </box>
+        <box hibit="11" width="1" name="W">
+          <c>1</c>
+        </box>
+        <asmtemplate><text>LDRAA  </text><a hover="Is the 64-bit name of the general-purpose register to be transferred, encoded in the &quot;Rt&quot; field." link="XtOrXZR__11">&lt;Xt&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>{, #</text><a hover="Is the optional signed immediate byte offset, a multiple of 8 in the range -4096 to 4088, defaulting to 0 and encoded in the &quot;S:imm9&quot; field as &lt;simm&gt;/8." link="S_imm9">&lt;simm&gt;</a><text>}]!</text></asmtemplate>
+      </encoding>
+      <encoding name="LDRAB_64_ldst_pac" oneofinclass="4" oneof="4" label="Key B, offset" bitdiffs="M == 1 &amp;&amp; W == 0">
+        <docvars>
+          <docvar key="isa" value="A64"/>
+          <docvar key="address-form" value="base-plus-offset"/>
+          <docvar key="loadstore-pa" value="key-b-offs"/>
+          <docvar key="offset-type" value="off9s_u"/>
+          <docvar key="mnemonic" value="LDRAB"/>
+        </docvars>
+        <box hibit="23" width="1" name="M">
+          <c>1</c>
+        </box>
+        <box hibit="11" width="1" name="W">
+          <c>0</c>
+        </box>
+        <asmtemplate><text>LDRAB  </text><a hover="Is the 64-bit name of the general-purpose register to be transferred, encoded in the &quot;Rt&quot; field." link="XtOrXZR__11">&lt;Xt&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>{, #</text><a hover="Is the optional signed immediate byte offset, a multiple of 8 in the range -4096 to 4088, defaulting to 0 and encoded in the &quot;S:imm9&quot; field as &lt;simm&gt;/8." link="S_imm9">&lt;simm&gt;</a><text>}]</text></asmtemplate>
+      </encoding>
+      <encoding name="LDRAB_64W_ldst_pac" oneofinclass="4" oneof="4" label="Key B, pre-indexed" bitdiffs="M == 1 &amp;&amp; W == 1">
+        <docvars>
+          <docvar key="isa" value="A64"/>
+          <docvar key="address-form" value="base-plus-offset"/>
+          <docvar key="loadstore-pa" value="key-b-preind"/>
+          <docvar key="offset-type" value="off9s_u"/>
+          <docvar key="mnemonic" value="LDRAB"/>
+        </docvars>
+        <box hibit="23" width="1" name="M">
+          <c>1</c>
+        </box>
+        <box hibit="11" width="1" name="W">
+          <c>1</c>
+        </box>
+        <asmtemplate><text>LDRAB  </text><a hover="Is the 64-bit name of the general-purpose register to be transferred, encoded in the &quot;Rt&quot; field." link="XtOrXZR__11">&lt;Xt&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>{, #</text><a hover="Is the optional signed immediate byte offset, a multiple of 8 in the range -4096 to 4088, defaulting to 0 and encoded in the &quot;S:imm9&quot; field as &lt;simm&gt;/8." link="S_imm9">&lt;simm&gt;</a><text>}]!</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.ldst.ldst_pac.LDRAA_64_ldst_pac" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_PAuth) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+let t : integer = UInt(Rt);
+let n : integer = UInt(Rn);
+var wback : boolean = W == '1';
+let use_key_a : boolean = M == '0';
+let S10 : bits(10) = S::imm9;
+let offset : bits(64) = LSL(SignExtend{64}(S10), 3);
+let nontemporal : boolean = FALSE;
+let tagchecked : boolean = wback || n != 31;
+
+var wb_unknown : boolean = FALSE;
+if wback &amp;&amp; n == t &amp;&amp; n != 31 then
+    let c : <a link="type_Constraint" file="shared_pseudocode.xml">Constraint</a> = ConstrainUnpredictable(<a link="enum_Unpredictable_WBOVERLAPLD" file="shared_pseudocode.xml">Unpredictable_WBOVERLAPLD</a>);
+    assert c IN {<a link="enum_Constraint_WBSUPPRESS" file="shared_pseudocode.xml">Constraint_WBSUPPRESS</a>, <a link="enum_Constraint_UNKNOWN" file="shared_pseudocode.xml">Constraint_UNKNOWN</a>, <a link="enum_Constraint_UNDEF" file="shared_pseudocode.xml">Constraint_UNDEF</a>, <a link="enum_Constraint_NOP" file="shared_pseudocode.xml">Constraint_NOP</a>};
+    case c of
+        when <a link="enum_Constraint_WBSUPPRESS" file="shared_pseudocode.xml">Constraint_WBSUPPRESS</a> =&gt; wback = FALSE;       // writeback is suppressed
+        when <a link="enum_Constraint_UNKNOWN" file="shared_pseudocode.xml">Constraint_UNKNOWN</a> =&gt;    wb_unknown = TRUE;   // writeback is UNKNOWN
+        when <a link="enum_Constraint_UNDEF" file="shared_pseudocode.xml">Constraint_UNDEF</a> =&gt;      EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+        when <a link="enum_Constraint_NOP" file="shared_pseudocode.xml">Constraint_NOP</a> =&gt;        EndOfDecode(<a link="enum_Decode_NOP" file="shared_pseudocode.xml">Decode_NOP</a>);
+    end;
+end;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="LDRAA_64_ldst_pac, LDRAA_64W_ldst_pac, LDRAB_64_ldst_pac, LDRAB_64W_ldst_pac" symboldefcount="1">
+      <symbol link="XtOrXZR__11">&lt;Xt&gt;</symbol>
+      <account encodedin="Rt">
+        <intro>
+          <para>Is the 64-bit name of the general-purpose register to be transferred, encoded in the &quot;Rt&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDRAA_64_ldst_pac, LDRAA_64W_ldst_pac, LDRAB_64_ldst_pac, LDRAB_64W_ldst_pac" symboldefcount="1">
+      <symbol link="XnSP_option">&lt;Xn|SP&gt;</symbol>
+      <account encodedin="Rn">
+        <intro>
+          <para>Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDRAA_64_ldst_pac, LDRAA_64W_ldst_pac, LDRAB_64_ldst_pac, LDRAB_64W_ldst_pac" symboldefcount="1">
+      <symbol link="S_imm9">&lt;simm&gt;</symbol>
+      <account encodedin="(S :: imm9)">
+        <intro>
+          <para>Is the optional signed immediate byte offset, a multiple of 8 in the range -4096 to 4088, defaulting to 0 and encoded in the &quot;S:imm9&quot; field as &lt;simm&gt;/8.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.ldst.ldst_pac.LDRAA_64_ldst_pac" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">var address : bits(64);
+let privileged : boolean = PSTATE.EL != <a link="global_EL0" file="shared_pseudocode.xml">EL0</a>;
+let auth_then_branch : boolean = TRUE;
+
+let accdesc : <a link="type_AccessDescriptor" file="shared_pseudocode.xml">AccessDescriptor</a> = CreateAccDescGPR(MemOp_LOAD, nontemporal, privileged,
+                                                  tagchecked, t);
+if n == 31 then
+    address = <a link="accessor_SP_1" file="shared_pseudocode.xml">SP</a>{64}();
+else
+    address = <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(n);
+end;
+
+if use_key_a then
+    address = <a link="func_AuthDA_3" file="shared_pseudocode.xml">AuthDA</a>(address, <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(31), auth_then_branch);
+else
+    address = <a link="func_AuthDB_3" file="shared_pseudocode.xml">AuthDB</a>(address, <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(31), auth_then_branch);
+end;
+
+if n == 31 then
+    CheckSPAlignment();
+end;
+
+address = <a link="func_AddressAdd_3" file="shared_pseudocode.xml">AddressAdd</a>(address, offset, accdesc);
+<a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(t) = <a link="accessor_Mem_3" file="shared_pseudocode.xml">Mem</a>{64}(address, accdesc);
+
+if wback then
+    if wb_unknown then
+        address = ARBITRARY : bits(64);
+    end;
+    if n == 31 then
+        <a link="accessor_SP_1" file="shared_pseudocode.xml">SP</a>{64}() = address;
+    else
+        <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(n) = address;
+    end;
+end;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

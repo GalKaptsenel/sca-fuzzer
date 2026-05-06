@@ -1,0 +1,461 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="LDP_gen" title="LDP -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="general"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="LDP"/>
+    <docvar key="offset-type" value="off7s_s"/>
+  </docvars>
+  <heading>LDP</heading>
+  <desc>
+    <brief>
+      <para>Load pair of registers</para>
+    </brief>
+    <authored>
+      <para>This instruction calculates an
+address from a base register value and an immediate offset,
+loads two 32-bit words or two
+64-bit doublewords from memory,
+and writes them to
+two registers.
+For information about addressing modes, see
+<xref linkend="ARMARM_CHDIIIBB">Load/Store addressing modes</xref>.</para>
+    </authored>
+    <encodingnotes>
+      <para>For information about the <arm-defined-word>CONSTRAINED UNPREDICTABLE</arm-defined-word> behavior of this instruction, see <xref linkend="CJAEGDJC">Architectural Constraints on UNPREDICTABLE behaviors</xref>, and particularly <xref linkend="CHDBBBDG">LDP</xref>.</para>
+    </encodingnotes>
+  </desc>
+  <operationalnotes>
+    <operationalnote>
+      <operationalnote_content>
+        <para>This instruction is a data-independent-time instruction as described in <xref linkend="ARMARM_BEICCDDAB3">About PSTATE.DIT</xref>.</para>
+      </operationalnote_content>
+    </operationalnote>
+  </operationalnotes>
+  <alias_list howmany="0"/>
+  <classes>
+    <classesintro count="3">
+      <txt>It has encodings from 3 classes:</txt>
+      <a href="#iclass_post_index">Post-index</a>
+      <txt>, </txt>
+      <a href="#iclass_pre_index">Pre-index</a>
+      <txt> and </txt>
+      <a href="#iclass_signed_offset">Signed offset</a>
+    </classesintro>
+    <iclass name="Post-index" oneof="3" id="iclass_post_index" no_encodings="2" isa="A64">
+      <docvars>
+        <docvar key="address-form" value="post-indexed"/>
+        <docvar key="instr-class" value="general"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="LDP"/>
+        <docvar key="offset-type" value="off7s_s"/>
+      </docvars>
+      <iclassintro count="2"/>
+      <regdiagram form="32" psname="A64.ldst.ldstpair_post.LDP_32_ldstpair_post" tworows="1">
+        <box hibit="31" width="2" name="opc" usename="1" settings="1" psbits="xx">
+          <c>x</c>
+          <c>0</c>
+        </box>
+        <box hibit="29" width="3" settings="3">
+          <c>1</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="26" name="VR" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="25" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="22" name="L" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="21" width="7" name="imm7" usename="1">
+          <c colspan="7"/>
+        </box>
+        <box hibit="14" width="5" name="Rt2" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="9" width="5" name="Rn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Rt" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="LDP_32_ldstpair_post" oneofinclass="2" oneof="6" label="32-bit" bitdiffs="opc == 00">
+        <docvars>
+          <docvar key="address-form" value="post-indexed"/>
+          <docvar key="address-form-reg-type" value="post-indexed-pair-32"/>
+          <docvar key="atomic-ops" value="LDP-pair-32"/>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="offset-type" value="off7s_s"/>
+          <docvar key="reg-type" value="pair-32"/>
+          <docvar key="mnemonic" value="LDP"/>
+        </docvars>
+        <box hibit="31" width="2" name="opc">
+          <c>0</c>
+          <c/>
+        </box>
+        <asmtemplate><text>LDP  </text><a hover="Is the 32-bit name of the first general-purpose register to be transferred, encoded in the &quot;Rt&quot; field." link="Wt1OrWZR">&lt;Wt1&gt;</a><text>, </text><a hover="Is the 32-bit name of the second general-purpose register to be transferred, encoded in the &quot;Rt2&quot; field." link="Wt2OrWZR">&lt;Wt2&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>], #</text><a hover="For the &quot;Post-index 32-bit&quot; and &quot;Pre-index 32-bit&quot; variants: is the signed immediate byte offset, a multiple of 4 in the range -256 to 252, encoded in the &quot;imm7&quot; field as &lt;imm&gt;/4." link="imm__12">&lt;imm&gt;</a></asmtemplate>
+      </encoding>
+      <encoding name="LDP_64_ldstpair_post" oneofinclass="2" oneof="6" label="64-bit" bitdiffs="opc == 10">
+        <docvars>
+          <docvar key="address-form" value="post-indexed"/>
+          <docvar key="address-form-reg-type" value="post-indexed-pair-64"/>
+          <docvar key="atomic-ops" value="LDP-pair-64"/>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="offset-type" value="off7s_s"/>
+          <docvar key="reg-type" value="pair-64"/>
+          <docvar key="mnemonic" value="LDP"/>
+        </docvars>
+        <box hibit="31" width="2" name="opc">
+          <c>1</c>
+          <c/>
+        </box>
+        <asmtemplate><text>LDP  </text><a hover="Is the 64-bit name of the first general-purpose register to be transferred, encoded in the &quot;Rt&quot; field." link="Xt1OrXZR">&lt;Xt1&gt;</a><text>, </text><a hover="Is the 64-bit name of the second general-purpose register to be transferred, encoded in the &quot;Rt2&quot; field." link="Xt2OrXZR">&lt;Xt2&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>], #</text><a hover="For the &quot;Post-index 64-bit&quot; and &quot;Pre-index 64-bit&quot; variants: is the signed immediate byte offset, a multiple of 8 in the range -512 to 504, encoded in the &quot;imm7&quot; field as &lt;imm&gt;/8." link="imm__15">&lt;imm&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.ldst.ldstpair_post.LDP_32_ldstpair_post" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">var wback : boolean = TRUE;
+let postindex : boolean = TRUE;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+    <iclass name="Pre-index" oneof="3" id="iclass_pre_index" no_encodings="2" isa="A64">
+      <docvars>
+        <docvar key="address-form" value="pre-indexed"/>
+        <docvar key="instr-class" value="general"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="LDP"/>
+        <docvar key="offset-type" value="off7s_s"/>
+      </docvars>
+      <iclassintro count="2"/>
+      <regdiagram form="32" psname="A64.ldst.ldstpair_pre.LDP_32_ldstpair_pre" tworows="1">
+        <box hibit="31" width="2" name="opc" usename="1" settings="1" psbits="xx">
+          <c>x</c>
+          <c>0</c>
+        </box>
+        <box hibit="29" width="3" settings="3">
+          <c>1</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="26" name="VR" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="25" width="3" settings="3">
+          <c>0</c>
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="22" name="L" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="21" width="7" name="imm7" usename="1">
+          <c colspan="7"/>
+        </box>
+        <box hibit="14" width="5" name="Rt2" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="9" width="5" name="Rn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Rt" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="LDP_32_ldstpair_pre" oneofinclass="2" oneof="6" label="32-bit" bitdiffs="opc == 00">
+        <docvars>
+          <docvar key="address-form" value="pre-indexed"/>
+          <docvar key="address-form-reg-type" value="pre-indexed-pair-32"/>
+          <docvar key="atomic-ops" value="LDP-pair-32"/>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="offset-type" value="off7s_s"/>
+          <docvar key="reg-type" value="pair-32"/>
+          <docvar key="mnemonic" value="LDP"/>
+        </docvars>
+        <box hibit="31" width="2" name="opc">
+          <c>0</c>
+          <c/>
+        </box>
+        <asmtemplate><text>LDP  </text><a hover="Is the 32-bit name of the first general-purpose register to be transferred, encoded in the &quot;Rt&quot; field." link="Wt1OrWZR">&lt;Wt1&gt;</a><text>, </text><a hover="Is the 32-bit name of the second general-purpose register to be transferred, encoded in the &quot;Rt2&quot; field." link="Wt2OrWZR">&lt;Wt2&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>, #</text><a hover="For the &quot;Post-index 32-bit&quot; and &quot;Pre-index 32-bit&quot; variants: is the signed immediate byte offset, a multiple of 4 in the range -256 to 252, encoded in the &quot;imm7&quot; field as &lt;imm&gt;/4." link="imm__12">&lt;imm&gt;</a><text>]!</text></asmtemplate>
+      </encoding>
+      <encoding name="LDP_64_ldstpair_pre" oneofinclass="2" oneof="6" label="64-bit" bitdiffs="opc == 10">
+        <docvars>
+          <docvar key="address-form" value="pre-indexed"/>
+          <docvar key="address-form-reg-type" value="pre-indexed-pair-64"/>
+          <docvar key="atomic-ops" value="LDP-pair-64"/>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="offset-type" value="off7s_s"/>
+          <docvar key="reg-type" value="pair-64"/>
+          <docvar key="mnemonic" value="LDP"/>
+        </docvars>
+        <box hibit="31" width="2" name="opc">
+          <c>1</c>
+          <c/>
+        </box>
+        <asmtemplate><text>LDP  </text><a hover="Is the 64-bit name of the first general-purpose register to be transferred, encoded in the &quot;Rt&quot; field." link="Xt1OrXZR">&lt;Xt1&gt;</a><text>, </text><a hover="Is the 64-bit name of the second general-purpose register to be transferred, encoded in the &quot;Rt2&quot; field." link="Xt2OrXZR">&lt;Xt2&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>, #</text><a hover="For the &quot;Post-index 64-bit&quot; and &quot;Pre-index 64-bit&quot; variants: is the signed immediate byte offset, a multiple of 8 in the range -512 to 504, encoded in the &quot;imm7&quot; field as &lt;imm&gt;/8." link="imm__15">&lt;imm&gt;</a><text>]!</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.ldst.ldstpair_pre.LDP_32_ldstpair_pre" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">var wback : boolean = TRUE;
+let postindex : boolean = FALSE;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+    <iclass name="Signed offset" oneof="3" id="iclass_signed_offset" no_encodings="2" isa="A64">
+      <docvars>
+        <docvar key="address-form" value="signed-scaled-offset"/>
+        <docvar key="instr-class" value="general"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="LDP"/>
+        <docvar key="offset-type" value="off7s_s"/>
+      </docvars>
+      <iclassintro count="2"/>
+      <regdiagram form="32" psname="A64.ldst.ldstpair_off.LDP_32_ldstpair_off" tworows="1">
+        <box hibit="31" width="2" name="opc" usename="1" settings="1" psbits="xx">
+          <c>x</c>
+          <c>0</c>
+        </box>
+        <box hibit="29" width="3" settings="3">
+          <c>1</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="26" name="VR" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="25" width="3" settings="3">
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="22" name="L" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="21" width="7" name="imm7" usename="1">
+          <c colspan="7"/>
+        </box>
+        <box hibit="14" width="5" name="Rt2" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="9" width="5" name="Rn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Rt" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="LDP_32_ldstpair_off" oneofinclass="2" oneof="6" label="32-bit" bitdiffs="opc == 00">
+        <docvars>
+          <docvar key="address-form" value="signed-scaled-offset"/>
+          <docvar key="address-form-reg-type" value="signed-scaled-offset-pair-32"/>
+          <docvar key="atomic-ops" value="LDP-pair-32"/>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="offset-type" value="off7s_s"/>
+          <docvar key="reg-type" value="pair-32"/>
+          <docvar key="mnemonic" value="LDP"/>
+        </docvars>
+        <box hibit="31" width="2" name="opc">
+          <c>0</c>
+          <c/>
+        </box>
+        <asmtemplate><text>LDP  </text><a hover="Is the 32-bit name of the first general-purpose register to be transferred, encoded in the &quot;Rt&quot; field." link="Wt1OrWZR">&lt;Wt1&gt;</a><text>, </text><a hover="Is the 32-bit name of the second general-purpose register to be transferred, encoded in the &quot;Rt2&quot; field." link="Wt2OrWZR">&lt;Wt2&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>{, #</text><a hover="For the &quot;Signed offset 32-bit&quot; variant: is the optional signed immediate byte offset, a multiple of 4 in the range -256 to 252, defaulting to 0 and encoded in the &quot;imm7&quot; field as &lt;imm&gt;/4." link="imm__4">&lt;imm&gt;</a><text>}]</text></asmtemplate>
+      </encoding>
+      <encoding name="LDP_64_ldstpair_off" oneofinclass="2" oneof="6" label="64-bit" bitdiffs="opc == 10">
+        <docvars>
+          <docvar key="address-form" value="signed-scaled-offset"/>
+          <docvar key="address-form-reg-type" value="signed-scaled-offset-pair-64"/>
+          <docvar key="atomic-ops" value="LDP-pair-64"/>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="offset-type" value="off7s_s"/>
+          <docvar key="reg-type" value="pair-64"/>
+          <docvar key="mnemonic" value="LDP"/>
+        </docvars>
+        <box hibit="31" width="2" name="opc">
+          <c>1</c>
+          <c/>
+        </box>
+        <asmtemplate><text>LDP  </text><a hover="Is the 64-bit name of the first general-purpose register to be transferred, encoded in the &quot;Rt&quot; field." link="Xt1OrXZR">&lt;Xt1&gt;</a><text>, </text><a hover="Is the 64-bit name of the second general-purpose register to be transferred, encoded in the &quot;Rt2&quot; field." link="Xt2OrXZR">&lt;Xt2&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>{, #</text><a hover="For the &quot;Signed offset 64-bit&quot; variant: is the optional signed immediate byte offset, a multiple of 8 in the range -512 to 504, defaulting to 0 and encoded in the &quot;imm7&quot; field as &lt;imm&gt;/8." link="imm__5">&lt;imm&gt;</a><text>}]</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.ldst.ldstpair_off.LDP_32_ldstpair_off" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">var wback : boolean = FALSE;
+let postindex : boolean = FALSE;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="LDP_32_ldstpair_post, LDP_32_ldstpair_pre, LDP_32_ldstpair_off" symboldefcount="1">
+      <symbol link="Wt1OrWZR">&lt;Wt1&gt;</symbol>
+      <account encodedin="Rt">
+        <intro>
+          <para>Is the 32-bit name of the first general-purpose register to be transferred, encoded in the &quot;Rt&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDP_32_ldstpair_post, LDP_32_ldstpair_pre, LDP_32_ldstpair_off" symboldefcount="1">
+      <symbol link="Wt2OrWZR">&lt;Wt2&gt;</symbol>
+      <account encodedin="Rt2">
+        <intro>
+          <para>Is the 32-bit name of the second general-purpose register to be transferred, encoded in the &quot;Rt2&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDP_32_ldstpair_post, LDP_64_ldstpair_post, LDP_32_ldstpair_pre, LDP_64_ldstpair_pre, LDP_32_ldstpair_off, LDP_64_ldstpair_off" symboldefcount="1">
+      <symbol link="XnSP_option">&lt;Xn|SP&gt;</symbol>
+      <account encodedin="Rn">
+        <intro>
+          <para>Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDP_32_ldstpair_post, LDP_32_ldstpair_pre" symboldefcount="1">
+      <symbol link="imm__12">&lt;imm&gt;</symbol>
+      <account encodedin="imm7">
+        <intro>
+          <para>For the &quot;Post-index 32-bit&quot; and &quot;Pre-index 32-bit&quot; variants: is the signed immediate byte offset, a multiple of 4 in the range -256 to 252, encoded in the &quot;imm7&quot; field as &lt;imm&gt;/4.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDP_64_ldstpair_post, LDP_64_ldstpair_pre" symboldefcount="2">
+      <symbol link="imm__15">&lt;imm&gt;</symbol>
+      <account encodedin="imm7">
+        <intro>
+          <para>For the &quot;Post-index 64-bit&quot; and &quot;Pre-index 64-bit&quot; variants: is the signed immediate byte offset, a multiple of 8 in the range -512 to 504, encoded in the &quot;imm7&quot; field as &lt;imm&gt;/8.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDP_32_ldstpair_off" symboldefcount="3">
+      <symbol link="imm__4">&lt;imm&gt;</symbol>
+      <account encodedin="imm7">
+        <intro>
+          <para>For the &quot;Signed offset 32-bit&quot; variant: is the optional signed immediate byte offset, a multiple of 4 in the range -256 to 252, defaulting to 0 and encoded in the &quot;imm7&quot; field as &lt;imm&gt;/4.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDP_64_ldstpair_off" symboldefcount="4">
+      <symbol link="imm__5">&lt;imm&gt;</symbol>
+      <account encodedin="imm7">
+        <intro>
+          <para>For the &quot;Signed offset 64-bit&quot; variant: is the optional signed immediate byte offset, a multiple of 8 in the range -512 to 504, defaulting to 0 and encoded in the &quot;imm7&quot; field as &lt;imm&gt;/8.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDP_64_ldstpair_post, LDP_64_ldstpair_pre, LDP_64_ldstpair_off" symboldefcount="1">
+      <symbol link="Xt1OrXZR">&lt;Xt1&gt;</symbol>
+      <account encodedin="Rt">
+        <intro>
+          <para>Is the 64-bit name of the first general-purpose register to be transferred, encoded in the &quot;Rt&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDP_64_ldstpair_post, LDP_64_ldstpair_pre, LDP_64_ldstpair_off" symboldefcount="1">
+      <symbol link="Xt2OrXZR">&lt;Xt2&gt;</symbol>
+      <account encodedin="Rt2">
+        <intro>
+          <para>Is the 64-bit name of the second general-purpose register to be transferred, encoded in the &quot;Rt2&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.ldst.ldstpair_post.LDP_32_ldstpair_post" sections="1" secttype="Shared Decode">
+      <pstext mayhavelinks="1" section="Postdecode" rep_section="postdecode">let t : integer{} = UInt(Rt);
+let t2 : integer{} = UInt(Rt2);
+let n : integer{} = UInt(Rn);
+let nontemporal : boolean = FALSE;
+let scale : integer{} = 2 + UInt(opc[1]);
+let datasize : integer{} = 8 &lt;&lt; scale;
+let offset : bits(64) = LSL(SignExtend{64}(imm7), scale);
+let tagchecked : boolean = wback || n != 31;
+
+var rt_unknown : boolean = FALSE;
+var wb_unknown : boolean = FALSE;
+
+if wback &amp;&amp; (t == n || t2 == n) &amp;&amp; n != 31 then
+    let c : <a link="type_Constraint" file="shared_pseudocode.xml">Constraint</a> = ConstrainUnpredictable(<a link="enum_Unpredictable_WBOVERLAPLD" file="shared_pseudocode.xml">Unpredictable_WBOVERLAPLD</a>);
+    assert c IN {<a link="enum_Constraint_WBSUPPRESS" file="shared_pseudocode.xml">Constraint_WBSUPPRESS</a>, <a link="enum_Constraint_UNKNOWN" file="shared_pseudocode.xml">Constraint_UNKNOWN</a>, <a link="enum_Constraint_UNDEF" file="shared_pseudocode.xml">Constraint_UNDEF</a>, <a link="enum_Constraint_NOP" file="shared_pseudocode.xml">Constraint_NOP</a>};
+    case c of
+        when <a link="enum_Constraint_WBSUPPRESS" file="shared_pseudocode.xml">Constraint_WBSUPPRESS</a> =&gt; wback = FALSE;        // Writeback is suppressed
+        when <a link="enum_Constraint_UNKNOWN" file="shared_pseudocode.xml">Constraint_UNKNOWN</a> =&gt;    wb_unknown = TRUE;    // Writeback is UNKNOWN
+        when <a link="enum_Constraint_UNDEF" file="shared_pseudocode.xml">Constraint_UNDEF</a> =&gt;      EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+        when <a link="enum_Constraint_NOP" file="shared_pseudocode.xml">Constraint_NOP</a> =&gt;        EndOfDecode(<a link="enum_Decode_NOP" file="shared_pseudocode.xml">Decode_NOP</a>);
+    end;
+end;
+
+if t == t2 then
+    let c : <a link="type_Constraint" file="shared_pseudocode.xml">Constraint</a> = ConstrainUnpredictable(<a link="enum_Unpredictable_LDPOVERLAP" file="shared_pseudocode.xml">Unpredictable_LDPOVERLAP</a>);
+    assert c IN {<a link="enum_Constraint_UNKNOWN" file="shared_pseudocode.xml">Constraint_UNKNOWN</a>, <a link="enum_Constraint_UNDEF" file="shared_pseudocode.xml">Constraint_UNDEF</a>, <a link="enum_Constraint_NOP" file="shared_pseudocode.xml">Constraint_NOP</a>};
+    case c of
+        when <a link="enum_Constraint_UNKNOWN" file="shared_pseudocode.xml">Constraint_UNKNOWN</a> =&gt;    rt_unknown = TRUE;    // Result is UNKNOWN
+        when <a link="enum_Constraint_UNDEF" file="shared_pseudocode.xml">Constraint_UNDEF</a> =&gt;      EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+        when <a link="enum_Constraint_NOP" file="shared_pseudocode.xml">Constraint_NOP</a> =&gt;        EndOfDecode(<a link="enum_Decode_NOP" file="shared_pseudocode.xml">Decode_NOP</a>);
+    end;
+end;</pstext>
+    </ps>
+  </ps_section>
+  <ps_section howmany="1">
+    <ps name="A64.ldst.ldstpair_post.LDP_32_ldstpair_post" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">
+var address : bits(64);
+var data1 : bits(datasize);
+var data2 : bits(datasize);
+let dbytes : integer{} = datasize DIV 8;
+
+let privileged : boolean = PSTATE.EL != <a link="global_EL0" file="shared_pseudocode.xml">EL0</a>;
+let ispair : boolean = TRUE;
+let accdesc : <a link="type_AccessDescriptor" file="shared_pseudocode.xml">AccessDescriptor</a> = CreateAccDescGPR(MemOp_LOAD, nontemporal, privileged,
+                                                  tagchecked, ispair, t, t2);
+if n == 31 then
+    CheckSPAlignment();
+    address = <a link="accessor_SP_1" file="shared_pseudocode.xml">SP</a>{64}();
+else
+    address = <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(n);
+end;
+
+if !postindex then
+    address = <a link="func_AddressAdd_3" file="shared_pseudocode.xml">AddressAdd</a>(address, offset, accdesc);
+end;
+
+let data : bits(2*datasize) = <a link="accessor_Mem_3" file="shared_pseudocode.xml">Mem</a>{2*datasize}(address, accdesc);
+if rt_unknown then
+    data1 = ARBITRARY : bits(datasize);
+    data2 = ARBITRARY : bits(datasize);
+elsif <a link="func_BigEndian_1" file="shared_pseudocode.xml">BigEndian</a>(accdesc.acctype) then
+    data2 = data[(datasize-1):0];
+    data1 = data[(2*datasize-1):datasize];
+else
+    data1 = data[(datasize-1):0];
+    data2 = data[(2*datasize-1):datasize];
+end;
+
+<a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{datasize}(t) = data1;
+<a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{datasize}(t2) = data2;
+
+if wback then
+    if wb_unknown then
+        address = ARBITRARY : bits(64);
+    elsif postindex then
+        address = <a link="func_AddressAdd_3" file="shared_pseudocode.xml">AddressAdd</a>(address, offset, accdesc);
+    end;
+    if n == 31 then
+        <a link="accessor_SP_1" file="shared_pseudocode.xml">SP</a>{64}() = address;
+    else
+        <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(n) = address;
+    end;
+end;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

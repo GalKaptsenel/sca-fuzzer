@@ -1,0 +1,144 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="SUBG" title="SUBG -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="general"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="SUBG"/>
+  </docvars>
+  <heading>SUBG</heading>
+  <desc>
+    <brief>
+      <para>Subtract with tag</para>
+    </brief>
+    <authored>
+      <para>This instruction subtracts an immediate value scaled by the Tag Granule from
+the address in the source register, modifies the Logical Address Tag of the
+address using an immediate value, and writes the result to the destination
+register. Tags specified in <register_link id="AArch64-gcr_el1.xml" state="AArch64">GCR_EL1</register_link>.Exclude are excluded from the possible
+outputs when modifying the Logical Address Tag.</para>
+    </authored>
+  </desc>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="Integer" oneof="1" id="iclass_integer" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="general"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="SUBG"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_MTE" name="v8Ap5"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.dpimm.addsub_immtags.SUBG_64_addsub_immtags" tworows="1">
+        <box hibit="31" name="sf" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="30" name="op" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="29" name="S" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="28" width="3" settings="3">
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="25" width="4" settings="4">
+          <c>0</c>
+          <c>1</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="21" width="6" name="imm6" usename="1">
+          <c colspan="6"/>
+        </box>
+        <box hibit="15" width="2" name="op3" usename="1" settings="2" psbits="xx">
+          <c>(0)</c>
+          <c>(0)</c>
+        </box>
+        <box hibit="13" width="4" name="imm4" usename="1">
+          <c colspan="4"/>
+        </box>
+        <box hibit="9" width="5" name="Rn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Rd" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="SUBG_64_addsub_immtags" oneofinclass="1" oneof="1" label="">
+        <docvars>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="SUBG"/>
+        </docvars>
+        <asmtemplate><text>SUBG  </text><a hover="Is the 64-bit name of the destination general-purpose register or stack pointer, encoded in the &quot;Rd&quot; field." link="XdSP_option">&lt;Xd|SP&gt;</a><text>, </text><a hover="Is the 64-bit name of the source general-purpose register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option__3">&lt;Xn|SP&gt;</a><text>, #</text><a hover="Is an unsigned immediate, a multiple of 16 in the range 0 to 1008, encoded in the &quot;imm6&quot; field." link="uimm6">&lt;uimm6&gt;</a><text>, #</text><a hover="Is an unsigned immediate, in the range 0 to 15, encoded in the &quot;imm4&quot; field." link="uimm4">&lt;uimm4&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.dpimm.addsub_immtags.SUBG_64_addsub_immtags" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_MTE) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+let d : integer{} = UInt(Rd);
+let n : integer{} = UInt(Rn);
+let tag_offset : bits(4) = imm4;
+let offset : bits(64) = LSL(ZeroExtend{64}(imm6), <a link="global_LOG2_TAG_GRANULE" file="shared_pseudocode.xml">LOG2_TAG_GRANULE</a>);</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="SUBG_64_addsub_immtags" symboldefcount="1">
+      <symbol link="XdSP_option">&lt;Xd|SP&gt;</symbol>
+      <account encodedin="Rd">
+        <intro>
+          <para>Is the 64-bit name of the destination general-purpose register or stack pointer, encoded in the &quot;Rd&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="SUBG_64_addsub_immtags" symboldefcount="1">
+      <symbol link="XnSP_option__3">&lt;Xn|SP&gt;</symbol>
+      <account encodedin="Rn">
+        <intro>
+          <para>Is the 64-bit name of the source general-purpose register or stack pointer, encoded in the &quot;Rn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="SUBG_64_addsub_immtags" symboldefcount="1">
+      <symbol link="uimm6">&lt;uimm6&gt;</symbol>
+      <account encodedin="imm6">
+        <intro>
+          <para>Is an unsigned immediate, a multiple of 16 in the range 0 to 1008, encoded in the &quot;imm6&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="SUBG_64_addsub_immtags" symboldefcount="1">
+      <symbol link="uimm4">&lt;uimm4&gt;</symbol>
+      <account encodedin="imm4">
+        <intro>
+          <para>Is an unsigned immediate, in the range 0 to 15, encoded in the &quot;imm4&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.dpimm.addsub_immtags.SUBG_64_addsub_immtags" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">let operand1 : bits(64) = if n == 31 then <a link="accessor_SP_1" file="shared_pseudocode.xml">SP</a>{64}() else <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(n);
+let start_tag : bits(4) = <a link="func_AArch64_AllocationTagFromAddress_1" file="shared_pseudocode.xml">AArch64_AllocationTagFromAddress</a>(operand1);
+let exclude : bits(16) = GCR_EL1().Exclude;
+let rtag : bits(4) = <a link="func_AArch64_ChooseNonExcludedTagOrZero_3" file="shared_pseudocode.xml">AArch64_ChooseNonExcludedTagOrZero</a>(start_tag, tag_offset, exclude);
+var result : bits(64);
+
+(result, -) = <a link="func_AddWithCarry_4" file="shared_pseudocode.xml">AddWithCarry</a>{64}(operand1, NOT(offset), '1');
+
+result = <a link="func_AArch64_AddressWithAllocationTag_2" file="shared_pseudocode.xml">AArch64_AddressWithAllocationTag</a>(result, rtag);
+
+if d == 31 then
+    <a link="accessor_SP_1" file="shared_pseudocode.xml">SP</a>{64}() = result;
+else
+    <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(d) = result;
+end;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

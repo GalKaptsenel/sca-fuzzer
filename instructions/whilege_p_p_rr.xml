@@ -1,0 +1,245 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="whilege_p_p_rr" title="WHILEGE (predicate) -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="sve2"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="WHILEGE"/>
+    <docvar key="sve-elem-type" value="8-64-elem"/>
+  </docvars>
+  <heading>WHILEGE (predicate)</heading>
+  <desc>
+    <brief>
+      <para>While decrementing signed scalar greater than or equal to scalar</para>
+    </brief>
+    <authored>
+      <para>This instruction generates a predicate that starting from the highest numbered element is
+true while the decrementing value of the first, signed
+ scalar operand is greater than or equal to the second scalar operand and
+false thereafter down to the
+lowest numbered element.</para>
+      <para>If the second scalar operand is equal to the
+minimum signed
+ integer value, then a condition that includes
+an equality test can never fail and the result will be
+an all-true predicate.</para>
+      <para>The full  width of the scalar operands is significant
+for the purposes of comparison, and the full width 
+first operand is decremented by one for each destination
+predicate element, irrespective of the predicate result
+element size. The first general-purpose source register is not
+itself updated.</para>
+      <para>The predicate result is placed in the predicate
+destination register. This instruction sets the First (N), None (Z), and !Last (C)
+condition flags based on the predicate result,
+and sets the V flag to zero.</para>
+    </authored>
+    <predicated>False</predicated>
+  </desc>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="SVE2" oneof="1" id="iclass_sve2" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="sve2"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="WHILEGE"/>
+        <docvar key="sve-elem-type" value="8-64-elem"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SVE2 || FEAT_SME" name="v9Ap0 || (v9Ap2 &amp;&amp; PROFILE_A)"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_cmpgpr.sve_int_while_rr.whilege_p_p_rr_" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="23" width="2" name="size" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="20" width="5" name="Rm" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="15" width="2" settings="2">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="13" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="12" width="1" name="sf" usename="1">
+          <c colspan="1"/>
+        </box>
+        <box hibit="11" name="U" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="10" name="lt" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="9" width="5" name="Rn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" name="eq" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="3" width="4" name="Pd" usename="1">
+          <c colspan="4"/>
+        </box>
+      </regdiagram>
+      <encoding name="whilege_p_p_rr_" oneofinclass="1" oneof="1" label="">
+        <docvars>
+          <docvar key="isa" value="A64"/>
+          <docvar key="sve-elem-type" value="8-64-elem"/>
+          <docvar key="instr-class" value="sve2"/>
+          <docvar key="mnemonic" value="WHILEGE"/>
+        </docvars>
+        <asmtemplate><text>WHILEGE  </text><a hover="Is the name of the destination scalable predicate register, encoded in the &quot;Pd&quot; field." link="Pd">&lt;Pd&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__71">&lt;T&gt;</a><text>, </text><a hover="Is a width specifier, " link="R__10">&lt;R&gt;</a><a hover="Is the number [0-30] of the source general-purpose register or the name ZR (31), encoded in the &quot;Rn&quot; field." link="n__5">&lt;n&gt;</a><text>, </text><a hover="Is a width specifier, " link="R__10">&lt;R&gt;</a><a hover="Is the number [0-30] of the source general-purpose register or the name ZR (31), encoded in the &quot;Rm&quot; field." link="m__3">&lt;m&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_cmpgpr.sve_int_while_rr.whilege_p_p_rr_" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SVE2) &amp;&amp; !IsFeatureImplemented(FEAT_SME) then
+    EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+let esize : integer{} = 8 &lt;&lt; UInt(size);
+let rsize : integer{} = 32 &lt;&lt; UInt(sf);
+let n : integer = UInt(Rn);
+let m : integer = UInt(Rm);
+let d : integer = UInt(Pd);
+let unsigned : boolean = FALSE;
+let op : CmpOp = Cmp_GE;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="whilege_p_p_rr_" symboldefcount="1">
+      <symbol link="Pd">&lt;Pd&gt;</symbol>
+      <account encodedin="Pd">
+        <intro>
+          <para>Is the name of the destination scalable predicate register, encoded in the &quot;Pd&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="whilege_p_p_rr_" symboldefcount="1">
+      <symbol link="T__71">&lt;T&gt;</symbol>
+      <definition encodedin="size">
+        <intro>Is the size specifier, </intro>
+        <table class="valuetable">
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry class="bitfield">size</entry>
+                <entry class="symbol">&lt;T&gt;</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry class="bitfield">00</entry>
+                <entry class="symbol">B</entry>
+              </row>
+              <row>
+                <entry class="bitfield">01</entry>
+                <entry class="symbol">H</entry>
+              </row>
+              <row>
+                <entry class="bitfield">10</entry>
+                <entry class="symbol">S</entry>
+              </row>
+              <row>
+                <entry class="bitfield">11</entry>
+                <entry class="symbol">D</entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </table>
+      </definition>
+    </explanation>
+    <explanation enclist="whilege_p_p_rr_" symboldefcount="1">
+      <symbol link="R__10">&lt;R&gt;</symbol>
+      <definition encodedin="sf">
+        <intro>Is a width specifier, </intro>
+        <table class="valuetable">
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry class="bitfield">sf</entry>
+                <entry class="symbol">&lt;R&gt;</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry class="bitfield">0</entry>
+                <entry class="symbol">W</entry>
+              </row>
+              <row>
+                <entry class="bitfield">1</entry>
+                <entry class="symbol">X</entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </table>
+      </definition>
+    </explanation>
+    <explanation enclist="whilege_p_p_rr_" symboldefcount="1">
+      <symbol link="n__5">&lt;n&gt;</symbol>
+      <account encodedin="Rn">
+        <intro>
+          <para>Is the number [0-30] of the source general-purpose register or the name ZR (31), encoded in the &quot;Rn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="whilege_p_p_rr_" symboldefcount="1">
+      <symbol link="m__3">&lt;m&gt;</symbol>
+      <account encodedin="Rm">
+        <intro>
+          <para>Is the number [0-30] of the source general-purpose register or the name ZR (31), encoded in the &quot;Rm&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.sve.sve_cmpgpr.sve_int_while_rr.whilege_p_p_rr_" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">CheckSVEEnabled();
+let VL : integer{} = CurrentVL();
+let PL : integer{} = VL DIV 8;
+let elements : integer = VL DIV esize;
+let mask : bits(PL) = Ones{};
+var operand1 : bits(rsize) = X{}(n);
+let operand2 : bits(rsize) = X{}(m);
+var result : bits(PL);
+var last : boolean = TRUE;
+let psize : integer{} = esize DIV 8;
+
+let element2 : integer = if unsigned then UInt(operand2) else SInt(operand2);
+for e = elements-1 downto 0 do
+    let element1 : integer = if unsigned then UInt(operand1) else SInt(operand1);
+    var cond : boolean;
+    case op of
+        when Cmp_GT =&gt; cond = (element1 &gt;  element2);
+        when Cmp_GE =&gt; cond = (element1 &gt;= element2);
+    end;
+
+    last = last &amp;&amp; cond;
+    let pbit : bit = if last then '1' else '0';
+    result[e*:psize] = ZeroExtend{psize}(pbit);
+    operand1 = operand1 - 1;
+end;
+
+PSTATE.[N,Z,C,V] = <a link="func_PredTest_4" file="shared_pseudocode.xml">PredTest</a>{PL}(mask, result, esize);
+<a link="accessor_P_2" file="shared_pseudocode.xml">P</a>{PL}(d) = result;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

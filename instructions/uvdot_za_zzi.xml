@@ -1,0 +1,327 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="uvdot_za_zzi" title="UVDOT (4-way) -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="mortlach2"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="UVDOT"/>
+  </docvars>
+  <heading>UVDOT (4-way)</heading>
+  <desc>
+    <brief>
+      <para>Multi-vector unsigned integer vertical dot product by indexed element</para>
+    </brief>
+    <authored>
+      <para>This instruction computes the
+vertical dot product of the corresponding four unsigned 8-bit or 16-bit integer values held in the
+four first source vectors and four unsigned 8-bit or 16-bit integer values in
+the corresponding indexed 32-bit or 64-bit element of the second source vector. The widened dot product
+results are destructively added to the corresponding 32-bit or 64-bit element of the ZA single-vector groups.</para>
+      <para>The groups within the second source vector are specified using an immediate element index
+that selects the same group position within each 128-bit vector segment. The index
+range is from 0 to one less than the number of groups per 128-bit segment.</para>
+      <para>The single-vector group within each quarter
+of the ZA array is selected by the sum of the vector select register and offset, modulo
+quarter the number of ZA array vectors.</para>
+      <para>The <syntax>vector group</syntax> symbol <syntax>VGx4</syntax> indicates that the ZA operand consists
+of four ZA single-vector groups. The vector group symbol is preferred
+for disassembly, but optional in assembler source code.</para>
+      <para>This instruction is unpredicated.</para>
+      <para>ID_AA64SMFR0_EL1.I16I64 indicates whether the 16-bit integer variant is implemented.</para>
+    </authored>
+    <predicated>False</predicated>
+    <uses_dit condition="FEAT_SVE2 is implemented or FEAT_SME is implemented">True</uses_dit>
+    <sm_policy>SM_1_only</sm_policy>
+  </desc>
+  <operationalnotes>
+    <operationalnote>
+      <operationalnote_content>
+        <para>This instruction is a data-independent-time instruction as described in <xref linkend="ARMARM_BEICCDDAB3">About PSTATE.DIT</xref>.</para>
+      </operationalnote_content>
+    </operationalnote>
+  </operationalnotes>
+  <alias_list howmany="0"/>
+  <classes>
+    <classesintro count="2">
+      <txt>It has encodings from 2 classes:</txt>
+      <a href="#iclass_8_bit_to_32_bit">8-bit to 32-bit</a>
+      <txt> and </txt>
+      <a href="#iclass_16_bit_to_64_bit">16-bit to 64-bit</a>
+    </classesintro>
+    <iclass name="8-bit to 32-bit" oneof="2" id="iclass_8_bit_to_32_bit" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="asimdimm-datatype" value="per-word"/>
+        <docvar key="instr-class" value="mortlach2"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="UVDOT"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SME2" name="v9Ap3"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sme.mortlach_multi_indexed_3.mortlach_multi4_zza_idx_s.uvdot_za_zzi_s4xi" tworows="1">
+        <box hibit="31" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="30" width="2" settings="2">
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="23" width="2" settings="2">
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="21" width="2" settings="2">
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="19" width="4" name="Zm" usename="1">
+          <c colspan="4"/>
+        </box>
+        <box hibit="15" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="14" width="2" name="Rv" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="12" name="op" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="11" width="2" name="i2" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="9" width="3" name="Zn" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="6" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="5" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="4" name="U" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="3" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="2" width="3" name="off3" usename="1">
+          <c colspan="3"/>
+        </box>
+      </regdiagram>
+      <encoding name="uvdot_za_zzi_s4xi" oneofinclass="1" oneof="2" label="">
+        <docvars>
+          <docvar key="instr-class" value="mortlach2"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="asimdimm-datatype" value="per-word"/>
+          <docvar key="mnemonic" value="UVDOT"/>
+        </docvars>
+        <asmtemplate><text>UVDOT  ZA.S[</text><a hover="Is the 32-bit name of the vector select register W8-W11, encoded in the &quot;Rv&quot; field." link="Wv">&lt;Wv&gt;</a><text>, </text><a hover="Is the vector select offset, in the range 0 to 7, encoded in the &quot;off3&quot; field." link="offs">&lt;offs&gt;</a><text>{, VGx4}], { </text><a hover="For the &quot;Four ZA single-vectors&quot; variant: is the name of the first scalable vector register of the first source multi-vector group, encoded as &quot;Zn&quot; times 4." link="Zn1__3">&lt;Zn1&gt;</a><text>.B-</text><a hover="Is the name of the fourth scalable vector register of the first source multi-vector group, encoded as &quot;Zn&quot; times 4 plus 3." link="Zn4__2">&lt;Zn4&gt;</a><text>.B }, </text><a hover="For the &quot;Double-precision&quot; variant: is the name of the second source scalable vector register Z0-Z15, encoded in the &quot;Zm&quot; field." link="Zm__2">&lt;Zm&gt;</a><text>.B[</text><a hover="For the &quot;8-bit to 32-bit&quot; variant: is the immediate index of a 32-bit group of four 8-bit values within each 128-bit vector segment, in the range 0 to 3, encoded in the &quot;i2&quot; field." link="index__19">&lt;index&gt;</a><text>]</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sme.mortlach_multi_indexed_3.mortlach_multi4_zza_idx_s.uvdot_za_zzi_s4xi" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SME2) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+let v : integer = UInt('010'::Rv);
+let esize : integer{} = 32;
+let n : integer = UInt(Zn::'00');
+let m : integer = UInt('0'::Zm);
+let offset : integer = UInt(off3);
+let index : integer = UInt(i2);</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+    <iclass name="16-bit to 64-bit" oneof="2" id="iclass_16_bit_to_64_bit" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="asimdimm-datatype" value="per-doubleword"/>
+        <docvar key="instr-class" value="mortlach2"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="UVDOT"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SME2 &amp;&amp; FEAT_SME_I16I64" name="v9Ap3 &amp;&amp; v9Ap2"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sme.mortlach_multi_indexed_3.mortlach_multi4_zza_idx_d.uvdot_za_zzi_d4xi" tworows="1">
+        <box hibit="31" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="30" width="2" settings="2">
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="23" width="2" settings="2">
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="21" width="2" settings="2">
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="19" width="4" name="Zm" usename="1">
+          <c colspan="4"/>
+        </box>
+        <box hibit="15" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="14" width="2" name="Rv" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="12" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="11" name="op" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="10" width="1" name="i1" usename="1">
+          <c colspan="1"/>
+        </box>
+        <box hibit="9" width="3" name="Zn" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="6" width="2" settings="2">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="4" name="U" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="3" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="2" width="3" name="off3" usename="1">
+          <c colspan="3"/>
+        </box>
+      </regdiagram>
+      <encoding name="uvdot_za_zzi_d4xi" oneofinclass="1" oneof="2" label="">
+        <docvars>
+          <docvar key="instr-class" value="mortlach2"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="asimdimm-datatype" value="per-doubleword"/>
+          <docvar key="mnemonic" value="UVDOT"/>
+        </docvars>
+        <asmtemplate><text>UVDOT  ZA.D[</text><a hover="Is the 32-bit name of the vector select register W8-W11, encoded in the &quot;Rv&quot; field." link="Wv">&lt;Wv&gt;</a><text>, </text><a hover="Is the vector select offset, in the range 0 to 7, encoded in the &quot;off3&quot; field." link="offs">&lt;offs&gt;</a><text>{, VGx4}], { </text><a hover="For the &quot;Four ZA single-vectors&quot; variant: is the name of the first scalable vector register of the first source multi-vector group, encoded as &quot;Zn&quot; times 4." link="Zn1__3">&lt;Zn1&gt;</a><text>.H-</text><a hover="Is the name of the fourth scalable vector register of the first source multi-vector group, encoded as &quot;Zn&quot; times 4 plus 3." link="Zn4__2">&lt;Zn4&gt;</a><text>.H }, </text><a hover="For the &quot;Double-precision&quot; variant: is the name of the second source scalable vector register Z0-Z15, encoded in the &quot;Zm&quot; field." link="Zm__2">&lt;Zm&gt;</a><text>.H[</text><a hover="For the &quot;16-bit to 64-bit&quot; variant: is the immediate index of a 64-bit group of four 16-bit values within each 128-bit vector segment, in the range 0 to 1, encoded in the &quot;i1&quot; field." link="index__31">&lt;index&gt;</a><text>]</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sme.mortlach_multi_indexed_3.mortlach_multi4_zza_idx_d.uvdot_za_zzi_d4xi" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !(IsFeatureImplemented(FEAT_SME2) &amp;&amp; IsFeatureImplemented(FEAT_SME_I16I64)) then
+    EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+let v : integer = UInt('010'::Rv);
+let esize : integer{} = 64;
+let n : integer = UInt(Zn::'00');
+let m : integer = UInt('0'::Zm);
+let offset : integer = UInt(off3);
+let index : integer = UInt(i1);</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="uvdot_za_zzi_s4xi, uvdot_za_zzi_d4xi" symboldefcount="1">
+      <symbol link="Wv">&lt;Wv&gt;</symbol>
+      <account encodedin="Rv">
+        <intro>
+          <para>Is the 32-bit name of the vector select register W8-W11, encoded in the &quot;Rv&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="uvdot_za_zzi_s4xi, uvdot_za_zzi_d4xi" symboldefcount="1">
+      <symbol link="offs">&lt;offs&gt;</symbol>
+      <account encodedin="off3">
+        <intro>
+          <para>Is the vector select offset, in the range 0 to 7, encoded in the &quot;off3&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="uvdot_za_zzi_s4xi, uvdot_za_zzi_d4xi" symboldefcount="1">
+      <symbol link="Zn1__3">&lt;Zn1&gt;</symbol>
+      <account encodedin="Zn">
+        <intro>
+          <para>Is the name of the first scalable vector register of the first source multi-vector group, encoded as &quot;Zn&quot; times 4.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="uvdot_za_zzi_s4xi, uvdot_za_zzi_d4xi" symboldefcount="1">
+      <symbol link="Zn4__2">&lt;Zn4&gt;</symbol>
+      <account encodedin="Zn">
+        <intro>
+          <para>Is the name of the fourth scalable vector register of the first source multi-vector group, encoded as &quot;Zn&quot; times 4 plus 3.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="uvdot_za_zzi_s4xi, uvdot_za_zzi_d4xi" symboldefcount="1">
+      <symbol link="Zm__2">&lt;Zm&gt;</symbol>
+      <account encodedin="Zm">
+        <intro>
+          <para>Is the name of the second source scalable vector register Z0-Z15, encoded in the &quot;Zm&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="uvdot_za_zzi_s4xi" symboldefcount="1">
+      <symbol link="index__19">&lt;index&gt;</symbol>
+      <account encodedin="i2">
+        <intro>
+          <para>For the &quot;8-bit to 32-bit&quot; variant: is the immediate index of a 32-bit group of four 8-bit values within each 128-bit vector segment, in the range 0 to 3, encoded in the &quot;i2&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="uvdot_za_zzi_d4xi" symboldefcount="2">
+      <symbol link="index__31">&lt;index&gt;</symbol>
+      <account encodedin="i1">
+        <intro>
+          <para>For the &quot;16-bit to 64-bit&quot; variant: is the immediate index of a 64-bit group of four 16-bit values within each 128-bit vector segment, in the range 0 to 1, encoded in the &quot;i1&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.sme.mortlach_multi_indexed_3.mortlach_multi4_zza_idx_s.uvdot_za_zzi_s4xi" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">CheckStreamingSVEAndZAEnabled();
+let VL : integer{} = CurrentVL();
+let elements : integer = VL DIV esize;
+let vectors : integer = VL DIV 8;
+let vstride : integer = vectors DIV 4;
+let eltspersegment : integer = 128 DIV esize;
+let vbase : bits(32) = X{}(v);
+var vec : integer = (UInt(vbase) + offset) MOD vstride;
+let operand2 : bits(VL) = Z{}(m);
+var result : bits(VL);
+
+for r = 0 to 3 do
+    let operand3 : bits(VL) = ZAvector{}(vec);
+    for e = 0 to elements-1 do
+        let segmentbase : integer = e - (e MOD eltspersegment);
+        let s : integer = segmentbase + index;
+        var sum : bits(esize) = operand3[e*:esize];
+        for i = 0 to 3 do
+            let operand1 : bits(VL) = Z{}(n+i);
+            let element1 : integer = UInt(operand1[(4 * e + r)*:(esize DIV 4)]);
+            let element2 : integer = UInt(operand2[(4 * s + i)*:(esize DIV 4)]);
+            sum = sum + element1 * element2;
+        end;
+        result[e*:esize] = sum;
+    end;
+    <a link="accessor_ZAvector_2" file="shared_pseudocode.xml">ZAvector</a>{VL}(vec) = result;
+    vec = vec + vstride;
+end;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

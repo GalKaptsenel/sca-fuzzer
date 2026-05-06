@@ -379,6 +379,7 @@ class FlagsOperand(Operand):
     _flag_names: List[str] = ["CF", "PF", "AF", "ZF", "SF", "TF", "IF", "DF", "OF"]
 
     def __init__(self, value):
+
         assert len(value) == len(self._flag_names)
         self._flag_values = value
         super().__init__("FLAGS", OT.FLAGS, False, False)

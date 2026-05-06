@@ -1,0 +1,1008 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="cmpeq_p_p_zi" title="CMP&lt;cc&gt; (immediate) -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="sve"/>
+    <docvar key="isa" value="A64"/>
+  </docvars>
+  <heading>CMP&lt;cc&gt; (immediate)</heading>
+  <desc>
+    <brief>
+      <para>Compare vector to immediate</para>
+    </brief>
+    <authored>
+      <para>This instruction compares active integer elements in the
+ source vector with an immediate, and
+places the boolean results of the specified
+comparison in the corresponding elements of the destination
+predicate.  Inactive elements in the destination predicate register are set to zero. This instruction sets the First (N), None (Z), and !Last (C)
+condition flags based on the predicate result,
+and sets the V flag to zero.</para>
+      <table>
+        <tgroup cols="2">
+          <thead>
+            <row>
+              <entry>&lt;cc&gt;</entry>
+              <entry>Comparison</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>EQ</entry>
+              <entry>equal</entry>
+            </row>
+            <row>
+              <entry>GE</entry>
+              <entry>signed greater than or equal</entry>
+            </row>
+            <row>
+              <entry>GT</entry>
+              <entry>signed greater than</entry>
+            </row>
+            <row>
+              <entry>HI</entry>
+              <entry>unsigned higher than</entry>
+            </row>
+            <row>
+              <entry>HS</entry>
+              <entry>unsigned higher than or same</entry>
+            </row>
+            <row>
+              <entry>LE</entry>
+              <entry>signed less than or equal</entry>
+            </row>
+            <row>
+              <entry>LO</entry>
+              <entry>unsigned lower than</entry>
+            </row>
+            <row>
+              <entry>LS</entry>
+              <entry>unsigned lower than or same</entry>
+            </row>
+            <row>
+              <entry>LT</entry>
+              <entry>signed less than</entry>
+            </row>
+            <row>
+              <entry>NE</entry>
+              <entry>not equal</entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </table>
+    </authored>
+    <affected_by_sme output="predicate register or NZCV condition flags"/>
+    <predicated>True</predicated>
+    <uses_dit condition="FEAT_SVE2 is implemented or FEAT_SME is implemented">True</uses_dit>
+  </desc>
+  <operationalnotes>
+    <operationalnote>
+      <operationalnote_content>
+        <para>This instruction is a data-independent-time instruction as described in <xref linkend="ARMARM_BEICCDDAB3">About PSTATE.DIT</xref>.</para>
+        <para>If FEAT_SME is implemented and the PE is in Streaming SVE mode, then any subsequent instruction which is dependent on the predicate register or NZCV condition flags written by this instruction might be significantly delayed.</para>
+      </operationalnote_content>
+    </operationalnote>
+  </operationalnotes>
+  <alias_list howmany="0"/>
+  <classes>
+    <classesintro count="10">
+      <txt>It has encodings from 10 classes:</txt>
+      <a href="#iclass_equal">Equal</a>
+      <txt>, </txt>
+      <a href="#iclass_greater_than">Greater than</a>
+      <txt>, </txt>
+      <a href="#iclass_greater_than_or_equal">Greater than or equal</a>
+      <txt>, </txt>
+      <a href="#iclass_higher">Higher</a>
+      <txt>, </txt>
+      <a href="#iclass_higher_or_same">Higher or same</a>
+      <txt>, </txt>
+      <a href="#iclass_less_than">Less than</a>
+      <txt>, </txt>
+      <a href="#iclass_less_than_or_equal">Less than or equal</a>
+      <txt>, </txt>
+      <a href="#iclass_lower">Lower</a>
+      <txt>, </txt>
+      <a href="#iclass_lower_or_same">Lower or same</a>
+      <txt> and </txt>
+      <a href="#iclass_not_equal">Not equal</a>
+    </classesintro>
+    <iclass name="Equal" oneof="10" id="iclass_equal" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="sve"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="CMPEQ"/>
+        <docvar key="sve-compare-type" value="eq"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SVE || FEAT_SME" name="(v8Ap2 &amp;&amp; PROFILE_A) || (v9Ap2 &amp;&amp; PROFILE_A)"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_cmpsimm.sve_int_scmp_vi.cmpeq_p_p_zi_" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="23" width="2" name="size" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="20" width="5" name="imm5" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="15" name="op" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="14" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="13" name="o2" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="12" width="3" name="Pg" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="9" width="5" name="Zn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" name="ne" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="3" width="4" name="Pd" usename="1">
+          <c colspan="4"/>
+        </box>
+      </regdiagram>
+      <encoding name="cmpeq_p_p_zi_" oneofinclass="1" oneof="10" label="">
+        <docvars>
+          <docvar key="instr-class" value="sve"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="sve-compare-type" value="eq"/>
+          <docvar key="mnemonic" value="CMPEQ"/>
+        </docvars>
+        <asmtemplate><text>CMPEQ  </text><a hover="Is the name of the destination scalable predicate register, encoded in the &quot;Pd&quot; field." link="Pd">&lt;Pd&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__23">&lt;T&gt;</a><text>, </text><a hover="Is the name of the governing scalable predicate register P0-P7, encoded in the &quot;Pg&quot; field." link="Pg">&lt;Pg&gt;</a><text>/Z, </text><a hover="Is the name of the source scalable vector register, encoded in the &quot;Zn&quot; field." link="Zn">&lt;Zn&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__23">&lt;T&gt;</a><text>, #</text><a hover="For the &quot;Equal&quot;, &quot;Greater than or equal&quot;, &quot;Greater than&quot;, &quot;Less than or equal&quot;, &quot;Less than&quot;, and &quot;Not equal&quot; variants: is the signed immediate operand, in the range -16 to 15, encoded in the &quot;imm5&quot; field." link="imm__43">&lt;imm&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_cmpsimm.sve_int_scmp_vi.cmpeq_p_p_zi_" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SVE) &amp;&amp; !IsFeatureImplemented(FEAT_SME) then
+    EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+let esize : integer{} = 8 &lt;&lt; UInt(size);
+let g : integer = UInt(Pg);
+let n : integer = UInt(Zn);
+let d : integer = UInt(Pd);
+let cmp_op : CmpOp = Cmp_EQ;
+let imm : integer = SInt(imm5);
+let unsigned : boolean = FALSE;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+    <iclass name="Greater than" oneof="10" id="iclass_greater_than" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="sve"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="CMPGT"/>
+        <docvar key="sve-compare-type" value="gt"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SVE || FEAT_SME" name="(v8Ap2 &amp;&amp; PROFILE_A) || (v9Ap2 &amp;&amp; PROFILE_A)"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_cmpsimm.sve_int_scmp_vi.cmpgt_p_p_zi_" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="23" width="2" name="size" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="20" width="5" name="imm5" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="15" name="op" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="14" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="13" name="lt" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="12" width="3" name="Pg" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="9" width="5" name="Zn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" name="ne" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="3" width="4" name="Pd" usename="1">
+          <c colspan="4"/>
+        </box>
+      </regdiagram>
+      <encoding name="cmpgt_p_p_zi_" oneofinclass="1" oneof="10" label="">
+        <docvars>
+          <docvar key="instr-class" value="sve"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="sve-compare-type" value="gt"/>
+          <docvar key="mnemonic" value="CMPGT"/>
+        </docvars>
+        <asmtemplate><text>CMPGT  </text><a hover="Is the name of the destination scalable predicate register, encoded in the &quot;Pd&quot; field." link="Pd">&lt;Pd&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__23">&lt;T&gt;</a><text>, </text><a hover="Is the name of the governing scalable predicate register P0-P7, encoded in the &quot;Pg&quot; field." link="Pg">&lt;Pg&gt;</a><text>/Z, </text><a hover="Is the name of the source scalable vector register, encoded in the &quot;Zn&quot; field." link="Zn">&lt;Zn&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__23">&lt;T&gt;</a><text>, #</text><a hover="For the &quot;Equal&quot;, &quot;Greater than or equal&quot;, &quot;Greater than&quot;, &quot;Less than or equal&quot;, &quot;Less than&quot;, and &quot;Not equal&quot; variants: is the signed immediate operand, in the range -16 to 15, encoded in the &quot;imm5&quot; field." link="imm__43">&lt;imm&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_cmpsimm.sve_int_scmp_vi.cmpgt_p_p_zi_" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SVE) &amp;&amp; !IsFeatureImplemented(FEAT_SME) then
+    EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+let esize : integer{} = 8 &lt;&lt; UInt(size);
+let g : integer = UInt(Pg);
+let n : integer = UInt(Zn);
+let d : integer = UInt(Pd);
+let cmp_op : CmpOp = Cmp_GT;
+let imm : integer = SInt(imm5);
+let unsigned : boolean = FALSE;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+    <iclass name="Greater than or equal" oneof="10" id="iclass_greater_than_or_equal" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="sve"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="CMPGE"/>
+        <docvar key="sve-compare-type" value="ge"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SVE || FEAT_SME" name="(v8Ap2 &amp;&amp; PROFILE_A) || (v9Ap2 &amp;&amp; PROFILE_A)"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_cmpsimm.sve_int_scmp_vi.cmpge_p_p_zi_" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="23" width="2" name="size" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="20" width="5" name="imm5" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="15" name="op" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="14" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="13" name="lt" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="12" width="3" name="Pg" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="9" width="5" name="Zn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" name="ne" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="3" width="4" name="Pd" usename="1">
+          <c colspan="4"/>
+        </box>
+      </regdiagram>
+      <encoding name="cmpge_p_p_zi_" oneofinclass="1" oneof="10" label="">
+        <docvars>
+          <docvar key="instr-class" value="sve"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="sve-compare-type" value="ge"/>
+          <docvar key="mnemonic" value="CMPGE"/>
+        </docvars>
+        <asmtemplate><text>CMPGE  </text><a hover="Is the name of the destination scalable predicate register, encoded in the &quot;Pd&quot; field." link="Pd">&lt;Pd&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__23">&lt;T&gt;</a><text>, </text><a hover="Is the name of the governing scalable predicate register P0-P7, encoded in the &quot;Pg&quot; field." link="Pg">&lt;Pg&gt;</a><text>/Z, </text><a hover="Is the name of the source scalable vector register, encoded in the &quot;Zn&quot; field." link="Zn">&lt;Zn&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__23">&lt;T&gt;</a><text>, #</text><a hover="For the &quot;Equal&quot;, &quot;Greater than or equal&quot;, &quot;Greater than&quot;, &quot;Less than or equal&quot;, &quot;Less than&quot;, and &quot;Not equal&quot; variants: is the signed immediate operand, in the range -16 to 15, encoded in the &quot;imm5&quot; field." link="imm__43">&lt;imm&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_cmpsimm.sve_int_scmp_vi.cmpge_p_p_zi_" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SVE) &amp;&amp; !IsFeatureImplemented(FEAT_SME) then
+    EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+let esize : integer{} = 8 &lt;&lt; UInt(size);
+let g : integer = UInt(Pg);
+let n : integer = UInt(Zn);
+let d : integer = UInt(Pd);
+let cmp_op : CmpOp = Cmp_GE;
+let imm : integer = SInt(imm5);
+let unsigned : boolean = FALSE;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+    <iclass name="Higher" oneof="10" id="iclass_higher" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="sve"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="CMPHI"/>
+        <docvar key="sve-compare-type" value="hi"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SVE || FEAT_SME" name="(v8Ap2 &amp;&amp; PROFILE_A) || (v9Ap2 &amp;&amp; PROFILE_A)"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_cmpuimm.sve_int_ucmp_vi.cmphi_p_p_zi_" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="23" width="2" name="size" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="20" width="7" name="imm7" usename="1">
+          <c colspan="7"/>
+        </box>
+        <box hibit="13" name="lt" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="12" width="3" name="Pg" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="9" width="5" name="Zn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" name="ne" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="3" width="4" name="Pd" usename="1">
+          <c colspan="4"/>
+        </box>
+      </regdiagram>
+      <encoding name="cmphi_p_p_zi_" oneofinclass="1" oneof="10" label="">
+        <docvars>
+          <docvar key="instr-class" value="sve"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="sve-compare-type" value="hi"/>
+          <docvar key="mnemonic" value="CMPHI"/>
+        </docvars>
+        <asmtemplate><text>CMPHI  </text><a hover="Is the name of the destination scalable predicate register, encoded in the &quot;Pd&quot; field." link="Pd">&lt;Pd&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__23">&lt;T&gt;</a><text>, </text><a hover="Is the name of the governing scalable predicate register P0-P7, encoded in the &quot;Pg&quot; field." link="Pg">&lt;Pg&gt;</a><text>/Z, </text><a hover="Is the name of the source scalable vector register, encoded in the &quot;Zn&quot; field." link="Zn">&lt;Zn&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__23">&lt;T&gt;</a><text>, #</text><a hover="For the &quot;Higher or same&quot;, &quot;Higher&quot;, &quot;Lower or same&quot;, and &quot;Lower&quot; variants: is the unsigned immediate operand, in the range 0 to 127, encoded in the &quot;imm7&quot; field." link="imm__44">&lt;imm&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_cmpuimm.sve_int_ucmp_vi.cmphi_p_p_zi_" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SVE) &amp;&amp; !IsFeatureImplemented(FEAT_SME) then
+    EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+let esize : integer{} = 8 &lt;&lt; UInt(size);
+let g : integer = UInt(Pg);
+let n : integer = UInt(Zn);
+let d : integer = UInt(Pd);
+let cmp_op : CmpOp = Cmp_GT;
+let imm : integer = UInt(imm7);
+let unsigned : boolean = TRUE;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+    <iclass name="Higher or same" oneof="10" id="iclass_higher_or_same" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="sve"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="CMPHS"/>
+        <docvar key="sve-compare-type" value="hs"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SVE || FEAT_SME" name="(v8Ap2 &amp;&amp; PROFILE_A) || (v9Ap2 &amp;&amp; PROFILE_A)"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_cmpuimm.sve_int_ucmp_vi.cmphs_p_p_zi_" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="23" width="2" name="size" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="20" width="7" name="imm7" usename="1">
+          <c colspan="7"/>
+        </box>
+        <box hibit="13" name="lt" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="12" width="3" name="Pg" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="9" width="5" name="Zn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" name="ne" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="3" width="4" name="Pd" usename="1">
+          <c colspan="4"/>
+        </box>
+      </regdiagram>
+      <encoding name="cmphs_p_p_zi_" oneofinclass="1" oneof="10" label="">
+        <docvars>
+          <docvar key="instr-class" value="sve"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="sve-compare-type" value="hs"/>
+          <docvar key="mnemonic" value="CMPHS"/>
+        </docvars>
+        <asmtemplate><text>CMPHS  </text><a hover="Is the name of the destination scalable predicate register, encoded in the &quot;Pd&quot; field." link="Pd">&lt;Pd&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__23">&lt;T&gt;</a><text>, </text><a hover="Is the name of the governing scalable predicate register P0-P7, encoded in the &quot;Pg&quot; field." link="Pg">&lt;Pg&gt;</a><text>/Z, </text><a hover="Is the name of the source scalable vector register, encoded in the &quot;Zn&quot; field." link="Zn">&lt;Zn&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__23">&lt;T&gt;</a><text>, #</text><a hover="For the &quot;Higher or same&quot;, &quot;Higher&quot;, &quot;Lower or same&quot;, and &quot;Lower&quot; variants: is the unsigned immediate operand, in the range 0 to 127, encoded in the &quot;imm7&quot; field." link="imm__44">&lt;imm&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_cmpuimm.sve_int_ucmp_vi.cmphs_p_p_zi_" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SVE) &amp;&amp; !IsFeatureImplemented(FEAT_SME) then
+    EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+let esize : integer{} = 8 &lt;&lt; UInt(size);
+let g : integer = UInt(Pg);
+let n : integer = UInt(Zn);
+let d : integer = UInt(Pd);
+let cmp_op : CmpOp = Cmp_GE;
+let imm : integer = UInt(imm7);
+let unsigned : boolean = TRUE;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+    <iclass name="Less than" oneof="10" id="iclass_less_than" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="sve"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="CMPLT"/>
+        <docvar key="sve-compare-type" value="lt"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SVE || FEAT_SME" name="(v8Ap2 &amp;&amp; PROFILE_A) || (v9Ap2 &amp;&amp; PROFILE_A)"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_cmpsimm.sve_int_scmp_vi.cmplt_p_p_zi_" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="23" width="2" name="size" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="20" width="5" name="imm5" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="15" name="op" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="14" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="13" name="lt" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="12" width="3" name="Pg" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="9" width="5" name="Zn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" name="ne" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="3" width="4" name="Pd" usename="1">
+          <c colspan="4"/>
+        </box>
+      </regdiagram>
+      <encoding name="cmplt_p_p_zi_" oneofinclass="1" oneof="10" label="">
+        <docvars>
+          <docvar key="instr-class" value="sve"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="sve-compare-type" value="lt"/>
+          <docvar key="mnemonic" value="CMPLT"/>
+        </docvars>
+        <asmtemplate><text>CMPLT  </text><a hover="Is the name of the destination scalable predicate register, encoded in the &quot;Pd&quot; field." link="Pd">&lt;Pd&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__23">&lt;T&gt;</a><text>, </text><a hover="Is the name of the governing scalable predicate register P0-P7, encoded in the &quot;Pg&quot; field." link="Pg">&lt;Pg&gt;</a><text>/Z, </text><a hover="Is the name of the source scalable vector register, encoded in the &quot;Zn&quot; field." link="Zn">&lt;Zn&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__23">&lt;T&gt;</a><text>, #</text><a hover="For the &quot;Equal&quot;, &quot;Greater than or equal&quot;, &quot;Greater than&quot;, &quot;Less than or equal&quot;, &quot;Less than&quot;, and &quot;Not equal&quot; variants: is the signed immediate operand, in the range -16 to 15, encoded in the &quot;imm5&quot; field." link="imm__43">&lt;imm&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_cmpsimm.sve_int_scmp_vi.cmplt_p_p_zi_" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SVE) &amp;&amp; !IsFeatureImplemented(FEAT_SME) then
+    EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+let esize : integer{} = 8 &lt;&lt; UInt(size);
+let g : integer = UInt(Pg);
+let n : integer = UInt(Zn);
+let d : integer = UInt(Pd);
+let cmp_op : CmpOp = Cmp_LT;
+let imm : integer = SInt(imm5);
+let unsigned : boolean = FALSE;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+    <iclass name="Less than or equal" oneof="10" id="iclass_less_than_or_equal" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="sve"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="CMPLE"/>
+        <docvar key="sve-compare-type" value="le"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SVE || FEAT_SME" name="(v8Ap2 &amp;&amp; PROFILE_A) || (v9Ap2 &amp;&amp; PROFILE_A)"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_cmpsimm.sve_int_scmp_vi.cmple_p_p_zi_" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="23" width="2" name="size" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="20" width="5" name="imm5" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="15" name="op" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="14" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="13" name="lt" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="12" width="3" name="Pg" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="9" width="5" name="Zn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" name="ne" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="3" width="4" name="Pd" usename="1">
+          <c colspan="4"/>
+        </box>
+      </regdiagram>
+      <encoding name="cmple_p_p_zi_" oneofinclass="1" oneof="10" label="">
+        <docvars>
+          <docvar key="instr-class" value="sve"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="sve-compare-type" value="le"/>
+          <docvar key="mnemonic" value="CMPLE"/>
+        </docvars>
+        <asmtemplate><text>CMPLE  </text><a hover="Is the name of the destination scalable predicate register, encoded in the &quot;Pd&quot; field." link="Pd">&lt;Pd&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__23">&lt;T&gt;</a><text>, </text><a hover="Is the name of the governing scalable predicate register P0-P7, encoded in the &quot;Pg&quot; field." link="Pg">&lt;Pg&gt;</a><text>/Z, </text><a hover="Is the name of the source scalable vector register, encoded in the &quot;Zn&quot; field." link="Zn">&lt;Zn&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__23">&lt;T&gt;</a><text>, #</text><a hover="For the &quot;Equal&quot;, &quot;Greater than or equal&quot;, &quot;Greater than&quot;, &quot;Less than or equal&quot;, &quot;Less than&quot;, and &quot;Not equal&quot; variants: is the signed immediate operand, in the range -16 to 15, encoded in the &quot;imm5&quot; field." link="imm__43">&lt;imm&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_cmpsimm.sve_int_scmp_vi.cmple_p_p_zi_" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SVE) &amp;&amp; !IsFeatureImplemented(FEAT_SME) then
+    EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+let esize : integer{} = 8 &lt;&lt; UInt(size);
+let g : integer = UInt(Pg);
+let n : integer = UInt(Zn);
+let d : integer = UInt(Pd);
+let cmp_op : CmpOp = Cmp_LE;
+let imm : integer = SInt(imm5);
+let unsigned : boolean = FALSE;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+    <iclass name="Lower" oneof="10" id="iclass_lower" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="sve"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="CMPLO"/>
+        <docvar key="sve-compare-type" value="lo"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SVE || FEAT_SME" name="(v8Ap2 &amp;&amp; PROFILE_A) || (v9Ap2 &amp;&amp; PROFILE_A)"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_cmpuimm.sve_int_ucmp_vi.cmplo_p_p_zi_" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="23" width="2" name="size" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="20" width="7" name="imm7" usename="1">
+          <c colspan="7"/>
+        </box>
+        <box hibit="13" name="lt" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="12" width="3" name="Pg" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="9" width="5" name="Zn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" name="ne" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="3" width="4" name="Pd" usename="1">
+          <c colspan="4"/>
+        </box>
+      </regdiagram>
+      <encoding name="cmplo_p_p_zi_" oneofinclass="1" oneof="10" label="">
+        <docvars>
+          <docvar key="instr-class" value="sve"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="sve-compare-type" value="lo"/>
+          <docvar key="mnemonic" value="CMPLO"/>
+        </docvars>
+        <asmtemplate><text>CMPLO  </text><a hover="Is the name of the destination scalable predicate register, encoded in the &quot;Pd&quot; field." link="Pd">&lt;Pd&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__23">&lt;T&gt;</a><text>, </text><a hover="Is the name of the governing scalable predicate register P0-P7, encoded in the &quot;Pg&quot; field." link="Pg">&lt;Pg&gt;</a><text>/Z, </text><a hover="Is the name of the source scalable vector register, encoded in the &quot;Zn&quot; field." link="Zn">&lt;Zn&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__23">&lt;T&gt;</a><text>, #</text><a hover="For the &quot;Higher or same&quot;, &quot;Higher&quot;, &quot;Lower or same&quot;, and &quot;Lower&quot; variants: is the unsigned immediate operand, in the range 0 to 127, encoded in the &quot;imm7&quot; field." link="imm__44">&lt;imm&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_cmpuimm.sve_int_ucmp_vi.cmplo_p_p_zi_" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SVE) &amp;&amp; !IsFeatureImplemented(FEAT_SME) then
+    EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+let esize : integer{} = 8 &lt;&lt; UInt(size);
+let g : integer = UInt(Pg);
+let n : integer = UInt(Zn);
+let d : integer = UInt(Pd);
+let cmp_op : CmpOp = Cmp_LT;
+let imm : integer = UInt(imm7);
+let unsigned : boolean = TRUE;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+    <iclass name="Lower or same" oneof="10" id="iclass_lower_or_same" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="sve"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="CMPLS"/>
+        <docvar key="sve-compare-type" value="ls"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SVE || FEAT_SME" name="(v8Ap2 &amp;&amp; PROFILE_A) || (v9Ap2 &amp;&amp; PROFILE_A)"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_cmpuimm.sve_int_ucmp_vi.cmpls_p_p_zi_" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="23" width="2" name="size" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="20" width="7" name="imm7" usename="1">
+          <c colspan="7"/>
+        </box>
+        <box hibit="13" name="lt" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="12" width="3" name="Pg" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="9" width="5" name="Zn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" name="ne" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="3" width="4" name="Pd" usename="1">
+          <c colspan="4"/>
+        </box>
+      </regdiagram>
+      <encoding name="cmpls_p_p_zi_" oneofinclass="1" oneof="10" label="">
+        <docvars>
+          <docvar key="instr-class" value="sve"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="sve-compare-type" value="ls"/>
+          <docvar key="mnemonic" value="CMPLS"/>
+        </docvars>
+        <asmtemplate><text>CMPLS  </text><a hover="Is the name of the destination scalable predicate register, encoded in the &quot;Pd&quot; field." link="Pd">&lt;Pd&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__23">&lt;T&gt;</a><text>, </text><a hover="Is the name of the governing scalable predicate register P0-P7, encoded in the &quot;Pg&quot; field." link="Pg">&lt;Pg&gt;</a><text>/Z, </text><a hover="Is the name of the source scalable vector register, encoded in the &quot;Zn&quot; field." link="Zn">&lt;Zn&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__23">&lt;T&gt;</a><text>, #</text><a hover="For the &quot;Higher or same&quot;, &quot;Higher&quot;, &quot;Lower or same&quot;, and &quot;Lower&quot; variants: is the unsigned immediate operand, in the range 0 to 127, encoded in the &quot;imm7&quot; field." link="imm__44">&lt;imm&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_cmpuimm.sve_int_ucmp_vi.cmpls_p_p_zi_" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SVE) &amp;&amp; !IsFeatureImplemented(FEAT_SME) then
+    EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+let esize : integer{} = 8 &lt;&lt; UInt(size);
+let g : integer = UInt(Pg);
+let n : integer = UInt(Zn);
+let d : integer = UInt(Pd);
+let cmp_op : CmpOp = Cmp_LE;
+let imm : integer = UInt(imm7);
+let unsigned : boolean = TRUE;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+    <iclass name="Not equal" oneof="10" id="iclass_not_equal" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="sve"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="CMPNE"/>
+        <docvar key="sve-compare-type" value="ne"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SVE || FEAT_SME" name="(v8Ap2 &amp;&amp; PROFILE_A) || (v9Ap2 &amp;&amp; PROFILE_A)"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_cmpsimm.sve_int_scmp_vi.cmpne_p_p_zi_" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="23" width="2" name="size" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="20" width="5" name="imm5" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="15" name="op" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="14" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="13" name="o2" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="12" width="3" name="Pg" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="9" width="5" name="Zn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" name="ne" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="3" width="4" name="Pd" usename="1">
+          <c colspan="4"/>
+        </box>
+      </regdiagram>
+      <encoding name="cmpne_p_p_zi_" oneofinclass="1" oneof="10" label="">
+        <docvars>
+          <docvar key="instr-class" value="sve"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="sve-compare-type" value="ne"/>
+          <docvar key="mnemonic" value="CMPNE"/>
+        </docvars>
+        <asmtemplate><text>CMPNE  </text><a hover="Is the name of the destination scalable predicate register, encoded in the &quot;Pd&quot; field." link="Pd">&lt;Pd&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__23">&lt;T&gt;</a><text>, </text><a hover="Is the name of the governing scalable predicate register P0-P7, encoded in the &quot;Pg&quot; field." link="Pg">&lt;Pg&gt;</a><text>/Z, </text><a hover="Is the name of the source scalable vector register, encoded in the &quot;Zn&quot; field." link="Zn">&lt;Zn&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__23">&lt;T&gt;</a><text>, #</text><a hover="For the &quot;Equal&quot;, &quot;Greater than or equal&quot;, &quot;Greater than&quot;, &quot;Less than or equal&quot;, &quot;Less than&quot;, and &quot;Not equal&quot; variants: is the signed immediate operand, in the range -16 to 15, encoded in the &quot;imm5&quot; field." link="imm__43">&lt;imm&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_cmpsimm.sve_int_scmp_vi.cmpne_p_p_zi_" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SVE) &amp;&amp; !IsFeatureImplemented(FEAT_SME) then
+    EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+let esize : integer{} = 8 &lt;&lt; UInt(size);
+let g : integer = UInt(Pg);
+let n : integer = UInt(Zn);
+let d : integer = UInt(Pd);
+let cmp_op : CmpOp = Cmp_NE;
+let imm : integer = SInt(imm5);
+let unsigned : boolean = FALSE;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="cmpeq_p_p_zi_, cmpgt_p_p_zi_, cmpge_p_p_zi_, cmphi_p_p_zi_, cmphs_p_p_zi_, cmplt_p_p_zi_, cmple_p_p_zi_, cmplo_p_p_zi_, cmpls_p_p_zi_, cmpne_p_p_zi_" symboldefcount="1">
+      <symbol link="Pd">&lt;Pd&gt;</symbol>
+      <account encodedin="Pd">
+        <intro>
+          <para>Is the name of the destination scalable predicate register, encoded in the &quot;Pd&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="cmpeq_p_p_zi_, cmpgt_p_p_zi_, cmpge_p_p_zi_, cmphi_p_p_zi_, cmphs_p_p_zi_, cmplt_p_p_zi_, cmple_p_p_zi_, cmplo_p_p_zi_, cmpls_p_p_zi_, cmpne_p_p_zi_" symboldefcount="1">
+      <symbol link="T__23">&lt;T&gt;</symbol>
+      <definition encodedin="size">
+        <intro>Is the size specifier, </intro>
+        <table class="valuetable">
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry class="bitfield">size</entry>
+                <entry class="symbol">&lt;T&gt;</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry class="bitfield">00</entry>
+                <entry class="symbol">B</entry>
+              </row>
+              <row>
+                <entry class="bitfield">01</entry>
+                <entry class="symbol">H</entry>
+              </row>
+              <row>
+                <entry class="bitfield">10</entry>
+                <entry class="symbol">S</entry>
+              </row>
+              <row>
+                <entry class="bitfield">11</entry>
+                <entry class="symbol">D</entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </table>
+      </definition>
+    </explanation>
+    <explanation enclist="cmpeq_p_p_zi_, cmpgt_p_p_zi_, cmpge_p_p_zi_, cmphi_p_p_zi_, cmphs_p_p_zi_, cmplt_p_p_zi_, cmple_p_p_zi_, cmplo_p_p_zi_, cmpls_p_p_zi_, cmpne_p_p_zi_" symboldefcount="1">
+      <symbol link="Pg">&lt;Pg&gt;</symbol>
+      <account encodedin="Pg">
+        <intro>
+          <para>Is the name of the governing scalable predicate register P0-P7, encoded in the &quot;Pg&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="cmpeq_p_p_zi_, cmpgt_p_p_zi_, cmpge_p_p_zi_, cmphi_p_p_zi_, cmphs_p_p_zi_, cmplt_p_p_zi_, cmple_p_p_zi_, cmplo_p_p_zi_, cmpls_p_p_zi_, cmpne_p_p_zi_" symboldefcount="1">
+      <symbol link="Zn">&lt;Zn&gt;</symbol>
+      <account encodedin="Zn">
+        <intro>
+          <para>Is the name of the source scalable vector register, encoded in the &quot;Zn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="cmpeq_p_p_zi_, cmpgt_p_p_zi_, cmpge_p_p_zi_, cmplt_p_p_zi_, cmple_p_p_zi_, cmpne_p_p_zi_" symboldefcount="1">
+      <symbol link="imm__43">&lt;imm&gt;</symbol>
+      <account encodedin="imm5">
+        <intro>
+          <para>For the &quot;Equal&quot;, &quot;Greater than or equal&quot;, &quot;Greater than&quot;, &quot;Less than or equal&quot;, &quot;Less than&quot;, and &quot;Not equal&quot; variants: is the signed immediate operand, in the range -16 to 15, encoded in the &quot;imm5&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="cmphi_p_p_zi_, cmphs_p_p_zi_, cmplo_p_p_zi_, cmpls_p_p_zi_" symboldefcount="2">
+      <symbol link="imm__44">&lt;imm&gt;</symbol>
+      <account encodedin="imm7">
+        <intro>
+          <para>For the &quot;Higher or same&quot;, &quot;Higher&quot;, &quot;Lower or same&quot;, and &quot;Lower&quot; variants: is the unsigned immediate operand, in the range 0 to 127, encoded in the &quot;imm7&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.sve.sve_cmpsimm.sve_int_scmp_vi.cmpeq_p_p_zi_" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">CheckSVEEnabled();
+let VL : integer{} = CurrentVL();
+let PL : integer{} = VL DIV 8;
+let elements : integer = VL DIV esize;
+let mask : bits(PL) = P{}(g);
+let operand1 : bits(VL) = if <a link="func_AnyActiveElement_3" file="shared_pseudocode.xml">AnyActiveElement</a>{PL}(mask, esize) then <a link="accessor_Z_2" file="shared_pseudocode.xml">Z</a>{VL}(n) else Zeros{VL};
+var result : bits(PL);
+let psize : integer{} = esize DIV 8;
+
+for e = 0 to elements-1 do
+    let op1elt : bits(esize) = operand1[e*:esize];
+    let element1 : integer = if unsigned then UInt(op1elt) else SInt(op1elt);
+    if <a link="func_ActivePredicateElement_4" file="shared_pseudocode.xml">ActivePredicateElement</a>{PL}(mask, e, esize) then
+        var cond : boolean;
+        case cmp_op of
+            when Cmp_EQ =&gt; cond = element1 == imm;
+            when Cmp_NE =&gt; cond = element1 != imm;
+            when Cmp_GE =&gt; cond = element1 &gt;= imm;
+            when Cmp_LT =&gt; cond = element1 &lt;  imm;
+            when Cmp_GT =&gt; cond = element1 &gt;  imm;
+            when Cmp_LE =&gt; cond = element1 &lt;= imm;
+        end;
+        let pbit : bit = if cond then '1' else '0';
+        result[e*:psize] = ZeroExtend{psize}(pbit);
+    else
+        result[e*:psize] = ZeroExtend{psize}('0');
+    end;
+end;
+
+PSTATE.[N,Z,C,V] = <a link="func_PredTest_4" file="shared_pseudocode.xml">PredTest</a>{PL}(mask, result, esize);
+<a link="accessor_P_2" file="shared_pseudocode.xml">P</a>{PL}(d) = result;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

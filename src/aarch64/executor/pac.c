@@ -328,6 +328,46 @@ inline uint64_t autdb(uint64_t ptr, uint64_t mod) {
 	return ptr;
 }
 
+inline uint64_t autiza(uint64_t ptr) {
+	asm volatile("autiza %0" : "+r"(ptr));
+	return ptr;
+}
+
+inline uint64_t autizb(uint64_t ptr) {
+	asm volatile("autizb %0" : "+r"(ptr));
+	return ptr;
+}
+
+inline uint64_t autdza(uint64_t ptr) {
+	asm volatile("autdza %0" : "+r"(ptr));
+	return ptr;
+}
+
+inline uint64_t autdzb(uint64_t ptr) {
+	asm volatile("autdzb %0" : "+r"(ptr));
+	return ptr;
+}
+
+inline uint64_t paciza(uint64_t ptr) {
+	asm volatile("paciza %0" : "+r"(ptr));
+	return ptr;
+}
+
+inline uint64_t pacizb(uint64_t ptr) {
+	asm volatile("pacizb %0" : "+r"(ptr));
+	return ptr;
+}
+
+inline uint64_t pacdza(uint64_t ptr) {
+	asm volatile("pacdza %0" : "+r"(ptr));
+	return ptr;
+}
+
+inline uint64_t pacdzb(uint64_t ptr) {
+	asm volatile("pacdzb %0" : "+r"(ptr));
+	return ptr;
+}
+
 inline uint64_t xpaci(uint64_t ptr) {
 	asm volatile("xpaci %0" : "+r"(ptr));
 	return ptr;

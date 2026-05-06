@@ -1,0 +1,217 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="fadda_v_p_z" title="FADDA -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="sve"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="FADDA"/>
+  </docvars>
+  <heading>FADDA</heading>
+  <desc>
+    <brief>
+      <para>Floating-point add strictly-ordered reduction, accumulating in scalar</para>
+    </brief>
+    <authored>
+      <para>This instruction adds the floating-point values in a SIMD&amp;FP scalar source and all active lanes of the vector source
+and destructively places the result in the SIMD&amp;FP scalar source register.
+Vector elements are processed strictly in order from low to high,
+with the scalar source providing the initial value.
+Inactive elements in the source vector are ignored.</para>
+      <para>This instruction is illegal when executed in Streaming SVE mode, unless FEAT_SME_FA64 is implemented and enabled.</para>
+    </authored>
+    <predicated>True</predicated>
+    <sm_policy>SM_0_only</sm_policy>
+  </desc>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="SVE" oneof="1" id="iclass_sve" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="sve"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="FADDA"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SVE" name="v8Ap2 &amp;&amp; PROFILE_A"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_fp_slowreduce.sve_fp_2op_p_vd.fadda_v_p_z_" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="23" width="2" name="size" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="21" width="3" settings="3">
+          <c>0</c>
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="18" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="17" width="2" name="opc" usename="1" settings="2" psbits="xx">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="15" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="12" width="3" name="Pg" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="9" width="5" name="Zm" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Vdn" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="fadda_v_p_z_" oneofinclass="1" oneof="1" label="">
+        <docvars>
+          <docvar key="instr-class" value="sve"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="FADDA"/>
+        </docvars>
+        <asmtemplate><text>FADDA  </text><a hover="Is a width specifier, " link="V__4">&lt;V&gt;</a><a hover="Is the number [0-31] of the source and destination SIMD&amp;FP register, encoded in the &quot;Vdn&quot; field." link="dn__2">&lt;dn&gt;</a><text>, </text><a hover="Is the name of the governing scalable predicate register P0-P7, encoded in the &quot;Pg&quot; field." link="Pg">&lt;Pg&gt;</a><text>, </text><a hover="Is a width specifier, " link="V__4">&lt;V&gt;</a><a hover="Is the number [0-31] of the source and destination SIMD&amp;FP register, encoded in the &quot;Vdn&quot; field." link="dn__2">&lt;dn&gt;</a><text>, </text><a hover="Is the name of the source scalable vector register, encoded in the &quot;Zm&quot; field." link="Zm__5">&lt;Zm&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__43">&lt;T&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_fp_slowreduce.sve_fp_2op_p_vd.fadda_v_p_z_" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SVE) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+if size == '00' then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+let esize : integer{} = 8 &lt;&lt; UInt(size);
+let g : integer = UInt(Pg);
+let dn : integer = UInt(Vdn);
+let m : integer = UInt(Zm);</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="fadda_v_p_z_" symboldefcount="1">
+      <symbol link="V__4">&lt;V&gt;</symbol>
+      <definition encodedin="size">
+        <intro>Is a width specifier, </intro>
+        <table class="valuetable">
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry class="bitfield">size</entry>
+                <entry class="symbol">&lt;V&gt;</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry class="bitfield">00</entry>
+                <entry class="symbol">RESERVED</entry>
+              </row>
+              <row>
+                <entry class="bitfield">01</entry>
+                <entry class="symbol">H</entry>
+              </row>
+              <row>
+                <entry class="bitfield">10</entry>
+                <entry class="symbol">S</entry>
+              </row>
+              <row>
+                <entry class="bitfield">11</entry>
+                <entry class="symbol">D</entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </table>
+      </definition>
+    </explanation>
+    <explanation enclist="fadda_v_p_z_" symboldefcount="1">
+      <symbol link="dn__2">&lt;dn&gt;</symbol>
+      <account encodedin="Vdn">
+        <intro>
+          <para>Is the number [0-31] of the source and destination SIMD&amp;FP register, encoded in the &quot;Vdn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="fadda_v_p_z_" symboldefcount="1">
+      <symbol link="Pg">&lt;Pg&gt;</symbol>
+      <account encodedin="Pg">
+        <intro>
+          <para>Is the name of the governing scalable predicate register P0-P7, encoded in the &quot;Pg&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="fadda_v_p_z_" symboldefcount="1">
+      <symbol link="Zm__5">&lt;Zm&gt;</symbol>
+      <account encodedin="Zm">
+        <intro>
+          <para>Is the name of the source scalable vector register, encoded in the &quot;Zm&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="fadda_v_p_z_" symboldefcount="1">
+      <symbol link="T__43">&lt;T&gt;</symbol>
+      <definition encodedin="size">
+        <intro>Is the size specifier, </intro>
+        <table class="valuetable">
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry class="bitfield">size</entry>
+                <entry class="symbol">&lt;T&gt;</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry class="bitfield">00</entry>
+                <entry class="symbol">RESERVED</entry>
+              </row>
+              <row>
+                <entry class="bitfield">01</entry>
+                <entry class="symbol">H</entry>
+              </row>
+              <row>
+                <entry class="bitfield">10</entry>
+                <entry class="symbol">S</entry>
+              </row>
+              <row>
+                <entry class="bitfield">11</entry>
+                <entry class="symbol">D</entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </table>
+      </definition>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.sve.sve_fp_slowreduce.sve_fp_2op_p_vd.fadda_v_p_z_" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">CheckNonStreamingSVEEnabled();
+let VL : integer{} = CurrentVL();
+let PL : integer{} = VL DIV 8;
+let elements : integer = VL DIV esize;
+let mask : bits(PL) = P{}(g);
+let operand1 : bits(esize) = V{}(dn);
+let operand2 : bits(VL) = if <a link="func_AnyActiveElement_3" file="shared_pseudocode.xml">AnyActiveElement</a>{PL}(mask, esize) then <a link="accessor_Z_2" file="shared_pseudocode.xml">Z</a>{VL}(m) else Zeros{VL};
+var result : bits(esize) = operand1;
+
+for e = 0 to elements-1 do
+    if <a link="func_ActivePredicateElement_4" file="shared_pseudocode.xml">ActivePredicateElement</a>{PL}(mask, e, esize) then
+        let element : bits(esize) = operand2[e*:esize];
+        result = <a link="func_FPAdd_4" file="shared_pseudocode.xml">FPAdd</a>{esize}(result, element, FPCR());
+    end;
+end;
+
+V{esize}(dn) = result;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

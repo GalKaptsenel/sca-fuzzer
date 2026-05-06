@@ -90,6 +90,7 @@ class NumpyRandomInputGenerator(InputGenerator):
         Produce a new sequence of random inputs, but copy the tainted values from
         the base sequence
         """
+#        import pdb;pdb.set_trace()
         if not inputs:
             return []
 

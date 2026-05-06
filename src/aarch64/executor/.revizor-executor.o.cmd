@@ -1,0 +1,1 @@
+savedcmd_/home/gal_k_1_1998/revizor/sca-fuzzer/src/aarch64/executor/revizor-executor.o := aarch64-linux-gnu-ld -EL  -maarch64elf -z noexecstack --no-warn-rwx-segments   -r -o /home/gal_k_1_1998/revizor/sca-fuzzer/src/aarch64/executor/revizor-executor.o @/home/gal_k_1_1998/revizor/sca-fuzzer/src/aarch64/executor/revizor-executor.mod 

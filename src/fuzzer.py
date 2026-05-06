@@ -355,7 +355,7 @@ class FuzzerGeneric(Fuzzer):
         else:
             expected_ctraces = args.ctraces * CONF.inputs_per_class
             # compute ctraces separately for every boosted input
-            ctraces, taints, traces = self.executor.trace_test_case_with_taints(args.inputs, args.model_nesting, self.generator)
+            ctraces, taints, traces, _tc_variants = self.executor.trace_test_case_with_taints(args.inputs, args.model_nesting)
             for i, tr in zip(args.inputs, traces):
                 i._arch_trace = tr
 #            if expected_ctraces != ctraces:
@@ -368,8 +368,6 @@ class FuzzerGeneric(Fuzzer):
 #                        original_inp = args.inputs[original_i]
 #                        compare_and_debug_trace_pair(original_inp, args.inputs[i], original_tr, traces[i], original_ta, taints[i])
 #
-            if expected_ctraces != ctraces:
-                import pdb; pdb.set_trace()
             assert expected_ctraces == ctraces, f'Mismatching CTraces!\n\texpected_ctraces={[t.raw for t in expected_ctraces]}\n\tverified_ctraces={[t.raw for t in ctraces]}'
         assert len(ctraces) == len(args.inputs)
 
@@ -424,7 +422,7 @@ class FuzzerGeneric(Fuzzer):
 
         # collect taints and contract traces for initial inputs
         #ctraces, taints = self.model.trace_test_case_with_taints(inputs, nesting)
-        ctraces, taints, _ = self.executor.trace_test_case_with_taints(inputs, nesting, self.generator)
+        ctraces, taints, _, _tc_variants = self.executor.trace_test_case_with_taints(inputs, nesting)
 
         # ensure that we have many inputs in each input classes
         self.input_gen.reset_boosting_state()
@@ -721,6 +719,15 @@ class NoninterfearenceFuzzer(FuzzerGeneric):
         super().__init__(instruction_set_spec, work_dir, existing_test_case, inputs)
         self.LOG.warning("fuzzer", "Running in noniterfearence mode.")
 
+    def initialize_modules(self):
+        isa = self.instruction_set
+        self.generator = factory.get_program_generator(isa, CONF.program_generator_seed)
+        self.input_gen = factory.get_input_generator(CONF.input_gen_seed)
+        # Non-interference executor requires the generator at construction (constructor injection).
+        self.executor = factory.get_noninterference_executor(self.generator)
+        self.analyser = factory.get_analyser()
+        self.asm_parser = factory.get_asm_parser(self.generator)
+
     def _collect_traces(
             self, args: TracingArguments) -> Tuple[List[Violation], List[CTrace], List[HTrace]]:
         """
@@ -741,12 +748,30 @@ class NoninterfearenceFuzzer(FuzzerGeneric):
            - args.added_htraces: additional hardware traces to be added to the existing ones
         :return: a tuple of violations, contract traces, and hardware traces
         """
-        # compute ctraces separately for every boosted input
-        ctraces, taints, traces = self.executor.trace_test_case_with_taints(args.inputs, args.model_nesting, self.generator)
+        # Collect contract traces and generate TC variants (stage-1 cache → CE → stage-2)
+        ctraces, taints, traces, tc_variants = self.executor.trace_test_case_with_taints(args.inputs, args.model_nesting)
         for i, tr in zip(args.inputs, traces):
             i._arch_trace = tr
 
         assert len(ctraces) == len(args.inputs)
+
+        # Debug: run TC1/TC2/TC3 through CE and compare their architectural CTraces
+        if tc_variants:
+            self.executor.debug_compare_variants_on_ce(args.inputs, tc_variants)
+
+        # Stage-2 HW tracing: run the first input through TC1/TC2/TC3 for each variant
+        if tc_variants and args.inputs:
+            hw_variant_traces = self.executor.trace_test_case_from_variants(
+                args.inputs[0], tc_variants, n_reps=1)
+            for i, (tc1_ht, tc2_ht, tc3_ht) in enumerate(hw_variant_traces):
+                mismatch_12 = tc1_ht != tc2_ht
+                mismatch_31 = tc3_ht != tc1_ht
+                tag = ""
+                if mismatch_12:
+                    tag += " [UNEXPECTED: TC1!=TC2]"
+                if mismatch_31:
+                    tag += " [SPEC LEAK CANDIDATE: TC3!=TC1]"
+                print(f"[STAGE2 HW] variant {i}: TC1={tc1_ht.raw}  TC2={tc2_ht.raw}  TC3={tc3_ht.raw}{tag}")
 
         # Collect hardware traces
         try:

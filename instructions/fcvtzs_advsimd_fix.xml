@@ -1,0 +1,440 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="FCVTZS_advsimd_fix" title="FCVTZS (vector, fixed-point) -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="advsimd"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="FCVTZS"/>
+  </docvars>
+  <heading>FCVTZS (vector, fixed-point)</heading>
+  <desc>
+    <brief>
+      <para>Floating-point convert to signed fixed-point, rounding toward zero (vector)</para>
+    </brief>
+    <authored>
+      <para>This instruction converts a scalar or each element in a vector
+from floating-point to
+fixed-point signed integer
+using the Round towards Zero rounding mode, and
+writes the result to the SIMD&amp;FP destination register.</para>
+      <para>This instruction can generate a floating-point exception.
+  Depending on the settings in <register_link id="AArch64-fpcr.xml" state="AArch64">FPCR</register_link>,
+  the exception results in either a flag being set in <register_link id="AArch64-fpsr.xml" state="AArch64">FPSR</register_link>
+  or a synchronous exception being generated.
+  For more information, see
+  <xref linkend="ARMARM_BEIJDDAG">Floating-point exceptions and exception traps</xref>.</para>
+      <para>Depending on the settings in the <register_link id="AArch64-cpacr_el1.xml" state="AArch64">CPACR_EL1</register_link>,
+  <register_link id="AArch64-cptr_el2.xml" state="AArch64">CPTR_EL2</register_link>, and <register_link id="AArch64-cptr_el3.xml" state="AArch64">CPTR_EL3</register_link> registers,
+  and the current Security state and Exception level,
+  an attempt to execute the instruction might be trapped.</para>
+    </authored>
+  </desc>
+  <alias_list howmany="0"/>
+  <classes>
+    <classesintro count="2">
+      <txt>It has encodings from 2 classes:</txt>
+      <a href="#iclass_scalar">Scalar</a>
+      <txt> and </txt>
+      <a href="#iclass_vector">Vector</a>
+    </classesintro>
+    <iclass name="Scalar" oneof="2" id="iclass_scalar" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="advsimd-type" value="sisd"/>
+        <docvar key="instr-class" value="advsimd"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="FCVTZS"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_AdvSIMD" name="v8Ap0"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.simd_dp.asisdshf.FCVTZS_asisdshf_C" tworows="1">
+        <box hibit="31" width="2" settings="2">
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="29" name="U" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="28" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="27" width="3" settings="3">
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="24" width="2" settings="2">
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="22" width="4" name="immh" usename="1" settings="4" constraint="!= 0000">
+          <c colspan="4">!= 0000</c>
+        </box>
+        <box hibit="18" width="3" name="immb" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="15" width="5" name="opcode" usename="1" settings="5" psbits="xxxxx">
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="10" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="9" width="5" name="Rn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Rd" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="FCVTZS_asisdshf_C" oneofinclass="1" oneof="2" label="">
+        <docvars>
+          <docvar key="advsimd-type" value="sisd"/>
+          <docvar key="instr-class" value="advsimd"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="FCVTZS"/>
+        </docvars>
+        <asmtemplate><text>FCVTZS  </text><a hover="Is a width specifier, " link="V_option__6">&lt;V&gt;</a><a hover="Is the number of the SIMD&amp;FP destination register, encoded in the &quot;Rd&quot; field." link="d">&lt;d&gt;</a><text>, </text><a hover="Is a width specifier, " link="V_option__6">&lt;V&gt;</a><a hover="Is the number of the SIMD&amp;FP source register, encoded in the &quot;Rn&quot; field." link="n__3">&lt;n&gt;</a><text>, #</text><a hover="For the &quot;Scalar&quot; variant: is the number of fractional bits, in the range 1 to the operand width, " link="immh_shift__3">&lt;fbits&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.simd_dp.asisdshf.FCVTZS_asisdshf_C" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_AdvSIMD) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+if immh IN {'000x'} || (immh IN {'001x'} &amp;&amp; !IsFeatureImplemented(FEAT_FP16)) then
+    EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+
+let d : integer{} = UInt(Rd);
+let n : integer{} = UInt(Rn);
+let esize : integer{} = if immh IN {'1xxx'} then 64 else if immh IN {'01xx'} then 32 else 16;
+let datasize : integer{} = esize;
+let elements : integer = 1;
+
+let fracbits : integer = (esize * 2) - UInt(immh::immb);
+let unsigned : boolean = FALSE;
+let rounding : <a link="type_FPRounding" file="shared_pseudocode.xml">FPRounding</a> = <a link="enum_FPRounding_ZERO" file="shared_pseudocode.xml">FPRounding_ZERO</a>;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+    <iclass name="Vector" oneof="2" id="iclass_vector" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="advsimd-type" value="simd"/>
+        <docvar key="instr-class" value="advsimd"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="FCVTZS"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_AdvSIMD" name="v8Ap0"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.simd_dp.asimdshf.FCVTZS_asimdshf_C" tworows="1">
+        <box hibit="31" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="30" width="1" name="Q" usename="1">
+          <c colspan="1"/>
+        </box>
+        <box hibit="29" name="U" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="28" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="27" width="3" settings="3">
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="24" width="2" settings="2">
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="22" width="4" name="immh" usename="1" settings="4" constraint="!= 0000">
+          <c colspan="4">!= 0000</c>
+        </box>
+        <box hibit="18" width="3" name="immb" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="15" width="5" name="opcode" usename="1" settings="5" psbits="xxxxx">
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="10" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="9" width="5" name="Rn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Rd" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="FCVTZS_asimdshf_C" oneofinclass="1" oneof="2" label="">
+        <docvars>
+          <docvar key="advsimd-type" value="simd"/>
+          <docvar key="instr-class" value="advsimd"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="FCVTZS"/>
+        </docvars>
+        <asmtemplate><text>FCVTZS  </text><a hover="Is the name of the SIMD&amp;FP destination register, encoded in the &quot;Rd&quot; field." link="Vd">&lt;Vd&gt;</a><text>.</text><a hover="Is an arrangement specifier, " link="T_option__16">&lt;T&gt;</a><text>, </text><a hover="Is the name of the SIMD&amp;FP source register, encoded in the &quot;Rn&quot; field." link="Vn">&lt;Vn&gt;</a><text>.</text><a hover="Is an arrangement specifier, " link="T_option__16">&lt;T&gt;</a><text>, #</text><a hover="For the &quot;Vector&quot; variant: is the number of fractional bits, in the range 1 to the element width, " link="immh_shift__9">&lt;fbits&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.simd_dp.asimdshf.FCVTZS_asimdshf_C" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_AdvSIMD) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+if immh IN {'000x'} || (immh IN {'001x'} &amp;&amp; !IsFeatureImplemented(FEAT_FP16)) then
+    EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+if immh[3]::Q == '10' then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+
+let d : integer{} = UInt(Rd);
+let n : integer{} = UInt(Rn);
+let esize : integer{} = if immh IN {'1xxx'} then 64 else if immh IN {'01xx'} then 32 else 16;
+let datasize : integer{} = 64 &lt;&lt; UInt(Q);
+let elements : integer = datasize DIV esize;
+
+let fracbits : integer = (esize * 2) - UInt(immh::immb);
+let unsigned : boolean = FALSE;
+let rounding : <a link="type_FPRounding" file="shared_pseudocode.xml">FPRounding</a> = <a link="enum_FPRounding_ZERO" file="shared_pseudocode.xml">FPRounding_ZERO</a>;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="FCVTZS_asisdshf_C" symboldefcount="1">
+      <symbol link="V_option__6">&lt;V&gt;</symbol>
+      <definition encodedin="immh">
+        <intro>Is a width specifier, </intro>
+        <table class="valuetable">
+          <tgroup cols="3">
+            <thead>
+              <row>
+                <entry class="bitfield">immh</entry>
+                <entry class="symbol">&lt;V&gt;</entry>
+                <entry class="symbol">Architectural Feature</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry class="bitfield">0001</entry>
+                <entry class="symbol">RESERVED</entry>
+                <entry class="feature"/>
+              </row>
+              <row>
+                <entry class="bitfield">001x</entry>
+                <entry class="symbol">H</entry>
+                <entry class="feature">
+                  <arch_variants>
+                    <arch_variant feature="FEAT_FP16"/>
+                  </arch_variants>
+                </entry>
+              </row>
+              <row>
+                <entry class="bitfield">01xx</entry>
+                <entry class="symbol">S</entry>
+                <entry class="feature"/>
+              </row>
+              <row>
+                <entry class="bitfield">1xxx</entry>
+                <entry class="symbol">D</entry>
+                <entry class="feature"/>
+              </row>
+            </tbody>
+          </tgroup>
+        </table>
+      </definition>
+    </explanation>
+    <explanation enclist="FCVTZS_asisdshf_C" symboldefcount="1">
+      <symbol link="d">&lt;d&gt;</symbol>
+      <account encodedin="Rd">
+        <intro>
+          <para>Is the number of the SIMD&amp;FP destination register, encoded in the &quot;Rd&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="FCVTZS_asisdshf_C" symboldefcount="1">
+      <symbol link="n__3">&lt;n&gt;</symbol>
+      <account encodedin="Rn">
+        <intro>
+          <para>Is the number of the SIMD&amp;FP source register, encoded in the &quot;Rn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="FCVTZS_asisdshf_C" symboldefcount="1">
+      <symbol link="immh_shift__3">&lt;fbits&gt;</symbol>
+      <definition encodedin="(immh :: immb)">
+        <intro>For the &quot;Scalar&quot; variant: is the number of fractional bits, in the range 1 to the operand width, </intro>
+        <table class="valuetable">
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry class="bitfield">immh</entry>
+                <entry class="symbol">&lt;fbits&gt;</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry class="bitfield">0001</entry>
+                <entry class="symbol">RESERVED</entry>
+              </row>
+              <row>
+                <entry class="bitfield">001x</entry>
+                <entry class="symbol">32 - UInt(immh :: immb)</entry>
+              </row>
+              <row>
+                <entry class="bitfield">01xx</entry>
+                <entry class="symbol">64 - UInt(immh :: immb)</entry>
+              </row>
+              <row>
+                <entry class="bitfield">1xxx</entry>
+                <entry class="symbol">128 - UInt(immh :: immb)</entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </table>
+      </definition>
+    </explanation>
+    <explanation enclist="FCVTZS_asimdshf_C" symboldefcount="2">
+      <symbol link="immh_shift__9">&lt;fbits&gt;</symbol>
+      <definition encodedin="(immh :: immb)">
+        <intro>For the &quot;Vector&quot; variant: is the number of fractional bits, in the range 1 to the element width, </intro>
+        <table class="valuetable">
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry class="bitfield">immh</entry>
+                <entry class="symbol">&lt;fbits&gt;</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry class="bitfield">0001</entry>
+                <entry class="symbol">RESERVED</entry>
+              </row>
+              <row>
+                <entry class="bitfield">001x</entry>
+                <entry class="symbol">32 - UInt(immh :: immb)</entry>
+              </row>
+              <row>
+                <entry class="bitfield">01xx</entry>
+                <entry class="symbol">64 - UInt(immh :: immb)</entry>
+              </row>
+              <row>
+                <entry class="bitfield">1xxx</entry>
+                <entry class="symbol">128 - UInt(immh :: immb)</entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </table>
+      </definition>
+    </explanation>
+    <explanation enclist="FCVTZS_asimdshf_C" symboldefcount="1">
+      <symbol link="Vd">&lt;Vd&gt;</symbol>
+      <account encodedin="Rd">
+        <intro>
+          <para>Is the name of the SIMD&amp;FP destination register, encoded in the &quot;Rd&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="FCVTZS_asimdshf_C" symboldefcount="1">
+      <symbol link="T_option__16">&lt;T&gt;</symbol>
+      <definition encodedin="(immh :: Q)">
+        <intro>Is an arrangement specifier, </intro>
+        <table class="valuetable">
+          <tgroup cols="4">
+            <thead>
+              <row>
+                <entry class="bitfield">immh</entry>
+                <entry class="bitfield">Q</entry>
+                <entry class="symbol">&lt;T&gt;</entry>
+                <entry class="symbol">Architectural Feature</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry class="bitfield">0001</entry>
+                <entry class="bitfield">x</entry>
+                <entry class="symbol">RESERVED</entry>
+                <entry class="feature"/>
+              </row>
+              <row>
+                <entry class="bitfield">001x</entry>
+                <entry class="bitfield">0</entry>
+                <entry class="symbol">4H</entry>
+                <entry class="feature">
+                  <arch_variants>
+                    <arch_variant feature="FEAT_FP16"/>
+                  </arch_variants>
+                </entry>
+              </row>
+              <row>
+                <entry class="bitfield">001x</entry>
+                <entry class="bitfield">1</entry>
+                <entry class="symbol">8H</entry>
+                <entry class="feature">
+                  <arch_variants>
+                    <arch_variant feature="FEAT_FP16"/>
+                  </arch_variants>
+                </entry>
+              </row>
+              <row>
+                <entry class="bitfield">01xx</entry>
+                <entry class="bitfield">0</entry>
+                <entry class="symbol">2S</entry>
+                <entry class="feature"/>
+              </row>
+              <row>
+                <entry class="bitfield">01xx</entry>
+                <entry class="bitfield">1</entry>
+                <entry class="symbol">4S</entry>
+                <entry class="feature"/>
+              </row>
+              <row>
+                <entry class="bitfield">1xxx</entry>
+                <entry class="bitfield">0</entry>
+                <entry class="symbol">RESERVED</entry>
+                <entry class="feature"/>
+              </row>
+              <row>
+                <entry class="bitfield">1xxx</entry>
+                <entry class="bitfield">1</entry>
+                <entry class="symbol">2D</entry>
+                <entry class="feature"/>
+              </row>
+            </tbody>
+          </tgroup>
+        </table>
+      </definition>
+    </explanation>
+    <explanation enclist="FCVTZS_asimdshf_C" symboldefcount="1">
+      <symbol link="Vn">&lt;Vn&gt;</symbol>
+      <account encodedin="Rn">
+        <intro>
+          <para>Is the name of the SIMD&amp;FP source register, encoded in the &quot;Rn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.simd_dp.asisdshf.FCVTZS_asisdshf_C" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">AArch64_CheckFPAdvSIMDEnabled();
+let operand : bits(datasize)  = V{}(n);
+
+let merge : boolean = elements == 1 &amp;&amp; <a link="func_IsMerging_1" file="shared_pseudocode.xml">IsMerging</a>(FPCR());
+var result : bits(128) = if merge then V{128}(d) else Zeros{128};
+var element : bits(esize);
+
+for e = 0 to elements-1 do
+    element = operand[e*:esize];
+    result[e*:esize] = <a link="func_FPToFixed_7" file="shared_pseudocode.xml">FPToFixed</a>{esize, esize}(element, fracbits, unsigned, FPCR(), rounding);
+end;
+
+V{128}(d) = result;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

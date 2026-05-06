@@ -1,0 +1,140 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="LDR_lit_gen" title="LDR (literal) -- A64" type="instruction">
+  <docvars>
+    <docvar key="address-form" value="literal"/>
+    <docvar key="instr-class" value="general"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="LDR"/>
+    <docvar key="offset-type" value="off19s"/>
+  </docvars>
+  <heading>LDR (literal)</heading>
+  <desc>
+    <brief>
+      <para>Load register (literal)</para>
+    </brief>
+    <authored>
+      <para>This instruction calculates an address from the PC value and
+an immediate offset, loads a word from memory, and writes it to a
+register. For information about addressing modes, see
+<xref linkend="ARMARM_CHDIIIBB">Load/Store addressing modes</xref>.</para>
+    </authored>
+  </desc>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="Literal" oneof="1" id="iclass_literal" no_encodings="2" isa="A64">
+      <docvars>
+        <docvar key="address-form" value="literal"/>
+        <docvar key="instr-class" value="general"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="LDR"/>
+        <docvar key="offset-type" value="off19s"/>
+      </docvars>
+      <iclassintro count="2"/>
+      <regdiagram form="32" psname="A64.ldst.loadlit.LDR_32_loadlit" tworows="1">
+        <box hibit="31" width="2" name="opc" usename="1" settings="1" psbits="xx">
+          <c>0</c>
+          <c>x</c>
+        </box>
+        <box hibit="29" width="3" settings="3">
+          <c>0</c>
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="26" name="VR" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="25" width="2" settings="2">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="23" width="19" name="imm19" usename="1">
+          <c colspan="19"/>
+        </box>
+        <box hibit="4" width="5" name="Rt" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="LDR_32_loadlit" oneofinclass="2" oneof="2" label="32-bit" bitdiffs="opc == 00">
+        <docvars>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="address-form" value="literal"/>
+          <docvar key="address-form-reg-type" value="literal-32-reg"/>
+          <docvar key="atomic-ops" value="LDR-32-reg"/>
+          <docvar key="offset-type" value="off19s"/>
+          <docvar key="reg-type" value="32-reg"/>
+          <docvar key="mnemonic" value="LDR"/>
+        </docvars>
+        <box hibit="31" width="2" name="opc">
+          <c/>
+          <c>0</c>
+        </box>
+        <asmtemplate><text>LDR  </text><a hover="Is the 32-bit name of the general-purpose register to be loaded, encoded in the &quot;Rt&quot; field." link="WtOrWZR__2">&lt;Wt&gt;</a><text>, </text><a hover="Is the program label from which the data is to be loaded. Its offset from the address of this instruction, in the range +/-1MB, is encoded as &quot;imm19&quot; times 4." link="imm19_offset__2">&lt;label&gt;</a></asmtemplate>
+      </encoding>
+      <encoding name="LDR_64_loadlit" oneofinclass="2" oneof="2" label="64-bit" bitdiffs="opc == 01">
+        <docvars>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="address-form" value="literal"/>
+          <docvar key="address-form-reg-type" value="literal-64-reg"/>
+          <docvar key="atomic-ops" value="LDR-64-reg"/>
+          <docvar key="offset-type" value="off19s"/>
+          <docvar key="reg-type" value="64-reg"/>
+          <docvar key="mnemonic" value="LDR"/>
+        </docvars>
+        <box hibit="31" width="2" name="opc">
+          <c/>
+          <c>1</c>
+        </box>
+        <asmtemplate><text>LDR  </text><a hover="Is the 64-bit name of the general-purpose register to be loaded, encoded in the &quot;Rt&quot; field." link="XtOrXZR__8">&lt;Xt&gt;</a><text>, </text><a hover="Is the program label from which the data is to be loaded. Its offset from the address of this instruction, in the range +/-1MB, is encoded as &quot;imm19&quot; times 4." link="imm19_offset__2">&lt;label&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.ldst.loadlit.LDR_32_loadlit" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">let t : integer{} = UInt(Rt);
+let size : integer{} = 4 &lt;&lt; UInt(opc[0]);
+let nontemporal : boolean = FALSE;
+let tagchecked : boolean = FALSE;
+
+let offset : bits(64) = SignExtend{}(imm19::'00');</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="LDR_32_loadlit" symboldefcount="1">
+      <symbol link="WtOrWZR__2">&lt;Wt&gt;</symbol>
+      <account encodedin="Rt">
+        <intro>
+          <para>Is the 32-bit name of the general-purpose register to be loaded, encoded in the &quot;Rt&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDR_32_loadlit, LDR_64_loadlit" symboldefcount="1">
+      <symbol link="imm19_offset__2">&lt;label&gt;</symbol>
+      <account encodedin="imm19">
+        <intro>
+          <para>Is the program label from which the data is to be loaded. Its offset from the address of this instruction, in the range +/-1MB, is encoded as &quot;imm19&quot; times 4.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDR_64_loadlit" symboldefcount="1">
+      <symbol link="XtOrXZR__8">&lt;Xt&gt;</symbol>
+      <account encodedin="Rt">
+        <intro>
+          <para>Is the 64-bit name of the general-purpose register to be loaded, encoded in the &quot;Rt&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.ldst.loadlit.LDR_32_loadlit" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">let address : bits(64) = <a link="func_PC64_0" file="shared_pseudocode.xml">PC64</a>() + offset;
+let privileged : boolean = PSTATE.EL != <a link="global_EL0" file="shared_pseudocode.xml">EL0</a>;
+let accdesc : <a link="type_AccessDescriptor" file="shared_pseudocode.xml">AccessDescriptor</a> = CreateAccDescGPR(MemOp_LOAD, nontemporal, privileged,
+                                                  tagchecked, t);
+
+<a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{size * 8}(t) = <a link="accessor_Mem_3" file="shared_pseudocode.xml">Mem</a>{size * 8}(address, accdesc);</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

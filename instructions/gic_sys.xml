@@ -1,0 +1,269 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="GIC_SYS" title="GIC -- A64" type="alias">
+  <docvars>
+    <docvar key="alias_mnemonic" value="GIC"/>
+    <docvar key="instr-class" value="system"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="SYS"/>
+  </docvars>
+  <heading>GIC</heading>
+  <desc>
+    <brief>
+      <para>Generic Interrupt Controller</para>
+    </brief>
+    <authored>
+      <para>This instruction manages interrupts when FEAT_GCIE is implemented.</para>
+    </authored>
+  </desc>
+  <aliasto refiform="sys.xml" iformid="SYS">SYS</aliasto>
+  <classes>
+    <iclass name="System" oneof="1" id="iclass_system" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="system"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="SYS"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_GCIE" name="v9Ap7"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.control.systeminstrs.SYS_CR_systeminstrs.GIC" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>1</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="28" width="3" settings="3">
+          <c>1</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="25" width="4" settings="4">
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="21" name="L" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="20" width="2" settings="2">
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="18" width="3" name="op1" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="15" width="4" name="CRn" usename="1" settings="4" psbits="xxxx">
+          <c>1</c>
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="11" width="4" name="CRm" usename="1" settings="4" constraint="IN {0001, 0010}">
+          <c colspan="4">IN {0001, 0010}</c>
+        </box>
+        <box hibit="7" width="3" name="op2" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="4" width="5" name="Rt" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="GIC_SYS_CR_systeminstrs" oneofinclass="1" oneof="1" label="">
+        <docvars>
+          <docvar key="instr-class" value="system"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="SYS"/>
+          <docvar key="alias_mnemonic" value="GIC"/>
+        </docvars>
+        <asmtemplate><text>GIC  </text><a hover="Is a GIC operation name, as listed for the GIC system instruction group, " link="gic_op_option">&lt;gic_op&gt;</a><text>, </text><a hover="Is the 64-bit name of the general-purpose source register, encoded in the &quot;Rt&quot; field." link="XtOrXZR__3">&lt;Xt&gt;</a></asmtemplate>
+        <equivalent_to>
+          <asmtemplate><a href="sys.xml#SYS_CR_systeminstrs">SYS</a><text>  #</text><a hover="Is a 3-bit unsigned immediate, in the range 0 to 7, encoded in the &quot;op1&quot; field." href="sys.xml#op1">&lt;op1&gt;</a><text>, C12, </text><a hover="Is a name 'Cm', with 'm' in the range 0 to 15, encoded in the &quot;CRm&quot; field." href="sys.xml#Cm">&lt;Cm&gt;</a><text>, #</text><a hover="Is a 3-bit unsigned immediate, in the range 0 to 7, encoded in the &quot;op2&quot; field." href="sys.xml#op2">&lt;op2&gt;</a><text>{, </text><a hover="Is the 64-bit name of the optional general-purpose source register, defaulting to '11111', encoded in the &quot;Rt&quot; field." href="sys.xml#XtOrXZR__2">&lt;Xt&gt;</a><text>}</text></asmtemplate>
+          <aliascond>SysOp(op1, '1100', CRm, op2) == Sys_GIC</aliascond>
+        </equivalent_to>
+      </encoding>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="GIC_SYS_CR_systeminstrs" symboldefcount="1">
+      <symbol link="gic_op_option">&lt;gic_op&gt;</symbol>
+      <definition encodedin="(op1 :: CRm :: op2)">
+        <intro>Is a GIC operation name, as listed for the GIC system instruction group, </intro>
+        <table class="valuetable">
+          <tgroup cols="4">
+            <thead>
+              <row>
+                <entry class="bitfield">op1</entry>
+                <entry class="bitfield">CRm</entry>
+                <entry class="bitfield">op2</entry>
+                <entry class="symbol">&lt;gic_op&gt;</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry class="bitfield">000</entry>
+                <entry class="bitfield">0001</entry>
+                <entry class="bitfield">000</entry>
+                <entry class="symbol">CDDIS</entry>
+              </row>
+              <row>
+                <entry class="bitfield">000</entry>
+                <entry class="bitfield">0001</entry>
+                <entry class="bitfield">001</entry>
+                <entry class="symbol">CDEN</entry>
+              </row>
+              <row>
+                <entry class="bitfield">000</entry>
+                <entry class="bitfield">0001</entry>
+                <entry class="bitfield">010</entry>
+                <entry class="symbol">CDPRI</entry>
+              </row>
+              <row>
+                <entry class="bitfield">000</entry>
+                <entry class="bitfield">0001</entry>
+                <entry class="bitfield">011</entry>
+                <entry class="symbol">CDAFF</entry>
+              </row>
+              <row>
+                <entry class="bitfield">000</entry>
+                <entry class="bitfield">0001</entry>
+                <entry class="bitfield">100</entry>
+                <entry class="symbol">CDPEND</entry>
+              </row>
+              <row>
+                <entry class="bitfield">000</entry>
+                <entry class="bitfield">0001</entry>
+                <entry class="bitfield">101</entry>
+                <entry class="symbol">CDRCFG</entry>
+              </row>
+              <row>
+                <entry class="bitfield">000</entry>
+                <entry class="bitfield">0001</entry>
+                <entry class="bitfield">111</entry>
+                <entry class="symbol">CDEOI</entry>
+              </row>
+              <row>
+                <entry class="bitfield">000</entry>
+                <entry class="bitfield">0010</entry>
+                <entry class="bitfield">000</entry>
+                <entry class="symbol">CDDI</entry>
+              </row>
+              <row>
+                <entry class="bitfield">000</entry>
+                <entry class="bitfield">0010</entry>
+                <entry class="bitfield">001</entry>
+                <entry class="symbol">CDHM</entry>
+              </row>
+              <row>
+                <entry class="bitfield">100</entry>
+                <entry class="bitfield">0001</entry>
+                <entry class="bitfield">000</entry>
+                <entry class="symbol">VDDIS</entry>
+              </row>
+              <row>
+                <entry class="bitfield">100</entry>
+                <entry class="bitfield">0001</entry>
+                <entry class="bitfield">001</entry>
+                <entry class="symbol">VDEN</entry>
+              </row>
+              <row>
+                <entry class="bitfield">100</entry>
+                <entry class="bitfield">0001</entry>
+                <entry class="bitfield">010</entry>
+                <entry class="symbol">VDPRI</entry>
+              </row>
+              <row>
+                <entry class="bitfield">100</entry>
+                <entry class="bitfield">0001</entry>
+                <entry class="bitfield">011</entry>
+                <entry class="symbol">VDAFF</entry>
+              </row>
+              <row>
+                <entry class="bitfield">100</entry>
+                <entry class="bitfield">0001</entry>
+                <entry class="bitfield">100</entry>
+                <entry class="symbol">VDPEND</entry>
+              </row>
+              <row>
+                <entry class="bitfield">100</entry>
+                <entry class="bitfield">0001</entry>
+                <entry class="bitfield">101</entry>
+                <entry class="symbol">VDRCFG</entry>
+              </row>
+              <row>
+                <entry class="bitfield">100</entry>
+                <entry class="bitfield">0010</entry>
+                <entry class="bitfield">000</entry>
+                <entry class="symbol">VDDI</entry>
+              </row>
+              <row>
+                <entry class="bitfield">100</entry>
+                <entry class="bitfield">0010</entry>
+                <entry class="bitfield">001</entry>
+                <entry class="symbol">VDHM</entry>
+              </row>
+              <row>
+                <entry class="bitfield">110</entry>
+                <entry class="bitfield">0001</entry>
+                <entry class="bitfield">000</entry>
+                <entry class="symbol">LDDIS</entry>
+              </row>
+              <row>
+                <entry class="bitfield">110</entry>
+                <entry class="bitfield">0001</entry>
+                <entry class="bitfield">001</entry>
+                <entry class="symbol">LDEN</entry>
+              </row>
+              <row>
+                <entry class="bitfield">110</entry>
+                <entry class="bitfield">0001</entry>
+                <entry class="bitfield">010</entry>
+                <entry class="symbol">LDPRI</entry>
+              </row>
+              <row>
+                <entry class="bitfield">110</entry>
+                <entry class="bitfield">0001</entry>
+                <entry class="bitfield">011</entry>
+                <entry class="symbol">LDAFF</entry>
+              </row>
+              <row>
+                <entry class="bitfield">110</entry>
+                <entry class="bitfield">0001</entry>
+                <entry class="bitfield">100</entry>
+                <entry class="symbol">LDPEND</entry>
+              </row>
+              <row>
+                <entry class="bitfield">110</entry>
+                <entry class="bitfield">0001</entry>
+                <entry class="bitfield">101</entry>
+                <entry class="symbol">LDRCFG</entry>
+              </row>
+              <row>
+                <entry class="bitfield">110</entry>
+                <entry class="bitfield">0010</entry>
+                <entry class="bitfield">000</entry>
+                <entry class="symbol">LDDI</entry>
+              </row>
+              <row>
+                <entry class="bitfield">110</entry>
+                <entry class="bitfield">0010</entry>
+                <entry class="bitfield">001</entry>
+                <entry class="symbol">LDHM</entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </table>
+      </definition>
+    </explanation>
+    <explanation enclist="GIC_SYS_CR_systeminstrs" symboldefcount="1">
+      <symbol link="XtOrXZR__3">&lt;Xt&gt;</symbol>
+      <account encodedin="Rt">
+        <intro>
+          <para>Is the 64-bit name of the general-purpose source register, encoded in the &quot;Rt&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

@@ -1,0 +1,206 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="LDTXR" title="LDTXR -- A64" type="instruction">
+  <docvars>
+    <docvar key="address-form" value="base-register"/>
+    <docvar key="instr-class" value="general"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="LDTXR"/>
+  </docvars>
+  <heading>LDTXR</heading>
+  <desc>
+    <brief>
+      <para>Load unprivileged exclusive register</para>
+    </brief>
+    <authored>
+      <para>This instruction derives an address from a base register
+value, loads a 32-bit word or a 64-bit doubleword from memory,
+and writes it to
+a register. The memory access is atomic.
+The PE marks the physical address being accessed as an exclusive access.
+This exclusive access mark is checked by Store Exclusive instructions. See
+<xref linkend="ARMARM_Chdcgdja">Synchronization and semaphores</xref>.</para>
+      <para>Explicit Memory  effects produced by the instruction behave as if the instruction was
+  executed at EL0 if the <xref linkend="ARMARM_Effective_value">Effective value</xref> of
+  PSTATE.UAO is 0 and either:</para>
+      <list type="unordered">
+        <listitem>
+          <content>The instruction is executed at EL1.</content>
+        </listitem>
+        <listitem>
+          <content>The instruction is executed at EL2 when the <xref linkend="ARMARM_Effective_value">Effective value</xref>
+  of <register_link id="AArch64-hcr_el2.xml" state="AArch64">HCR_EL2()</register_link>.{E2H, TGE} is '11'.</content>
+        </listitem>
+      </list>
+      <para>Otherwise, the Explicit Memory  effects operate with the restrictions determined by
+  the Exception level at which the instruction is executed.</para>
+      <note>
+        <para>For the purposes of the Exclusives monitors, and the forward progress guarantees for
+Load-Exclusive and Store-Exclusive loops, <instruction>LDTXR</instruction> is
+equivalent to <instruction>LDXR</instruction>.</para>
+      </note>
+      <para>For information about addressing modes, see
+<xref linkend="ARMARM_CHDIIIBB">Load/Store addressing modes</xref>.</para>
+    </authored>
+  </desc>
+  <operationalnotes>
+    <operationalnote>
+      <operationalnote_content>
+        <para>This instruction is a data-independent-time instruction as described in <xref linkend="ARMARM_BEICCDDAB3">About PSTATE.DIT</xref>.</para>
+      </operationalnote_content>
+    </operationalnote>
+  </operationalnotes>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="No offset" oneof="1" id="iclass_no_offset" no_encodings="2" isa="A64">
+      <docvars>
+        <docvar key="address-form" value="base-register"/>
+        <docvar key="instr-class" value="general"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="LDTXR"/>
+      </docvars>
+      <iclassintro count="2"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_LSUI" name="v9Ap6"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.ldst.ldstexclr_unpriv.LDTXR_LR32_ldstexclr_unpriv" tworows="1">
+        <box hibit="31" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="30" width="1" name="sz" usename="1">
+          <c colspan="1"/>
+        </box>
+        <box hibit="29" width="7" settings="7">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="22" name="L" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="20" width="5" name="Rs" usename="1" settings="5" psbits="xxxxx">
+          <c>(1)</c>
+          <c>(1)</c>
+          <c>(1)</c>
+          <c>(1)</c>
+          <c>(1)</c>
+        </box>
+        <box hibit="15" name="o0" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="14" width="5" name="Rt2" usename="1" settings="5" psbits="xxxxx">
+          <c>(1)</c>
+          <c>(1)</c>
+          <c>(1)</c>
+          <c>(1)</c>
+          <c>(1)</c>
+        </box>
+        <box hibit="9" width="5" name="Rn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Rt" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="LDTXR_LR32_ldstexclr_unpriv" oneofinclass="2" oneof="2" label="32-bit" bitdiffs="sz == 0">
+        <docvars>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="address-form" value="base-register"/>
+          <docvar key="address-form-reg-type" value="base-register-32-reg"/>
+          <docvar key="atomic-ops" value="LDTXR-32-reg"/>
+          <docvar key="reg-type" value="32-reg"/>
+          <docvar key="mnemonic" value="LDTXR"/>
+        </docvars>
+        <box hibit="30" width="1" name="sz">
+          <c>0</c>
+        </box>
+        <asmtemplate><text>LDTXR  </text><a hover="Is the 32-bit name of the general-purpose register to be transferred, encoded in the &quot;Rt&quot; field." link="WtOrWZR__4">&lt;Wt&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>{, #0}]</text></asmtemplate>
+      </encoding>
+      <encoding name="LDTXR_LR64_ldstexclr_unpriv" oneofinclass="2" oneof="2" label="64-bit" bitdiffs="sz == 1">
+        <docvars>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="address-form" value="base-register"/>
+          <docvar key="address-form-reg-type" value="base-register-64-reg"/>
+          <docvar key="atomic-ops" value="LDTXR-64-reg"/>
+          <docvar key="reg-type" value="64-reg"/>
+          <docvar key="mnemonic" value="LDTXR"/>
+        </docvars>
+        <box hibit="30" width="1" name="sz">
+          <c>1</c>
+        </box>
+        <asmtemplate><text>LDTXR  </text><a hover="Is the 64-bit name of the general-purpose register to be transferred, encoded in the &quot;Rt&quot; field." link="XtOrXZR__11">&lt;Xt&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>{, #0}]</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.ldst.ldstexclr_unpriv.LDTXR_LR32_ldstexclr_unpriv" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_LSUI) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+let t : integer{} = UInt(Rt);
+let n : integer{} = UInt(Rn);
+
+let elsize : integer{} = 32 &lt;&lt; UInt(sz);
+let regsize : integer{} = if elsize == 64 then 64 else 32;
+let acqrel : boolean = FALSE;
+let tagchecked : boolean = n != 31;
+</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="LDTXR_LR32_ldstexclr_unpriv" symboldefcount="1">
+      <symbol link="WtOrWZR__4">&lt;Wt&gt;</symbol>
+      <account encodedin="Rt">
+        <intro>
+          <para>Is the 32-bit name of the general-purpose register to be transferred, encoded in the &quot;Rt&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDTXR_LR32_ldstexclr_unpriv, LDTXR_LR64_ldstexclr_unpriv" symboldefcount="1">
+      <symbol link="XnSP_option">&lt;Xn|SP&gt;</symbol>
+      <account encodedin="Rn">
+        <intro>
+          <para>Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDTXR_LR64_ldstexclr_unpriv" symboldefcount="1">
+      <symbol link="XtOrXZR__11">&lt;Xt&gt;</symbol>
+      <account encodedin="Rt">
+        <intro>
+          <para>Is the 64-bit name of the general-purpose register to be transferred, encoded in the &quot;Rt&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.ldst.ldstexclr_unpriv.LDTXR_LR32_ldstexclr_unpriv" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">var address : bits(64);
+var data : bits(elsize);
+
+let dbytes : integer{} = elsize DIV 8;
+let privileged : boolean = <a link="func_AArch64_IsUnprivAccessPriv_0" file="shared_pseudocode.xml">AArch64_IsUnprivAccessPriv</a>();
+let accdesc : <a link="type_AccessDescriptor" file="shared_pseudocode.xml">AccessDescriptor</a> = CreateAccDescExLDST(MemOp_LOAD, acqrel, tagchecked,
+                                                     privileged, t);
+
+if n == 31 then
+    CheckSPAlignment();
+    address = <a link="accessor_SP_1" file="shared_pseudocode.xml">SP</a>{64}();
+else
+    address = <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(n);
+end;
+
+AArch64_SetExclusiveMonitors(address, dbytes, accdesc);
+
+data = <a link="accessor_Mem_3" file="shared_pseudocode.xml">Mem</a>{elsize}(address, accdesc);
+<a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{regsize}(t) = ZeroExtend{regsize}(data);</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

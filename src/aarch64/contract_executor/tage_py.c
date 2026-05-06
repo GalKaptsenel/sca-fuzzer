@@ -104,6 +104,16 @@ void tagebp_update(uintptr_t address, int taken, uintptr_t target) {
 	}
 }
 
+void tagebp_reset(void) {
+	if (!tage_instance) return;
+	PyObject *result = PyObject_CallMethod(tage_instance, "reset", NULL);
+	if (!result) {
+		PyErr_Print();
+	} else {
+		Py_DECREF(result);
+	}
+}
+
 void tagebp_destroy_instance() {
 	if (tage_instance) {
 		Py_DECREF(tage_instance);

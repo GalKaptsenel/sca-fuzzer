@@ -1,0 +1,131 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="CBZ" title="CBZ -- A64" type="instruction">
+  <docvars>
+    <docvar key="branch-offset" value="br19"/>
+    <docvar key="compare-with" value="cmp-zero"/>
+    <docvar key="instr-class" value="general"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="CBZ"/>
+  </docvars>
+  <heading>CBZ</heading>
+  <desc>
+    <brief>
+      <para>Compare and branch on zero</para>
+    </brief>
+    <authored>
+      <para>This instruction compares the value in a register with zero,
+and conditionally branches to a label at a PC-relative offset if the
+comparison is equal.
+This instruction provides a hint that this is not a subroutine call or return.
+This instruction does not affect condition flags.</para>
+    </authored>
+  </desc>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="19-bit signed PC-relative branch offset" oneof="1" id="iclass_19_bit_signed_pc_relative_branch_offset" no_encodings="2" isa="A64">
+      <docvars>
+        <docvar key="branch-offset" value="br19"/>
+        <docvar key="compare-with" value="cmp-zero"/>
+        <docvar key="instr-class" value="general"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="CBZ"/>
+      </docvars>
+      <iclassintro count="2"/>
+      <regdiagram form="32" psname="A64.control.compbranch.CBZ_32_compbranch" tworows="1">
+        <box hibit="31" width="1" name="sf" usename="1">
+          <c colspan="1"/>
+        </box>
+        <box hibit="30" width="6" settings="6">
+          <c>0</c>
+          <c>1</c>
+          <c>1</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" name="op" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="23" width="19" name="imm19" usename="1">
+          <c colspan="19"/>
+        </box>
+        <box hibit="4" width="5" name="Rt" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="CBZ_32_compbranch" oneofinclass="2" oneof="2" label="32-bit" bitdiffs="sf == 0">
+        <docvars>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="branch-offset" value="br19"/>
+          <docvar key="compare-with" value="cmp-zero"/>
+          <docvar key="datatype" value="32"/>
+          <docvar key="mnemonic" value="CBZ"/>
+        </docvars>
+        <box hibit="31" width="1" name="sf">
+          <c>0</c>
+        </box>
+        <asmtemplate><text>CBZ  </text><a hover="Is the 32-bit name of the general-purpose register to be tested, encoded in the &quot;Rt&quot; field." link="WtOrWZR">&lt;Wt&gt;</a><text>, </text><a hover="Is the program label to be conditionally branched to. Its offset from the address of this instruction, in the range +/-1MB, is encoded as &quot;imm19&quot; times 4." link="imm19_offset">&lt;label&gt;</a></asmtemplate>
+      </encoding>
+      <encoding name="CBZ_64_compbranch" oneofinclass="2" oneof="2" label="64-bit" bitdiffs="sf == 1">
+        <docvars>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="branch-offset" value="br19"/>
+          <docvar key="compare-with" value="cmp-zero"/>
+          <docvar key="datatype" value="64"/>
+          <docvar key="mnemonic" value="CBZ"/>
+        </docvars>
+        <box hibit="31" width="1" name="sf">
+          <c>1</c>
+        </box>
+        <asmtemplate><text>CBZ  </text><a hover="Is the 64-bit name of the general-purpose register to be tested, encoded in the &quot;Rt&quot; field." link="XtOrXZR">&lt;Xt&gt;</a><text>, </text><a hover="Is the program label to be conditionally branched to. Its offset from the address of this instruction, in the range +/-1MB, is encoded as &quot;imm19&quot; times 4." link="imm19_offset">&lt;label&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.control.compbranch.CBZ_32_compbranch" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">let t : integer = UInt(Rt);
+let datasize : integer{} = 32 &lt;&lt; UInt(sf);
+let offset : bits(64) = SignExtend{}(imm19::'00');</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="CBZ_32_compbranch" symboldefcount="1">
+      <symbol link="WtOrWZR">&lt;Wt&gt;</symbol>
+      <account encodedin="Rt">
+        <intro>
+          <para>Is the 32-bit name of the general-purpose register to be tested, encoded in the &quot;Rt&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="CBZ_32_compbranch, CBZ_64_compbranch" symboldefcount="1">
+      <symbol link="imm19_offset">&lt;label&gt;</symbol>
+      <account encodedin="imm19">
+        <intro>
+          <para>Is the program label to be conditionally branched to. Its offset from the address of this instruction, in the range +/-1MB, is encoded as &quot;imm19&quot; times 4.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="CBZ_64_compbranch" symboldefcount="1">
+      <symbol link="XtOrXZR">&lt;Xt&gt;</symbol>
+      <account encodedin="Rt">
+        <intro>
+          <para>Is the 64-bit name of the general-purpose register to be tested, encoded in the &quot;Rt&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.control.compbranch.CBZ_32_compbranch" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">let branch_conditional : boolean = TRUE;
+let operand1 : bits(datasize) = X{}(t);
+if IsZero(operand1) then
+    BranchTo{64}(<a link="func_PC64_0" file="shared_pseudocode.xml">PC64</a>() + offset, <a link="enum_BranchType_DIR" file="shared_pseudocode.xml">BranchType_DIR</a>, branch_conditional);
+else
+    BranchNotTaken(<a link="enum_BranchType_DIR" file="shared_pseudocode.xml">BranchType_DIR</a>, branch_conditional);
+end;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

@@ -1,0 +1,283 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="LDNP_fpsimd" title="LDNP (SIMD&amp;FP) -- A64" type="instruction">
+  <docvars>
+    <docvar key="address-form" value="signed-scaled-offset"/>
+    <docvar key="instr-class" value="fpsimd"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="LDNP"/>
+    <docvar key="offset-type" value="off7s_s"/>
+  </docvars>
+  <heading>LDNP (SIMD&amp;FP)</heading>
+  <desc>
+    <brief>
+      <para>Load pair of SIMD&amp;FP registers, with non-temporal hint</para>
+    </brief>
+    <authored>
+      <para>This instruction loads a pair of SIMD&amp;FP registers
+from memory, issuing a hint to the memory
+system that the access is non-temporal.
+The address that is used for the load is calculated from a base register value
+and an optional immediate offset.</para>
+      <para>For information about non-temporal pair instructions, see
+<xref linkend="ARMARM_BABJADHH">Load/Store SIMD and Floating-point non-temporal pair</xref>.</para>
+      <para>Depending on the settings in the <register_link id="AArch64-cpacr_el1.xml" state="AArch64">CPACR_EL1</register_link>,
+  <register_link id="AArch64-cptr_el2.xml" state="AArch64">CPTR_EL2</register_link>, and <register_link id="AArch64-cptr_el3.xml" state="AArch64">CPTR_EL3</register_link> registers,
+  and the current Security state and Exception level,
+  an attempt to execute the instruction might be trapped.</para>
+    </authored>
+    <encodingnotes>
+      <para>For information about the <arm-defined-word>CONSTRAINED UNPREDICTABLE</arm-defined-word> behavior of this instruction, see <xref linkend="CJAEGDJC">Architectural Constraints on UNPREDICTABLE behaviors</xref>, and particularly <xref linkend="CHDHFEFI">LDNP (SIMD&amp;FP)</xref>.</para>
+    </encodingnotes>
+  </desc>
+  <operationalnotes>
+    <operationalnote>
+      <operationalnote_content>
+        <para>This instruction is a data-independent-time instruction as described in <xref linkend="ARMARM_BEICCDDAB3">About PSTATE.DIT</xref>.</para>
+      </operationalnote_content>
+    </operationalnote>
+  </operationalnotes>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="Signed offset" oneof="1" id="iclass_signed_offset" no_encodings="3" isa="A64">
+      <docvars>
+        <docvar key="address-form" value="signed-scaled-offset"/>
+        <docvar key="instr-class" value="fpsimd"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="LDNP"/>
+        <docvar key="offset-type" value="off7s_s"/>
+      </docvars>
+      <iclassintro count="3"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_FP" name="v8Ap0"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.ldst.ldstnapair_offs.LDNP_S_ldstnapair_offs" tworows="1">
+        <box hibit="31" width="2" name="opc" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="29" width="3" settings="3">
+          <c>1</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="26" name="VR" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="25" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="22" name="L" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="21" width="7" name="imm7" usename="1">
+          <c colspan="7"/>
+        </box>
+        <box hibit="14" width="5" name="Rt2" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="9" width="5" name="Rn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Rt" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="LDNP_S_ldstnapair_offs" oneofinclass="3" oneof="3" label="32-bit" bitdiffs="opc == 00">
+        <docvars>
+          <docvar key="address-form" value="signed-scaled-offset"/>
+          <docvar key="address-form-reg-type" value="signed-scaled-offset-pair-words"/>
+          <docvar key="atomic-ops" value="LDNP-pair-words"/>
+          <docvar key="instr-class" value="fpsimd"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="offset-type" value="off7s_s"/>
+          <docvar key="reg-type" value="pair-words"/>
+          <docvar key="mnemonic" value="LDNP"/>
+        </docvars>
+        <box hibit="31" width="2" name="opc">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <asmtemplate><text>LDNP  </text><a hover="Is the 32-bit name of the first SIMD&amp;FP register to be transferred, encoded in the &quot;Rt&quot; field." link="St1">&lt;St1&gt;</a><text>, </text><a hover="Is the 32-bit name of the second SIMD&amp;FP register to be transferred, encoded in the &quot;Rt2&quot; field." link="St2">&lt;St2&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>{, #</text><a hover="For the &quot;32-bit&quot; variant: is the optional signed immediate byte offset, a multiple of 4 in the range -256 to 252, defaulting to 0 and encoded in the &quot;imm7&quot; field as &lt;imm&gt;/4." link="imm__4">&lt;imm&gt;</a><text>}]</text></asmtemplate>
+      </encoding>
+      <encoding name="LDNP_D_ldstnapair_offs" oneofinclass="3" oneof="3" label="64-bit" bitdiffs="opc == 01">
+        <docvars>
+          <docvar key="address-form" value="signed-scaled-offset"/>
+          <docvar key="address-form-reg-type" value="signed-scaled-offset-pair-doublewords"/>
+          <docvar key="atomic-ops" value="LDNP-pair-doublewords"/>
+          <docvar key="instr-class" value="fpsimd"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="offset-type" value="off7s_s"/>
+          <docvar key="reg-type" value="pair-doublewords"/>
+          <docvar key="mnemonic" value="LDNP"/>
+        </docvars>
+        <box hibit="31" width="2" name="opc">
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <asmtemplate><text>LDNP  </text><a hover="Is the 64-bit name of the first SIMD&amp;FP register to be transferred, encoded in the &quot;Rt&quot; field." link="Dt1">&lt;Dt1&gt;</a><text>, </text><a hover="Is the 64-bit name of the second SIMD&amp;FP register to be transferred, encoded in the &quot;Rt2&quot; field." link="Dt2">&lt;Dt2&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>{, #</text><a hover="For the &quot;64-bit&quot; variant: is the optional signed immediate byte offset, a multiple of 8 in the range -512 to 504, defaulting to 0 and encoded in the &quot;imm7&quot; field as &lt;imm&gt;/8." link="imm__5">&lt;imm&gt;</a><text>}]</text></asmtemplate>
+      </encoding>
+      <encoding name="LDNP_Q_ldstnapair_offs" oneofinclass="3" oneof="3" label="128-bit" bitdiffs="opc == 10">
+        <docvars>
+          <docvar key="address-form" value="signed-scaled-offset"/>
+          <docvar key="address-form-reg-type" value="signed-scaled-offset-pair-quadwords"/>
+          <docvar key="atomic-ops" value="LDNP-pair-quadwords"/>
+          <docvar key="instr-class" value="fpsimd"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="offset-type" value="off7s_s"/>
+          <docvar key="reg-type" value="pair-quadwords"/>
+          <docvar key="mnemonic" value="LDNP"/>
+        </docvars>
+        <box hibit="31" width="2" name="opc">
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <asmtemplate><text>LDNP  </text><a hover="Is the 128-bit name of the first SIMD&amp;FP register to be transferred, encoded in the &quot;Rt&quot; field." link="Qt1">&lt;Qt1&gt;</a><text>, </text><a hover="Is the 128-bit name of the second SIMD&amp;FP register to be transferred, encoded in the &quot;Rt2&quot; field." link="Qt2">&lt;Qt2&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>{, #</text><a hover="For the &quot;128-bit&quot; variant: is the optional signed immediate byte offset, a multiple of 16 in the range -1024 to 1008, defaulting to 0 and encoded in the &quot;imm7&quot; field as &lt;imm&gt;/16." link="imm__6">&lt;imm&gt;</a><text>}]</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.ldst.ldstnapair_offs.LDNP_S_ldstnapair_offs" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">// Empty.</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="LDNP_S_ldstnapair_offs" symboldefcount="1">
+      <symbol link="St1">&lt;St1&gt;</symbol>
+      <account encodedin="Rt">
+        <intro>
+          <para>Is the 32-bit name of the first SIMD&amp;FP register to be transferred, encoded in the &quot;Rt&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDNP_S_ldstnapair_offs" symboldefcount="1">
+      <symbol link="St2">&lt;St2&gt;</symbol>
+      <account encodedin="Rt2">
+        <intro>
+          <para>Is the 32-bit name of the second SIMD&amp;FP register to be transferred, encoded in the &quot;Rt2&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDNP_S_ldstnapair_offs, LDNP_D_ldstnapair_offs, LDNP_Q_ldstnapair_offs" symboldefcount="1">
+      <symbol link="XnSP_option">&lt;Xn|SP&gt;</symbol>
+      <account encodedin="Rn">
+        <intro>
+          <para>Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDNP_S_ldstnapair_offs" symboldefcount="1">
+      <symbol link="imm__4">&lt;imm&gt;</symbol>
+      <account encodedin="imm7">
+        <intro>
+          <para>For the &quot;32-bit&quot; variant: is the optional signed immediate byte offset, a multiple of 4 in the range -256 to 252, defaulting to 0 and encoded in the &quot;imm7&quot; field as &lt;imm&gt;/4.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDNP_D_ldstnapair_offs" symboldefcount="2">
+      <symbol link="imm__5">&lt;imm&gt;</symbol>
+      <account encodedin="imm7">
+        <intro>
+          <para>For the &quot;64-bit&quot; variant: is the optional signed immediate byte offset, a multiple of 8 in the range -512 to 504, defaulting to 0 and encoded in the &quot;imm7&quot; field as &lt;imm&gt;/8.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDNP_Q_ldstnapair_offs" symboldefcount="3">
+      <symbol link="imm__6">&lt;imm&gt;</symbol>
+      <account encodedin="imm7">
+        <intro>
+          <para>For the &quot;128-bit&quot; variant: is the optional signed immediate byte offset, a multiple of 16 in the range -1024 to 1008, defaulting to 0 and encoded in the &quot;imm7&quot; field as &lt;imm&gt;/16.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDNP_D_ldstnapair_offs" symboldefcount="1">
+      <symbol link="Dt1">&lt;Dt1&gt;</symbol>
+      <account encodedin="Rt">
+        <intro>
+          <para>Is the 64-bit name of the first SIMD&amp;FP register to be transferred, encoded in the &quot;Rt&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDNP_D_ldstnapair_offs" symboldefcount="1">
+      <symbol link="Dt2">&lt;Dt2&gt;</symbol>
+      <account encodedin="Rt2">
+        <intro>
+          <para>Is the 64-bit name of the second SIMD&amp;FP register to be transferred, encoded in the &quot;Rt2&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDNP_Q_ldstnapair_offs" symboldefcount="1">
+      <symbol link="Qt1">&lt;Qt1&gt;</symbol>
+      <account encodedin="Rt">
+        <intro>
+          <para>Is the 128-bit name of the first SIMD&amp;FP register to be transferred, encoded in the &quot;Rt&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDNP_Q_ldstnapair_offs" symboldefcount="1">
+      <symbol link="Qt2">&lt;Qt2&gt;</symbol>
+      <account encodedin="Rt2">
+        <intro>
+          <para>Is the 128-bit name of the second SIMD&amp;FP register to be transferred, encoded in the &quot;Rt2&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.ldst.ldstnapair_offs.LDNP_S_ldstnapair_offs" sections="1" secttype="Shared Decode">
+      <pstext mayhavelinks="1" section="Postdecode" rep_section="postdecode">if !IsFeatureImplemented(FEAT_FP) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+let t : integer{} = UInt(Rt);
+let t2 : integer{} = UInt(Rt2);
+let n : integer{} = UInt(Rn);
+let nontemporal : boolean = TRUE;
+let scale : integer{} = 2 + (UInt(opc) as integer{0..2});
+let datasize : integer{} = 8 &lt;&lt; scale;
+let offset : bits(64) = LSL(SignExtend{64}(imm7), scale);
+let tagchecked : boolean = n != 31;
+var rt_unknown : boolean = FALSE;
+
+if t == t2 then
+    let c : <a link="type_Constraint" file="shared_pseudocode.xml">Constraint</a> = ConstrainUnpredictable(<a link="enum_Unpredictable_LDPOVERLAP" file="shared_pseudocode.xml">Unpredictable_LDPOVERLAP</a>);
+    assert c IN {<a link="enum_Constraint_UNKNOWN" file="shared_pseudocode.xml">Constraint_UNKNOWN</a>, <a link="enum_Constraint_UNDEF" file="shared_pseudocode.xml">Constraint_UNDEF</a>, <a link="enum_Constraint_NOP" file="shared_pseudocode.xml">Constraint_NOP</a>};
+    case c of
+        when <a link="enum_Constraint_UNKNOWN" file="shared_pseudocode.xml">Constraint_UNKNOWN</a> =&gt;    rt_unknown = TRUE;    // Result is UNKNOWN
+        when <a link="enum_Constraint_UNDEF" file="shared_pseudocode.xml">Constraint_UNDEF</a> =&gt;      EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+        when <a link="enum_Constraint_NOP" file="shared_pseudocode.xml">Constraint_NOP</a> =&gt;        EndOfDecode(<a link="enum_Decode_NOP" file="shared_pseudocode.xml">Decode_NOP</a>);
+    end;
+end;</pstext>
+    </ps>
+  </ps_section>
+  <ps_section howmany="1">
+    <ps name="A64.ldst.ldstnapair_offs.LDNP_S_ldstnapair_offs" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">AArch64_CheckFPEnabled();
+var address : bits(64);
+let dbytes : integer{} = datasize DIV 8;
+
+let privileged : boolean = PSTATE.EL != <a link="global_EL0" file="shared_pseudocode.xml">EL0</a>;
+let ispair : boolean = TRUE;
+let accdesc : <a link="type_AccessDescriptor" file="shared_pseudocode.xml">AccessDescriptor</a> = CreateAccDescASIMD(MemOp_LOAD, nontemporal, tagchecked,
+                                                    privileged, ispair);
+
+if n == 31 then
+    CheckSPAlignment();
+    address = <a link="accessor_SP_1" file="shared_pseudocode.xml">SP</a>{64}();
+else
+    address = <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(n);
+end;
+
+address = <a link="func_AddressAdd_3" file="shared_pseudocode.xml">AddressAdd</a>(address, offset, accdesc);
+
+let data : bits(2*datasize) = <a link="accessor_Mem_3" file="shared_pseudocode.xml">Mem</a>{2*datasize}(address, accdesc);
+if rt_unknown then
+    V{datasize}(t) = ARBITRARY : bits(datasize);
+elsif <a link="func_BigEndian_1" file="shared_pseudocode.xml">BigEndian</a>(accdesc.acctype) then
+    V{datasize}(t2) = data[(datasize-1):0];
+    V{datasize}(t)  = data[(2*datasize-1):datasize];
+else
+    V{datasize}(t)  = data[(datasize-1):0];
+    V{datasize}(t2) = data[(2*datasize-1):datasize];
+end;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

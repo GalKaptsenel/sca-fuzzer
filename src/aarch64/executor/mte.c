@@ -58,22 +58,57 @@ static void read_CLIDR_EL1_void(void* arg) {
 	g_value = read_CLIDR_EL1();
 }
 
+void dump_mte_status(void) {
+    u64 sctlr, tcr;
+
+    asm volatile("mrs %0, SCTLR_EL1" : "=r"(sctlr));
+    asm volatile("mrs %0, TCR_EL1"   : "=r"(tcr));
+
+    u64 ata = (sctlr >> 18) & 1;
+    u64 tcf = (sctlr >> 19) & 0x3;
+
+    pr_info("MTE status:\n");
+    pr_info("  ATA = %llu\n", ata);
+    pr_info("  TCF = %llu\n", tcf);
+}
+
+static inline void mte_set_sync(void) {
+    u64 sctlr;
+
+    asm volatile("mrs %0, SCTLR_EL1" : "=r"(sctlr));
+
+    sctlr |= (1ULL << 18);        // ATA = 1
+    sctlr &= ~(3ULL << 19);       // clear TCF
+    sctlr |= (1ULL << 19);        // TCF = 01 (sync)
+
+    asm volatile("msr SCTLR_EL1, %0" :: "r"(sctlr));
+    asm volatile("isb");
+}
+static inline void mte_set_sync_callback(void* a) {
+//	module_err("On cpu %d", (int)a);
+	mte_set_sync();
+}
+
 void enable_mte_tag_checking(void) {
+//	dump_mte_status();
 	disable_TCO_bit();
 	unsigned long sctlr = read_sysreg(sctlr_el1);
 
 	if (!(sctlr & SCTLR_EL1_TCF_SYNC)) {
-		module_debug("Resetting MTE to SYNC mode");
+//		module_err("Resetting MTE to SYNC mode");
 		sysreg_clear_set(sctlr_el1, SCTLR_EL1_TCF_MASK, SCTLR_EL1_TCF_SYNC);
 		isb();
 	}
 
 	uint64_t val = read_CLIDR_EL1();
-	for (int i = 0; i < 10; ++i) {
+	for (int i = 0; i < nr_cpu_ids; ++i) {
 		execute_on_pinned_cpu(i, read_CLIDR_EL1_void, NULL);
-		module_debug("CLIDR_EL1 on cpu %d: 0x%llx\n", i, g_value);
+		execute_on_pinned_cpu(i, mte_set_sync_callback, (char*)i);
+//		module_err("CLIDR_EL1 on cpu %d: 0x%llx\n", i, g_value);
 	}
-	module_debug("CLIDR_EL1: 0x%llx\n", val);
+//	module_err("CLIDR_EL1: 0x%llx\n", val);
+
+//	dump_mte_status();
 }
 EXPORT_SYMBOL(enable_mte_tag_checking);
 

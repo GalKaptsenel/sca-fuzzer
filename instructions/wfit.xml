@@ -1,0 +1,116 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="WFIT" title="WFIT -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="system"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="WFIT"/>
+  </docvars>
+  <heading>WFIT</heading>
+  <desc>
+    <brief>
+      <para>Wait for interrupt with timeout</para>
+    </brief>
+    <authored>
+      <para>This instruction provides a hint that the PE
+can enter a low-power state and remain there until either a local timeout event
+or a wakeup event occurs.
+For more information, see <xref linkend="ARMARM_BEIJBEJD">Wait For Interrupt</xref>.</para>
+      <para>As described in <xref linkend="ARMARM_BEIJBEJD">Wait For Interrupt</xref>, the execution
+of a <instruction>WFIT</instruction> instruction that would otherwise cause entry to a low-power
+state can be trapped to a higher Exception level.</para>
+    </authored>
+  </desc>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="System" oneof="1" id="iclass_system" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="system"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="WFIT"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_WFxT" name="v8Ap7"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.control.systeminstrswithreg.WFIT_only_systeminstrswithreg" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>1</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="28" width="3" settings="3">
+          <c>1</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="25" width="14" settings="14">
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="11" width="4" name="CRm" usename="1" settings="4" psbits="xxxx">
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="7" width="3" name="op2" usename="1" settings="3" psbits="xxx">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="4" width="5" name="Rd" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="WFIT_only_systeminstrswithreg" oneofinclass="1" oneof="1" label="">
+        <docvars>
+          <docvar key="instr-class" value="system"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="WFIT"/>
+        </docvars>
+        <asmtemplate><text>WFIT  </text><a hover="Is the 64-bit name of the general-purpose source register, encoded in the &quot;Rd&quot; field." link="XtOrXZR__5">&lt;Xt&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.control.systeminstrswithreg.WFIT_only_systeminstrswithreg" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_WFxT) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+
+let d : integer = UInt(Rd);</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="WFIT_only_systeminstrswithreg" symboldefcount="1">
+      <symbol link="XtOrXZR__5">&lt;Xt&gt;</symbol>
+      <account encodedin="Rd">
+        <intro>
+          <para>Is the 64-bit name of the general-purpose source register, encoded in the &quot;Rd&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.control.systeminstrswithreg.WFIT_only_systeminstrswithreg" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">let localtimeout : integer = UInt(<a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(d));
+
+if <a link="func_Halted_0" file="shared_pseudocode.xml">Halted</a>() &amp;&amp; <a link="func_ConstrainUnpredictableBool_1" file="shared_pseudocode.xml">ConstrainUnpredictableBool</a>(<a link="enum_Unpredictable_WFxTDEBUG" file="shared_pseudocode.xml">Unpredictable_WFxTDEBUG</a>) then
+    ExecuteAsNOP();
+end;
+
+Hint_WFIT(localtimeout);</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

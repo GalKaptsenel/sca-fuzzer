@@ -1,0 +1,4682 @@
+  [000] 0x0000ffff85fef000: nop
+  [001] 0x0000ffff85fef004: and x3, x3, #0x1fff
+  [002] 0x0000ffff85fef008: add x3, x3, x29
+  [003] 0x0000ffff85fef00c: add x3, x3, #0xf5
+  [004] 0x0000ffff85fef010: ldr w0, [x3, #-0xf5]!
+  [005] 0x0000ffff85fef014: and x4, x4, #0x1fff
+  [006] 0x0000ffff85fef018: add x4, x4, x29
+  [007] 0x0000ffff85fef01c: ldr x0, [x4], #0xec
+  [008] 0x0000ffff85fef020: and x0, x0, #0x1fff
+  [009] 0x0000ffff85fef024: add x0, x0, x29
+  [010] 0x0000ffff85fef028: sub x0, x0, x4
+  [011] 0x0000ffff85fef02c: str x5, [x0, x4]
+  [012] 0x0000ffff85fef030: ands w0, w5, #0xfffe00
+  [013] 0x0000ffff85fef034: b #0xffff85fef038
+  [014] 0x0000ffff85fef038: and x1, x1, #0x1fff
+  [015] 0x0000ffff85fef03c: add x1, x1, x29
+  [016] 0x0000ffff85fef040: sub x1, x1, #0x6e
+  [017] 0x0000ffff85fef044: ldr x4, [x1, #0x6e]!
+  [018] 0x0000ffff85fef048: and x3, x3, #0x1fff
+  [019] 0x0000ffff85fef04c: add x3, x3, x29
+  [020] 0x0000ffff85fef050: str w5, [x3], #0x52
+  [021] 0x0000ffff85fef054: adds x3, x5, #0x71
+  [022] 0x0000ffff85fef058: and x1, x1, #0x1fff
+  [023] 0x0000ffff85fef05c: add x1, x1, x29
+  [024] 0x0000ffff85fef060: sub x1, x1, x3
+  [025] 0x0000ffff85fef064: ldr x2, [x1, x3]
+  [026] 0x0000ffff85fef068: subs x0, x1, #0x8c0
+  [027] 0x0000ffff85fef06c: and x3, x3, #0x1fff
+  [028] 0x0000ffff85fef070: add x3, x3, x29
+  [029] 0x0000ffff85fef074: ldr w1, [x3], #0x9e
+  [030] 0x0000ffff85fef078: cbnz x4, #0xffff85fef080
+  [031] 0x0000ffff85fef07c: b #0xffff85fef0c4
+  [032] 0x0000ffff85fef0c4: subs w0, w5, w5, lsl #12
+  [033] 0x0000ffff85fef0c8: subs x2, x0, #0xe05
+  [034] 0x0000ffff85fef0cc: adds x1, x4, x0
+  [035] 0x0000ffff85fef0d0: b #0xffff85fef0d4
+  [036] 0x0000ffff85fef0d4: orr x4, x5, x2, asr #52
+  [037] 0x0000ffff85fef0d8: and x0, x0, #0x1fff
+  [038] 0x0000ffff85fef0dc: add x0, x0, x29
+  [039] 0x0000ffff85fef0e0: str x1, [x0], #0xa4
+  [040] 0x0000ffff85fef0e4: and x5, x5, #0x1fff
+  [041] 0x0000ffff85fef0e8: add x5, x5, x29
+  [042] 0x0000ffff85fef0ec: str x4, [x5], #0x4e
+  [043] 0x0000ffff85fef0f0: sdiv x3, x5, x0
+  [044] 0x0000ffff85fef0f4: and x1, x1, #0x1fff
+  [045] 0x0000ffff85fef0f8: add x1, x1, x29
+  [046] 0x0000ffff85fef0fc: sub x1, x1, #0xe1
+  [047] 0x0000ffff85fef100: str x5, [x1, #0xe1]!
+  [048] 0x0000ffff85fef104: and x4, x4, #0x1fff
+  [049] 0x0000ffff85fef108: add x4, x4, x29
+  [050] 0x0000ffff85fef10c: sub x4, x4, x5
+  [051] 0x0000ffff85fef110: str x0, [x4, x5]
+  [052] 0x0000ffff85fef114: nop
+  [053] 0x0000ffff85fef118: b #0xffff85fef11c
+  [054] 0x0000ffff85fef078: cbnz x4, #0xffff85fef080
+  [055] 0x0000ffff85fef080: subs x4, x5, #0x771
+  [056] 0x0000ffff85fef084: and x4, x4, #0x1fff
+  [057] 0x0000ffff85fef088: add x4, x4, x29
+  [058] 0x0000ffff85fef08c: add x4, x4, #0x46
+  [059] 0x0000ffff85fef090: ldr w5, [x4, #-0x46]!
+  [060] 0x0000ffff85fef094: and x2, x2, #0x1fff
+  [061] 0x0000ffff85fef098: add x2, x2, x29
+  [062] 0x0000ffff85fef09c: sub x2, x2, x0
+  [063] 0x0000ffff85fef0a0: ldr x3, [x2, x0]
+  [064] 0x0000ffff85fef0a4: and x5, x5, #0x1fff
+  [065] 0x0000ffff85fef0a8: add x5, x5, x29
+  [066] 0x0000ffff85fef0ac: ldr w4, [x5], #0x94
+  [067] 0x0000ffff85fef0b0: and x1, x1, #0x1fff
+  [068] 0x0000ffff85fef0b4: add x1, x1, x29
+  [069] 0x0000ffff85fef0b8: ldr x0, [x1], #0x7f
+  [070] 0x0000ffff85fef0bc: cbz x1, #0xffff85fef0c4
+  [071] 0x0000ffff85fef0c0: b #0xffff85fef0d4
+  [072] 0x0000ffff85fef0d4: orr x4, x5, x2, asr #52
+  [073] 0x0000ffff85fef0d8: and x0, x0, #0x1fff
+  [074] 0x0000ffff85fef0dc: add x0, x0, x29
+  [075] 0x0000ffff85fef0e0: str x1, [x0], #0xa4
+  [076] 0x0000ffff85fef0e4: and x5, x5, #0x1fff
+  [077] 0x0000ffff85fef0e8: add x5, x5, x29
+  [078] 0x0000ffff85fef0ec: str x4, [x5], #0x4e
+  [079] 0x0000ffff85fef0f0: sdiv x3, x5, x0
+  [080] 0x0000ffff85fef0f4: and x1, x1, #0x1fff
+  [081] 0x0000ffff85fef0f8: add x1, x1, x29
+  [082] 0x0000ffff85fef0fc: sub x1, x1, #0xe1
+  [083] 0x0000ffff85fef100: str x5, [x1, #0xe1]!
+  [084] 0x0000ffff85fef104: and x4, x4, #0x1fff
+  [085] 0x0000ffff85fef108: add x4, x4, x29
+  [086] 0x0000ffff85fef10c: sub x4, x4, x5
+  [087] 0x0000ffff85fef110: str x0, [x4, x5]
+  [088] 0x0000ffff85fef114: nop
+  [089] 0x0000ffff85fef118: b #0xffff85fef11c
+
+ContractExecutionResult: 90 entries
+
+--- Entry 0 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x00006bc600006bc6
+      x01: 0x00004f8400004f84
+      x02: 0x000072a4000072a4
+      x03: 0x00008f6600008f66
+      x04: 0x000043f9000043f9
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x00000000000006e1
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef000
+      NZCV: 0x0000000070000000
+      Encoding: 0xd503201f (nop)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 0
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 1 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x00006bc600006bc6
+      x01: 0x00004f8400004f84
+      x02: 0x000072a4000072a4
+      x03: 0x00008f6600008f66
+      x04: 0x000043f9000043f9
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x00000000000006e1
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef004
+      NZCV: 0x0000000070000000
+      Encoding: 0x92403063 (and x3, x3, #0x1fff)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 1
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 2 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x00006bc600006bc6
+      x01: 0x00004f8400004f84
+      x02: 0x000072a4000072a4
+      x03: 0x0000000000000f66
+      x04: 0x000043f9000043f9
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x00000000000006e1
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef008
+      NZCV: 0x0000000070000000
+      Encoding: 0x8b1d0063 (add x3, x3, x29)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 2
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 3 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x00006bc600006bc6
+      x01: 0x00004f8400004f84
+      x02: 0x000072a4000072a4
+      x03: 0xffffae41793cbf66
+      x04: 0x000043f9000043f9
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x00000000000006e1
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef00c
+      NZCV: 0x0000000070000000
+      Encoding: 0x9103d463 (add x3, x3, #0xf5)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 3
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 4 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x00006bc600006bc6
+      x01: 0x00004f8400004f84
+      x02: 0x000072a4000072a4
+      x03: 0xffffae41793cc05b
+      x04: 0x000043f9000043f9
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x00000000000006e1
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef010
+      NZCV: 0x0000000070000000
+      Encoding: 0xb850bc60 (ldr w0, [x3, #-0xf5]!)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 4
+      Speculation nesting: 0
+      Has memory access: 1
+      MemAccess:
+        EA: 0xffffae41793cbf66
+        Before: 0x6050000060500000
+        After: 0x6050000060500000
+        Size: 4
+        Type: READ
+
+
+--- Entry 5 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x0000000060500000
+      x01: 0x00004f8400004f84
+      x02: 0x000072a4000072a4
+      x03: 0xffffae41793cbf66
+      x04: 0x000043f9000043f9
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7139366
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef014
+      NZCV: 0x0000000070000000
+      Encoding: 0x92403084 (and x4, x4, #0x1fff)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 5
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 6 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x0000000060500000
+      x01: 0x00004f8400004f84
+      x02: 0x000072a4000072a4
+      x03: 0xffffae41793cbf66
+      x04: 0x00000000000003f9
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7139366
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef018
+      NZCV: 0x0000000070000000
+      Encoding: 0x8b1d0084 (add x4, x4, x29)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 6
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 7 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x0000000060500000
+      x01: 0x00004f8400004f84
+      x02: 0x000072a4000072a4
+      x03: 0xffffae41793cbf66
+      x04: 0xffffae41793cb3f9
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7139366
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef01c
+      NZCV: 0x0000000070000000
+      Encoding: 0xf84ec480 (ldr x0, [x4], #0xec)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 7
+      Speculation nesting: 0
+      Has memory access: 1
+      MemAccess:
+        EA: 0xffffae41793cb3f9
+        Before: 0x9300005153000051
+        After: 0x9300005153000051
+        Size: 8
+        Type: READ
+
+
+--- Entry 8 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x9300005153000051
+      x01: 0x00004f8400004f84
+      x02: 0x000072a4000072a4
+      x03: 0xffffae41793cbf66
+      x04: 0xffffae41793cb4e5
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad71388e5
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef020
+      NZCV: 0x0000000070000000
+      Encoding: 0x92403000 (and x0, x0, #0x1fff)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 8
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 9 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x0000000000000051
+      x01: 0x00004f8400004f84
+      x02: 0x000072a4000072a4
+      x03: 0xffffae41793cbf66
+      x04: 0xffffae41793cb4e5
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad71388e5
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef024
+      NZCV: 0x0000000070000000
+      Encoding: 0x8b1d0000 (add x0, x0, x29)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 9
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 10 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb051
+      x01: 0x00004f8400004f84
+      x02: 0x000072a4000072a4
+      x03: 0xffffae41793cbf66
+      x04: 0xffffae41793cb4e5
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad71388e5
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef028
+      NZCV: 0x0000000070000000
+      Encoding: 0xcb040000 (sub x0, x0, x4)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 10
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 11 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xfffffffffffffb6c
+      x01: 0x00004f8400004f84
+      x02: 0x000072a4000072a4
+      x03: 0xffffae41793cbf66
+      x04: 0xffffae41793cb4e5
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad71388e5
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef02c
+      NZCV: 0x0000000070000000
+      Encoding: 0xf8246805 (str x5, [x0, x4])
+      Extra data size: 0
+    InstrMetadata:
+      Index: 11
+      Speculation nesting: 0
+      Has memory access: 1
+      MemAccess:
+        EA: 0xffffae41793cb051
+        Before: 0x670000b8a30000b8
+        After: 0x0
+        Size: 8
+        Type: WRITE
+
+
+--- Entry 12 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xfffffffffffffb6c
+      x01: 0x00004f8400004f84
+      x02: 0x000072a4000072a4
+      x03: 0xffffae41793cbf66
+      x04: 0xffffae41793cb4e5
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000fc695dd6cf6c
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef030
+      NZCV: 0x0000000070000000
+      Encoding: 0x721738a0 (ands w0, w5, #0xfffe00)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 12
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 13 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x0000000000000000
+      x01: 0x00004f8400004f84
+      x02: 0x000072a4000072a4
+      x03: 0xffffae41793cbf66
+      x04: 0xffffae41793cb4e5
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000fc695dd6cf6c
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef034
+      NZCV: 0x0000000040000000
+      Encoding: 0x14000001 (b #0xffff85fef038)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 13
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 14 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x0000000000000000
+      x01: 0x00004f8400004f84
+      x02: 0x000072a4000072a4
+      x03: 0xffffae41793cbf66
+      x04: 0xffffae41793cb4e5
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000fc695dd6cf6c
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef038
+      NZCV: 0x0000000040000000
+      Encoding: 0x92403021 (and x1, x1, #0x1fff)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 14
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 15 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x0000000000000000
+      x01: 0x0000000000000f84
+      x02: 0x000072a4000072a4
+      x03: 0xffffae41793cbf66
+      x04: 0xffffae41793cb4e5
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000fc695dd6cf6c
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef03c
+      NZCV: 0x0000000040000000
+      Encoding: 0x8b1d0021 (add x1, x1, x29)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 15
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 16 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x0000000000000000
+      x01: 0xffffae41793cbf84
+      x02: 0x000072a4000072a4
+      x03: 0xffffae41793cbf66
+      x04: 0xffffae41793cb4e5
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000fc695dd6cf6c
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef040
+      NZCV: 0x0000000040000000
+      Encoding: 0xd101b821 (sub x1, x1, #0x6e)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 16
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 17 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x0000000000000000
+      x01: 0xffffae41793cbf16
+      x02: 0x000072a4000072a4
+      x03: 0xffffae41793cbf66
+      x04: 0xffffae41793cb4e5
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000fc695dd6cf6c
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef044
+      NZCV: 0x0000000040000000
+      Encoding: 0xf846ec24 (ldr x4, [x1, #0x6e]!)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 17
+      Speculation nesting: 0
+      Has memory access: 1
+      MemAccess:
+        EA: 0xffffae41793cbf84
+        Before: 0x96620000e141
+        After: 0x96620000e141
+        Size: 8
+        Type: READ
+
+
+--- Entry 18 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x0000000000000000
+      x01: 0xffffae41793cbf84
+      x02: 0x000072a4000072a4
+      x03: 0xffffae41793cbf66
+      x04: 0x000096620000e141
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7139384
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef048
+      NZCV: 0x0000000040000000
+      Encoding: 0x92403063 (and x3, x3, #0x1fff)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 18
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 19 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x0000000000000000
+      x01: 0xffffae41793cbf84
+      x02: 0x000072a4000072a4
+      x03: 0x0000000000001f66
+      x04: 0x000096620000e141
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7139384
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef04c
+      NZCV: 0x0000000040000000
+      Encoding: 0x8b1d0063 (add x3, x3, x29)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 19
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 20 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x0000000000000000
+      x01: 0xffffae41793cbf84
+      x02: 0x000072a4000072a4
+      x03: 0xffffae41793ccf66
+      x04: 0x000096620000e141
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7139384
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef050
+      NZCV: 0x0000000040000000
+      Encoding: 0xb8052465 (str w5, [x3], #0x52)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 20
+      Speculation nesting: 0
+      Has memory access: 1
+      MemAccess:
+        EA: 0xffffae41793ccf66
+        Before: 0xe27f0000e27f0000
+        After: 0x0
+        Size: 4
+        Type: WRITE
+
+
+--- Entry 21 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x0000000000000000
+      x01: 0xffffae41793cbf84
+      x02: 0x000072a4000072a4
+      x03: 0xffffae41793ccfb8
+      x04: 0x000096620000e141
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713a3b8
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef054
+      NZCV: 0x0000000040000000
+      Encoding: 0xb101c4a3 (adds x3, x5, #0x71)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 21
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 22 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x0000000000000000
+      x01: 0xffffae41793cbf84
+      x02: 0x000072a4000072a4
+      x03: 0x0000000000000071
+      x04: 0x000096620000e141
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713a3b8
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef058
+      NZCV: 0x0000000000000000
+      Encoding: 0x92403021 (and x1, x1, #0x1fff)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 22
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 23 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x0000000000000000
+      x01: 0x0000000000001f84
+      x02: 0x000072a4000072a4
+      x03: 0x0000000000000071
+      x04: 0x000096620000e141
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713a3b8
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef05c
+      NZCV: 0x0000000000000000
+      Encoding: 0x8b1d0021 (add x1, x1, x29)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 23
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 24 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x0000000000000000
+      x01: 0xffffae41793ccf84
+      x02: 0x000072a4000072a4
+      x03: 0x0000000000000071
+      x04: 0x000096620000e141
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713a3b8
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef060
+      NZCV: 0x0000000000000000
+      Encoding: 0xcb030021 (sub x1, x1, x3)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 24
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 25 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x0000000000000000
+      x01: 0xffffae41793ccf13
+      x02: 0x000072a4000072a4
+      x03: 0x0000000000000071
+      x04: 0x000096620000e141
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713a3b8
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef064
+      NZCV: 0x0000000000000000
+      Encoding: 0xf8636822 (ldr x2, [x1, x3])
+      Extra data size: 0
+    InstrMetadata:
+      Index: 25
+      Speculation nesting: 0
+      Has memory access: 1
+      MemAccess:
+        EA: 0xffffae41793ccf84
+        Before: 0x83c50000a43a
+        After: 0x83c50000a43a
+        Size: 8
+        Type: READ
+
+
+--- Entry 26 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x0000000000000000
+      x01: 0xffffae41793ccf13
+      x02: 0x000083c50000a43a
+      x03: 0x0000000000000071
+      x04: 0x000096620000e141
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713a313
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef068
+      NZCV: 0x0000000000000000
+      Encoding: 0xf1230020 (subs x0, x1, #0x8c0)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 26
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 27 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cc653
+      x01: 0xffffae41793ccf13
+      x02: 0x000083c50000a43a
+      x03: 0x0000000000000071
+      x04: 0x000096620000e141
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713a313
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef06c
+      NZCV: 0x00000000a0000000
+      Encoding: 0x92403063 (and x3, x3, #0x1fff)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 27
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 28 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cc653
+      x01: 0xffffae41793ccf13
+      x02: 0x000083c50000a43a
+      x03: 0x0000000000000071
+      x04: 0x000096620000e141
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713a313
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef070
+      NZCV: 0x00000000a0000000
+      Encoding: 0x8b1d0063 (add x3, x3, x29)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 28
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 29 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cc653
+      x01: 0xffffae41793ccf13
+      x02: 0x000083c50000a43a
+      x03: 0xffffae41793cb071
+      x04: 0x000096620000e141
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713a313
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef074
+      NZCV: 0x00000000a0000000
+      Encoding: 0xb849e461 (ldr w1, [x3], #0x9e)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 29
+      Speculation nesting: 0
+      Has memory access: 1
+      MemAccess:
+        EA: 0xffffae41793cb071
+        Before: 0x3b0000c9fc0000c9
+        After: 0x3b0000c9fc0000c9
+        Size: 4
+        Type: READ
+
+
+--- Entry 30 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cc653
+      x01: 0x00000000fc0000c9
+      x02: 0x000083c50000a43a
+      x03: 0xffffae41793cb10f
+      x04: 0x000096620000e141
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713850f
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef078
+      NZCV: 0x00000000a0000000
+      Encoding: 0xb5000044 (cbnz x4, #0xffff85fef080)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 30
+      Speculation nesting: 1
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 31 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cc653
+      x01: 0x00000000fc0000c9
+      x02: 0x000083c50000a43a
+      x03: 0xffffae41793cb10f
+      x04: 0x000096620000e141
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713850f
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef07c
+      NZCV: 0x00000000a0000000
+      Encoding: 0x14000012 (b #0xffff85fef0c4)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 31
+      Speculation nesting: 1
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 32 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cc653
+      x01: 0x00000000fc0000c9
+      x02: 0x000083c50000a43a
+      x03: 0xffffae41793cb10f
+      x04: 0x000096620000e141
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713850f
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0c4
+      NZCV: 0x00000000a0000000
+      Encoding: 0x6b0530a0 (subs w0, w5, w5, lsl #12)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 32
+      Speculation nesting: 1
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 33 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x0000000000000000
+      x01: 0x00000000fc0000c9
+      x02: 0x000083c50000a43a
+      x03: 0xffffae41793cb10f
+      x04: 0x000096620000e141
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713850f
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0c8
+      NZCV: 0x0000000060000000
+      Encoding: 0xf1381402 (subs x2, x0, #0xe05)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 33
+      Speculation nesting: 1
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 34 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x0000000000000000
+      x01: 0x00000000fc0000c9
+      x02: 0xfffffffffffff1fb
+      x03: 0xffffae41793cb10f
+      x04: 0x000096620000e141
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713850f
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0cc
+      NZCV: 0x0000000080000000
+      Encoding: 0xab000081 (adds x1, x4, x0)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 34
+      Speculation nesting: 1
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 35 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x0000000000000000
+      x01: 0x000096620000e141
+      x02: 0xfffffffffffff1fb
+      x03: 0xffffae41793cb10f
+      x04: 0x000096620000e141
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713850f
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0d0
+      NZCV: 0x0000000000000000
+      Encoding: 0x14000001 (b #0xffff85fef0d4)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 35
+      Speculation nesting: 1
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 36 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x0000000000000000
+      x01: 0x000096620000e141
+      x02: 0xfffffffffffff1fb
+      x03: 0xffffae41793cb10f
+      x04: 0x000096620000e141
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713850f
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0d4
+      NZCV: 0x0000000000000000
+      Encoding: 0xaa82d0a4 (orr x4, x5, x2, asr #52)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 36
+      Speculation nesting: 1
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 37 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x0000000000000000
+      x01: 0x000096620000e141
+      x02: 0xfffffffffffff1fb
+      x03: 0xffffae41793cb10f
+      x04: 0xffffffffffffffff
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713850f
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0d8
+      NZCV: 0x0000000000000000
+      Encoding: 0x92403000 (and x0, x0, #0x1fff)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 37
+      Speculation nesting: 1
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 38 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x0000000000000000
+      x01: 0x000096620000e141
+      x02: 0xfffffffffffff1fb
+      x03: 0xffffae41793cb10f
+      x04: 0xffffffffffffffff
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713850f
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0dc
+      NZCV: 0x0000000000000000
+      Encoding: 0x8b1d0000 (add x0, x0, x29)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 38
+      Speculation nesting: 1
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 39 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb000
+      x01: 0x000096620000e141
+      x02: 0xfffffffffffff1fb
+      x03: 0xffffae41793cb10f
+      x04: 0xffffffffffffffff
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713850f
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0e0
+      NZCV: 0x0000000000000000
+      Encoding: 0xf80a4401 (str x1, [x0], #0xa4)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 39
+      Speculation nesting: 1
+      Has memory access: 1
+      MemAccess:
+        EA: 0xffffae41793cb000
+        Before: 0xd3130000d313
+        After: 0x96620000e141
+        Size: 8
+        Type: WRITE
+
+
+--- Entry 40 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb0a4
+      x01: 0x000096620000e141
+      x02: 0xfffffffffffff1fb
+      x03: 0xffffae41793cb10f
+      x04: 0xffffffffffffffff
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad71384a4
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0e4
+      NZCV: 0x0000000000000000
+      Encoding: 0x924030a5 (and x5, x5, #0x1fff)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 40
+      Speculation nesting: 1
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 41 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb0a4
+      x01: 0x000096620000e141
+      x02: 0xfffffffffffff1fb
+      x03: 0xffffae41793cb10f
+      x04: 0xffffffffffffffff
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad71384a4
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0e8
+      NZCV: 0x0000000000000000
+      Encoding: 0x8b1d00a5 (add x5, x5, x29)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 41
+      Speculation nesting: 1
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 42 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb0a4
+      x01: 0x000096620000e141
+      x02: 0xfffffffffffff1fb
+      x03: 0xffffae41793cb10f
+      x04: 0xffffffffffffffff
+      x05: 0xffffae41793cb000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad71384a4
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0ec
+      NZCV: 0x0000000000000000
+      Encoding: 0xf804e4a4 (str x4, [x5], #0x4e)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 42
+      Speculation nesting: 1
+      Has memory access: 1
+      MemAccess:
+        EA: 0xffffae41793cb000
+        Before: 0x96620000e141
+        After: 0xffffffffffffffff
+        Size: 8
+        Type: WRITE
+
+
+--- Entry 43 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb0a4
+      x01: 0x000096620000e141
+      x02: 0xfffffffffffff1fb
+      x03: 0xffffae41793cb10f
+      x04: 0xffffffffffffffff
+      x05: 0xffffae41793cb04e
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713844e
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0f0
+      NZCV: 0x0000000000000000
+      Encoding: 0x9ac00ca3 (sdiv x3, x5, x0)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 43
+      Speculation nesting: 1
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 44 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb0a4
+      x01: 0x000096620000e141
+      x02: 0xfffffffffffff1fb
+      x03: 0x0000000000000001
+      x04: 0xffffffffffffffff
+      x05: 0xffffae41793cb04e
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713844e
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0f4
+      NZCV: 0x0000000000000000
+      Encoding: 0x92403021 (and x1, x1, #0x1fff)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 44
+      Speculation nesting: 1
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 45 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb0a4
+      x01: 0x0000000000000141
+      x02: 0xfffffffffffff1fb
+      x03: 0x0000000000000001
+      x04: 0xffffffffffffffff
+      x05: 0xffffae41793cb04e
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713844e
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0f8
+      NZCV: 0x0000000000000000
+      Encoding: 0x8b1d0021 (add x1, x1, x29)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 45
+      Speculation nesting: 1
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 46 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb0a4
+      x01: 0xffffae41793cb141
+      x02: 0xfffffffffffff1fb
+      x03: 0x0000000000000001
+      x04: 0xffffffffffffffff
+      x05: 0xffffae41793cb04e
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713844e
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0fc
+      NZCV: 0x0000000000000000
+      Encoding: 0xd1038421 (sub x1, x1, #0xe1)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 46
+      Speculation nesting: 1
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 47 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb0a4
+      x01: 0xffffae41793cb060
+      x02: 0xfffffffffffff1fb
+      x03: 0x0000000000000001
+      x04: 0xffffffffffffffff
+      x05: 0xffffae41793cb04e
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713844e
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef100
+      NZCV: 0x0000000000000000
+      Encoding: 0xf80e1c25 (str x5, [x1, #0xe1]!)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 47
+      Speculation nesting: 1
+      Has memory access: 1
+      MemAccess:
+        EA: 0xffffae41793cb141
+        Before: 0x2a00000198000001
+        After: 0xffffae41793cb04e
+        Size: 8
+        Type: WRITE
+
+
+--- Entry 48 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb0a4
+      x01: 0xffffae41793cb141
+      x02: 0xfffffffffffff1fb
+      x03: 0x0000000000000001
+      x04: 0xffffffffffffffff
+      x05: 0xffffae41793cb04e
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7138541
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef104
+      NZCV: 0x0000000000000000
+      Encoding: 0x92403084 (and x4, x4, #0x1fff)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 48
+      Speculation nesting: 1
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 49 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb0a4
+      x01: 0xffffae41793cb141
+      x02: 0xfffffffffffff1fb
+      x03: 0x0000000000000001
+      x04: 0x0000000000001fff
+      x05: 0xffffae41793cb04e
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7138541
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef108
+      NZCV: 0x0000000000000000
+      Encoding: 0x8b1d0084 (add x4, x4, x29)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 49
+      Speculation nesting: 1
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 50 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb0a4
+      x01: 0xffffae41793cb141
+      x02: 0xfffffffffffff1fb
+      x03: 0x0000000000000001
+      x04: 0xffffae41793ccfff
+      x05: 0xffffae41793cb04e
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7138541
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef10c
+      NZCV: 0x0000000000000000
+      Encoding: 0xcb050084 (sub x4, x4, x5)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 50
+      Speculation nesting: 1
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 51 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb0a4
+      x01: 0xffffae41793cb141
+      x02: 0xfffffffffffff1fb
+      x03: 0x0000000000000001
+      x04: 0x0000000000001fb1
+      x05: 0xffffae41793cb04e
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7138541
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef110
+      NZCV: 0x0000000000000000
+      Encoding: 0xf8256880 (str x0, [x4, x5])
+      Extra data size: 0
+    InstrMetadata:
+      Index: 51
+      Speculation nesting: 1
+      Has memory access: 1
+      MemAccess:
+        EA: 0xffffae41793ccfff
+        Before: 0x0
+        After: 0xffffae41793cb0a4
+        Size: 8
+        Type: WRITE
+
+
+--- Entry 52 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb0a4
+      x01: 0xffffae41793cb141
+      x02: 0xfffffffffffff1fb
+      x03: 0x0000000000000001
+      x04: 0x0000000000001fb1
+      x05: 0xffffae41793cb04e
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000fc695dd6f3b1
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef114
+      NZCV: 0x0000000000000000
+      Encoding: 0xd503201f (nop)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 52
+      Speculation nesting: 1
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 53 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb0a4
+      x01: 0xffffae41793cb141
+      x02: 0xfffffffffffff1fb
+      x03: 0x0000000000000001
+      x04: 0x0000000000001fb1
+      x05: 0xffffae41793cb04e
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000fc695dd6f3b1
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef118
+      NZCV: 0x0000000000000000
+      Encoding: 0x14000001 (b #0xffff85fef11c)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 53
+      Speculation nesting: 1
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 54 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cc653
+      x01: 0x00000000fc0000c9
+      x02: 0x000083c50000a43a
+      x03: 0xffffae41793cb10f
+      x04: 0x000096620000e141
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713850f
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef078
+      NZCV: 0x00000000a0000000
+      Encoding: 0xb5000044 (cbnz x4, #0xffff85fef080)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 54
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 55 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cc653
+      x01: 0x00000000fc0000c9
+      x02: 0x000083c50000a43a
+      x03: 0xffffae41793cb10f
+      x04: 0x000096620000e141
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713850f
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef080
+      NZCV: 0x00000000a0000000
+      Encoding: 0xf11dc4a4 (subs x4, x5, #0x771)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 55
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 56 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cc653
+      x01: 0x00000000fc0000c9
+      x02: 0x000083c50000a43a
+      x03: 0xffffae41793cb10f
+      x04: 0xfffffffffffff88f
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713850f
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef084
+      NZCV: 0x0000000080000000
+      Encoding: 0x92403084 (and x4, x4, #0x1fff)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 56
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 57 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cc653
+      x01: 0x00000000fc0000c9
+      x02: 0x000083c50000a43a
+      x03: 0xffffae41793cb10f
+      x04: 0x000000000000188f
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713850f
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef088
+      NZCV: 0x0000000080000000
+      Encoding: 0x8b1d0084 (add x4, x4, x29)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 57
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 58 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cc653
+      x01: 0x00000000fc0000c9
+      x02: 0x000083c50000a43a
+      x03: 0xffffae41793cb10f
+      x04: 0xffffae41793cc88f
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713850f
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef08c
+      NZCV: 0x0000000080000000
+      Encoding: 0x91011884 (add x4, x4, #0x46)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 58
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 59 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cc653
+      x01: 0x00000000fc0000c9
+      x02: 0x000083c50000a43a
+      x03: 0xffffae41793cb10f
+      x04: 0xffffae41793cc8d5
+      x05: 0x0000000000000000
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad713850f
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef090
+      NZCV: 0x0000000080000000
+      Encoding: 0xb85bac85 (ldr w5, [x4, #-0x46]!)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 59
+      Speculation nesting: 0
+      Has memory access: 1
+      MemAccess:
+        EA: 0xffffae41793cc88f
+        Before: 0x2ac600002ac600
+        After: 0x2ac600002ac600
+        Size: 4
+        Type: READ
+
+
+--- Entry 60 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cc653
+      x01: 0x00000000fc0000c9
+      x02: 0x000083c50000a43a
+      x03: 0xffffae41793cb10f
+      x04: 0xffffae41793cc88f
+      x05: 0x00000000002ac600
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7139c8f
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef094
+      NZCV: 0x0000000080000000
+      Encoding: 0x92403042 (and x2, x2, #0x1fff)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 60
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 61 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cc653
+      x01: 0x00000000fc0000c9
+      x02: 0x000000000000043a
+      x03: 0xffffae41793cb10f
+      x04: 0xffffae41793cc88f
+      x05: 0x00000000002ac600
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7139c8f
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef098
+      NZCV: 0x0000000080000000
+      Encoding: 0x8b1d0042 (add x2, x2, x29)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 61
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 62 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cc653
+      x01: 0x00000000fc0000c9
+      x02: 0xffffae41793cb43a
+      x03: 0xffffae41793cb10f
+      x04: 0xffffae41793cc88f
+      x05: 0x00000000002ac600
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7139c8f
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef09c
+      NZCV: 0x0000000080000000
+      Encoding: 0xcb000042 (sub x2, x2, x0)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 62
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 63 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cc653
+      x01: 0x00000000fc0000c9
+      x02: 0xffffffffffffede7
+      x03: 0xffffae41793cb10f
+      x04: 0xffffae41793cc88f
+      x05: 0x00000000002ac600
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7139c8f
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0a0
+      NZCV: 0x0000000080000000
+      Encoding: 0xf8606843 (ldr x3, [x2, x0])
+      Extra data size: 0
+    InstrMetadata:
+      Index: 63
+      Speculation nesting: 0
+      Has memory access: 1
+      MemAccess:
+        EA: 0xffffae41793cb43a
+        Before: 0x1a020000e8070000
+        After: 0x1a020000e8070000
+        Size: 8
+        Type: READ
+
+
+--- Entry 64 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cc653
+      x01: 0x00000000fc0000c9
+      x02: 0xffffffffffffede7
+      x03: 0x1a020000e8070000
+      x04: 0xffffae41793cc88f
+      x05: 0x00000000002ac600
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000fc695dd6c1e7
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0a4
+      NZCV: 0x0000000080000000
+      Encoding: 0x924030a5 (and x5, x5, #0x1fff)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 64
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 65 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cc653
+      x01: 0x00000000fc0000c9
+      x02: 0xffffffffffffede7
+      x03: 0x1a020000e8070000
+      x04: 0xffffae41793cc88f
+      x05: 0x0000000000000600
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000fc695dd6c1e7
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0a8
+      NZCV: 0x0000000080000000
+      Encoding: 0x8b1d00a5 (add x5, x5, x29)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 65
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 66 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cc653
+      x01: 0x00000000fc0000c9
+      x02: 0xffffffffffffede7
+      x03: 0x1a020000e8070000
+      x04: 0xffffae41793cc88f
+      x05: 0xffffae41793cb600
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000fc695dd6c1e7
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0ac
+      NZCV: 0x0000000080000000
+      Encoding: 0xb84944a4 (ldr w4, [x5], #0x94)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 66
+      Speculation nesting: 0
+      Has memory access: 1
+      MemAccess:
+        EA: 0xffffae41793cb600
+        Before: 0x3b5000003b5
+        After: 0x3b5000003b5
+        Size: 4
+        Type: READ
+
+
+--- Entry 67 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cc653
+      x01: 0x00000000fc0000c9
+      x02: 0xffffffffffffede7
+      x03: 0x1a020000e8070000
+      x04: 0x00000000000003b5
+      x05: 0xffffae41793cb694
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7138a94
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0b0
+      NZCV: 0x0000000080000000
+      Encoding: 0x92403021 (and x1, x1, #0x1fff)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 67
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 68 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cc653
+      x01: 0x00000000000000c9
+      x02: 0xffffffffffffede7
+      x03: 0x1a020000e8070000
+      x04: 0x00000000000003b5
+      x05: 0xffffae41793cb694
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7138a94
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0b4
+      NZCV: 0x0000000080000000
+      Encoding: 0x8b1d0021 (add x1, x1, x29)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 68
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 69 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cc653
+      x01: 0xffffae41793cb0c9
+      x02: 0xffffffffffffede7
+      x03: 0x1a020000e8070000
+      x04: 0x00000000000003b5
+      x05: 0xffffae41793cb694
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7138a94
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0b8
+      NZCV: 0x0000000080000000
+      Encoding: 0xf847f420 (ldr x0, [x1], #0x7f)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 69
+      Speculation nesting: 0
+      Has memory access: 1
+      MemAccess:
+        EA: 0xffffae41793cb0c9
+        Before: 0xf500008e8a00008e
+        After: 0xf500008e8a00008e
+        Size: 8
+        Type: READ
+
+
+--- Entry 70 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xf500008e8a00008e
+      x01: 0xffffae41793cb148
+      x02: 0xffffffffffffede7
+      x03: 0x1a020000e8070000
+      x04: 0x00000000000003b5
+      x05: 0xffffae41793cb694
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7138548
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0bc
+      NZCV: 0x0000000080000000
+      Encoding: 0xb4000041 (cbz x1, #0xffff85fef0c4)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 70
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 71 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xf500008e8a00008e
+      x01: 0xffffae41793cb148
+      x02: 0xffffffffffffede7
+      x03: 0x1a020000e8070000
+      x04: 0x00000000000003b5
+      x05: 0xffffae41793cb694
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7138548
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0c0
+      NZCV: 0x0000000080000000
+      Encoding: 0x14000005 (b #0xffff85fef0d4)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 71
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 72 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xf500008e8a00008e
+      x01: 0xffffae41793cb148
+      x02: 0xffffffffffffede7
+      x03: 0x1a020000e8070000
+      x04: 0x00000000000003b5
+      x05: 0xffffae41793cb694
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7138548
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0d4
+      NZCV: 0x0000000080000000
+      Encoding: 0xaa82d0a4 (orr x4, x5, x2, asr #52)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 72
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 73 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xf500008e8a00008e
+      x01: 0xffffae41793cb148
+      x02: 0xffffffffffffede7
+      x03: 0x1a020000e8070000
+      x04: 0xffffffffffffffff
+      x05: 0xffffae41793cb694
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7138548
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0d8
+      NZCV: 0x0000000080000000
+      Encoding: 0x92403000 (and x0, x0, #0x1fff)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 73
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 74 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0x000000000000008e
+      x01: 0xffffae41793cb148
+      x02: 0xffffffffffffede7
+      x03: 0x1a020000e8070000
+      x04: 0xffffffffffffffff
+      x05: 0xffffae41793cb694
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7138548
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0dc
+      NZCV: 0x0000000080000000
+      Encoding: 0x8b1d0000 (add x0, x0, x29)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 74
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 75 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb08e
+      x01: 0xffffae41793cb148
+      x02: 0xffffffffffffede7
+      x03: 0x1a020000e8070000
+      x04: 0xffffffffffffffff
+      x05: 0xffffae41793cb694
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7138548
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0e0
+      NZCV: 0x0000000080000000
+      Encoding: 0xf80a4401 (str x1, [x0], #0xa4)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 75
+      Speculation nesting: 0
+      Has memory access: 1
+      MemAccess:
+        EA: 0xffffae41793cb08e
+        Before: 0x637c0000637c0000
+        After: 0xffffae41793cb148
+        Size: 8
+        Type: WRITE
+
+
+--- Entry 76 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb132
+      x01: 0xffffae41793cb148
+      x02: 0xffffffffffffede7
+      x03: 0x1a020000e8070000
+      x04: 0xffffffffffffffff
+      x05: 0xffffae41793cb694
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7138532
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0e4
+      NZCV: 0x0000000080000000
+      Encoding: 0x924030a5 (and x5, x5, #0x1fff)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 76
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 77 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb132
+      x01: 0xffffae41793cb148
+      x02: 0xffffffffffffede7
+      x03: 0x1a020000e8070000
+      x04: 0xffffffffffffffff
+      x05: 0x0000000000001694
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7138532
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0e8
+      NZCV: 0x0000000080000000
+      Encoding: 0x8b1d00a5 (add x5, x5, x29)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 77
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 78 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb132
+      x01: 0xffffae41793cb148
+      x02: 0xffffffffffffede7
+      x03: 0x1a020000e8070000
+      x04: 0xffffffffffffffff
+      x05: 0xffffae41793cc694
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7138532
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0ec
+      NZCV: 0x0000000080000000
+      Encoding: 0xf804e4a4 (str x4, [x5], #0x4e)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 78
+      Speculation nesting: 0
+      Has memory access: 1
+      MemAccess:
+        EA: 0xffffae41793cc694
+        Before: 0xfb000054f1
+        After: 0xffffffffffffffff
+        Size: 8
+        Type: WRITE
+
+
+--- Entry 79 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb132
+      x01: 0xffffae41793cb148
+      x02: 0xffffffffffffede7
+      x03: 0x1a020000e8070000
+      x04: 0xffffffffffffffff
+      x05: 0xffffae41793cc6e2
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7139ae2
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0f0
+      NZCV: 0x0000000080000000
+      Encoding: 0x9ac00ca3 (sdiv x3, x5, x0)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 79
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 80 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb132
+      x01: 0xffffae41793cb148
+      x02: 0xffffffffffffede7
+      x03: 0x0000000000000000
+      x04: 0xffffffffffffffff
+      x05: 0xffffae41793cc6e2
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7139ae2
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0f4
+      NZCV: 0x0000000080000000
+      Encoding: 0x92403021 (and x1, x1, #0x1fff)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 80
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 81 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb132
+      x01: 0x0000000000001148
+      x02: 0xffffffffffffede7
+      x03: 0x0000000000000000
+      x04: 0xffffffffffffffff
+      x05: 0xffffae41793cc6e2
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7139ae2
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0f8
+      NZCV: 0x0000000080000000
+      Encoding: 0x8b1d0021 (add x1, x1, x29)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 81
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 82 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb132
+      x01: 0xffffae41793cc148
+      x02: 0xffffffffffffede7
+      x03: 0x0000000000000000
+      x04: 0xffffffffffffffff
+      x05: 0xffffae41793cc6e2
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7139ae2
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef0fc
+      NZCV: 0x0000000080000000
+      Encoding: 0xd1038421 (sub x1, x1, #0xe1)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 82
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 83 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb132
+      x01: 0xffffae41793cc067
+      x02: 0xffffffffffffede7
+      x03: 0x0000000000000000
+      x04: 0xffffffffffffffff
+      x05: 0xffffae41793cc6e2
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7139ae2
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef100
+      NZCV: 0x0000000080000000
+      Encoding: 0xf80e1c25 (str x5, [x1, #0xe1]!)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 83
+      Speculation nesting: 0
+      Has memory access: 1
+      MemAccess:
+        EA: 0xffffae41793cc148
+        Before: 0xdf0c0000df0c
+        After: 0xffffae41793cc6e2
+        Size: 8
+        Type: WRITE
+
+
+--- Entry 84 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb132
+      x01: 0xffffae41793cc148
+      x02: 0xffffffffffffede7
+      x03: 0x0000000000000000
+      x04: 0xffffffffffffffff
+      x05: 0xffffae41793cc6e2
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7139548
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef104
+      NZCV: 0x0000000080000000
+      Encoding: 0x92403084 (and x4, x4, #0x1fff)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 84
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 85 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb132
+      x01: 0xffffae41793cc148
+      x02: 0xffffffffffffede7
+      x03: 0x0000000000000000
+      x04: 0x0000000000001fff
+      x05: 0xffffae41793cc6e2
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7139548
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef108
+      NZCV: 0x0000000080000000
+      Encoding: 0x8b1d0084 (add x4, x4, x29)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 85
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 86 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb132
+      x01: 0xffffae41793cc148
+      x02: 0xffffffffffffede7
+      x03: 0x0000000000000000
+      x04: 0xffffae41793ccfff
+      x05: 0xffffae41793cc6e2
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7139548
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef10c
+      NZCV: 0x0000000080000000
+      Encoding: 0xcb050084 (sub x4, x4, x5)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 86
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 87 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb132
+      x01: 0xffffae41793cc148
+      x02: 0xffffffffffffede7
+      x03: 0x0000000000000000
+      x04: 0x000000000000091d
+      x05: 0xffffae41793cc6e2
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000aaaad7139548
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef110
+      NZCV: 0x0000000080000000
+      Encoding: 0xf8256880 (str x0, [x4, x5])
+      Extra data size: 0
+    InstrMetadata:
+      Index: 87
+      Speculation nesting: 0
+      Has memory access: 1
+      MemAccess:
+        EA: 0xffffae41793ccfff
+        Before: 0x0
+        After: 0xffffae41793cb132
+        Size: 8
+        Type: WRITE
+
+
+--- Entry 88 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb132
+      x01: 0xffffae41793cc148
+      x02: 0xffffffffffffede7
+      x03: 0x0000000000000000
+      x04: 0x000000000000091d
+      x05: 0xffffae41793cc6e2
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000fc695dd6dd1d
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef114
+      NZCV: 0x0000000080000000
+      Encoding: 0xd503201f (nop)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 88
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+
+
+--- Entry 89 ---
+  === InstrTraceEntry ===
+    CPUState:
+      x00: 0xffffae41793cb132
+      x01: 0xffffae41793cc148
+      x02: 0xffffffffffffede7
+      x03: 0x0000000000000000
+      x04: 0x000000000000091d
+      x05: 0xffffae41793cc6e2
+      x06: 0x70000b8d70000000
+      x07: 0xffffffffffffffff
+      x08: 0x0000e2c80000e2c8
+      x09: 0x0000aaaac2631428
+      x10: 0x0000fc695dd6dd1d
+      x11: 0x0000ffff85fef000
+      x12: 0xffffae41793cb000
+      x13: 0x00006bc600006bc6
+      x14: 0x00004f8400004f84
+      x15: 0x000072a4000072a4
+      x16: 0x00008f6600008f66
+      x17: 0x000043f9000043f9
+      x18: 0x0000000000000000
+      x19: 0x0000aaaac2854258
+      x20: 0x70000b8d70000000
+      x21: 0x0000aaaac2854258
+      x22: 0x00000000000000b8
+      x23: 0x0000aaaac2650150
+      x24: 0x0000ffff88771600
+      x25: 0x0000aaaac2854300
+      x26: 0xffffffffffffffff
+      x27: 0x0000e2c80000e2c8
+      x28: 0x0000000000000000
+      x29: 0xffffae41793cb000
+      x30: 0x0000aaaac2631428
+      SP : 0x0000ffffc71d98f0
+      PC : 0x0000ffff85fef118
+      NZCV: 0x0000000080000000
+      Encoding: 0x14000001 (b #0xffff85fef11c)
+      Extra data size: 0
+    InstrMetadata:
+      Index: 89
+      Speculation nesting: 0
+      Has memory access: 0
+      MemAccess:
+        EA: 0xffffffffffffffff
+        Before: 0x0
+        After: 0x0
+        Size: 0
+        Type: READ
+

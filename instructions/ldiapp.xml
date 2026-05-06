@@ -1,0 +1,321 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="LDIAPP" title="LDIAPP -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="general"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="LDIAPP"/>
+  </docvars>
+  <heading>LDIAPP</heading>
+  <desc>
+    <brief>
+      <para>Load-Acquire RCpc ordered pair of registers</para>
+    </brief>
+    <authored>
+      <para>This instruction calculates an address from
+a base register value and an optional offset, loads two 32-bit words or two 64-bit
+doublewords from memory, and writes them to two registers.
+For information on single-copy atomicity and alignment requirements,
+see <xref linkend="ARMARM_CHDDCBCC">Requirements for single-copy atomicity</xref> and
+<xref linkend="ARMARM_CHDFFEGJ">Alignment of data accesses</xref>.
+The instruction also has memory ordering
+semantics, as described in <xref linkend="ARMARM_BEIHCHEF">Load-Acquire, Load-AcquirePC, and Store-Release</xref>,
+except that:</para>
+      <list type="unordered">
+        <listitem>
+          <content>The Memory effects associated with Xt1/Wt1 are Ordered-before the Memory effects associated with Xt2/Wt2.</content>
+        </listitem>
+        <listitem>
+          <content>If the destination registers are not both <value>WZR</value> or not both <value>XZR</value>, <instruction>LDIAPP</instruction> loads
+    from memory with Acquire semantics.</content>
+        </listitem>
+        <listitem>
+          <content>There is no ordering requirement, separate from the requirements of a Load-AcquirePC or a Store-Release,
+    created by having a Store-Release followed by a Load-AcquirePC instruction.</content>
+        </listitem>
+        <listitem>
+          <content>The reading of a value written by a Store-Release by a Load-AcquirePC instruction by the same observer
+    does not make the write of the Store-Release globally observed.</content>
+        </listitem>
+      </list>
+      <para>For information about addressing modes, see <xref linkend="ARMARM_CHDIIIBB">Load/Store addressing modes</xref>.</para>
+    </authored>
+    <encodingnotes>
+      <para><instruction>LDIAPP</instruction> has the same <arm-defined-word>CONSTRAINED UNPREDICTABLE</arm-defined-word> behavior as <instruction>LDP</instruction>. For information about this <arm-defined-word>CONSTRAINED UNPREDICTABLE</arm-defined-word> behavior, see <xref linkend="CJAEGDJC">Architectural Constraints on UNPREDICTABLE behaviors</xref>, and particularly <xref linkend="CHDBBBDG">LDP and LDIAPP</xref>.</para>
+    </encodingnotes>
+  </desc>
+  <operationalnotes>
+    <operationalnote>
+      <operationalnote_content>
+        <para>This instruction is a data-independent-time instruction as described in <xref linkend="ARMARM_BEICCDDAB3">About PSTATE.DIT</xref>.</para>
+      </operationalnote_content>
+    </operationalnote>
+  </operationalnotes>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="Integer" oneof="1" id="iclass_integer" no_encodings="4" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="general"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="LDIAPP"/>
+      </docvars>
+      <iclassintro count="4"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_LRCPC3" name="v8Ap9"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.ldst.ldiappstilp.LDIAPP_32LE_ldiappstilp" tworows="1">
+        <box hibit="31" width="2" name="size" usename="1" settings="1" psbits="xx">
+          <c>1</c>
+          <c>x</c>
+        </box>
+        <box hibit="29" width="7" settings="7">
+          <c>0</c>
+          <c>1</c>
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="22" name="L" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="20" width="5" name="Rt2" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="15" width="4" name="opc2" usename="1" settings="3" psbits="xxxx">
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+          <c>x</c>
+        </box>
+        <box hibit="11" width="2" settings="2">
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="9" width="5" name="Rn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Rt" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="LDIAPP_32LE_ldiappstilp" oneofinclass="4" oneof="4" label="32-bit post-index" bitdiffs="size == 10 &amp;&amp; opc2 == 0000">
+        <docvars>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="ldisti" value="ldisti-post-index-pair-32"/>
+          <docvar key="mnemonic" value="LDIAPP"/>
+        </docvars>
+        <box hibit="31" width="2" name="size">
+          <c/>
+          <c>0</c>
+        </box>
+        <box hibit="15" width="4" name="opc2">
+          <c/>
+          <c/>
+          <c/>
+          <c>0</c>
+        </box>
+        <asmtemplate><text>LDIAPP  </text><a hover="Is the 32-bit name of the first general-purpose register to be transferred, encoded in the &quot;Rt&quot; field." link="Wt1OrWZR">&lt;Wt1&gt;</a><text>, </text><a hover="Is the 32-bit name of the second general-purpose register to be transferred, encoded in the &quot;Rt2&quot; field." link="Wt2OrWZR">&lt;Wt2&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>], #8</text></asmtemplate>
+      </encoding>
+      <encoding name="LDIAPP_32L_ldiappstilp" oneofinclass="4" oneof="4" label="32-bit" bitdiffs="size == 10 &amp;&amp; opc2 == 0001">
+        <docvars>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="ldisti" value="ldisti-pair-32"/>
+          <docvar key="mnemonic" value="LDIAPP"/>
+        </docvars>
+        <box hibit="31" width="2" name="size">
+          <c/>
+          <c>0</c>
+        </box>
+        <box hibit="15" width="4" name="opc2">
+          <c/>
+          <c/>
+          <c/>
+          <c>1</c>
+        </box>
+        <asmtemplate><text>LDIAPP  </text><a hover="Is the 32-bit name of the first general-purpose register to be transferred, encoded in the &quot;Rt&quot; field." link="Wt1OrWZR">&lt;Wt1&gt;</a><text>, </text><a hover="Is the 32-bit name of the second general-purpose register to be transferred, encoded in the &quot;Rt2&quot; field." link="Wt2OrWZR">&lt;Wt2&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>]</text></asmtemplate>
+      </encoding>
+      <encoding name="LDIAPP_64LS_ldiappstilp" oneofinclass="4" oneof="4" label="64-bit post-index" bitdiffs="size == 11 &amp;&amp; opc2 == 0000">
+        <docvars>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="ldisti" value="ldisti-post-index-pair-64"/>
+          <docvar key="mnemonic" value="LDIAPP"/>
+        </docvars>
+        <box hibit="31" width="2" name="size">
+          <c/>
+          <c>1</c>
+        </box>
+        <box hibit="15" width="4" name="opc2">
+          <c/>
+          <c/>
+          <c/>
+          <c>0</c>
+        </box>
+        <asmtemplate><text>LDIAPP  </text><a hover="Is the 64-bit name of the first general-purpose register to be transferred, encoded in the &quot;Rt&quot; field." link="Xt1OrXZR">&lt;Xt1&gt;</a><text>, </text><a hover="Is the 64-bit name of the second general-purpose register to be transferred, encoded in the &quot;Rt2&quot; field." link="Xt2OrXZR">&lt;Xt2&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>], #16</text></asmtemplate>
+      </encoding>
+      <encoding name="LDIAPP_64L_ldiappstilp" oneofinclass="4" oneof="4" label="64-bit" bitdiffs="size == 11 &amp;&amp; opc2 == 0001">
+        <docvars>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="ldisti" value="ldisti-pair-64"/>
+          <docvar key="mnemonic" value="LDIAPP"/>
+        </docvars>
+        <box hibit="31" width="2" name="size">
+          <c/>
+          <c>1</c>
+        </box>
+        <box hibit="15" width="4" name="opc2">
+          <c/>
+          <c/>
+          <c/>
+          <c>1</c>
+        </box>
+        <asmtemplate><text>LDIAPP  </text><a hover="Is the 64-bit name of the first general-purpose register to be transferred, encoded in the &quot;Rt&quot; field." link="Xt1OrXZR">&lt;Xt1&gt;</a><text>, </text><a hover="Is the 64-bit name of the second general-purpose register to be transferred, encoded in the &quot;Rt2&quot; field." link="Xt2OrXZR">&lt;Xt2&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>]</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.ldst.ldiappstilp.LDIAPP_32LE_ldiappstilp" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_LRCPC3) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+let ispair : boolean = TRUE;
+let postindex : boolean = opc2[0] == '0';
+var wback : boolean = opc2[0] == '0';</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="LDIAPP_32LE_ldiappstilp, LDIAPP_32L_ldiappstilp" symboldefcount="1">
+      <symbol link="Wt1OrWZR">&lt;Wt1&gt;</symbol>
+      <account encodedin="Rt">
+        <intro>
+          <para>Is the 32-bit name of the first general-purpose register to be transferred, encoded in the &quot;Rt&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDIAPP_32LE_ldiappstilp, LDIAPP_32L_ldiappstilp" symboldefcount="1">
+      <symbol link="Wt2OrWZR">&lt;Wt2&gt;</symbol>
+      <account encodedin="Rt2">
+        <intro>
+          <para>Is the 32-bit name of the second general-purpose register to be transferred, encoded in the &quot;Rt2&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDIAPP_32LE_ldiappstilp, LDIAPP_32L_ldiappstilp, LDIAPP_64LS_ldiappstilp, LDIAPP_64L_ldiappstilp" symboldefcount="1">
+      <symbol link="XnSP_option">&lt;Xn|SP&gt;</symbol>
+      <account encodedin="Rn">
+        <intro>
+          <para>Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDIAPP_64LS_ldiappstilp, LDIAPP_64L_ldiappstilp" symboldefcount="1">
+      <symbol link="Xt1OrXZR">&lt;Xt1&gt;</symbol>
+      <account encodedin="Rt">
+        <intro>
+          <para>Is the 64-bit name of the first general-purpose register to be transferred, encoded in the &quot;Rt&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDIAPP_64LS_ldiappstilp, LDIAPP_64L_ldiappstilp" symboldefcount="1">
+      <symbol link="Xt2OrXZR">&lt;Xt2&gt;</symbol>
+      <account encodedin="Rt2">
+        <intro>
+          <para>Is the 64-bit name of the second general-purpose register to be transferred, encoded in the &quot;Rt2&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.ldst.ldiappstilp.LDIAPP_32LE_ldiappstilp" sections="1" secttype="Shared Decode">
+      <pstext mayhavelinks="1" section="Postdecode" rep_section="postdecode">let t : integer{} = UInt(Rt);
+let t2 : integer{} = UInt(Rt2);
+let n : integer{} = UInt(Rn);
+let scale : integer{} = 2 + UInt(size[0]);
+let datasize : integer{} = 8 &lt;&lt; scale;
+let offset : integer = if opc2[0] == '0' then (2 &lt;&lt; scale) else 0;
+let acqrel : boolean = t != 31 &amp;&amp; t2 != 31;
+let tagchecked : boolean = wback || n != 31;
+
+var rt_unknown : boolean = FALSE;
+
+var wb_unknown : boolean = FALSE;
+if wback &amp;&amp; (t == n || t2 == n) &amp;&amp; n != 31 then
+    let c : <a link="type_Constraint" file="shared_pseudocode.xml">Constraint</a> = ConstrainUnpredictable(<a link="enum_Unpredictable_WBOVERLAPLD" file="shared_pseudocode.xml">Unpredictable_WBOVERLAPLD</a>);
+    assert c IN {<a link="enum_Constraint_WBSUPPRESS" file="shared_pseudocode.xml">Constraint_WBSUPPRESS</a>, <a link="enum_Constraint_UNKNOWN" file="shared_pseudocode.xml">Constraint_UNKNOWN</a>, <a link="enum_Constraint_UNDEF" file="shared_pseudocode.xml">Constraint_UNDEF</a>, <a link="enum_Constraint_NOP" file="shared_pseudocode.xml">Constraint_NOP</a>};
+    case c of
+        when <a link="enum_Constraint_WBSUPPRESS" file="shared_pseudocode.xml">Constraint_WBSUPPRESS</a> =&gt; wback = FALSE;        // writeback is suppressed
+        when <a link="enum_Constraint_UNKNOWN" file="shared_pseudocode.xml">Constraint_UNKNOWN</a> =&gt;    wb_unknown = TRUE;    // writeback is UNKNOWN
+        when <a link="enum_Constraint_UNDEF" file="shared_pseudocode.xml">Constraint_UNDEF</a> =&gt;      EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+        when <a link="enum_Constraint_NOP" file="shared_pseudocode.xml">Constraint_NOP</a> =&gt;        EndOfDecode(<a link="enum_Decode_NOP" file="shared_pseudocode.xml">Decode_NOP</a>);
+    end;
+end;
+
+if t == t2 then
+    let c : <a link="type_Constraint" file="shared_pseudocode.xml">Constraint</a> = ConstrainUnpredictable(<a link="enum_Unpredictable_LDPOVERLAP" file="shared_pseudocode.xml">Unpredictable_LDPOVERLAP</a>);
+    assert c IN {<a link="enum_Constraint_UNKNOWN" file="shared_pseudocode.xml">Constraint_UNKNOWN</a>, <a link="enum_Constraint_UNDEF" file="shared_pseudocode.xml">Constraint_UNDEF</a>, <a link="enum_Constraint_NOP" file="shared_pseudocode.xml">Constraint_NOP</a>};
+    case c of
+        when <a link="enum_Constraint_UNKNOWN" file="shared_pseudocode.xml">Constraint_UNKNOWN</a> =&gt; rt_unknown = TRUE;    // result is UNKNOWN
+        when <a link="enum_Constraint_UNDEF" file="shared_pseudocode.xml">Constraint_UNDEF</a> =&gt;   EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+        when <a link="enum_Constraint_NOP" file="shared_pseudocode.xml">Constraint_NOP</a> =&gt;     EndOfDecode(<a link="enum_Decode_NOP" file="shared_pseudocode.xml">Decode_NOP</a>);
+    end;
+end;</pstext>
+    </ps>
+  </ps_section>
+  <ps_section howmany="1">
+    <ps name="A64.ldst.ldiappstilp.LDIAPP_32LE_ldiappstilp" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">var address : bits(64);
+var data1 : bits(datasize);
+var data2 : bits(datasize);
+let dbytes : integer{} = datasize DIV 8;
+let accdesc : <a link="type_AccessDescriptor" file="shared_pseudocode.xml">AccessDescriptor</a> = <a link="func_CreateAccDescLDAcqPC_5" file="shared_pseudocode.xml">CreateAccDescLDAcqPC</a>(tagchecked, ispair, acqrel, t, t2);
+
+if n == 31 then
+    CheckSPAlignment();
+    address = <a link="accessor_SP_1" file="shared_pseudocode.xml">SP</a>{64}();
+else
+    address = <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(n);
+end;
+
+if !postindex then
+    address = <a link="func_AddressAdd_3" file="shared_pseudocode.xml">AddressAdd</a>(address, offset, accdesc);
+end;
+
+var full_data : bits(2*datasize);
+full_data = <a link="accessor_Mem_3" file="shared_pseudocode.xml">Mem</a>{2*datasize}(address, accdesc);
+if <a link="func_BigEndian_1" file="shared_pseudocode.xml">BigEndian</a>(accdesc.acctype) then
+    data2 = full_data[(datasize-1):0];
+    data1 = full_data[(2*datasize-1):datasize];
+else
+    data1 = full_data[(datasize-1):0];
+    data2 = full_data[(2*datasize-1):datasize];
+end;
+
+if rt_unknown then
+    data1 = ARBITRARY : bits(datasize);
+    data2 = ARBITRARY : bits(datasize);
+end;
+
+<a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{datasize}(t) = data1;
+<a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{datasize}(t2) = data2;
+
+if wback then
+    if wb_unknown then
+        address = ARBITRARY : bits(64);
+    elsif postindex then
+        address = <a link="func_AddressAdd_3" file="shared_pseudocode.xml">AddressAdd</a>(address, offset, accdesc);
+    end;
+    if n == 31 then
+        <a link="accessor_SP_1" file="shared_pseudocode.xml">SP</a>{64}() = address;
+    else
+        <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(n) = address;
+    end;
+end;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

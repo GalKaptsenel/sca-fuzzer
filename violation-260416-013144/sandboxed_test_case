@@ -1,0 +1,77 @@
+.test_case_enter:
+.section .data.main
+.function_0:
+.bb_0.0:
+.macro.measurement_start: NOP
+ADDS  w5, w3, #3375, lsl #0 
+AND x0, x0, 0b1111111111111 // instrumentation
+ADD x0, x0, x29 // instrumentation
+SUB x0, x0, x3 // instrumentation
+LDR  w5, [x0, x3] 
+CBNZ  x5, .bb_0.1 
+B .bb_0.2 
+.bb_0.1:
+AND x2, x2, 0b1111111111111 // instrumentation
+ADD x2, x2, x29 // instrumentation
+SUB x2, x2, x1 // instrumentation
+LDR  w4, [x2, x1] 
+EOR  x5, x1, x3, lsr #5 
+AND x1, x1, 0b1111111111111 // instrumentation
+ADD x1, x1, x29 // instrumentation
+SUB x1, x1, x4 // instrumentation
+LDR  w3, [x1, x4] 
+AND x5, x5, 0b1111111111111 // instrumentation
+ADD x5, x5, x29 // instrumentation
+LDR  w4, [x5], #65 
+CSINC  w0, w1, w3, ls 
+CSINC  x2, x5, x0, hi 
+B .bb_0.2 
+.bb_0.2:
+AND x3, x3, 0b1111111111111 // instrumentation
+ADD x3, x3, x29 // instrumentation
+LDR  x5, [x3], #-18 
+AND x1, x1, 0b1111111111111 // instrumentation
+ADD x1, x1, x29 // instrumentation
+LDR  x2, [x1], #19 
+CSNEG  w5, w4, w1, le 
+EOR  x5, x5, x2, lsl #15 
+ANDS  x1, x4, x2, asr #1 
+CBZ  x2, .bb_0.3 
+B .exit_0 
+.bb_0.3:
+AND x4, x4, 0b1111111111111 // instrumentation
+ADD x4, x4, x29 // instrumentation
+SUB x4, x4, x1 // instrumentation
+STR  x3, [x4, x1] 
+ANDS  x0, x3, #18446744073709543431 
+AND x0, x0, 0b1111111111111 // instrumentation
+ADD x0, x0, x29 // instrumentation
+SUB x0, x0, -164 // instrumentation
+LDR  w2, [x0, #-164]! 
+EOR  x2, x0, x5, lsl #29 
+AND x2, x2, 0b1111111111111 // instrumentation
+ADD x2, x2, x29 // instrumentation
+SUB x2, x2, -199 // instrumentation
+STR  w0, [x2, #-199]! 
+CSEL  x2, x0, x2, ge 
+CBZ  x1, .bb_0.4 
+B .exit_0 
+.bb_0.4:
+AND x3, x3, 0b1111111111111 // instrumentation
+ADD x3, x3, x29 // instrumentation
+STR  w1, [x3], #31 
+ANDS  w5, w2, w0, ror #9 
+AND x0, x0, 0b1111111111111 // instrumentation
+ADD x0, x0, x29 // instrumentation
+SUB x0, x0, 55 // instrumentation
+STR  w1, [x0, #55]! 
+ORR  w0, w0, w4 
+AND x4, x4, 0b1111111111111 // instrumentation
+ADD x4, x4, x29 // instrumentation
+SUB x4, x4, x1 // instrumentation
+STR  x2, [x4, x1] 
+.exit_0:
+.macro.measurement_end: NOP
+B .test_case_exit 
+.section .data.main
+.test_case_exit:

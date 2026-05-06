@@ -1,0 +1,138 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="wrffr_f_p" title="WRFFR -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="sve"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="WRFFR"/>
+  </docvars>
+  <heading>WRFFR</heading>
+  <desc>
+    <brief>
+      <para>Write the first-fault register</para>
+    </brief>
+    <authored>
+      <para>This instruction reads the source predicate register and places in the
+first-fault register (<asm-code>FFR</asm-code>). This instruction is intended
+to restore a saved <asm-code>FFR</asm-code> and is not recommended for general
+use by applications.</para>
+      <para>This instruction requires that the source predicate contains a
+monotonic predicate value, in which starting from bit 0
+there are zero or more 1 bits, followed only by
+0 bits in any remaining bit positions. If the source
+is not a monotonic predicate value, then the resulting value
+in the <asm-code>FFR</asm-code> will be <arm-defined-word>UNPREDICTABLE</arm-defined-word>. It is not possible to
+generate a non-monotonic value in <asm-code>FFR</asm-code> when using
+<instruction>SETFFR</instruction> followed by first-fault or non-fault loads.</para>
+      <para>This instruction is illegal when executed in Streaming SVE mode, unless FEAT_SME_FA64 is implemented and enabled.</para>
+    </authored>
+    <predicated>False</predicated>
+    <sm_policy>SM_0_only</sm_policy>
+  </desc>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="SVE" oneof="1" id="iclass_sve" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="sve"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="WRFFR"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SVE" name="v8Ap2 &amp;&amp; PROFILE_A"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_pred_wrffr.sve_int_wrffr.wrffr_f_p_" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="23" width="2" name="opc" usename="1" settings="2" psbits="xx">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="21" width="3" settings="3">
+          <c>1</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="18" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="17" width="2" settings="2">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="15" width="4" settings="4">
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="11" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="8" width="4" name="Pn" usename="1">
+          <c colspan="4"/>
+        </box>
+        <box hibit="4" width="5" settings="5">
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+      </regdiagram>
+      <encoding name="wrffr_f_p_" oneofinclass="1" oneof="1" label="">
+        <docvars>
+          <docvar key="instr-class" value="sve"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="WRFFR"/>
+        </docvars>
+        <asmtemplate><text>WRFFR  </text><a hover="Is the name of the source scalable predicate register, encoded in the &quot;Pn&quot; field." link="Pn__3">&lt;Pn&gt;</a><text>.B</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_pred_wrffr.sve_int_wrffr.wrffr_f_p_" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SVE) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+let n : integer = UInt(Pn);</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="wrffr_f_p_" symboldefcount="1">
+      <symbol link="Pn__3">&lt;Pn&gt;</symbol>
+      <account encodedin="Pn">
+        <intro>
+          <para>Is the name of the source scalable predicate register, encoded in the &quot;Pn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.sve.sve_pred_wrffr.sve_int_wrffr.wrffr_f_p_" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">CheckNonStreamingSVEEnabled();
+let VL : integer{} = CurrentVL();
+let PL : integer{} = VL DIV 8;
+let operand : bits(PL) = P{}(n);
+
+let hsb : integer{} = HighestSetBit(operand);
+if hsb &lt; 0 || IsOnes(operand[hsb:0]) then
+    <a link="accessor_FFR_1" file="shared_pseudocode.xml">FFR</a>{PL}() = operand;
+else // not a monotonic predicate
+    <a link="accessor_FFR_1" file="shared_pseudocode.xml">FFR</a>{PL}() = ARBITRARY : bits(PL);
+end;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

@@ -1,4 +1,5 @@
 #include "main.h"
+#include "pac.h"
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
 #define CLASS_CREATE(DEV_CLASS, DEV_NAME) class_create(DEV_NAME);
@@ -416,6 +417,46 @@ long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
 			//module_debug("Batch of inputs (cmd: %d)..\n", REVISOR_BATCHED_INPUTS_CONSTANT);
 			handle_batch((void __user*)arg);
 		    break;
+
+		case REVISOR_PAC_SIGN_CONSTANT: {
+			struct pac_sign_req req;
+			if (copy_from_user_with_access_check(&req, (void __user *)arg, sizeof(req)))
+				return -EFAULT;
+			req.mnemonic[sizeof(req.mnemonic) - 1] = '\0';
+
+			if      (!strcmp(req.mnemonic, "pacia"))  req.result = pacia(req.ptr, req.ctx);
+			else if (!strcmp(req.mnemonic, "pacib"))  req.result = pacib(req.ptr, req.ctx);
+			else if (!strcmp(req.mnemonic, "pacda"))  req.result = pacda(req.ptr, req.ctx);
+			else if (!strcmp(req.mnemonic, "pacdb"))  req.result = pacdb(req.ptr, req.ctx);
+			else if (!strcmp(req.mnemonic, "paciza")) req.result = paciza(req.ptr);
+			else if (!strcmp(req.mnemonic, "pacizb")) req.result = pacizb(req.ptr);
+			else if (!strcmp(req.mnemonic, "pacdza")) req.result = pacdza(req.ptr);
+			else if (!strcmp(req.mnemonic, "pacdzb")) req.result = pacdzb(req.ptr);
+			else return -EINVAL;
+
+			return copy_to_user_with_access_check((void __user *)arg, &req, sizeof(req))
+				? -EFAULT : 0;
+		}
+
+		case REVISOR_PAC_AUTH_CONSTANT: {
+			struct pac_sign_req req;
+			if (copy_from_user_with_access_check(&req, (void __user *)arg, sizeof(req)))
+				return -EFAULT;
+			req.mnemonic[sizeof(req.mnemonic) - 1] = '\0';
+
+			if      (!strcmp(req.mnemonic, "autia"))  req.result = autia(req.ptr, req.ctx);
+			else if (!strcmp(req.mnemonic, "autib"))  req.result = autib(req.ptr, req.ctx);
+			else if (!strcmp(req.mnemonic, "autda"))  req.result = autda(req.ptr, req.ctx);
+			else if (!strcmp(req.mnemonic, "autdb"))  req.result = autdb(req.ptr, req.ctx);
+			else if (!strcmp(req.mnemonic, "autiza")) req.result = autiza(req.ptr);
+			else if (!strcmp(req.mnemonic, "autizb")) req.result = autizb(req.ptr);
+			else if (!strcmp(req.mnemonic, "autdza")) req.result = autdza(req.ptr);
+			else if (!strcmp(req.mnemonic, "autdzb")) req.result = autdzb(req.ptr);
+			else return -EINVAL;
+
+			return copy_to_user_with_access_check((void __user *)arg, &req, sizeof(req))
+				? -EFAULT : 0;
+		}
 
 		default:
 			module_err("Invalid IOCTL! Entered default case..\n");

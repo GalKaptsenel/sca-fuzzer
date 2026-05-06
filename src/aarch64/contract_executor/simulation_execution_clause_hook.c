@@ -115,6 +115,7 @@ static uintptr_t evaluate_cond_branch_arch_not_taken(const struct cpu_state* sta
 
 static struct execution_mgmt mgmt = { 0 };
 static int initialized = 0;
+static int director_initialized = 0; // director lives for the full process lifetime
 
 static uint64_t take_checkpoint(struct simulation_state* sim_state) {
 	if(mgmt.current_checkpoint_id >= mgmt.max_checkpoints) {
@@ -143,14 +144,19 @@ static void reload_checkpoint(struct simulation_state* sim_state, uint64_t check
 }
 
 static void initialize_director() {
-	//if(0 != tagebp_init(".", "bootstrap_director", 2, 4, 4096)) {
+	if(director_initialized) return;
 	if(0 != tagebp_init("src/aarch64/contract_executor", "bootstrap_director")) {
 		__builtin_trap(); // sanity check
 	}
+	director_initialized = 1;
 }
 
 static void destroy_director() {
-	tagebp_destroy_instance();
+	/* Reset TAGE prediction tables in-place between test cases.
+	 * Calling reset() clears the LRU caches and PHR without recreating Python objects,
+	 * so the reference-cycle GC pause that plagued the old destroy+recreate approach
+	 * does not occur.  The Python instance itself lives for the full process lifetime. */
+	tagebp_reset();
 }
 
 static uintptr_t director_predict(uintptr_t pc) {
@@ -178,6 +184,7 @@ static void destroy_execution_clause() {
 static void* early_decision(const struct cpu_state* state) {
 	const uintptr_t target_address = evaluate_cond_target(state->pc, *(uint32_t*)state->pc);
 	const uintptr_t arch_taken_address = evaluate_cond_branch_arch_taken(state);
+	return (void*)arch_taken_address;
 	const bool arch_taken = target_address == arch_taken_address;
 
 	// check what the director says, if it is the same as real direction, then no deeper speculation needed, otherwise speculate to the mispredicted direction
@@ -257,3 +264,8 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 	return (void*)evaluate_cond_branch_arch_not_taken(&sim_state->cpu_state);
 }
 
+/* Called from main.c after each simulation ends — frees checkpoint memory, resets
+ * TAGE state, and clears initialized so the next test case starts fresh. */
+void reset_execution_clause_state(void) {
+	destroy_execution_clause();
+}

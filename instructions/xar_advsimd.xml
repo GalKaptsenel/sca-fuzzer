@@ -1,0 +1,136 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="XAR_advsimd" title="XAR -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="advsimd"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="XAR"/>
+  </docvars>
+  <heading>XAR</heading>
+  <desc>
+    <brief>
+      <para>Exclusive-OR and rotate</para>
+    </brief>
+    <authored>
+      <para>This instruction performs a bitwise exclusive-OR of the
+128-bit vectors in the two source SIMD&amp;FP registers, rotates each
+64-bit element of the resulting 128-bit vector right by the value
+specified by a 6-bit immediate value, and writes the result to
+the destination SIMD&amp;FP register.</para>
+    </authored>
+  </desc>
+  <operationalnotes>
+    <operationalnote>
+      <operationalnote_content>
+        <para>This instruction is a data-independent-time instruction as described in <xref linkend="ARMARM_BEICCDDAB3">About PSTATE.DIT</xref>.</para>
+      </operationalnote_content>
+    </operationalnote>
+  </operationalnotes>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="Advanced SIMD" oneof="1" id="iclass_advanced_simd" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="advsimd"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="XAR"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SHA3" name="v8Ap2"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.simd_dp.crypto3_imm6.XAR_VVV2_crypto3_imm6">
+        <box hibit="31" width="4" settings="4">
+          <c>1</c>
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="27" width="3" settings="3">
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="24" width="2" settings="2">
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="22" width="2" settings="2">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="20" width="5" name="Rm" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="15" width="6" name="imm6" usename="1">
+          <c colspan="6"/>
+        </box>
+        <box hibit="9" width="5" name="Rn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Rd" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="XAR_VVV2_crypto3_imm6" oneofinclass="1" oneof="1" label="">
+        <docvars>
+          <docvar key="instr-class" value="advsimd"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="XAR"/>
+        </docvars>
+        <asmtemplate><text>XAR  </text><a hover="Is the name of the SIMD&amp;FP destination register, encoded in the &quot;Rd&quot; field." link="Vd">&lt;Vd&gt;</a><text>.2D, </text><a hover="Is the name of the first SIMD&amp;FP source register, encoded in the &quot;Rn&quot; field." link="Vn__2">&lt;Vn&gt;</a><text>.2D, </text><a hover="Is the name of the second SIMD&amp;FP source register, encoded in the &quot;Rm&quot; field." link="Vm">&lt;Vm&gt;</a><text>.2D, #</text><a hover="Is a rotation right, encoded in &quot;imm6&quot;." link="imm6">&lt;imm6&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.simd_dp.crypto3_imm6.XAR_VVV2_crypto3_imm6" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SHA3) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+let d : integer{} = UInt(Rd);
+let n : integer{} = UInt(Rn);
+let m : integer{} = UInt(Rm);</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="XAR_VVV2_crypto3_imm6" symboldefcount="1">
+      <symbol link="Vd">&lt;Vd&gt;</symbol>
+      <account encodedin="Rd">
+        <intro>
+          <para>Is the name of the SIMD&amp;FP destination register, encoded in the &quot;Rd&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="XAR_VVV2_crypto3_imm6" symboldefcount="1">
+      <symbol link="Vn__2">&lt;Vn&gt;</symbol>
+      <account encodedin="Rn">
+        <intro>
+          <para>Is the name of the first SIMD&amp;FP source register, encoded in the &quot;Rn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="XAR_VVV2_crypto3_imm6" symboldefcount="1">
+      <symbol link="Vm">&lt;Vm&gt;</symbol>
+      <account encodedin="Rm">
+        <intro>
+          <para>Is the name of the second SIMD&amp;FP source register, encoded in the &quot;Rm&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="XAR_VVV2_crypto3_imm6" symboldefcount="1">
+      <symbol link="imm6">&lt;imm6&gt;</symbol>
+      <account encodedin="imm6">
+        <intro>
+          <para>Is a rotation right, encoded in &quot;imm6&quot;.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.simd_dp.crypto3_imm6.XAR_VVV2_crypto3_imm6" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">AArch64_CheckFPAdvSIMDEnabled();
+
+let Vm : bits(128) = V{}(m);
+let Vn : bits(128) = V{}(n);
+let tmp : bits(128) = Vn XOR Vm;
+V{128}(d) = ROR(tmp[127:64], UInt(imm6))::ROR(tmp[63:0], UInt(imm6));</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

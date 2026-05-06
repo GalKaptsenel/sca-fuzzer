@@ -1,0 +1,134 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="SHA256SU0_advsimd" title="SHA256SU0 -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="advsimd"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="SHA256SU0"/>
+  </docvars>
+  <heading>SHA256SU0</heading>
+  <desc>
+    <brief>
+      <para>SHA256 schedule update 0</para>
+    </brief>
+    <authored>
+      <para>SHA256 schedule update 0.</para>
+    </authored>
+  </desc>
+  <operationalnotes>
+    <operationalnote>
+      <operationalnote_content>
+        <para>This instruction is a data-independent-time instruction as described in <xref linkend="ARMARM_BEICCDDAB3">About PSTATE.DIT</xref>.</para>
+      </operationalnote_content>
+    </operationalnote>
+  </operationalnotes>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="Advanced SIMD" oneof="1" id="iclass_advanced_simd" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="advsimd"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="SHA256SU0"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SHA256" name="v8Ap0"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.simd_dp.cryptosha2.SHA256SU0_VV_cryptosha2" tworows="1">
+        <box hibit="31" width="4" settings="4">
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="27" width="3" settings="3">
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="23" width="2" name="size" usename="1" settings="2" psbits="xx">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="21" width="5" settings="5">
+          <c>1</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="16" width="5" name="opcode" usename="1" settings="5" psbits="xxxxx">
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="11" width="2" settings="2">
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="9" width="5" name="Rn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Rd" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="SHA256SU0_VV_cryptosha2" oneofinclass="1" oneof="1" label="">
+        <docvars>
+          <docvar key="instr-class" value="advsimd"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="SHA256SU0"/>
+        </docvars>
+        <asmtemplate><text>SHA256SU0  </text><a hover="Is the name of the SIMD&amp;FP source and destination register, encoded in the &quot;Rd&quot; field." link="Vd__4">&lt;Vd&gt;</a><text>.4S, </text><a hover="Is the name of the second SIMD&amp;FP source register, encoded in the &quot;Rn&quot; field." link="Vn__6">&lt;Vn&gt;</a><text>.4S</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.simd_dp.cryptosha2.SHA256SU0_VV_cryptosha2" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SHA256) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+let d : integer{} = UInt(Rd);
+let n : integer{} = UInt(Rn);</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="SHA256SU0_VV_cryptosha2" symboldefcount="1">
+      <symbol link="Vd__4">&lt;Vd&gt;</symbol>
+      <account encodedin="Rd">
+        <intro>
+          <para>Is the name of the SIMD&amp;FP source and destination register, encoded in the &quot;Rd&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="SHA256SU0_VV_cryptosha2" symboldefcount="1">
+      <symbol link="Vn__6">&lt;Vn&gt;</symbol>
+      <account encodedin="Rn">
+        <intro>
+          <para>Is the name of the second SIMD&amp;FP source register, encoded in the &quot;Rn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.simd_dp.cryptosha2.SHA256SU0_VV_cryptosha2" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">AArch64_CheckFPAdvSIMDEnabled();
+
+let operand1 : bits(128) = V{}(d);
+let operand2 : bits(128) = V{}(n);
+let T : bits(128) = operand2[31:0] :: operand1[127:32];
+var result : bits(128);
+var elt : bits(32);
+
+for e = 0 to 3 do
+    elt = T[e*:32];
+    elt = ROR(elt, 7) XOR ROR(elt, 18) XOR LSR(elt, 3);
+    result[e*:32] = elt + operand1[e*:32];
+end;
+V{128}(d) = result;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

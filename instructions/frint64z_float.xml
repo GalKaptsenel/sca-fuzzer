@@ -1,0 +1,179 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="FRINT64Z_float" title="FRINT64Z (scalar) -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="float"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="FRINT64Z"/>
+  </docvars>
+  <heading>FRINT64Z (scalar)</heading>
+  <desc>
+    <brief>
+      <para>Floating-point round to 64-bit integer toward zero (scalar)</para>
+    </brief>
+    <authored>
+      <para>This instruction rounds a floating-point value in the SIMD&amp;FP source register to an integral floating-point
+value that fits into a 64-bit integer size using the Round towards Zero rounding mode,
+and writes the result to the SIMD&amp;FP destination register.</para>
+      <para>A zero input returns a zero result with the same sign. When the result value is not numerically equal to
+the input value, an Inexact exception is raised. When the input is infinite, NaN or out-of-range,
+the instruction returns the most negative integer representable in the destination size,
+and an Invalid Operation floating-point exception is raised.</para>
+      <para>This instruction can generate a floating-point exception.
+  Depending on the settings in <register_link id="AArch64-fpcr.xml" state="AArch64">FPCR</register_link>,
+  the exception results in either a flag being set in <register_link id="AArch64-fpsr.xml" state="AArch64">FPSR</register_link>
+  or a synchronous exception being generated.
+  For more information, see
+  <xref linkend="ARMARM_BEIJDDAG">Floating-point exceptions and exception traps</xref>.</para>
+      <para>Depending on the settings in the <register_link id="AArch64-cpacr_el1.xml" state="AArch64">CPACR_EL1</register_link>,
+  <register_link id="AArch64-cptr_el2.xml" state="AArch64">CPTR_EL2</register_link>, and <register_link id="AArch64-cptr_el3.xml" state="AArch64">CPTR_EL3</register_link> registers,
+  and the current Security state and Exception level,
+  an attempt to execute the instruction might be trapped.</para>
+    </authored>
+  </desc>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="Floating-point" oneof="1" id="iclass_floating_point" no_encodings="2" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="float"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="FRINT64Z"/>
+      </docvars>
+      <iclassintro count="2"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_FRINTTS" name="v8Ap5"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.simd_dp.floatdp1.FRINT64Z_S_floatdp1" tworows="1">
+        <box hibit="31" name="M" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="30" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="29" name="S" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="28" width="5" settings="5">
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="23" width="2" name="ftype" usename="1" settings="1" psbits="xx">
+          <c>0</c>
+          <c>x</c>
+        </box>
+        <box hibit="21" width="5" settings="5">
+          <c>1</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="16" width="2" name="op" usename="1" settings="2" psbits="xx">
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="14" width="5" settings="5">
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="9" width="5" name="Rn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Rd" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="FRINT64Z_S_floatdp1" oneofinclass="2" oneof="2" label="Single-precision" bitdiffs="ftype == 00">
+        <docvars>
+          <docvar key="instr-class" value="float"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="datatype" value="single"/>
+          <docvar key="mnemonic" value="FRINT64Z"/>
+        </docvars>
+        <box hibit="23" width="2" name="ftype">
+          <c/>
+          <c>0</c>
+        </box>
+        <asmtemplate><text>FRINT64Z  </text><a hover="Is the 32-bit name of the SIMD&amp;FP destination register, encoded in the &quot;Rd&quot; field." link="Sd">&lt;Sd&gt;</a><text>, </text><a hover="Is the 32-bit name of the SIMD&amp;FP source register, encoded in the &quot;Rn&quot; field." link="Sn">&lt;Sn&gt;</a></asmtemplate>
+      </encoding>
+      <encoding name="FRINT64Z_D_floatdp1" oneofinclass="2" oneof="2" label="Double-precision" bitdiffs="ftype == 01">
+        <docvars>
+          <docvar key="datatype" value="double"/>
+          <docvar key="instr-class" value="float"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="FRINT64Z"/>
+        </docvars>
+        <box hibit="23" width="2" name="ftype">
+          <c/>
+          <c>1</c>
+        </box>
+        <asmtemplate><text>FRINT64Z  </text><a hover="Is the 64-bit name of the SIMD&amp;FP destination register, encoded in the &quot;Rd&quot; field." link="Dd">&lt;Dd&gt;</a><text>, </text><a hover="Is the 64-bit name of the SIMD&amp;FP source register, encoded in the &quot;Rn&quot; field." link="Dn">&lt;Dn&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.simd_dp.floatdp1.FRINT64Z_S_floatdp1" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_FRINTTS) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+if ftype IN {'1x'} then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+
+let d : integer{} = UInt(Rd);
+let n : integer{} = UInt(Rn);
+let esize : integer{} = 32 &lt;&lt; UInt(ftype[0]);
+let intsize : integer{} = 64;
+
+let rounding : <a link="type_FPRounding" file="shared_pseudocode.xml">FPRounding</a> = <a link="enum_FPRounding_ZERO" file="shared_pseudocode.xml">FPRounding_ZERO</a>;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="FRINT64Z_S_floatdp1" symboldefcount="1">
+      <symbol link="Sd">&lt;Sd&gt;</symbol>
+      <account encodedin="Rd">
+        <intro>
+          <para>Is the 32-bit name of the SIMD&amp;FP destination register, encoded in the &quot;Rd&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="FRINT64Z_S_floatdp1" symboldefcount="1">
+      <symbol link="Sn">&lt;Sn&gt;</symbol>
+      <account encodedin="Rn">
+        <intro>
+          <para>Is the 32-bit name of the SIMD&amp;FP source register, encoded in the &quot;Rn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="FRINT64Z_D_floatdp1" symboldefcount="1">
+      <symbol link="Dd">&lt;Dd&gt;</symbol>
+      <account encodedin="Rd">
+        <intro>
+          <para>Is the 64-bit name of the SIMD&amp;FP destination register, encoded in the &quot;Rd&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="FRINT64Z_D_floatdp1" symboldefcount="1">
+      <symbol link="Dn">&lt;Dn&gt;</symbol>
+      <account encodedin="Rn">
+        <intro>
+          <para>Is the 64-bit name of the SIMD&amp;FP source register, encoded in the &quot;Rn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.simd_dp.floatdp1.FRINT64Z_S_floatdp1" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">AArch64_CheckFPEnabled();
+
+let operand : bits(esize) = V{}(n);
+var result : bits(128) = if <a link="func_IsMerging_1" file="shared_pseudocode.xml">IsMerging</a>(FPCR()) then V{128}(d) else Zeros{128};
+
+result[0+:esize] = <a link="func_FPRoundIntN_5" file="shared_pseudocode.xml">FPRoundIntN</a>{esize}(operand, FPCR(), rounding, intsize);
+
+V{128}(d) = result;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

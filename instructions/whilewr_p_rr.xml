@@ -1,0 +1,197 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="whilewr_p_rr" title="WHILEWR -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="sve2"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="WHILEWR"/>
+  </docvars>
+  <heading>WHILEWR</heading>
+  <desc>
+    <brief>
+      <para>While free of write-after-read/write conflicts</para>
+    </brief>
+    <authored>
+      <para>This instruction checks
+two addresses for a conflict or overlap between
+address ranges of the form [addr,addr+VL÷8),
+where VL is the accessible vector length in bits,
+that could result in a loop-carried
+  dependency through memory due to the use of these
+addresses by contiguous load and store instructions
+within the same iteration of a loop.  Generate a
+predicate whose elements are true while the addresses
+cannot conflict within the same iteration, and false
+thereafter.  This instruction sets the First (N), None (Z), and !Last (C)
+condition flags based on the predicate result,
+and sets the V flag to zero.</para>
+    </authored>
+    <predicated>False</predicated>
+  </desc>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="SVE2" oneof="1" id="iclass_sve2" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="sve2"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="WHILEWR"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SVE2 || FEAT_SME" name="v9Ap0 || (v9Ap2 &amp;&amp; PROFILE_A)"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_cmpgpr.sve_int_whilenc.whilewr_p_rr_" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="23" width="2" name="size" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="20" width="5" name="Rm" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="15" width="2" settings="2">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="13" width="2" settings="2">
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="11" width="2" settings="2">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="9" width="5" name="Rn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" name="rw" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="3" width="4" name="Pd" usename="1">
+          <c colspan="4"/>
+        </box>
+      </regdiagram>
+      <encoding name="whilewr_p_rr_" oneofinclass="1" oneof="1" label="">
+        <docvars>
+          <docvar key="instr-class" value="sve2"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="WHILEWR"/>
+        </docvars>
+        <asmtemplate><text>WHILEWR  </text><a hover="Is the name of the destination scalable predicate register, encoded in the &quot;Pd&quot; field." link="Pd">&lt;Pd&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__71">&lt;T&gt;</a><text>, </text><a hover="Is the 64-bit name of the first source general-purpose register, encoded in the &quot;Rn&quot; field." link="Xn__4">&lt;Xn&gt;</a><text>, </text><a hover="Is the 64-bit name of the second source general-purpose register, encoded in the &quot;Rm&quot; field." link="Xm__6">&lt;Xm&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_cmpgpr.sve_int_whilenc.whilewr_p_rr_" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SVE2) &amp;&amp; !IsFeatureImplemented(FEAT_SME) then
+    EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+let esize : integer{} = 8 &lt;&lt; UInt(size);
+let n : integer = UInt(Rn);
+let m : integer = UInt(Rm);
+let d : integer = UInt(Pd);</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="whilewr_p_rr_" symboldefcount="1">
+      <symbol link="Pd">&lt;Pd&gt;</symbol>
+      <account encodedin="Pd">
+        <intro>
+          <para>Is the name of the destination scalable predicate register, encoded in the &quot;Pd&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="whilewr_p_rr_" symboldefcount="1">
+      <symbol link="T__71">&lt;T&gt;</symbol>
+      <definition encodedin="size">
+        <intro>Is the size specifier, </intro>
+        <table class="valuetable">
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry class="bitfield">size</entry>
+                <entry class="symbol">&lt;T&gt;</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry class="bitfield">00</entry>
+                <entry class="symbol">B</entry>
+              </row>
+              <row>
+                <entry class="bitfield">01</entry>
+                <entry class="symbol">H</entry>
+              </row>
+              <row>
+                <entry class="bitfield">10</entry>
+                <entry class="symbol">S</entry>
+              </row>
+              <row>
+                <entry class="bitfield">11</entry>
+                <entry class="symbol">D</entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </table>
+      </definition>
+    </explanation>
+    <explanation enclist="whilewr_p_rr_" symboldefcount="1">
+      <symbol link="Xn__4">&lt;Xn&gt;</symbol>
+      <account encodedin="Rn">
+        <intro>
+          <para>Is the 64-bit name of the first source general-purpose register, encoded in the &quot;Rn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="whilewr_p_rr_" symboldefcount="1">
+      <symbol link="Xm__6">&lt;Xm&gt;</symbol>
+      <account encodedin="Rm">
+        <intro>
+          <para>Is the 64-bit name of the second source general-purpose register, encoded in the &quot;Rm&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.sve.sve_cmpgpr.sve_int_whilenc.whilewr_p_rr_" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">CheckSVEEnabled();
+let VL : integer{} = CurrentVL();
+let PL : integer{} = VL DIV 8;
+let elements : integer = VL DIV esize;
+let mask : bits(PL) = Ones{};
+let src1 : bits(64) = X{}(n);
+let src2 : bits(64) = X{}(m);
+let operand1 : integer = UInt(src1);
+let operand2 : integer = UInt(src2);
+var result : bits(PL);
+let psize : integer{} = esize DIV 8;
+
+let diff : integer = (operand2 - operand1) DIVRM (esize DIV 8);
+for e = 0 to elements-1 do
+    if diff &lt;= 0 || e &lt; diff then
+        result[e*:psize] = ZeroExtend{psize}('1');
+    else
+        result[e*:psize] = ZeroExtend{psize}('0');
+    end;
+end;
+
+PSTATE.[N,Z,C,V] = <a link="func_PredTest_4" file="shared_pseudocode.xml">PredTest</a>{PL}(mask, result, esize);
+<a link="accessor_P_2" file="shared_pseudocode.xml">P</a>{PL}(d) = result;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

@@ -51,7 +51,7 @@ static inline int64_t get_offset(uint32_t inst) {
 		uint64_t pimm = (inst >> 10) & 0xFFF;
 		return pimm * access_size(inst);
 	}
-	__builtin_unreachable();
+	__builtin_trap();
 }
 
 // TODO: Verify corrctness!
@@ -283,7 +283,12 @@ static instr_trace_entry_t* log_sim_state(struct simulation_state* sim_state) {
 	entry->cpu.sp = sim_state->cpu_state.sp;
 	entry->cpu.pc = sim_state->cpu_state.pc;
 	entry->cpu.nzcv = sim_state->cpu_state.nzcv;
-	entry->cpu.encoding = *(uint32_t*)(sim_state->cpu_state.pc);
+	/* Read from sim_input.code (original, never patched during hook execution)
+	 * rather than from the live sim_code.code, which pac_sign_hook / auth_verify_hook
+	 * may have already NOP'd.  sim_input.code is not updated until after all hooks
+	 * return (base_hook_c copies sim_code → sim_input after the hook loop). */
+	uintptr_t pc_offset = sim_state->cpu_state.pc - (uintptr_t)simulation.sim_code.code;
+	entry->cpu.encoding = *(uint32_t*)(simulation.sim_input.code + pc_offset);
 	entry->cpu.extra_data_size = 0;
 	// no need to allocate space for extra data, because it is of size 0 for now
 
@@ -365,7 +370,7 @@ static bool safe_file_write(FILE* f, const void* buff, size_t size) {
 			clearerr(f);
 			continue;
 		}
-		__builtin_unreachable();
+		return false;
 	}
 }
 

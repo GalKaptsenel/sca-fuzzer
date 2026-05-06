@@ -1,0 +1,248 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="SWPP" title="SWPP, SWPPA, SWPPAL, SWPPL -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="general"/>
+    <docvar key="isa" value="A64"/>
+  </docvars>
+  <heading>SWPP, SWPPA, SWPPAL, SWPPL</heading>
+  <desc>
+    <brief>
+      <para>Swap quadword in memory</para>
+    </brief>
+    <authored>
+      <para>This instruction atomically loads a 128-bit quadword from a memory location, and stores the value
+held in a pair of registers back to the same memory location. The value initially loaded from
+memory is returned in the same pair of registers.</para>
+      <list type="unordered">
+        <listitem>
+          <content>
+            <instruction>SWPPA</instruction> and <instruction>SWPPAL</instruction> load from memory with acquire semantics.</content>
+        </listitem>
+        <listitem>
+          <content>
+            <instruction>SWPPL</instruction> and <instruction>SWPPAL</instruction> store to memory with release semantics.</content>
+        </listitem>
+        <listitem>
+          <content>
+            <instruction>SWPP</instruction> has neither acquire nor release semantics.</content>
+        </listitem>
+      </list>
+    </authored>
+    <encodingnotes>
+      <para>For information about the <arm-defined-word>CONSTRAINED UNPREDICTABLE</arm-defined-word> behavior of this instruction, see <xref linkend="CHDJDBHJ">Architectural Constraints on UNPREDICTABLE behaviors</xref>, and particularly <xref linkend="CEGIFAEA">CONSTRAINED UNPREDICTABLE behavior for A64 instructions</xref>.</para>
+    </encodingnotes>
+  </desc>
+  <operationalnotes>
+    <operationalnote>
+      <operationalnote_content>
+        <para>This instruction is a data-independent-time instruction as described in <xref linkend="ARMARM_BEICCDDAB3">About PSTATE.DIT</xref>.</para>
+      </operationalnote_content>
+    </operationalnote>
+  </operationalnotes>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="Integer" oneof="1" id="iclass_integer" no_encodings="4" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="general"/>
+        <docvar key="isa" value="A64"/>
+      </docvars>
+      <iclassintro count="4"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_LSE128" name="v9Ap4"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.ldst.memop_128.SWPP_128_memop_128" tworows="1">
+        <box hibit="31" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="30" name="S" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="29" width="6" settings="6">
+          <c>0</c>
+          <c>1</c>
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="23" width="1" name="A" usename="1">
+          <c colspan="1"/>
+        </box>
+        <box hibit="22" width="1" name="R" usename="1">
+          <c colspan="1"/>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="20" width="5" name="Rt2" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="15" name="o3" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="14" width="3" name="opc" usename="1" settings="3" psbits="xxx">
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="11" width="2" settings="2">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="9" width="5" name="Rn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Rt" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="SWPP_128_memop_128" oneofinclass="4" oneof="4" label="SWPP" bitdiffs="A == 0 &amp;&amp; R == 0">
+        <docvars>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="SWPP"/>
+        </docvars>
+        <box hibit="23" width="1" name="A">
+          <c>0</c>
+        </box>
+        <box hibit="22" width="1" name="R">
+          <c>0</c>
+        </box>
+        <asmtemplate><text>SWPP  </text><a hover="Is the 64-bit name of the first general-purpose register to be transferred, encoded in the &quot;Rt&quot; field." link="Xt1OrXZR">&lt;Xt1&gt;</a><text>, </text><a hover="Is the 64-bit name of the second general-purpose register to be transferred, encoded in the &quot;Rt2&quot; field." link="Xt2OrXZR">&lt;Xt2&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>]</text></asmtemplate>
+      </encoding>
+      <encoding name="SWPPA_128_memop_128" oneofinclass="4" oneof="4" label="SWPPA" bitdiffs="A == 1 &amp;&amp; R == 0">
+        <docvars>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="SWPPA"/>
+        </docvars>
+        <box hibit="23" width="1" name="A">
+          <c>1</c>
+        </box>
+        <box hibit="22" width="1" name="R">
+          <c>0</c>
+        </box>
+        <asmtemplate><text>SWPPA  </text><a hover="Is the 64-bit name of the first general-purpose register to be transferred, encoded in the &quot;Rt&quot; field." link="Xt1OrXZR">&lt;Xt1&gt;</a><text>, </text><a hover="Is the 64-bit name of the second general-purpose register to be transferred, encoded in the &quot;Rt2&quot; field." link="Xt2OrXZR">&lt;Xt2&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>]</text></asmtemplate>
+      </encoding>
+      <encoding name="SWPPAL_128_memop_128" oneofinclass="4" oneof="4" label="SWPPAL" bitdiffs="A == 1 &amp;&amp; R == 1">
+        <docvars>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="SWPPAL"/>
+        </docvars>
+        <box hibit="23" width="1" name="A">
+          <c>1</c>
+        </box>
+        <box hibit="22" width="1" name="R">
+          <c>1</c>
+        </box>
+        <asmtemplate><text>SWPPAL  </text><a hover="Is the 64-bit name of the first general-purpose register to be transferred, encoded in the &quot;Rt&quot; field." link="Xt1OrXZR">&lt;Xt1&gt;</a><text>, </text><a hover="Is the 64-bit name of the second general-purpose register to be transferred, encoded in the &quot;Rt2&quot; field." link="Xt2OrXZR">&lt;Xt2&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>]</text></asmtemplate>
+      </encoding>
+      <encoding name="SWPPL_128_memop_128" oneofinclass="4" oneof="4" label="SWPPL" bitdiffs="A == 0 &amp;&amp; R == 1">
+        <docvars>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="SWPPL"/>
+        </docvars>
+        <box hibit="23" width="1" name="A">
+          <c>0</c>
+        </box>
+        <box hibit="22" width="1" name="R">
+          <c>1</c>
+        </box>
+        <asmtemplate><text>SWPPL  </text><a hover="Is the 64-bit name of the first general-purpose register to be transferred, encoded in the &quot;Rt&quot; field." link="Xt1OrXZR">&lt;Xt1&gt;</a><text>, </text><a hover="Is the 64-bit name of the second general-purpose register to be transferred, encoded in the &quot;Rt2&quot; field." link="Xt2OrXZR">&lt;Xt2&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>]</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.ldst.memop_128.SWPP_128_memop_128" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_LSE128) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+if Rt  == '11111' then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+if Rt2 == '11111' then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+
+let t : integer{} = UInt(Rt);
+let t2 : integer{} = UInt(Rt2);
+let n : integer{} = UInt(Rn);
+
+let acquire : boolean = A == '1';
+let release : boolean = R == '1';
+let tagchecked : boolean = n != 31;
+
+var rt_unknown : boolean = FALSE;
+
+if t == t2 then
+    let c : <a link="type_Constraint" file="shared_pseudocode.xml">Constraint</a> = ConstrainUnpredictable(<a link="enum_Unpredictable_LSE128OVERLAP" file="shared_pseudocode.xml">Unpredictable_LSE128OVERLAP</a>);
+    assert c IN {<a link="enum_Constraint_UNKNOWN" file="shared_pseudocode.xml">Constraint_UNKNOWN</a>, <a link="enum_Constraint_UNDEF" file="shared_pseudocode.xml">Constraint_UNDEF</a>, <a link="enum_Constraint_NOP" file="shared_pseudocode.xml">Constraint_NOP</a>};
+    case c of
+        when <a link="enum_Constraint_UNKNOWN" file="shared_pseudocode.xml">Constraint_UNKNOWN</a> =&gt;    rt_unknown = TRUE;    // result is UNKNOWN
+        when <a link="enum_Constraint_UNDEF" file="shared_pseudocode.xml">Constraint_UNDEF</a> =&gt;      EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+        when <a link="enum_Constraint_NOP" file="shared_pseudocode.xml">Constraint_NOP</a> =&gt;        EndOfDecode(<a link="enum_Decode_NOP" file="shared_pseudocode.xml">Decode_NOP</a>);
+    end;
+end;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="SWPP_128_memop_128, SWPPA_128_memop_128, SWPPAL_128_memop_128, SWPPL_128_memop_128" symboldefcount="1">
+      <symbol link="Xt1OrXZR">&lt;Xt1&gt;</symbol>
+      <account encodedin="Rt">
+        <intro>
+          <para>Is the 64-bit name of the first general-purpose register to be transferred, encoded in the &quot;Rt&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="SWPP_128_memop_128, SWPPA_128_memop_128, SWPPAL_128_memop_128, SWPPL_128_memop_128" symboldefcount="1">
+      <symbol link="Xt2OrXZR">&lt;Xt2&gt;</symbol>
+      <account encodedin="Rt2">
+        <intro>
+          <para>Is the 64-bit name of the second general-purpose register to be transferred, encoded in the &quot;Rt2&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="SWPP_128_memop_128, SWPPA_128_memop_128, SWPPAL_128_memop_128, SWPPL_128_memop_128" symboldefcount="1">
+      <symbol link="XnSP_option">&lt;Xn|SP&gt;</symbol>
+      <account encodedin="Rn">
+        <intro>
+          <para>Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.ldst.memop_128.SWPP_128_memop_128" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">var address : bits(64);
+let value1 : bits(64) = X{}(t);
+let value2 : bits(64) = X{}(t2);
+var data : bits(128);
+var store_value : bits(128);
+
+let privileged : boolean = PSTATE.EL != <a link="global_EL0" file="shared_pseudocode.xml">EL0</a>;
+let accdesc : <a link="type_AccessDescriptor" file="shared_pseudocode.xml">AccessDescriptor</a> = <a link="func_CreateAccDescAtomicOp_9" file="shared_pseudocode.xml">CreateAccDescAtomicOp</a>(<a link="enum_MemAtomicOp_SWP" file="shared_pseudocode.xml">MemAtomicOp_SWP</a>, acquire, release,
+                                                       tagchecked, privileged, t, t2, t, t2);
+
+if n == 31 then
+    CheckSPAlignment();
+    address = <a link="accessor_SP_1" file="shared_pseudocode.xml">SP</a>{64}();
+else
+    address = <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(n);
+end;
+
+store_value = if <a link="func_BigEndian_1" file="shared_pseudocode.xml">BigEndian</a>(accdesc.acctype) then value1::value2 else value2::value1;
+
+let comparevalue : bits(128) = ARBITRARY : bits(128); // Irrelevant when not executing CAS
+data = <a link="func_MemAtomic_5" file="shared_pseudocode.xml">MemAtomic</a>{128}(address, comparevalue, store_value, accdesc);
+
+if rt_unknown then
+    data = ARBITRARY : bits(128);
+end;
+
+if <a link="func_BigEndian_1" file="shared_pseudocode.xml">BigEndian</a>(accdesc.acctype) then
+    <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(t)  = data[127:64];
+    <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(t2) = data[63:0];
+else
+    <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(t)  = data[63:0];
+    <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(t2) = data[127:64];
+end;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

@@ -17,6 +17,7 @@ else
 $(info Hardware does NOT support MTE)
 ccflags-y += -DCONFIG_ARM64_MTE_HW=0 -march=armv8.2-a+sve
 endif
+ccflags-y += -DCONFIG_ARM64_MTE_HW=0 -march=armv8.3-a+sve+pauth
 
 # Common flags
 ccflags-y += -g -DL1D_SIZE_K=64 -DL1D_ASSOCIATIVITY=4

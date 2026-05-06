@@ -160,9 +160,9 @@ _buggy_instructions: List[str] = [
     # "maskmovdqu",  # incorrect emulation
 ]
 
-supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "ldr", "orr", "ands", "eor", "cbnz",
-                                     "csel", "csinc", "csinv", "csneg", "ccmn", "ccmp",
-                                     "sdiv", "udiv"
+supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "ldr", "orr", "ands", "and", "eor", "cbnz", #"asrv",
+                                     "csel", "csinc", "csinv", "csneg", "ccmn", "ccmp", #"addpt", "addspl", "addsvl", "addvl", 
+                                     "sdiv", "udiv", "xpacd", "xpaci", "autda", "autdza", "autdb", "autdzb", "pacda", "pacdza", "pacdb", "pacdzb", "pacga"
                                      ]
 #                                     "ldp", "stp"]
 

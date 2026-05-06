@@ -280,15 +280,21 @@ class ContractExecutionResult:
 
 class ContractExecutorService:
     def __init__(self, binary: Path):
+        self._binary = binary
+        self._proc: subprocess.Popen = self._spawn()
+
+    def _spawn(self) -> subprocess.Popen:
         MB: int = 1 << 20
-        self._proc: subprocess.Popen = subprocess.Popen(
-                [binary],
+        proc = subprocess.Popen(
+                [self._binary],
                 bufsize=MB,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
+                stderr=None,   # inherit parent stderr — avoids pipe-full blocking on CE debug prints
                 pipesize=MB,
         )
-        self._stream_ipc = StreamIPC(self._proc.stdin, self._proc.stdout)
+        self._stream_ipc = StreamIPC(proc.stdin, proc.stdout, proc)
+        return proc
 
     def stop(self):
         if self.is_running():
@@ -296,16 +302,56 @@ class ContractExecutorService:
             self._proc.wait()
             self._proc = None
 
-
     def is_running(self):
         return self._proc is not None
+
+    def _drain_stderr(self) -> str:
+        if self._proc.stderr is None:
+            return "(stderr inherited by parent process)"
+        import select
+        stderr_output = []
+        while True:
+            ready, _, _ = select.select([self._proc.stderr], [], [], 0.1)
+            if not ready:
+                break
+            chunk = self._proc.stderr.read1(4096)
+            if not chunk:
+                break
+            stderr_output.append(chunk.decode(errors='replace'))
+        return ''.join(stderr_output)
 
     def run(self, execution: ContractExecution) -> ContractExecutionResult:
         """
         Run a single execution and return raw result.
+        On CE crash or hang: log stderr, restart the process, and re-raise so the
+        caller can decide whether to skip the test case.
         """
         data = execution.encode()
         self._stream_ipc.send_req(1, data)
-        msg_type, reply = self._stream_ipc.recv_resp()
+        try:
+            msg_type, reply = self._stream_ipc.recv_resp()
+        except EOFError:
+            self._proc.wait(timeout=2)
+            stderr = self._drain_stderr()
+            rc = self._proc.returncode
+            self._proc = self._spawn()
+            raise RuntimeError(
+                f"contract_executor crashed (exit code {rc}, signal {-rc if rc and rc < 0 else 'none'}).\n"
+                f"stderr:\n{stderr or '(empty)'}"
+            ) from None
+        except RuntimeError as e:
+            # CE hung (alive but no response within timeout) — kill it, drain stderr, restart
+            stderr = self._drain_stderr()
+            self._proc.kill()
+            try:
+                self._proc.wait(timeout=2)
+            except Exception:
+                pass
+            self._proc = self._spawn()
+            raise RuntimeError(
+                f"contract_executor hung.\n"
+                f"  hang details: {e}\n"
+                f"stderr before kill:\n{stderr or '(empty)'}"
+            ) from None
         assert msg_type == 2
         return ContractExecutionResult(reply, 31) # NUM GPRS of aarch64 is 31 (x0 to x30)

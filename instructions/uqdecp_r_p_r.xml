@@ -1,0 +1,307 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="uqdecp_r_p_r" title="UQDECP (scalar) -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="sve"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="UQDECP"/>
+  </docvars>
+  <heading>UQDECP (scalar)</heading>
+  <desc>
+    <brief>
+      <para>Unsigned saturating decrement scalar by count of true predicate elements</para>
+    </brief>
+    <authored>
+      <para>This instruction counts the number of true elements in the source predicate and
+then uses the result to decrement the
+  scalar destination.
+The
+  result is
+  saturated to the
+      general-purpose register's
+  unsigned integer range.</para>
+    </authored>
+    <affected_by_sme output="general-purpose register"/>
+    <predicated>False</predicated>
+  </desc>
+  <operationalnotes>
+    <operationalnote>
+      <operationalnote_content>
+        <para>If FEAT_SME is implemented and the PE is in Streaming SVE mode, then any subsequent instruction which is dependent on the general-purpose register written by this instruction might be significantly delayed.</para>
+      </operationalnote_content>
+    </operationalnote>
+  </operationalnotes>
+  <alias_list howmany="0"/>
+  <classes>
+    <classesintro count="2">
+      <txt>It has encodings from 2 classes:</txt>
+      <a href="#iclass_32_bit">32-bit</a>
+      <txt> and </txt>
+      <a href="#iclass_64_bit">64-bit</a>
+    </classesintro>
+    <iclass name="32-bit" oneof="2" id="iclass_32_bit" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="atomic-ops" value="UQDECP-32-fsreg"/>
+        <docvar key="instr-class" value="sve"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="UQDECP"/>
+        <docvar key="reg-type" value="32-fsreg"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SVE || FEAT_SME" name="(v8Ap2 &amp;&amp; PROFILE_A) || (v9Ap2 &amp;&amp; PROFILE_A)"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_pred_count_b.sve_int_count_r_sat.uqdecp_r_p_r_uw" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="23" width="2" name="size" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="21" width="3" settings="3">
+          <c>1</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="18" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="17" name="D" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="16" name="U" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="15" width="4" settings="4">
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="11" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="10" name="sf" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="9" name="op" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="8" width="4" name="Pm" usename="1">
+          <c colspan="4"/>
+        </box>
+        <box hibit="4" width="5" name="Rdn" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="uqdecp_r_p_r_uw" oneofinclass="1" oneof="2" label="">
+        <docvars>
+          <docvar key="instr-class" value="sve"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="reg-type" value="32-fsreg"/>
+          <docvar key="atomic-ops" value="UQDECP-32-fsreg"/>
+          <docvar key="mnemonic" value="UQDECP"/>
+        </docvars>
+        <asmtemplate><text>UQDECP  </text><a hover="Is the 32-bit name of the source and destination general-purpose register, encoded in the &quot;Rdn&quot; field." link="Wdn">&lt;Wdn&gt;</a><text>, </text><a hover="Is the name of the source scalable predicate register, encoded in the &quot;Pm&quot; field." link="Pm__3">&lt;Pm&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__31">&lt;T&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_pred_count_b.sve_int_count_r_sat.uqdecp_r_p_r_uw" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SVE) &amp;&amp; !IsFeatureImplemented(FEAT_SME) then
+    EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+let esize : integer{} = 8 &lt;&lt; UInt(size);
+let m : integer = UInt(Pm);
+let dn : integer = UInt(Rdn);
+let unsigned : boolean = TRUE;
+let  ssize : integer{} = 32;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+    <iclass name="64-bit" oneof="2" id="iclass_64_bit" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="atomic-ops" value="UQDECP-64-fsreg"/>
+        <docvar key="instr-class" value="sve"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="UQDECP"/>
+        <docvar key="reg-type" value="64-fsreg"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SVE || FEAT_SME" name="(v8Ap2 &amp;&amp; PROFILE_A) || (v9Ap2 &amp;&amp; PROFILE_A)"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_pred_count_b.sve_int_count_r_sat.uqdecp_r_p_r_x" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="23" width="2" name="size" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="21" width="3" settings="3">
+          <c>1</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="18" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="17" name="D" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="16" name="U" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="15" width="4" settings="4">
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="11" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="10" name="sf" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="9" name="op" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="8" width="4" name="Pm" usename="1">
+          <c colspan="4"/>
+        </box>
+        <box hibit="4" width="5" name="Rdn" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="uqdecp_r_p_r_x" oneofinclass="1" oneof="2" label="">
+        <docvars>
+          <docvar key="instr-class" value="sve"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="reg-type" value="64-fsreg"/>
+          <docvar key="atomic-ops" value="UQDECP-64-fsreg"/>
+          <docvar key="mnemonic" value="UQDECP"/>
+        </docvars>
+        <asmtemplate><text>UQDECP  </text><a hover="Is the 64-bit name of the source and destination general-purpose register, encoded in the &quot;Rdn&quot; field." link="Xdn">&lt;Xdn&gt;</a><text>, </text><a hover="Is the name of the source scalable predicate register, encoded in the &quot;Pm&quot; field." link="Pm__3">&lt;Pm&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__31">&lt;T&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_pred_count_b.sve_int_count_r_sat.uqdecp_r_p_r_x" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SVE) &amp;&amp; !IsFeatureImplemented(FEAT_SME) then
+    EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+let esize : integer{} = 8 &lt;&lt; UInt(size);
+let m : integer = UInt(Pm);
+let dn : integer = UInt(Rdn);
+let unsigned : boolean = TRUE;
+let  ssize : integer{} = 64;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="uqdecp_r_p_r_uw" symboldefcount="1">
+      <symbol link="Wdn">&lt;Wdn&gt;</symbol>
+      <account encodedin="Rdn">
+        <intro>
+          <para>Is the 32-bit name of the source and destination general-purpose register, encoded in the &quot;Rdn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="uqdecp_r_p_r_uw, uqdecp_r_p_r_x" symboldefcount="1">
+      <symbol link="Pm__3">&lt;Pm&gt;</symbol>
+      <account encodedin="Pm">
+        <intro>
+          <para>Is the name of the source scalable predicate register, encoded in the &quot;Pm&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="uqdecp_r_p_r_uw, uqdecp_r_p_r_x" symboldefcount="1">
+      <symbol link="T__31">&lt;T&gt;</symbol>
+      <definition encodedin="size">
+        <intro>Is the size specifier, </intro>
+        <table class="valuetable">
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry class="bitfield">size</entry>
+                <entry class="symbol">&lt;T&gt;</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry class="bitfield">00</entry>
+                <entry class="symbol">B</entry>
+              </row>
+              <row>
+                <entry class="bitfield">01</entry>
+                <entry class="symbol">H</entry>
+              </row>
+              <row>
+                <entry class="bitfield">10</entry>
+                <entry class="symbol">S</entry>
+              </row>
+              <row>
+                <entry class="bitfield">11</entry>
+                <entry class="symbol">D</entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </table>
+      </definition>
+    </explanation>
+    <explanation enclist="uqdecp_r_p_r_x" symboldefcount="1">
+      <symbol link="Xdn">&lt;Xdn&gt;</symbol>
+      <account encodedin="Rdn">
+        <intro>
+          <para>Is the 64-bit name of the source and destination general-purpose register, encoded in the &quot;Rdn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.sve.sve_pred_count_b.sve_int_count_r_sat.uqdecp_r_p_r_uw" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">CheckSVEEnabled();
+let VL : integer{} = CurrentVL();
+let PL : integer{} = VL DIV 8;
+let elements : integer = VL DIV esize;
+let operand1 : bits(ssize) = X{}(dn);
+let operand2 : bits(PL) = P{}(m);
+var result : bits(ssize);
+var count : integer = 0;
+
+for e = 0 to elements-1 do
+    if <a link="func_ActivePredicateElement_4" file="shared_pseudocode.xml">ActivePredicateElement</a>{PL}(operand2, e, esize) then
+        count = count + 1;
+    end;
+end;
+
+if unsigned then
+    (result, -) = <a link="func_UnsignedSatQ_2" file="shared_pseudocode.xml">UnsignedSatQ</a>{ssize}(UInt(operand1) - count);
+    <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(dn) = ZeroExtend{64}(result);
+else
+    (result, -) = <a link="func_SignedSatQ_2" file="shared_pseudocode.xml">SignedSatQ</a>{ssize}(SInt(operand1) - count);
+    <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(dn) = SignExtend{64}(result);
+end;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

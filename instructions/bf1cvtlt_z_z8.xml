@@ -1,0 +1,224 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="bf1cvtlt_z_z8" title="BF1CVTLT, BF2CVTLT -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="sve2"/>
+    <docvar key="isa" value="A64"/>
+  </docvars>
+  <heading>BF1CVTLT, BF2CVTLT</heading>
+  <desc>
+    <brief>
+      <para>8-bit floating-point convert to BFloat16 (top)</para>
+    </brief>
+    <authored>
+      <para>This instruction converts each odd-numbered 8-bit floating-point element of the source vector
+to BFloat16 while downscaling the value, and places the results
+in the overlapping 16-bit elements of the destination vector.
+BF1CVTLT scales the values by 2<sup>-UInt(FPMR.LSCALE[5:0])</sup>.
+BF2CVTLT scales the values by 2<sup>-UInt(FPMR.LSCALE2[5:0])</sup>.</para>
+      <para>The 8-bit floating-point encoding format for BF1CVTLT is selected by <asm-code>FPMR.F8S1</asm-code>.
+The 8-bit floating-point encoding format for BF2CVTLT is selected by <asm-code>FPMR.F8S2</asm-code>.</para>
+      <para>This instruction is unpredicated.</para>
+    </authored>
+    <predicated>False</predicated>
+  </desc>
+  <alias_list howmany="0"/>
+  <classes>
+    <classesintro count="2">
+      <txt>It has encodings from 2 classes:</txt>
+      <a href="#iclass_bf1cvtlt">BF1CVTLT</a>
+      <txt> and </txt>
+      <a href="#iclass_bf2cvtlt">BF2CVTLT</a>
+    </classesintro>
+    <iclass name="BF1CVTLT" oneof="2" id="iclass_bf1cvtlt" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="sve2"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="BF1CVTLT"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="(FEAT_SVE2 || FEAT_SME2) &amp;&amp; FEAT_FP8" name="(v9Ap0 || v9Ap3) &amp;&amp; v9Ap5"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_fp_unary_unpred.sve_fp8_fcvt_wide.bf1cvtlt_z_z8_b2bf" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="23" width="2" settings="2">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="21" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="18" width="2" settings="2">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="16" name="L" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="15" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="11" width="2" name="opc" usename="1" settings="2" psbits="xx">
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="9" width="5" name="Zn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Zd" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="bf1cvtlt_z_z8_b2bf" oneofinclass="1" oneof="2" label="">
+        <docvars>
+          <docvar key="instr-class" value="sve2"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="BF1CVTLT"/>
+        </docvars>
+        <asmtemplate><text>BF1CVTLT  </text><a hover="Is the name of the destination scalable vector register, encoded in the &quot;Zd&quot; field." link="Zd">&lt;Zd&gt;</a><text>.H, </text><a hover="Is the name of the source scalable vector register, encoded in the &quot;Zn&quot; field." link="Zn">&lt;Zn&gt;</a><text>.B</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_fp_unary_unpred.sve_fp8_fcvt_wide.bf1cvtlt_z_z8_b2bf" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if ((!IsFeatureImplemented(FEAT_SVE2) &amp;&amp; !IsFeatureImplemented(FEAT_SME2)) ||
+      !IsFeatureImplemented(FEAT_FP8)) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+let esize : integer{} = 16;
+let n : integer = UInt(Zn);
+let d : integer = UInt(Zd);
+let issrc2 : boolean = FALSE;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+    <iclass name="BF2CVTLT" oneof="2" id="iclass_bf2cvtlt" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="sve2"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="BF2CVTLT"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="(FEAT_SVE2 || FEAT_SME2) &amp;&amp; FEAT_FP8" name="(v9Ap0 || v9Ap3) &amp;&amp; v9Ap5"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_fp_unary_unpred.sve_fp8_fcvt_wide.bf2cvtlt_z_z8_b2bf" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="23" width="2" settings="2">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="21" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="18" width="2" settings="2">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="16" name="L" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="15" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="11" width="2" name="opc" usename="1" settings="2" psbits="xx">
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="9" width="5" name="Zn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Zd" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="bf2cvtlt_z_z8_b2bf" oneofinclass="1" oneof="2" label="">
+        <docvars>
+          <docvar key="instr-class" value="sve2"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="BF2CVTLT"/>
+        </docvars>
+        <asmtemplate><text>BF2CVTLT  </text><a hover="Is the name of the destination scalable vector register, encoded in the &quot;Zd&quot; field." link="Zd">&lt;Zd&gt;</a><text>.H, </text><a hover="Is the name of the source scalable vector register, encoded in the &quot;Zn&quot; field." link="Zn">&lt;Zn&gt;</a><text>.B</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_fp_unary_unpred.sve_fp8_fcvt_wide.bf2cvtlt_z_z8_b2bf" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if ((!IsFeatureImplemented(FEAT_SVE2) &amp;&amp; !IsFeatureImplemented(FEAT_SME2)) ||
+      !IsFeatureImplemented(FEAT_FP8)) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+let esize : integer{} = 16;
+let n : integer = UInt(Zn);
+let d : integer = UInt(Zd);
+let issrc2 : boolean = TRUE;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="bf1cvtlt_z_z8_b2bf, bf2cvtlt_z_z8_b2bf" symboldefcount="1">
+      <symbol link="Zd">&lt;Zd&gt;</symbol>
+      <account encodedin="Zd">
+        <intro>
+          <para>Is the name of the destination scalable vector register, encoded in the &quot;Zd&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="bf1cvtlt_z_z8_b2bf, bf2cvtlt_z_z8_b2bf" symboldefcount="1">
+      <symbol link="Zn">&lt;Zn&gt;</symbol>
+      <account encodedin="Zn">
+        <intro>
+          <para>Is the name of the source scalable vector register, encoded in the &quot;Zn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.sve.sve_fp_unary_unpred.sve_fp8_fcvt_wide.bf1cvtlt_z_z8_b2bf" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">CheckFPMREnabled();
+if IsFeatureImplemented(FEAT_SME2) then CheckSVEEnabled(); else CheckNonStreamingSVEEnabled(); end;
+let VL : integer{} = CurrentVL();
+let elements : integer = VL DIV esize;
+let operand : bits(VL) = Z{}(n);
+var result : bits(VL);
+for e = 0 to elements-1 do
+    let element : bits(esize DIV 2) = operand[(2*e + 1)*:(esize DIV 2)];
+    result[e*:esize] = <a link="func_FP8ConvertBF_4" file="shared_pseudocode.xml">FP8ConvertBF</a>(element, issrc2, FPCR(), FPMR());
+
+end;
+<a link="accessor_Z_2" file="shared_pseudocode.xml">Z</a>{VL}(d) = result;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

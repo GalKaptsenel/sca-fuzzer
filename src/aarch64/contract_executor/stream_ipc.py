@@ -42,14 +42,20 @@ from typing import Tuple, Union
 #    ctypes.POINTER(ctypes.c_uint32),
 #]
 
+import select as _select
+
 HEADER_STRUCT = struct.Struct("<II")  # little-endian: length:uint32_t, type:uint32_t
+
+CE_READ_TIMEOUT = 30.0  # seconds before declaring CE hung
 
 # ---- High-level Python wrapper ----
 
 class StreamIPC:
-    def __init__(self, write_stream: subprocess.PIPE, read_stream: subprocess.PIPE):
+    def __init__(self, write_stream: subprocess.PIPE, read_stream: subprocess.PIPE,
+                 proc: subprocess.Popen = None):
         self._write_stream: subprocess.PIPE = write_stream
         self._read_stream: subprocess.PIPE = read_stream
+        self._proc: subprocess.Popen = proc
 
     def _safe_write(self, data: bytes):
         total_sent = 0
@@ -71,9 +77,37 @@ class StreamIPC:
     def _safe_read(self, amount: int) -> bytes:
         buff: bytes = bytes()
         while amount > len(buff):
+            ready, _, _ = _select.select([self._read_stream], [], [], CE_READ_TIMEOUT)
+            if not ready:
+                import pdb; pdb.set_trace()
+                # Timeout — collect process debug info before raising
+                pid = self._proc.pid if self._proc is not None else "?"
+                alive = (self._proc is not None and self._proc.poll() is None)
+
+                wchan = ""
+                try:
+                    with open(f"/proc/{pid}/wchan") as f:
+                        wchan = f.read().strip()
+                except Exception:
+                    pass
+
+                status = ""
+                try:
+                    with open(f"/proc/{pid}/status") as f:
+                        status = f.read()
+                except Exception:
+                    pass
+
+                raise RuntimeError(
+                    f"CE hung: no response after {CE_READ_TIMEOUT}s "
+                    f"(waiting for {amount} bytes, got {len(buff)})\n"
+                    f"  pid={pid} alive={alive}\n"
+                    f"  wchan={wchan}\n"
+                    f"  /proc/{pid}/status:\n{status}"
+                )
             chunk = self._read_stream.read1(amount - len(buff))
             if not chunk:
-                raise EOFError(f"Stream closed while reading {amount} bytes. Readed {len(buff)} bytes.")
+                raise EOFError(f"Stream closed while reading {amount} bytes. Read {len(buff)} bytes.")
             buff += chunk
 
         assert len(buff) == amount

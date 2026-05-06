@@ -1,0 +1,149 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="SHA512H_advsimd" title="SHA512H -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="advsimd"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="SHA512H"/>
+  </docvars>
+  <heading>SHA512H</heading>
+  <desc>
+    <brief>
+      <para>SHA512 hash update part 1</para>
+    </brief>
+    <authored>
+      <para>This instruction takes the values from the three 128-bit source SIMD&amp;FP
+registers and produces a 128-bit output value that combines the sigma1 and chi
+functions of two iterations of the SHA512 computation. It returns this value to the
+destination SIMD&amp;FP register.</para>
+    </authored>
+  </desc>
+  <operationalnotes>
+    <operationalnote>
+      <operationalnote_content>
+        <para>This instruction is a data-independent-time instruction as described in <xref linkend="ARMARM_BEICCDDAB3">About PSTATE.DIT</xref>.</para>
+      </operationalnote_content>
+    </operationalnote>
+  </operationalnotes>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="Advanced SIMD" oneof="1" id="iclass_advanced_simd" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="advsimd"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="SHA512H"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SHA512" name="v8Ap2"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.simd_dp.cryptosha512_3.SHA512H_QQV_cryptosha512_3" tworows="1">
+        <box hibit="31" width="4" settings="4">
+          <c>1</c>
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="27" width="3" settings="3">
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="24" width="2" settings="2">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="22" width="2" settings="2">
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="20" width="5" name="Rm" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="15" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="14" name="O" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="13" width="2" settings="2">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="11" width="2" name="opcode" usename="1" settings="2" psbits="xx">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="9" width="5" name="Rn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Rd" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="SHA512H_QQV_cryptosha512_3" oneofinclass="1" oneof="1" label="">
+        <docvars>
+          <docvar key="instr-class" value="advsimd"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="SHA512H"/>
+        </docvars>
+        <asmtemplate><text>SHA512H  </text><a hover="Is the 128-bit name of the SIMD&amp;FP source and destination register, encoded in the &quot;Rd&quot; field." link="Qd__2">&lt;Qd&gt;</a><text>, </text><a hover="Is the 128-bit name of the second SIMD&amp;FP source register, encoded in the &quot;Rn&quot; field." link="Qn">&lt;Qn&gt;</a><text>, </text><a hover="Is the name of the third SIMD&amp;FP source register, encoded in the &quot;Rm&quot; field." link="Vm__7">&lt;Vm&gt;</a><text>.2D</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.simd_dp.cryptosha512_3.SHA512H_QQV_cryptosha512_3" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SHA512) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+let d : integer{} = UInt(Rd);
+let n : integer{} = UInt(Rn);
+let m : integer{} = UInt(Rm);</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="SHA512H_QQV_cryptosha512_3" symboldefcount="1">
+      <symbol link="Qd__2">&lt;Qd&gt;</symbol>
+      <account encodedin="Rd">
+        <intro>
+          <para>Is the 128-bit name of the SIMD&amp;FP source and destination register, encoded in the &quot;Rd&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="SHA512H_QQV_cryptosha512_3" symboldefcount="1">
+      <symbol link="Qn">&lt;Qn&gt;</symbol>
+      <account encodedin="Rn">
+        <intro>
+          <para>Is the 128-bit name of the second SIMD&amp;FP source register, encoded in the &quot;Rn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="SHA512H_QQV_cryptosha512_3" symboldefcount="1">
+      <symbol link="Vm__7">&lt;Vm&gt;</symbol>
+      <account encodedin="Rm">
+        <intro>
+          <para>Is the name of the third SIMD&amp;FP source register, encoded in the &quot;Rm&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.simd_dp.cryptosha512_3.SHA512H_QQV_cryptosha512_3" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">AArch64_CheckFPAdvSIMDEnabled();
+
+var Vtmp : bits(128);
+var MSigma1 : bits(64);
+var tmp : bits(64);
+let x : bits(128) = V{}(n);
+let y : bits(128) = V{}(m);
+let w : bits(128) = V{}(d);
+
+MSigma1 =  ROR(y[127:64], 14) XOR ROR(y[127:64], 18) XOR ROR(y[127:64], 41);
+Vtmp[127:64] =  (y[127:64] AND x[63:0]) XOR (NOT(y[127:64]) AND x[127:64]);
+Vtmp[127:64] = (Vtmp[127:64] + MSigma1 +  w[127:64]);
+tmp = Vtmp[127:64] + y[63:0];
+MSigma1 = ROR(tmp, 14) XOR ROR(tmp, 18) XOR ROR(tmp, 41);
+Vtmp[63:0] = (tmp AND y[127:64]) XOR (NOT(tmp) AND x[63:0]);
+Vtmp[63:0] = (Vtmp[63:0] + MSigma1 + w[63:0]);
+V{128}(d) =  Vtmp;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

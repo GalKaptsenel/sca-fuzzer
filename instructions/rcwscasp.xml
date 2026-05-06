@@ -1,0 +1,250 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="RCWSCASP" title="RCWSCASP, RCWSCASPA, RCWSCASPAL, RCWSCASPL -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="general"/>
+    <docvar key="isa" value="A64"/>
+  </docvars>
+  <heading>RCWSCASP, RCWSCASPA, RCWSCASPAL, RCWSCASPL</heading>
+  <desc>
+    <brief>
+      <para>Read check write software compare and swap quadword in memory</para>
+    </brief>
+    <authored>
+      <para>This instruction reads a 128-bit quadword
+from memory, and compares it against the value held in a pair of registers. If the comparison
+is equal, the value in a second pair of registers is conditionally written to memory.
+Storing back to memory is conditional on RCW Checks and RCWS Checks. If the compare fails, the RCW Checks fail,
+or the RCWS Checks fail, the architecture permits writing the value read from the location to memory.
+If the write is performed, the read and the write occur atomically such that no other
+modification of the memory location can take place between the read and the write.
+This instruction updates the condition flags based on the result of the update of memory.</para>
+      <list type="unordered">
+        <listitem>
+          <content>
+            <instruction>RCWSCASPA</instruction> and <instruction>RCWSCASPAL</instruction> load from memory with acquire semantics.</content>
+        </listitem>
+        <listitem>
+          <content>
+            <instruction>RCWSCASPL</instruction> and <instruction>RCWSCASPAL</instruction> store to memory with release semantics.</content>
+        </listitem>
+        <listitem>
+          <content>
+            <instruction>RCWSCASP</instruction> has neither acquire nor release semantics.</content>
+        </listitem>
+      </list>
+      <note>
+        <para>This instruction is for performing atomic updates of translation table entries and not for general use.</para>
+      </note>
+    </authored>
+  </desc>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="Integer" oneof="1" id="iclass_integer" no_encodings="4" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="general"/>
+        <docvar key="isa" value="A64"/>
+      </docvars>
+      <iclassintro count="4"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_D128 &amp;&amp; FEAT_THE" name="v9Ap4 &amp;&amp; v8Ap9"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.ldst.rcwcomswappr.RCWSCASP_C64_rcwcomswappr" tworows="1">
+        <box hibit="31" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="30" name="S" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="29" width="6" settings="6">
+          <c>0</c>
+          <c>1</c>
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="23" width="1" name="A" usename="1">
+          <c colspan="1"/>
+        </box>
+        <box hibit="22" width="1" name="R" usename="1">
+          <c colspan="1"/>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="20" width="5" name="Rs" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="15" width="6" settings="6">
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="9" width="5" name="Rn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Rt" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="RCWSCASP_C64_rcwcomswappr" oneofinclass="4" oneof="4" label="RCWSCASP" bitdiffs="A == 0 &amp;&amp; R == 0">
+        <docvars>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="RCWSCASP"/>
+        </docvars>
+        <box hibit="23" width="1" name="A">
+          <c>0</c>
+        </box>
+        <box hibit="22" width="1" name="R">
+          <c>0</c>
+        </box>
+        <asmtemplate><text>RCWSCASP  </text><a hover="Is the 64-bit name of the first general-purpose register to be compared and loaded, encoded in the &quot;Rs&quot; field. &lt;Xs&gt; must be an even-numbered register." link="Xs">&lt;Xs&gt;</a><text>, </text><a hover="Is the 64-bit name of the second general-purpose register to be compared and loaded." link="XsPlus1">&lt;X(s+1)&gt;</a><text>, </text><a hover="Is the 64-bit name of the first general-purpose register to be conditionally stored, encoded in the &quot;Rt&quot; field. &lt;Xt&gt; must be an even-numbered register." link="Xt">&lt;Xt&gt;</a><text>, </text><a hover="Is the 64-bit name of the second general-purpose register to be conditionally stored." link="XtPlus1__3">&lt;X(t+1)&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>]</text></asmtemplate>
+      </encoding>
+      <encoding name="RCWSCASPA_C64_rcwcomswappr" oneofinclass="4" oneof="4" label="RCWSCASPA" bitdiffs="A == 1 &amp;&amp; R == 0">
+        <docvars>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="RCWSCASPA"/>
+        </docvars>
+        <box hibit="23" width="1" name="A">
+          <c>1</c>
+        </box>
+        <box hibit="22" width="1" name="R">
+          <c>0</c>
+        </box>
+        <asmtemplate><text>RCWSCASPA  </text><a hover="Is the 64-bit name of the first general-purpose register to be compared and loaded, encoded in the &quot;Rs&quot; field. &lt;Xs&gt; must be an even-numbered register." link="Xs">&lt;Xs&gt;</a><text>, </text><a hover="Is the 64-bit name of the second general-purpose register to be compared and loaded." link="XsPlus1">&lt;X(s+1)&gt;</a><text>, </text><a hover="Is the 64-bit name of the first general-purpose register to be conditionally stored, encoded in the &quot;Rt&quot; field. &lt;Xt&gt; must be an even-numbered register." link="Xt">&lt;Xt&gt;</a><text>, </text><a hover="Is the 64-bit name of the second general-purpose register to be conditionally stored." link="XtPlus1__3">&lt;X(t+1)&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>]</text></asmtemplate>
+      </encoding>
+      <encoding name="RCWSCASPAL_C64_rcwcomswappr" oneofinclass="4" oneof="4" label="RCWSCASPAL" bitdiffs="A == 1 &amp;&amp; R == 1">
+        <docvars>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="RCWSCASPAL"/>
+        </docvars>
+        <box hibit="23" width="1" name="A">
+          <c>1</c>
+        </box>
+        <box hibit="22" width="1" name="R">
+          <c>1</c>
+        </box>
+        <asmtemplate><text>RCWSCASPAL  </text><a hover="Is the 64-bit name of the first general-purpose register to be compared and loaded, encoded in the &quot;Rs&quot; field. &lt;Xs&gt; must be an even-numbered register." link="Xs">&lt;Xs&gt;</a><text>, </text><a hover="Is the 64-bit name of the second general-purpose register to be compared and loaded." link="XsPlus1">&lt;X(s+1)&gt;</a><text>, </text><a hover="Is the 64-bit name of the first general-purpose register to be conditionally stored, encoded in the &quot;Rt&quot; field. &lt;Xt&gt; must be an even-numbered register." link="Xt">&lt;Xt&gt;</a><text>, </text><a hover="Is the 64-bit name of the second general-purpose register to be conditionally stored." link="XtPlus1__3">&lt;X(t+1)&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>]</text></asmtemplate>
+      </encoding>
+      <encoding name="RCWSCASPL_C64_rcwcomswappr" oneofinclass="4" oneof="4" label="RCWSCASPL" bitdiffs="A == 0 &amp;&amp; R == 1">
+        <docvars>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="RCWSCASPL"/>
+        </docvars>
+        <box hibit="23" width="1" name="A">
+          <c>0</c>
+        </box>
+        <box hibit="22" width="1" name="R">
+          <c>1</c>
+        </box>
+        <asmtemplate><text>RCWSCASPL  </text><a hover="Is the 64-bit name of the first general-purpose register to be compared and loaded, encoded in the &quot;Rs&quot; field. &lt;Xs&gt; must be an even-numbered register." link="Xs">&lt;Xs&gt;</a><text>, </text><a hover="Is the 64-bit name of the second general-purpose register to be compared and loaded." link="XsPlus1">&lt;X(s+1)&gt;</a><text>, </text><a hover="Is the 64-bit name of the first general-purpose register to be conditionally stored, encoded in the &quot;Rt&quot; field. &lt;Xt&gt; must be an even-numbered register." link="Xt">&lt;Xt&gt;</a><text>, </text><a hover="Is the 64-bit name of the second general-purpose register to be conditionally stored." link="XtPlus1__3">&lt;X(t+1)&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>]</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.ldst.rcwcomswappr.RCWSCASP_C64_rcwcomswappr" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_D128) || !IsFeatureImplemented(FEAT_THE) then
+    EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+if Rs[0] == '1' then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+if Rt[0] == '1' then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+let s : integer{} = UInt(Rs);
+let t : integer{} = UInt(Rt);
+let n : integer{} = UInt(Rn);
+
+let acquire : boolean = A == '1';
+let release : boolean = R == '1';
+let soft : boolean = TRUE;
+let tagchecked : boolean = n != 31;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="RCWSCASP_C64_rcwcomswappr, RCWSCASPA_C64_rcwcomswappr, RCWSCASPAL_C64_rcwcomswappr, RCWSCASPL_C64_rcwcomswappr" symboldefcount="1">
+      <symbol link="Xs">&lt;Xs&gt;</symbol>
+      <account encodedin="Rs">
+        <intro>
+          <para>Is the 64-bit name of the first general-purpose register to be compared and loaded, encoded in the &quot;Rs&quot; field. &lt;Xs&gt; must be an even-numbered register.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="RCWSCASP_C64_rcwcomswappr, RCWSCASPA_C64_rcwcomswappr, RCWSCASPAL_C64_rcwcomswappr, RCWSCASPL_C64_rcwcomswappr" symboldefcount="1">
+      <symbol link="XsPlus1">&lt;X(s+1)&gt;</symbol>
+      <account encodedin="Rs">
+        <intro>
+          <para>Is the 64-bit name of the second general-purpose register to be compared and loaded.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="RCWSCASP_C64_rcwcomswappr, RCWSCASPA_C64_rcwcomswappr, RCWSCASPAL_C64_rcwcomswappr, RCWSCASPL_C64_rcwcomswappr" symboldefcount="1">
+      <symbol link="Xt">&lt;Xt&gt;</symbol>
+      <account encodedin="Rt">
+        <intro>
+          <para>Is the 64-bit name of the first general-purpose register to be conditionally stored, encoded in the &quot;Rt&quot; field. &lt;Xt&gt; must be an even-numbered register.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="RCWSCASP_C64_rcwcomswappr, RCWSCASPA_C64_rcwcomswappr, RCWSCASPAL_C64_rcwcomswappr, RCWSCASPL_C64_rcwcomswappr" symboldefcount="1">
+      <symbol link="XtPlus1__3">&lt;X(t+1)&gt;</symbol>
+      <account encodedin="Rt">
+        <intro>
+          <para>Is the 64-bit name of the second general-purpose register to be conditionally stored.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="RCWSCASP_C64_rcwcomswappr, RCWSCASPA_C64_rcwcomswappr, RCWSCASPAL_C64_rcwcomswappr, RCWSCASPL_C64_rcwcomswappr" symboldefcount="1">
+      <symbol link="XnSP_option">&lt;Xn|SP&gt;</symbol>
+      <account encodedin="Rn">
+        <intro>
+          <para>Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.ldst.rcwcomswappr.RCWSCASP_C64_rcwcomswappr" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">if !<a link="func_IsD128Enabled_1" file="shared_pseudocode.xml">IsD128Enabled</a>(PSTATE.EL) then Undefined(); end;
+var address : bits(64);
+var newdata : bits(128);
+var compdata : bits(128);
+var readdata : bits(128);
+var nzcv : bits(4);
+
+let s1 : bits(64) = X{}(s);
+let s2 : bits(64) = X{}(s+1);
+let t1 : bits(64) = X{}(t);
+let t2 : bits(64) = X{}(t+1);
+
+let accdesc : <a link="type_AccessDescriptor" file="shared_pseudocode.xml">AccessDescriptor</a> = <a link="func_CreateAccDescRCW_9" file="shared_pseudocode.xml">CreateAccDescRCW</a>(<a link="enum_MemAtomicOp_CAS" file="shared_pseudocode.xml">MemAtomicOp_CAS</a>, soft, acquire, release,
+                                                  tagchecked, t, t+1, s, s+1);
+
+compdata = if <a link="func_BigEndian_1" file="shared_pseudocode.xml">BigEndian</a>(accdesc.acctype) then s1::s2 else s2::s1;
+newdata  = if <a link="func_BigEndian_1" file="shared_pseudocode.xml">BigEndian</a>(accdesc.acctype) then t1::t2 else t2::t1;
+
+if n == 31 then
+    CheckSPAlignment();
+    address = <a link="accessor_SP_1" file="shared_pseudocode.xml">SP</a>{64}();
+else
+    address = <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(n);
+end;
+
+(nzcv, readdata) = <a link="func_MemAtomicRCW_5" file="shared_pseudocode.xml">MemAtomicRCW</a>{128}(address, compdata, newdata, accdesc);
+
+PSTATE.[N,Z,C,V] = nzcv;
+if <a link="func_BigEndian_1" file="shared_pseudocode.xml">BigEndian</a>(accdesc.acctype) then
+    <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(s)   = readdata[127:64];
+    <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(s+1) = readdata[63:0];
+else
+    <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(s)   = readdata[63:0];
+    <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(s+1) = readdata[127:64];
+end;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

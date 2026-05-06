@@ -1,0 +1,235 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="psel_p_ppi" title="PSEL -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="sve2"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="PSEL"/>
+  </docvars>
+  <heading>PSEL</heading>
+  <desc>
+    <brief>
+      <para>Predicate select between predicate register or all-false</para>
+    </brief>
+    <authored>
+      <para>This instruction places the contents of the first source predicate register into
+the destination predicate register if the indexed element of the second source predicate is true,
+otherwise it sets the destination predicate to all-false.
+The indexed element is determined by the sum of a general-purpose
+index register and an immediate, modulo the number of elements.
+This instruction does not set the condition flags.
+For programmer convenience, an assembler must
+      also accept predicate-as-counter register names for the destination
+      predicate register and the first source predicate register.</para>
+    </authored>
+    <predicated>False</predicated>
+    <uses_dit condition="FEAT_SVE2 is implemented or FEAT_SME is implemented">True</uses_dit>
+  </desc>
+  <operationalnotes>
+    <operationalnote>
+      <operationalnote_content>
+        <para>This instruction is a data-independent-time instruction as described in <xref linkend="ARMARM_BEICCDDAB3">About PSTATE.DIT</xref>.</para>
+      </operationalnote_content>
+    </operationalnote>
+  </operationalnotes>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="SVE2" oneof="1" id="iclass_sve2" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="sve2"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="PSEL"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SME || FEAT_SVE2p1" name="(v9Ap2 &amp;&amp; PROFILE_A) || v9Ap4"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_pred_dup.sve_int_pred_dup.psel_p_ppi_" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="23" width="1" name="i1" usename="1">
+          <c colspan="1"/>
+        </box>
+        <box hibit="22" width="1" name="tszh" usename="1">
+          <c colspan="1"/>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="20" width="3" name="tszl" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="17" width="2" name="Rv" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="15" width="2" settings="2">
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="13" width="4" name="Pn" usename="1">
+          <c colspan="4"/>
+        </box>
+        <box hibit="9" name="S" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="8" width="4" name="Pm" usename="1">
+          <c colspan="4"/>
+        </box>
+        <box hibit="4" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="3" width="4" name="Pd" usename="1">
+          <c colspan="4"/>
+        </box>
+      </regdiagram>
+      <encoding name="psel_p_ppi_" oneofinclass="1" oneof="1" label="">
+        <docvars>
+          <docvar key="instr-class" value="sve2"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="PSEL"/>
+        </docvars>
+        <asmtemplate><text>PSEL  </text><a hover="Is the name of the destination scalable predicate register, encoded in the &quot;Pd&quot; field." link="Pd">&lt;Pd&gt;</a><text>, </text><a hover="Is the name of the first source scalable predicate register, encoded in the &quot;Pn&quot; field." link="Pn__2">&lt;Pn&gt;</a><text>, </text><a hover="Is the name of the second source scalable predicate register, encoded in the &quot;Pm&quot; field." link="Pm__2">&lt;Pm&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__70">&lt;T&gt;</a><text>[</text><a hover="Is the 32-bit name of the vector select register W12-W15, encoded in the &quot;Rv&quot; field." link="Wv__2">&lt;Wv&gt;</a><text>, </text><a hover="Is the element index, in the range 0 to one less than the number of vector elements in a 128-bit vector register, encoded in &quot;i1:tszh:tszl&quot;." link="imm__87">&lt;imm&gt;</a><text>]</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_pred_dup.sve_int_pred_dup.psel_p_ppi_" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SME) &amp;&amp; !IsFeatureImplemented(FEAT_SVE2p1) then
+    EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+let imm5 : bits(5) = i1::tszh::tszl;
+var esize : integer;
+var imm : integer;
+case tszh::tszl of
+    when '0000' =&gt; EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+    when '1000' =&gt; esize = 64;  imm = UInt(imm5[4]);
+    when 'x100' =&gt; esize = 32;  imm = UInt(imm5[4:3]);
+    when 'xx10' =&gt; esize = 16;  imm = UInt(imm5[4:2]);
+    when 'xxx1' =&gt; esize = 8;   imm = UInt(imm5[4:1]);
+end;
+let n : integer = UInt(Pn);
+let m : integer = UInt(Pm);
+let d : integer = UInt(Pd);
+let v : integer = UInt('011'::Rv);</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="psel_p_ppi_" symboldefcount="1">
+      <symbol link="Pd">&lt;Pd&gt;</symbol>
+      <account encodedin="Pd">
+        <intro>
+          <para>Is the name of the destination scalable predicate register, encoded in the &quot;Pd&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="psel_p_ppi_" symboldefcount="1">
+      <symbol link="Pn__2">&lt;Pn&gt;</symbol>
+      <account encodedin="Pn">
+        <intro>
+          <para>Is the name of the first source scalable predicate register, encoded in the &quot;Pn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="psel_p_ppi_" symboldefcount="1">
+      <symbol link="Pm__2">&lt;Pm&gt;</symbol>
+      <account encodedin="Pm">
+        <intro>
+          <para>Is the name of the second source scalable predicate register, encoded in the &quot;Pm&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="psel_p_ppi_" symboldefcount="1">
+      <symbol link="T__70">&lt;T&gt;</symbol>
+      <definition encodedin="(tszh :: tszl)">
+        <intro>Is the size specifier, </intro>
+        <table class="valuetable">
+          <tgroup cols="3">
+            <thead>
+              <row>
+                <entry class="bitfield">tszh</entry>
+                <entry class="bitfield">tszl</entry>
+                <entry class="symbol">&lt;T&gt;</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry class="bitfield">0</entry>
+                <entry class="bitfield">000</entry>
+                <entry class="symbol">RESERVED</entry>
+              </row>
+              <row>
+                <entry class="bitfield">x</entry>
+                <entry class="bitfield">xx1</entry>
+                <entry class="symbol">B</entry>
+              </row>
+              <row>
+                <entry class="bitfield">x</entry>
+                <entry class="bitfield">x10</entry>
+                <entry class="symbol">H</entry>
+              </row>
+              <row>
+                <entry class="bitfield">x</entry>
+                <entry class="bitfield">100</entry>
+                <entry class="symbol">S</entry>
+              </row>
+              <row>
+                <entry class="bitfield">1</entry>
+                <entry class="bitfield">000</entry>
+                <entry class="symbol">D</entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </table>
+      </definition>
+    </explanation>
+    <explanation enclist="psel_p_ppi_" symboldefcount="1">
+      <symbol link="Wv__2">&lt;Wv&gt;</symbol>
+      <account encodedin="Rv">
+        <intro>
+          <para>Is the 32-bit name of the vector select register W12-W15, encoded in the &quot;Rv&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="psel_p_ppi_" symboldefcount="1">
+      <symbol link="imm__87">&lt;imm&gt;</symbol>
+      <account encodedin="(i1 :: tszh :: tszl)">
+        <intro>
+          <para>Is the element index, in the range 0 to one less than the number of vector elements in a 128-bit vector register, encoded in &quot;i1:tszh:tszl&quot;.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.sve.sve_pred_dup.sve_int_pred_dup.psel_p_ppi_" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">CheckSVEEnabled();
+let VL : integer{} = CurrentVL();
+let PL : integer{} = VL DIV 8;
+let elements : integer = VL DIV esize;
+let operand1 : bits(PL) = P{}(n);
+let operand2 : bits(PL) = P{}(m);
+let idx : bits(32) = X{}(v);
+let element : integer = (UInt(idx) + imm) MOD elements;
+var result : bits(PL);
+
+if <a link="func_ActivePredicateElement_4" file="shared_pseudocode.xml">ActivePredicateElement</a>{PL}(operand2, element, esize) then
+    result = operand1;
+else
+    result = Zeros{PL};
+end;
+
+<a link="accessor_P_2" file="shared_pseudocode.xml">P</a>{PL}(d) = result;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

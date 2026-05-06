@@ -1,0 +1,12 @@
+.test_case_enter:
+.section .data.main
+.function_0:
+.bb_0.0:
+.macro.measurement_start: NOP
+ldr xzr, [x29, #0x40]
+ldr xzr, [x29, #0x80]
+.exit_0:
+.macro.measurement_end: NOP
+B .test_case_exit 
+.section .data.main
+.test_case_exit:

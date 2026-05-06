@@ -126,7 +126,7 @@ static bool safe_file_read(FILE* f, void* buff, size_t size) {
 		} else if(feof(f)) {
 			return false;
 		}
-		__builtin_unreachable();
+		return false;
 	}
 }
 

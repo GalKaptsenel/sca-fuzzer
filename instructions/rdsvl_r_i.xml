@@ -1,0 +1,124 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="rdsvl_r_i" title="RDSVL -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="mortlach"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="RDSVL"/>
+  </docvars>
+  <heading>RDSVL</heading>
+  <desc>
+    <brief>
+      <para>Read multiple of Streaming SVE vector register size to scalar register</para>
+    </brief>
+    <authored>
+      <para>This instruction multiplies the Streaming SVE vector register size in bytes by an
+immediate in the range -32 to 31 and places the
+result in the 64-bit destination general-purpose register.</para>
+      <para>This instruction does not require the PE to be in Streaming SVE mode.</para>
+    </authored>
+    <predicated>False</predicated>
+  </desc>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="SME" oneof="1" id="iclass_sme" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="mortlach"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="RDSVL"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SME" name="v9Ap2 &amp;&amp; PROFILE_A"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_alloca.sve_int_read_svl_a.rdsvl_r_i_" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="23" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="22" name="op" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="20" width="5" name="opc2" usename="1" settings="5" psbits="xxxxx">
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="15" width="4" settings="4">
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="11" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="10" width="6" name="imm6" usename="1">
+          <c colspan="6"/>
+        </box>
+        <box hibit="4" width="5" name="Rd" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="rdsvl_r_i_" oneofinclass="1" oneof="1" label="">
+        <docvars>
+          <docvar key="isa" value="A64"/>
+          <docvar key="instr-class" value="mortlach"/>
+          <docvar key="mnemonic" value="RDSVL"/>
+        </docvars>
+        <asmtemplate><text>RDSVL  </text><a hover="Is the 64-bit name of the destination general-purpose register, encoded in the &quot;Rd&quot; field." link="Xd__2">&lt;Xd&gt;</a><text>, #</text><a hover="Is the signed immediate operand, in the range -32 to 31, encoded in the &quot;imm6&quot; field." link="imm__28">&lt;imm&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_alloca.sve_int_read_svl_a.rdsvl_r_i_" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SME) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+let d : integer = UInt(Rd);
+let imm : integer = SInt(imm6);</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="rdsvl_r_i_" symboldefcount="1">
+      <symbol link="Xd__2">&lt;Xd&gt;</symbol>
+      <account encodedin="Rd">
+        <intro>
+          <para>Is the 64-bit name of the destination general-purpose register, encoded in the &quot;Rd&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="rdsvl_r_i_" symboldefcount="1">
+      <symbol link="imm__28">&lt;imm&gt;</symbol>
+      <account encodedin="imm6">
+        <intro>
+          <para>Is the signed immediate operand, in the range -32 to 31, encoded in the &quot;imm6&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.sve.sve_alloca.sve_int_read_svl_a.rdsvl_r_i_" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">CheckSMEEnabled();
+let SVL : integer = CurrentSVL();
+let len : integer = imm * (SVL DIV 8);
+<a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(d) = len[63:0];</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

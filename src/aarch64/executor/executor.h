@@ -50,6 +50,8 @@ typedef struct executor {
 	volatile uint64_t number_of_inputs;
 	char* test_case; // The member test_case is NOT embedded inside the struct because we require that it wll be continuous within physical memory, and therefore it should be acquired by kmalloc
 	size_t test_case_length;
+	char* mistraining_code;    /* optional: branches forced to opposite direction; NULL if unused */
+	size_t mistraining_code_length;
 	struct rb_root inputs_root;
 	int64_t checkout_region;
 	int tracing_error;

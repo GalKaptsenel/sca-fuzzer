@@ -1,0 +1,223 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="LDAXP" title="LDAXP -- A64" type="instruction">
+  <docvars>
+    <docvar key="address-form" value="base-register"/>
+    <docvar key="instr-class" value="general"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="LDAXP"/>
+  </docvars>
+  <heading>LDAXP</heading>
+  <desc>
+    <brief>
+      <para>Load-acquire exclusive pair of registers</para>
+    </brief>
+    <authored>
+      <para>This instruction derives an address from
+a base register value, loads two 32-bit words or two 64-bit
+doublewords from memory, and writes them to two registers.
+For information on single-copy atomicity and alignment requirements,
+see <xref linkend="ARMARM_CHDDCBCC">Requirements for single-copy atomicity</xref> and
+<xref linkend="ARMARM_CHDFFEGJ">Alignment of data accesses</xref>.
+The PE marks the physical address being accessed as an exclusive access.
+This exclusive access mark is checked by Store Exclusive instructions. See
+<xref linkend="ARMARM_Chdcgdja">Synchronization and semaphores</xref>.</para>
+      <para>If the destination registers are not both <value>WZR</value> or not both <value>XZR</value>, <instruction>LDAXP</instruction> loads from memory with Acquire semantics.</para>
+      <para>For more information about memory ordering semantics, see <xref linkend="ARMARM_BEIHCHEF">Load-Acquire, Load-AcquirePC, and Store-Release</xref>.</para>
+      <para>For information about addressing modes, see
+<xref linkend="ARMARM_CHDIIIBB">Load/Store addressing modes</xref>.</para>
+    </authored>
+    <encodingnotes>
+      <para>For information about the <arm-defined-word>CONSTRAINED UNPREDICTABLE</arm-defined-word> behavior of this instruction, see <xref linkend="CJAEGDJC">Architectural Constraints on UNPREDICTABLE behaviors</xref>, and particularly <xref linkend="CHDHGGBJ">LDAXP</xref>.</para>
+    </encodingnotes>
+  </desc>
+  <operationalnotes>
+    <operationalnote>
+      <operationalnote_content>
+        <para>This instruction is a data-independent-time instruction as described in <xref linkend="ARMARM_BEICCDDAB3">About PSTATE.DIT</xref>.</para>
+      </operationalnote_content>
+    </operationalnote>
+  </operationalnotes>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="No offset" oneof="1" id="iclass_no_offset" no_encodings="2" isa="A64">
+      <docvars>
+        <docvar key="address-form" value="base-register"/>
+        <docvar key="instr-class" value="general"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="LDAXP"/>
+      </docvars>
+      <iclassintro count="2"/>
+      <regdiagram form="32" psname="A64.ldst.ldstexclp.LDAXP_LP32_ldstexclp" tworows="1">
+        <box hibit="31" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="30" width="1" name="sz" usename="1">
+          <c colspan="1"/>
+        </box>
+        <box hibit="29" width="7" settings="7">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="22" name="L" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="20" width="5" name="Rs" usename="1" settings="5" psbits="xxxxx">
+          <c>(1)</c>
+          <c>(1)</c>
+          <c>(1)</c>
+          <c>(1)</c>
+          <c>(1)</c>
+        </box>
+        <box hibit="15" name="o0" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="14" width="5" name="Rt2" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="9" width="5" name="Rn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Rt" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="LDAXP_LP32_ldstexclp" oneofinclass="2" oneof="2" label="32-bit" bitdiffs="sz == 0">
+        <docvars>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="address-form" value="base-register"/>
+          <docvar key="address-form-reg-type" value="base-register-pair-32"/>
+          <docvar key="atomic-ops" value="LDAXP-pair-32"/>
+          <docvar key="reg-type" value="pair-32"/>
+          <docvar key="mnemonic" value="LDAXP"/>
+        </docvars>
+        <box hibit="30" width="1" name="sz">
+          <c>0</c>
+        </box>
+        <asmtemplate><text>LDAXP  </text><a hover="Is the 32-bit name of the first general-purpose register to be transferred, encoded in the &quot;Rt&quot; field." link="Wt1OrWZR">&lt;Wt1&gt;</a><text>, </text><a hover="Is the 32-bit name of the second general-purpose register to be transferred, encoded in the &quot;Rt2&quot; field." link="Wt2OrWZR">&lt;Wt2&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>{, #0}]</text></asmtemplate>
+      </encoding>
+      <encoding name="LDAXP_LP64_ldstexclp" oneofinclass="2" oneof="2" label="64-bit" bitdiffs="sz == 1">
+        <docvars>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="address-form" value="base-register"/>
+          <docvar key="address-form-reg-type" value="base-register-pair-64"/>
+          <docvar key="atomic-ops" value="LDAXP-pair-64"/>
+          <docvar key="reg-type" value="pair-64"/>
+          <docvar key="mnemonic" value="LDAXP"/>
+        </docvars>
+        <box hibit="30" width="1" name="sz">
+          <c>1</c>
+        </box>
+        <asmtemplate><text>LDAXP  </text><a hover="Is the 64-bit name of the first general-purpose register to be transferred, encoded in the &quot;Rt&quot; field." link="Xt1OrXZR">&lt;Xt1&gt;</a><text>, </text><a hover="Is the 64-bit name of the second general-purpose register to be transferred, encoded in the &quot;Rt2&quot; field." link="Xt2OrXZR">&lt;Xt2&gt;</a><text>, [</text><a hover="Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option">&lt;Xn|SP&gt;</a><text>{, #0}]</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.ldst.ldstexclp.LDAXP_LP32_ldstexclp" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">let t : integer{} = UInt(Rt);
+let t2 : integer{} = UInt(Rt2);
+let n : integer{} = UInt(Rn);
+
+let elsize : integer{} = 32 &lt;&lt; UInt(sz);
+let datasize : integer{} = elsize * 2;
+let acqrel : boolean = t != 31 &amp;&amp; t2 != 31;
+let tagchecked : boolean = n != 31;
+
+var rt_unknown : boolean = FALSE;
+if t == t2 then
+    let c : <a link="type_Constraint" file="shared_pseudocode.xml">Constraint</a> = ConstrainUnpredictable(<a link="enum_Unpredictable_LDPOVERLAP" file="shared_pseudocode.xml">Unpredictable_LDPOVERLAP</a>);
+    assert c IN {<a link="enum_Constraint_UNKNOWN" file="shared_pseudocode.xml">Constraint_UNKNOWN</a>, <a link="enum_Constraint_UNDEF" file="shared_pseudocode.xml">Constraint_UNDEF</a>, <a link="enum_Constraint_NOP" file="shared_pseudocode.xml">Constraint_NOP</a>};
+    case c of
+        when <a link="enum_Constraint_UNKNOWN" file="shared_pseudocode.xml">Constraint_UNKNOWN</a> =&gt;    rt_unknown = TRUE;    // result is UNKNOWN
+        when <a link="enum_Constraint_UNDEF" file="shared_pseudocode.xml">Constraint_UNDEF</a> =&gt;      EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+        when <a link="enum_Constraint_NOP" file="shared_pseudocode.xml">Constraint_NOP</a> =&gt;        EndOfDecode(<a link="enum_Decode_NOP" file="shared_pseudocode.xml">Decode_NOP</a>);
+    end;
+end;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="LDAXP_LP32_ldstexclp" symboldefcount="1">
+      <symbol link="Wt1OrWZR">&lt;Wt1&gt;</symbol>
+      <account encodedin="Rt">
+        <intro>
+          <para>Is the 32-bit name of the first general-purpose register to be transferred, encoded in the &quot;Rt&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDAXP_LP32_ldstexclp" symboldefcount="1">
+      <symbol link="Wt2OrWZR">&lt;Wt2&gt;</symbol>
+      <account encodedin="Rt2">
+        <intro>
+          <para>Is the 32-bit name of the second general-purpose register to be transferred, encoded in the &quot;Rt2&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDAXP_LP32_ldstexclp, LDAXP_LP64_ldstexclp" symboldefcount="1">
+      <symbol link="XnSP_option">&lt;Xn|SP&gt;</symbol>
+      <account encodedin="Rn">
+        <intro>
+          <para>Is the 64-bit name of the general-purpose base register or stack pointer, encoded in the &quot;Rn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDAXP_LP64_ldstexclp" symboldefcount="1">
+      <symbol link="Xt1OrXZR">&lt;Xt1&gt;</symbol>
+      <account encodedin="Rt">
+        <intro>
+          <para>Is the 64-bit name of the first general-purpose register to be transferred, encoded in the &quot;Rt&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="LDAXP_LP64_ldstexclp" symboldefcount="1">
+      <symbol link="Xt2OrXZR">&lt;Xt2&gt;</symbol>
+      <account encodedin="Rt2">
+        <intro>
+          <para>Is the 64-bit name of the second general-purpose register to be transferred, encoded in the &quot;Rt2&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.ldst.ldstexclp.LDAXP_LP32_ldstexclp" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">var address : bits(64);
+var data : bits(datasize);
+
+let dbytes : integer{} = datasize DIV 8;
+let privileged : boolean = PSTATE.EL != <a link="global_EL0" file="shared_pseudocode.xml">EL0</a>;
+let ispair : boolean = elsize == 64;   // When elsize is 32, the access is single-copy atomic
+let accdesc : <a link="type_AccessDescriptor" file="shared_pseudocode.xml">AccessDescriptor</a> = CreateAccDescExLDST(MemOp_LOAD, acqrel, tagchecked,
+                                                     privileged, ispair, t, t2);
+
+if n == 31 then
+    CheckSPAlignment();
+    address = <a link="accessor_SP_1" file="shared_pseudocode.xml">SP</a>{64}();
+else
+    address = <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(n);
+end;
+
+AArch64_SetExclusiveMonitors(address, dbytes, accdesc);
+
+data = <a link="accessor_Mem_3" file="shared_pseudocode.xml">Mem</a>{datasize}(address, accdesc);
+if rt_unknown then
+    // ConstrainedUNPREDICTABLE case
+    <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{datasize}(t)  = ARBITRARY : bits(datasize);        // In this case t = t2
+elsif <a link="func_BigEndian_1" file="shared_pseudocode.xml">BigEndian</a>(accdesc.acctype) then
+    <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{elsize}(t)  = data[elsize +: elsize];
+    <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{elsize}(t2) = data[0 +: elsize];
+else
+    <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{elsize}(t)  = data[0 +: elsize];
+    <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{elsize}(t2) = data[elsize +: elsize];
+end;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

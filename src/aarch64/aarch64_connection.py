@@ -4,6 +4,7 @@ import tempfile
 import random
 import string
 from defer import return_value
+from ..config import CONF
 from ppadb.client import Client as AdbClient
 from typing import List, Literal, Union, Optional, Type, Callable, Tuple, Type
 from abc import ABC, abstractmethod
@@ -363,7 +364,7 @@ class UserlandExecutorImp(UserlandExecutor):
 				self.connection.push('revizor-executor.ko', module_path)
 			self.connection.shell(f'insmod {module_path}', privileged=True)
 
-		self.connection.shell(f'echo "P" > /sys/executor/measurement_mode', privileged=True) # Use Prime And Probe
+		self.connection.shell(f'echo "F" > /sys/executor/measurement_mode', privileged=True) # Use Prime And Probe
 		self.connection.shell(f'echo "0" > /sys/executor/pin_to_core', privileged=True) # Use Prime And Probe
 
 		if not self.connection.is_file_present(self.userland_application_path):
@@ -606,6 +607,7 @@ class LocalExecutorImp(UserlandExecutor):
 		self.fd = os.open(self.executor_device_path, os.O_RDWR)
 		self._write_sysfs("measurement_mode", b"P")
 		self._write_sysfs("pin_to_core", b"0")
+		self._write_sysfs("enable_pre_run_flush", str(CONF.enable_pre_run_flush).encode())
 		self.discard_all_inputs()
 		self.checkout_region(TestCaseRegion())
 		del self.contents 

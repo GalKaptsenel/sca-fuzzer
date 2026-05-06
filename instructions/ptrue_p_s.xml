@@ -1,0 +1,306 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="ptrue_p_s" title="PTRUE (predicate) -- A64" type="instruction">
+  <docvars>
+    <docvar key="cond-setting" value="no-s"/>
+    <docvar key="instr-class" value="sve"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="PTRUE"/>
+  </docvars>
+  <heading>PTRUE (predicate)</heading>
+  <desc>
+    <brief>
+      <para>Initialize predicate from named constraint</para>
+    </brief>
+    <authored>
+      <para>This instruction sets elements of the destination predicate to true if the
+element number satisfies the named predicate constraint,
+or to false otherwise. If the constraint specifies more
+elements than are available at the current vector length,
+then all elements of the destination predicate are set to
+false.</para>
+      <para>The named predicate constraint limits the number of active
+elements in a single predicate to:</para>
+      <list type="unordered">
+        <listitem>
+          <content>A fixed number (VL1 to VL256)</content>
+        </listitem>
+        <listitem>
+          <content>The largest power of two (POW2)</content>
+        </listitem>
+        <listitem>
+          <content>The largest multiple of three or four (MUL3 or MUL4)</content>
+        </listitem>
+        <listitem>
+          <content>All available, implicitly a multiple of two (ALL).</content>
+        </listitem>
+      </list>
+      <para>Unspecified or out of range constraint encodings generate an
+empty predicate or zero element count rather than Undefined
+Instruction exception. This instruction does not set the condition flags.</para>
+    </authored>
+    <predicated>False</predicated>
+  </desc>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="Not setting the condition flags" oneof="1" id="iclass_not_setting_the_condition_flags" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="cond-setting" value="no-s"/>
+        <docvar key="instr-class" value="sve"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="PTRUE"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SVE || FEAT_SME" name="(v8Ap2 &amp;&amp; PROFILE_A) || (v9Ap2 &amp;&amp; PROFILE_A)"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_pred_gen_d.sve_int_ptrue.ptrue_p_s_" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="23" width="2" name="size" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="21" width="2" settings="2">
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="19" width="3" settings="3">
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="16" name="S" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="15" width="2" settings="2">
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="13" width="3" settings="3">
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="10" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="9" width="5" name="pattern" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="3" width="4" name="Pd" usename="1">
+          <c colspan="4"/>
+        </box>
+      </regdiagram>
+      <encoding name="ptrue_p_s_" oneofinclass="1" oneof="1" label="">
+        <docvars>
+          <docvar key="instr-class" value="sve"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="cond-setting" value="no-s"/>
+          <docvar key="mnemonic" value="PTRUE"/>
+        </docvars>
+        <asmtemplate><text>PTRUE  </text><a hover="Is the name of the destination scalable predicate register, encoded in the &quot;Pd&quot; field." link="Pd">&lt;Pd&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__71">&lt;T&gt;</a><text>{, </text><a hover="Is the optional pattern specifier, defaulting to ALL, " link="pattern">&lt;pattern&gt;</a><text>}</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_pred_gen_d.sve_int_ptrue.ptrue_p_s_" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SVE) &amp;&amp; !IsFeatureImplemented(FEAT_SME) then
+    EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+let esize : integer{} = 8 &lt;&lt; UInt(size);
+let d : integer = UInt(Pd);
+let setflags : boolean = FALSE;
+let pat : bits(5) = pattern;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="ptrue_p_s_" symboldefcount="1">
+      <symbol link="Pd">&lt;Pd&gt;</symbol>
+      <account encodedin="Pd">
+        <intro>
+          <para>Is the name of the destination scalable predicate register, encoded in the &quot;Pd&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="ptrue_p_s_" symboldefcount="1">
+      <symbol link="T__71">&lt;T&gt;</symbol>
+      <definition encodedin="size">
+        <intro>Is the size specifier, </intro>
+        <table class="valuetable">
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry class="bitfield">size</entry>
+                <entry class="symbol">&lt;T&gt;</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry class="bitfield">00</entry>
+                <entry class="symbol">B</entry>
+              </row>
+              <row>
+                <entry class="bitfield">01</entry>
+                <entry class="symbol">H</entry>
+              </row>
+              <row>
+                <entry class="bitfield">10</entry>
+                <entry class="symbol">S</entry>
+              </row>
+              <row>
+                <entry class="bitfield">11</entry>
+                <entry class="symbol">D</entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </table>
+      </definition>
+    </explanation>
+    <explanation enclist="ptrue_p_s_" symboldefcount="1">
+      <symbol link="pattern">&lt;pattern&gt;</symbol>
+      <definition encodedin="pattern">
+        <intro>Is the optional pattern specifier, defaulting to ALL, </intro>
+        <table class="valuetable">
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry class="bitfield">pattern</entry>
+                <entry class="symbol">&lt;pattern&gt;</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry class="bitfield">00000</entry>
+                <entry class="symbol">POW2</entry>
+              </row>
+              <row>
+                <entry class="bitfield">00001</entry>
+                <entry class="symbol">VL1</entry>
+              </row>
+              <row>
+                <entry class="bitfield">00010</entry>
+                <entry class="symbol">VL2</entry>
+              </row>
+              <row>
+                <entry class="bitfield">00011</entry>
+                <entry class="symbol">VL3</entry>
+              </row>
+              <row>
+                <entry class="bitfield">00100</entry>
+                <entry class="symbol">VL4</entry>
+              </row>
+              <row>
+                <entry class="bitfield">00101</entry>
+                <entry class="symbol">VL5</entry>
+              </row>
+              <row>
+                <entry class="bitfield">00110</entry>
+                <entry class="symbol">VL6</entry>
+              </row>
+              <row>
+                <entry class="bitfield">00111</entry>
+                <entry class="symbol">VL7</entry>
+              </row>
+              <row>
+                <entry class="bitfield">01000</entry>
+                <entry class="symbol">VL8</entry>
+              </row>
+              <row>
+                <entry class="bitfield">01001</entry>
+                <entry class="symbol">VL16</entry>
+              </row>
+              <row>
+                <entry class="bitfield">01010</entry>
+                <entry class="symbol">VL32</entry>
+              </row>
+              <row>
+                <entry class="bitfield">01011</entry>
+                <entry class="symbol">VL64</entry>
+              </row>
+              <row>
+                <entry class="bitfield">01100</entry>
+                <entry class="symbol">VL128</entry>
+              </row>
+              <row>
+                <entry class="bitfield">01101</entry>
+                <entry class="symbol">VL256</entry>
+              </row>
+              <row>
+                <entry class="bitfield">0111x</entry>
+                <entry class="symbol">#uimm5</entry>
+              </row>
+              <row>
+                <entry class="bitfield">1xx00</entry>
+                <entry class="symbol">#uimm5</entry>
+              </row>
+              <row>
+                <entry class="bitfield">1x0x1</entry>
+                <entry class="symbol">#uimm5</entry>
+              </row>
+              <row>
+                <entry class="bitfield">1x010</entry>
+                <entry class="symbol">#uimm5</entry>
+              </row>
+              <row>
+                <entry class="bitfield">101x1</entry>
+                <entry class="symbol">#uimm5</entry>
+              </row>
+              <row>
+                <entry class="bitfield">10110</entry>
+                <entry class="symbol">#uimm5</entry>
+              </row>
+              <row>
+                <entry class="bitfield">11101</entry>
+                <entry class="symbol">MUL4</entry>
+              </row>
+              <row>
+                <entry class="bitfield">11110</entry>
+                <entry class="symbol">MUL3</entry>
+              </row>
+              <row>
+                <entry class="bitfield">11111</entry>
+                <entry class="symbol">ALL</entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </table>
+      </definition>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.sve.sve_pred_gen_d.sve_int_ptrue.ptrue_p_s_" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">CheckSVEEnabled();
+let VL : integer{} = CurrentVL();
+let PL : integer{} = VL DIV 8;
+let elements : integer = VL DIV esize;
+let count : integer = <a link="func_DecodePredCount_2" file="shared_pseudocode.xml">DecodePredCount</a>(pat, esize);
+var result : bits(PL);
+let psize : integer{} = esize DIV 8;
+
+for e = 0 to elements-1 do
+    let pbit : bit = if e &lt; count then '1' else '0';
+    result[e*:psize] = ZeroExtend{psize}(pbit);
+end;
+
+if setflags then
+    PSTATE.[N,Z,C,V] = <a link="func_PredTest_4" file="shared_pseudocode.xml">PredTest</a>{PL}(result, result, esize);
+end;
+<a link="accessor_P_2" file="shared_pseudocode.xml">P</a>{PL}(d) = result;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

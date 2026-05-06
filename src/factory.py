@@ -182,6 +182,24 @@ def get_executor(enable_mismatch_check_mode: bool = False) -> interfaces.Executo
     return _get_from_config(EXECUTORS, CONF.executor, "executor", *args)
 
 
+def get_noninterference_executor(generator: interfaces.Generator,
+                                  enable_mismatch_check_mode: bool = False) -> interfaces.Executor:
+    """
+    Create an Aarch64NonInterferenceExecutor with the generator injected at construction.
+
+    This is the only supported way to create a non-interference executor — the generator
+    is a required constructor argument and cannot be set after the fact.
+
+    Called by NoninterfearenceFuzzer.initialize_modules() instead of get_executor().
+    """
+    if not CONF.instruction_set.startswith('aarch64'):
+        raise ConfigException(
+            f"ERROR: non-interference executor requires aarch64 instruction set; "
+            f"got '{CONF.instruction_set}'")
+    workdir = '/home/rvzr_prj/revizor'
+    return aarch64_executor.Aarch64NonInterferenceExecutor(workdir, generator, enable_mismatch_check_mode)
+
+
 def get_analyser() -> interfaces.Analyser:
     return _get_from_config(ANALYSERS, CONF.analyser, "analyser")
 

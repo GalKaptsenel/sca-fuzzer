@@ -343,6 +343,13 @@ class Aarch64NeoverseN3BPU(BP):
                 return prediction
         assert False, "Should not reach here"
 
+    def reset(self) -> None:
+        """Clear all predictor state in-place (no object recreation, no GC pause)."""
+        self._phr._value = 0
+        for pht in self._phts:
+            for set_entry in pht._bp._table:
+                set_entry._lru_cache.d.clear()
+
     def snapshot(self) -> Tuple[Tuple[Tuple[int, int], ...], ...]:
         return reduce(lambda acc, pht: acc + pht.snapshot(), self._phts, ())
 

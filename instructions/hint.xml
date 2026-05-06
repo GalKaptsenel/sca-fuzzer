@@ -1,0 +1,293 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="HINT" title="HINT -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="system"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="HINT"/>
+  </docvars>
+  <heading>HINT</heading>
+  <desc>
+    <brief>
+      <para>Hint instruction</para>
+    </brief>
+    <authored>
+      <para>This instruction is for the instruction set space that is reserved
+for architectural hint instructions.</para>
+      <para>Some encodings described here are not allocated in this revision of
+the architecture, and behave as NOPs. These encodings might be
+allocated to other hint functionality in future revisions of the
+architecture and therefore must not be used by software.</para>
+    </authored>
+  </desc>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="System" oneof="1" id="iclass_system" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="system"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="HINT"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <regdiagram form="32" psname="A64.control.hints.HINT_HM_hints">
+        <box hibit="31" width="3" settings="3">
+          <c>1</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="28" width="3" settings="3">
+          <c>1</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="25" width="14" settings="14">
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="11" width="4" name="CRm" usename="1">
+          <c colspan="4"/>
+        </box>
+        <box hibit="7" width="3" name="op2" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="4" width="5" settings="5">
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+        </box>
+      </regdiagram>
+      <encoding name="HINT_HM_hints" oneofinclass="1" oneof="1" label="">
+        <docvars>
+          <docvar key="instr-class" value="system"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="HINT"/>
+        </docvars>
+        <asmtemplate><text>HINT  #</text><a hover="Is a 7-bit unsigned immediate, in the range 0 to 127, encoded in the &quot;CRm:op2&quot; field.
+
+The encodings that are allocated to architectural hint functionality are described in the 'Hints' table in the 'Index by Encoding'.
+
+
+[note]
+For allocated encodings of &quot;CRm:op2&quot;:
+
+  * A disassembler will disassemble the allocated instruction, rather than the HINT instruction.
+  * An assembler may support assembly of allocated encodings using HINT with the corresponding &lt;imm&gt; value, but it is not required to do so.
+[/note]" link="CRm_op2">&lt;imm&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.control.hints.HINT_HM_hints" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">var op : <a link="type_SystemHintOp" file="shared_pseudocode.xml">SystemHintOp</a>;
+
+var stream : boolean;
+var priority : boolean;
+case CRm::op2 of
+    when '0000 000' =&gt; op = <a link="enum_SystemHintOp_NOP" file="shared_pseudocode.xml">SystemHintOp_NOP</a>;
+    when '0000 001' =&gt; op = <a link="enum_SystemHintOp_YIELD" file="shared_pseudocode.xml">SystemHintOp_YIELD</a>;
+    when '0000 010' =&gt; op = <a link="enum_SystemHintOp_WFE" file="shared_pseudocode.xml">SystemHintOp_WFE</a>;
+    when '0000 011' =&gt; op = <a link="enum_SystemHintOp_WFI" file="shared_pseudocode.xml">SystemHintOp_WFI</a>;
+    when '0000 100' =&gt; op = <a link="enum_SystemHintOp_SEV" file="shared_pseudocode.xml">SystemHintOp_SEV</a>;
+    when '0000 101' =&gt; op = <a link="enum_SystemHintOp_SEVL" file="shared_pseudocode.xml">SystemHintOp_SEVL</a>;
+    when '0000 110' =&gt;
+        if !IsFeatureImplemented(FEAT_DGH) then EndOfDecode(<a link="enum_Decode_NOP" file="shared_pseudocode.xml">Decode_NOP</a>); end;
+        op = <a link="enum_SystemHintOp_DGH" file="shared_pseudocode.xml">SystemHintOp_DGH</a>;
+    when '0000 111' =&gt; See(&quot;XPACLRI&quot;);
+    when '0001 xxx' =&gt;
+        case op2 of
+            when '000' =&gt; See(&quot;PACIA1716&quot;);
+            when '010' =&gt; See(&quot;PACIB1716&quot;);
+            when '100' =&gt; See(&quot;AUTIA1716&quot;);
+            when '110' =&gt; See(&quot;AUTIB1716&quot;);
+            otherwise =&gt; EndOfDecode(<a link="enum_Decode_NOP" file="shared_pseudocode.xml">Decode_NOP</a>);
+        end;
+    when '0010 000' =&gt;
+        if !IsFeatureImplemented(FEAT_RAS) then EndOfDecode(<a link="enum_Decode_NOP" file="shared_pseudocode.xml">Decode_NOP</a>); end;
+        op = <a link="enum_SystemHintOp_ESB" file="shared_pseudocode.xml">SystemHintOp_ESB</a>;
+    when '0010 001' =&gt;
+        if !IsFeatureImplemented(FEAT_SPE) then EndOfDecode(<a link="enum_Decode_NOP" file="shared_pseudocode.xml">Decode_NOP</a>); end;
+        op = <a link="enum_SystemHintOp_PSB" file="shared_pseudocode.xml">SystemHintOp_PSB</a>;
+    when '0010 010' =&gt;
+        if !IsFeatureImplemented(FEAT_TRF) then EndOfDecode(<a link="enum_Decode_NOP" file="shared_pseudocode.xml">Decode_NOP</a>); end;
+        op = <a link="enum_SystemHintOp_TSB" file="shared_pseudocode.xml">SystemHintOp_TSB</a>;
+    when '0010 011' =&gt;
+        if !IsFeatureImplemented(FEAT_GCS) then EndOfDecode(<a link="enum_Decode_NOP" file="shared_pseudocode.xml">Decode_NOP</a>); end;
+        op = <a link="enum_SystemHintOp_GCSB" file="shared_pseudocode.xml">SystemHintOp_GCSB</a>;
+    when '0010 100' =&gt;
+        op = <a link="enum_SystemHintOp_CSDB" file="shared_pseudocode.xml">SystemHintOp_CSDB</a>;
+    when '0010 110' =&gt;
+        if !IsFeatureImplemented(FEAT_CLRBHB) then EndOfDecode(<a link="enum_Decode_NOP" file="shared_pseudocode.xml">Decode_NOP</a>); end;
+        op = <a link="enum_SystemHintOp_CLRBHB" file="shared_pseudocode.xml">SystemHintOp_CLRBHB</a>;
+    when '0011 xxx' =&gt;
+        case op2 of
+            when '000' =&gt; See(&quot;PACIAZ&quot;);
+            when '001' =&gt; See(&quot;PACIASP&quot;);
+            when '010' =&gt; See(&quot;PACIBZ&quot;);
+            when '011' =&gt; See(&quot;PACIBSP&quot;);
+            when '100' =&gt; See(&quot;AUTIAZ&quot;);
+            when '101' =&gt; See(&quot;AUTIASP&quot;);
+            when '110' =&gt; See(&quot;AUTIBZ&quot;);
+            when '111' =&gt; See(&quot;AUTIBSP&quot;);
+        end;
+    when '0100 xx0' =&gt;
+        if !IsFeatureImplemented(FEAT_BTI) then EndOfDecode(<a link="enum_Decode_NOP" file="shared_pseudocode.xml">Decode_NOP</a>); end;
+
+        // Check branch target compatibility between BTI instruction and PSTATE.BTYPE
+        SetBTypeCompatible(<a link="func_BTypeCompatible_BTI_1" file="shared_pseudocode.xml">BTypeCompatible_BTI</a>(op2[2:1]));
+        op = <a link="enum_SystemHintOp_BTI" file="shared_pseudocode.xml">SystemHintOp_BTI</a>;
+    when '0100 111' =&gt; See(&quot;PACM&quot;);
+    when '0101 000' =&gt;
+        if !IsFeatureImplemented(FEAT_CHK) then EndOfDecode(<a link="enum_Decode_NOP" file="shared_pseudocode.xml">Decode_NOP</a>); end;
+        op = <a link="enum_SystemHintOp_CHKFEAT" file="shared_pseudocode.xml">SystemHintOp_CHKFEAT</a>;
+    when '0110 00x' =&gt;
+        if !IsFeatureImplemented(FEAT_PCDPHINT) then EndOfDecode(<a link="enum_Decode_NOP" file="shared_pseudocode.xml">Decode_NOP</a>); end;
+        stream = op2[0] == '1';
+        op = <a link="enum_SystemHintOp_STSHH" file="shared_pseudocode.xml">SystemHintOp_STSHH</a>;
+    when '0110 01x' =&gt;
+        if !IsFeatureImplemented(FEAT_CMH) then EndOfDecode(<a link="enum_Decode_NOP" file="shared_pseudocode.xml">Decode_NOP</a>); end;
+        priority = op2[0] == '1';
+
+        op = <a link="enum_SystemHintOp_SHUH" file="shared_pseudocode.xml">SystemHintOp_SHUH</a>;
+    when '0110 100' =&gt;
+        if !IsFeatureImplemented(FEAT_CMH) then EndOfDecode(<a link="enum_Decode_NOP" file="shared_pseudocode.xml">Decode_NOP</a>); end;
+        op = <a link="enum_SystemHintOp_STCPH" file="shared_pseudocode.xml">SystemHintOp_STCPH</a>;
+    otherwise =&gt; EndOfDecode(<a link="enum_Decode_NOP" file="shared_pseudocode.xml">Decode_NOP</a>);
+end;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="HINT_HM_hints" symboldefcount="1">
+      <symbol link="CRm_op2">&lt;imm&gt;</symbol>
+      <account encodedin="(CRm :: op2)">
+        <intro>
+          <para>Is a 7-bit unsigned immediate, in the range 0 to 127, encoded in the &quot;CRm:op2&quot; field.</para>
+          <para>The encodings that are allocated to architectural hint functionality are described in the 'Hints' table in the 'Index by Encoding'.</para>
+          <note>
+            <para>For allocated encodings of &quot;CRm:op2&quot;:</para>
+            <list type="unordered">
+              <listitem>
+                <content>A disassembler will disassemble the allocated instruction, rather than the <instruction>HINT</instruction> instruction.</content>
+              </listitem>
+              <listitem>
+                <content>An assembler may support assembly of allocated encodings using <instruction>HINT</instruction> with the corresponding <syntax>&lt;imm&gt;</syntax> value, but it is not required to do so.</content>
+              </listitem>
+            </list>
+          </note>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.control.hints.HINT_HM_hints" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">case op of
+    when <a link="enum_SystemHintOp_YIELD" file="shared_pseudocode.xml">SystemHintOp_YIELD</a> =&gt;
+        Hint_Yield();
+
+    when <a link="enum_SystemHintOp_DGH" file="shared_pseudocode.xml">SystemHintOp_DGH</a> =&gt;
+        Hint_DGH();
+
+    when <a link="enum_SystemHintOp_WFE" file="shared_pseudocode.xml">SystemHintOp_WFE</a> =&gt;
+        Hint_WFE();
+
+    when <a link="enum_SystemHintOp_WFI" file="shared_pseudocode.xml">SystemHintOp_WFI</a> =&gt;
+        Hint_WFI();
+
+    when <a link="enum_SystemHintOp_SEV" file="shared_pseudocode.xml">SystemHintOp_SEV</a> =&gt;
+        SendEvent();
+
+    when <a link="enum_SystemHintOp_SEVL" file="shared_pseudocode.xml">SystemHintOp_SEVL</a> =&gt;
+        SendEventLocal();
+
+    when <a link="enum_SystemHintOp_ESB" file="shared_pseudocode.xml">SystemHintOp_ESB</a> =&gt;
+        SynchronizeErrors();
+        AArch64_ESBOperation();
+        if PSTATE.EL IN {<a link="global_EL0" file="shared_pseudocode.xml">EL0</a>, <a link="global_EL1" file="shared_pseudocode.xml">EL1</a>} &amp;&amp; <a link="func_EL2Enabled_0" file="shared_pseudocode.xml">EL2Enabled</a>() then
+            AArch64_vESBOperation();
+        elsif IsFeatureImplemented(FEAT_E3DSE) &amp;&amp; PSTATE.EL != <a link="global_EL3" file="shared_pseudocode.xml">EL3</a> then
+            AArch64_dESBOperation();
+        end;
+        TakeUnmaskedSErrorInterrupts();
+
+    when <a link="enum_SystemHintOp_PSB" file="shared_pseudocode.xml">SystemHintOp_PSB</a> =&gt;
+        if IsFeatureImplemented(FEAT_FGT) &amp;&amp; IsFeatureImplemented(FEAT_SPEv1p5) then
+            let trap_to_el2 : boolean = (PSTATE.EL IN {<a link="global_EL0" file="shared_pseudocode.xml">EL0</a>, <a link="global_EL1" file="shared_pseudocode.xml">EL1</a>} &amp;&amp; <a link="func_EL2Enabled_0" file="shared_pseudocode.xml">EL2Enabled</a>() &amp;&amp;
+                                            !<a link="func_IsInHost_0" file="shared_pseudocode.xml">IsInHost</a>() &amp;&amp;
+                                            (!<a link="func_HaveEL_1" file="shared_pseudocode.xml">HaveEL</a>(<a link="global_EL3" file="shared_pseudocode.xml">EL3</a>) || SCR_EL3().FGTEn == '1') &amp;&amp;
+                                            HFGITR_EL2().PSBCSYNC == '1');
+            if trap_to_el2 then
+                // to be renamed
+                var except : <a link="type_ExceptionRecord" file="shared_pseudocode.xml">ExceptionRecord</a> = <a link="func_ExceptionSyndrome_1" file="shared_pseudocode.xml">ExceptionSyndrome</a>(<a link="enum_Exception_LDST64BTrap" file="shared_pseudocode.xml">Exception_LDST64BTrap</a>);
+                except.syndrome.iss = 0x3[24:0];
+                let preferred_exception_return : bits(64) = ThisInstrAddr{}();
+                let vect_offset : integer = 0x0;
+                AArch64_TakeException(<a link="global_EL2" file="shared_pseudocode.xml">EL2</a>, except, preferred_exception_return, vect_offset);
+            end;
+        end;
+
+        ProfilingSynchronizationBarrier();
+
+    when <a link="enum_SystemHintOp_TSB" file="shared_pseudocode.xml">SystemHintOp_TSB</a> =&gt;
+        if IsFeatureImplemented(FEAT_FGT2) &amp;&amp; IsFeatureImplemented(FEAT_TRBEv1p1) then
+            let trap_to_el2 : boolean = (PSTATE.EL IN {<a link="global_EL0" file="shared_pseudocode.xml">EL0</a>, <a link="global_EL1" file="shared_pseudocode.xml">EL1</a>} &amp;&amp; <a link="func_EL2Enabled_0" file="shared_pseudocode.xml">EL2Enabled</a>() &amp;&amp;
+                                            !<a link="func_IsInHost_0" file="shared_pseudocode.xml">IsInHost</a>() &amp;&amp;
+                                            (!<a link="func_HaveEL_1" file="shared_pseudocode.xml">HaveEL</a>(<a link="global_EL3" file="shared_pseudocode.xml">EL3</a>) || SCR_EL3().FGTEn2 == '1') &amp;&amp;
+                                            HFGITR2_EL2().TSBCSYNC == '1');
+            if trap_to_el2 then
+                // to be renamed
+                var except : <a link="type_ExceptionRecord" file="shared_pseudocode.xml">ExceptionRecord</a> = <a link="func_ExceptionSyndrome_1" file="shared_pseudocode.xml">ExceptionSyndrome</a>(<a link="enum_Exception_LDST64BTrap" file="shared_pseudocode.xml">Exception_LDST64BTrap</a>);
+                except.syndrome.iss = 0x4[24:0];
+                let preferred_exception_return : bits(64) = ThisInstrAddr{}();
+                let vect_offset : integer = 0x0;
+                AArch64_TakeException(<a link="global_EL2" file="shared_pseudocode.xml">EL2</a>, except, preferred_exception_return, vect_offset);
+            end;
+        end;
+
+        TraceSynchronizationBarrier();
+
+    when <a link="enum_SystemHintOp_GCSB" file="shared_pseudocode.xml">SystemHintOp_GCSB</a> =&gt;
+        GCSSynchronizationBarrier();
+
+    when <a link="enum_SystemHintOp_CHKFEAT" file="shared_pseudocode.xml">SystemHintOp_CHKFEAT</a> =&gt;
+        <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(16) = <a link="func_AArch64_ChkFeat_1" file="shared_pseudocode.xml">AArch64_ChkFeat</a>(<a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(16));
+
+    when <a link="enum_SystemHintOp_CSDB" file="shared_pseudocode.xml">SystemHintOp_CSDB</a> =&gt;
+        ConsumptionOfSpeculativeDataBarrier();
+
+    when <a link="enum_SystemHintOp_CLRBHB" file="shared_pseudocode.xml">SystemHintOp_CLRBHB</a> =&gt;
+        Hint_CLRBHB();
+
+    when <a link="enum_SystemHintOp_BTI" file="shared_pseudocode.xml">SystemHintOp_BTI</a> =&gt;
+        SetBTypeNext('00');
+
+    when <a link="enum_SystemHintOp_STSHH" file="shared_pseudocode.xml">SystemHintOp_STSHH</a> =&gt;
+        Hint_StoreShared(stream);
+
+    when <a link="enum_SystemHintOp_SHUH" file="shared_pseudocode.xml">SystemHintOp_SHUH</a> =&gt;
+        Hint_SharedUpdate(priority);
+
+    when <a link="enum_SystemHintOp_STCPH" file="shared_pseudocode.xml">SystemHintOp_STCPH</a> =&gt;
+        Hint_StoreConcurrentPriority();
+
+    when <a link="enum_SystemHintOp_NOP" file="shared_pseudocode.xml">SystemHintOp_NOP</a> =&gt;
+        return; // Do nothing
+
+    otherwise =&gt;
+        unreachable;
+end;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

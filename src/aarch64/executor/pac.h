@@ -25,10 +25,18 @@ uint64_t pacib(uint64_t ptr, uint64_t mod);
 uint64_t pacda(uint64_t ptr, uint64_t mod);
 uint64_t pacdb(uint64_t ptr, uint64_t mod);
 uint64_t pacga(uint64_t x, uint64_t y);
+uint64_t paciza(uint64_t ptr);
+uint64_t pacizb(uint64_t ptr);
+uint64_t pacdza(uint64_t ptr);
+uint64_t pacdzb(uint64_t ptr);
 uint64_t autia(uint64_t ptr, uint64_t mod);
 uint64_t autib(uint64_t ptr, uint64_t mod);
 uint64_t autda(uint64_t ptr, uint64_t mod);
 uint64_t autdb(uint64_t ptr, uint64_t mod);
+uint64_t autiza(uint64_t ptr);
+uint64_t autizb(uint64_t ptr);
+uint64_t autdza(uint64_t ptr);
+uint64_t autdzb(uint64_t ptr);
 uint64_t xpaci(uint64_t ptr);
 uint64_t xpacd(uint64_t ptr);
 

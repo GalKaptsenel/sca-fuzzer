@@ -18,6 +18,7 @@ SRCS = \
   simulation_output.c \
   simulation.c \
   simulation_execution_clause_hook.c \
+  pac_sign_plugin.c \
   tage_py.c \
   main.c
 

@@ -1,0 +1,404 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="adr_z_az" title="ADR -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="sve"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="ADR"/>
+  </docvars>
+  <heading>ADR</heading>
+  <desc>
+    <brief>
+      <para>Compute vector address</para>
+    </brief>
+    <authored>
+      <para>This instruction optionally sign-extends or zero-extends the least significant 32 bits
+of each element from a vector of offsets or indices in the
+second source vector, and scales each index by 2, 4, or 8. The scaled indices are then added
+to a vector of base addresses from the first source vector,
+and the resulting addresses are placed in the destination
+vector. This instruction is unpredicated.</para>
+      <para>This instruction is illegal when executed in Streaming SVE mode, unless FEAT_SME_FA64 is implemented and enabled.</para>
+    </authored>
+    <predicated>False</predicated>
+    <uses_dit condition="FEAT_SVE2 is implemented or FEAT_SME is implemented">True</uses_dit>
+    <sm_policy>SM_0_only</sm_policy>
+  </desc>
+  <operationalnotes>
+    <operationalnote>
+      <operationalnote_content>
+        <para>This instruction is a data-independent-time instruction as described in <xref linkend="ARMARM_BEICCDDAB3">About PSTATE.DIT</xref>.</para>
+      </operationalnote_content>
+    </operationalnote>
+  </operationalnotes>
+  <alias_list howmany="0"/>
+  <classes>
+    <classesintro count="3">
+      <txt>It has encodings from 3 classes:</txt>
+      <a href="#iclass_packed_offsets">Packed offsets</a>
+      <txt>, </txt>
+      <a href="#iclass_unpacked_32_bit_signed_offsets">Unpacked 32-bit signed offsets</a>
+      <txt> and </txt>
+      <a href="#iclass_unpacked_32_bit_unsigned_offsets">Unpacked 32-bit unsigned offsets</a>
+    </classesintro>
+    <iclass name="Packed offsets" oneof="3" id="iclass_packed_offsets" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="sve"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="ADR"/>
+        <docvar key="sve-offset-type" value="off_pkd"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SVE" name="v8Ap2 &amp;&amp; PROFILE_A"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_int_adr.sve_int_bin_cons_misc_0_a.adr_z_az_sd_same_scaled">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="23" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="22" width="1" name="sz" usename="1">
+          <c colspan="1"/>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="20" width="5" name="Zm" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="15" width="4" settings="4">
+          <c>1</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="11" width="2" name="msz" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="9" width="5" name="Zn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Zd" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="adr_z_az_sd_same_scaled" oneofinclass="1" oneof="3" label="">
+        <docvars>
+          <docvar key="instr-class" value="sve"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="sve-offset-type" value="off_pkd"/>
+          <docvar key="mnemonic" value="ADR"/>
+        </docvars>
+        <asmtemplate><text>ADR  </text><a hover="Is the name of the destination scalable vector register, encoded in the &quot;Zd&quot; field." link="Zd">&lt;Zd&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__11">&lt;T&gt;</a><text>, [</text><a hover="Is the name of the base scalable vector register, encoded in the &quot;Zn&quot; field." link="Zn__3">&lt;Zn&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__11">&lt;T&gt;</a><text>, </text><a hover="Is the name of the offset scalable vector register, encoded in the &quot;Zm&quot; field." link="Zm__3">&lt;Zm&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__11">&lt;T&gt;</a><text>{, </text><a hover="Is the index extend and shift specifier, " link="mod_LSL">&lt;mod&gt;</a><text> </text><a hover="Is the index shift amount, " link="amount__12">&lt;amount&gt;</a><text>}]</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_int_adr.sve_int_bin_cons_misc_0_a.adr_z_az_sd_same_scaled" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SVE) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+let esize : integer{} = 32 &lt;&lt; UInt(sz);
+let n : integer = UInt(Zn);
+let m : integer = UInt(Zm);
+let d : integer = UInt(Zd);
+let osize : integer{} = esize;
+let unsigned : boolean = TRUE;
+let mbytes : integer{} = 1 &lt;&lt; UInt(msz);</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+    <iclass name="Unpacked 32-bit signed offsets" oneof="3" id="iclass_unpacked_32_bit_signed_offsets" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="sve"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="ADR"/>
+        <docvar key="sve-offset-type" value="off_s_s32"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SVE" name="v8Ap2 &amp;&amp; PROFILE_A"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_int_adr.sve_int_bin_cons_misc_0_a.adr_z_az_d_s32_scaled" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="23" width="2" name="opc" usename="1" settings="2" psbits="xx">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="20" width="5" name="Zm" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="15" width="4" settings="4">
+          <c>1</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="11" width="2" name="msz" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="9" width="5" name="Zn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Zd" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="adr_z_az_d_s32_scaled" oneofinclass="1" oneof="3" label="">
+        <docvars>
+          <docvar key="instr-class" value="sve"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="sve-offset-type" value="off_s_s32"/>
+          <docvar key="mnemonic" value="ADR"/>
+        </docvars>
+        <asmtemplate><text>ADR  </text><a hover="Is the name of the destination scalable vector register, encoded in the &quot;Zd&quot; field." link="Zd">&lt;Zd&gt;</a><text>.D, [</text><a hover="Is the name of the base scalable vector register, encoded in the &quot;Zn&quot; field." link="Zn__3">&lt;Zn&gt;</a><text>.D, </text><a hover="Is the name of the offset scalable vector register, encoded in the &quot;Zm&quot; field." link="Zm__3">&lt;Zm&gt;</a><text>.D, SXTW{</text><a hover="Is the index shift amount, " link="amount__12">&lt;amount&gt;</a><text>}]</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_int_adr.sve_int_bin_cons_misc_0_a.adr_z_az_d_s32_scaled" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SVE) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+let esize : integer{} = 64;
+let n : integer = UInt(Zn);
+let m : integer = UInt(Zm);
+let d : integer = UInt(Zd);
+let osize : integer{} = 32;
+let unsigned : boolean = FALSE;
+let mbytes : integer{} = 1 &lt;&lt; UInt(msz);</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+    <iclass name="Unpacked 32-bit unsigned offsets" oneof="3" id="iclass_unpacked_32_bit_unsigned_offsets" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="sve"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="ADR"/>
+        <docvar key="sve-offset-type" value="off_s_u32"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SVE" name="v8Ap2 &amp;&amp; PROFILE_A"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_int_adr.sve_int_bin_cons_misc_0_a.adr_z_az_d_u32_scaled" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="23" width="2" name="opc" usename="1" settings="2" psbits="xx">
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="20" width="5" name="Zm" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="15" width="4" settings="4">
+          <c>1</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="11" width="2" name="msz" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="9" width="5" name="Zn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Zd" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="adr_z_az_d_u32_scaled" oneofinclass="1" oneof="3" label="">
+        <docvars>
+          <docvar key="instr-class" value="sve"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="sve-offset-type" value="off_s_u32"/>
+          <docvar key="mnemonic" value="ADR"/>
+        </docvars>
+        <asmtemplate><text>ADR  </text><a hover="Is the name of the destination scalable vector register, encoded in the &quot;Zd&quot; field." link="Zd">&lt;Zd&gt;</a><text>.D, [</text><a hover="Is the name of the base scalable vector register, encoded in the &quot;Zn&quot; field." link="Zn__3">&lt;Zn&gt;</a><text>.D, </text><a hover="Is the name of the offset scalable vector register, encoded in the &quot;Zm&quot; field." link="Zm__3">&lt;Zm&gt;</a><text>.D, UXTW{</text><a hover="Is the index shift amount, " link="amount__12">&lt;amount&gt;</a><text>}]</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_int_adr.sve_int_bin_cons_misc_0_a.adr_z_az_d_u32_scaled" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SVE) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+let esize : integer{} = 64;
+let n : integer = UInt(Zn);
+let m : integer = UInt(Zm);
+let d : integer = UInt(Zd);
+let osize : integer{} = 32;
+let unsigned : boolean = TRUE;
+let mbytes : integer{} = 1 &lt;&lt; UInt(msz);</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="adr_z_az_sd_same_scaled, adr_z_az_d_s32_scaled, adr_z_az_d_u32_scaled" symboldefcount="1">
+      <symbol link="Zd">&lt;Zd&gt;</symbol>
+      <account encodedin="Zd">
+        <intro>
+          <para>Is the name of the destination scalable vector register, encoded in the &quot;Zd&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="adr_z_az_sd_same_scaled" symboldefcount="1">
+      <symbol link="T__11">&lt;T&gt;</symbol>
+      <definition encodedin="sz">
+        <intro>Is the size specifier, </intro>
+        <table class="valuetable">
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry class="bitfield">sz</entry>
+                <entry class="symbol">&lt;T&gt;</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry class="bitfield">0</entry>
+                <entry class="symbol">S</entry>
+              </row>
+              <row>
+                <entry class="bitfield">1</entry>
+                <entry class="symbol">D</entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </table>
+      </definition>
+    </explanation>
+    <explanation enclist="adr_z_az_sd_same_scaled, adr_z_az_d_s32_scaled, adr_z_az_d_u32_scaled" symboldefcount="1">
+      <symbol link="Zn__3">&lt;Zn&gt;</symbol>
+      <account encodedin="Zn">
+        <intro>
+          <para>Is the name of the base scalable vector register, encoded in the &quot;Zn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="adr_z_az_sd_same_scaled, adr_z_az_d_s32_scaled, adr_z_az_d_u32_scaled" symboldefcount="1">
+      <symbol link="Zm__3">&lt;Zm&gt;</symbol>
+      <account encodedin="Zm">
+        <intro>
+          <para>Is the name of the offset scalable vector register, encoded in the &quot;Zm&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="adr_z_az_sd_same_scaled" symboldefcount="1">
+      <symbol link="mod_LSL">&lt;mod&gt;</symbol>
+      <definition encodedin="msz">
+        <intro>Is the index extend and shift specifier, </intro>
+        <table class="valuetable">
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry class="bitfield">msz</entry>
+                <entry class="symbol">&lt;mod&gt;</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry class="bitfield">00</entry>
+                <entry class="symbol">[absent]</entry>
+              </row>
+              <row>
+                <entry class="bitfield">x1</entry>
+                <entry class="symbol">LSL</entry>
+              </row>
+              <row>
+                <entry class="bitfield">10</entry>
+                <entry class="symbol">LSL</entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </table>
+      </definition>
+    </explanation>
+    <explanation enclist="adr_z_az_sd_same_scaled, adr_z_az_d_s32_scaled, adr_z_az_d_u32_scaled" symboldefcount="1">
+      <symbol link="amount__12">&lt;amount&gt;</symbol>
+      <definition encodedin="msz">
+        <intro>Is the index shift amount, </intro>
+        <table class="valuetable">
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry class="bitfield">msz</entry>
+                <entry class="symbol">&lt;amount&gt;</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry class="bitfield">00</entry>
+                <entry class="symbol">[absent]</entry>
+              </row>
+              <row>
+                <entry class="bitfield">01</entry>
+                <entry class="symbol">#1</entry>
+              </row>
+              <row>
+                <entry class="bitfield">10</entry>
+                <entry class="symbol">#2</entry>
+              </row>
+              <row>
+                <entry class="bitfield">11</entry>
+                <entry class="symbol">#3</entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </table>
+      </definition>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.sve.sve_int_adr.sve_int_bin_cons_misc_0_a.adr_z_az_sd_same_scaled" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">CheckNonStreamingSVEEnabled();
+let VL : integer{} = CurrentVL();
+let elements : integer = VL DIV esize;
+let base : bits(VL) = Z{}(n);
+let offs : bits(VL) = Z{}(m);
+var result : bits(VL);
+
+for e = 0 to elements-1 do
+    let addr : bits(esize) = base[e*:esize];
+    let offselt : bits(osize) = offs[e*:esize][osize-1:0];
+    let offset : integer = if unsigned then UInt(offselt) else SInt(offselt);
+    result[e*:esize] = addr + (offset * mbytes);
+end;
+
+<a link="accessor_Z_2" file="shared_pseudocode.xml">Z</a>{VL}(d) = result;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

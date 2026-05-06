@@ -1,0 +1,134 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="PACGA" title="PACGA -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="general"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="PACGA"/>
+  </docvars>
+  <heading>PACGA</heading>
+  <desc>
+    <brief>
+      <para>Pointer Authentication Code, using generic key</para>
+    </brief>
+    <authored>
+      <para>This instruction computes the Pointer Authentication Code for a 64-bit value
+in the first source register, using a modifier in the second
+source register, and the generic key.
+The computed Pointer Authentication Code is written to the most significant
+32 bits of the destination register, and the least significant 32 bits of the
+destination register are set to zero.</para>
+    </authored>
+  </desc>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="Integer" oneof="1" id="iclass_integer" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="general"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="PACGA"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_PAuth" name="v8Ap3"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.dpreg.dp_2src.PACGA_64P_dp_2src" tworows="1">
+        <box hibit="31" name="sf" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="30" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="29" name="S" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="28" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="27" width="3" settings="3">
+          <c>1</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="24" width="4" settings="4">
+          <c>0</c>
+          <c>1</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="20" width="5" name="Rm" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="15" width="6" name="opcode" usename="1" settings="6" psbits="xxxxxx">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="9" width="5" name="Rn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Rd" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="PACGA_64P_dp_2src" oneofinclass="1" oneof="1" label="">
+        <docvars>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="PACGA"/>
+        </docvars>
+        <asmtemplate><text>PACGA  </text><a hover="Is the 64-bit name of the general-purpose destination register, encoded in the &quot;Rd&quot; field." link="XdOrXZR__6">&lt;Xd&gt;</a><text>, </text><a hover="Is the 64-bit name of the first general-purpose source register, encoded in the &quot;Rn&quot; field." link="XnOrXZR__12">&lt;Xn&gt;</a><text>, </text><a hover="Is the 64-bit name of the second general-purpose source register or stack pointer, encoded in the &quot;Rm&quot; field." link="XmSP_option__2">&lt;Xm|SP&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.dpreg.dp_2src.PACGA_64P_dp_2src" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_PAuth) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+
+var source_is_sp : boolean = FALSE;
+let d : integer = UInt(Rd);
+let n : integer = UInt(Rn);
+let m : integer = UInt(Rm);
+
+if m == 31 then source_is_sp = TRUE; end;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="PACGA_64P_dp_2src" symboldefcount="1">
+      <symbol link="XdOrXZR__6">&lt;Xd&gt;</symbol>
+      <account encodedin="Rd">
+        <intro>
+          <para>Is the 64-bit name of the general-purpose destination register, encoded in the &quot;Rd&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="PACGA_64P_dp_2src" symboldefcount="1">
+      <symbol link="XnOrXZR__12">&lt;Xn&gt;</symbol>
+      <account encodedin="Rn">
+        <intro>
+          <para>Is the 64-bit name of the first general-purpose source register, encoded in the &quot;Rn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="PACGA_64P_dp_2src" symboldefcount="1">
+      <symbol link="XmSP_option__2">&lt;Xm|SP&gt;</symbol>
+      <account encodedin="Rm">
+        <intro>
+          <para>Is the 64-bit name of the second general-purpose source register or stack pointer, encoded in the &quot;Rm&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.dpreg.dp_2src.PACGA_64P_dp_2src" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">if source_is_sp then
+    <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(d) = <a link="func_AddPACGA_2" file="shared_pseudocode.xml">AddPACGA</a>(<a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(n), <a link="accessor_SP_1" file="shared_pseudocode.xml">SP</a>{64}());
+else
+    <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(d) = <a link="func_AddPACGA_2" file="shared_pseudocode.xml">AddPACGA</a>(<a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(n), <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(m));
+end;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

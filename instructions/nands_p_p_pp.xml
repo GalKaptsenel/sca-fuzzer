@@ -1,0 +1,179 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="nands_p_p_pp" title="NANDS -- A64" type="instruction">
+  <docvars>
+    <docvar key="cond-setting" value="s"/>
+    <docvar key="instr-class" value="sve"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="NANDS"/>
+  </docvars>
+  <heading>NANDS</heading>
+  <desc>
+    <brief>
+      <para>Bitwise NAND predicates, setting the condition flags</para>
+    </brief>
+    <authored>
+      <para>This instruction performs a bitwise NAND on active elements of the second source predicate with
+the corresponding elements of the first source predicate
+and places the results in the corresponding elements of the destination predicate. Inactive elements in the destination predicate register are set to zero. This instruction sets the First (N), None (Z), and !Last (C)
+condition flags based on the predicate result,
+and sets the V flag to zero.</para>
+    </authored>
+    <affected_by_sme output="NZCV condition flags"/>
+    <predicated>True</predicated>
+  </desc>
+  <operationalnotes>
+    <operationalnote>
+      <operationalnote_content>
+        <para>If FEAT_SME is implemented and the PE is in Streaming SVE mode, then any subsequent instruction which is dependent on the NZCV condition flags written by this instruction might be significantly delayed.</para>
+      </operationalnote_content>
+    </operationalnote>
+  </operationalnotes>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="Setting the condition flags" oneof="1" id="iclass_setting_the_condition_flags" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="cond-setting" value="s"/>
+        <docvar key="instr-class" value="sve"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="NANDS"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SVE || FEAT_SME" name="(v8Ap2 &amp;&amp; PROFILE_A) || (v9Ap2 &amp;&amp; PROFILE_A)"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_pred_gen_a.sve_int_pred_log.nands_p_p_pp_z" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="23" name="op" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="22" name="S" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="21" width="2" settings="2">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="19" width="4" name="Pm" usename="1">
+          <c colspan="4"/>
+        </box>
+        <box hibit="15" width="2" settings="2">
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="13" width="4" name="Pg" usename="1">
+          <c colspan="4"/>
+        </box>
+        <box hibit="9" name="o2" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="8" width="4" name="Pn" usename="1">
+          <c colspan="4"/>
+        </box>
+        <box hibit="4" name="o3" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="3" width="4" name="Pd" usename="1">
+          <c colspan="4"/>
+        </box>
+      </regdiagram>
+      <encoding name="nands_p_p_pp_z" oneofinclass="1" oneof="1" label="">
+        <docvars>
+          <docvar key="instr-class" value="sve"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="cond-setting" value="s"/>
+          <docvar key="mnemonic" value="NANDS"/>
+        </docvars>
+        <asmtemplate><text>NANDS  </text><a hover="Is the name of the destination scalable predicate register, encoded in the &quot;Pd&quot; field." link="Pd">&lt;Pd&gt;</a><text>.B, </text><a hover="Is the name of the governing scalable predicate register, encoded in the &quot;Pg&quot; field." link="Pg__2">&lt;Pg&gt;</a><text>/Z, </text><a hover="Is the name of the first source scalable predicate register, encoded in the &quot;Pn&quot; field." link="Pn__2">&lt;Pn&gt;</a><text>.B, </text><a hover="Is the name of the second source scalable predicate register, encoded in the &quot;Pm&quot; field." link="Pm__2">&lt;Pm&gt;</a><text>.B</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_pred_gen_a.sve_int_pred_log.nands_p_p_pp_z" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SVE) &amp;&amp; !IsFeatureImplemented(FEAT_SME) then
+    EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+let esize : integer{} = 8;
+let g : integer = UInt(Pg);
+let n : integer = UInt(Pn);
+let m : integer = UInt(Pm);
+let d : integer = UInt(Pd);
+let setflags : boolean = TRUE;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="nands_p_p_pp_z" symboldefcount="1">
+      <symbol link="Pd">&lt;Pd&gt;</symbol>
+      <account encodedin="Pd">
+        <intro>
+          <para>Is the name of the destination scalable predicate register, encoded in the &quot;Pd&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="nands_p_p_pp_z" symboldefcount="1">
+      <symbol link="Pg__2">&lt;Pg&gt;</symbol>
+      <account encodedin="Pg">
+        <intro>
+          <para>Is the name of the governing scalable predicate register, encoded in the &quot;Pg&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="nands_p_p_pp_z" symboldefcount="1">
+      <symbol link="Pn__2">&lt;Pn&gt;</symbol>
+      <account encodedin="Pn">
+        <intro>
+          <para>Is the name of the first source scalable predicate register, encoded in the &quot;Pn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="nands_p_p_pp_z" symboldefcount="1">
+      <symbol link="Pm__2">&lt;Pm&gt;</symbol>
+      <account encodedin="Pm">
+        <intro>
+          <para>Is the name of the second source scalable predicate register, encoded in the &quot;Pm&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.sve.sve_pred_gen_a.sve_int_pred_log.nands_p_p_pp_z" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">CheckSVEEnabled();
+let VL : integer{} = CurrentVL();
+let PL : integer{} = VL DIV 8;
+let elements : integer = VL DIV esize;
+let mask : bits(PL) = P{}(g);
+let operand1 : bits(PL) = P{}(n);
+let operand2 : bits(PL) = P{}(m);
+var result : bits(PL);
+let psize : integer{} = esize DIV 8;
+
+for e = 0 to elements-1 do
+    let element1 : bit = <a link="func_PredicateElement_4" file="shared_pseudocode.xml">PredicateElement</a>{PL}(operand1, e, esize);
+    let element2 : bit = <a link="func_PredicateElement_4" file="shared_pseudocode.xml">PredicateElement</a>{PL}(operand2, e, esize);
+    if <a link="func_ActivePredicateElement_4" file="shared_pseudocode.xml">ActivePredicateElement</a>{PL}(mask, e, esize) then
+        result[e*:psize] = ZeroExtend{psize}(NOT(element1 AND element2));
+    else
+        result[e*:psize] = ZeroExtend{psize}('0');
+    end;
+end;
+
+if setflags then
+    PSTATE.[N,Z,C,V] = <a link="func_PredTest_4" file="shared_pseudocode.xml">PredTest</a>{PL}(mask, result, esize);
+end;
+<a link="accessor_P_2" file="shared_pseudocode.xml">P</a>{PL}(d) = result;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

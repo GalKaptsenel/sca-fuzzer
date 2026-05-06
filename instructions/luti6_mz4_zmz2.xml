@@ -1,0 +1,324 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="luti6_mz4_zmz2" title="LUTI6 (vector, 16-bit) -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="mortlach2"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="LUTI6"/>
+  </docvars>
+  <heading>LUTI6 (vector, 16-bit)</heading>
+  <desc>
+    <brief>
+      <para>Lookup table read with 6-bit indices (16-bit)</para>
+    </brief>
+    <authored>
+      <para>This instruction copies indexed 16-bit elements from the low 512 bits of
+the two table vectors to four destination vectors using packed 6-bit indices
+in the low or high one and a half vector segment of the two source vectors.
+The source vectors segment consumed in order to fill the destination vectors is
+selected by the source vector segment index.
+This instruction is unpredicated.
+This instruction requires that the Effective SVE vector length is at least
+512 bits.</para>
+    </authored>
+    <predicated>False</predicated>
+    <uses_dit condition="FEAT_SVE2 is implemented or FEAT_SME is implemented">True</uses_dit>
+    <sm_policy>SM_1_only</sm_policy>
+  </desc>
+  <operationalnotes>
+    <operationalnote>
+      <operationalnote_content>
+        <para>This instruction is a data-independent-time instruction as described in <xref linkend="ARMARM_BEICCDDAB3">About PSTATE.DIT</xref>.</para>
+      </operationalnote_content>
+    </operationalnote>
+  </operationalnotes>
+  <alias_list howmany="0"/>
+  <classes>
+    <classesintro count="2">
+      <txt>It has encodings from 2 classes:</txt>
+      <a href="#iclass_consecutive">Consecutive</a>
+      <txt> and </txt>
+      <a href="#iclass_strided">Strided</a>
+    </classesintro>
+    <iclass name="Consecutive" oneof="2" id="iclass_consecutive" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="mortlach2"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="LUTI6"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SME2p3" name="v9Ap7"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sme.mortlach_multi_sve_6.mortlach_multi4_lut6_16_ctg.luti6_mz4_zmz2_1">
+        <box hibit="31" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="30" width="2" settings="2">
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="2" settings="2">
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="22" width="1" name="i1" usename="1">
+          <c colspan="1"/>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="20" width="5" name="Zm" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="15" width="4" settings="4">
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="11" width="2" settings="2">
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="9" width="5" name="Zn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="3" name="Zd" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="1" width="2" settings="2">
+          <c>0</c>
+          <c>0</c>
+        </box>
+      </regdiagram>
+      <encoding name="luti6_mz4_zmz2_1" oneofinclass="1" oneof="2" label="">
+        <docvars>
+          <docvar key="instr-class" value="mortlach2"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="LUTI6"/>
+        </docvars>
+        <asmtemplate><text>LUTI6  { </text><a hover="For the &quot;Consecutive&quot; variant: is the name of the first scalable vector register of the destination multi-vector group, encoded as &quot;Zd&quot; times 4." link="Zd1__2">&lt;Zd1&gt;</a><text>.H-</text><a hover="For the &quot;Consecutive&quot; variant: is the name of the fourth scalable vector register of the destination multi-vector group, encoded as &quot;Zd&quot; times 4 plus 3." link="Zd4">&lt;Zd4&gt;</a><text>.H }, { </text><a hover="Is the name of the first table vector register, encoded as &quot;Zn&quot;." link="Zn1__7">&lt;Zn1&gt;</a><text>.H, </text><a hover="Is the name of the second table vector register, encoded as &quot;Zn&quot; plus 1 modulo 32." link="Zn2__5">&lt;Zn2&gt;</a><text>.H }, { </text><a hover="Is the name of the first scalable vector register of the source multi-vector group, encoded as &quot;Zm&quot;." link="Zm1__5">&lt;Zm1&gt;</a><text>-</text><a hover="Is the name of the second scalable vector register of the source multi-vector group, encoded as &quot;Zm&quot; plus 1 modulo 32." link="Zm2__3">&lt;Zm2&gt;</a><text> }[</text><a hover="For the &quot;Byte, single register table&quot; variant: is the vector segment index, in the range 0 to 1, encoded in the &quot;i1&quot; field." link="index__30">&lt;index&gt;</a><text>]</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sme.mortlach_multi_sve_6.mortlach_multi4_lut6_16_ctg.luti6_mz4_zmz2_1" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SME2p3) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+if <a link="func_MaxImplementedAnyVL_0" file="shared_pseudocode.xml">MaxImplementedAnyVL</a>() &lt; 512 then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+let esize : integer{} = 16;
+let isize : integer{} = 6;
+let n : integer = UInt(Zn);
+let m : integer = UInt(Zm);
+let dstride : integer = 1;
+let d : integer = UInt(Zd::'00');
+let select : integer = UInt(i1);</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+    <iclass name="Strided" oneof="2" id="iclass_strided" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="mortlach2"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="LUTI6"/>
+        <docvar key="stride-type" value="strided"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SME2p3" name="v9Ap7"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sme.mortlach_multi_sve_6.mortlach_multi4_lut6_16_nctg.luti6_mz4_zmz2_4">
+        <box hibit="31" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="30" width="2" settings="2">
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="2" settings="2">
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="22" width="1" name="i1" usename="1">
+          <c colspan="1"/>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="20" width="5" name="Zm" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="15" width="4" settings="4">
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="11" width="2" settings="2">
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="9" width="5" name="Zn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="1" name="D" usename="1">
+          <c colspan="1"/>
+        </box>
+        <box hibit="3" width="2" settings="2">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="1" width="2" name="Zd" usename="1">
+          <c colspan="2"/>
+        </box>
+      </regdiagram>
+      <encoding name="luti6_mz4_zmz2_4" oneofinclass="1" oneof="2" label="">
+        <docvars>
+          <docvar key="instr-class" value="mortlach2"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="stride-type" value="strided"/>
+          <docvar key="mnemonic" value="LUTI6"/>
+        </docvars>
+        <asmtemplate><text>LUTI6  { </text><a hover="For the &quot;Strided&quot; variant: is the name of the first scalable vector register Z0-Z3 or Z16-Z19 of the destination multi-vector group, encoded as &quot;D:'00':Zd&quot;." link="Zd1__4">&lt;Zd1&gt;</a><text>.H, </text><a hover="Is the name of the second scalable vector register Z4-Z7 or Z20-Z23 of the destination multi-vector group, encoded as &quot;D:'01':Zd&quot;." link="Zd2__3">&lt;Zd2&gt;</a><text>.H, </text><a hover="Is the name of the third scalable vector register Z8-Z11 or Z24-Z27 of the destination multi-vector group, encoded as &quot;D:'10':Zd&quot;." link="Zd3">&lt;Zd3&gt;</a><text>.H, </text><a hover="For the &quot;Strided&quot; variant: is the name of the fourth scalable vector register Z12-Z15 or Z28-Z31 of the destination multi-vector group, encoded as &quot;D:'11':Zd&quot;." link="Zd4__2">&lt;Zd4&gt;</a><text>.H }, { </text><a hover="Is the name of the first table vector register, encoded as &quot;Zn&quot;." link="Zn1__7">&lt;Zn1&gt;</a><text>.H, </text><a hover="Is the name of the second table vector register, encoded as &quot;Zn&quot; plus 1 modulo 32." link="Zn2__5">&lt;Zn2&gt;</a><text>.H }, { </text><a hover="Is the name of the first scalable vector register of the source multi-vector group, encoded as &quot;Zm&quot;." link="Zm1__5">&lt;Zm1&gt;</a><text>-</text><a hover="Is the name of the second scalable vector register of the source multi-vector group, encoded as &quot;Zm&quot; plus 1 modulo 32." link="Zm2__3">&lt;Zm2&gt;</a><text> }[</text><a hover="For the &quot;Byte, single register table&quot; variant: is the vector segment index, in the range 0 to 1, encoded in the &quot;i1&quot; field." link="index__30">&lt;index&gt;</a><text>]</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sme.mortlach_multi_sve_6.mortlach_multi4_lut6_16_nctg.luti6_mz4_zmz2_4" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SME2p3) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+if <a link="func_MaxImplementedAnyVL_0" file="shared_pseudocode.xml">MaxImplementedAnyVL</a>() &lt; 512 then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+let esize : integer{} = 16;
+let isize : integer{} = 6;
+let n : integer = UInt(Zn);
+let m : integer = UInt(Zm);
+let dstride : integer = 4;
+let d : integer = UInt(D::'00'::Zd);
+let select : integer = UInt(i1);</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="luti6_mz4_zmz2_1" symboldefcount="1">
+      <symbol link="Zd1__2">&lt;Zd1&gt;</symbol>
+      <account encodedin="Zd">
+        <intro>
+          <para>For the &quot;Consecutive&quot; variant: is the name of the first scalable vector register of the destination multi-vector group, encoded as &quot;Zd&quot; times 4.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="luti6_mz4_zmz2_4" symboldefcount="2">
+      <symbol link="Zd1__4">&lt;Zd1&gt;</symbol>
+      <account encodedin="(D :: Zd)">
+        <intro>
+          <para>For the &quot;Strided&quot; variant: is the name of the first scalable vector register Z0-Z3 or Z16-Z19 of the destination multi-vector group, encoded as &quot;D:'00':Zd&quot;.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="luti6_mz4_zmz2_1" symboldefcount="1">
+      <symbol link="Zd4">&lt;Zd4&gt;</symbol>
+      <account encodedin="Zd">
+        <intro>
+          <para>For the &quot;Consecutive&quot; variant: is the name of the fourth scalable vector register of the destination multi-vector group, encoded as &quot;Zd&quot; times 4 plus 3.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="luti6_mz4_zmz2_4" symboldefcount="2">
+      <symbol link="Zd4__2">&lt;Zd4&gt;</symbol>
+      <account encodedin="(D :: Zd)">
+        <intro>
+          <para>For the &quot;Strided&quot; variant: is the name of the fourth scalable vector register Z12-Z15 or Z28-Z31 of the destination multi-vector group, encoded as &quot;D:'11':Zd&quot;.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="luti6_mz4_zmz2_1, luti6_mz4_zmz2_4" symboldefcount="1">
+      <symbol link="Zn1__7">&lt;Zn1&gt;</symbol>
+      <account encodedin="Zn">
+        <intro>
+          <para>Is the name of the first table vector register, encoded as &quot;Zn&quot;.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="luti6_mz4_zmz2_1, luti6_mz4_zmz2_4" symboldefcount="1">
+      <symbol link="Zn2__5">&lt;Zn2&gt;</symbol>
+      <account encodedin="Zn">
+        <intro>
+          <para>Is the name of the second table vector register, encoded as &quot;Zn&quot; plus 1 modulo 32.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="luti6_mz4_zmz2_1, luti6_mz4_zmz2_4" symboldefcount="1">
+      <symbol link="Zm1__5">&lt;Zm1&gt;</symbol>
+      <account encodedin="Zm">
+        <intro>
+          <para>Is the name of the first scalable vector register of the source multi-vector group, encoded as &quot;Zm&quot;.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="luti6_mz4_zmz2_1, luti6_mz4_zmz2_4" symboldefcount="1">
+      <symbol link="Zm2__3">&lt;Zm2&gt;</symbol>
+      <account encodedin="Zm">
+        <intro>
+          <para>Is the name of the second scalable vector register of the source multi-vector group, encoded as &quot;Zm&quot; plus 1 modulo 32.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="luti6_mz4_zmz2_1, luti6_mz4_zmz2_4" symboldefcount="1">
+      <symbol link="index__30">&lt;index&gt;</symbol>
+      <account encodedin="i1">
+        <intro>
+          <para>Is the vector segment index, in the range 0 to 1, encoded in the &quot;i1&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="luti6_mz4_zmz2_4" symboldefcount="1">
+      <symbol link="Zd2__3">&lt;Zd2&gt;</symbol>
+      <account encodedin="(D :: Zd)">
+        <intro>
+          <para>Is the name of the second scalable vector register Z4-Z7 or Z20-Z23 of the destination multi-vector group, encoded as &quot;D:'01':Zd&quot;.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="luti6_mz4_zmz2_4" symboldefcount="1">
+      <symbol link="Zd3">&lt;Zd3&gt;</symbol>
+      <account encodedin="(D :: Zd)">
+        <intro>
+          <para>Is the name of the third scalable vector register Z8-Z11 or Z24-Z27 of the destination multi-vector group, encoded as &quot;D:'10':Zd&quot;.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.sme.mortlach_multi_sve_6.mortlach_multi4_lut6_16_ctg.luti6_mz4_zmz2_1" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">CheckStreamingSVEEnabled();
+let VL : integer{} = CurrentVL();
+if VL &lt; 512 then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+let elements : integer = VL DIV esize;
+let operand : bits(2*VL) = <a link="accessor_Z_2" file="shared_pseudocode.xml">Z</a>{VL}((m+1) MOD 32) :: <a link="accessor_Z_2" file="shared_pseudocode.xml">Z</a>{VL}(m+0);
+let idxsize : integer{} = VL + (VL DIV 2);
+let idxpos : integer{}  = if select == 1 then (VL DIV 2) else 0;
+let indexes : bits(idxsize) = operand[idxpos+:idxsize];
+let table : bits(1024) = <a link="accessor_Z_2" file="shared_pseudocode.xml">Z</a>{VL}((n+1) MOD 32)[511:0] :: <a link="accessor_Z_2" file="shared_pseudocode.xml">Z</a>{VL}(n+0)[511:0];
+var dst : integer = d;
+var result : bits(VL);
+
+for r = 0 to 3 do
+    let base : integer = r * elements;
+    for e = 0 to elements-1 do
+        let index : integer = UInt(indexes[(base+e)*:isize]);
+        result[e*:esize] = table[index*:esize];
+    end;
+    <a link="accessor_Z_2" file="shared_pseudocode.xml">Z</a>{VL}(dst) = result;
+    dst = dst + dstride;
+end;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

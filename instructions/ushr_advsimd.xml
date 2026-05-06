@@ -1,0 +1,378 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="USHR_advsimd" title="USHR -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="advsimd"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="USHR"/>
+  </docvars>
+  <heading>USHR</heading>
+  <desc>
+    <brief>
+      <para>Unsigned shift right (immediate)</para>
+    </brief>
+    <authored>
+      <para>This instruction reads
+each vector element in the source SIMD&amp;FP register,
+right shifts each result by an immediate value,
+writes the final result to a vector,
+and writes the
+vector to the destination SIMD&amp;FP register.
+All the values in this instruction are unsigned integer values.
+The results are truncated. For rounded results, see
+<xref linkend="ARMARM_A64.instructions.URSHR_advsimd">URSHR</xref>.</para>
+      <para>Depending on the settings in the <register_link id="AArch64-cpacr_el1.xml" state="AArch64">CPACR_EL1</register_link>,
+  <register_link id="AArch64-cptr_el2.xml" state="AArch64">CPTR_EL2</register_link>, and <register_link id="AArch64-cptr_el3.xml" state="AArch64">CPTR_EL3</register_link> registers,
+  and the current Security state and Exception level,
+  an attempt to execute the instruction might be trapped.</para>
+    </authored>
+  </desc>
+  <operationalnotes>
+    <operationalnote>
+      <operationalnote_content>
+        <para>This instruction is a data-independent-time instruction as described in <xref linkend="ARMARM_BEICCDDAB3">About PSTATE.DIT</xref>.</para>
+      </operationalnote_content>
+    </operationalnote>
+  </operationalnotes>
+  <alias_list howmany="0"/>
+  <classes>
+    <classesintro count="2">
+      <txt>It has encodings from 2 classes:</txt>
+      <a href="#iclass_scalar">Scalar</a>
+      <txt> and </txt>
+      <a href="#iclass_vector">Vector</a>
+    </classesintro>
+    <iclass name="Scalar" oneof="2" id="iclass_scalar" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="advsimd-type" value="sisd"/>
+        <docvar key="instr-class" value="advsimd"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="USHR"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_AdvSIMD" name="v8Ap0"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.simd_dp.asisdshf.USHR_asisdshf_R" tworows="1">
+        <box hibit="31" width="2" settings="2">
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="29" name="U" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="28" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="27" width="3" settings="3">
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="24" width="2" settings="2">
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="22" width="4" name="immh" usename="1" settings="1" psbits="xxxx">
+          <c>1</c>
+          <c>x</c>
+          <c>x</c>
+          <c>x</c>
+        </box>
+        <box hibit="18" width="3" name="immb" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="15" width="2" settings="2">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="13" name="o1" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="12" name="o0" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="11" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="10" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="9" width="5" name="Rn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Rd" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="USHR_asisdshf_R" oneofinclass="1" oneof="2" label="">
+        <docvars>
+          <docvar key="advsimd-type" value="sisd"/>
+          <docvar key="instr-class" value="advsimd"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="USHR"/>
+        </docvars>
+        <asmtemplate><text>USHR  D</text><a hover="Is the number of the SIMD&amp;FP destination register, encoded in the &quot;Rd&quot; field." link="d">&lt;d&gt;</a><text>, D</text><a hover="Is the number of the SIMD&amp;FP source register, encoded in the &quot;Rn&quot; field." link="n__3">&lt;n&gt;</a><text>, #</text><a hover="For the &quot;Scalar&quot; variant: is the right shift amount, in the range 1 to 64, encoded as 128 - UInt(&quot;immh:immb&quot;)." link="r_128UIntimmhimmb">&lt;shift&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.simd_dp.asisdshf.USHR_asisdshf_R" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_AdvSIMD) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+if immh[3] != '1' then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+
+let d : integer{} = UInt(Rd);
+let n : integer{} = UInt(Rn);
+let esize : integer{} = 8 &lt;&lt; 3;
+let datasize : integer{} = esize;
+let elements : integer = 1;
+
+let shift : integer = (esize * 2) - UInt(immh::immb);
+let unsigned : boolean = TRUE;
+let round : boolean = FALSE;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+    <iclass name="Vector" oneof="2" id="iclass_vector" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="advsimd-type" value="simd"/>
+        <docvar key="instr-class" value="advsimd"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="USHR"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_AdvSIMD" name="v8Ap0"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.simd_dp.asimdshf.USHR_asimdshf_R" tworows="1">
+        <box hibit="31" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="30" width="1" name="Q" usename="1">
+          <c colspan="1"/>
+        </box>
+        <box hibit="29" name="U" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="28" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="27" width="3" settings="3">
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="24" width="2" settings="2">
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="22" width="4" name="immh" usename="1" settings="4" constraint="!= 0000">
+          <c colspan="4">!= 0000</c>
+        </box>
+        <box hibit="18" width="3" name="immb" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="15" width="2" settings="2">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="13" name="o1" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="12" name="o0" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="11" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="10" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="9" width="5" name="Rn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Rd" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="USHR_asimdshf_R" oneofinclass="1" oneof="2" label="">
+        <docvars>
+          <docvar key="advsimd-type" value="simd"/>
+          <docvar key="instr-class" value="advsimd"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="USHR"/>
+        </docvars>
+        <asmtemplate><text>USHR  </text><a hover="Is the name of the SIMD&amp;FP destination register, encoded in the &quot;Rd&quot; field." link="Vd">&lt;Vd&gt;</a><text>.</text><a hover="Is an arrangement specifier, " link="T_option__15">&lt;T&gt;</a><text>, </text><a hover="Is the name of the SIMD&amp;FP source register, encoded in the &quot;Rn&quot; field." link="Vn">&lt;Vn&gt;</a><text>.</text><a hover="Is an arrangement specifier, " link="T_option__15">&lt;T&gt;</a><text>, #</text><a hover="For the &quot;Vector&quot; variant: is the right shift amount, in the range 1 to the element width in bits, " link="immh_shift__4">&lt;shift&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.simd_dp.asimdshf.USHR_asimdshf_R" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_AdvSIMD) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+if immh[3]::Q == '10' then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+
+let d : integer{} = UInt(Rd);
+let n : integer{} = UInt(Rn);
+let esize : integer{} = 8 &lt;&lt; HighestSetBitNZ(immh);
+let datasize : integer{} = 64 &lt;&lt; UInt(Q);
+let elements : integer = datasize DIV esize;
+
+let shift : integer = (esize * 2) - UInt(immh::immb);
+let unsigned : boolean = TRUE;
+let round : boolean = FALSE;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="USHR_asisdshf_R" symboldefcount="1">
+      <symbol link="d">&lt;d&gt;</symbol>
+      <account encodedin="Rd">
+        <intro>
+          <para>Is the number of the SIMD&amp;FP destination register, encoded in the &quot;Rd&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="USHR_asisdshf_R" symboldefcount="1">
+      <symbol link="n__3">&lt;n&gt;</symbol>
+      <account encodedin="Rn">
+        <intro>
+          <para>Is the number of the SIMD&amp;FP source register, encoded in the &quot;Rn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="USHR_asisdshf_R" symboldefcount="1">
+      <symbol link="r_128UIntimmhimmb">&lt;shift&gt;</symbol>
+      <account encodedin="(immh :: immb)">
+        <intro>
+          <para>For the &quot;Scalar&quot; variant: is the right shift amount, in the range 1 to 64, encoded as <syntax>128 - UInt(&quot;immh:immb&quot;)</syntax>.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="USHR_asimdshf_R" symboldefcount="2">
+      <symbol link="immh_shift__4">&lt;shift&gt;</symbol>
+      <definition encodedin="(immh :: immb)">
+        <intro>For the &quot;Vector&quot; variant: is the right shift amount, in the range 1 to the element width in bits, </intro>
+        <table class="valuetable">
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry class="bitfield">immh</entry>
+                <entry class="symbol">&lt;shift&gt;</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry class="bitfield">0001</entry>
+                <entry class="symbol">16 - UInt(immh :: immb)</entry>
+              </row>
+              <row>
+                <entry class="bitfield">001x</entry>
+                <entry class="symbol">32 - UInt(immh :: immb)</entry>
+              </row>
+              <row>
+                <entry class="bitfield">01xx</entry>
+                <entry class="symbol">64 - UInt(immh :: immb)</entry>
+              </row>
+              <row>
+                <entry class="bitfield">1xxx</entry>
+                <entry class="symbol">128 - UInt(immh :: immb)</entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </table>
+      </definition>
+    </explanation>
+    <explanation enclist="USHR_asimdshf_R" symboldefcount="1">
+      <symbol link="Vd">&lt;Vd&gt;</symbol>
+      <account encodedin="Rd">
+        <intro>
+          <para>Is the name of the SIMD&amp;FP destination register, encoded in the &quot;Rd&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="USHR_asimdshf_R" symboldefcount="1">
+      <symbol link="T_option__15">&lt;T&gt;</symbol>
+      <definition encodedin="(immh :: Q)">
+        <intro>Is an arrangement specifier, </intro>
+        <table class="valuetable">
+          <tgroup cols="3">
+            <thead>
+              <row>
+                <entry class="bitfield">immh</entry>
+                <entry class="bitfield">Q</entry>
+                <entry class="symbol">&lt;T&gt;</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry class="bitfield">0001</entry>
+                <entry class="bitfield">0</entry>
+                <entry class="symbol">8B</entry>
+              </row>
+              <row>
+                <entry class="bitfield">0001</entry>
+                <entry class="bitfield">1</entry>
+                <entry class="symbol">16B</entry>
+              </row>
+              <row>
+                <entry class="bitfield">001x</entry>
+                <entry class="bitfield">0</entry>
+                <entry class="symbol">4H</entry>
+              </row>
+              <row>
+                <entry class="bitfield">001x</entry>
+                <entry class="bitfield">1</entry>
+                <entry class="symbol">8H</entry>
+              </row>
+              <row>
+                <entry class="bitfield">01xx</entry>
+                <entry class="bitfield">0</entry>
+                <entry class="symbol">2S</entry>
+              </row>
+              <row>
+                <entry class="bitfield">01xx</entry>
+                <entry class="bitfield">1</entry>
+                <entry class="symbol">4S</entry>
+              </row>
+              <row>
+                <entry class="bitfield">1xxx</entry>
+                <entry class="bitfield">0</entry>
+                <entry class="symbol">RESERVED</entry>
+              </row>
+              <row>
+                <entry class="bitfield">1xxx</entry>
+                <entry class="bitfield">1</entry>
+                <entry class="symbol">2D</entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </table>
+      </definition>
+    </explanation>
+    <explanation enclist="USHR_asimdshf_R" symboldefcount="1">
+      <symbol link="Vn">&lt;Vn&gt;</symbol>
+      <account encodedin="Rn">
+        <intro>
+          <para>Is the name of the SIMD&amp;FP source register, encoded in the &quot;Rn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.simd_dp.asisdshf.USHR_asisdshf_R" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">AArch64_CheckFPAdvSIMDEnabled();
+let operand : bits(datasize)  = V{}(n);
+var result : bits(datasize);
+var element : integer;
+
+for e = 0 to elements-1 do
+    let opelt : bits(esize) = operand[e*:esize];
+    if unsigned then
+        element = <a link="func_RShr_3" file="shared_pseudocode.xml">RShr</a>(UInt(opelt), shift, round);
+    else
+        element = <a link="func_RShr_3" file="shared_pseudocode.xml">RShr</a>(SInt(opelt), shift, round);
+    end;
+    result[e*:esize] = element[esize-1:0];
+end;
+
+V{datasize}(d) = result;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

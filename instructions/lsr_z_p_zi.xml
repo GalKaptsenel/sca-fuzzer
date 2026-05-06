@@ -1,0 +1,229 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="lsr_z_p_zi" title="LSR (immediate, predicated) -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="sve"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="LSR"/>
+  </docvars>
+  <heading>LSR (immediate, predicated)</heading>
+  <desc>
+    <brief>
+      <para>Logical shift right by immediate (predicated)</para>
+    </brief>
+    <authored>
+      <para>This instruction shifts right by immediate, inserting zeroes, each active element of the source vector,
+and destructively places the results in the corresponding elements of the  source vector.
+The immediate shift amount is an unsigned value in the range 1
+to number of bits per element. Inactive elements in the destination vector register remain unmodified.</para>
+    </authored>
+    <predicated>True</predicated>
+    <uses_dit condition="FEAT_SVE2 is implemented or FEAT_SME is implemented">True</uses_dit>
+    <takes_movprfx>True</takes_movprfx>
+    <takes_pred_movprfx>True</takes_pred_movprfx>
+  </desc>
+  <operationalnotes>
+    <operationalnote>
+      <operationalnote_content>
+        <para>This instruction is a data-independent-time instruction as described in <xref linkend="ARMARM_BEICCDDAB3">About PSTATE.DIT</xref>.</para>
+        <para>This instruction might be immediately preceded in program order by a <instruction>MOVPRFX</instruction> instruction. The <instruction>MOVPRFX</instruction> must conform to all of the following requirements, otherwise the behavior of the <instruction>MOVPRFX</instruction> and this instruction is <arm-defined-word>CONSTRAINED UNPREDICTABLE</arm-defined-word>:</para>
+        <list type="unordered">
+          <listitem>
+            <content>The <instruction>MOVPRFX</instruction> can be predicated or unpredicated.</content>
+          </listitem>
+          <listitem>
+            <content>A predicated <instruction>MOVPRFX</instruction> must use the same governing predicate register as this instruction.</content>
+          </listitem>
+          <listitem>
+            <content>A predicated <instruction>MOVPRFX</instruction> must use the larger of the destination element size and first source element size in the preferred disassembly of this instruction.</content>
+          </listitem>
+          <listitem>
+            <content>The <instruction>MOVPRFX</instruction> must specify the same destination register as this instruction.</content>
+          </listitem>
+          <listitem>
+            <content>The destination register must not refer to architectural register state referenced by any other source operand register of this instruction.</content>
+          </listitem>
+        </list>
+      </operationalnote_content>
+    </operationalnote>
+  </operationalnotes>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="SVE" oneof="1" id="iclass_sve" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="sve"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="LSR"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SVE || FEAT_SME" name="(v8Ap2 &amp;&amp; PROFILE_A) || (v9Ap2 &amp;&amp; PROFILE_A)"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_int_pred_shift.sve_int_bin_pred_shift_0.lsr_z_p_zi_" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="23" width="2" name="tszh" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="20" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="19" width="2" name="opc" usename="1" settings="2" psbits="xx">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="17" name="L" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="16" name="U" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="15" width="3" settings="3">
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="12" width="3" name="Pg" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="9" width="2" name="tszl" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="7" width="3" name="imm3" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="4" width="5" name="Zdn" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="lsr_z_p_zi_" oneofinclass="1" oneof="1" label="">
+        <docvars>
+          <docvar key="instr-class" value="sve"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="LSR"/>
+        </docvars>
+        <asmtemplate><text>LSR  </text><a hover="Is the name of the source and destination scalable vector register, encoded in the &quot;Zdn&quot; field." link="Zdn__2">&lt;Zdn&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__14">&lt;T&gt;</a><text>, </text><a hover="Is the name of the governing scalable predicate register P0-P7, encoded in the &quot;Pg&quot; field." link="Pg">&lt;Pg&gt;</a><text>/M, </text><a hover="Is the name of the source and destination scalable vector register, encoded in the &quot;Zdn&quot; field." link="Zdn__2">&lt;Zdn&gt;</a><text>.</text><a hover="Is the size specifier, " link="T__14">&lt;T&gt;</a><text>, #</text><a hover="Is the immediate shift amount, in the range 1 to number of bits per element, encoded in &quot;tszh:tszl:imm3&quot;." link="const__2">&lt;const&gt;</a></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_int_pred_shift.sve_int_bin_pred_shift_0.lsr_z_p_zi_" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SVE) &amp;&amp; !IsFeatureImplemented(FEAT_SME) then
+    EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+let tsize : bits(4) = tszh::tszl;
+if tsize == '0000' then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+let esize : integer{} = 8 &lt;&lt; HighestSetBitNZ(tsize);
+let g : integer = UInt(Pg);
+let dn : integer = UInt(Zdn);
+let shift : integer = (2 * esize) - UInt(tsize::imm3);</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="lsr_z_p_zi_" symboldefcount="1">
+      <symbol link="Zdn__2">&lt;Zdn&gt;</symbol>
+      <account encodedin="Zdn">
+        <intro>
+          <para>Is the name of the source and destination scalable vector register, encoded in the &quot;Zdn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="lsr_z_p_zi_" symboldefcount="1">
+      <symbol link="T__14">&lt;T&gt;</symbol>
+      <definition encodedin="(tszh :: tszl)">
+        <intro>Is the size specifier, </intro>
+        <table class="valuetable">
+          <tgroup cols="3">
+            <thead>
+              <row>
+                <entry class="bitfield">tszh</entry>
+                <entry class="bitfield">tszl</entry>
+                <entry class="symbol">&lt;T&gt;</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry class="bitfield">00</entry>
+                <entry class="bitfield">00</entry>
+                <entry class="symbol">RESERVED</entry>
+              </row>
+              <row>
+                <entry class="bitfield">00</entry>
+                <entry class="bitfield">01</entry>
+                <entry class="symbol">B</entry>
+              </row>
+              <row>
+                <entry class="bitfield">00</entry>
+                <entry class="bitfield">1x</entry>
+                <entry class="symbol">H</entry>
+              </row>
+              <row>
+                <entry class="bitfield">01</entry>
+                <entry class="bitfield">xx</entry>
+                <entry class="symbol">S</entry>
+              </row>
+              <row>
+                <entry class="bitfield">1x</entry>
+                <entry class="bitfield">xx</entry>
+                <entry class="symbol">D</entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </table>
+      </definition>
+    </explanation>
+    <explanation enclist="lsr_z_p_zi_" symboldefcount="1">
+      <symbol link="Pg">&lt;Pg&gt;</symbol>
+      <account encodedin="Pg">
+        <intro>
+          <para>Is the name of the governing scalable predicate register P0-P7, encoded in the &quot;Pg&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="lsr_z_p_zi_" symboldefcount="1">
+      <symbol link="const__2">&lt;const&gt;</symbol>
+      <account encodedin="(tszh :: tszl :: imm3)">
+        <intro>
+          <para>Is the immediate shift amount, in the range 1 to number of bits per element, encoded in &quot;tszh:tszl:imm3&quot;.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.sve.sve_int_pred_shift.sve_int_bin_pred_shift_0.lsr_z_p_zi_" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">CheckSVEEnabled();
+let VL : integer{} = CurrentVL();
+let elements : integer = VL DIV esize;
+let PL : integer{} = VL DIV 8;
+let operand1 : bits(VL) = Z{}(dn);
+let mask : bits(PL) = P{}(g);
+var result : bits(VL);
+
+for e = 0 to elements-1 do
+    let element1 : bits(esize) = operand1[e*:esize];
+    if <a link="func_ActivePredicateElement_4" file="shared_pseudocode.xml">ActivePredicateElement</a>{PL}(mask, e, esize) then
+        result[e*:esize] = LSR(element1, shift);
+    else
+        result[e*:esize] = operand1[e*:esize];
+    end;
+
+end;
+<a link="accessor_Z_2" file="shared_pseudocode.xml">Z</a>{VL}(dn) = result;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

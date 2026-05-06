@@ -280,12 +280,19 @@ static void measure(measurement_t* measurement) {
 }
 
 static void flush_bpu_phr(void) {
+	/* Official ARM Spectre-BHB mitigation sequence (see ARM-EPM-048486 v4).
+	 * Each iteration executes two branch instructions (B and BNE), both updating
+	 * the BHB.  K = ceil(PHR_len / 2) = ceil(75 / 2) = 38 for Neoverse N3.
+	 * 38 × 2 = 76 branch updates > 75-bit PHR depth → old history fully flushed. */
 	asm volatile (
-		"mov x0, #300\n"
+		"mov x0, #38\n"
 		"1:\n"
-		"nop\n"
+		"b 2f\n"        /* B PC+4: taken branch to next instruction, updates BHB */
+		"2:\n"
 		"subs x0, x0, #1\n"
 		"b.ne 1b\n"
+		"dsb nsh\n"
+		"isb\n"
 		:
 		:
 		: "x0", "cc"
@@ -295,6 +302,35 @@ static void flush_bpu_phr(void) {
 static void* invalidate_bpu_entries(void) {
 	static size_t current_view = 0;
 	return executor.measurement_code_views[current_view++ % MAX_MEASUREMENT_VIEWS];
+}
+
+/* Training block: 4 instructions that execute CBNZ x0 exactly 16 times at the same PC.
+ * x0 = &sandbox (non-zero on entry, never modified), x1 = scratch loop counter.
+ *
+ *   movz x1, #16         ; load counter
+ * loop:
+ *   cbnz x0, +4          ; always taken → trains TAGE base predictor entry to TAKEN (16×)
+ *   subs x1, x1, #1      ; decrement
+ *   cbnz x1, -8          ; loop back to cbnz x0 while x1 != 0
+ */
+#define INSN_BTI_C      0xD503245FU  /* bti c */
+#define INSN_MOVZ_X1_16 0xD2800201U  /* movz x1, #16 */
+#define INSN_CBNZ_X0    0xB5000020U  /* cbnz x0, +4  (Rt=x0, imm19=1) */
+#define INSN_SUBS_X1    0xF1000421U  /* subs x1, x1, #1 */
+#define INSN_CBNZ_X1    0xB5FFFFC1U  /* cbnz x1, -8  (Rt=x1, imm19=-2) — loops to cbnz x0 */
+#define INSN_NOP        0xD503201FU  /* nop */
+#define INSN_RET        0xD65F03C0U  /* ret */
+
+/* Write a 3-word stub [ BTI c | CBNZ x0, +4 | RET ] at view[loc], flush icache,
+ * and return the entry pointer.  BTI c is required because we call via BLR.
+ * The CBNZ at view[loc+1] trains the base-predictor entry for that PC. */
+static void* load_training_entry_at(uint32_t *view, size_t loc) {
+	view[loc]   = INSN_BTI_C;
+	view[loc+1] = INSN_CBNZ_X0;
+	view[loc+2] = INSN_RET;
+	flush_icache_range((unsigned long)&view[loc],
+			   (unsigned long)&view[loc + 3]);
+	return &view[loc];
 }
 
 static void __nocfi run_experiments(void) {
@@ -321,27 +357,39 @@ static void __nocfi run_experiments(void) {
 	cpumask_set_cpu(smp_processor_id(), &mask);
 	set_cpus_allowed_ptr(current, &mask);
 
-	for (int64_t i = -executor.config.uarch_reset_rounds; i < rounds; ++i) {
+	/* pre_run_flush == 2: saturate every base-predictor entry to TAKEN once
+	 * per batch, before the input loop.  Slow but thorough.
+	 * pre_run_flush == 1: rely on per-input view rotation + PHR flush only. */
+	if (2 == executor.config.pre_run_flush) {
+		size_t n_entries = MAX_MEASUREMENT_CODE_SIZE / sizeof(uint32_t) - 2;
+		flush_bpu_phr();
+		for (size_t k = 0; k < n_entries; ++k) {
+			void *tview = invalidate_bpu_entries();
+			void *addr  = load_training_entry_at((uint32_t *)tview, k);
+			for (int t = 0; t < 16; ++t)
+				((void (*)(void *))addr)(&executor.sandbox);
+		}
+		load_template(executor.test_case_length);
+	}
 
+	for (int64_t i = -executor.config.uarch_reset_rounds; i < rounds; ++i) {
 		struct input_node* current_input = NULL;
 
-		// ignore "warm-up" runs (i<0)uarch_reset_rounds
-		if(0 < i) {
+		// ignore "warm-up" runs (i<0)
+		if (0 < i) {
 			current_input_node = rb_next(current_input_node);
 			BUG_ON(NULL == current_input_node);
 		}
 
 		current_input = rb_entry(current_input_node, struct input_node, node);
-
 		initialize_overflow_pages();
 		load_input_to_sandbox(&current_input->input);
 
-		raw_local_irq_save(flags); // disable local interrupts and save current state
+		raw_local_irq_save(flags);
 
 		void* measurement_code = executor.measurement_code_views[0];
 
-		// flush some of the uarch state
-		if (1 == executor.config.pre_run_flush) {
+		if (executor.config.pre_run_flush) {
 			measurement_code = invalidate_bpu_entries();
 			flush_bpu_phr();
 		}
@@ -351,12 +399,9 @@ static void __nocfi run_experiments(void) {
 		// execute
 		((void(*)(void*))measurement_code)(&executor.sandbox);
 
-//		enable_mte_tag_checking();
-
-		raw_local_irq_restore(flags); // enable local interrupts with previously saved state
+		raw_local_irq_restore(flags);
 
 		measure(&current_input->measurement);
-
 	}
 }
 

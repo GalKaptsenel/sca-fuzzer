@@ -1,0 +1,135 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="IRG" title="IRG -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="general"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="IRG"/>
+  </docvars>
+  <heading>IRG</heading>
+  <desc>
+    <brief>
+      <para>Insert random tag</para>
+    </brief>
+    <authored>
+      <para>This instruction inserts a random Logical Address Tag into the address in the
+first source register, and writes the result to the destination register. Any
+tags specified in the optional second source register or in <register_link id="AArch64-gcr_el1.xml" state="AArch64">GCR_EL1</register_link>.Exclude
+are excluded from the selection of the random Logical Address Tag.</para>
+    </authored>
+  </desc>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="Integer" oneof="1" id="iclass_integer" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="general"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="IRG"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_MTE" name="v8Ap5"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.dpreg.dp_2src.IRG_64I_dp_2src" tworows="1">
+        <box hibit="31" name="sf" usename="1" settings="1" psbits="x">
+          <c>1</c>
+        </box>
+        <box hibit="30" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="29" name="S" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="28" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="27" width="3" settings="3">
+          <c>1</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="24" width="4" settings="4">
+          <c>0</c>
+          <c>1</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="20" width="5" name="Rm" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="15" width="6" name="opcode" usename="1" settings="6" psbits="xxxxxx">
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="9" width="5" name="Rn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Rd" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="IRG_64I_dp_2src" oneofinclass="1" oneof="1" label="">
+        <docvars>
+          <docvar key="instr-class" value="general"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="IRG"/>
+        </docvars>
+        <asmtemplate><text>IRG  </text><a hover="Is the 64-bit name of the destination general-purpose register or stack pointer, encoded in the &quot;Rd&quot; field." link="XdSP_option">&lt;Xd|SP&gt;</a><text>, </text><a hover="Is the 64-bit name of the first source general-purpose register or stack pointer, encoded in the &quot;Rn&quot; field." link="XnSP_option__6">&lt;Xn|SP&gt;</a><text>{, </text><a hover="Is the 64-bit name of the second general-purpose source register, encoded in the &quot;Rm&quot; field. Defaults to XZR if absent." link="XmOrXZR__5">&lt;Xm&gt;</a><text>}</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.dpreg.dp_2src.IRG_64I_dp_2src" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_MTE) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+let d : integer{} = UInt(Rd);
+let n : integer{} = UInt(Rn);
+let m : integer{} = UInt(Rm);</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="IRG_64I_dp_2src" symboldefcount="1">
+      <symbol link="XdSP_option">&lt;Xd|SP&gt;</symbol>
+      <account encodedin="Rd">
+        <intro>
+          <para>Is the 64-bit name of the destination general-purpose register or stack pointer, encoded in the &quot;Rd&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="IRG_64I_dp_2src" symboldefcount="1">
+      <symbol link="XnSP_option__6">&lt;Xn|SP&gt;</symbol>
+      <account encodedin="Rn">
+        <intro>
+          <para>Is the 64-bit name of the first source general-purpose register or stack pointer, encoded in the &quot;Rn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="IRG_64I_dp_2src" symboldefcount="1">
+      <symbol link="XmOrXZR__5">&lt;Xm&gt;</symbol>
+      <account encodedin="Rm">
+        <intro>
+          <para>Is the 64-bit name of the second general-purpose source register, encoded in the &quot;Rm&quot; field. Defaults to XZR if absent.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.dpreg.dp_2src.IRG_64I_dp_2src" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">let operand : bits(64) = if n == 31 then <a link="accessor_SP_1" file="shared_pseudocode.xml">SP</a>{64}() else <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(n);
+let exclude_reg : bits(64) = X{}(m);
+let exclude : bits(16) = exclude_reg[15:0] OR GCR_EL1().Exclude;
+
+let rtag : bits(4) = <a link="func_AArch64_ChooseTagOrZero_1" file="shared_pseudocode.xml">AArch64_ChooseTagOrZero</a>(exclude);
+let result : bits(64) = <a link="func_AArch64_AddressWithAllocationTag_2" file="shared_pseudocode.xml">AArch64_AddressWithAllocationTag</a>(operand, rtag);
+
+if d == 31 then
+    <a link="accessor_SP_1" file="shared_pseudocode.xml">SP</a>{64}() = result;
+else
+    <a link="accessor_X_2" file="shared_pseudocode.xml">X</a>{64}(d) = result;
+end;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

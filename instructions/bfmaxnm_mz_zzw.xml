@@ -1,0 +1,315 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="bfmaxnm_mz_zzw" title="BFMAXNM (multiple vectors) -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="mortlach2"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="BFMAXNM"/>
+  </docvars>
+  <heading>BFMAXNM (multiple vectors)</heading>
+  <desc>
+    <brief>
+      <para>Multi-vector BFloat16 maximum number</para>
+    </brief>
+    <authored>
+      <para>This instruction determines the maximum number value of
+BFloat16 elements of the
+two or four second source vectors and
+the corresponding BFloat16 elements of the two or four first source vectors and
+destructively places the results in the corresponding elements of the two or four first
+source vectors.</para>
+      <para>Regardless of the value of FPCR.AH, the behavior is as follows:</para>
+      <list type="unordered">
+        <listitem>
+          <content>Negative zero compares less than positive zero.</content>
+        </listitem>
+        <listitem>
+          <content>If one element is numeric and the other
+  is a quiet NaN, the result is the numeric
+  value.</content>
+        </listitem>
+        <listitem>
+          <content>When FPCR.DN is 0, if either element is a signaling NaN or if both elements are NaNs,
+  the result is a quiet NaN.</content>
+        </listitem>
+        <listitem>
+          <content>When FPCR.DN is 1, if either element is a signaling NaN or if both elements are NaNs,
+  the result is Default NaN.</content>
+        </listitem>
+      </list>
+      <para>This instruction follows SME2 non-widening BFloat16 numerical behaviors
+corresponding to instructions that place their results in two or four SVE Z vectors.</para>
+      <para>This instruction is unpredicated.</para>
+      <para>ID_AA64ZFR0_EL1.B16B16 indicates whether this instruction is implemented.</para>
+    </authored>
+    <predicated>False</predicated>
+    <sm_policy>SM_1_only</sm_policy>
+  </desc>
+  <alias_list howmany="0"/>
+  <classes>
+    <classesintro count="2">
+      <txt>It has encodings from 2 classes:</txt>
+      <a href="#iclass_two_registers">Two registers</a>
+      <txt> and </txt>
+      <a href="#iclass_four_registers">Four registers</a>
+    </classesintro>
+    <iclass name="Two registers" oneof="2" id="iclass_two_registers" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="mortlach2"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="ldstruct-regcount" value="to-2reg"/>
+        <docvar key="mnemonic" value="BFMAXNM"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SME2 &amp;&amp; FEAT_SVE_B16B16" name="v9Ap3 &amp;&amp; v9Ap4"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sme.mortlach_multi_sve_2c0.mortlach_multi2_z_z_fminmax_mm.bfmaxnm_mz_zzw_2x2" tworows="1">
+        <box hibit="31" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="30" width="2" settings="2">
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="23" width="2" name="size" usename="1" settings="2" psbits="xx">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="20" width="4" name="Zm" usename="1">
+          <c colspan="4"/>
+        </box>
+        <box hibit="16" width="7" settings="7">
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+          <c>1</c>
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="9" width="3" settings="3">
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="6" width="2" name="opc" usename="1" settings="2" psbits="xx">
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="4" width="4" name="Zdn" usename="1">
+          <c colspan="4"/>
+        </box>
+        <box hibit="0" name="o2" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+      </regdiagram>
+      <encoding name="bfmaxnm_mz_zzw_2x2" oneofinclass="1" oneof="2" label="">
+        <docvars>
+          <docvar key="instr-class" value="mortlach2"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="ldstruct-regcount" value="to-2reg"/>
+          <docvar key="mnemonic" value="BFMAXNM"/>
+        </docvars>
+        <asmtemplate><text>BFMAXNM  { </text><a hover="For the &quot;Two registers&quot; variant: is the name of the first scalable vector register of the destination and first source multi-vector group, encoded as &quot;Zdn&quot; times 2." link="Zdn1">&lt;Zdn1&gt;</a><text>.H-</text><a hover="Is the name of the second scalable vector register of the destination and first source multi-vector group, encoded as &quot;Zdn&quot; times 2 plus 1." link="Zdn2">&lt;Zdn2&gt;</a><text>.H }, { </text><a hover="For the &quot;Two registers&quot; variant: is the name of the first scalable vector register of the destination and first source multi-vector group, encoded as &quot;Zdn&quot; times 2." link="Zdn1">&lt;Zdn1&gt;</a><text>.H-</text><a hover="Is the name of the second scalable vector register of the destination and first source multi-vector group, encoded as &quot;Zdn&quot; times 2 plus 1." link="Zdn2">&lt;Zdn2&gt;</a><text>.H }, { </text><a hover="For the &quot;Two registers&quot; variant: is the name of the first scalable vector register of the second source multi-vector group, encoded as &quot;Zm&quot; times 2." link="Zm1__3">&lt;Zm1&gt;</a><text>.H-</text><a hover="Is the name of the second scalable vector register of the second source multi-vector group, encoded as &quot;Zm&quot; times 2 plus 1." link="Zm2__2">&lt;Zm2&gt;</a><text>.H }</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sme.mortlach_multi_sve_2c0.mortlach_multi2_z_z_fminmax_mm.bfmaxnm_mz_zzw_2x2" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SME2) || !IsFeatureImplemented(FEAT_SVE_B16B16) then
+    EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+let dn : integer = UInt(Zdn::'0');
+let m : integer = UInt(Zm::'0');
+let nreg : integer{} = 2;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+    <iclass name="Four registers" oneof="2" id="iclass_four_registers" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="mortlach2"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="ldstruct-regcount" value="to-4reg"/>
+        <docvar key="mnemonic" value="BFMAXNM"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SME2 &amp;&amp; FEAT_SVE_B16B16" name="v9Ap3 &amp;&amp; v9Ap4"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sme.mortlach_multi_sve_2d0.mortlach_multi4_z_z_fminmax_mm.bfmaxnm_mz_zzw_4x4" tworows="1">
+        <box hibit="31" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="30" width="2" settings="2">
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="23" width="2" name="size" usename="1" settings="2" psbits="xx">
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="20" width="3" name="Zm" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="17" width="8" settings="8">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="9" width="3" settings="3">
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="6" width="2" name="opc" usename="1" settings="2" psbits="xx">
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="4" width="3" name="Zdn" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="1" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="0" name="o2" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+      </regdiagram>
+      <encoding name="bfmaxnm_mz_zzw_4x4" oneofinclass="1" oneof="2" label="">
+        <docvars>
+          <docvar key="instr-class" value="mortlach2"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="ldstruct-regcount" value="to-4reg"/>
+          <docvar key="mnemonic" value="BFMAXNM"/>
+        </docvars>
+        <asmtemplate><text>BFMAXNM  { </text><a hover="For the &quot;Four registers&quot; variant: is the name of the first scalable vector register of the destination and first source multi-vector group, encoded as &quot;Zdn&quot; times 4." link="Zdn1__2">&lt;Zdn1&gt;</a><text>.H-</text><a hover="Is the name of the fourth scalable vector register of the destination and first source multi-vector group, encoded as &quot;Zdn&quot; times 4 plus 3." link="Zdn4">&lt;Zdn4&gt;</a><text>.H }, { </text><a hover="For the &quot;Four registers&quot; variant: is the name of the first scalable vector register of the destination and first source multi-vector group, encoded as &quot;Zdn&quot; times 4." link="Zdn1__2">&lt;Zdn1&gt;</a><text>.H-</text><a hover="Is the name of the fourth scalable vector register of the destination and first source multi-vector group, encoded as &quot;Zdn&quot; times 4 plus 3." link="Zdn4">&lt;Zdn4&gt;</a><text>.H }, { </text><a hover="For the &quot;Four registers&quot; variant: is the name of the first scalable vector register of the second source multi-vector group, encoded as &quot;Zm&quot; times 4." link="Zm1__4">&lt;Zm1&gt;</a><text>.H-</text><a hover="Is the name of the fourth scalable vector register of the second source multi-vector group, encoded as &quot;Zm&quot; times 4 plus 3." link="Zm4__2">&lt;Zm4&gt;</a><text>.H }</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sme.mortlach_multi_sve_2d0.mortlach_multi4_z_z_fminmax_mm.bfmaxnm_mz_zzw_4x4" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SME2) || !IsFeatureImplemented(FEAT_SVE_B16B16) then
+    EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+let dn : integer = UInt(Zdn::'00');
+let m : integer = UInt(Zm::'00');
+let nreg : integer{} = 4;</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="bfmaxnm_mz_zzw_2x2" symboldefcount="1">
+      <symbol link="Zdn1">&lt;Zdn1&gt;</symbol>
+      <account encodedin="Zdn">
+        <intro>
+          <para>For the &quot;Two registers&quot; variant: is the name of the first scalable vector register of the destination and first source multi-vector group, encoded as &quot;Zdn&quot; times 2.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="bfmaxnm_mz_zzw_4x4" symboldefcount="2">
+      <symbol link="Zdn1__2">&lt;Zdn1&gt;</symbol>
+      <account encodedin="Zdn">
+        <intro>
+          <para>For the &quot;Four registers&quot; variant: is the name of the first scalable vector register of the destination and first source multi-vector group, encoded as &quot;Zdn&quot; times 4.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="bfmaxnm_mz_zzw_2x2" symboldefcount="1">
+      <symbol link="Zdn2">&lt;Zdn2&gt;</symbol>
+      <account encodedin="Zdn">
+        <intro>
+          <para>Is the name of the second scalable vector register of the destination and first source multi-vector group, encoded as &quot;Zdn&quot; times 2 plus 1.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="bfmaxnm_mz_zzw_2x2" symboldefcount="1">
+      <symbol link="Zm1__3">&lt;Zm1&gt;</symbol>
+      <account encodedin="Zm">
+        <intro>
+          <para>For the &quot;Two registers&quot; variant: is the name of the first scalable vector register of the second source multi-vector group, encoded as &quot;Zm&quot; times 2.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="bfmaxnm_mz_zzw_4x4" symboldefcount="2">
+      <symbol link="Zm1__4">&lt;Zm1&gt;</symbol>
+      <account encodedin="Zm">
+        <intro>
+          <para>For the &quot;Four registers&quot; variant: is the name of the first scalable vector register of the second source multi-vector group, encoded as &quot;Zm&quot; times 4.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="bfmaxnm_mz_zzw_2x2" symboldefcount="1">
+      <symbol link="Zm2__2">&lt;Zm2&gt;</symbol>
+      <account encodedin="Zm">
+        <intro>
+          <para>Is the name of the second scalable vector register of the second source multi-vector group, encoded as &quot;Zm&quot; times 2 plus 1.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="bfmaxnm_mz_zzw_4x4" symboldefcount="1">
+      <symbol link="Zdn4">&lt;Zdn4&gt;</symbol>
+      <account encodedin="Zdn">
+        <intro>
+          <para>Is the name of the fourth scalable vector register of the destination and first source multi-vector group, encoded as &quot;Zdn&quot; times 4 plus 3.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="bfmaxnm_mz_zzw_4x4" symboldefcount="1">
+      <symbol link="Zm4__2">&lt;Zm4&gt;</symbol>
+      <account encodedin="Zm">
+        <intro>
+          <para>Is the name of the fourth scalable vector register of the second source multi-vector group, encoded as &quot;Zm&quot; times 4 plus 3.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.sme.mortlach_multi_sve_2c0.mortlach_multi2_z_z_fminmax_mm.bfmaxnm_mz_zzw_2x2" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">CheckStreamingSVEEnabled();
+let VL : integer{} = CurrentVL();
+let elements : integer = VL DIV 16;
+var results : array [[4]] of bits(VL);
+
+for r = 0 to nreg-1 do
+    let operand1 : bits(VL) = Z{}(dn+r);
+    let operand2 : bits(VL) = Z{}(m+r);
+    for e = 0 to elements-1 do
+        let element1 : bits(16) = operand1[e*:16];
+        let element2 : bits(16) = operand2[e*:16];
+        results[[r]][e*:16] = <a link="func_BFMaxNum_4" file="shared_pseudocode.xml">BFMaxNum</a>{16}(element1, element2, FPCR());
+    end;
+end;
+
+for r = 0 to nreg-1 do
+    <a link="accessor_Z_2" file="shared_pseudocode.xml">Z</a>{VL}(dn+r) = results[[r]];
+end;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

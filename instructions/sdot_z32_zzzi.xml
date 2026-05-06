@@ -1,0 +1,278 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="sdot_z32_zzzi" title="SDOT (2-way, indexed) -- A64" type="instruction">
+  <docvars>
+    <docvar key="instr-class" value="sve2"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="SDOT"/>
+  </docvars>
+  <heading>SDOT (2-way, indexed)</heading>
+  <desc>
+    <brief>
+      <para>Signed integer dot product by indexed element (two-way)</para>
+    </brief>
+    <authored>
+      <para>This instruction computes the dot product of a pair of signed
+8-bit or 16-bit integer values held in each 16-bit or 32-bit element of
+the first source vector multiplied by a pair of signed 8-bit or
+16-bit integer values in an indexed
+16-bit or 32-bit element of the second source vector, and then destructively
+adds the widened dot product to the corresponding 16-bit or 32-bit element
+of the destination vector.</para>
+      <para>The groups within the second source vector are specified using
+an immediate index that selects the same group position within
+each 128-bit vector segment. The index range is from 0 to
+one less than the number of groups per 128-bit segment.</para>
+      <para>This instruction is unpredicated.</para>
+    </authored>
+    <predicated>False</predicated>
+    <uses_dit condition="FEAT_SVE2 is implemented or FEAT_SME is implemented">True</uses_dit>
+    <takes_movprfx>True</takes_movprfx>
+  </desc>
+  <operationalnotes>
+    <operationalnote>
+      <operationalnote_content>
+        <para>This instruction is a data-independent-time instruction as described in <xref linkend="ARMARM_BEICCDDAB3">About PSTATE.DIT</xref>.</para>
+        <para>This instruction might be immediately preceded in program order by a <instruction>MOVPRFX</instruction> instruction. The <instruction>MOVPRFX</instruction> must conform to all of the following requirements, otherwise the behavior of the <instruction>MOVPRFX</instruction> and this instruction is <arm-defined-word>CONSTRAINED UNPREDICTABLE</arm-defined-word>:</para>
+        <list type="unordered">
+          <listitem>
+            <content>The <instruction>MOVPRFX</instruction> must be unpredicated.</content>
+          </listitem>
+          <listitem>
+            <content>The <instruction>MOVPRFX</instruction> must specify the same destination register as this instruction.</content>
+          </listitem>
+          <listitem>
+            <content>The destination register must not refer to architectural register state referenced by any other source operand register of this instruction.</content>
+          </listitem>
+        </list>
+      </operationalnote_content>
+    </operationalnote>
+  </operationalnotes>
+  <alias_list howmany="0"/>
+  <classes>
+    <classesintro count="2">
+      <txt>It has encodings from 2 classes:</txt>
+      <a href="#iclass_8_bit_to_16_bit">8-bit to 16-bit</a>
+      <txt> and </txt>
+      <a href="#iclass_16_bit_to_32_bit">16-bit to 32-bit</a>
+    </classesintro>
+    <iclass name="8-bit to 16-bit" oneof="2" id="iclass_8_bit_to_16_bit" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="sve2"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="SDOT"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SVE2p3 || FEAT_SME2p3" name="v9Ap7 || v9Ap7"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_intx_by_indexed_elem.sve_intx_dot_by_indexed_elem.sdot_z16_zzzi_h" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="23" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="22" width="1" name="i3h" usename="1">
+          <c colspan="1"/>
+        </box>
+        <box hibit="21" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="20" width="2" name="i3l" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="18" width="3" name="Zm" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="15" width="5" settings="5">
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="10" name="U" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="9" width="5" name="Zn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Zda" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="sdot_z16_zzzi_h" oneofinclass="1" oneof="2" label="">
+        <docvars>
+          <docvar key="instr-class" value="sve2"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="SDOT"/>
+        </docvars>
+        <asmtemplate><text>SDOT  </text><a hover="Is the name of the third source and destination scalable vector register, encoded in the &quot;Zda&quot; field." link="Zda">&lt;Zda&gt;</a><text>.H, </text><a hover="Is the name of the first source scalable vector register, encoded in the &quot;Zn&quot; field." link="Zn__2">&lt;Zn&gt;</a><text>.B, </text><a hover="Is the name of the second source scalable vector register Z0-Z7, encoded in the &quot;Zm&quot; field." link="Zm__4">&lt;Zm&gt;</a><text>.B[</text><a hover="For the &quot;8-bit to 16-bit&quot; variant: is the immediate index of a pair of 8-bit elements within each 128-bit vector segment, in the range 0 to 7, encoded in the &quot;i3h:i3l&quot; fields." link="imm__53">&lt;imm&gt;</a><text>]</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_intx_by_indexed_elem.sve_intx_dot_by_indexed_elem.sdot_z16_zzzi_h" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SVE2p3) &amp;&amp; !IsFeatureImplemented(FEAT_SME2p3) then
+    EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+let esize : integer{} = 16;
+let index : integer = UInt(i3h::i3l);
+let n : integer = UInt(Zn);
+let m : integer = UInt(Zm);
+let da : integer = UInt(Zda);</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+    <iclass name="16-bit to 32-bit" oneof="2" id="iclass_16_bit_to_32_bit" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="instr-class" value="sve2"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="SDOT"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_SME2 || FEAT_SVE2p1" name="v9Ap3 || v9Ap4"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.sve.sve_intx_dot2_by_indexed_elem.sve_intx_dot2_by_indexed_elem.sdot_z32_zzzi_" tworows="1">
+        <box hibit="31" width="3" settings="3">
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="28" width="4" settings="4">
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+        </box>
+        <box hibit="24" width="4" settings="4">
+          <c>0</c>
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+        </box>
+        <box hibit="20" width="2" name="i2" usename="1">
+          <c colspan="2"/>
+        </box>
+        <box hibit="18" width="3" name="Zm" usename="1">
+          <c colspan="3"/>
+        </box>
+        <box hibit="15" width="5" settings="5">
+          <c>1</c>
+          <c>1</c>
+          <c>0</c>
+          <c>0</c>
+          <c>1</c>
+        </box>
+        <box hibit="10" name="U" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="9" width="5" name="Zn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Zda" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="sdot_z32_zzzi_" oneofinclass="1" oneof="2" label="">
+        <docvars>
+          <docvar key="instr-class" value="sve2"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="mnemonic" value="SDOT"/>
+        </docvars>
+        <asmtemplate><text>SDOT  </text><a hover="Is the name of the third source and destination scalable vector register, encoded in the &quot;Zda&quot; field." link="Zda">&lt;Zda&gt;</a><text>.S, </text><a hover="Is the name of the first source scalable vector register, encoded in the &quot;Zn&quot; field." link="Zn__2">&lt;Zn&gt;</a><text>.H, </text><a hover="Is the name of the second source scalable vector register Z0-Z7, encoded in the &quot;Zm&quot; field." link="Zm__4">&lt;Zm&gt;</a><text>.H[</text><a hover="For the &quot;16-bit to 32-bit&quot; variant: is the immediate index of a pair of 16-bit elements within each 128-bit vector segment, in the range 0 to 3, encoded in the &quot;i2&quot; field." link="imm__35">&lt;imm&gt;</a><text>]</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.sve.sve_intx_dot2_by_indexed_elem.sve_intx_dot2_by_indexed_elem.sdot_z32_zzzi_" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_SME2) &amp;&amp; !IsFeatureImplemented(FEAT_SVE2p1) then
+    EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>);
+end;
+let esize : integer{} = 32;
+let index : integer = UInt(i2);
+let n : integer = UInt(Zn);
+let m : integer = UInt(Zm);
+let da : integer = UInt(Zda);</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="sdot_z16_zzzi_h, sdot_z32_zzzi_" symboldefcount="1">
+      <symbol link="Zda">&lt;Zda&gt;</symbol>
+      <account encodedin="Zda">
+        <intro>
+          <para>Is the name of the third source and destination scalable vector register, encoded in the &quot;Zda&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="sdot_z16_zzzi_h, sdot_z32_zzzi_" symboldefcount="1">
+      <symbol link="Zn__2">&lt;Zn&gt;</symbol>
+      <account encodedin="Zn">
+        <intro>
+          <para>Is the name of the first source scalable vector register, encoded in the &quot;Zn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="sdot_z16_zzzi_h, sdot_z32_zzzi_" symboldefcount="1">
+      <symbol link="Zm__4">&lt;Zm&gt;</symbol>
+      <account encodedin="Zm">
+        <intro>
+          <para>Is the name of the second source scalable vector register Z0-Z7, encoded in the &quot;Zm&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="sdot_z16_zzzi_h" symboldefcount="1">
+      <symbol link="imm__53">&lt;imm&gt;</symbol>
+      <account encodedin="(i3h :: i3l)">
+        <intro>
+          <para>For the &quot;8-bit to 16-bit&quot; variant: is the immediate index of a pair of 8-bit elements within each 128-bit vector segment, in the range 0 to 7, encoded in the &quot;i3h:i3l&quot; fields.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="sdot_z32_zzzi_" symboldefcount="2">
+      <symbol link="imm__35">&lt;imm&gt;</symbol>
+      <account encodedin="i2">
+        <intro>
+          <para>For the &quot;16-bit to 32-bit&quot; variant: is the immediate index of a pair of 16-bit elements within each 128-bit vector segment, in the range 0 to 3, encoded in the &quot;i2&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.sve.sve_intx_by_indexed_elem.sve_intx_dot_by_indexed_elem.sdot_z16_zzzi_h" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">CheckSVEEnabled();
+let VL : integer{} = CurrentVL();
+let elements : integer = VL DIV esize;
+let eltspersegment : integer = 128 DIV esize;
+let operand1 : bits(VL) = Z{}(n);
+let operand2 : bits(VL) = Z{}(m);
+let operand3 : bits(VL) = Z{}(da);
+var result : bits(VL);
+
+for e = 0 to elements-1 do
+    let segmentbase : integer = e - (e MOD eltspersegment);
+    let s : integer = segmentbase + index;
+    var res : bits(esize) = operand3[e*:esize];
+    for i = 0 to 1 do
+        let element1 : integer = SInt(operand1[(2 * e + i)*:(esize DIV 2)]);
+        let element2 : integer = SInt(operand2[(2 * s + i)*:(esize DIV 2)]);
+        res = res + element1 * element2;
+    end;
+    result[e*:esize] = res;
+end;
+
+<a link="accessor_Z_2" file="shared_pseudocode.xml">Z</a>{VL}(da) = result;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>

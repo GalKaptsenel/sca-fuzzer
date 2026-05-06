@@ -93,6 +93,7 @@ class Conf:
     enable_fast_path_model: bool = False # True
     """ enable_fast_path_boosting: if enabled, the same contract trace will be used
     for all inputs in the same taint-based input class """
+    dbg_predictor: bool = False
 
     # ==============================================================================================
     # Program Generator
@@ -200,9 +201,10 @@ class Conf:
     """ executor_filtering_repetitions: number of repetitions while filtering test cases """
     executor_taskset: int = 0
     """ executor_taskset: id of the CPU core on which the executor is running test cases """
-    enable_pre_run_flush: bool = True
-    """ enable_pre_run_flush: if enabled, the executor will do its best to flush
-    the microarchitectural state before running test cases """
+    enable_pre_run_flush: int = 1
+    """ enable_pre_run_flush: controls BPU flush before measurement.
+    0 = disabled; 1 = per-input view rotation + PHR flush;
+    2 = saturate all base-predictor entries once per batch (slower but thorough) + per-input flush """
 
     # ==============================================================================================
     # Analyser

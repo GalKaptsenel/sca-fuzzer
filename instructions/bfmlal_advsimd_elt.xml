@@ -1,0 +1,197 @@
+<?xml version="1.0" ?><?xml-stylesheet type="text/xsl" encoding="UTF-8" href="iform.xsl" version="1.0"?><!DOCTYPE instructionsection  PUBLIC '-//ARM//DTD instructionsection //EN'  'iform-p.dtd'><!-- Copyright (c) 2010-2025 Arm Limited or its affiliates. All rights reserved. --><!-- This document is Non-Confidential. This document may only be used and distributed in accordance with the terms of the agreement entered into by Arm and the party that Arm delivered this document to. --><instructionsection id="BFMLAL_advsimd_elt" title="BFMLALB, BFMLALT (by element) -- A64" type="instruction">
+  <docvars>
+    <docvar key="advsimd-reguse" value="2reg-element"/>
+    <docvar key="datatype" value="half"/>
+    <docvar key="instr-class" value="advsimd"/>
+    <docvar key="isa" value="A64"/>
+    <docvar key="mnemonic" value="BFMLAL"/>
+    <docvar key="reguse-datatype" value="2reg-element-half"/>
+  </docvars>
+  <heading>BFMLALB, BFMLALT (by element)</heading>
+  <desc>
+    <brief>
+      <para>BFloat16 multiply-add to single-precision (by element)</para>
+    </brief>
+    <authored>
+      <para>This instruction widens the even-numbered (bottom)
+or odd-numbered (top) 16-bit elements in the first source vector, and the indexed element in
+the second source vector from Bfloat16 to single-precision format. The instruction then multiplies and adds these values
+without intermediate rounding to single-precision elements of the destination vector that overlap with the
+corresponding BFloat16 elements in the first source vector.</para>
+      <para><register_link id="AArch64-id_aa64isar1_el1.xml" state="AArch64">ID_AA64ISAR1_EL1</register_link>.BF16 indicates whether this instruction is supported.</para>
+    </authored>
+  </desc>
+  <alias_list howmany="0"/>
+  <classes>
+    <iclass name="Vector" oneof="1" id="iclass_vector" no_encodings="1" isa="A64">
+      <docvars>
+        <docvar key="advsimd-reguse" value="2reg-element"/>
+        <docvar key="datatype" value="half"/>
+        <docvar key="instr-class" value="advsimd"/>
+        <docvar key="isa" value="A64"/>
+        <docvar key="mnemonic" value="BFMLAL"/>
+        <docvar key="reguse-datatype" value="2reg-element-half"/>
+      </docvars>
+      <iclassintro count="1"/>
+      <arch_variants>
+        <arch_variant feature="FEAT_BF16" name="v8Ap6"/>
+      </arch_variants>
+      <regdiagram form="32" psname="A64.simd_dp.asimdelem.BFMLAL_asimdelem_F" tworows="1">
+        <box hibit="31" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="30" width="1" name="Q" usename="1">
+          <c colspan="1"/>
+        </box>
+        <box hibit="29" name="U" usename="1" settings="1" psbits="x">
+          <c>0</c>
+        </box>
+        <box hibit="28" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="27" width="3" settings="3">
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="24" width="1" settings="1">
+          <c>1</c>
+        </box>
+        <box hibit="23" width="2" name="size" usename="1" settings="2" psbits="xx">
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="21" width="1" name="L" usename="1">
+          <c colspan="1"/>
+        </box>
+        <box hibit="20" width="1" name="M" usename="1">
+          <c colspan="1"/>
+        </box>
+        <box hibit="19" width="4" name="Rm" usename="1">
+          <c colspan="4"/>
+        </box>
+        <box hibit="15" width="4" name="opcode" usename="1" settings="4" psbits="xxxx">
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+          <c>1</c>
+        </box>
+        <box hibit="11" width="1" name="H" usename="1">
+          <c colspan="1"/>
+        </box>
+        <box hibit="10" width="1" settings="1">
+          <c>0</c>
+        </box>
+        <box hibit="9" width="5" name="Rn" usename="1">
+          <c colspan="5"/>
+        </box>
+        <box hibit="4" width="5" name="Rd" usename="1">
+          <c colspan="5"/>
+        </box>
+      </regdiagram>
+      <encoding name="BFMLAL_asimdelem_F" oneofinclass="1" oneof="1" label="">
+        <docvars>
+          <docvar key="advsimd-reguse" value="2reg-element"/>
+          <docvar key="datatype" value="half"/>
+          <docvar key="instr-class" value="advsimd"/>
+          <docvar key="isa" value="A64"/>
+          <docvar key="reguse-datatype" value="2reg-element-half"/>
+          <docvar key="mnemonic" value="BFMLAL"/>
+        </docvars>
+        <asmtemplate><text>BFMLAL</text><a hover="Is the bottom or top element specifier, " link="bt_option">&lt;bt&gt;</a><text>  </text><a hover="Is the name of the SIMD&amp;FP destination register, encoded in the &quot;Rd&quot; field." link="Vd">&lt;Vd&gt;</a><text>.4S, </text><a hover="Is the name of the first SIMD&amp;FP source register, encoded in the &quot;Rn&quot; field." link="Vn__2">&lt;Vn&gt;</a><text>.8H, </text><a hover="For the &quot;Scalar, half-precision&quot; and &quot;Vector, half-precision&quot; variants: is the name of the second SIMD&amp;FP source register, in the range V0 to V15, encoded in the &quot;Rm&quot; field." link="Vm__2">&lt;Vm&gt;</a><text>.H[</text><a hover="For the &quot;Scalar, half-precision&quot; and &quot;Vector, half-precision&quot; variants: is the element index, in the range 0 to 7, encoded in the &quot;H:L:M&quot; fields." link="index__8">&lt;index&gt;</a><text>]</text></asmtemplate>
+      </encoding>
+      <ps_section howmany="1">
+        <ps name="A64.simd_dp.asimdelem.BFMLAL_asimdelem_F" sections="1" secttype="noheading">
+          <pstext mayhavelinks="1" section="Decode" rep_section="decode">if !IsFeatureImplemented(FEAT_BF16) then EndOfDecode(<a link="enum_Decode_UNDEF" file="shared_pseudocode.xml">Decode_UNDEF</a>); end;
+let n : integer = UInt(Rn);
+let m : integer = UInt('0'::Rm);
+let d : integer = UInt(Rd);
+let index : integer = UInt(H::L::M);
+
+let elements : integer = 128 DIV 32;
+let sel : integer = UInt(Q);</pstext>
+        </ps>
+      </ps_section>
+    </iclass>
+  </classes>
+  <explanations scope="all">
+    <explanation enclist="BFMLAL_asimdelem_F" symboldefcount="1">
+      <symbol link="bt_option">&lt;bt&gt;</symbol>
+      <definition encodedin="Q">
+        <intro>Is the bottom or top element specifier, </intro>
+        <table class="valuetable">
+          <tgroup cols="2">
+            <thead>
+              <row>
+                <entry class="bitfield">Q</entry>
+                <entry class="symbol">&lt;bt&gt;</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry class="bitfield">0</entry>
+                <entry class="symbol">B</entry>
+              </row>
+              <row>
+                <entry class="bitfield">1</entry>
+                <entry class="symbol">T</entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </table>
+      </definition>
+    </explanation>
+    <explanation enclist="BFMLAL_asimdelem_F" symboldefcount="1">
+      <symbol link="Vd">&lt;Vd&gt;</symbol>
+      <account encodedin="Rd">
+        <intro>
+          <para>Is the name of the SIMD&amp;FP destination register, encoded in the &quot;Rd&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="BFMLAL_asimdelem_F" symboldefcount="1">
+      <symbol link="Vn__2">&lt;Vn&gt;</symbol>
+      <account encodedin="Rn">
+        <intro>
+          <para>Is the name of the first SIMD&amp;FP source register, encoded in the &quot;Rn&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="BFMLAL_asimdelem_F" symboldefcount="1">
+      <symbol link="Vm__2">&lt;Vm&gt;</symbol>
+      <account encodedin="Rm">
+        <intro>
+          <para>Is the name of the second SIMD&amp;FP source register, in the range V0 to V15, encoded in the &quot;Rm&quot; field.</para>
+        </intro>
+      </account>
+    </explanation>
+    <explanation enclist="BFMLAL_asimdelem_F" symboldefcount="1">
+      <symbol link="index__8">&lt;index&gt;</symbol>
+      <account encodedin="(H :: L :: M)">
+        <intro>
+          <para>Is the element index, in the range 0 to 7, encoded in the &quot;H:L:M&quot; fields.</para>
+        </intro>
+      </account>
+    </explanation>
+  </explanations>
+  <ps_section howmany="1">
+    <ps name="A64.simd_dp.asimdelem.BFMLAL_asimdelem_F" sections="1" secttype="Operation">
+      <pstext mayhavelinks="1" section="Execute" rep_section="execute">AArch64_CheckFPAdvSIMDEnabled();
+var result : bits(128);
+let operand1 : bits(128) = V{}(n);
+let operand2 : bits(128) = V{}(m);
+let operand3 : bits(128) = V{}(d);
+let element2 : bits(16)  = operand2[index*:16];
+
+for e = 0 to elements-1 do
+    let element1 : bits(16)   = operand1[(2 * e + sel)*:16];
+    let addend : bits(32)     = operand3[e*:32];
+    result[e*:32] = <a link="func_BFMulAddH_4" file="shared_pseudocode.xml">BFMulAddH</a>(addend, element1, element2, FPCR());
+end;
+
+V{128}(d) = result;</pstext>
+    </ps>
+  </ps_section>
+  <timestamp>2025-10-24 11:39:28</timestamp>
+  <commit_id>2025-09_rel_asl1</commit_id>
+</instructionsection>
