@@ -122,6 +122,8 @@ inline void epilogue(void) {
     "ldp x2, x3, ["TMP"], #16\n"						                                        \
     "ldp x4, x5, ["TMP"], #16\n"						                                        \
     "ldp x6, x7, ["TMP"], #16\n"						                                        \
+    /* x6 = input slot 6, already in ARM PSTATE format (N=bit31 Z=bit30 C=bit29 V=bit28).
+     * msr nzcv only reads bits 31:28; the rest of x6 is ignored. */                           \
     "msr nzcv, x6\n"							                                                \
     "mov sp, x7\n"							                                                    \
 	:								                                                            \

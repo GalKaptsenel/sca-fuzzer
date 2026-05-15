@@ -70,7 +70,7 @@ struct simulation_input {
 
     uint8_t *code;   /* machine code */
     uint8_t *memory; /* initial memory image */
-    uint8_t *regs;   /* architecture-specific register blob */
+    uint8_t *regs;   /* architecture-specific register blob; slot 6 (x6/NZCV) is already in PSTATE format */
 };
 
 /* ============================
