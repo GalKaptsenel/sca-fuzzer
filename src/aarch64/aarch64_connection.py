@@ -526,6 +526,32 @@ REVISOR_TRACE_CONSTANT              = 8
 REVISOR_CLEAR_ALL_INPUTS_CONSTANT   = 9
 REVISOR_GET_TEST_LENGTH_CONSTANT    = 10
 REVISOR_BATCHED_INPUTS_CONSTANT     = 11
+REVISOR_PAC_SIGN_CONSTANT           = 12
+REVISOR_PAC_AUTH_CONSTANT           = 13
+REVISOR_SET_PAC_KEYS_CONSTANT       = 14
+REVISOR_GET_PAC_KEYS_CONSTANT       = 15
+
+class PacSignReq(ctypes.Structure):
+    _fields_ = [
+        ("ptr",      ctypes.c_uint64),
+        ("ctx",      ctypes.c_uint64),
+        ("mnemonic", ctypes.c_char * 16),
+        ("result",   ctypes.c_uint64),
+    ]
+
+class PacKeys(ctypes.Structure):
+    _fields_ = [
+        ("apia_lo", ctypes.c_uint64),
+        ("apia_hi", ctypes.c_uint64),
+        ("apib_lo", ctypes.c_uint64),
+        ("apib_hi", ctypes.c_uint64),
+        ("apda_lo", ctypes.c_uint64),
+        ("apda_hi", ctypes.c_uint64),
+        ("apdb_lo", ctypes.c_uint64),
+        ("apdb_hi", ctypes.c_uint64),
+        ("apga_lo", ctypes.c_uint64),
+        ("apga_hi", ctypes.c_uint64),
+    ]
 
 IOCTL_NR_TO_NAME = {
     1: "REVISOR_CHECKOUT_TEST",
@@ -539,6 +565,10 @@ IOCTL_NR_TO_NAME = {
     9: "REVISOR_CLEAR_ALL_INPUTS",
     10: "REVISOR_GET_TEST_LENGTH",
     11: "REVISOR_BATCHED_INPUTS",
+    12: "REVISOR_PAC_SIGN",
+    13: "REVISOR_PAC_AUTH",
+    14: "REVISOR_SET_PAC_KEYS",
+    15: "REVISOR_GET_PAC_KEYS",
 }
 
 
@@ -596,6 +626,10 @@ REVISOR_TRACE = _IO(REVISOR_IOC_MAGIC, REVISOR_TRACE_CONSTANT)
 REVISOR_CLEAR_ALL_INPUTS = _IO(REVISOR_IOC_MAGIC, REVISOR_CLEAR_ALL_INPUTS_CONSTANT)
 REVISOR_GET_TEST_LENGTH = _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_TEST_LENGTH_CONSTANT, ctypes.c_uint64)
 REVISOR_BATCHED_INPUTS = _IOWR(REVISOR_IOC_MAGIC, REVISOR_BATCHED_INPUTS_CONSTANT, ctypes.c_uint64)  # adjust struct
+REVISOR_PAC_SIGN = _IOWR(REVISOR_IOC_MAGIC, REVISOR_PAC_SIGN_CONSTANT, PacSignReq)
+REVISOR_PAC_AUTH = _IOWR(REVISOR_IOC_MAGIC, REVISOR_PAC_AUTH_CONSTANT, PacSignReq)
+REVISOR_SET_PAC_KEYS = _IOW(REVISOR_IOC_MAGIC, REVISOR_SET_PAC_KEYS_CONSTANT, PacKeys)
+REVISOR_GET_PAC_KEYS = _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_PAC_KEYS_CONSTANT, PacKeys)
 
 
 class LocalExecutorImp(UserlandExecutor):
@@ -692,6 +726,32 @@ class LocalExecutorImp(UserlandExecutor):
 	def allocate_iid(self) -> int:
 		return self._ioctl(REVISOR_ALLOCATE_INPUT)
 
+	def pac_sign(self, ptr: int, ctx: int, mnemonic: str) -> int:
+		req = PacSignReq()
+		req.ptr = ptr & 0xFFFFFFFFFFFFFFFF
+		req.ctx = ctx & 0xFFFFFFFFFFFFFFFF
+		req.mnemonic = mnemonic.encode()[:15]
+		req.result = 0
+		self._ioctl(REVISOR_PAC_SIGN, req)
+		return req.result
+
+	def pac_auth(self, ptr: int, ctx: int, mnemonic: str) -> int:
+		req = PacSignReq()
+		req.ptr = ptr & 0xFFFFFFFFFFFFFFFF
+		req.ctx = ctx & 0xFFFFFFFFFFFFFFFF
+		req.mnemonic = mnemonic.encode()[:15]
+		req.result = 0
+		self._ioctl(REVISOR_PAC_AUTH, req)
+		return req.result
+
+	def get_pac_keys(self) -> PacKeys:
+		keys = PacKeys()
+		self._ioctl(REVISOR_GET_PAC_KEYS, keys)
+		return keys
+
+	def set_pac_keys(self, keys: PacKeys) -> None:
+		self._ioctl(REVISOR_SET_PAC_KEYS, keys)
+
 	@property
 	def sandbox_base(self) -> int:
 		return int(self._read_sysfs('print_sandbox_base'), 16)
@@ -699,5 +759,13 @@ class LocalExecutorImp(UserlandExecutor):
 	@property
 	def code_base(self) -> int:
 		return int(self._read_sysfs('print_code_base'), 16)
+
+	def write_branch_training_config(self, entries: list) -> None:
+		"""entries: list of (byte_offset: int, train_taken: bool)"""
+		payload = ",".join(f"{off}:{1 if taken else 0}" for off, taken in entries)
+		self._write_sysfs("branch_training_config", payload.encode())
+
+	def clear_branch_training(self) -> None:
+		self._write_sysfs("enable_branch_training", b"0")
 
 

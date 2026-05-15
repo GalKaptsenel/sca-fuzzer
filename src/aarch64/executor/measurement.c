@@ -81,7 +81,7 @@ static int config_pfc(void) {
     asm volatile("isb\n");
 
     // 2. Instructions retired (0x08)
-    asm volatile("msr pmevtyper1_el0, %0" :: "r" ((uint64_t)(filter_events | 0x3)));
+    asm volatile("msr pmevtyper1_el0, %0" :: "r" ((uint64_t)(filter_events | 0x08)));
     asm volatile("isb\n");
 
     // 3. Instruction speculatively executed (0x1b)
@@ -279,60 +279,6 @@ static void measure(measurement_t* measurement) {
 	}
 }
 
-static void flush_bpu_phr(void) {
-	/* Official ARM Spectre-BHB mitigation sequence (see ARM-EPM-048486 v4).
-	 * Each iteration executes two branch instructions (B and BNE), both updating
-	 * the BHB.  K = ceil(PHR_len / 2) = ceil(75 / 2) = 38 for Neoverse N3.
-	 * 38 × 2 = 76 branch updates > 75-bit PHR depth → old history fully flushed. */
-	asm volatile (
-		"mov x0, #38\n"
-		"1:\n"
-		"b 2f\n"        /* B PC+4: taken branch to next instruction, updates BHB */
-		"2:\n"
-		"subs x0, x0, #1\n"
-		"b.ne 1b\n"
-		"dsb nsh\n"
-		"isb\n"
-		:
-		:
-		: "x0", "cc"
-	);
-}
-
-static void* invalidate_bpu_entries(void) {
-	static size_t current_view = 0;
-	return executor.measurement_code_views[current_view++ % MAX_MEASUREMENT_VIEWS];
-}
-
-/* Training block: 4 instructions that execute CBNZ x0 exactly 16 times at the same PC.
- * x0 = &sandbox (non-zero on entry, never modified), x1 = scratch loop counter.
- *
- *   movz x1, #16         ; load counter
- * loop:
- *   cbnz x0, +4          ; always taken → trains TAGE base predictor entry to TAKEN (16×)
- *   subs x1, x1, #1      ; decrement
- *   cbnz x1, -8          ; loop back to cbnz x0 while x1 != 0
- */
-#define INSN_BTI_C      0xD503245FU  /* bti c */
-#define INSN_MOVZ_X1_16 0xD2800201U  /* movz x1, #16 */
-#define INSN_CBNZ_X0    0xB5000020U  /* cbnz x0, +4  (Rt=x0, imm19=1) */
-#define INSN_SUBS_X1    0xF1000421U  /* subs x1, x1, #1 */
-#define INSN_CBNZ_X1    0xB5FFFFC1U  /* cbnz x1, -8  (Rt=x1, imm19=-2) — loops to cbnz x0 */
-#define INSN_NOP        0xD503201FU  /* nop */
-#define INSN_RET        0xD65F03C0U  /* ret */
-
-/* Write a 3-word stub [ BTI c | CBNZ x0, +4 | RET ] at view[loc], flush icache,
- * and return the entry pointer.  BTI c is required because we call via BLR.
- * The CBNZ at view[loc+1] trains the base-predictor entry for that PC. */
-static void* load_training_entry_at(uint32_t *view, size_t loc) {
-	view[loc]   = INSN_BTI_C;
-	view[loc+1] = INSN_CBNZ_X0;
-	view[loc+2] = INSN_RET;
-	flush_icache_range((unsigned long)&view[loc],
-			   (unsigned long)&view[loc + 3]);
-	return &view[loc];
-}
-
 static void __nocfi run_experiments(void) {
 	int64_t rounds = (int64_t)executor.number_of_inputs;
 	unsigned long flags = 0;
@@ -391,13 +337,32 @@ static void __nocfi run_experiments(void) {
 
 		if (executor.config.pre_run_flush) {
 			measurement_code = invalidate_bpu_entries();
-			flush_bpu_phr();
 		}
 
+		if (executor.config.enable_branch_training) {
+			reapply_branch_training();
+		}
+
+		if (executor.config.pre_run_flush) {
+			flush_bpu_phr();
+		}
 		config_pfc();
+
+		struct pac_keys saved_hw_keys;
+		uint64_t saved_sctlr = 0;
+		if (executor.config.pac_keys_set) {
+			pac_save_keys(&saved_hw_keys);
+			pac_load_keys(&executor.config.pac_keys);
+			saved_sctlr = pac_enable_all_keys();
+		}
 
 		// execute
 		((void(*)(void*))measurement_code)(&executor.sandbox);
+
+		if (executor.config.pac_keys_set) {
+			pac_restore_sctlr(saved_sctlr);
+			pac_load_keys(&saved_hw_keys);
+		}
 
 		raw_local_irq_restore(flags);
 

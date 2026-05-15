@@ -19,7 +19,7 @@ from .isa_loader import InstructionSet
 from .config import CONF
 from .util import Logger, STAT, pretty_htrace
 
-from .aarch64.aarch64_executor import show_context
+from .aarch64.aarch64_executor import show_context, is_conditional_branch
 from contextlib import redirect_stdout
 
 class TracingArguments:
@@ -358,16 +358,9 @@ class FuzzerGeneric(Fuzzer):
             ctraces, taints, traces, _tc_variants = self.executor.trace_test_case_with_taints(args.inputs, args.model_nesting)
             for i, tr in zip(args.inputs, traces):
                 i._arch_trace = tr
-#            if expected_ctraces != ctraces:
-#                import pdb; pdb.set_trace()
-#                for i, (exp_c, ver_c) in enumerate(zip(expected_ctraces, ctraces)):
-#                    if exp_c != ver_c:
-#                        original_i = i - len(args.ctraces)
-#                        original_tr = traces[original_i]
-#                        original_ta = taints[original_i]
-#                        original_inp = args.inputs[original_i]
-#                        compare_and_debug_trace_pair(original_inp, args.inputs[i], original_tr, traces[i], original_ta, taints[i])
-#
+            if expected_ctraces != ctraces:
+                self._log_ctrace_mismatch(expected_ctraces, ctraces, traces, args.inputs,
+                                          len(args.ctraces))
             assert expected_ctraces == ctraces, f'Mismatching CTraces!\n\texpected_ctraces={[t.raw for t in expected_ctraces]}\n\tverified_ctraces={[t.raw for t in ctraces]}'
         assert len(ctraces) == len(args.inputs)
 
@@ -400,6 +393,81 @@ class FuzzerGeneric(Fuzzer):
             self.executor.extend_ignore_list(ignored_input_ids)
 
         return violations, ctraces, htraces
+
+    def _log_ctrace_mismatch(self, expected, actual, traces, inputs, n_orig):
+        import datetime, os as _os, traceback as _tb
+
+        log_dir = _os.path.expanduser("~/revizor/logs")
+        _os.makedirs(log_dir, exist_ok=True)
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        path = _os.path.join(log_dir, f"ctrace_mismatch_{ts}.txt")
+
+        lines = []
+        lines.append(f"=== CTrace mismatch at {ts} ===")
+        lines.append(f"n_orig={n_orig}  inputs_per_class={CONF.inputs_per_class}  "
+                     f"total_boosted={len(inputs)}")
+
+        for i, (exp_c, ver_c) in enumerate(zip(expected, actual)):
+            if exp_c == ver_c:
+                continue
+            orig_i = i % n_orig
+            lines.append(f"\n--- diverging pair: boosted[{i}] vs original[{orig_i}] ---")
+            lines.append(f"  expected ctrace (original [{orig_i}]): {exp_c.raw}")
+            lines.append(f"  actual   ctrace (boosted  [{i}]):      {ver_c.raw}")
+
+            orig_trace = traces[orig_i]
+            boot_trace = traces[i]
+
+            def mem_accesses(cer):
+                acc = []
+                for ite in cer:
+                    if ite.metadata.has_memory_access:
+                        ma = ite.metadata.memory_access
+                        acc.append((ite.cpu.pc, ma.effective_address, ma.element_size,
+                                    'R' if not ma.is_write else 'W',
+                                    ite.metadata.speculation_nesting))
+                return acc
+
+            orig_acc = mem_accesses(orig_trace)
+            boot_acc = mem_accesses(boot_trace)
+
+            lines.append(f"  original mem accesses ({len(orig_acc)}):")
+            for pc, ea, sz, rw, nest in orig_acc:
+                lines.append(f"    pc=0x{pc:x} ea=0x{ea:x} sz={sz} {rw} nest={nest}")
+
+            lines.append(f"  boosted  mem accesses ({len(boot_acc)}):")
+            for pc, ea, sz, rw, nest in boot_acc:
+                lines.append(f"    pc=0x{pc:x} ea=0x{ea:x} sz={sz} {rw} nest={nest}")
+
+            # Show register differences between the two inputs
+            orig_data = inputs[orig_i].tobytes()
+            boot_data = inputs[i].tobytes()
+            import struct as _struct
+            orig_regs = [_struct.unpack_from('<Q', orig_data, 0x2000 + j*8)[0] for j in range(31)]
+            boot_regs = [_struct.unpack_from('<Q', boot_data, 0x2000 + j*8)[0] for j in range(31)]
+            diff_regs = [(j, orig_regs[j], boot_regs[j])
+                         for j in range(31) if orig_regs[j] != boot_regs[j]]
+            lines.append(f"  GPR differences ({len(diff_regs)} regs differ):")
+            for reg, ov, bv in diff_regs:
+                lines.append(f"    x{reg}: orig=0x{ov:x}  boosted=0x{bv:x}")
+
+            # Memory differences (first 0x2000 bytes = main sandbox)
+            orig_mem = orig_data[:0x2000]
+            boot_mem = boot_data[:0x2000]
+            mem_diff_bytes = [j for j in range(len(orig_mem)) if orig_mem[j] != boot_mem[j]]
+            lines.append(f"  memory differences: {len(mem_diff_bytes)} bytes differ "
+                         f"(first 8: {mem_diff_bytes[:8]})")
+
+        txt = "\n".join(lines)
+        print(txt)
+        try:
+            with open(path, "w") as f:
+                f.write(txt + "\n\n")
+                f.write("--- stack at assertion point ---\n")
+                f.write("".join(_tb.format_stack()))
+            print(f"[mismatch log saved to {path}]")
+        except Exception as e:
+            print(f"[warn: could not save mismatch log: {e}]")
 
     def _boost_inputs(self, inputs: List[Input], nesting) -> Tuple[List[Input], List[CTrace]]:
         """
@@ -539,6 +607,43 @@ class FuzzerGeneric(Fuzzer):
                 f.write(f"* Contract trace (hash): {m.ctrace}\n")
                 #ctrace_full = self.model.dbg_get_trace_detailed(m.input_, CONF.model_max_nesting)
                 #f.write(f"* Contract trace (detailed): {ctrace_full}\n")
+
+            f.write("\n## Mistraining Configuration\n")
+            if not hasattr(self.executor, 'set_branch_mistraining'):
+                f.write("* Mistraining: not supported by this executor\n")
+            else:
+                per_input = []
+                for idx, input_ in enumerate(violation.input_sequence):
+                    cer = getattr(input_, '_arch_trace', None)
+                    if not cer:
+                        per_input.append((idx, []))
+                        continue
+                    ce_base = cer[0].cpu.pc
+                    entries = []
+                    for i, ite in enumerate(cer):
+                        if ite.metadata.speculation_nesting != 0:
+                            continue
+                        if not is_conditional_branch(ite.cpu.encoding):
+                            continue
+                        if i + 1 >= len(cer):
+                            continue
+                        taken = (cer[i + 1].cpu.pc != ite.cpu.pc + 4)
+                        entries.append((ite.cpu.pc - ce_base, not taken))
+                    per_input.append((idx, entries))
+                any_set = any(e for _, e in per_input)
+                f.write(f"* Mistraining: {'set' if any_set else 'not set'}\n")
+                for idx, entries in per_input:
+                    f.write(f"\nInput #{idx}:\n")
+                    if not entries:
+                        f.write("  * No trainable branches\n")
+                    else:
+                        sysfs = ",".join(f"{off}:{1 if t else 0}" for off, t in entries)
+                        f.write(f"  * Sysfs config: {sysfs}\n")
+                        f.write(f"  * Entries ({len(entries)}):\n")
+                        for off, t in entries:
+                            f.write(f"    - offset {off:#x} ({off} bytes):"
+                                    f" train {'TAKEN' if t else 'NOT-TAKEN'}"
+                                    f" -> mispredict on first HW execution\n")
 
         # re-enable colors if enabled previously
         CONF.color = color_on
@@ -759,19 +864,20 @@ class NoninterfearenceFuzzer(FuzzerGeneric):
         if tc_variants:
             self.executor.debug_compare_variants_on_ce(args.inputs, tc_variants)
 
-        # Stage-2 HW tracing: run the first input through TC1/TC2/TC3 for each variant
+        # Stage-2 HW tracing: run each input through its own TC1/TC2/TC3 on real hardware.
+        # tc_variants[i] was built from inputs[i] — pairing must be exact.
         if tc_variants and args.inputs:
-            hw_variant_traces = self.executor.trace_test_case_from_variants(
-                args.inputs[0], tc_variants, n_reps=1)
+            hw_variant_traces = self.executor.run_pac_hardware_comparison(
+                args.inputs, tc_variants, n_reps=1)
             for i, (tc1_ht, tc2_ht, tc3_ht) in enumerate(hw_variant_traces):
                 mismatch_12 = tc1_ht != tc2_ht
                 mismatch_31 = tc3_ht != tc1_ht
                 tag = ""
                 if mismatch_12:
-                    tag += " [UNEXPECTED: TC1!=TC2]"
+                    tag += " [UNEXPECTED: TC1!=TC2 — restore-value bug]"
                 if mismatch_31:
-                    tag += " [SPEC LEAK CANDIDATE: TC3!=TC1]"
-                print(f"[STAGE2 HW] variant {i}: TC1={tc1_ht.raw}  TC2={tc2_ht.raw}  TC3={tc3_ht.raw}{tag}")
+                    tag += " [PAC NON-INTERFERENCE CANDIDATE: TC3!=TC1]"
+                print(f"[PAC HW] input {i}: TC1={tc1_ht.raw}  TC2={tc2_ht.raw}  TC3={tc3_ht.raw}{tag}")
 
         # Collect hardware traces
         try:

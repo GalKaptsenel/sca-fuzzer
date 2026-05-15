@@ -3,6 +3,7 @@
 
 #include "utils.h"
 #include "templates.h"
+#include "pac.h"
 
 enum Templates;  // Forward declaration
 enum State {
@@ -36,6 +37,9 @@ typedef struct executor_config {
 	char pre_run_flush;
 	enum Templates measurement_template;
 	int pinned_cpu_id;
+	struct pac_keys pac_keys;
+	bool pac_keys_set;
+	bool enable_branch_training;
 } executor_config_t;
 
 typedef struct device_managment {

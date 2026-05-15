@@ -3,6 +3,19 @@
 #include <linux/types.h>
 #include <linux/percpu.h>
 
+struct pac_keys {
+	uint64_t apia_lo, apia_hi;
+	uint64_t apib_lo, apib_hi;
+	uint64_t apda_lo, apda_hi;
+	uint64_t apdb_lo, apdb_hi;
+	uint64_t apga_lo, apga_hi;
+};
+
+void pac_save_keys(struct pac_keys *out);
+void pac_load_keys(const struct pac_keys *keys);
+uint64_t pac_enable_all_keys(void);    /* enables EnIA|EnIB|EnDA|EnDB in SCTLR_EL1; returns old SCTLR value */
+void     pac_restore_sctlr(uint64_t saved_sctlr);
+
 void trigger_pauth_fault(void);
 void pauth_restore_cpu(void);
 int pauth_init_cpu(

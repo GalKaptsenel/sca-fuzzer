@@ -11,7 +11,8 @@ from . import input_generator, analyser, postprocessor, interfaces, model
 from .x86 import (x86_model, x86_executor, x86_fuzzer, x86_generator, x86_asm_parser,
                   get_spec as x86_get_spec)
 from .aarch64 import (aarch64_model, aarch64_executor, aarch64_fuzzer, aarch64_generator, aarch64_asm_parser,
-                      get_spec as aarch64_get_spec, aarch64_connection, arm_isa_parser)
+                      get_spec as aarch64_get_spec, aarch64_connection, arm_isa_parser,
+                      aarch64_input_generator)
 from .config import CONF, ConfigException
 from .fuzzer import NoninterfearenceFuzzer
 
@@ -22,6 +23,7 @@ GENERATORS: Dict[str, Type[interfaces.Generator]] = {
 
 INPUT_GENERATORS: Dict[str, Type[interfaces.InputGenerator]] = {
     'random': input_generator.NumpyRandomInputGenerator,
+    'aarch64-nzcv': aarch64_input_generator.AArch64InputGenerator,
 }
 
 TRACERS: Dict[str, Type[model.UnicornTracer]] = {

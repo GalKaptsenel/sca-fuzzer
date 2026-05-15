@@ -31,11 +31,11 @@ class TageBP(BP):
     def predict(self, address: int, update_state: bool = False) -> bool:
         return bool(self.tage.predict(address, None)[0])
 
-    def update(self, address: int, taken: bool) -> None:
+    def update(self, address: int, taken: bool, target: Optional[int] = None) -> None:
         prediction, provider_index, confidence, altpred, altpred_index, altpred_confidence = self.tage.predict(address, None)
         self.tage.update(address, None, None, int(taken),
                          prediction, provider_index, confidence, altpred, altpred_index, altpred_confidence)
-        self.tage.update_phr(address, 0) # TODO: Need To take into account the real target address of the branch!
+        self.tage.update_phr(address, target if target is not None else 0)
         if current_iid not in logs_dict:
             logs_dict[current_iid] = []
         logs_dict[current_iid].append(TAGEEvent(self.counter, address, provider_index, bool(prediction), confidence, taken))

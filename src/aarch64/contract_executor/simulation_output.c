@@ -319,26 +319,28 @@ static instr_trace_entry_t* log_sim_state(struct simulation_state* sim_state) {
 		void* kaddr = (void*)entry->metadata.memory_access.effective_address;
 		void* uaddr = kaddr2uaddr(kaddr);
 		uint64_t value_64bit = *(uint64_t*)uaddr;
-		uint64_t mask = 0;
+		uint64_t write_mask = 0;
 		switch(entry->metadata.memory_access.element_size) {
-			case 1: mask = 0xFF; break;
-			case 2: mask = 0xFFFF; break;
-			case 4: mask = 0xFFFFFFFF; break;
-			case 8: mask = 0xFFFFFFFFFFFFFFFF; break;
+			case 1: write_mask = 0xFF; break;
+			case 2: write_mask = 0xFFFF; break;
+			case 4: write_mask = 0xFFFFFFFF; break;
+			case 8: write_mask = 0xFFFFFFFFFFFFFFFF; break;
 			default: {
 
 				fprintf(stderr, "[C] log_instr_hook: got to an unreachable!!!\n");
 					 __builtin_unreachable();
 				 }
 		}
-		mask = 0xFFFFFFFFFFFFFFFF; // For now at least, force to log the entire 64 bits at this address
 
-		entry->metadata.memory_access.before = value_64bit & mask;
+		entry->metadata.memory_access.before = value_64bit;
 
-		entry->metadata.memory_access.after = entry->metadata.memory_access.before;
+		entry->metadata.memory_access.after = value_64bit;
 		if(entry->metadata.memory_access.is_write) {
-			entry->metadata.memory_access.after = entry->cpu.gpr[target_register] & mask; // TODO: Notice that is for example this was a pair store instruction (STP), we log only the first operand written!
-																		    // We assume, wrongly but okay for now, that only the target register is written, but also target_register2 is written
+			/* Merge written bytes with unchanged upper bytes so 'after' reflects actual memory state. */
+			/* TODO: STP writes target_register2 to the adjacent word; only target_register is handled here. */
+			entry->metadata.memory_access.after =
+				(value_64bit & ~write_mask) |
+				(entry->cpu.gpr[target_register] & write_mask);
 		}
 	}
 

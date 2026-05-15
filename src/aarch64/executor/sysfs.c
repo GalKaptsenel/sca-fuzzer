@@ -203,6 +203,30 @@ static struct kobj_attribute measurement_mode_attribute = __ATTR(measurement_mod
 static struct kobj_attribute pin_to_core_attribute = __ATTR(pin_to_core, 0666, pin_to_core_show, pin_to_core_store);
 static struct kobj_attribute pac_sign_attribute = __ATTR(pac_sign, 0666, pac_sign_show, pac_sign_store);
 
+static ssize_t branch_training_config_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
+    set_branch_training_config(buf, count);
+    executor.config.enable_branch_training = true;
+    return count;
+}
+
+static ssize_t branch_training_config_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+    return format_branch_training_config(buf, PAGE_SIZE);
+}
+
+static ssize_t enable_branch_training_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
+    unsigned int value = 0;
+    sscanf(buf, "%u", &value);
+    executor.config.enable_branch_training = (value != 0);
+    return count;
+}
+
+static ssize_t enable_branch_training_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+    return sprintf(buf, "%d\n", executor.config.enable_branch_training ? 1 : 0);
+}
+
+static struct kobj_attribute branch_training_config_attribute = __ATTR(branch_training_config, 0666, branch_training_config_show, branch_training_config_store);
+static struct kobj_attribute enable_branch_training_attribute = __ATTR(enable_branch_training, 0666, enable_branch_training_show, enable_branch_training_store);
+
 static struct attribute *sysfs_attributes[] = {
 	&number_of_inputs_attribute.attr,
 	&warmups_attribute.attr,
@@ -212,6 +236,8 @@ static struct attribute *sysfs_attributes[] = {
 	&measurement_mode_attribute.attr,
 	&pin_to_core_attribute.attr,
 	&pac_sign_attribute.attr,
+	&branch_training_config_attribute.attr,
+	&enable_branch_training_attribute.attr,
 	NULL, /* need to NULL terminate the list of attributes */
 };
 

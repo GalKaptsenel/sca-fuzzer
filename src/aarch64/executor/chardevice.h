@@ -16,6 +16,8 @@
 #define REVISOR_BATCHED_INPUTS_CONSTANT    	    11
 #define REVISOR_PAC_SIGN_CONSTANT               12
 #define REVISOR_PAC_AUTH_CONSTANT               13
+#define REVISOR_SET_PAC_KEYS_CONSTANT           14
+#define REVISOR_GET_PAC_KEYS_CONSTANT           15
 
 /*
  * Shared request structure for REVISOR_PAC_SIGN / REVISOR_PAC_AUTH.
@@ -46,6 +48,8 @@ struct pac_sign_req {
 #define REVISOR_BATCHED_INPUTS		    _IOWR(REVISOR_IOC_MAGIC, REVISOR_BATCHED_INPUTS_CONSTANT, struct input_batch*)
 #define REVISOR_PAC_SIGN		        _IOWR(REVISOR_IOC_MAGIC, REVISOR_PAC_SIGN_CONSTANT, struct pac_sign_req)
 #define REVISOR_PAC_AUTH		        _IOWR(REVISOR_IOC_MAGIC, REVISOR_PAC_AUTH_CONSTANT, struct pac_sign_req)
+#define REVISOR_SET_PAC_KEYS		    _IOW(REVISOR_IOC_MAGIC, REVISOR_SET_PAC_KEYS_CONSTANT, struct pac_keys)
+#define REVISOR_GET_PAC_KEYS		    _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_PAC_KEYS_CONSTANT, struct pac_keys)
 
 #define REVISOR_DEVICE_NAME		        kernel_module_name
 #define REVISOR_DEVICE_CLASS_NAME	    "revisor_device_class"

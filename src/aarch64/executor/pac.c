@@ -197,8 +197,8 @@ int pauth_init_cpu(
 		uint64_t da_hi, uint64_t da_lo,
 		uint64_t db_hi, uint64_t db_lo,
 		uint64_t ga_hi,  uint64_t ga_lo) {
-	module_err("ID_AA64ISAR1_EL1: %px", read_sysreg(ID_AA64ISAR1_EL1));
-	module_err("ID_AA64ISAR2_EL1: %px", read_sysreg(ID_AA64ISAR2_EL1));
+	module_err("ID_AA64ISAR1_EL1: %px", (void *)(uintptr_t)read_sysreg(ID_AA64ISAR1_EL1));
+	module_err("ID_AA64ISAR2_EL1: %px", (void *)(uintptr_t)read_sysreg(ID_AA64ISAR2_EL1));
 	if (!pauth_apa() && !pauth_api() && !pauth_apa3()) {
 		module_err("EOPNOTSUPP is returned");
 		return -EOPNOTSUPP;
@@ -376,6 +376,41 @@ inline uint64_t xpaci(uint64_t ptr) {
 inline uint64_t xpacd(uint64_t ptr) {
 	asm volatile("xpacd %0" : "+r"(ptr));
 	return ptr;
+}
+
+uint64_t pac_enable_all_keys(void) {
+	uint64_t sctlr;
+	asm volatile("mrs %0, sctlr_el1" : "=r"(sctlr));
+	uint64_t new_sctlr = sctlr | SCTLR_EL1_EnIA | SCTLR_EL1_EnIB | SCTLR_EL1_EnDA | SCTLR_EL1_EnDB;
+	asm volatile("msr sctlr_el1, %0; isb" :: "r"(new_sctlr) : "memory");
+	return sctlr;
+}
+
+void pac_restore_sctlr(uint64_t saved_sctlr) {
+	asm volatile("msr sctlr_el1, %0; isb" :: "r"(saved_sctlr) : "memory");
+}
+
+void pac_save_keys(struct pac_keys *out) {
+	out->apia_lo = pauth_get_key_APIA_lo();
+	out->apia_hi = pauth_get_key_APIA_hi();
+	out->apib_lo = pauth_get_key_APIB_lo();
+	out->apib_hi = pauth_get_key_APIB_hi();
+	out->apda_lo = pauth_get_key_APDA_lo();
+	out->apda_hi = pauth_get_key_APDA_hi();
+	out->apdb_lo = pauth_get_key_APDB_lo();
+	out->apdb_hi = pauth_get_key_APDB_hi();
+	out->apga_lo = pauth_get_key_APGA_lo();
+	out->apga_hi = pauth_get_key_APGA_hi();
+	isb();
+}
+
+void pac_load_keys(const struct pac_keys *keys) {
+	pauth_set_key_APIA(keys->apia_hi, keys->apia_lo);
+	pauth_set_key_APIB(keys->apib_hi, keys->apib_lo);
+	pauth_set_key_APDA(keys->apda_hi, keys->apda_lo);
+	pauth_set_key_APDB(keys->apdb_hi, keys->apdb_lo);
+	pauth_set_key_APGA(keys->apga_hi, keys->apga_lo);
+	/* isb() is called inside each pauth_set_key_* */
 }
 
 void trigger_pauth_fault(void) {

@@ -153,6 +153,17 @@ class Conf:
     'unsafe' instruction sequences that could potentially trigger an exception. Model and executor
      will also be configured to handle these exceptions gracefully """
 
+    pac_sign_weight: float = 0.2
+    """ pac_sign_weight: relative weight for inserting PACIA signing instructions during
+    PAC non-interference instrumentation (stage 1). Normalized against the sum of all three
+    PAC weights. """
+    pac_auth_weight: float = 0.2
+    """ pac_auth_weight: relative weight for inserting AUTIA slots during PAC
+    non-interference instrumentation (stage 1). """
+    pac_xpac_weight: float = 0.2
+    """ pac_xpac_weight: relative weight for inserting standalone XPAC strips during PAC
+    non-interference instrumentation (stage 1). """
+
     # ==============================================================================================
     # Input Generator
     input_generator: str = 'random'
@@ -255,7 +266,7 @@ class Conf:
         "fuzzer": ["basic", "architectural", "archdiff", "non-iterfearence"],
         "generator": ["random"],
         "instruction_set": ["x86-64"],
-        "input_generator": ["random"],
+        "input_generator": ["random", "aarch64-nzcv"],
         "model": ["x86-unicorn"],
         "contract_execution_clause": [
             "seq", "no_speculation", "seq-assist", "cond", "conditional_br_misprediction", "bpas",

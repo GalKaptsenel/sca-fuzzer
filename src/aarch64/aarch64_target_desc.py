@@ -424,3 +424,50 @@ class Aarch64UnicornTargetDesc(UnicornTargetDesc):
     flags_register: int = ucc.UC_ARM64_REG_NZCV
     pc_register: int = ucc.UC_ARM64_REG_PC
     sp_register: int = ucc.UC_ARM64_REG_SP
+
+
+class NZCVScheme:
+    """Single source of truth for per-flag NZCV encoding in the input register slot.
+
+    Each of the 4 flags occupies bit 0 of its own byte within slot 6 of the GPR
+    register region.  Bytes 4-7 of the slot mirror bytes 0-3 (standard Revizor
+    duplication pattern).  Reconstruction to PSTATE is done just before execution.
+
+    Full 4-way byte-granularity taint separation:
+        N → byte 48, Z → byte 49, C → byte 50, V → byte 51.
+    """
+    SLOT_IDX: int = 6
+    SLOT_BASE_BYTE: int = SLOT_IDX * 8  # = 48, byte offset in register region
+
+    # flag → (byte_offset_within_slot, PSTATE_bit)
+    _LAYOUT: dict = {
+        'n': (0, 31),
+        'z': (1, 30),
+        'c': (2, 29),
+        'v': (3, 28),
+    }
+
+    @classmethod
+    def input_byte(cls, flag: str) -> int:
+        """Return the register-region byte offset for the given flag (for taint tracking)."""
+        return cls.SLOT_BASE_BYTE + cls._LAYOUT[flag.lower()][0]
+
+    @classmethod
+    def to_pstate(cls, raw_slot: int) -> int:
+        """Convert raw per-flag slot value (bit 0 of each byte) to ARM PSTATE format."""
+        pstate = 0
+        for byte_off, pstate_bit in cls._LAYOUT.values():
+            pstate |= ((raw_slot >> (byte_off * 8)) & 1) << pstate_bit
+        return pstate
+
+    @classmethod
+    def make_random(cls, rng) -> int:
+        """Generate a random NZCV slot: bit 0 of bytes 0-3 is random, bytes 4-7 mirror."""
+        val = 0
+        for byte_off, _ in cls._LAYOUT.values():
+            val |= int(rng.integers(0, 2)) << (byte_off * 8)
+        return val | (val << 32)
+
+    @classmethod
+    def flag_names(cls):
+        return cls._LAYOUT.keys()

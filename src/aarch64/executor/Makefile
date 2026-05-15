@@ -40,6 +40,7 @@ revizor-executor-y := \
 	jit.o \
 	templates_jit.o \
 	globals.o \
+	bpu.o \
 
 KDIR := /lib/modules/$(shell uname -r)/build
 

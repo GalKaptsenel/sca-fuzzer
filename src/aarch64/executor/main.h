@@ -45,6 +45,7 @@ MODULE_DESCRIPTION("AArch64 implementation of Revisor's executor");
 #include "cache_configuration.h"
 #include "utils.h"
 #include "measurement.h"
+#include "bpu.h"
 #include "sandbox.h"
 #include "executor.h"
 #include "templates.h"

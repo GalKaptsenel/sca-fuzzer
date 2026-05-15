@@ -7,7 +7,7 @@ from .aarch64_simulator import UnicornArchSimulator
 from .microarch_simulators import MuSimulator
 from .value_selector import DefaultValueSelectionStrategy
 from .microarch_state import MicroarchState
-from .two_bit_saturating_bp import TwoBitBP
+from .saturating_bp import SaturatingCounterBPCommon
 from .scorer import NoveltyScorer
 from .generation_policy import MaxInstRandomBranchGenerationPolicy
 from .common import BranchType
@@ -35,7 +35,7 @@ def main():
     arch_simulator = UnicornArchSimulator(value_strategy=value_selection_strategy)
     init_arch_snapshot = arch_simulator.take_snapshot()
 
-    two_bit_bp = TwoBitBP()
+    two_bit_bp = SaturatingCounterBPCommon(counter_bit_width=2, num_sets=1024)
     init_mu_state = MicroarchState(bp=two_bit_bp)
 
     init_context = SimulationContext(arch_snapshot=init_arch_snapshot, mu_state=init_mu_state)

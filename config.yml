@@ -1,5 +1,4 @@
 instruction_set: aarch64
-contract_observation_clause: none
 instruction_categories:
   - BASE-ARITH
   - BASE-LOGICAL
@@ -14,3 +13,4 @@ max_bb_per_function: 5
 max_successors_per_bb: 2
 min_successors_per_bb: 1
 fuzzer: basic
+input_generator: aarch64-nzcv

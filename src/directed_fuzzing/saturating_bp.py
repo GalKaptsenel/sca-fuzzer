@@ -90,8 +90,10 @@ class SaturatingCounterBP:
         def lookup(self, address: int, update_cache: bool = True) -> Optional[SaturatingCounterBP.NBitCounterEntry]:
             return self._lru_cache.get(self._tag_fn(address), not update_cache)
 
-        def insert(self, address: int) -> SaturatingCounterBP.NBitCounterEntry:
+        def insert(self, address: int, initial_state: Optional[int] = None) -> SaturatingCounterBP.NBitCounterEntry:
             entry = self._entry_factory()
+            if initial_state is not None:
+                entry._state = initial_state
             self._lru_cache.put(self._tag_fn(address), entry)
             return entry
 
@@ -110,11 +112,12 @@ class SaturatingCounterBP:
         if num_sets > 1 and index_fn is None:
             raise ValueError("number of sets is bigger then 1. index_fn must be supplied!")
 
+        self._counter_bit_width = counter_bit_width
         self._index_fn: Callable[int, int] = index_fn or (lambda x: 0)
 
         self._table: List[SaturatingCounterBP.SetEntry] = [SaturatingCounterBP.SetEntry(assoc, lambda: SaturatingCounterBP.NBitCounterEntry(counter_bit_width), tag_fn) for _ in range(num_sets)]
 
-    def _lookup(self, address: int, update_set: bool, allocate_on_miss: bool) -> Optional[SaturatingCounterBP.NBitCounterEntry]:
+    def _lookup(self, address: int, update_set: bool, allocate_on_miss: bool, initial_state: Optional[int] = None) -> Optional[SaturatingCounterBP.NBitCounterEntry]:
         idx = self._index_fn(address)
         assert isinstance(idx, int) and 0 <= idx < len(self._table)
         set_entry = self._table[idx]
@@ -122,11 +125,17 @@ class SaturatingCounterBP:
         if counter is None:
             if not allocate_on_miss:
                 return None
-            counter = set_entry.insert(address)
+            counter = set_entry.insert(address, initial_state)
         return counter
 
     def update(self, address: int, taken: bool, touch_lru: bool = True) -> None:
         self._lookup(address, touch_lru, True).update(taken)
+
+    def allocate(self, address: int, taken: bool) -> None:
+        threshold = 1 << (self._counter_bit_width - 1)
+        initial_state = threshold if taken else threshold - 1
+        idx = self._index_fn(address)
+        self._table[idx].insert(address, initial_state)
 
     def predict(self, address: int, touch_lru: bool = False, allocate_on_miss: bool = False) -> Optional[bool]:
         entry = self._lookup(address, touch_lru, allocate_on_miss)
@@ -259,6 +268,11 @@ class TAGEPHT:
     def update(self, address: int, taken: bool, touch_lru: bool = True) -> None:
         self._bp.update(address, taken, touch_lru)
 
+    def allocate(self, address: int, taken: bool) -> None:
+        """TAGE allocation policy: insert a new entry initialised to weakly-correct direction.
+        Only call when this table has a tag miss for address (predict() returned None)."""
+        self._bp.allocate(address, taken)
+
     def predict(self, address: int, touch_lru: bool = False) -> Optional[bool]:
         return self._bp.predict(address, touch_lru, False)
 
@@ -293,7 +307,7 @@ class Aarch64NeoverseN3BPU(BP):
 
         def generate_index_fn(phr_len: int) -> int:
             def index_fn(address: int):
-                return ((address >> 7) ^ (self._phr.read() & ((1 << phr_len) - 1))) & (num_sets_phts - 1)
+                return ((address >> 8) ^ (self._phr.read() & ((1 << phr_len) - 1))) & (num_sets_phts - 1)
             return index_fn
 
         def generate_tag_fn(phr_len: int) -> int:
@@ -327,8 +341,11 @@ class Aarch64NeoverseN3BPU(BP):
             if prediction is not None:
                 flag += 1
                 pht.update(address, taken, touch_lru)
-                if prediction != taken and idx + 1 < len(self._phts):
-                    self._phts[idx + 1].update(address, taken, touch_lru)
+                if prediction != taken:
+                    for alloc_idx in range(idx + 1, len(self._phts)):
+                        if self._phts[alloc_idx].predict(address, touch_lru=False) is None:
+                            self._phts[alloc_idx].allocate(address, taken)
+                            break
                 break
 
         assert flag == 1, "Should update exactly once"
@@ -365,16 +382,13 @@ def main():
     bpu = Aarch64NeoverseN3BPU()
     bpu.update(0x1234, True, 0x1234)
     bpu.update(0x1234, True, 0x1234)
-    import pdb; pdb.set_trace()
     bpu.update(0x1234, False, 0x1234)
     for _ in range(300):
         bpu.update(0x4444, True, 0x8888)
 
     bpu.update(0x1234, True, 0x1234)
     bpu.update(0x1234, True, 0x1234)
-    import pdb; pdb.set_trace()
     bpu.update(0x1234, True, 0x1234)
-    import pdb; pdb.set_trace()
 
 if __name__ == "__main__":
     main()

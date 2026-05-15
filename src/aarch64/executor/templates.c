@@ -671,6 +671,11 @@ static measurement_template map_to_template(enum Templates required_template) {
 	return NULL;
 }
 
+static size_t tc_insert_offset_words = 0;
+
+size_t get_tc_insert_offset_words(void) { return tc_insert_offset_words; }
+EXPORT_SYMBOL(get_tc_insert_offset_words);
+
 int load_template(size_t tc_size) {
 	unsigned template_pos = 0;
 	unsigned code_pos = 0;
@@ -706,6 +711,8 @@ int load_template(size_t tc_size) {
 	}
 
 	++template_pos; // skip TEMPLATE_INSERT_TC
+
+	tc_insert_offset_words = code_pos;  /* record where TC starts for branch training */
 
 	// copy the test case into the template
 	memcpy(destination_code + code_pos, executor.test_case, tc_size);

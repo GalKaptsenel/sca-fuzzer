@@ -29,16 +29,21 @@ from itertools import chain
 
 
 from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM, CS_AC_READ, CS_AC_WRITE
-from capstone.arm64 import ARM64_OP_REG, ARM64_OP_MEM
+from capstone.arm64 import (ARM64_OP_REG, ARM64_OP_MEM,
+                             ARM64_CC_INVALID, ARM64_CC_EQ, ARM64_CC_NE,
+                             ARM64_CC_HS, ARM64_CC_LO, ARM64_CC_MI, ARM64_CC_PL,
+                             ARM64_CC_VS, ARM64_CC_VC, ARM64_CC_HI, ARM64_CC_LS,
+                             ARM64_CC_GE, ARM64_CC_LT, ARM64_CC_GT, ARM64_CC_LE,
+                             ARM64_CC_AL, ARM64_CC_NV)
 
 from .aarch64_generator import Aarch64Printer, Aarch64ASMLayout, Aarch64Generator
 from .. import ConfigurableGenerator
 from ..interfaces import HTrace, Input, TestCase, Executor, HardwareTracingError, Analyser, CTrace, InputTaint, TargetDesc
 from ..config import CONF
 from ..util import Logger, STAT
-from .aarch64_target_desc import Aarch64TargetDesc
-from .aarch64_connection import LocalExecutorImp, TestCaseRegion, InputRegion
-from .aarch64_generator import Pass, Aarch64SandboxPass, PACInstrumentation, FixPoint
+from .aarch64_target_desc import Aarch64TargetDesc, NZCVScheme
+from .aarch64_connection import LocalExecutorImp, TestCaseRegion, InputRegion, PacKeys
+from .aarch64_generator import Pass, Aarch64SandboxPass, PACInstrumentation, FixPoint, AUTH_SLOT_POS
 
 from .aarch64_connection import profile_op, ExecutorMemory
 
@@ -289,6 +294,40 @@ class Aarch64LocalExecutor(Aarch64Executor):
         """
         return self.local_executor.sandbox_base, self.local_executor.code_base
 
+    def set_branch_mistraining(self, cer) -> None:
+        """Train base predictor opposite to CE branch outcomes for one input.
+
+        For each architectural conditional branch in cer, saturates the base predictor
+        in the opposite direction so the first HW execution always mispredicts it.
+        Must be called once per input, before the corresponding HW trace call.
+
+        :param cer: ContractExecutionResult for the input about to be measured
+        """
+        if cer is None or len(cer) == 0:
+            self.local_executor.clear_branch_training()
+            return
+
+        ce_code_base = cer[0].cpu.pc
+        entries = []
+
+        for i, ite in enumerate(cer):
+            if ite.metadata.speculation_nesting != 0:
+                continue
+            if not is_conditional_branch(ite.cpu.encoding):
+                continue
+            if i + 1 >= len(cer):
+                continue
+
+            taken = (cer[i + 1].cpu.pc != ite.cpu.pc + 4)
+            byte_offset = ite.cpu.pc - ce_code_base
+            entries.append((byte_offset, not taken))  # opposite → guaranteed mispredict
+
+        if entries:
+            self.local_executor.write_branch_training_config(entries)
+        else:
+            self.local_executor.clear_branch_training()
+        return entries
+
     def _write_test_case(self, test_case: TestCase) -> None:
         self.test_case = test_case
 
@@ -333,27 +372,66 @@ class Aarch64LocalExecutor(Aarch64Executor):
         self.local_executor.discard_all_inputs()
 
         input_to_iid = {}
-        for idx, i in enumerate(inputs):
-            input_to_iid[idx] = self.local_executor.allocate_iid()
-            self.local_executor.checkout_region(InputRegion(input_to_iid[idx]))
-            self.local_executor.write(ExecutorMemory(i.tobytes()))
+#        for idx, i in enumerate(inputs):
+#            input_to_iid[idx] = self.local_executor.allocate_iid()
+#            self.local_executor.checkout_region(InputRegion(input_to_iid[idx]))
+#            self.local_executor.write(ExecutorMemory(i.tobytes()))
+#
+#        sandboxed_test_case = self._write_mod_test_case_to_local_executor("sandboxed_test_case", [Aarch64SandboxPass()])
+#
+#        input_to_trace_list = defaultdict(list)
+#
+#        counter_log = defaultdict(list)
+#        for _ in range(n_reps):
+#            self.local_executor.trace()
+#            for idx, i in enumerate(inputs):
+#                self.local_executor.checkout_region(InputRegion(input_to_iid[idx]))
+#                hwm = self.local_executor.hardware_measurement()
+#                input_to_trace_list[idx].append(hwm.htrace)
+#                counter_log[idx].append(hwm.pfcs[2])
 
         sandboxed_test_case = self._write_mod_test_case_to_local_executor("sandboxed_test_case", [Aarch64SandboxPass()])
+        iid = self.local_executor.allocate_iid()
+        self.local_executor.checkout_region(InputRegion(iid))
 
         input_to_trace_list = defaultdict(list)
-
         counter_log = defaultdict(list)
+        expected_log = {}
+
         for _ in range(n_reps):
-            self.local_executor.trace()
             for idx, i in enumerate(inputs):
-                self.local_executor.checkout_region(InputRegion(input_to_iid[idx]))
+                self.local_executor.write(ExecutorMemory(_input_bytes_with_pstate(i)))
+                trained_entries = []
+                if hasattr(i, "_arch_trace"):
+                    trained_entries = self.set_branch_mistraining(i._arch_trace)
+                if idx not in expected_log:
+                    expected_log[idx] = len(trained_entries)
+                assert expected_log[idx] == len(trained_entries)
+                self.local_executor.trace()
                 hwm = self.local_executor.hardware_measurement()
                 input_to_trace_list[idx].append(hwm.htrace)
                 counter_log[idx].append(hwm.pfcs[2])
+                if hasattr(i, "_arch_trace"):
+                    pass
+#                    print(f"[LOG mistraining GAL] expected: {len(trained_entries)}, Got {hwm.pfcs[2]} --> {'OK' if len(trained_entries) <= hwm.pfcs[2] else 'FAIL'}")
+
+
+
+#        input_to_trace_list = defaultdict(list)
+#
+#        counter_log = defaultdict(list)
+#        for _ in range(n_reps):
+#            self.local_executor.trace()
+#            for idx, i in enumerate(inputs):
+#                self.local_executor.checkout_region(InputRegion(input_to_iid[idx]))
+#                hwm = self.local_executor.hardware_measurement()
+#                input_to_trace_list[idx].append(hwm.htrace)
+#                counter_log[idx].append(hwm.pfcs[2])
+# 
                     
         for idx, vals in counter_log.items():
-            pass
-#            print(f"[LOG Gal] input {idx} miss-rate: {sum(vals)} / {n_reps} = {100 * ((1.0 * sum(vals)) / n_reps)}%: {vals}")
+            avg = 100 * (((1.0 * sum(vals)) / len(vals)) / expected_log[idx]) if expected_log[idx] > 0 else "NA"
+            print(f"[LOG Gal] input {idx} miss-rate: {sum(vals) / len(vals)} / {expected_log[idx]} = {avg}%: {vals}")
 
         results = []
         for idx, i in enumerate(inputs):
@@ -394,48 +472,15 @@ class Aarch64LocalExecutor(Aarch64Executor):
             tc_memory = data[:0x2000]
             tc_regs = bytearray(data[0x2000:])
             view = memoryview(tc_regs).cast('Q')
-            view[6] = (view[6] << 28) & ((1 << 64) - 1)
+            _reconstruct_pstate(view)
             tc_regs = bytes(tc_regs)
             execution = ContractExecution(tc_bytes, tc_memory, tc_regs, SimArch.RVZR_ARCH_AARCH64, 5, 10,
                                           req_mem_base_virt=sandbox_base)
             cer = self._contract_executor.run(execution)
             traces.append(cer)
 
-        taints, ctraces = [], []
-        for cer in traces:
-            overriden_gprs = set()
-            overriden_memory = set()
-            input_taint = InputTaint()
-            accessed_memory = []
-            sandbox_u8 = input_taint.view(np.uint8)
-            actual_sandbox_memory_size = input_taint[0]["main"].view(np.uint8).size + input_taint[0]["faulty"].view(np.uint8).size
-            gpr_region_u8 = input_taint[0]["gpr"].view(np.uint8)
-            for ite in cer:
-                if ite.metadata.has_memory_access:
-                    for byte_idx in range(ite.metadata.memory_access.element_size):
-                        byte_offset = ite.metadata.memory_access.effective_address + byte_idx - ite.cpu.gpr[29]
-                        accessed_memory.append(byte_offset)
-                        if not ite.metadata.memory_access.is_write:
-                            if 0 <= byte_offset < actual_sandbox_memory_size:
-                                sandbox_u8[byte_offset] = True
-                        else:
-                            if not sandbox_u8[byte_offset]:
-                                overriden_memory.add(byte_offset)
-                srcs, dests = get_srcs_dests_operands(ite.cpu.encoding, ite.cpu.pc)
-                input_overriden_dests = set(filter(lambda op: op not in srcs and all(not gpr_region_u8[offset] for offset in map_operand_to_input_offsets(op)), dests))
-                overriden_gprs |= input_overriden_dests
-                for offset in chain.from_iterable(map(map_operand_to_input_offsets, srcs)):
-                    gpr_region_u8[offset] = True
-            for offset in overriden_memory:
-                sandbox_u8[offset] = False
-            for offset in chain.from_iterable(map(map_operand_to_input_offsets, overriden_gprs)):
-                gpr_region_u8[offset] = False
-            taints.append(input_taint)
-
-            line_size = 64
-            num_sets = 64
-            cache_sets = sorted(set(map(lambda addr: (addr // line_size) % num_sets, accessed_memory)))
-            ctraces.append(CTrace(raw_trace=cache_sets))
+        taints = [compute_taint(cer) for cer in traces]
+        ctraces = [compute_ctrace(cer) for cer in traces]
 
         return ctraces, taints, traces, []
 
@@ -455,7 +500,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
 
     Lifecycle
     ─────────
-    1. fuzzer calls set_generator(generator) once after initialize_modules().
+    1. Constructed via factory.get_noninterference_executor(generator).
     2. fuzzer calls executor.load_test_case(tc)  ← stage-1 runs here, cached.
     3. fuzzer calls trace_test_case_with_taints() one or more times  ← uses cache.
        Each call is deterministic because stage-1 results are fixed for this TC.
@@ -467,12 +512,36 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
     def __init__(self, workdir: str, generator: Aarch64Generator, *args, **kwargs):
         super().__init__(workdir, *args, **kwargs)
         self._generator: Aarch64Generator = generator
+
+        # Snapshot current EL1 PAC keys (this process's keys) and store them in the
+        # kernel module.  All subsequent PAC sign/auth ioctls and HW TC executions
+        # will save current HW keys, install these keys, run, then restore — ensuring
+        # consistent key use regardless of CPU or scheduler context.
+        _pac_keys = self.local_executor.get_pac_keys()
+        self.local_executor.set_pac_keys(_pac_keys)
+        self._init_pac_keys = _pac_keys
+
         # Stage-1 cache — populated by load_test_case(), consumed by trace_test_case_with_taints()
-        self._stage1_pac = None
-        self._stage1_tmp = None
+        self._stage1_pac_instrumentation = None
+        self._stage1_tc = None
         self._stage1_fix_points = None
         self._stage1_tc_bytes = None
         self._stage1_pac_offset_to_fps: Optional[Dict[int, List[FixPoint]]] = None
+        self._stage1_slot_auth_offset_to_fp: Optional[Dict[int, FixPoint]] = None
+        self._tc_counter: int = 0
+
+        import datetime, os as _os
+        log_dir = _os.path.expanduser("~/revizor/logs")
+        _os.makedirs(log_dir, exist_ok=True)
+        log_path = _os.path.join(log_dir, f"pac_fuzzer_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+        self._pac_log_file = open(log_path, 'w', buffering=1)
+        self._pac_log_file_path = log_path
+        print(f"[PAC LOG] Writing detailed log to {log_path}")
+
+    def _pac_log(self, msg: str, also_print: bool = False) -> None:
+        self._pac_log_file.write(msg + "\n")
+        if also_print:
+            print(msg)
 
     def load_test_case(self, test_case: TestCase):
         result = super().load_test_case(test_case)
@@ -481,27 +550,86 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
 
     def _run_stage1(self) -> None:
         """Run PAC stage-1 instrumentation on self.test_case and cache the results."""
+        self._tc_counter += 1
+        tc_id = self._tc_counter
+
         patched = copy.deepcopy(self.test_case)
-        pac = PACInstrumentation(self._generator, 0.2, 0.2, 0.2)
-        tmp, fix_points = pac.instrument_stage1(patched)
-        layout: Aarch64ASMLayout = Aarch64ASMLayout(tmp)
+        pac = PACInstrumentation(self._generator, CONF.pac_xpac_weight, CONF.pac_auth_weight, CONF.pac_sign_weight)
+        stage1_tc, fix_points = pac.instrument_stage1(patched)
+        layout: Aarch64ASMLayout = Aarch64ASMLayout(stage1_tc)
 
         sandbox_base, _ = self.read_base_addresses()
         pac_offset_to_fps: Dict[int, List[FixPoint]] = {}
         for fp in fix_points:
-            pac_inst = fp.info.pac_inst
-            if pac_inst is not None and pac_inst in layout.instruction_address:
+            assert fp.pac_insts, f"FixPoint slot {fp.slot_id} has empty pac_insts"
+            for pac_inst in fp.pac_insts:
+                assert pac_inst in layout.instruction_address, \
+                    f"PACIA instruction not found in layout — pac_insts out of sync with stage1_tc"
                 offset = layout.instruction_address[pac_inst] + 4  # capture state after PACIA
                 pac_offset_to_fps.setdefault(offset, []).append(fp)
 
         assembly = Aarch64Printer(self.target_desc).print_layout(layout)
         tc_bytes = ConfigurableGenerator.in_memory_assemble(assembly)
 
-        self._stage1_pac = pac
-        self._stage1_tmp = tmp
+        # Map from AUTH slot byte-offset in tc_bytes → FixPoint.
+        # Used to detect if a MISSING-capture slot was actually executed at nesting==0 in CE
+        # (which would indicate a capture bug, not a harmless untaken branch).
+        slot_auth_offset_to_fp: Dict[int, FixPoint] = {}
+        for func in stage1_tc.functions:
+            for bb in func:
+                for inst in bb:
+                    if (hasattr(inst, '_pac_slot_id') and
+                            hasattr(inst, '_pac_slot_pos') and
+                            inst._pac_slot_pos == AUTH_SLOT_POS and
+                            inst in layout.instruction_address):
+                        slot_id = inst._pac_slot_id
+                        for fp in fix_points:
+                            if fp.slot_id == slot_id:
+                                slot_auth_offset_to_fp[layout.instruction_address[inst]] = fp
+                                break
+
+        # Sanity check: every fix_point's slot must be discoverable in stage1_tc.
+        _slot_ids_in_tc = set()
+        for _func in stage1_tc.functions:
+            for _bb in _func:
+                for _inst in _bb:
+                    if hasattr(_inst, '_pac_slot_id'):
+                        _slot_ids_in_tc.add(_inst._pac_slot_id)
+        for fp in fix_points:
+            assert fp.slot_id in _slot_ids_in_tc, (
+                f"stage1 bug: fix_point slot_id={fp.slot_id} not found in stage1_tc "
+                f"(tc slot_ids={sorted(_slot_ids_in_tc)}, "
+                f"fp slot_ids={sorted(f.slot_id for f in fix_points)})"
+            )
+
+        self._stage1_pac_instrumentation = pac
+        self._stage1_tc = stage1_tc
         self._stage1_fix_points = fix_points
         self._stage1_tc_bytes = tc_bytes
         self._stage1_pac_offset_to_fps = pac_offset_to_fps
+        self._stage1_slot_auth_offset_to_fp = slot_auth_offset_to_fp
+
+        # ── Logging ──────────────────────────────────────────────────────────
+        self._pac_log(f"\n{'='*72}")
+        self._pac_log(f"[TC {tc_id}] Stage-1 instrumented TC ({len(tc_bytes)} bytes, "
+                      f"{len(fix_points)} fix-points, sandbox_base=0x{sandbox_base:016x})")
+        cs = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
+        cs.detail = False
+        self._pac_log("  Stage-1 disassembly:")
+        for insn in cs.disasm(tc_bytes, 0):
+            self._pac_log(f"    +{insn.address:04x}: {insn.mnemonic} {insn.op_str}")
+        self._pac_log(f"  Fix-points ({len(fix_points)}):")
+        for fp in fix_points:
+            capture_offsets = [off for off, fps in pac_offset_to_fps.items() if fp in fps]
+            auth_offset = next((off for off, f in slot_auth_offset_to_fp.items() if f is fp), None)
+            self._pac_log(f"    slot={fp.slot_id:3d}  reg={fp.info.reg:4s}  "
+                          f"ctx={str(fp.info.ctx_reg):4s}  "
+                          f"pac={fp.info.pac_mnemonic:8s}  auth={fp.info.auth_mnemonic:8s}  "
+                          f"capture_offsets={[hex(o) for o in capture_offsets]}  "
+                          f"auth_slot_offset={hex(auth_offset) if auth_offset is not None else 'None'}")
+        self._pac_log(f"  Taint decisions ({len(pac.last_taint_log)} events):")
+        for line in pac.last_taint_log:
+            self._pac_log(line)
 
     # ── Helpers only needed in non-interference mode ───────────────────────────
 
@@ -513,12 +641,138 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         self.local_executor.checkout_region(TestCaseRegion())
         self.local_executor.write(tc_bytes)
 
+    def _disasm_tc(self, tc: TestCase) -> List[str]:
+        """Disassemble a TestCase to a list of '+offset: mnem ops' strings."""
+        layout = Aarch64ASMLayout(tc)
+        asm = Aarch64Printer(self.target_desc).print_layout(layout)
+        tc_bytes = ConfigurableGenerator.in_memory_assemble(asm)
+        cs = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
+        cs.detail = False
+        return [f"+{insn.address:04x}: {insn.mnemonic} {insn.op_str}"
+                for insn in cs.disasm(tc_bytes, 0)]
+
+    def _dump_pre_hw(self, tc_name: str, tc: TestCase, inp: Input,
+                     fix_points: List, inp_idx: int, dump_path: str) -> None:
+        """Write a full pre-execution dump to dump_path, synced to disk.
+
+        The file is overwritten on every call so after a kernel-panic reset it
+        always contains exactly the last thing that was about to run on HW.
+        Uses os.fsync + os.sync so the data reaches the disk before we hand
+        control to the kernel module.
+        """
+        import os as _os
+        data = inp.tobytes()
+        regs = list(memoryview(data[0x2000:]).cast('Q'))
+        mem_hex = data[:128].hex()
+        disasm = self._disasm_tc(tc)
+        lines = [
+            f"=== PRE-HW DUMP ===",
+            f"tc_counter={self._tc_counter}  variant={tc_name}  input_idx={inp_idx}",
+            f"input regs x0..x15: {[hex(v) for v in regs[:16]]}",
+            f"input memory (first 128 bytes hex):",
+            f"  {mem_hex}",
+            f"fix-points ({len(fix_points)}):",
+        ]
+        for fp in fix_points:
+            sv = hex(fp.signed_value) if fp.signed_value is not None else "None"
+            cv = hex(fp.ctx_value) if fp.ctx_value is not None else "None"
+            lines.append(
+                f"  slot={fp.slot_id:3d}  reg={fp.info.reg:4s}  ctx={str(fp.info.ctx_reg):4s}"
+                f"  signed={sv}  ctx={cv}  spec_nesting={fp.spec_nesting}"
+            )
+        # Verify each captured signed value is authenticatable with the stored keys.
+        # Also log the current APDB key so we can compare CE-signing keys vs HW-execution keys.
+        try:
+            cur_keys = self.local_executor.get_pac_keys()
+            init_keys = self._init_pac_keys
+            apda_match = (cur_keys.apda_lo == init_keys.apda_lo and cur_keys.apda_hi == init_keys.apda_hi)
+            apdb_match = (cur_keys.apdb_lo == init_keys.apdb_lo and cur_keys.apdb_hi == init_keys.apdb_hi)
+            apia_match = (cur_keys.apia_lo == init_keys.apia_lo and cur_keys.apia_hi == init_keys.apia_hi)
+            apib_match = (cur_keys.apib_lo == init_keys.apib_lo and cur_keys.apib_hi == init_keys.apib_hi)
+            apga_match = (cur_keys.apga_lo == init_keys.apga_lo and cur_keys.apga_hi == init_keys.apga_hi)
+            lines.append(f"PAC keys (init-time vs current HW registers):")
+            lines.append(f"  apia: init=lo={init_keys.apia_lo:016x}/hi={init_keys.apia_hi:016x}"
+                         f"  cur=lo={cur_keys.apia_lo:016x}/hi={cur_keys.apia_hi:016x}"
+                         f"  {'MATCH' if apia_match else '*** MISMATCH ***'}")
+            lines.append(f"  apib: init=lo={init_keys.apib_lo:016x}/hi={init_keys.apib_hi:016x}"
+                         f"  cur=lo={cur_keys.apib_lo:016x}/hi={cur_keys.apib_hi:016x}"
+                         f"  {'MATCH' if apib_match else '*** MISMATCH ***'}")
+            lines.append(f"  apda: init=lo={init_keys.apda_lo:016x}/hi={init_keys.apda_hi:016x}"
+                         f"  cur=lo={cur_keys.apda_lo:016x}/hi={cur_keys.apda_hi:016x}"
+                         f"  {'MATCH' if apda_match else '*** MISMATCH ***'}")
+            lines.append(f"  apdb: init=lo={init_keys.apdb_lo:016x}/hi={init_keys.apdb_hi:016x}"
+                         f"  cur=lo={cur_keys.apdb_lo:016x}/hi={cur_keys.apdb_hi:016x}"
+                         f"  {'MATCH' if apdb_match else '*** MISMATCH ***'}")
+            lines.append(f"  apga: init=lo={init_keys.apga_lo:016x}/hi={init_keys.apga_hi:016x}"
+                         f"  cur=lo={cur_keys.apga_lo:016x}/hi={cur_keys.apga_hi:016x}"
+                         f"  {'MATCH' if apga_match else '*** MISMATCH ***'}")
+        except Exception as e:
+            lines.append(f"  [warn] could not read PAC keys: {e}")
+
+        lines.append(f"pre-HW auth verification (using stored executor.config.pac_keys):")
+        for fp in fix_points:
+            if fp.signed_value is None:
+                lines.append(f"  slot={fp.slot_id:3d}  SKIP (no signed value)")
+                continue
+            try:
+                auth_result = self.local_executor.pac_auth(
+                    fp.signed_value,
+                    fp.ctx_value if fp.ctx_value is not None else 0,
+                    fp.info.auth_mnemonic,
+                )
+                # On ARM64, auth failure sets bit 62, making bits[63:55] a non-canonical
+                # pattern. A canonical kernel address has bits[63:55] = all-1s (0x1ff)
+                # and a canonical user address has bits[63:55] = all-0s (0x000).
+                top9 = (auth_result >> 55) & 0x1ff
+                failed = (top9 != 0x1ff) and (top9 != 0x000)
+                status = f"FAIL top9=0x{top9:03x}" if failed else "OK"
+                lines.append(
+                    f"  slot={fp.slot_id:3d}  {fp.info.auth_mnemonic:8s}"
+                    f"  signed=0x{fp.signed_value:016x}  ctx=0x{(fp.ctx_value or 0):016x}"
+                    f"  auth_result=0x{auth_result:016x}  -> {status}"
+                )
+            except Exception as e:
+                lines.append(f"  slot={fp.slot_id:3d}  [error calling pac_auth: {e}]")
+
+        lines.append(f"{tc_name} disassembly ({len(disasm)} instructions):")
+        lines.extend(f"  {l}" for l in disasm)
+        text = "\n".join(lines) + "\n"
+
+        # Emit to pac log (also flushed below).
+        self._pac_log(text)
+
+        # Flush pac log to disk before HW call.
+        self._pac_log_file.flush()
+        try:
+            _os.fsync(self._pac_log_file.fileno())
+        except Exception:
+            pass
+
+        # Write the crash-ready dump file with explicit sync so it survives a
+        # kernel panic + hard reset.  Opened with os.O_SYNC so each write goes
+        # straight to the block device without relying on the page cache.
+        try:
+            fd = _os.open(dump_path,
+                          _os.O_WRONLY | _os.O_CREAT | _os.O_TRUNC | _os.O_SYNC,
+                          0o644)
+            _os.write(fd, text.encode())
+            _os.fsync(fd)
+            _os.close(fd)
+        except Exception as e:
+            self._pac_log(f"  [warn] could not write crash dump: {e}")
+
+        # Flush the whole block layer — belt-and-suspenders.
+        try:
+            _os.sync()
+        except Exception:
+            pass
+
     def _hw_trace_single_input(self, tc: TestCase, inp: Input, n_reps: int = 1) -> HTrace:
         """Load tc + inp into the hardware executor, trace n_reps times, return HTrace."""
         self.local_executor.discard_all_inputs()
         iid = self.local_executor.allocate_iid()
         self.local_executor.checkout_region(InputRegion(iid))
-        self.local_executor.write(ExecutorMemory(inp.tobytes()))
+        self.local_executor.write(ExecutorMemory(_input_bytes_with_pstate(inp)))
         self._write_prebuilt_tc_to_executor(tc)
         trace_list = []
         for _ in range(n_reps):
@@ -541,7 +795,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             tc_memory = data[:0x2000]
             tc_regs = bytearray(data[0x2000:])
             view = memoryview(tc_regs).cast('Q')
-            view[6] = (view[6] << 28) & ((1 << 64) - 1)
+            _reconstruct_pstate(view)
             tc_regs = bytes(tc_regs)
             ce_traces: Dict[str, ContractExecutionResult] = {}
             for name, tc in variants.items():
@@ -601,37 +855,75 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             mismatch_3_1 = tc3_ct != tc1_ct
 
             if mismatch_1_2:
-                import pdb; pdb.set_trace()
                 print(f"[CE_VARIANT_COMPARE] input {i}: TC1 != TC2  (UNEXPECTED — should be arch-equivalent)")
                 print(f"  TC1 ctrace: {tc1_ct.raw}")
                 print(f"  TC2 ctrace: {tc2_ct.raw}")
             if mismatch_3_1:
-                import pdb; pdb.set_trace()
                 print(f"[CE_VARIANT_COMPARE] input {i}: TC3 != TC1  (potential speculation side-effect)")
                 print(f"  TC1 ctrace: {tc1_ct.raw}")
                 print(f"  TC3 ctrace: {tc3_ct.raw}")
             if not mismatch_1_2 and not mismatch_3_1:
                 print(f"[CE_VARIANT_COMPARE] input {i}: TC1 == TC2 == TC3  {tc1_ct.raw}")
 
-    def trace_test_case_from_variants(
+    def run_pac_hardware_comparison(
         self,
-        inp: Input,
-        tc_variants: List[TCVariants],
+        inputs: List[Input],
+        tc_variants_per_input: List[TCVariants],
         n_reps: int = 1,
-    ) -> List[List[HTrace]]:
+    ) -> List[Tuple[HTrace, HTrace, HTrace]]:
         """
-        Run a single input through TC1/TC2/TC3 for each variant set on real hardware.
+        Run each input through its own TC1/TC2/TC3 on real hardware.
 
-        Returns a list of [tc1_htrace, tc2_htrace, tc3_htrace] per entry in tc_variants.
-        TC1 and TC2 should produce identical HTraces (arch-equivalent).
-        TC3 may differ from TC1 if speculation through a wrong AUTH leaks cache state.
+        tc_variants_per_input[i] was generated from inputs[i]; this method pairs them
+        correctly so every variant runs with the input whose signed values it embeds.
+
+        Returns List[(tc1_ht, tc2_ht, tc3_ht)] — one tuple per input.
+
+        Interpretation:
+          TC1 == TC2:  correct — strip-only and full-restore give the same arch trace.
+          TC1 != TC2:  instrumentation bug — the restore values are wrong.
+          TC3 != TC1:  PAC non-interference candidate — speculative AUTH with wrong
+                       pointer/context produced an observable side channel.
         """
-        results = []
-        for variants in tc_variants:
-            traces = []
-            for tc in [variants.tc1, variants.tc2, variants.tc3]:
-                traces.append(self._hw_trace_single_input(tc, inp, n_reps))
-            results.append(traces)
+        assert len(inputs) == len(tc_variants_per_input), (
+            "run_pac_hardware_comparison: inputs and tc_variants_per_input must have the same length"
+        )
+        import os as _os
+        dump_path = _os.path.join(_os.path.dirname(self._pac_log_file_path), "pac_last_hw_attempt.txt")
+        results: List[Tuple[HTrace, HTrace, HTrace]] = []
+        fix_points = self._stage1_fix_points or []
+        for i, (inp, variants) in enumerate(zip(inputs, tc_variants_per_input)):
+            for tc_name, tc in [("TC1", variants.tc1), ("TC2", variants.tc2), ("TC3", variants.tc3)]:
+                self._dump_pre_hw(tc_name, tc, inp, fix_points, i, dump_path)
+                try:
+                    ht = self._hw_trace_single_input(tc, inp, n_reps)
+                except Exception as e:
+                    self._pac_log(
+                        f"\n!!! HW CRASH: {tc_name} input={i} tc_counter={self._tc_counter}: {e}",
+                        also_print=True)
+                    self._pac_log_file.flush()
+                    raise
+                if tc_name == "TC1":
+                    tc1_ht = ht
+                elif tc_name == "TC2":
+                    tc2_ht = ht
+                else:
+                    tc3_ht = ht
+            results.append((tc1_ht, tc2_ht, tc3_ht))
+
+            if tc1_ht != tc2_ht:
+                self._pac_log(f"\n  [HW MISMATCH] TC {self._tc_counter} input {i}: TC1≠TC2 — logging variants",
+                              also_print=True)
+                cs = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
+                cs.detail = False
+                for name, variant_tc in [("TC1", variants.tc1), ("TC2", variants.tc2)]:
+                    layout = Aarch64ASMLayout(variant_tc)
+                    asm = Aarch64Printer(self.target_desc).print_layout(layout)
+                    variant_bytes = ConfigurableGenerator.in_memory_assemble(asm)
+                    self._pac_log(f"    {name} disassembly:")
+                    for insn in cs.disasm(variant_bytes, 0):
+                        self._pac_log(f"      +{insn.address:04x}: {insn.mnemonic} {insn.op_str}")
+
         return results
 
     # ── Core non-interference tracing ─────────────────────────────────────────
@@ -649,11 +941,11 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         if not inputs or self.test_case is None:
             return [], [], [], []
 
-        assert self._stage1_pac is not None, \
+        assert self._stage1_pac_instrumentation is not None, \
             "stage-1 cache is empty: load_test_case() was not called"
 
-        pac = self._stage1_pac
-        tmp = self._stage1_tmp
+        pac = self._stage1_pac_instrumentation
+        tc = self._stage1_tc
         fix_points = self._stage1_fix_points
         tc_bytes = self._stage1_tc_bytes
         pac_offset_to_fps = self._stage1_pac_offset_to_fps
@@ -672,8 +964,8 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             tc_memory = data[:0x2000]
             tc_regs = bytearray(data[0x2000:])
             view = memoryview(tc_regs).cast('Q')
-            # The hardware executor shifts the flags register left 28 bits; mirror that here.
-            view[6] = (view[6] << 28) & ((1 << 64) - 1)
+            # Reconstruct PSTATE from per-flag bytes (N→byte48, Z→49, C→50, V→51 → bits 31:28).
+            _reconstruct_pstate(view)
             tc_regs = bytes(tc_regs)
 
             execution = ContractExecution(tc_bytes, tc_memory, tc_regs, SimArch.RVZR_ARCH_AARCH64, 5, 10,
@@ -730,121 +1022,271 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             traces.append(cer)
 
             # Capture signed pointer and context values immediately after PACIA executes.
-            # The pac_sign_hook patches PACIA to NOP after the first (architectural) execution,
-            # so speculative re-runs at the same PC see NOP and the register holds the original
-            # unsigned pointer P instead of P*.  Overwriting fp.signed_value with P would make
-            # TC2's AUTIA(P, K, C) fail authentication → corrupted pointer → wrong CTrace.
-            # Fix: lock in the architectural (nesting=0) capture; don't overwrite it with
-            # speculative re-executions.
             if pac_offset_to_fps and len(cer) > 0:
                 actual_code_base = cer[0].cpu.pc
                 pac_pc_to_fps = {actual_code_base + off: fps
                                  for off, fps in pac_offset_to_fps.items()}
-                arch_captured: Set[int] = set()  # slot_ids captured at nesting==0
+                # Slots that have received at least one arch (nesting==0) capture.
+                # nesting==0 always overwrites (last arch firing = last signing in
+                # program order = the correct value to restore).
+                # nesting>0 is accepted only before any arch capture; once an arch
+                # value is recorded, speculative re-executions cannot overwrite it.
+                arch_seen_slots: Set[int] = set()
                 for ite in cer:
                     fps = pac_pc_to_fps.get(ite.cpu.pc)
                     if fps is not None:
+                        nesting = ite.metadata.speculation_nesting
                         for fp in fps:
-                            nesting = ite.metadata.speculation_nesting
-                            # Accept this entry if: architectural (nesting=0), or not yet captured.
-                            if nesting == 0 or fp.slot_id not in arch_captured:
-                                reg = fp.info.reg
-                                if reg.startswith('x') and reg[1:].isdigit():
-                                    fp.signed_value = ite.cpu.gpr[int(reg[1:])]
-                                ctx = fp.info.ctx_reg
-                                if ctx is not None and ctx.startswith('x') and ctx[1:].isdigit():
-                                    fp.ctx_value = ite.cpu.gpr[int(ctx[1:])]
-                                fp.spec_nesting = nesting
-                                if nesting == 0:
-                                    arch_captured.add(fp.slot_id)
+                            if nesting != 0 and fp.slot_id in arch_seen_slots:
+                                # Spec firing after arch: discard.
+                                continue
+                            reg = fp.info.reg
+                            if reg.startswith('x') and reg[1:].isdigit():
+                                fp.signed_value = ite.cpu.gpr[int(reg[1:])]
+                            ctx = fp.info.ctx_reg
+                            if ctx is not None and ctx.startswith('x') and ctx[1:].isdigit():
+                                fp.ctx_value = ite.cpu.gpr[int(ctx[1:])]
+                            fp.spec_nesting = nesting
+                            if nesting == 0:
+                                arch_seen_slots.add(fp.slot_id)
+
+            # ── Log per-input fixpoint captures + detect capture bugs ────────
+            inp_idx = inputs.index(inp)
+            regs_u64 = list(memoryview(data[0x2000:]).cast('Q'))
+            self._pac_log(f"\n  [TC {self._tc_counter} / input {inp_idx}]"
+                          f"  x0-x5={[hex(v) for v in regs_u64[:6]]}")
+
+            # Build a set of all slot-AUTH PCs that were hit at nesting==0 in this CE run.
+            slot_auth_pc_to_fp: Dict[int, FixPoint] = {}
+            if self._stage1_slot_auth_offset_to_fp and len(cer) > 0:
+                base = cer[0].cpu.pc
+                slot_auth_pc_to_fp = {base + off: fp
+                                      for off, fp in self._stage1_slot_auth_offset_to_fp.items()}
+            arch_reached_auth_pcs: Set[int] = set()
+            for ite in cer:
+                if ite.metadata.speculation_nesting == 0 and ite.cpu.pc in slot_auth_pc_to_fp:
+                    arch_reached_auth_pcs.add(ite.cpu.pc)
+
+            for fp in fix_points:
+                is_spec = fp.spec_nesting is not None and fp.spec_nesting > 0
+                signed_str = hex(fp.signed_value) if fp.signed_value is not None else "MISSING"
+                ctx_str    = hex(fp.ctx_value)    if fp.ctx_value    is not None else (
+                    "N/A" if fp.info.ctx_reg is None else "MISSING")
+                flag = ""
+                if fp.signed_value is None:
+                    # Find this fp's auth PC
+                    auth_pc = next((pc for pc, f in slot_auth_pc_to_fp.items() if f is fp), None)
+                    if auth_pc is not None and auth_pc in arch_reached_auth_pcs:
+                        # Auth slot executed at nesting==0 but signing was never captured → BUG
+                        flag = " *** BUG: AUTH slot reached arch (nesting=0) but signed_value not captured ***"
+                    else:
+                        flag = " [branch not taken in CE — poison loaded; slot should not fire in HW arch]"
+                self._pac_log(f"    slot={fp.slot_id:3d}  spec={is_spec}  nesting={fp.spec_nesting}  "
+                              f"signed={signed_str:22s}  ctx={ctx_str}{flag}")
+
+            # Raise if any auth slot fired architecturally without a captured signed_value.
+            bugs = [fp for fp in fix_points
+                    if fp.signed_value is None
+                    and any(slot_auth_pc_to_fp.get(pc) is fp
+                            for pc in arch_reached_auth_pcs)]
+            if bugs:
+                bug_details = "; ".join(
+                    f"slot={fp.slot_id} reg={fp.info.reg} auth={fp.info.auth_mnemonic}"
+                    for fp in bugs)
+                msg = (f"[CAPTURE BUG] TC {self._tc_counter} input {inp_idx}: "
+                       f"AUTH slot(s) executed at arch nesting=0 but signed_value was never captured. "
+                       f"Slots: {bug_details}")
+                self._pac_log(msg, also_print=True)
+                raise RuntimeError(msg)
 
             # Stage 2: generate TC variants (TC1/TC2/TC3) from the signed values captured above.
-            tc1, tc2, tc3 = pac.instrument_stage2(tmp, fix_points)
+            tc1, tc2, tc3 = pac.instrument_stage2(tc, fix_points)
             tc_variants_per_input.append(TCVariants(tc1=tc1, tc2=tc2, tc3=tc3))
 
-        # Taint tracking and CTrace computation (same logic as base class).
-        taints, ctraces = [], []
-        for cer in traces:
-            overriden_gprs = set()
-            overriden_memory = set()
-            input_taint = InputTaint()
-            accessed_memory = []
-            sandbox_u8 = input_taint.view(np.uint8)
-            actual_sandbox_memory_size = input_taint[0]["main"].view(np.uint8).size + input_taint[0]["faulty"].view(np.uint8).size
-            gpr_region_u8 = input_taint[0]["gpr"].view(np.uint8)
-            for ite in cer:
-                if ite.metadata.has_memory_access:
-                    for byte_idx in range(ite.metadata.memory_access.element_size):
-                        byte_offset = ite.metadata.memory_access.effective_address + byte_idx - ite.cpu.gpr[29]
-                        accessed_memory.append(byte_offset)
-                        if not ite.metadata.memory_access.is_write:
-                            if 0 <= byte_offset < actual_sandbox_memory_size:
-                                sandbox_u8[byte_offset] = True
-                        else:
-                            if not sandbox_u8[byte_offset]:
-                                overriden_memory.add(byte_offset)
-                srcs, dests = get_srcs_dests_operands(ite.cpu.encoding, ite.cpu.pc)
-                input_overriden_dests = set(filter(lambda op: op not in srcs and all(not gpr_region_u8[offset] for offset in map_operand_to_input_offsets(op)), dests))
-                overriden_gprs |= input_overriden_dests
-                for offset in chain.from_iterable(map(map_operand_to_input_offsets, srcs)):
-                    gpr_region_u8[offset] = True
-            for offset in overriden_memory:
-                sandbox_u8[offset] = False
-            for offset in chain.from_iterable(map(map_operand_to_input_offsets, overriden_gprs)):
-                gpr_region_u8[offset] = False
-            taints.append(input_taint)
+            # Log variant disassemblies + fix-point values for this input.
+            inp_idx = len(tc_variants_per_input) - 1
+            self._pac_log(f"\n--- Stage-2 variants for input {inp_idx} ---")
+            self._pac_log(f"  fix-point signed values:")
+            for fp in fix_points:
+                sv = hex(fp.signed_value) if fp.signed_value is not None else "None"
+                cv = hex(fp.ctx_value) if fp.ctx_value is not None else "None"
+                self._pac_log(f"    slot={fp.slot_id:3d}  reg={fp.info.reg:4s}"
+                              f"  signed={sv}  ctx={cv}  spec_nesting={fp.spec_nesting}")
+            for tc_name, variant in [("TC1", tc1), ("TC2", tc2), ("TC3", tc3)]:
+                disasm = self._disasm_tc(variant)
+                self._pac_log(f"  {tc_name} ({len(disasm)} insts):")
+                for l in disasm:
+                    self._pac_log(f"    {l}")
+            self._pac_log_file.flush()
 
-            line_size = 64
-            num_sets = 64
-            cache_sets = sorted(set(map(lambda addr: (addr // line_size) % num_sets, accessed_memory)))
-            ctraces.append(CTrace(raw_trace=cache_sets))
+        taints = [compute_taint(cer) for cer in traces]
+        ctraces = [compute_ctrace(cer) for cer in traces]
 
         return ctraces, taints, traces, tc_variants_per_input
 
 
-def map_operand_to_input_offsets(op: str) -> List[int]:
-    if op.lower().startswith(("x", "w")):
-        n = int(op[1:])
-        if n < 0 or n > 5:
-            raise ValueError(f"Register index must be 0–5, got {op}")
-        size = 8 if op.lower().startswith("x") else 4
-    elif op.lower() in ("n", "z", "c", "v"):
-        n = 6
-        size = 8
-    elif op.lower() == "sp":
-        n = 7
-        size = 8
-    elif op.lower() == "fp":
-        return []
-    else:
-        raise RuntimeError(f"Unexpected src register '{op}'")
+def _reconstruct_pstate(view: memoryview) -> None:
+    """Convert per-flag NZCV encoding in slot 6 to ARM PSTATE format via NZCVScheme."""
+    view[6] = NZCVScheme.to_pstate(int(view[6]))
 
-    return list(map(lambda byte_index: n * 8 + byte_index, range(size)))
+
+def _input_bytes_with_pstate(inp) -> bytes:
+    """Return inp.tobytes() with slot-6 converted from per-flag to PSTATE format."""
+    data = bytearray(inp.tobytes())
+    _reconstruct_pstate(memoryview(data[0x2000:]).cast('Q'))
+    return bytes(data)
+
+
+def map_operand_to_input_offsets(op: str) -> List[int]:
+    """Input byte offsets read by op (source/read side; w-regs cover only lower 4 bytes)."""
+    op_l = op.lower()
+    if op_l in ("fp", "lr", "xzr", "wzr"):
+        return []
+    if op_l.startswith(("x", "w")):
+        try:
+            n = int(op_l[1:])
+        except ValueError:
+            return []
+        if n < 0 or n > 5:
+            return []
+        size = 8 if op_l.startswith("x") else 4
+    elif op_l in NZCVScheme.flag_names():
+        return [NZCVScheme.input_byte(op_l)]
+    elif op_l == "sp":
+        n, size = 7, 8
+    else:
+        return []
+    return list(range(n * 8, n * 8 + size))
+
+
+def map_operand_to_dest_offsets(op: str) -> List[int]:
+    """Input byte offsets overwritten by op (destination/write side; w-reg writes zero-extend to all 8 bytes)."""
+    op_l = op.lower()
+    if op_l in ("fp", "lr", "xzr", "wzr"):
+        return []
+    if op_l.startswith(("x", "w")):
+        try:
+            n = int(op_l[1:])
+        except ValueError:
+            return []
+        if n < 0 or n > 5:
+            return []
+    elif op_l in NZCVScheme.flag_names():
+        return [NZCVScheme.input_byte(op_l)]
+    elif op_l == "sp":
+        n = 7
+    else:
+        return []
+    return list(range(n * 8, n * 8 + 8))
+
+
+class TaintTracker:
+    """
+    Tracks must-preserve input byte offsets across a DFS-ordered CE execution trace.
+
+    A depth-indexed write stack mirrors speculation nesting: writes at depth D are
+    visible to reads at depth <= D and are discarded when nesting decreases (squashed).
+    Depth-0 writes are architectural and persist for the whole trace.
+
+    Extensible: instantiate one TaintTracker per input region (GPR, memory, SIMD, …).
+    """
+
+    def __init__(self) -> None:
+        self._written: List[Set[int]] = [set()]
+        self.must_preserve: Set[int] = set()
+
+    def set_depth(self, depth: int) -> None:
+        while len(self._written) <= depth:
+            self._written.append(set())
+        while len(self._written) > depth + 1:
+            self._written.pop()
+
+    def on_read(self, offsets: Iterable[int], depth: int) -> None:
+        written = set().union(*self._written[:depth + 1])
+        self.must_preserve.update(o for o in offsets if o not in written)
+
+    def on_write(self, offsets: Iterable[int], depth: int) -> None:
+        self._written[depth].update(offsets)
+
+
+def compute_taint(cer: ContractExecutionResult) -> InputTaint:
+    """
+    Derive input taint from a single CE execution result.
+
+    A byte is marked must-preserve iff any execution path (arch or speculative)
+    reads it before writing to it.
+    """
+    input_taint = InputTaint()
+    sandbox_u8 = input_taint.view(np.uint8)
+    mem_size = (input_taint[0]["main"].view(np.uint8).size
+                + input_taint[0]["faulty"].view(np.uint8).size)
+    gpr_u8 = input_taint[0]["gpr"].view(np.uint8)
+
+    gpr_tracker = TaintTracker()
+    mem_tracker = TaintTracker()
+
+    for ite in cer:
+        depth = ite.metadata.speculation_nesting
+        gpr_tracker.set_depth(depth)
+        mem_tracker.set_depth(depth)
+
+        if ite.metadata.has_memory_access:
+            ma = ite.metadata.memory_access
+            for byte_idx in range(ma.element_size):
+                byte_offset = ma.effective_address + byte_idx - ite.cpu.gpr[29]
+                if 0 <= byte_offset < mem_size:
+                    if ma.is_write:
+                        mem_tracker.on_write((byte_offset,), depth)
+                    else:
+                        mem_tracker.on_read((byte_offset,), depth)
+
+        srcs, dests = get_srcs_dests_operands(ite.cpu.encoding, ite.cpu.pc)
+        gpr_tracker.on_read(chain.from_iterable(map(map_operand_to_input_offsets, srcs)), depth)
+        gpr_tracker.on_write(chain.from_iterable(map(map_operand_to_dest_offsets, dests)), depth)
+
+    for offset in gpr_tracker.must_preserve:
+        gpr_u8[offset] = True
+    for offset in mem_tracker.must_preserve:
+        sandbox_u8[offset] = True
+
+    return input_taint
+
+
+def compute_ctrace(cer: ContractExecutionResult) -> CTrace:
+    """Derive CTrace (cache-set footprint) from a single CE execution result."""
+    line_size, num_sets = 64, 64
+    cache_sets: Set[int] = set()
+    for ite in cer:
+        if ite.metadata.has_memory_access:
+            ma = ite.metadata.memory_access
+            for byte_idx in range(ma.element_size):
+                addr = ma.effective_address + byte_idx - ite.cpu.gpr[29]
+                cache_sets.add((addr // line_size) % num_sets)
+    return CTrace(raw_trace=sorted(cache_sets))
 
 def get_srcs_dests_operands(encoding: int, pc: int) -> Union[List, List]:
     FLAG_BITS = {"N", "Z", "C", "V"}
 
     def cc_to_read_flags(cc: int):
         cond_map = {
-                0: {"Z"},
-                8: {"Z"},
-                1: {"C"},
-                9: {"C"},
-                2:  {"N"},
-                10: {"N"},
-                3:  {"V"},
-                11: {"V"},
-                4:  {"C", "Z"},
-                12: {"C", "Z"},
-                5:  {"N", "V"},
-                13: {"N", "V"},
-                6:  {"Z", "N", "V"},
-                14: {"Z", "N", "V"},
-                7:  set(),
-                15: set(),
+            ARM64_CC_EQ: {"Z"},
+            ARM64_CC_NE: {"Z"},
+            ARM64_CC_HS: {"C"},
+            ARM64_CC_LO: {"C"},
+            ARM64_CC_MI: {"N"},
+            ARM64_CC_PL: {"N"},
+            ARM64_CC_VS: {"V"},
+            ARM64_CC_VC: {"V"},
+            ARM64_CC_HI: {"C", "Z"},
+            ARM64_CC_LS: {"C", "Z"},
+            ARM64_CC_GE: {"N", "V"},
+            ARM64_CC_LT: {"N", "V"},
+            ARM64_CC_GT: {"Z", "N", "V"},
+            ARM64_CC_LE: {"Z", "N", "V"},
+            ARM64_CC_AL: set(),
+            ARM64_CC_NV: set(),
         }
-        assert cc in cond_map
-        return cond_map[cc]
+        return cond_map.get(cc, {"N", "Z", "C", "V"})
 
     capstone_arm64 = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
     capstone_arm64.detail = True
@@ -858,7 +1300,8 @@ def get_srcs_dests_operands(encoding: int, pc: int) -> Union[List, List]:
         insn = insns[0]
         if insn.update_flags:
             dest |= FLAG_BITS
-        if insn.cc is not None:
+        # ARM64_CC_INVALID means unconditional; only add flag reads for real conditions.
+        if insn.cc is not None and insn.cc != ARM64_CC_INVALID:
             src |= cc_to_read_flags(insn.cc)
 
         for op in insn.operands:
@@ -883,6 +1326,14 @@ def get_srcs_dests_operands(encoding: int, pc: int) -> Union[List, List]:
         return [], []
 
 
+
+
+def is_conditional_branch(encoding: int) -> bool:
+    """Return True if encoding is a conditional branch: B.cond, CBZ/CBNZ (32/64), TBZ/TBNZ."""
+    op = (encoding >> 24) & 0xFF
+    return op in (0x54,                          # B.cond
+                  0x34, 0x35, 0xB4, 0xB5,        # CBZ/CBNZ w/x
+                  0x36, 0x37, 0xB6, 0xB7)        # TBZ/TBNZ w/x
 
 
 def disassemble_instruction(encoding: int, pc: int):
