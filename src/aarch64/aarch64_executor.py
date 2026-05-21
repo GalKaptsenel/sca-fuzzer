@@ -1328,6 +1328,15 @@ class Aarch64MteNonInterferenceExecutor(Aarch64LocalExecutor):
         traces: List[ContractExecutionResult] = []
         tc_variants_per_input: List[TCVariants] = []
 
+        # Build sandboxed TC once — CE on this produces branch offsets matching
+        # what trace_test_case() loads into the kernel module for mistraining.
+        sandboxed_patched = copy.deepcopy(self.test_case)
+        pass_on_test_case(sandboxed_patched, [Aarch64SandboxPass()])
+        sandboxed_layout = Aarch64ASMLayout(sandboxed_patched)
+        sandboxed_assembly = Aarch64Printer(self.target_desc).print_layout(sandboxed_layout)
+        sandboxed_tc_bytes = ConfigurableGenerator.in_memory_assemble(sandboxed_assembly)
+        sandboxed_traces: List[ContractExecutionResult] = []
+
         for inp in inputs:
             for fp in fix_points:
                 fp.reset()
@@ -1348,6 +1357,18 @@ class Aarch64MteNonInterferenceExecutor(Aarch64LocalExecutor):
             # contract_type defaults to ALWAYS_MISPREDICT — reveals speculative paths
             cer = self._contract_executor.run(execution)
             traces.append(cer)
+
+            # Run CE on the sandboxed TC for mistraining-compatible branch offsets.
+            sandboxed_execution = ContractExecution(
+                sandboxed_tc_bytes, tc_memory, tc_regs,
+                SimArch.RVZR_ARCH_AARCH64, nesting, 10,
+                req_mem_base_virt=sandbox_base,
+            )
+            try:
+                sandboxed_cer = self._contract_executor.run(sandboxed_execution)
+            except RuntimeError:
+                sandboxed_cer = cer  # fall back to stage-1 trace if sandboxed CE crashes
+            sandboxed_traces.append(sandboxed_cer)
 
             # Capture spec_nesting per slot with arch_seen semantics:
             # nesting==0 wins and cannot be overwritten by later speculative firings.
@@ -1371,10 +1392,12 @@ class Aarch64MteNonInterferenceExecutor(Aarch64LocalExecutor):
             tc1, tc2, tc3 = self._mte.instrument_stage2(tc, fix_points, sandbox_base)
             tc_variants_per_input.append(TCVariants(tc1=tc1, tc2=tc2, tc3=tc3))
 
-        taints = [compute_taint(cer) for cer in traces]
-        ctraces = [compute_ctrace(cer) for cer in traces]
+        # Use sandboxed-TC traces for ctrace/taint/mistraining — their branch offsets
+        # match the sandboxed TC that trace_test_case() loads into the kernel module.
+        taints = [compute_taint(cer) for cer in sandboxed_traces]
+        ctraces = [compute_ctrace(cer) for cer in sandboxed_traces]
 
-        return ctraces, taints, traces, tc_variants_per_input
+        return ctraces, taints, sandboxed_traces, tc_variants_per_input
 
 
 def _reconstruct_pstate(view: memoryview) -> None:
