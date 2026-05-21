@@ -879,7 +879,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         try:
             ce_variant_traces = self.trace_tc_variants_on_ce(inputs, tc_variants_per_input)
         except RuntimeError as e:
-            print(f"[CE_VARIANT_COMPARE] CE crashed while running variants: {e}")
+            #print(f"[CE_VARIANT_COMPARE] CE crashed while running variants: {e}")
             return
 
         for i, variant_ce in enumerate(ce_variant_traces):
@@ -898,8 +898,8 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                 print(f"[CE_VARIANT_COMPARE] input {i}: TC3 != TC1  (potential speculation side-effect)")
                 print(f"  TC1 ctrace: {tc1_ct.raw}")
                 print(f"  TC3 ctrace: {tc3_ct.raw}")
-            if not mismatch_1_2 and not mismatch_3_1:
-                print(f"[CE_VARIANT_COMPARE] input {i}: TC1 == TC2 == TC3  {tc1_ct.raw}")
+            #if not mismatch_1_2 and not mismatch_3_1:
+            #    print(f"[CE_VARIANT_COMPARE] input {i}: TC1 == TC2 == TC3  {tc1_ct.raw}")
 
     def run_pac_hardware_comparison(
         self,
@@ -935,11 +935,11 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                                   stage1_bytes=self._stage1_tc_bytes)
                 spec_summary = [(fp.slot_id, fp.spec_nesting) for fp in fix_points
                                 if fp.spec_nesting is not None and fp.spec_nesting > 0]
-                print(f"[PAC HW] tc={self._tc_counter} {tc_name} input={i}"
-                      f"  spec_slots={spec_summary}  STARTING", flush=True)
+                #print(f"[PAC HW] tc={self._tc_counter} {tc_name} input={i}"
+                #      f"  spec_slots={spec_summary}  STARTING", flush=True)
                 try:
                     ht = self._hw_trace_single_input(tc, inp, n_reps)
-                    print(f"[PAC HW] tc={self._tc_counter} {tc_name} input={i}  OK", flush=True)
+                #    print(f"[PAC HW] tc={self._tc_counter} {tc_name} input={i}  OK", flush=True)
                 except Exception as e:
                     self._pac_log(
                         f"\n!!! HW CRASH: {tc_name} input={i} tc_counter={self._tc_counter}: {e}",
@@ -997,6 +997,15 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         traces: List[ContractExecutionResult] = []
         tc_variants_per_input: List[TCVariants] = []
         last_cer: Optional[ContractExecutionResult] = None
+
+        # Build the sandboxed TC once — CE on this produces branch offsets that match
+        # what trace_test_case() loads into the kernel module, so mistraining is correct.
+        sandboxed_patched = copy.deepcopy(self.test_case)
+        pass_on_test_case(sandboxed_patched, [Aarch64SandboxPass()])
+        sandboxed_layout = Aarch64ASMLayout(sandboxed_patched)
+        sandboxed_assembly = Aarch64Printer(self.target_desc).print_layout(sandboxed_layout)
+        sandboxed_tc_bytes = ConfigurableGenerator.in_memory_assemble(sandboxed_assembly)
+        sandboxed_traces: List[ContractExecutionResult] = []
 
         for inp in inputs:
             # Reset per-input fix-point state (signed_value, ctx_value, spec_nesting).
@@ -1063,6 +1072,19 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                 raise
             last_cer = cer
             traces.append(cer)
+
+            # Run CE on the sandboxed TC so that branch offsets in the returned trace match
+            # what trace_test_case() loads into the kernel module for mistraining.
+            sandboxed_execution = ContractExecution(
+                sandboxed_tc_bytes, tc_memory, tc_regs,
+                SimArch.RVZR_ARCH_AARCH64, 5, 10,
+                req_mem_base_virt=sandbox_base,
+            )
+            try:
+                sandboxed_cer = self._contract_executor.run(sandboxed_execution)
+            except RuntimeError:
+                sandboxed_cer = cer  # fall back to stage-1 trace if sandboxed CE crashes
+            sandboxed_traces.append(sandboxed_cer)
 
             # Capture signed pointer and context values immediately after PACIA executes.
             if pac_offset_to_fps and len(cer) > 0:
@@ -1215,10 +1237,12 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                     self._pac_log(f"    {l}")
             self._pac_log_file.flush()
 
-        taints = [compute_taint(cer) for cer in traces]
-        ctraces = [compute_ctrace(cer) for cer in traces]
+        # Use sandboxed-TC traces for ctrace/taint/mistraining — their branch offsets
+        # match the sandboxed TC that trace_test_case() loads into the kernel module.
+        taints = [compute_taint(cer) for cer in sandboxed_traces]
+        ctraces = [compute_ctrace(cer) for cer in sandboxed_traces]
 
-        return ctraces, taints, traces, tc_variants_per_input
+        return ctraces, taints, sandboxed_traces, tc_variants_per_input
 
 
 # ==================================================================================================
