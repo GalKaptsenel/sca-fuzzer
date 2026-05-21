@@ -128,7 +128,7 @@ inline int is_unsigned_offset(uint32_t inst) { return ((inst >> 24) & 0x3) == 0x
 inline int is_pair_pre_index(uint32_t inst) { return ((inst >> 23) & 0x7) == 0b011; }
 inline int is_pair_post_index(uint32_t inst) { return ((inst >> 23) & 0x7) == 0b001; }
 inline int is_pair_signed_offset(uint32_t inst) { return ((inst >> 23) & 0x7) == 0b010; }
-inline int is_immidiate_offset(uint32_t inst) { return is_pre_index(inst) || is_post_index(inst) || is_unsigned_offset(inst); }
+inline int is_immediate_offset(uint32_t inst) { return is_pre_index(inst) || is_post_index(inst) || is_unsigned_offset(inst); }
 inline uint32_t get_rm(uint32_t inst) { return (inst >> 16) & 0x1F; }
 inline uint32_t get_rn(uint32_t inst) { return (inst >> 5) & 0x1F; }
 inline uint32_t get_rt(uint32_t inst) { return (inst) & 0x1F; }

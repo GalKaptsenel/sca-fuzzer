@@ -27,6 +27,13 @@ enum config_flags {
 	CONFIG_FLAG_REQ_MEM_BASE_VIRT	= 1 << 3,
 };
 
+/* Which speculative contract to simulate. */
+enum contract_type {
+	CONTRACT_ALWAYS_MISPREDICT	= 0,	/* explore every mispredicted branch */
+	CONTRACT_ARCH_ONLY		= 1,	/* follow architectural path, no speculation */
+	CONTRACT_BPU_NEOVERSE_N3	= 2,	/* mispredict when TAGE (Neoverse N3 model) disagrees with arch */
+};
+
 /* ============================
  * On-disk header format
  * ============================ */
@@ -39,11 +46,12 @@ enum config_flags {
 struct configuration {
 	uint64_t flags;
 	uint64_t max_misspred_branch_nesting;
-	uint64_t max_misspred_instructioins; // NOT SUPPPORTED
+	uint64_t max_misspred_instructions; // NOT SUPPORTED
 	uint64_t requested_code_base_phys; // NOT SUPPORTED
 	uint64_t requested_code_base_virt;
 	uint64_t requested_mem_base_phys; // NOT SUPPORTED
 	uint64_t requested_mem_base_virt;
+	uint64_t contract_type;            /* enum contract_type; 0 = always-mispredict */
 };
 
 struct input_header {

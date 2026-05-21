@@ -27,3 +27,11 @@ SRCS = \
 contract_executor: $(SRCS)
 	$(CC) $(CFLAGS) $(PYTHON_CFLAGS) $(SRCS) -o $@ $(PYTHON_LDFLAGS)
 
+TEST_SRCS = instruction_encodings.c simulation_input.c test_ce.c
+test_ce: $(TEST_SRCS)
+	$(CC) $(CFLAGS) -I. $(TEST_SRCS) -o $@
+
+INT_TEST_SRCS = instruction_encodings.c simulation_input.c test_ce_integration.c
+test_ce_integration: $(INT_TEST_SRCS)
+	$(CC) $(CFLAGS) -I. $(INT_TEST_SRCS) -o $@
+

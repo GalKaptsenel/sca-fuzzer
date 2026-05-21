@@ -130,7 +130,7 @@ static bool safe_file_read(FILE* f, void* buff, size_t size) {
 	}
 }
 
-static int recieve_payload_from_file(FILE* f, void* payload, size_t buffer_size) {
+static int receive_payload_from_file(FILE* f, void* payload, size_t buffer_size) {
 	if(NULL == f || NULL == payload) return -1;
 
 	struct header hdr = { 0 };
@@ -157,9 +157,9 @@ static uint8_t tmp_buffer[MAX_PAYLOAD_SIZE] = { 0 };
 int simulation_input_from_file(FILE* f, struct simulation_input* sim_input) {
 	if(NULL == f || NULL == sim_input) return -1;
 
-	int ret = recieve_payload_from_file(f, tmp_buffer, sizeof(tmp_buffer));
+	int ret = receive_payload_from_file(f, tmp_buffer, sizeof(tmp_buffer));
 	if(ret <= 0) return ret;
-
+	size_t payload_len = (size_t)ret;
 
 	const uint8_t* current_ptr = tmp_buffer;
 	memset(sim_input, 0, sizeof(*sim_input));
@@ -168,6 +168,12 @@ int simulation_input_from_file(FILE* f, struct simulation_input* sim_input) {
 
 	if (0 > simulation_input_validate_header(&sim_input->hdr)) {
 		fprintf(stderr, "Input validation failed!\n");
+		ret = -1;
+		goto simulation_input_from_file_err;
+	}
+
+	if (payload_len < sizeof(sim_input->hdr) + sim_input->hdr.code_size + sim_input->hdr.mem_size + sim_input->hdr.regs_size) {
+		fprintf(stderr, "Payload truncated!\n");
 		ret = -1;
 		goto simulation_input_from_file_err;
 	}
@@ -209,7 +215,7 @@ int simulation_input_from_file(FILE* f, struct simulation_input* sim_input) {
 simulation_input_from_file_err:
 	simulation_input_free(sim_input);
 simulation_input_from_file_success:
-	memset(tmp_buffer, 0, current_ptr - tmp_buffer);
+	memset(tmp_buffer, 0, payload_len);
 	current_ptr = NULL;
 
 	return ret;

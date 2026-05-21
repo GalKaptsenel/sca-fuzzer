@@ -4,7 +4,6 @@
 #include "instruction_encodings.h"
 
 #include "simulation_output.h"
-#define SCRATCH_REG 10
 
 volatile struct cpu_state g_last_hook_cpu_state;
 volatile uint32_t g_last_hook_orig_instr;
@@ -56,9 +55,8 @@ void ce_debug_print_last_sim_state(FILE *out) {
 //static uint32_t* holes[MAX_INSTRUCTIONS] = { 0 };
 
 typedef struct {
-	void *addr;        // Address of the instruction or memory
-	uint32_t original; // Original instruction
-	uint8_t overriden_reg;
+	void *addr;        // Address of the instruction (kept for debugging)
+	uint32_t original; // Original instruction; Rn is extracted from this by apply_fixups
 } fixup_t;
 
 #define MAX_FIXUPS 1024
@@ -69,18 +67,18 @@ static void revert_log_fixup(void) {
 	memset(fixups, 0, fixup_count * sizeof(fixups[0]));
 	fixup_count = 0;
 }
-static void log_fixup(void *addr, uint32_t original, uint8_t scratch) {
+static void log_fixup(void *addr, uint32_t original) {
 	if (fixup_count >= MAX_FIXUPS) return;
 	fixups[fixup_count].addr = addr;
 	fixups[fixup_count].original = original;
-	fixups[fixup_count].overriden_reg = scratch;
 	++fixup_count;
 }
 
 static void apply_fixups(struct cpu_state* state) {
 	for (size_t i = 0; i < fixup_count; ++i) {
-	       	*(uint32_t*)fixups[i].addr = fixups[i].original;
-		state->gpr[29-get_rn(fixups[i].original)] = (uintptr_t)uaddr2kaddr((void*)state->gpr[29-fixups[i].overriden_reg]);
+		uint32_t rn = get_rn(fixups[i].original);
+		uintptr_t uaddr = cpu_state_read_base_reg(state, rn);
+		cpu_state_write_base_reg(state, rn, (uintptr_t)uaddr2kaddr((void*)uaddr));
 	}
 	revert_log_fixup();
 }
@@ -142,9 +140,14 @@ bool out_of_simulation(struct cpu_state* state) {
 
 void base_hook_c(struct cpu_state* state) {
 	if (NULL == state) __builtin_trap();
+	/* apply_fixups MUST run first: it restores kaddr in any Rn that was
+	 * translated to uaddr for the previous memory instruction.  Every
+	 * subsequent reader of *state (debug snapshot, hook loop, everything)
+	 * must see kaddr, never uaddr.  Do not move any read of *state above
+	 * this call. */
+	apply_fixups(state);
 	g_last_hook_cpu_state = *state;
 	g_last_hook_orig_instr = out_of_simulation(state) ? 0xd65f03c0 : pc_to_orig_instruction(state->pc);
-	apply_fixups(state);
 
 	struct simulation_state sim_state = { 0 };
 
@@ -169,7 +172,9 @@ void base_hook_c(struct cpu_state* state) {
 
 	memcpy(simulation.sim_input.code, simulation.sim_code.code, simulation.sim_input.hdr.code_size); // copy changes from hooks
 
-	inner_hook_aarch64_instructions(&simulation.sim_code);
+	if(NULL == inner_hook_aarch64_instructions(&simulation.sim_code)) {
+		__builtin_trap();
+	}
 
 	simulation.return_address = sim_state.cpu_state.lr; // copy changes from hooks to the LR register
 
@@ -183,15 +188,15 @@ void base_hook_c(struct cpu_state* state) {
 		*((uint32_t*)state->pc) = 0xd65f03c0; // Manually insert RET
 	}
 
+	__builtin___clear_cache((char*)state->pc, (char*)state->pc + 4); /* must precede the translation below */
+
+	/* LAST write to *state — nothing must follow this block. */
 	if(is_memory_access(*(uint32_t*)state->pc)) {
-
-		uint32_t original_reg = get_rn(*(uint32_t*)state->pc);
-		state->gpr[29-SCRATCH_REG] = (uintptr_t)kaddr2uaddr((void*)state->gpr[29-original_reg]);
-		log_fixup((void*)state->pc, *(uint32_t*)state->pc, SCRATCH_REG);
-		*(uint32_t*)state->pc = set_rn(*(uint32_t*)state->pc, SCRATCH_REG);
+		uint32_t rn = get_rn(*(uint32_t*)state->pc);
+		uintptr_t kaddr = cpu_state_read_base_reg(state, rn);
+		cpu_state_write_base_reg(state, rn, (uintptr_t)kaddr2uaddr((void*)kaddr));
+		log_fixup((void*)state->pc, *(uint32_t*)state->pc);
 	}
-
-	__builtin___clear_cache((char*)state->pc, (char*)state->pc + 4);
 }
 
 void* stdout_print_hook(struct simulation_state* sim_state) {

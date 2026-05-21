@@ -54,14 +54,11 @@ static inline int64_t get_offset(uint32_t inst) {
 	__builtin_trap();
 }
 
-// TODO: Verify corrctness!
 static int64_t signextend(size_t orig_len, size_t dest_len, int64_t value) {
-	uint8_t sign = (1ull << (orig_len - 1)) & value;
-	uint64_t extension = 0;
-	if(sign) {
-		extension = ((1ull << (dest_len - orig_len)) - 1) << orig_len;
-	}
-	return extension | value;
+	(void)dest_len; /* always extends to 64 bits (int64_t) */
+	if (orig_len == 0 || orig_len >= 64) { return value; }
+	int shift = 64 - (int)orig_len;
+	return (int64_t)((uint64_t)value << shift) >> shift;
 }
 
 void* kaddr2uaddr(void* kaddr) {
@@ -87,11 +84,6 @@ void* uaddr2kaddr(void* uaddr) {
 }
 
 
-// TODO: Verify corrctness!
-static uint64_t zeroextend(size_t orig_len, size_t dest_len, uint64_t value) {
-	uint64_t extension = ~(((1ull << (dest_len - orig_len)) - 1) << orig_len);
-	return extension & value;
-}
 static int parse_memory_access_instruction(
 	uint32_t inst,
 	const cpu_state_t *state,
@@ -179,20 +171,17 @@ static int parse_memory_access_instruction(
 				rm_val &= ((1ull << 32) - 1);
 			}
 
-			size_t orig_len = (src_len < 64 - shift_amount) ? src_len : 64 - shift_amount;
-			uint64_t mask_offset_val= -1;
-			if(64 != orig_len) mask_offset_val = ((1ull << orig_len) - 1);
-			uint64_t offset_val= (rm_val & mask_offset_val) << shift_amount;
-
-			if(is_signed) {
-				int64_t extended_val = signextend(orig_len, 64, offset_val);
-				effective_address_computed = (uint64_t)((int64_t)base + extended_val);
+			/* ARM ExtendReg: mask to src_len bits, sign/zero-extend to 64, then shift */
+			uint64_t mask_src = (src_len < 64) ? ((1ull << src_len) - 1) : (uint64_t)-1;
+			uint64_t rm_narrow = rm_val & mask_src;
+			if (is_signed) {
+				int64_t sext_val = signextend(src_len, 64, (int64_t)rm_narrow);
+				effective_address_computed = (uint64_t)((int64_t)base + (int64_t)((uint64_t)sext_val << shift_amount));
 			} else {
-				uint64_t extended_val = zeroextend(orig_len, 64, offset_val);
-				effective_address_computed = base + extended_val;
+				effective_address_computed = base + (rm_narrow << shift_amount);
 			}
 
-		} else if(is_immidiate_offset(inst)){
+		} else if(is_immediate_offset(inst)){
 			if(is_unsigned_offset(inst)) {
 				uint64_t offset = (uint64_t)get_offset(inst);
 				effective_address_computed = base + offset;
@@ -226,9 +215,11 @@ static int parse_memory_access_instruction(
 			__builtin_unreachable();
 		}
 	} else if(is_literal_pc_relative(inst)) {
-		if (is_store_inst) *is_store_inst = false;
-		if(is_load_inst) *is_load_inst = 1; // Only loads exist PC-relative
-		if(data_size) *data_size = literal_pc_relative_access_size(inst);
+		uint64_t sz = literal_pc_relative_access_size(inst);
+		if (0 == sz) { return 0; } // PRFM: prefetch hint, not a real memory load
+		if (is_store_inst) { *is_store_inst = false; }
+		if (is_load_inst) { *is_load_inst = 1; }
+		if (data_size) { *data_size = sz; }
 		int64_t offset = decode_imm19(inst) * 4;
 		effective_address_computed = (uint64_t)((int64_t)state->pc + offset);
 	}

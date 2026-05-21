@@ -92,6 +92,23 @@ _Static_assert(offsetof(struct cpu_state, pc)   == 16,  "pc offset wrong");
 _Static_assert(offsetof(struct cpu_state, lr)   == 24,  "lr offset wrong");
 _Static_assert(offsetof(struct cpu_state, gprs) == 32,  "gprs offset wrong");
 
+/*
+ * Read / write the base register indexed by an instruction's Rn field.
+ *
+ * Rn=31 maps to SP (separate field, not part of gpr[]).
+ * Rn=0..30 maps to gpr[29-Rn] because the gpr[] array is stored in
+ * descending register order (gpr[0]=x29, gpr[29]=x0).
+ */
+static inline uintptr_t cpu_state_read_base_reg(const struct cpu_state *s, uint32_t rn) {
+    if (rn == 31) { return s->sp; }
+    return s->gpr[29 - (int)rn];
+}
+
+static inline void cpu_state_write_base_reg(struct cpu_state *s, uint32_t rn, uintptr_t val) {
+    if (rn == 31) { s->sp = val; return; }
+    s->gpr[29 - (int)rn] = val;
+}
+
 
 struct simulation_state {
 	struct cpu_state cpu_state;

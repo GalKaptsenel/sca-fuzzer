@@ -851,30 +851,7 @@ class PACInstrumentation(_SandboxInstrumentationBase):
         taken just before the auth strip, used by instrument_stage1 to build auth-slot
         pac_insts with the correct union across all CFG paths.
         """
-        # Build predecessor map (BasicBlock only stores successors).
-        predecessors: Dict = {}
-        for bb in func:
-            if bb not in predecessors:
-                predecessors[bb] = []
-            for succ in bb.successors:
-                if succ not in predecessors:
-                    predecessors[succ] = []
-                predecessors[succ].append(bb)
-
-        # Topological sort via post-order DFS, then reverse.
-        topo: List = []
-        seen: Set = set()
-
-        def _dfs(bb: BasicBlock) -> None:
-            if bb in seen:
-                return
-            seen.add(bb)
-            for succ in bb.successors:
-                _dfs(succ)
-            topo.append(bb)
-
-        _dfs(func.get_first_bb())
-        topo.reverse()
+        predecessors, topo = self._topo_sort(func)
 
         taint_out: Dict[BasicBlock, frozenset] = {}
         # Parallel to taint_out: maps each BB to {norm_reg -> frozenset[Instruction]}.
@@ -1310,7 +1287,7 @@ class PACInstrumentation(_SandboxInstrumentationBase):
 # MTE non-interference instrumentation
 # ===========================================================================
 
-MTE_SLOT_SIZE = 1  # single ADDG Xd,Xd,#0,#0 sentinel per memory access
+MTE_SLOT_SIZE = 1  # one NOP placeholder per memory access
 
 
 @dataclass
@@ -1319,26 +1296,26 @@ class MTEFixPoint:
     slot_id: int
     bb: BasicBlock
     mem_inst: Instruction
-    reg: str                       # original base register name (always xN / sp on AArch64)
-    slot_insts: List[Instruction]  # single-element: [sentinel]
+    reg: str                       # original base register name
+    slot_insts: List[Instruction]  # single-element: [nop placeholder]
     spec_nesting: Optional[int] = None
 
     def reset(self) -> None:
         self.spec_nesting = None
 
 
-class MTEInstrumentation:
+class MTEInstrumentation(_SandboxInstrumentationBase):
     """
-    Two-stage MTE non-interference instrumentation, modelled after PACInstrumentation.
+    Two-stage MTE non-interference instrumentation.
 
-    Stage 1: insert ADDG Xd,Xd,#0,#0 sentinels before every memory access.
+    Stage 1: insert a NOP placeholder before every memory access.
              For registers not yet correctly sandbox-tagged, AND+ADD is prepended.
              Taint = frozenset of normalized register names holding a correctly-
-             sandbox-tagged address (went through AND+ADD with x29 without being
-             overwritten).  Taint is cleared on any register write; intersection
-             at CFG join nodes.
+             sandbox-tagged address (via AND+ADD with x29, not subsequently overwritten).
+             Taint is cleared on any register write; intersection at CFG join nodes.
+             ADDG/SUBG with imm4==0 propagate the source tag to the destination.
 
-    Stage 2: replace each sentinel to produce TC1/TC2/TC3:
+    Stage 2: replace each NOP placeholder to produce TC1/TC2/TC3:
              TC1 → NOP (correct flow, arch_tag everywhere — baseline)
              TC2 → arch: NOP;  spec: IRG Xd,Xd  (random tag)
              TC3 → arch: NOP;  spec: MOVK Xd,#wrong_upper16,LSL#48  (deterministic wrong tag)
@@ -1356,20 +1333,13 @@ class MTEInstrumentation:
     # Instruction builders
     # ------------------------------------------------------------------
 
-    def _make_mte_sentinel(self, reg: str, slot_id: int) -> Instruction:
-        inst = Instruction("addg", True, "", False,
-                           template=f"ADDG {reg}, {reg}, #0, #0")
-        inst._mte_slot_id = slot_id
-        return inst
-
     def _make_mte_nop(self, slot_id: int) -> Instruction:
         nop = Instruction("nop", True, "", False, template="NOP")
         nop._mte_slot_id = slot_id
         return nop
 
     def _make_mte_irg(self, reg: str, slot_id: int) -> Instruction:
-        inst = Instruction("irg", True, "", False,
-                           template=f"IRG {reg}, {reg}")
+        inst = Instruction("irg", True, "", False, template=f"IRG {reg}, {reg}")
         inst._mte_slot_id = slot_id
         return inst
 
@@ -1379,58 +1349,24 @@ class MTEInstrumentation:
         inst._mte_slot_id = slot_id
         return inst
 
-    def _make_sandbox_insts(self, reg: str) -> List[Instruction]:
-        and_inst = Instruction("and", True, "", False,
-                               template=f"AND {reg}, {reg}, {self._sandbox_mask}")
-        add_inst = Instruction("add", True, "", False,
-                               template=f"ADD {reg}, {reg}, {self._sandbox_base_reg}")
-        return [and_inst, add_inst]
-
-    def _make_offset_sub_insts(self, mem_inst: Instruction, base_reg: str) -> List[Instruction]:
-        result: List[Instruction] = []
-        for op in mem_inst.get_mem_operands()[1:]:
-            if op.name.lower() == "pimm":
-                current = int(op.value)
-                while current > 0:
-                    chunk = min(4095, current)
-                    result.append(Instruction("sub", True, "", False,
-                                              template=f"SUB {base_reg}, {base_reg}, #{chunk}"))
-                    current -= chunk
-            else:
-                result.append(Instruction("sub", True, "", False,
-                                          template=f"SUB {base_reg}, {base_reg}, {op.value}"))
-        return result
-
     # ------------------------------------------------------------------
     # Taint helpers
     # ------------------------------------------------------------------
 
-    def _norm_reg(self, reg: str) -> str:
-        return self._norm.get(reg, reg)
-
-    def _dest_regs(self, inst: Instruction) -> frozenset:
-        """Normalized names of registers written by inst (including writeback base)."""
-        result = frozenset(
-            self._norm_reg(op.value)
-            for op in inst.operands + inst.implicit_operands
-            if op.dest and op.type == OT.REG and op.value in self._norm
-        )
-        if inst.has_memory_access:
-            has_simm = any(op.name.lower() == 'simm'
-                           for op in inst.operands + inst.implicit_operands)
-            has_imm = any(op.name.lower() == 'imm'
-                          for op in inst.operands + inst.implicit_operands)
-            if has_simm or (len(inst.operands) == 4 and has_imm):
-                base = self._get_mem_base_reg(inst)
-                if base is not None and base in self._norm:
-                    result = result | frozenset([self._norm_reg(base)])
-        return result
-
-    def _get_mem_base_reg(self, inst: Instruction) -> Optional[str]:
-        for op in inst.operands + inst.implicit_operands:
-            if op.type == OT.MEM:
-                return op.value
-        return None
+    def _mte_tag_propagates(self, inst: Instruction) -> Optional[Tuple[str, str]]:
+        """If inst preserves the tag unchanged (ADDG/SUBG with imm4==0),
+        return (dest_reg, src_reg). Otherwise None."""
+        if inst.name.lower() not in ('addg', 'subg'):
+            return None
+        if len(inst.operands) < 4:
+            return None
+        try:
+            imm4 = int(inst.operands[3].value)
+        except (ValueError, IndexError):
+            return None
+        if imm4 != 0:
+            return None
+        return inst.operands[0].value, inst.operands[1].value
 
     # ------------------------------------------------------------------
     # Stage-1 dataflow pass
@@ -1444,36 +1380,18 @@ class MTEInstrumentation:
         insertions: List,
         taint_log: List,
     ) -> int:
-        """Topological taint pass: build sentinel fix_points for every memory access.
+        """Topological taint pass: build NOP-placeholder fix_points for every memory access.
 
         taint (curr) = frozenset of normalized register names that hold a
         correctly-sandbox-tagged address (via AND+ADD with x29).
         Cleared on any register write; intersection at CFG join nodes.
+        ADDG/SUBG with imm4==0 propagate the source tag to the destination.
 
         For each memory access:
-          tainted base  → offset_subs + sentinel only
-          untainted base → AND+ADD + offset_subs + sentinel; reg added to taint
+          tainted base  → offset_subs + NOP placeholder only
+          untainted base → AND+ADD + offset_subs + NOP placeholder; reg added to taint
         """
-        predecessors: Dict[BasicBlock, List[BasicBlock]] = {}
-        for bb in func:
-            predecessors.setdefault(bb, [])
-            for succ in bb.successors:
-                predecessors.setdefault(succ, []).append(bb)
-
-        topo: List[BasicBlock] = []
-        seen: Set[BasicBlock] = set()
-
-        def _dfs(bb: BasicBlock) -> None:
-            if bb in seen:
-                return
-            seen.add(bb)
-            for succ in bb.successors:
-                _dfs(succ)
-            topo.append(bb)
-
-        _dfs(func.get_first_bb())
-        topo.reverse()
-
+        predecessors, topo = self._topo_sort(func)
         taint_out: Dict[BasicBlock, frozenset] = {}
 
         for bb in topo:
@@ -1495,35 +1413,48 @@ class MTEInstrumentation:
                         offset_subs = self._make_offset_sub_insts(inst, mem_reg)
                         sid = slot_counter
                         slot_counter += 1
-                        sentinel = self._make_mte_sentinel(mem_reg, sid)
+                        nop = self._make_mte_nop(sid)
                         fp = MTEFixPoint(slot_id=sid, bb=bb, mem_inst=inst,
-                                         reg=mem_reg, slot_insts=[sentinel])
+                                         reg=mem_reg, slot_insts=[nop])
                         fix_points.append(fp)
 
                         if norm_mem in curr:
-                            insertions.append((inst, bb, [], offset_subs, [sentinel]))
+                            insertions.append((inst, bb, [], offset_subs, [nop]))
                             taint_log.append(
                                 f"  MEM-ACCESS   inst={inst.name:12s}  base={mem_reg}"
-                                f"  decision=SENTINEL-ONLY"
+                                f"  decision=NOP-ONLY"
                                 f"  taint={sorted(curr)}")
                         else:
                             sandbox_insts = self._make_sandbox_insts(mem_reg)
-                            insertions.append((inst, bb, sandbox_insts, offset_subs, [sentinel]))
+                            insertions.append((inst, bb, sandbox_insts, offset_subs, [nop]))
                             curr = curr | frozenset([norm_mem])
                             taint_log.append(
                                 f"  MEM-ACCESS   inst={inst.name:12s}  base={mem_reg}"
-                                f"  decision=SANDBOX+SENTINEL"
+                                f"  decision=SANDBOX+NOP"
                                 f"  taint={sorted(curr)}")
                     else:
                         taint_log.append(
                             f"  MEM-ACCESS   inst={inst.name:12s}  base=None(implicit?)"
                             f"  decision=SKIP")
 
+                prop = self._mte_tag_propagates(inst)
                 for dreg in self._dest_regs(inst):
-                    if dreg in curr:
-                        taint_log.append(
-                            f"  ARITH-CLEAR  inst={inst.name:12s}  clears={dreg}")
-                    curr = curr - frozenset([dreg])
+                    if prop is not None and dreg == self._norm_reg(prop[0]):
+                        norm_src = self._norm_reg(prop[1])
+                        if norm_src in curr:
+                            curr = curr | frozenset([dreg])
+                            taint_log.append(
+                                f"  TAG-PRESERVE inst={inst.name:12s}  {norm_src}->{dreg}")
+                        else:
+                            if dreg in curr:
+                                taint_log.append(
+                                    f"  ARITH-CLEAR  inst={inst.name:12s}  clears={dreg}")
+                            curr = curr - frozenset([dreg])
+                    else:
+                        if dreg in curr:
+                            taint_log.append(
+                                f"  ARITH-CLEAR  inst={inst.name:12s}  clears={dreg}")
+                        curr = curr - frozenset([dreg])
 
             taint_out[bb] = curr
 
@@ -1534,13 +1465,13 @@ class MTEInstrumentation:
     # ------------------------------------------------------------------
 
     def instrument_stage1(self, test_case: TestCase) -> Tuple[TestCase, List[MTEFixPoint]]:
-        """Instrument test_case with ADDG sentinels before every memory access.
+        """Instrument test_case with NOP placeholders before every memory access.
 
         Returns (instrumented_tc, fix_points).
         instrumented_tc contains:
           - optional AND+ADD before each memory access (for untainted registers)
           - optional offset SUBs (for immediate-offset addressing modes)
-          - ADDG Xd,Xd,#0,#0 sentinel immediately before each memory access
+          - NOP placeholder immediately before each memory access
         """
         tc = copy.deepcopy(test_case)
         fix_points: List[MTEFixPoint] = []
@@ -1554,12 +1485,12 @@ class MTEInstrumentation:
                 func, slot_counter, fix_points, insertions, func_log)
             self.last_taint_log.extend(func_log)
 
-            for mem_inst, bb, sandbox_insts, offset_subs, sentinel_insts in insertions:
+            for mem_inst, bb, sandbox_insts, offset_subs, nop_insts in insertions:
                 for s in sandbox_insts:
                     bb.insert_before(mem_inst, s)
                 for s in offset_subs:
                     bb.insert_before(mem_inst, s)
-                for s in sentinel_insts:
+                for s in nop_insts:
                     bb.insert_before(mem_inst, s)
 
         return tc, fix_points
@@ -1578,9 +1509,8 @@ class MTEInstrumentation:
                         slot_map[inst._mte_slot_id] = (inst, bb)
         return slot_map
 
-    def _fill_slot(self, slot_map: Dict, fp: MTEFixPoint,
-                   new_inst: Instruction) -> None:
-        """Replace the single sentinel instruction for fp.slot_id with new_inst."""
+    def _fill_slot(self, slot_map: Dict, fp: MTEFixPoint, new_inst: Instruction) -> None:
+        """Replace the NOP placeholder for fp.slot_id with new_inst."""
         entry = slot_map.get(fp.slot_id)
         assert entry is not None, (
             f"MTE slot_id={fp.slot_id} not in slot_map "
@@ -1604,7 +1534,7 @@ class MTEInstrumentation:
         sandbox_base is used to compute the deterministic wrong tag for TC3.
         spec_nesting must be populated on each FixPoint before calling.
 
-        TC1 — correct flow: all sentinels → NOP
+        TC1 — correct flow: all placeholders → NOP
         TC2 — arch: NOP;  spec: IRG Xd,Xd  (randomizes bits[59:56])
         TC3 — arch: NOP;  spec: MOVK Xd,#wrong_upper16,LSL#48
                    wrong_upper16 preserves bits[63:60] and [55:48] of sandbox_base,
@@ -1630,8 +1560,7 @@ class MTEInstrumentation:
             self._fill_slot(maps['tc1'], fp, self._make_mte_nop(fp.slot_id))
 
             if is_spec:
-                self._fill_slot(maps['tc2'], fp,
-                                self._make_mte_irg(fp.reg, fp.slot_id))
+                self._fill_slot(maps['tc2'], fp, self._make_mte_irg(fp.reg, fp.slot_id))
             else:
                 self._fill_slot(maps['tc2'], fp, self._make_mte_nop(fp.slot_id))
 

@@ -29,6 +29,11 @@ class SimArch(IntFlag):
 class SimVersion(IntFlag):
     VER_1    = 1
 
+class ContractType(IntFlag):
+    ALWAYS_MISPREDICT   = 0   # explore every mispredicted branch (default)
+    ARCH_ONLY           = 1   # follow architectural path, no speculation
+    BPU_NEOVERSE_N3     = 2   # mispredict when TAGE (Neoverse N3 model) disagrees
+
 
 RVZR_MAGIC      = b"RVZR" # 0x525A5652u
 
@@ -45,6 +50,7 @@ class ContractExecution:
     req_mem_base_phys: Optional[int]    = None
     req_mem_base_virt: Optional[int]    = None
     version: SimVersion = SimVersion.VER_1
+    contract_type: ContractType = ContractType.ALWAYS_MISPREDICT
 
     def encode(self) -> bytes:
         """
@@ -97,6 +103,7 @@ class ContractExecution:
         data += (req_code_base_virt).to_bytes(8, 'little')
         data += (req_mem_base_phys).to_bytes(8, 'little')
         data += (req_mem_base_virt).to_bytes(8, 'little')
+        data += (int(self.contract_type)).to_bytes(8, 'little')
 
         data += code_size.to_bytes(8, 'little')
         data += mem_size.to_bytes(8, 'little')

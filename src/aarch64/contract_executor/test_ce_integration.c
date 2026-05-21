@@ -1,0 +1,1389 @@
+/*
+ * test_ce_integration.c — Black-box integration tests for ./contract_executor
+ *
+ * Approach:
+ *   fork() + pipe() + exec() ./contract_executor, write a crafted
+ *   simulation_input blob to its stdin, read the contract_trace_t output
+ *   from its stdout, and verify trace entries match expected observations.
+ *
+ * Main.c wires X29 = requested_mem_base_virt before entering simulation,
+ * so code that uses X29 as a base register is the simplest way to write
+ * self-contained test programs.
+ */
+
+#define _GNU_SOURCE
+#include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <sys/types.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <inttypes.h>
+
+#include "simulation_input.h"
+#include "simulation_output.h"
+#include "instruction_encodings.h"
+#include "stream_ipc.h"
+
+/* ---- test infrastructure ------------------------------------------------ */
+
+static int g_tests_run    = 0;
+static int g_tests_failed = 0;
+
+#define EXPECT(cond) do { \
+    ++g_tests_run; \
+    if (!(cond)) { \
+        fprintf(stderr, "FAIL %s:%d  %s\n", __func__, __LINE__, #cond); \
+        ++g_tests_failed; \
+    } \
+} while (0)
+
+#define EXPECT_EQ(a, b) do { \
+    ++g_tests_run; \
+    unsigned long long _a = (unsigned long long)(uintptr_t)(a); \
+    unsigned long long _b = (unsigned long long)(uintptr_t)(b); \
+    if (_a != _b) { \
+        fprintf(stderr, "FAIL %s:%d  %s == %s  got 0x%llx vs 0x%llx\n", \
+            __func__, __LINE__, #a, #b, _a, _b); \
+        ++g_tests_failed; \
+    } \
+} while (0)
+
+/* ---- constants ---------------------------------------------------------- */
+
+#define CE_BINARY  "./contract_executor"
+#define KBASE      UINT64_C(0xFFFF000080000000)
+#define MEM_SIZE   4096u
+#define REGS_COUNT 9u   /* X0..X5, NZCV(slot6), X7, X8 */
+#define MAX_ENTRIES 256u
+
+/* ---- instruction helpers ------------------------------------------------ */
+
+/* LDR X<rt>, [X<rn>] — unsigned offset 0, 64-bit */
+static uint32_t enc_ldr_reg(int rt, int rn) {
+    return 0xF9400000u | ((uint32_t)rn << 5) | (uint32_t)rt;
+}
+/* STR X<rt>, [X<rn>] — unsigned offset 0, 64-bit */
+static uint32_t enc_str_reg(int rt, int rn) {
+    return 0xF9000000u | ((uint32_t)rn << 5) | (uint32_t)rt;
+}
+/* LDR X<rt>, [X<rn>, #<off>] — unsigned offset, 64-bit; off must be mult of 8 */
+static uint32_t enc_ldr_unsigned(int rt, int rn, int off) {
+    uint32_t pimm12 = (uint32_t)(off / 8);
+    return 0xF9400000u | (pimm12 << 10) | ((uint32_t)rn << 5) | (uint32_t)rt;
+}
+/* LDR X<rt>, [X<rn>, #<imm9>]! — pre-index, 64-bit; -256..255 */
+static uint32_t enc_ldr_preidx(int rt, int rn, int imm9) {
+    uint32_t i = (uint32_t)(int32_t)imm9 & 0x1FF;
+    return 0xF8400C00u | (i << 12) | ((uint32_t)rn << 5) | (uint32_t)rt;
+}
+/* LDR X<rt>, [X<rn>], #<imm9> — post-index, 64-bit */
+static uint32_t enc_ldr_postidx(int rt, int rn, int imm9) {
+    uint32_t i = (uint32_t)(int32_t)imm9 & 0x1FF;
+    return 0xF8400400u | (i << 12) | ((uint32_t)rn << 5) | (uint32_t)rt;
+}
+/* LDP X<rt>, X<rt2>, [X<rn>] — signed offset 0, 64-bit */
+static uint32_t enc_ldp_signed(int rt, int rt2, int rn) {
+    return 0xA9400000u | ((uint32_t)rt2 << 10) | ((uint32_t)rn << 5) | (uint32_t)rt;
+}
+/* NOP */
+static uint32_t enc_nop(void) { return 0xD503201Fu; }
+/* LDRB W<rt>, [X<rn>] — unsigned offset 0, 8-bit */
+static uint32_t enc_ldrb(int rt, int rn) {
+    return 0x39400000u | ((uint32_t)rn << 5) | (uint32_t)rt;
+}
+/* LDRH W<rt>, [X<rn>] — unsigned offset 0, 16-bit */
+static uint32_t enc_ldrh(int rt, int rn) {
+    return 0x79400000u | ((uint32_t)rn << 5) | (uint32_t)rt;
+}
+/* LDR W<rt>, [X<rn>] — unsigned offset 0, 32-bit */
+static uint32_t enc_ldr32(int rt, int rn) {
+    return 0xB9400000u | ((uint32_t)rn << 5) | (uint32_t)rt;
+}
+/* STRB W<rt>, [X<rn>] — unsigned offset 0, 8-bit */
+static uint32_t enc_strb(int rt, int rn) {
+    return 0x39000000u | ((uint32_t)rn << 5) | (uint32_t)rt;
+}
+/* LDR X<rt>, [X<rn>, X<rm>] — register offset, 64-bit, LSL#0 */
+static uint32_t enc_ldr_regoff(int rt, int rn, int rm) {
+    return 0xF8606800u | ((uint32_t)rm << 16) | ((uint32_t)rn << 5) | (uint32_t)rt;
+}
+/* B.<cond> <label> — label is signed byte offset from this instruction (multiple of 4) */
+static uint32_t enc_b_cond(uint32_t cond, int offset) {
+    uint32_t imm19 = (uint32_t)(offset / 4) & 0x7FFFFu;
+    return 0x54000000u | (imm19 << 5) | cond;
+}
+/* CBZ X<rt>, <label> — 64-bit */
+static uint32_t enc_cbz(int rt, int offset) {
+    uint32_t imm19 = (uint32_t)(offset / 4) & 0x7FFFFu;
+    return 0xB4000000u | (imm19 << 5) | (uint32_t)rt;
+}
+/* CBNZ X<rt>, <label> — 64-bit */
+static uint32_t enc_cbnz(int rt, int offset) {
+    uint32_t imm19 = (uint32_t)(offset / 4) & 0x7FFFFu;
+    return 0xB5000000u | (imm19 << 5) | (uint32_t)rt;
+}
+/* TBZ X<rt>, #<bit>, <label> */
+static uint32_t enc_tbz(int rt, int bit, int offset) {
+    uint32_t imm14 = (uint32_t)(offset / 4) & 0x3FFFu;
+    uint32_t b5  = (uint32_t)(bit >> 5) & 1u;
+    uint32_t b40 = (uint32_t)(bit & 0x1F);
+    return 0x36000000u | (b5 << 31) | (b40 << 19) | (imm14 << 5) | (uint32_t)rt;
+}
+/* TBNZ X<rt>, #<bit>, <label> */
+static uint32_t enc_tbnz(int rt, int bit, int offset) {
+    uint32_t imm14 = (uint32_t)(offset / 4) & 0x3FFFu;
+    uint32_t b5  = (uint32_t)(bit >> 5) & 1u;
+    uint32_t b40 = (uint32_t)(bit & 0x1F);
+    return 0x37000000u | (b5 << 31) | (b40 << 19) | (imm14 << 5) | (uint32_t)rt;
+}
+
+/* ---- IPC frame builder -------------------------------------------------- */
+
+/*
+ * Build the blob written to CE's stdin:
+ *   [struct header (8 B)] [struct input_header (112 B)] [code] [memory] [regs]
+ * regs_override: 9-element array of uint64_t for X0..X5,NZCV,X7,X8; NULL = all zero.
+ */
+static size_t build_ce_input(
+        uint8_t *buf, size_t bufsz,
+        const uint32_t *code, size_t n_words,
+        const uint8_t  *mem,  size_t mem_sz,
+        uint64_t kbase_addr,
+        uint64_t max_nesting,
+        uint64_t contract,
+        const uint64_t *regs_override)
+{
+    uint64_t regs[REGS_COUNT];
+    if (regs_override) {
+        memcpy(regs, regs_override, sizeof(regs));
+    } else {
+        memset(regs, 0, sizeof(regs));
+    }
+
+    size_t code_sz  = n_words * 4;
+    size_t regs_sz  = sizeof(regs);
+    size_t payload  = sizeof(struct input_header) + code_sz + mem_sz + regs_sz;
+
+    if (bufsz < sizeof(struct header) + payload) return 0;
+
+    uint8_t *p = buf;
+
+    /* IPC header */
+    struct header ipc = { .length = (uint32_t)payload, .type = 0 };
+    memcpy(p, &ipc, sizeof(ipc)); p += sizeof(ipc);
+
+    /* simulation input_header */
+    struct input_header hdr;
+    memset(&hdr, 0, sizeof(hdr));
+    hdr.magic    = RVZR_MAGIC;
+    hdr.version  = RVZR_VERSION;
+    hdr.arch     = RVZR_ARCH_AARCH64;
+    hdr.flags    = RVZR_FLAG_HAS_CODE | RVZR_FLAG_HAS_MEMORY | RVZR_FLAG_HAS_REGS;
+    hdr.config.flags                    = CONFIG_FLAG_REQ_MEM_BASE_VIRT;
+    hdr.config.max_misspred_branch_nesting = max_nesting;
+    hdr.config.requested_mem_base_virt  = kbase_addr;
+    hdr.config.contract_type            = contract;
+    hdr.code_size  = (uint64_t)code_sz;
+    hdr.mem_size   = (uint64_t)mem_sz;
+    hdr.regs_size  = (uint64_t)regs_sz;
+    memcpy(p, &hdr, sizeof(hdr)); p += sizeof(hdr);
+
+    /* sections */
+    memcpy(p, code, code_sz); p += code_sz;
+    memcpy(p, mem,  mem_sz);  p += mem_sz;
+    memcpy(p, regs, regs_sz); p += regs_sz;
+
+    return (size_t)(p - buf);
+}
+
+/* ---- output parser ------------------------------------------------------ */
+
+typedef struct {
+    int              n_entries;
+    instr_trace_entry_t entries[MAX_ENTRIES];
+} ce_result_t;
+
+static bool read_all(int fd, void *dst, size_t n) {
+    uint8_t *p = dst;
+    while (n > 0) {
+        ssize_t r = read(fd, p, n);
+        if (r <= 0) return false;
+        p += r; n -= (size_t)r;
+    }
+    return true;
+}
+
+/* Read and parse the contract_trace_t output produced on CE's stdout. */
+static bool parse_ce_output(int fd, ce_result_t *out) {
+    out->n_entries = 0;
+
+    struct header ipc;
+    if (!read_all(fd, &ipc, sizeof(ipc))) return false;
+    if (ipc.length < sizeof(contract_trace_t))  return false;
+
+    contract_trace_t ct;
+    if (!read_all(fd, &ct, sizeof(ct))) return false;
+
+    size_t n = ct.entry_count;
+    if (n > MAX_ENTRIES) n = MAX_ENTRIES;
+
+    for (size_t i = 0; i < n; ++i) {
+        if (!read_all(fd, &out->entries[i], sizeof(instr_trace_entry_t)))
+            return false;
+    }
+    out->n_entries = (int)n;
+    return true;
+}
+
+/* ---- CE runner ---------------------------------------------------------- */
+
+/*
+ * Fork + exec CE, pipe input/output, return parsed trace.
+ * regs_override: optional 9-element array (X0..X5, NZCV, X7, X8); NULL = zeros.
+ */
+static bool run_ce(
+        const uint32_t *code, size_t n_words,
+        const uint8_t  *mem,  size_t mem_sz,
+        uint64_t kbase_addr,
+        uint64_t max_nesting,
+        uint64_t contract,
+        const uint64_t *regs_override,
+        ce_result_t *result)
+{
+    static uint8_t in_buf[1 << 22];   /* 4 MB — never stack-allocate */
+
+    size_t in_len = build_ce_input(in_buf, sizeof(in_buf),
+                                   code, n_words, mem, mem_sz,
+                                   kbase_addr, max_nesting, contract,
+                                   regs_override);
+    if (in_len == 0) return false;
+
+    int to_ce[2], from_ce[2];
+    if (pipe(to_ce)   < 0) return false;
+    if (pipe(from_ce) < 0) { close(to_ce[0]); close(to_ce[1]); return false; }
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(to_ce[0]); close(to_ce[1]);
+        close(from_ce[0]); close(from_ce[1]);
+        return false;
+    }
+
+    if (pid == 0) {
+        /* Child: redirect stdin/stdout to pipes */
+        dup2(to_ce[0],   STDIN_FILENO);
+        dup2(from_ce[1], STDOUT_FILENO);
+        close(to_ce[0]); close(to_ce[1]);
+        close(from_ce[0]); close(from_ce[1]);
+
+        /* Redirect stderr to /dev/null so CE log spam doesn't clutter test output */
+        int devnull = open("/dev/null", O_WRONLY);
+        if (devnull >= 0) dup2(devnull, STDERR_FILENO);
+
+        execl(CE_BINARY, CE_BINARY, NULL);
+        _exit(127);
+    }
+
+    /* Parent: close child-side ends */
+    close(to_ce[0]);
+    close(from_ce[1]);
+
+    /* Write input then close write-end so CE sees EOF on stdin after one frame */
+    const uint8_t *wp = in_buf;
+    size_t wrem = in_len;
+    while (wrem > 0) {
+        ssize_t w = write(to_ce[1], wp, wrem);
+        if (w <= 0) break;
+        wp += w; wrem -= (size_t)w;
+    }
+    close(to_ce[1]);
+
+    bool ok = parse_ce_output(from_ce[0], result);
+    close(from_ce[0]);
+
+    int status;
+    waitpid(pid, &status, 0);
+
+    return ok;
+}
+
+/* Convenience: run with all-zero regs. */
+static bool run_ce_simple(
+        const uint32_t *code, size_t n_words,
+        const uint8_t  *mem,  size_t mem_sz,
+        uint64_t kbase_addr,
+        uint64_t max_nesting,
+        uint64_t contract,
+        ce_result_t *result)
+{
+    return run_ce(code, n_words, mem, mem_sz, kbase_addr, max_nesting, contract, NULL, result);
+}
+
+/* Helper: find the Nth memory-access entry (0-indexed). Returns NULL if not found. */
+static instr_trace_entry_t *find_mem_entry(ce_result_t *res, int n) {
+    int found = 0;
+    for (int i = 0; i < res->n_entries; ++i) {
+        if (res->entries[i].metadata.has_memory_access) {
+            if (found == n) return &res->entries[i];
+            ++found;
+        }
+    }
+    return NULL;
+}
+
+/* Helper: count memory-access entries. */
+static int count_mem_entries(const ce_result_t *res) {
+    int c = 0;
+    for (int i = 0; i < res->n_entries; ++i) {
+        if (res->entries[i].metadata.has_memory_access) ++c;
+    }
+    return c;
+}
+
+/* ---- GROUP 1: Simple LDR X0, [X29] ------------------------------------ */
+
+static void test_integration_ldr_base(void) {
+    uint32_t code[] = { enc_ldr_reg(0, 29) };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t expect_val = UINT64_C(0xDEADBEEF12345678);
+    memcpy(mem, &expect_val, 8);
+
+    ce_result_t res;
+    if (!run_ce_simple(code, 1, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    instr_trace_entry_t *e = find_mem_entry(&res, 0);
+    EXPECT(e != NULL);
+    if (!e) return;
+
+    EXPECT_EQ(e->metadata.memory_access.is_write,          (uint64_t)0);
+    EXPECT_EQ(e->metadata.memory_access.element_size,       (uint64_t)8);
+    EXPECT_EQ(e->metadata.memory_access.effective_address,  KBASE);
+    EXPECT_EQ(e->metadata.memory_access.before,             expect_val);
+    EXPECT_EQ(e->metadata.memory_access.after,              expect_val);
+    EXPECT_EQ(e->metadata.speculation_nesting,              (uint64_t)0);
+}
+
+/* ---- GROUP 2: Simple STR X0, [X29] ------------------------------------ */
+
+static void test_integration_str_base(void) {
+    uint32_t code[] = { enc_str_reg(0, 29) };  /* STR X0, [X29] — X0=0 */
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t init_val = UINT64_C(0xAAAAAAAAAAAAAAAA);
+    memcpy(mem, &init_val, 8);
+
+    ce_result_t res;
+    if (!run_ce_simple(code, 1, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    instr_trace_entry_t *e = find_mem_entry(&res, 0);
+    EXPECT(e != NULL);
+    if (!e) return;
+
+    EXPECT_EQ(e->metadata.memory_access.is_write,         (uint64_t)1);
+    EXPECT_EQ(e->metadata.memory_access.element_size,      (uint64_t)8);
+    EXPECT_EQ(e->metadata.memory_access.effective_address, KBASE);
+    EXPECT_EQ(e->metadata.memory_access.before,            init_val);
+    EXPECT_EQ(e->metadata.memory_access.after,             (uint64_t)0);
+    EXPECT_EQ(e->metadata.speculation_nesting,             (uint64_t)0);
+}
+
+/* ---- GROUP 3: LDR X0, [X29, #16] — unsigned offset ------------------- */
+
+static void test_integration_ldr_unsigned_offset(void) {
+    uint32_t code[] = { enc_ldr_unsigned(0, 29, 16) };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t expect_val = UINT64_C(0x0123456789ABCDEF);
+    memcpy(mem + 16, &expect_val, 8);
+
+    ce_result_t res;
+    if (!run_ce_simple(code, 1, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    instr_trace_entry_t *e = find_mem_entry(&res, 0);
+    EXPECT(e != NULL);
+    if (!e) return;
+
+    EXPECT_EQ(e->metadata.memory_access.is_write,          (uint64_t)0);
+    EXPECT_EQ(e->metadata.memory_access.element_size,       (uint64_t)8);
+    EXPECT_EQ(e->metadata.memory_access.effective_address,  KBASE + 16);
+    EXPECT_EQ(e->metadata.memory_access.before,             expect_val);
+}
+
+/* ---- GROUP 4: LDR X0, [X29], #8 — post-index ------------------------- */
+
+static void test_integration_ldr_postidx(void) {
+    uint32_t code[] = {
+        enc_ldr_postidx(0, 29, 8),  /* LDR X0, [X29], #8 */
+        enc_ldr_reg(1, 29),         /* LDR X1, [X29]     */
+    };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t val0 = UINT64_C(0x1111111111111111);
+    uint64_t val8 = UINT64_C(0x2222222222222222);
+    memcpy(mem,     &val0, 8);
+    memcpy(mem + 8, &val8, 8);
+
+    ce_result_t res;
+    if (!run_ce_simple(code, 2, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    instr_trace_entry_t *ma0 = find_mem_entry(&res, 0);
+    instr_trace_entry_t *ma1 = find_mem_entry(&res, 1);
+    EXPECT(ma0 != NULL); EXPECT(ma1 != NULL);
+    if (!ma0 || !ma1) return;
+
+    EXPECT_EQ(ma0->metadata.memory_access.effective_address, KBASE);
+    EXPECT_EQ(ma0->metadata.memory_access.element_size,      (uint64_t)8);
+    EXPECT_EQ(ma0->metadata.memory_access.before,            val0);
+    EXPECT_EQ(ma1->metadata.memory_access.effective_address, KBASE + 8);
+    EXPECT_EQ(ma1->metadata.memory_access.before,            val8);
+}
+
+/* ---- GROUP 5: LDR X0, [X29, #8]! — pre-index ------------------------- */
+
+static void test_integration_ldr_preidx(void) {
+    uint32_t code[] = {
+        enc_ldr_preidx(0, 29, 8),   /* LDR X0, [X29, #8]! */
+        enc_ldr_reg(1, 29),         /* LDR X1, [X29]      */
+    };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t val0 = UINT64_C(0x3333333333333333);
+    uint64_t val8 = UINT64_C(0x4444444444444444);
+    memcpy(mem,     &val0, 8);
+    memcpy(mem + 8, &val8, 8);
+
+    ce_result_t res;
+    if (!run_ce_simple(code, 2, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    instr_trace_entry_t *ma0 = find_mem_entry(&res, 0);
+    instr_trace_entry_t *ma1 = find_mem_entry(&res, 1);
+    EXPECT(ma0 != NULL); EXPECT(ma1 != NULL);
+    if (!ma0 || !ma1) return;
+
+    /* Pre-index: EA is already kbase + 8 */
+    EXPECT_EQ(ma0->metadata.memory_access.effective_address, KBASE + 8);
+    EXPECT_EQ(ma0->metadata.memory_access.before,            val8);
+    EXPECT_EQ(ma1->metadata.memory_access.effective_address, KBASE + 8);
+    EXPECT_EQ(ma1->metadata.memory_access.before,            val8);
+}
+
+/* ---- GROUP 6: LDP X0, X1, [X29] — pair load -------------------------- */
+
+static void test_integration_ldp(void) {
+    uint32_t code[] = { enc_ldp_signed(0, 1, 29) };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t v0 = UINT64_C(0xAAAABBBBCCCCDDDD);
+    uint64_t v8 = UINT64_C(0xEEEEFFFF00001111);
+    memcpy(mem,     &v0, 8);
+    memcpy(mem + 8, &v8, 8);
+
+    ce_result_t res;
+    if (!run_ce_simple(code, 1, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    instr_trace_entry_t *e = find_mem_entry(&res, 0);
+    EXPECT(e != NULL);
+    if (!e) return;
+
+    EXPECT_EQ(e->metadata.memory_access.is_write,          (uint64_t)0);
+    EXPECT_EQ(e->metadata.memory_access.element_size,       (uint64_t)8);
+    EXPECT_EQ(e->metadata.memory_access.effective_address,  KBASE);
+    EXPECT_EQ(e->metadata.memory_access.before,             v0);
+}
+
+/* ---- GROUP 7: kaddr transparency — observation uses kaddr not uaddr --- */
+
+static void test_integration_kaddr_transparency(void) {
+    struct { uint32_t off; uint64_t val; } cases[] = {
+        { 0,   UINT64_C(0x0000000000000001) },
+        { 8,   UINT64_C(0x0000000000000002) },
+        { 128, UINT64_C(0x0000000000000003) },
+        { 256, UINT64_C(0x0000000000000004) },
+    };
+
+    for (size_t i = 0; i < sizeof(cases)/sizeof(cases[0]); ++i) {
+        uint32_t off = cases[i].off;
+        uint64_t val = cases[i].val;
+
+        uint32_t code[] = { enc_ldr_unsigned(0, 29, (int)off) };
+
+        uint8_t mem[MEM_SIZE];
+        memset(mem, 0, sizeof(mem));
+        memcpy(mem + off, &val, 8);
+
+        ce_result_t res;
+        if (!run_ce_simple(code, 1, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+            ++g_tests_run; ++g_tests_failed;
+            fprintf(stderr, "FAIL %s[%zu]: run_ce failed\n", __func__, i);
+            continue;
+        }
+
+        instr_trace_entry_t *e = find_mem_entry(&res, 0);
+        EXPECT(e != NULL);
+        if (!e) continue;
+        EXPECT_EQ(e->metadata.memory_access.effective_address, KBASE + off);
+        EXPECT_EQ(e->metadata.memory_access.before, val);
+    }
+}
+
+/* ---- GROUP 8: multiple sequential loads — trace ordering -------------- */
+
+static void test_integration_sequential_loads(void) {
+    uint32_t code[] = {
+        enc_ldr_unsigned(0, 29,  0),
+        enc_ldr_unsigned(1, 29,  8),
+        enc_ldr_unsigned(2, 29, 16),
+        enc_ldr_unsigned(3, 29, 24),
+    };
+
+    uint64_t expected[4] = {
+        UINT64_C(0xAAAAAAAA00000000),
+        UINT64_C(0xBBBBBBBB11111111),
+        UINT64_C(0xCCCCCCCC22222222),
+        UINT64_C(0xDDDDDDDD33333333),
+    };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    for (int i = 0; i < 4; ++i) memcpy(mem + i * 8, &expected[i], 8);
+
+    ce_result_t res;
+    if (!run_ce_simple(code, 4, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    EXPECT_EQ(count_mem_entries(&res), 4);
+
+    for (int i = 0; i < 4; ++i) {
+        instr_trace_entry_t *e = find_mem_entry(&res, i);
+        EXPECT(e != NULL);
+        if (!e) continue;
+        EXPECT_EQ(e->metadata.memory_access.effective_address, KBASE + (uint64_t)i * 8);
+        EXPECT_EQ(e->metadata.memory_access.before,            expected[i]);
+        EXPECT_EQ(e->metadata.speculation_nesting,             (uint64_t)0);
+        if (i > 0) {
+            instr_trace_entry_t *prev = find_mem_entry(&res, i - 1);
+            EXPECT(prev && e->metadata.instr_index > prev->metadata.instr_index);
+        }
+    }
+}
+
+/* ---- GROUP 9: store then verify — write-back is visible to next load -- */
+
+static void test_integration_store_then_load(void) {
+    uint32_t code[] = {
+        enc_str_reg(0, 29),         /* STR X0, [X29]  (X0=0) */
+        enc_ldr_unsigned(1, 29, 0), /* LDR X1, [X29]  */
+    };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t init_val = UINT64_C(0xBEEFBEEFBEEFBEEF);
+    memcpy(mem, &init_val, 8);
+
+    ce_result_t res;
+    if (!run_ce_simple(code, 2, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    instr_trace_entry_t *ma0 = find_mem_entry(&res, 0);
+    instr_trace_entry_t *ma1 = find_mem_entry(&res, 1);
+    EXPECT(ma0 != NULL); EXPECT(ma1 != NULL);
+    if (!ma0 || !ma1) return;
+
+    EXPECT_EQ(ma0->metadata.memory_access.is_write,  (uint64_t)1);
+    EXPECT_EQ(ma0->metadata.memory_access.before,     init_val);
+    EXPECT_EQ(ma0->metadata.memory_access.after,      (uint64_t)0);
+    EXPECT_EQ(ma1->metadata.memory_access.is_write,  (uint64_t)0);
+    EXPECT_EQ(ma1->metadata.memory_access.before,     (uint64_t)0);
+}
+
+/* ---- GROUP 10: NOP has has_memory_access=0 ----------------------------- */
+
+static void test_integration_nop_no_mem(void) {
+    /*
+     * Code: NOP; LDR X0,[X29]
+     * Two trace entries total: NOP entry (has_memory_access=0) and LDR entry (=1).
+     */
+    uint32_t code[] = { enc_nop(), enc_ldr_reg(0, 29) };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t val = UINT64_C(0xCAFEBABECAFEBABE);
+    memcpy(mem, &val, 8);
+
+    ce_result_t res;
+    if (!run_ce_simple(code, 2, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    /* Expect at least 2 trace entries total (NOP + LDR) */
+    EXPECT(res.n_entries >= 2);
+
+    /* Find NOP entry: first entry with has_memory_access==0 */
+    int nop_idx = -1, ldr_idx = -1;
+    for (int i = 0; i < res.n_entries; ++i) {
+        if (!res.entries[i].metadata.has_memory_access && nop_idx < 0) nop_idx = i;
+        if ( res.entries[i].metadata.has_memory_access && ldr_idx < 0) ldr_idx = i;
+    }
+
+    EXPECT(nop_idx >= 0);
+    EXPECT(ldr_idx >= 0);
+    if (nop_idx < 0 || ldr_idx < 0) return;
+
+    /* NOP must come before LDR in trace order */
+    EXPECT(nop_idx < ldr_idx);
+
+    /* LDR entry correctness */
+    instr_trace_entry_t *e = &res.entries[ldr_idx];
+    EXPECT_EQ(e->metadata.memory_access.effective_address, KBASE);
+    EXPECT_EQ(e->metadata.memory_access.before,            val);
+    EXPECT_EQ(e->metadata.memory_access.element_size,      (uint64_t)8);
+}
+
+/* ---- GROUP 11: access size — LDRB → element_size=1 ------------------- */
+
+static void test_integration_access_size_byte(void) {
+    /*
+     * before/after always record the full aligned 8-byte word at EA.
+     * Only element_size tells us the access granularity.
+     */
+    uint32_t code[] = { enc_ldrb(0, 29) };  /* LDRB W0,[X29] */
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t word = UINT64_C(0x0102030405060708);
+    memcpy(mem, &word, 8);
+
+    ce_result_t res;
+    if (!run_ce_simple(code, 1, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    instr_trace_entry_t *e = find_mem_entry(&res, 0);
+    EXPECT(e != NULL);
+    if (!e) return;
+
+    EXPECT_EQ(e->metadata.memory_access.element_size,      (uint64_t)1);
+    EXPECT_EQ(e->metadata.memory_access.is_write,          (uint64_t)0);
+    EXPECT_EQ(e->metadata.memory_access.effective_address, KBASE);
+    EXPECT_EQ(e->metadata.memory_access.before,            word);  /* full 8-byte word */
+}
+
+/* ---- GROUP 12: access size — LDRH → element_size=2 ------------------- */
+
+static void test_integration_access_size_halfword(void) {
+    uint32_t code[] = { enc_ldrh(0, 29) };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t word = UINT64_C(0xAABBCCDDEEFF0011);
+    memcpy(mem, &word, 8);
+
+    ce_result_t res;
+    if (!run_ce_simple(code, 1, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    instr_trace_entry_t *e = find_mem_entry(&res, 0);
+    EXPECT(e != NULL);
+    if (!e) return;
+
+    EXPECT_EQ(e->metadata.memory_access.element_size,      (uint64_t)2);
+    EXPECT_EQ(e->metadata.memory_access.effective_address, KBASE);
+    EXPECT_EQ(e->metadata.memory_access.before,            word);
+}
+
+/* ---- GROUP 13: access size — LDR W → element_size=4 ------------------ */
+
+static void test_integration_access_size_word(void) {
+    uint32_t code[] = { enc_ldr32(0, 29) };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t word = UINT64_C(0x1122334455667788);
+    memcpy(mem, &word, 8);
+
+    ce_result_t res;
+    if (!run_ce_simple(code, 1, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    instr_trace_entry_t *e = find_mem_entry(&res, 0);
+    EXPECT(e != NULL);
+    if (!e) return;
+
+    EXPECT_EQ(e->metadata.memory_access.element_size,      (uint64_t)4);
+    EXPECT_EQ(e->metadata.memory_access.effective_address, KBASE);
+    EXPECT_EQ(e->metadata.memory_access.before,            word);
+}
+
+/* ---- GROUP 14: STRB partial write — after field shows byte merge ------ */
+
+static void test_integration_strb_partial_write(void) {
+    /*
+     * STRB W0,[X29] with X0=0x42 (set via regs blob slot 0 = X0).
+     * mem[0..7] = 0xAABBCCDDEEFF0011
+     *
+     * after = (word & ~0xFF) | (0x42 & 0xFF) = 0xAABBCCDDEEFF0042
+     */
+    uint32_t code[] = { enc_strb(0, 29) };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t init_word = UINT64_C(0xAABBCCDDEEFF0011);
+    memcpy(mem, &init_word, 8);
+
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[0] = 0x42;  /* X0 = 0x42 */
+
+    ce_result_t res;
+    if (!run_ce(code, 1, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, regs, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    instr_trace_entry_t *e = find_mem_entry(&res, 0);
+    EXPECT(e != NULL);
+    if (!e) return;
+
+    EXPECT_EQ(e->metadata.memory_access.element_size,      (uint64_t)1);
+    EXPECT_EQ(e->metadata.memory_access.is_write,          (uint64_t)1);
+    EXPECT_EQ(e->metadata.memory_access.effective_address, KBASE);
+    EXPECT_EQ(e->metadata.memory_access.before,            init_word);
+    EXPECT_EQ(e->metadata.memory_access.after,             (UINT64_C(0xAABBCCDDEEFF0042)));
+}
+
+/* ---- GROUP 15: non-X29 base register from regs blob ------------------- */
+
+static void test_integration_non_x29_base(void) {
+    /*
+     * Set X1 = kbase via regs blob (slot 1 = X1).
+     * Code: LDR X0,[X1]
+     * EA must be kbase, even though we didn't use X29.
+     */
+    uint32_t code[] = { enc_ldr_reg(0, 1) };  /* LDR X0,[X1] */
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t val = UINT64_C(0xFEEDFACEFEEDFACE);
+    memcpy(mem, &val, 8);
+
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[1] = KBASE;  /* X1 = kbase */
+
+    ce_result_t res;
+    if (!run_ce(code, 1, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, regs, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    instr_trace_entry_t *e = find_mem_entry(&res, 0);
+    EXPECT(e != NULL);
+    if (!e) return;
+
+    EXPECT_EQ(e->metadata.memory_access.effective_address, KBASE);
+    EXPECT_EQ(e->metadata.memory_access.element_size,      (uint64_t)8);
+    EXPECT_EQ(e->metadata.memory_access.before,            val);
+    EXPECT_EQ(e->metadata.memory_access.is_write,          (uint64_t)0);
+}
+
+/* ---- GROUP 16: NZCV propagated into trace cpu_state ------------------- */
+
+static void test_integration_nzcv_in_cpu_state(void) {
+    /*
+     * Set initial NZCV = Z=1 (PSTATE: 0x40000000) via regs blob slot 6.
+     * Code: LDR X0,[X29]
+     * The trace entry's cpu_state.nzcv should have Z=1.
+     */
+    uint32_t code[] = { enc_ldr_reg(0, 29) };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+
+    /* PSTATE format: N[31] Z[30] C[29] V[28]. Z=1 → 0x40000000 */
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[6] = UINT64_C(0x40000000);  /* slot 6 = NZCV, Z=1 */
+
+    ce_result_t res;
+    if (!run_ce(code, 1, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, regs, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    instr_trace_entry_t *e = find_mem_entry(&res, 0);
+    EXPECT(e != NULL);
+    if (!e) return;
+
+    /* Z bit must be set */
+    EXPECT((e->cpu.nzcv >> 30) & 1);
+    /* N, C, V must be clear */
+    EXPECT(!((e->cpu.nzcv >> 31) & 1));
+    EXPECT(!((e->cpu.nzcv >> 29) & 1));
+    EXPECT(!((e->cpu.nzcv >> 28) & 1));
+}
+
+/* ---- GROUP 17: register-offset addressing — EA = kbase + X1 ----------- */
+
+static void test_integration_register_offset(void) {
+    /*
+     * Set X1 = 16 via regs blob. Code: LDR X0,[X29,X1]
+     * EA = kbase + 16.
+     */
+    uint32_t code[] = { enc_ldr_regoff(0, 29, 1) };  /* LDR X0,[X29,X1] */
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t val = UINT64_C(0x123456789ABCDEF0);
+    memcpy(mem + 16, &val, 8);
+
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[1] = 16;  /* X1 = 16 (byte offset) */
+
+    ce_result_t res;
+    if (!run_ce(code, 1, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, regs, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    instr_trace_entry_t *e = find_mem_entry(&res, 0);
+    EXPECT(e != NULL);
+    if (!e) return;
+
+    EXPECT_EQ(e->metadata.memory_access.effective_address, KBASE + 16);
+    EXPECT_EQ(e->metadata.memory_access.element_size,      (uint64_t)8);
+    EXPECT_EQ(e->metadata.memory_access.before,            val);
+}
+
+/* ---- GROUP 18: load value visible in dest reg of next trace entry ----- */
+
+static void test_integration_load_updates_dest_reg(void) {
+    /*
+     * Code: LDR X0,[X29]; LDR X1,[X29]
+     * mem[0..7] = 0xDEADC0DE
+     *
+     * The second trace entry is captured AFTER the first LDR executes.
+     * So cpu_state.gpr[0] in entry[1] must equal the loaded value.
+     */
+    uint32_t code[] = {
+        enc_ldr_reg(0, 29),   /* LDR X0,[X29] */
+        enc_ldr_reg(1, 29),   /* LDR X1,[X29] */
+    };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t loaded_val = UINT64_C(0x00000000DEADC0DE);
+    memcpy(mem, &loaded_val, 8);
+
+    ce_result_t res;
+    if (!run_ce_simple(code, 2, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    EXPECT_EQ(count_mem_entries(&res), 2);
+
+    instr_trace_entry_t *e1 = find_mem_entry(&res, 1);  /* second LDR */
+    EXPECT(e1 != NULL);
+    if (!e1) return;
+
+    /* cpu_state captured before LDR X1 executes = after LDR X0 executed */
+    EXPECT_EQ(e1->cpu.gpr[0], loaded_val);
+}
+
+/* ---- GROUP 19: post-index writeback reflected in next cpu_state.gpr[29] */
+
+static void test_integration_postidx_writeback_cpu_state(void) {
+    /*
+     * Code: LDR X0,[X29],#8; LDR X1,[X29]
+     * After the first instruction, X29 is updated to kbase+8.
+     * apply_fixups in the hook for LDR X1 converts uaddr+8 back to kbase+8.
+     * So the second trace entry's cpu.gpr[29] must equal kbase+8.
+     */
+    uint32_t code[] = {
+        enc_ldr_postidx(0, 29, 8),
+        enc_ldr_reg(1, 29),
+    };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t v0 = UINT64_C(0xAAAAAAAAAAAAAAAA);
+    uint64_t v8 = UINT64_C(0xBBBBBBBBBBBBBBBB);
+    memcpy(mem,     &v0, 8);
+    memcpy(mem + 8, &v8, 8);
+
+    ce_result_t res;
+    if (!run_ce_simple(code, 2, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    instr_trace_entry_t *e1 = find_mem_entry(&res, 1);  /* LDR X1,[X29] */
+    EXPECT(e1 != NULL);
+    if (!e1) return;
+
+    /* gpr[29] = X29 must show kbase+8, not the uaddr */
+    EXPECT_EQ(e1->cpu.gpr[29], KBASE + 8);
+    EXPECT_EQ(e1->metadata.memory_access.effective_address, KBASE + 8);
+}
+
+/* ---- GROUP 20: ALWAYS_MISPREDICT CBZ taken — spec NOT-TAKEN first ------ */
+
+static void test_integration_always_mispredict_cbz(void) {
+    /*
+     * Code: CBZ X0, +8; LDR X1,[X29]; LDR X2,[X29,#8]
+     * X0=0 → arch TAKEN (jump to LDR X2).
+     * ALWAYS_MISPREDICT → spec NOT-TAKEN (fall through to LDR X1 first).
+     *
+     * Expected memory-access entries in order:
+     *   [0] LDR X1  nesting=1   EA=kbase     (spec: not-taken fall-through)
+     *   [1] LDR X2  nesting=1   EA=kbase+8   (still on spec path)
+     *   [2] LDR X2  nesting=0   EA=kbase+8   (arch taken after checkpoint restore)
+     */
+    uint32_t code[] = {
+        enc_cbz(0, +8),              /* CBZ X0, +8  (skip next insn if X0==0) */
+        enc_ldr_reg(1, 29),          /* LDR X1,[X29]      offset 0 */
+        enc_ldr_unsigned(2, 29, 8),  /* LDR X2,[X29,#8]   offset 8 */
+    };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t v0 = UINT64_C(0x1111111111111111);
+    uint64_t v8 = UINT64_C(0x2222222222222222);
+    memcpy(mem,     &v0, 8);
+    memcpy(mem + 8, &v8, 8);
+
+    /* X0=0, NZCV=0, max_nesting=1 */
+    ce_result_t res;
+    if (!run_ce_simple(code, 3, mem, sizeof(mem), KBASE, 1, CONTRACT_ALWAYS_MISPREDICT, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    EXPECT_EQ(count_mem_entries(&res), 3);
+
+    instr_trace_entry_t *ma0 = find_mem_entry(&res, 0);
+    instr_trace_entry_t *ma1 = find_mem_entry(&res, 1);
+    instr_trace_entry_t *ma2 = find_mem_entry(&res, 2);
+    EXPECT(ma0 != NULL); EXPECT(ma1 != NULL); EXPECT(ma2 != NULL);
+    if (!ma0 || !ma1 || !ma2) return;
+
+    /* Speculative: LDR X1 at kbase, nesting=1 */
+    EXPECT_EQ(ma0->metadata.memory_access.effective_address, KBASE);
+    EXPECT_EQ(ma0->metadata.memory_access.before,            v0);
+    EXPECT_EQ(ma0->metadata.speculation_nesting,             (uint64_t)1);
+
+    /* Speculative: LDR X2 at kbase+8, nesting=1 */
+    EXPECT_EQ(ma1->metadata.memory_access.effective_address, KBASE + 8);
+    EXPECT_EQ(ma1->metadata.memory_access.before,            v8);
+    EXPECT_EQ(ma1->metadata.speculation_nesting,             (uint64_t)1);
+
+    /* Architectural: LDR X2 at kbase+8, nesting=0 */
+    EXPECT_EQ(ma2->metadata.memory_access.effective_address, KBASE + 8);
+    EXPECT_EQ(ma2->metadata.memory_access.before,            v8);
+    EXPECT_EQ(ma2->metadata.speculation_nesting,             (uint64_t)0);
+}
+
+/* ---- GROUP 21: ALWAYS_MISPREDICT CBNZ not-taken — spec TAKEN first ---- */
+
+static void test_integration_always_mispredict_cbnz(void) {
+    /*
+     * Code: CBNZ X0, +8; LDR X1,[X29]; LDR X2,[X29,#8]
+     * X0=0 → CBNZ arch NOT-TAKEN (fall through to LDR X1).
+     * ALWAYS_MISPREDICT → spec TAKEN (jump to LDR X2).
+     *
+     * Expected memory-access entries:
+     *   [0] LDR X2  nesting=1   (spec: taken path)
+     *   [1] LDR X1  nesting=0   (arch: not-taken fall-through)
+     *   [2] LDR X2  nesting=0
+     */
+    uint32_t code[] = {
+        enc_cbnz(0, +8),             /* CBNZ X0, +8 */
+        enc_ldr_reg(1, 29),          /* LDR X1,[X29]    */
+        enc_ldr_unsigned(2, 29, 8),  /* LDR X2,[X29,#8] */
+    };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t v0 = UINT64_C(0x3333333333333333);
+    uint64_t v8 = UINT64_C(0x4444444444444444);
+    memcpy(mem,     &v0, 8);
+    memcpy(mem + 8, &v8, 8);
+
+    ce_result_t res;
+    if (!run_ce_simple(code, 3, mem, sizeof(mem), KBASE, 1, CONTRACT_ALWAYS_MISPREDICT, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    EXPECT_EQ(count_mem_entries(&res), 3);
+
+    instr_trace_entry_t *ma0 = find_mem_entry(&res, 0);
+    instr_trace_entry_t *ma1 = find_mem_entry(&res, 1);
+    instr_trace_entry_t *ma2 = find_mem_entry(&res, 2);
+    EXPECT(ma0 != NULL); EXPECT(ma1 != NULL); EXPECT(ma2 != NULL);
+    if (!ma0 || !ma1 || !ma2) return;
+
+    /* Spec: taken → LDR X2 */
+    EXPECT_EQ(ma0->metadata.memory_access.effective_address, KBASE + 8);
+    EXPECT_EQ(ma0->metadata.speculation_nesting,             (uint64_t)1);
+
+    /* Arch not-taken: LDR X1, then LDR X2 */
+    EXPECT_EQ(ma1->metadata.memory_access.effective_address, KBASE);
+    EXPECT_EQ(ma1->metadata.speculation_nesting,             (uint64_t)0);
+    EXPECT_EQ(ma2->metadata.memory_access.effective_address, KBASE + 8);
+    EXPECT_EQ(ma2->metadata.speculation_nesting,             (uint64_t)0);
+}
+
+/* ---- GROUP 22: TBZ bit32 — verifies b5 extraction fix ----------------- */
+
+static void test_integration_tbz_bit32(void) {
+    /*
+     * Code: TBZ X0, #32, +8; LDR X1,[X29]; LDR X2,[X29,#8]
+     *
+     * Sub-case A: X0 has bit 32 SET → TBZ NOT-TAKEN (bit is not zero).
+     *   ALWAYS_MISPREDICT → spec TAKEN (LDR X2 at nesting=1),
+     *   then arch NOT-TAKEN: LDR X1 (nesting=0), LDR X2 (nesting=0).
+     *
+     * Sub-case B: X0 has bit 32 CLEAR (X0=0) → TBZ TAKEN.
+     *   ALWAYS_MISPREDICT → spec NOT-TAKEN: LDR X1 (nesting=1), LDR X2 (nesting=1),
+     *   then arch TAKEN: LDR X2 (nesting=0).
+     *
+     * A bug in b5 extraction (using insn bit 31 instead of insn bit 31 for the
+     * 6-bit test-bit index) would misidentify the bit being tested, causing the
+     * spec/arch split to be on the wrong path.
+     */
+    uint32_t code[] = {
+        enc_tbz(0, 32, +8),          /* TBZ X0, #32, +8 */
+        enc_ldr_reg(1, 29),          /* LDR X1,[X29]    */
+        enc_ldr_unsigned(2, 29, 8),  /* LDR X2,[X29,#8] */
+    };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t v0 = UINT64_C(0xAAAAAAAAAAAAAAAA);
+    uint64_t v8 = UINT64_C(0xBBBBBBBBBBBBBBBB);
+    memcpy(mem,     &v0, 8);
+    memcpy(mem + 8, &v8, 8);
+
+    /* --- sub-case A: bit 32 SET → TBZ condition fails → NOT-TAKEN arch --- */
+    {
+        uint64_t regs[REGS_COUNT] = { 0 };
+        regs[0] = UINT64_C(1) << 32;  /* bit 32 set */
+
+        ce_result_t res;
+        if (!run_ce(code, 3, mem, sizeof(mem), KBASE, 1, CONTRACT_ALWAYS_MISPREDICT, regs, &res)) {
+            ++g_tests_run; ++g_tests_failed;
+            fprintf(stderr, "FAIL %s(A): run_ce failed\n", __func__);
+        } else {
+            EXPECT_EQ(count_mem_entries(&res), 3);
+            instr_trace_entry_t *ma0 = find_mem_entry(&res, 0);
+            instr_trace_entry_t *ma1 = find_mem_entry(&res, 1);
+            instr_trace_entry_t *ma2 = find_mem_entry(&res, 2);
+            EXPECT(ma0 != NULL); EXPECT(ma1 != NULL); EXPECT(ma2 != NULL);
+            if (ma0 && ma1 && ma2) {
+                /* Spec TAKEN: LDR X2 */
+                EXPECT_EQ(ma0->metadata.memory_access.effective_address, KBASE + 8);
+                EXPECT_EQ(ma0->metadata.speculation_nesting,             (uint64_t)1);
+                /* Arch NOT-TAKEN: LDR X1, LDR X2 */
+                EXPECT_EQ(ma1->metadata.memory_access.effective_address, KBASE);
+                EXPECT_EQ(ma1->metadata.speculation_nesting,             (uint64_t)0);
+                EXPECT_EQ(ma2->metadata.memory_access.effective_address, KBASE + 8);
+                EXPECT_EQ(ma2->metadata.speculation_nesting,             (uint64_t)0);
+            }
+        }
+    }
+
+    /* --- sub-case B: bit 32 CLEAR (X0=0) → TBZ TAKEN arch --- */
+    {
+        ce_result_t res;
+        if (!run_ce_simple(code, 3, mem, sizeof(mem), KBASE, 1, CONTRACT_ALWAYS_MISPREDICT, &res)) {
+            ++g_tests_run; ++g_tests_failed;
+            fprintf(stderr, "FAIL %s(B): run_ce failed\n", __func__);
+        } else {
+            EXPECT_EQ(count_mem_entries(&res), 3);
+            instr_trace_entry_t *ma0 = find_mem_entry(&res, 0);
+            instr_trace_entry_t *ma1 = find_mem_entry(&res, 1);
+            instr_trace_entry_t *ma2 = find_mem_entry(&res, 2);
+            EXPECT(ma0 != NULL); EXPECT(ma1 != NULL); EXPECT(ma2 != NULL);
+            if (ma0 && ma1 && ma2) {
+                /* Spec NOT-TAKEN: LDR X1, LDR X2 */
+                EXPECT_EQ(ma0->metadata.memory_access.effective_address, KBASE);
+                EXPECT_EQ(ma0->metadata.speculation_nesting,             (uint64_t)1);
+                EXPECT_EQ(ma1->metadata.memory_access.effective_address, KBASE + 8);
+                EXPECT_EQ(ma1->metadata.speculation_nesting,             (uint64_t)1);
+                /* Arch TAKEN: LDR X2 */
+                EXPECT_EQ(ma2->metadata.memory_access.effective_address, KBASE + 8);
+                EXPECT_EQ(ma2->metadata.speculation_nesting,             (uint64_t)0);
+            }
+        }
+    }
+}
+
+/* ---- GROUP 23: ARCH_ONLY vs ALWAYS_MISPREDICT — trace count differs --- */
+
+static void test_integration_contract_type_comparison(void) {
+    /*
+     * Same code: CBZ X0, +8; LDR X1,[X29]; LDR X2,[X29,#8]
+     * X0=0 → branch TAKEN (arch: only LDR X2 executes).
+     *
+     * ARCH_ONLY:           1 memory-access entry (LDR X2)
+     * ALWAYS_MISPREDICT:   3 memory-access entries (LDR X1 spec, LDR X2 spec, LDR X2 arch)
+     */
+    uint32_t code[] = {
+        enc_cbz(0, +8),
+        enc_ldr_reg(1, 29),
+        enc_ldr_unsigned(2, 29, 8),
+    };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+
+    ce_result_t arch_res, spec_res;
+
+    bool arch_ok = run_ce_simple(code, 3, mem, sizeof(mem), KBASE, 1, CONTRACT_ARCH_ONLY,          &arch_res);
+    bool spec_ok = run_ce_simple(code, 3, mem, sizeof(mem), KBASE, 1, CONTRACT_ALWAYS_MISPREDICT,  &spec_res);
+
+    EXPECT(arch_ok);
+    EXPECT(spec_ok);
+
+    if (arch_ok) {
+        EXPECT_EQ(count_mem_entries(&arch_res), 1);
+        instr_trace_entry_t *e = find_mem_entry(&arch_res, 0);
+        EXPECT(e != NULL);
+        if (e) EXPECT_EQ(e->metadata.memory_access.effective_address, KBASE + 8);
+    }
+
+    if (spec_ok) {
+        EXPECT_EQ(count_mem_entries(&spec_res), 3);
+    }
+
+    /* The speculative trace must be strictly larger than the arch-only trace */
+    if (arch_ok && spec_ok) {
+        EXPECT(count_mem_entries(&spec_res) > count_mem_entries(&arch_res));
+    }
+}
+
+/* ---- GROUP 24: PACIA+AUTIA round-trip on arch path -------------------- */
+
+/* PACIA X<rd>, X<rn> */
+static uint32_t enc_pacia(int rd, int rn) {
+    return 0xDAC10000u | ((uint32_t)rn << 5) | (uint32_t)rd;
+}
+/* AUTIA X<rd>, X<rn> */
+static uint32_t enc_autia(int rd, int rn) {
+    return 0xDAC11000u | ((uint32_t)rn << 5) | (uint32_t)rd;
+}
+
+static void test_integration_pac_arch_roundtrip(void) {
+    /*
+     * X0 = kbase (the pointer to sign), X29 = kbase (set by main.c).
+     * Code: PACIA X0,X29  →  AUTIA X0,X29  →  LDR X1,[X29]
+     *
+     * pac_sign_hook intercepts PACIA and signs kbase with kbase-as-context.
+     * auth_verify_hook intercepts AUTIA on the arch path (nesting==0) and
+     * runs the real AUT, recovering the clean kbase pointer.
+     *
+     * After the round-trip X0 must equal kbase again.  LDR X1 produces a
+     * trace entry whose cpu.gpr[0] (= X0 captured before LDR executes) must
+     * equal kbase.  The EA must also be kbase (X29 is untouched).
+     */
+    uint32_t code[] = {
+        enc_pacia(0, 29),    /* PACIA X0, X29 */
+        enc_autia(0, 29),    /* AUTIA X0, X29 */
+        enc_ldr_reg(1, 29),  /* LDR  X1, [X29] */
+    };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t val = UINT64_C(0xABCDABCDABCDABCD);
+    memcpy(mem, &val, 8);
+
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[0] = KBASE;  /* X0 = kbase (pointer to sign) */
+
+    ce_result_t res;
+    if (!run_ce(code, 3, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, regs, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    /* Only LDR X1 produces a memory-access entry; PACIA and AUTIA do not */
+    EXPECT_EQ(count_mem_entries(&res), 1);
+
+    instr_trace_entry_t *e = find_mem_entry(&res, 0);
+    EXPECT(e != NULL);
+    if (!e) return;
+
+    EXPECT_EQ(e->metadata.memory_access.effective_address, KBASE);
+    EXPECT_EQ(e->metadata.memory_access.element_size,      (uint64_t)8);
+    EXPECT_EQ(e->metadata.speculation_nesting,             (uint64_t)0);
+    /* X0 must be restored to kbase after the PACIA→AUTIA round-trip */
+    EXPECT_EQ(e->cpu.gpr[0], KBASE);
+}
+
+/* ---- GROUP 25: AUTIA on spec path uses XPAC, not real AUT ------------- */
+
+static void test_integration_pac_spec_xpac(void) {
+    /*
+     * X0=0, X1=kbase, X29=kbase (main.c), max_nesting=1,
+     * ALWAYS_MISPREDICT contract.
+     *
+     * Code layout (byte offsets):
+     *   [0]  CBZ X0, +12   ; X0=0 → arch TAKEN (→ [3] LDR X2)
+     *                       ; ALWAYS_MISPREDICT → spec NOT-TAKEN (→ [1])
+     *   [4]  PACIA X1, X29 ; spec: sign kbase with kbase context → X1=signed
+     *   [8]  AUTIA X1, X29 ; spec: auth_verify_hook sees is_in_speculation()==1
+     *                       ;       → do_xpac_el0 strips tag → X1=kbase again
+     *   [12] LDR X2, [X29] ; both paths: EA=kbase
+     *
+     * Expected memory-access entries:
+     *   [0] LDR X2 nesting=1  (spec: after PACIA+XPAC, cpu.gpr[1]=kbase)
+     *   [1] LDR X2 nesting=0  (arch: checkpoint-restored X1=kbase)
+     *
+     * If auth_verify_hook incorrectly ran the real AUT on the speculative
+     * path, the AUTIA would authenticate a pointer signed with PACIA (so it
+     * would actually still succeed here). More importantly, the test
+     * validates end-to-end plumbing: the CE must NOT crash, the trace must
+     * contain exactly 2 memory entries, and X1 must equal kbase in both.
+     */
+    uint32_t code[] = {
+        enc_cbz(0, 12),      /* CBZ  X0, +12   [0] */
+        enc_pacia(1, 29),    /* PACIA X1, X29  [4] */
+        enc_autia(1, 29),    /* AUTIA X1, X29  [8] */
+        enc_ldr_reg(2, 29),  /* LDR  X2, [X29] [12] */
+    };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t val = UINT64_C(0x1234567812345678);
+    memcpy(mem, &val, 8);
+
+    uint64_t regs[REGS_COUNT] = { 0 };
+    /* regs[0] = 0 (X0=0 so CBZ is TAKEN) */
+    regs[1] = KBASE;  /* X1 = kbase (to be signed by PACIA on spec path) */
+
+    ce_result_t res;
+    if (!run_ce(code, 4, mem, sizeof(mem), KBASE, 1, CONTRACT_ALWAYS_MISPREDICT, regs, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    EXPECT_EQ(count_mem_entries(&res), 2);
+
+    instr_trace_entry_t *ma0 = find_mem_entry(&res, 0);
+    instr_trace_entry_t *ma1 = find_mem_entry(&res, 1);
+    EXPECT(ma0 != NULL); EXPECT(ma1 != NULL);
+    if (!ma0 || !ma1) return;
+
+    /* Speculative entry: PACIA then XPAC restore X1 to kbase */
+    EXPECT_EQ(ma0->metadata.memory_access.effective_address, KBASE);
+    EXPECT_EQ(ma0->metadata.speculation_nesting,             (uint64_t)1);
+    EXPECT_EQ(ma0->cpu.gpr[1],                               KBASE);
+
+    /* Arch entry: X1 restored from checkpoint (= original kbase) */
+    EXPECT_EQ(ma1->metadata.memory_access.effective_address, KBASE);
+    EXPECT_EQ(ma1->metadata.speculation_nesting,             (uint64_t)0);
+    EXPECT_EQ(ma1->cpu.gpr[1],                               KBASE);
+}
+
+/* ---- main -------------------------------------------------------------- */
+
+int main(void) {
+    printf("Running CE integration tests (fork+exec)...\n");
+
+    if (access(CE_BINARY, X_OK) != 0) {
+        fprintf(stderr, "SKIP: %s not found or not executable\n", CE_BINARY);
+        printf("\n0 tests, 0 failed (CE binary not found)\n");
+        return 0;
+    }
+
+    test_integration_ldr_base();
+    test_integration_str_base();
+    test_integration_ldr_unsigned_offset();
+    test_integration_ldr_postidx();
+    test_integration_ldr_preidx();
+    test_integration_ldp();
+    test_integration_kaddr_transparency();
+    test_integration_sequential_loads();
+    test_integration_store_then_load();
+
+    test_integration_nop_no_mem();
+    test_integration_access_size_byte();
+    test_integration_access_size_halfword();
+    test_integration_access_size_word();
+    test_integration_strb_partial_write();
+    test_integration_non_x29_base();
+    test_integration_nzcv_in_cpu_state();
+    test_integration_register_offset();
+    test_integration_load_updates_dest_reg();
+    test_integration_postidx_writeback_cpu_state();
+    test_integration_always_mispredict_cbz();
+    test_integration_always_mispredict_cbnz();
+    test_integration_tbz_bit32();
+    test_integration_contract_type_comparison();
+
+    test_integration_pac_arch_roundtrip();
+    test_integration_pac_spec_xpac();
+
+    printf("\n%d tests, %d failed\n", g_tests_run, g_tests_failed);
+    return g_tests_failed ? 1 : 0;
+}

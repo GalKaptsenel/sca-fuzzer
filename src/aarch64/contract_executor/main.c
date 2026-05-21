@@ -17,7 +17,6 @@ simulation_hook_fn hooks_to_install[] = {
 	execution_clause_hook,
 	pac_sign_hook,              /* must run before logging so trace sees kernel-signed value */
 	auth_verify_hook,           /* must run after pac_sign_hook, before logging */
-	mte_tag_hook,               /* intercept ADDG sentinel (NOP in CE), must be before logging */
 //	stdout_print_hook,
 	log_instr_execution_cluase_hook,
 //	log_instr_hook,

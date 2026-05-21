@@ -39,7 +39,7 @@ int is_unsigned_offset(uint32_t inst);
 int is_pair_pre_index(uint32_t inst);
 int is_pair_post_index(uint32_t inst);
 int is_pair_signed_offset(uint32_t inst);
-int is_immidiate_offset(uint32_t inst);
+int is_immediate_offset(uint32_t inst);
 uint32_t get_rm(uint32_t inst);
 uint32_t get_rn(uint32_t inst);
 uint32_t get_rt(uint32_t inst);

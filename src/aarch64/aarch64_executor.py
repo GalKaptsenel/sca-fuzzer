@@ -43,7 +43,7 @@ from ..config import CONF
 from ..util import Logger, STAT
 from .aarch64_target_desc import Aarch64TargetDesc, NZCVScheme
 from .aarch64_connection import LocalExecutorImp, TestCaseRegion, InputRegion, PacKeys
-from .aarch64_generator import Pass, Aarch64SandboxPass, PACInstrumentation, FixPoint, AUTH_SLOT_POS
+from .aarch64_generator import Pass, Aarch64SandboxPass, PACInstrumentation, FixPoint, AUTH_SLOT_POS, MTEInstrumentation, MTEFixPoint
 
 from .aarch64_connection import profile_op, ExecutorMemory
 
@@ -1214,6 +1214,138 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                 for l in disasm:
                     self._pac_log(f"    {l}")
             self._pac_log_file.flush()
+
+        taints = [compute_taint(cer) for cer in traces]
+        ctraces = [compute_ctrace(cer) for cer in traces]
+
+        return ctraces, taints, traces, tc_variants_per_input
+
+
+# ==================================================================================================
+# MTE non-interference executor
+# ==================================================================================================
+class Aarch64MteNonInterferenceExecutor(Aarch64LocalExecutor):
+    """
+    Executor for MTE non-interference testing.
+
+    Lifecycle:
+    1. load_test_case(tc)  — runs MTEInstrumentation.instrument_stage1(), caches result.
+    2. trace_test_case_with_taints(inputs, nesting)  — for each input:
+         a. Run stage-1 TC through CE (CONTRACT_ALWAYS_MISPREDICT) to discover which
+            memory-access slots have spec_nesting > 0 (speculative) vs 0 (architectural).
+            Uses arch_seen semantics: once a slot fires at nesting==0 it is permanently arch.
+         b. Call MTEInstrumentation.instrument_stage2() to produce TC1/TC2/TC3:
+              TC1 — all NOP (correct-tag baseline)
+              TC2 — spec slots → IRG Xd,Xd (random tag); arch slots → NOP
+              TC3 — spec slots → MOVK Xd,#wrong_upper16,LSL#48; arch slots → NOP
+    """
+
+    def __init__(self, workdir: str, generator: Aarch64Generator, *args, **kwargs):
+        super().__init__(workdir, *args, **kwargs)
+        self._generator: Aarch64Generator = generator
+        self._mte = MTEInstrumentation(generator)
+
+        # Stage-1 cache — populated by load_test_case()
+        self._stage1_tc: Optional[TestCase] = None
+        self._stage1_fix_points: Optional[List[MTEFixPoint]] = None
+        self._stage1_tc_bytes: Optional[bytes] = None
+        # Maps byte offset of each memory access in the stage-1 binary → MTEFixPoint
+        self._stage1_mem_access_offset_to_fp: Optional[Dict[int, MTEFixPoint]] = None
+        self._tc_counter: int = 0
+
+    def load_test_case(self, test_case: TestCase):
+        result = super().load_test_case(test_case)
+        self._run_stage1()
+        return result
+
+    def _run_stage1(self) -> None:
+        """Instrument test_case with NOP placeholders (stage-1) and cache layout."""
+        self._tc_counter += 1
+
+        patched = copy.deepcopy(self.test_case)
+        stage1_tc, fix_points = self._mte.instrument_stage1(patched)
+        layout = Aarch64ASMLayout(stage1_tc)
+
+        assembly = Aarch64Printer(self.target_desc).print_layout(layout)
+        tc_bytes = ConfigurableGenerator.in_memory_assemble(assembly)
+
+        # The NOP placeholder is inserted immediately before its memory access.
+        # So: mem_access is at nop_offset + 4.
+        mem_access_offset_to_fp: Dict[int, MTEFixPoint] = {}
+        for fp in fix_points:
+            nop_offset = layout.instruction_address[fp.slot_insts[0]]
+            mem_access_offset_to_fp[nop_offset + 4] = fp
+
+        self._stage1_tc = stage1_tc
+        self._stage1_fix_points = fix_points
+        self._stage1_tc_bytes = tc_bytes
+        self._stage1_mem_access_offset_to_fp = mem_access_offset_to_fp
+
+    def trace_test_case_with_taints(
+        self,
+        inputs: List[Input],
+        nesting: int,
+    ) -> Tuple[List[CTrace], List[InputTaint], List[ContractExecutionResult], List[TCVariants]]:
+        """
+        For each input, run CE to capture per-slot spec_nesting, then produce TC variants.
+        """
+        if not inputs or self.test_case is None:
+            return [], [], [], []
+
+        assert self._stage1_tc is not None, \
+            "MTE stage-1 cache empty — load_test_case() not called"
+
+        tc = self._stage1_tc
+        fix_points = self._stage1_fix_points
+        tc_bytes = self._stage1_tc_bytes
+        offset_to_fp = self._stage1_mem_access_offset_to_fp
+
+        sandbox_base, _ = self.read_base_addresses()
+        traces: List[ContractExecutionResult] = []
+        tc_variants_per_input: List[TCVariants] = []
+
+        for inp in inputs:
+            for fp in fix_points:
+                fp.reset()
+
+            data = inp.tobytes()
+            tc_memory = data[:0x2000]
+            tc_regs = bytearray(data[0x2000:])
+            _reconstruct_pstate(memoryview(tc_regs).cast('Q'))
+            tc_regs = bytes(tc_regs)
+
+            execution = ContractExecution(
+                tc_bytes, tc_memory, tc_regs,
+                SimArch.RVZR_ARCH_AARCH64,
+                nesting,   # max_misspred_branch_nesting
+                10,        # max_misspred_instructions (unused by CE)
+                req_mem_base_virt=sandbox_base,
+            )
+            # contract_type defaults to ALWAYS_MISPREDICT — reveals speculative paths
+            cer = self._contract_executor.run(execution)
+            traces.append(cer)
+
+            # Capture spec_nesting per slot with arch_seen semantics:
+            # nesting==0 wins and cannot be overwritten by later speculative firings.
+            if len(cer) > 0:
+                code_base = cer[0].cpu.pc
+                arch_seen: Set[int] = set()
+                for ite in cer:
+                    if not ite.metadata.has_memory_access:
+                        continue
+                    pc_offset = ite.cpu.pc - code_base
+                    fp = offset_to_fp.get(pc_offset)
+                    if fp is None:
+                        continue
+                    nest = ite.metadata.speculation_nesting
+                    if nest == 0:
+                        fp.spec_nesting = 0
+                        arch_seen.add(fp.slot_id)
+                    elif fp.slot_id not in arch_seen and fp.spec_nesting is None:
+                        fp.spec_nesting = int(nest)
+
+            tc1, tc2, tc3 = self._mte.instrument_stage2(tc, fix_points, sandbox_base)
+            tc_variants_per_input.append(TCVariants(tc1=tc1, tc2=tc2, tc3=tc3))
 
         taints = [compute_taint(cer) for cer in traces]
         ctraces = [compute_ctrace(cer) for cer in traces]

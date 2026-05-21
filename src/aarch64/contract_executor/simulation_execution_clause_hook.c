@@ -94,9 +94,11 @@ static uintptr_t evaluate_cond_branch_bool(const struct cpu_state* state, bool r
 	}
 
 	if (BRANCH_TBZ == btype || BRANCH_TBNZ == btype) {
-		uint32_t Rt = insn & 0x1F;
-		uint32_t b5 = (insn >> 19) & 0x1F;     // bit to test
-		bool bit_set = (gpr_x(state, Rt) >> b5) & 1;
+		uint32_t Rt     = insn & 0x1F;
+		uint32_t b5_msb = (insn >> 31) & 0x1;   // high bit of the 6-bit test-bit index
+		uint32_t b40    = (insn >> 19) & 0x1F;   // low 5 bits
+		uint32_t bit_num = (b5_msb << 5) | b40;  // full 6-bit test-bit index (0..63)
+		bool bit_set = (gpr_x(state, Rt) >> bit_num) & 1;
 		bool take = (0 == bit_set) == (BRANCH_TBZ == btype);
 		bool arch_take = take == req_direction;
 		return arch_take ? target : pc + 4;
@@ -182,18 +184,26 @@ static void destroy_execution_clause() {
 }
 
 static void* early_decision(const struct cpu_state* state) {
-	const uintptr_t target_address = evaluate_cond_target(state->pc, *(uint32_t*)state->pc);
 	const uintptr_t arch_taken_address = evaluate_cond_branch_arch_taken(state);
-	return NULL; // always mispredict: explore speculative path for every branch
-	const bool arch_taken = target_address == arch_taken_address;
+	uint64_t ct = simulation.sim_input.hdr.config.contract_type;
 
-	// check what the director says, if it is the same as real direction, then no deeper speculation needed, otherwise speculate to the mispredicted direction
-	const uintptr_t predicted = director_predict(state->pc);
-	director_update(state->pc, arch_taken, arch_taken_address); // BUG when target address is PC + 4 (same target for taken and not taken)
-	if((arch_taken && predicted) || (!arch_taken && !predicted)) {
+	if (ct == CONTRACT_ARCH_ONLY) {
 		return (void*)arch_taken_address;
 	}
-	return NULL; // No early decision been made
+
+	if (ct == CONTRACT_BPU_NEOVERSE_N3) {
+		const uintptr_t target_address = evaluate_cond_target(state->pc, *(uint32_t*)state->pc);
+		const bool arch_taken = target_address == arch_taken_address;
+		const uintptr_t predicted = director_predict(state->pc);
+		director_update(state->pc, arch_taken, arch_taken_address);
+		if ((arch_taken && predicted) || (!arch_taken && !predicted)) {
+			return (void*)arch_taken_address;
+		}
+		return NULL;
+	}
+
+	/* CONTRACT_ALWAYS_MISPREDICT (0) and any unknown value: always speculate */
+	return NULL;
 }
 
 void* log_instr_execution_cluase_hook(struct simulation_state* sim_state) {
@@ -217,7 +227,11 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 		if(NULL == mgmt.checkpoints_array) return NULL;
 		memset(mgmt.checkpoints_array, 0, checkpoints_array_size);
 
-		initialize_director();
+		/* TAGE director is only needed for the BPU-model contract. */
+		uint64_t ct = simulation.sim_input.hdr.config.contract_type;
+		if (ct == CONTRACT_BPU_NEOVERSE_N3) {
+			initialize_director();
+		}
 		initialized = 1;
 	}
 
@@ -238,12 +252,11 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 	if(BRANCH_NONE == branch_type || BRANCH_B == branch_type || BRANCH_BL == branch_type || BRANCH_BLR == branch_type) return NULL;
 
 	if(mgmt.max_nesting <= mgmt.current_nesting) {
-		if(0 == mgmt.current_nesting) __builtin_trap(); // Should never happen
-		if(0 == mgmt.stack_top) __builtin_trap(); // Should never happen
-		--mgmt.stack_top;
-		mgmt.current_nesting = mgmt.stack[mgmt.stack_top].nesting;
-		reload_checkpoint(sim_state, mgmt.stack[mgmt.stack_top].checkpoint_id);
-		return (void*)mgmt.stack[mgmt.stack_top].return_addr;
+		/* At or beyond max speculation depth: always take the architectural path.
+		 * When max_nesting=0, this handles the base case without trapping.
+		 * When already speculating at max depth, we continue on the arch path
+		 * rather than squashing to the parent checkpoint. */
+		return (void*)evaluate_cond_branch_arch_taken(&sim_state->cpu_state);
 	}
 
 	void* skip_mispredict = early_decision(&sim_state->cpu_state);
