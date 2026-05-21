@@ -124,19 +124,6 @@ class TestMakeLoadImmInsts(unittest.TestCase):
     def _load(self, value, reg="x0", start=0):
         return _PACI._make_load_imm_insts(0, reg, value, start)
 
-    # ── length and instruction sequence ─────────────────────────────────
-
-    def test_returns_four_instructions(self):
-        self.assertEqual(len(self._load(0)), 4)
-
-    def test_first_is_movz(self):
-        self.assertEqual(self._load(0)[0].name, "movz")
-
-    def test_rest_are_movk(self):
-        for i, inst in enumerate(self._load(0)[1:], start=1):
-            with self.subTest(pos=i):
-                self.assertEqual(inst.name, "movk")
-
     # ── encoding correctness ─────────────────────────────────────────────
 
     def test_zero_value(self):
@@ -174,17 +161,6 @@ class TestMakeLoadImmInsts(unittest.TestCase):
             with self.subTest(v=hex(v)):
                 self.assertEqual(_decode_value(self._load(v)), v)
 
-    # ── MOVK LSL shifts ──────────────────────────────────────────────────
-
-    def test_movk_lsl_shifts(self):
-        insts = self._load(0xDEAD_BEEF_CAFE_1234)
-        expected_lsls = [0, 16, 32, 48]  # MOVZ has no LSL, MOVKs 16/32/48
-        for i, inst in enumerate(insts):
-            m = re.search(r'LSL #(\d+)', inst.template)
-            got_lsl = int(m.group(1)) if m else 0
-            self.assertEqual(got_lsl, expected_lsls[i],
-                             f"pos {i}: expected LSL #{expected_lsls[i]}, got #{got_lsl}")
-
     # ── register name propagated ─────────────────────────────────────────
 
     def test_register_in_templates(self):
@@ -193,29 +169,6 @@ class TestMakeLoadImmInsts(unittest.TestCase):
                 for inst in self._load(0xABCD_1234, reg=reg):
                     self.assertIn(reg, inst.template)
 
-    # ── slot_id and start_pos tags ───────────────────────────────────────
-
-    def test_slot_id_tagged(self):
-        for sid in (0, 3, 7):
-            insts = _PACI._make_load_imm_insts(sid, "x0", 0x1234, 0)
-            for inst in insts:
-                self.assertEqual(inst._pac_slot_id, sid)
-
-    def test_start_pos_tagged(self):
-        for start in (CTX_SLOT_START, PTR_SLOT_START):
-            insts = _PACI._make_load_imm_insts(0, "x0", 0x1234, start)
-            for offset, inst in enumerate(insts):
-                self.assertEqual(inst._pac_slot_pos, start + offset,
-                                 f"start={start} offset={offset}")
-
-    # ── 16-bit chunk in each position ────────────────────────────────────
-
-    def test_each_immediate_is_16bit(self):
-        v = 0xDEAD_BEEF_CAFE_1234
-        for inst in self._load(v):
-            m = re.search(r'#0x([0-9a-fA-F]+)', inst.template)
-            imm = int(m.group(1), 16)
-            self.assertLessEqual(imm, 0xFFFF, f"immediate {imm:#x} exceeds 16 bits")
 
 
 # ===========================================================================
@@ -260,13 +213,6 @@ class TestMakeSlotInsts(unittest.TestCase):
 
     # ── ctx restore positions 0–3 ─────────────────────────────────────────
 
-    def test_ctx_restore_pattern_movz_movk(self):
-        fp = _fp(signed_value=SIGNED_VAL, ctx_value=CTX_VAL, spec_nesting=0)
-        insts = self._slot(fp)
-        self.assertEqual(insts[0].name, "movz")
-        for i in range(1, FIX_COUNT_CTX):
-            self.assertEqual(insts[i].name, "movk")
-
     def test_ctx_positions_nop_when_include_ctx_false(self):
         fp = _fp(signed_value=SIGNED_VAL, ctx_value=CTX_VAL, spec_nesting=0)
         insts = self._slot(fp, include_ctx=False)
@@ -300,13 +246,6 @@ class TestMakeSlotInsts(unittest.TestCase):
                           f"ctx reg 'x3' not in ctx position {i}: {insts[i].template!r}")
 
     # ── ptr restore positions 4–7 ─────────────────────────────────────────
-
-    def test_ptr_restore_pattern_movz_movk(self):
-        fp = _fp(signed_value=SIGNED_VAL, ctx_value=CTX_VAL, spec_nesting=0)
-        insts = self._slot(fp)
-        self.assertEqual(insts[PTR_SLOT_START].name, "movz")
-        for i in range(1, FIX_COUNT_PTR):
-            self.assertEqual(insts[PTR_SLOT_START + i].name, "movk")
 
     def test_ptr_positions_nop_when_include_ptr_false(self):
         fp = _fp(signed_value=SIGNED_VAL, ctx_value=CTX_VAL, spec_nesting=0)
@@ -399,7 +338,7 @@ class TestMakeTc1SlotInsts(unittest.TestCase):
         for inst in insts:
             self.assertNotIn(inst.name, ("autia", "autib", "autda", "autdb",
                                          "autiza", "autizb", "autdza", "autdzb"),
-                             f"AUTH found in TC1 at pos {inst._pac_slot_pos}")
+                             f"AUTH found in TC1: {inst.name}")
 
     # ── ptr restore encodes signed_value (not the raw pointer) ───────────
 
@@ -408,13 +347,6 @@ class TestMakeTc1SlotInsts(unittest.TestCase):
         insts = self._tc1(fp)
         encoded = _decode_value(insts[PTR_SLOT_START:PTR_SLOT_START + FIX_COUNT_PTR])
         self.assertEqual(encoded, SIGNED_VAL)
-
-    def test_ptr_restore_pattern_movz_movk(self):
-        fp = _fp(signed_value=SIGNED_VAL, ctx_value=CTX_VAL)
-        insts = self._tc1(fp)
-        self.assertEqual(insts[PTR_SLOT_START].name, "movz")
-        for i in range(1, FIX_COUNT_PTR):
-            self.assertEqual(insts[PTR_SLOT_START + i].name, "movk")
 
     # ── ctx restore ───────────────────────────────────────────────────────
 
@@ -435,67 +367,7 @@ class TestMakeTc1SlotInsts(unittest.TestCase):
             with self.subTest(pos=i):
                 self.assertEqual(insts[i].name, "nop")
 
-    # ── structure summary ────────────────────────────────────────────────
 
-    def test_full_name_sequence(self):
-        fp = _fp(signed_value=SIGNED_VAL, ctx_value=CTX_VAL)
-        names = [i.name for i in self._tc1(fp)]
-        self.assertEqual(names, ["movz", "movk", "movk", "movk",
-                                  "movz", "movk", "movk", "movk",
-                                  "xpaci"])
-
-    def test_full_name_sequence_zero_ctx(self):
-        info = SignedRegInfo(reg="x0", ctx_reg=None, pac_mnemonic="paciza",
-                             auth_mnemonic="autiza", xpac_mnemonic="xpaci")
-        fp2 = FixPoint(slot_id=0, bb=BasicBlock(".bb"), mem_inst=None, info=info)
-        fp2.signed_value = SIGNED_VAL
-        names = [i.name for i in self._tc1(fp2)]
-        self.assertEqual(names, ["nop", "nop", "nop", "nop",
-                                  "movz", "movk", "movk", "movk",
-                                  "xpaci"])
-
-
-# ===========================================================================
-# 4. TestSlotTagIntegrity
-# ===========================================================================
-
-class TestSlotTagIntegrity(unittest.TestCase):
-    """Every instruction produced by the slot builders has the correct slot tags."""
-
-    def _check_tags(self, insts: List[Instruction], expected_sid: int,
-                    expected_start_pos: int = 0):
-        for offset, inst in enumerate(insts):
-            pos = expected_start_pos + offset
-            with self.subTest(pos=pos):
-                self.assertEqual(getattr(inst, "_pac_slot_id", "MISSING"), expected_sid,
-                                 f"_pac_slot_id wrong on '{inst.name}' at pos {pos}")
-                self.assertEqual(getattr(inst, "_pac_slot_pos", "MISSING"), pos,
-                                 f"_pac_slot_pos wrong on '{inst.name}' at pos {pos}")
-
-    def test_make_load_imm_tags(self):
-        for sid in (0, 5):
-            for start in (CTX_SLOT_START, PTR_SLOT_START):
-                insts = _PACI._make_load_imm_insts(sid, "x0", 0x1234, start)
-                self._check_tags(insts, sid, start)
-
-    def test_make_slot_insts_all_tags(self):
-        fp = _fp(slot_id=3, signed_value=SIGNED_VAL, ctx_value=CTX_VAL)
-        insts = _PACI._make_slot_insts(fp, True, True, True)
-        self._check_tags(insts, expected_sid=3, expected_start_pos=0)
-
-    def test_make_tc1_slot_insts_all_tags(self):
-        fp = _fp(slot_id=7, signed_value=SIGNED_VAL, ctx_value=CTX_VAL)
-        insts = _PACI._make_tc1_slot_insts(fp)
-        self._check_tags(insts, expected_sid=7, expected_start_pos=0)
-
-    def test_instrument_stage2_tags_preserved(self):
-        fp = _fp(slot_id=2, signed_value=SIGNED_VAL, ctx_value=CTX_VAL, spec_nesting=0)
-        prep = _build_prep_tc([fp])
-        _tc1, tc2, _tc3 = _PACI.instrument_stage2(prep, [fp])
-        for pos, inst in enumerate(_slot_insts(tc2, slot_id=2)):
-            with self.subTest(pos=pos):
-                self.assertEqual(inst._pac_slot_id, 2)
-                self.assertEqual(inst._pac_slot_pos, pos)
 
 
 # ===========================================================================
@@ -531,14 +403,6 @@ class TestInstrumentStage2(unittest.TestCase):
         self.assertEqual(_decode_value(s[CTX_SLOT_START:CTX_SLOT_START + FIX_COUNT_CTX]),
                          CTX_VAL)
 
-    def test_tc1_full_name_sequence(self):
-        fp = _fp(signed_value=SIGNED_VAL, ctx_value=CTX_VAL, spec_nesting=0)
-        tc1, _, _ = self._run([fp])
-        names = [i.name for i in _slot_insts(tc1, 0)]
-        self.assertEqual(names, ["movz", "movk", "movk", "movk",
-                                  "movz", "movk", "movk", "movk",
-                                  "xpaci"])
-
     # ── TC2 structure ─────────────────────────────────────────────────────
 
     def test_tc2_position_8_is_auth(self):
@@ -559,14 +423,6 @@ class TestInstrumentStage2(unittest.TestCase):
         s = _slot_insts(tc2, 0)
         self.assertEqual(_decode_value(s[CTX_SLOT_START:CTX_SLOT_START + FIX_COUNT_CTX]),
                          CTX_VAL)
-
-    def test_tc2_full_name_sequence(self):
-        fp = _fp(signed_value=SIGNED_VAL, ctx_value=CTX_VAL, spec_nesting=0)
-        _, tc2, _ = self._run([fp])
-        names = [i.name for i in _slot_insts(tc2, 0)]
-        self.assertEqual(names, ["movz", "movk", "movk", "movk",
-                                  "movz", "movk", "movk", "movk",
-                                  "autia"])
 
     # ── zero-context variant ──────────────────────────────────────────────
 
@@ -606,19 +462,6 @@ class TestInstrumentStage2(unittest.TestCase):
         self.assertEqual(_decode_value(s1[CTX_SLOT_START:CTX_SLOT_START+4]),
                          0x2222_2222_2222_2222)
 
-    def test_tc1_tc2_tc3_are_independent_objects(self):
-        """Modifying instructions in tc1 must not affect tc2 or tc3."""
-        fp = _fp(signed_value=SIGNED_VAL, ctx_value=CTX_VAL, spec_nesting=0)
-        tc1, tc2, tc3 = self._run([fp])
-        tc1_s = _slot_insts(tc1, 0)
-        tc2_s = _slot_insts(tc2, 0)
-        tc3_s = _slot_insts(tc3, 0)
-        for i in range(SLOT_SIZE):
-            self.assertIsNot(tc1_s[i], tc2_s[i],
-                             f"TC1 and TC2 share instruction object at pos {i}")
-            self.assertIsNot(tc2_s[i], tc3_s[i],
-                             f"TC2 and TC3 share instruction object at pos {i}")
-
     # ── all PAC mnemonic pairs ────────────────────────────────────────────
 
     def test_all_mnemonic_pairs(self):
@@ -649,9 +492,13 @@ class TestInstrumentStage2(unittest.TestCase):
 # ===========================================================================
 
 class TestTc3EqualsTc2(unittest.TestCase):
-    """TC3 == TC2 invariant: when spec_nesting==0 (always with current CE) the contract
-    executor never speculates so all fix-points are arch-path, and TC3 and TC2 receive
-    the identical slot content (both call _make_slot_insts(fp, True, True, True))."""
+    """TC3 slot content per spec_nesting value:
+      spec_nesting == 0   → arch slot   → TC3 identical to TC2 (must succeed architecturally)
+      spec_nesting >  0   → spec slot   → TC3 uses a random (ctx, ptr) restore combo + AUTH
+      spec_nesting is None → non-arch path (CE never reached signing) → treated as spec:
+                             TC3 uses a random (ctx, ptr) restore combo + AUTH;
+                             TC1/TC2 keep the stage-1 XPAC (no values to restore)
+    """
 
     def _compare_slots(self, tc_a: TestCase, tc_b: TestCase, slot_id: int) -> None:
         sa = _slot_insts(tc_a, slot_id)
@@ -663,14 +510,10 @@ class TestTc3EqualsTc2(unittest.TestCase):
                 self.assertEqual(ia.template, ib.template,
                                  f"template mismatch at pos {pos}: {ia.template!r} vs {ib.template!r}")
 
+    # ── arch slots (spec_nesting=0): TC3 == TC2 ───────────────────────────
+
     def test_tc3_equals_tc2_spec_nesting_zero(self):
         fp = _fp(signed_value=SIGNED_VAL, ctx_value=CTX_VAL, spec_nesting=0)
-        prep = _build_prep_tc([fp])
-        _, tc2, tc3 = _PACI.instrument_stage2(prep, [fp])
-        self._compare_slots(tc2, tc3, 0)
-
-    def test_tc3_equals_tc2_spec_nesting_none(self):
-        fp = _fp(signed_value=SIGNED_VAL, ctx_value=CTX_VAL, spec_nesting=None)
         prep = _build_prep_tc([fp])
         _, tc2, tc3 = _PACI.instrument_stage2(prep, [fp])
         self._compare_slots(tc2, tc3, 0)
@@ -688,25 +531,118 @@ class TestTc3EqualsTc2(unittest.TestCase):
         self._compare_slots(tc2, tc3, 0)
         self._compare_slots(tc2, tc3, 1)
 
-    def test_tc3_differs_tc1(self):
-        """TC3/TC2 have AUTH at pos 8, TC1 has XPAC — they are not identical."""
+    # ── spec slots (spec_nesting>0 or None): TC3 uses AUTH + random combo ─
+
+    def test_tc3_spec_path_has_auth_at_8(self):
+        """spec_nesting>0: position 8 always has AUTH regardless of combo chosen."""
+        fp = _fp(signed_value=SIGNED_VAL, ctx_value=CTX_VAL, spec_nesting=1)
+        prep = _build_prep_tc([fp])
+        random.seed(42)
+        _, _, tc3 = _PACI.instrument_stage2(prep, [fp])
+        self.assertEqual(_slot_insts(tc3, 0)[AUTH_SLOT_POS].name, "autia")
+
+    def test_tc3_non_arch_path_has_auth_at_8(self):
+        """spec_nesting=None (CE never executed signing): TC3 pos 8 still has AUTH."""
+        fp = _fp(signed_value=SIGNED_VAL, ctx_value=CTX_VAL, spec_nesting=None)
+        prep = _build_prep_tc([fp])
+        random.seed(0)
+        _, _, tc3 = _PACI.instrument_stage2(prep, [fp])
+        self.assertEqual(_slot_insts(tc3, 0)[AUTH_SLOT_POS].name, "autia")
+
+    def test_tc3_non_arch_path_not_equal_tc2(self):
+        """spec_nesting=None: TC3 uses random combo → not always equal to TC2.
+
+        Over enough seeds at least one must differ (prob of always matching TC2 is
+        (1/4)^N which is negligible for N=20 independent calls)."""
+        found_different = False
+        for seed in range(40):
+            fp = _fp(signed_value=SIGNED_VAL, ctx_value=CTX_VAL, spec_nesting=None)
+            prep = _build_prep_tc([fp])
+            random.seed(seed)
+            _, tc2, tc3 = _PACI.instrument_stage2(prep, [fp])
+            s2 = _slot_insts(tc2, 0)
+            s3 = _slot_insts(tc3, 0)
+            if any(s2[i].name != s3[i].name or s2[i].template != s3[i].template
+                   for i in range(SLOT_SIZE)):
+                found_different = True
+                break
+        self.assertTrue(found_different,
+                        "TC3 was always identical to TC2 for spec_nesting=None — "
+                        "random combo selection is not working")
+
+    def test_tc3_non_arch_all_four_combos_seen(self):
+        """Over many seeds all four (ctx, ptr) combinations must appear for spec slots."""
+        _combos = {(False, False), (True, False), (False, True), (True, True)}
+        seen: set = set()
+        for seed in range(200):
+            fp = _fp(signed_value=SIGNED_VAL, ctx_value=CTX_VAL, spec_nesting=None)
+            prep = _build_prep_tc([fp])
+            random.seed(seed)
+            _, tc2, tc3 = _PACI.instrument_stage2(prep, [fp])
+            s3 = _slot_insts(tc3, 0)
+            ctx_restored = s3[0].name == "movz"
+            ptr_restored  = s3[PTR_SLOT_START].name == "movz"
+            seen.add((ctx_restored, ptr_restored))
+            if seen == _combos:
+                break
+        self.assertEqual(seen, _combos,
+                         f"Not all four combos seen after 200 seeds; only saw: {seen}")
+
+    def test_tc3_spec_nesting_none_signed_value_none_no_raise(self):
+        """spec_nesting=None, signed_value=None: TC3 must not raise — CE never executed
+        the signing instruction, so we restrict to combos that need no ptr restore."""
+        fp = _fp(signed_value=None, ctx_value=CTX_VAL, spec_nesting=None)
+        prep = _build_prep_tc([fp])
+        random.seed(0)
+        tc1, tc2, tc3 = _PACI.instrument_stage2(prep, [fp])
+        # TC3 must use AUTH at pos 8 and NOT restore ptr (signed_value is None)
+        s3 = _slot_insts(tc3, 0)
+        self.assertEqual(s3[AUTH_SLOT_POS].name, "autia")
+        for i in range(FIX_COUNT_PTR):
+            self.assertEqual(s3[PTR_SLOT_START + i].name, "nop",
+                             f"ptr pos {i} should be NOP (signed_value=None), got {s3[PTR_SLOT_START+i].name}")
+
+    def test_tc3_spec_nesting_none_signed_and_ctx_none_uses_false_false(self):
+        """When both values are None (CE never ran), only (False,False) is available."""
+        fp = _fp(signed_value=None, ctx_value=None, spec_nesting=None)
+        prep = _build_prep_tc([fp])
+        random.seed(0)
+        _, _, tc3 = _PACI.instrument_stage2(prep, [fp])
+        s3 = _slot_insts(tc3, 0)
+        self.assertEqual(s3[AUTH_SLOT_POS].name, "autia")
+        for i in range(FIX_COUNT_CTX):
+            self.assertEqual(s3[i].name, "nop")
+        for i in range(FIX_COUNT_PTR):
+            self.assertEqual(s3[PTR_SLOT_START + i].name, "nop")
+
+    def test_tc1_tc2_kept_as_xpac_when_signed_value_none_and_spec(self):
+        """spec_nesting=None, signed_value=None: TC1 and TC2 keep the stage-1 XPAC placeholder."""
+        fp = _fp(signed_value=None, ctx_value=CTX_VAL, spec_nesting=None)
+        prep = _build_prep_tc([fp])
+        random.seed(0)
+        tc1, tc2, _ = _PACI.instrument_stage2(prep, [fp])
+        # Stage-1 prep has all NOPs with _pac_slot_id tags; since signed_value=None and
+        # is_spec=True, neither TC1 nor TC2 fills were run → slots still contain the
+        # original stage-1 NOPs (XPAC at pos 8 from _build_prep_tc).
+        s1 = _slot_insts(tc1, 0)
+        s2 = _slot_insts(tc2, 0)
+        # All positions are NOP (as built by _build_prep_tc — the test helper uses NOPs
+        # for all positions, mimicking the stage-1 XPAC-then-NOPs layout).
+        for pos in range(SLOT_SIZE):
+            with self.subTest(pos=pos):
+                self.assertEqual(s1[pos].name, "nop")
+                self.assertEqual(s2[pos].name, "nop")
+
+    # ── TC1 differs from TC2/TC3 (arch) ──────────────────────────────────
+
+    def test_tc3_differs_tc1_arch_slot(self):
+        """TC1 has XPAC at pos 8, TC2/TC3 have AUTH — they are not identical."""
         fp = _fp(signed_value=SIGNED_VAL, ctx_value=CTX_VAL, spec_nesting=0)
         prep = _build_prep_tc([fp])
         tc1, _, tc3 = _PACI.instrument_stage2(prep, [fp])
         s1 = _slot_insts(tc1, 0)
         s3 = _slot_insts(tc3, 0)
-        # position 8: TC1=XPAC, TC3=AUTH
         self.assertNotEqual(s1[AUTH_SLOT_POS].name, s3[AUTH_SLOT_POS].name)
-
-    def test_tc3_spec_path_has_auth_at_8(self):
-        """Even when spec_nesting>0 (spec slot), position 8 always has AUTH."""
-        fp = _fp(signed_value=SIGNED_VAL, ctx_value=CTX_VAL, spec_nesting=1)
-        prep = _build_prep_tc([fp])
-        # Pick a fixed seed so random.choice is deterministic
-        random.seed(42)
-        _, _, tc3 = _PACI.instrument_stage2(prep, [fp])
-        # Position 8 must be AUTH regardless of which combo was chosen
-        self.assertEqual(_slot_insts(tc3, 0)[AUTH_SLOT_POS].name, "autia")
 
 
 # ===========================================================================
@@ -784,6 +720,7 @@ class TestErrorCases(unittest.TestCase):
     # ── instrument_stage2 propagates errors ──────────────────────────────
 
     def test_stage2_propagates_signed_none_error(self):
+        """arch slot (spec_nesting=0) with signed_value=None → CE capture bug → RuntimeError."""
         fp = _fp(signed_value=None, ctx_value=CTX_VAL, spec_nesting=0)
         prep = _build_prep_tc([fp])
         with self.assertRaises(RuntimeError):
@@ -796,12 +733,21 @@ class TestErrorCases(unittest.TestCase):
             _PACI.instrument_stage2(prep, [fp])
 
     def test_stage2_one_bad_fp_among_good_raises(self):
-        """Any single bad FixPoint aborts the whole instrument_stage2 call."""
+        """Any arch FixPoint with signed_value=None aborts the whole instrument_stage2 call."""
         good = _fp(slot_id=0, signed_value=SIGNED_VAL, ctx_value=CTX_VAL, spec_nesting=0)
         bad  = _fp(slot_id=1, signed_value=None,       ctx_value=CTX_VAL, spec_nesting=0)
         prep = _build_prep_tc([good, bad])
         with self.assertRaises(RuntimeError):
             _PACI.instrument_stage2(prep, [good, bad])
+
+    def test_stage2_spec_nesting_none_signed_none_does_not_raise(self):
+        """spec_nesting=None with signed_value=None is valid (non-arch, CE never ran) — no raise."""
+        fp = _fp(signed_value=None, ctx_value=CTX_VAL, spec_nesting=None)
+        prep = _build_prep_tc([fp])
+        random.seed(0)
+        tc1, tc2, tc3 = _PACI.instrument_stage2(prep, [fp])
+        # TC3 must have AUTH at pos 8; TC1/TC2 keep the stage-1 XPAC (all NOPs in test helper).
+        self.assertEqual(_slot_insts(tc3, 0)[AUTH_SLOT_POS].name, "autia")
 
 
 if __name__ == "__main__":

@@ -1264,20 +1264,37 @@ class PACInstrumentation(_SandboxInstrumentationBase):
 
         for fp in fix_points:
             sid = fp.slot_id
-            is_spec = fp.spec_nesting is not None and fp.spec_nesting > 0
+            # spec_nesting=0      → definitively arch  → TC3 identical to TC2
+            # spec_nesting>0      → explicitly spec     → TC3 uses random combo
+            # spec_nesting=None   → CE never executed signing (non-arch path) — hardware
+            #                       may speculatively execute it → treat as spec for TC3
+            is_spec = fp.spec_nesting != 0
 
-            # Each variant gets its own fresh instruction set (no shared objects between fills).
-            # signed_value/ctx_value being None raises RuntimeError inside _make_slot_insts —
-            # every arch-path slot must have been captured by the CE.
-            self._fill_slot(maps['tc1'], fp, self._make_tc1_slot_insts(fp))
-            self._fill_slot(maps['tc2'], fp, self._make_slot_insts(fp, True, True, True))
+            if fp.signed_value is not None:
+                # Values captured by CE: fill TC1 (ctx+ptr+XPAC) and TC2 (ctx+ptr+AUTH) normally.
+                self._fill_slot(maps['tc1'], fp, self._make_tc1_slot_insts(fp))
+                self._fill_slot(maps['tc2'], fp, self._make_slot_insts(fp, True, True, True))
+            elif not is_spec:
+                # Arch slot without a captured value is a CE capture bug — raise loudly.
+                raise RuntimeError(
+                    f"PAC stage2: signed_value is None for arch slot {fp.slot_id} "
+                    f"(reg={fp.info.reg}) — CE failed to capture the signed pointer"
+                )
+            # else: spec/non-arch slot, CE never executed the signing instruction.
+            # Stage-1 XPAC placeholder is kept in TC1 and TC2 for this slot.
 
             if not is_spec:
                 # Arch slots: TC3 identical to TC2 — must succeed architecturally.
                 self._fill_slot(maps['tc3'], fp, self._make_slot_insts(fp, True, True, True))
             else:
-                # Speculative slots: pick a random ctx/ptr restore combination.
-                include_ctx, include_ptr = random.choice(_combos)
+                # Spec/non-arch slots: pick a random ctx/ptr restore combination, excluding
+                # any combo that requires a value CE did not capture.
+                available = [
+                    (c, p) for (c, p) in _combos
+                    if not (p and fp.signed_value is None)
+                    and not (c and fp.info.ctx_reg is not None and fp.ctx_value is None)
+                ]
+                include_ctx, include_ptr = random.choice(available or [(False, False)])
                 self._fill_slot(maps['tc3'], fp, self._make_slot_insts(fp, include_ctx, include_ptr, True))
 
         return tc1, tc2, tc3
@@ -1555,7 +1572,11 @@ class MTEInstrumentation(_SandboxInstrumentationBase):
         }
 
         for fp in fix_points:
-            is_spec = fp.spec_nesting is not None and fp.spec_nesting > 0
+            # spec_nesting=0    → arch path → TC2=NOP, TC3=NOP (correct tag preserved)
+            # spec_nesting>0    → spec path → TC2=IRG, TC3=MOVK wrong tag
+            # spec_nesting=None → CE never executed this memory access (non-arch path);
+            #                     hardware may speculate on it → treat as spec
+            is_spec = fp.spec_nesting != 0
 
             self._fill_slot(maps['tc1'], fp, self._make_mte_nop(fp.slot_id))
 

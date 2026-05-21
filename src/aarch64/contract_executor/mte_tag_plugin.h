@@ -5,6 +5,6 @@
 
 void mte_tag_plugin_init(void);
 void mte_tag_plugin_cleanup(void);
-void* mte_tag_hook(struct simulation_state* sim_state);
+void* mte_emulator_hook(struct simulation_state* sim_state);
 
 #endif // MTE_TAG_PLUGIN_H
