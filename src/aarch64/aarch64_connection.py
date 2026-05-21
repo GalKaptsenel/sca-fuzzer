@@ -530,6 +530,14 @@ REVISOR_PAC_SIGN_CONSTANT           = 12
 REVISOR_PAC_AUTH_CONSTANT           = 13
 REVISOR_SET_PAC_KEYS_CONSTANT       = 14
 REVISOR_GET_PAC_KEYS_CONSTANT       = 15
+REVISOR_MTE_TAG_REGION_CONSTANT     = 16
+
+class MteTagRegionReq(ctypes.Structure):
+    _fields_ = [
+        ("sandbox_offset", ctypes.c_uint64),
+        ("length",         ctypes.c_uint64),
+        ("tag",            ctypes.c_uint8),
+    ]
 
 class PacSignReq(ctypes.Structure):
     _fields_ = [
@@ -569,6 +577,7 @@ IOCTL_NR_TO_NAME = {
     13: "REVISOR_PAC_AUTH",
     14: "REVISOR_SET_PAC_KEYS",
     15: "REVISOR_GET_PAC_KEYS",
+    16: "REVISOR_MTE_TAG_REGION",
 }
 
 
@@ -630,6 +639,7 @@ REVISOR_PAC_SIGN = _IOWR(REVISOR_IOC_MAGIC, REVISOR_PAC_SIGN_CONSTANT, PacSignRe
 REVISOR_PAC_AUTH = _IOWR(REVISOR_IOC_MAGIC, REVISOR_PAC_AUTH_CONSTANT, PacSignReq)
 REVISOR_SET_PAC_KEYS = _IOW(REVISOR_IOC_MAGIC, REVISOR_SET_PAC_KEYS_CONSTANT, PacKeys)
 REVISOR_GET_PAC_KEYS = _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_PAC_KEYS_CONSTANT, PacKeys)
+REVISOR_MTE_TAG_REGION = _IOW(REVISOR_IOC_MAGIC, REVISOR_MTE_TAG_REGION_CONSTANT, MteTagRegionReq)
 
 
 class LocalExecutorImp(UserlandExecutor):
@@ -751,6 +761,13 @@ class LocalExecutorImp(UserlandExecutor):
 
 	def set_pac_keys(self, keys: PacKeys) -> None:
 		self._ioctl(REVISOR_SET_PAC_KEYS, keys)
+
+	def mte_tag_sandbox_region(self, sandbox_offset: int, length: int, tag: int) -> None:
+		req = MteTagRegionReq()
+		req.sandbox_offset = sandbox_offset
+		req.length = length
+		req.tag = tag & 0xF
+		self._ioctl(REVISOR_MTE_TAG_REGION, req)
 
 	@property
 	def sandbox_base(self) -> int:

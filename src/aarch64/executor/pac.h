@@ -16,6 +16,17 @@ void pac_load_keys(const struct pac_keys *keys);
 uint64_t pac_enable_all_keys(void);    /* enables EnIA|EnIB|EnDA|EnDB in SCTLR_EL1; returns old SCTLR value */
 void     pac_restore_sctlr(uint64_t saved_sctlr);
 
+/*
+ * Swap the calling task's user PAC keys to new_keys and save the previous
+ * ones in saved_keys.  Updates both the hardware registers (APIB/APDA/APDB/APGA)
+ * and task_struct so the change persists across context switches.  APIA is
+ * stored in task_struct (so kernel_exit installs it on return to EL0) but is
+ * NOT written to the hardware register here — the kernel owns the hardware
+ * APIA register (CONFIG_ARM64_PTR_AUTH_KERNEL) and it is unsafe to change it
+ * mid-ioctl while kernel return addresses are on the stack.
+ */
+void pac_swap_user_keys(const struct pac_keys *new_keys, struct pac_keys *saved_keys);
+
 void trigger_pauth_fault(void);
 void pauth_restore_cpu(void);
 int pauth_init_cpu(

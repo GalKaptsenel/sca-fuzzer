@@ -524,13 +524,7 @@ PTR_SLOT_START = FIX_COUNT_CTX                  # slot positions 4-7: pointer re
 AUTH_SLOT_POS  = FIX_COUNT_CTX + FIX_COUNT_PTR # slot position  8  : AUTH instruction
 SLOT_SIZE = AUTH_SLOT_POS + 1                   # = 9
 
-# Poison pointer loaded into the ptr register when signed_value was not captured for an
-# arch slot.  Bits[63:48]=0x0000 makes it non-canonical (kernel addrs have 0xFFFF there),
-# so AUTH on this value will fail and the subsequent memory access will fault at a
-# recognisable address — making it immediately obvious if such a slot fires unexpectedly.
-_POISON_PTR = 0x0000_C0DE_DEAD_C0DE
-
-_PAC_TO_AUTH: Dict[str, str] = {
+_PAC_TO_AUTH: Dict[str, str] = {  # sign mnemonic → matching auth mnemonic
     # 2-operand (with context register)
     "pacia": "autia", "pacib": "autib",
     "pacda": "autda", "pacdb": "autdb",
@@ -575,7 +569,87 @@ class FixPoint:
         self.spec_nesting = None
 
 
-class PACInstrumentation:
+class _SandboxInstrumentationBase:
+    """Shared helpers for sandbox-taint-based instrumentation passes."""
+
+    _norm: Dict[str, str]
+    _sandbox_mask: str
+    _sandbox_base_reg: str
+
+    def _norm_reg(self, reg: str) -> str:
+        return self._norm.get(reg, reg)
+
+    def _dest_regs(self, inst: Instruction) -> frozenset:
+        result = frozenset(
+            self._norm_reg(op.value)
+            for op in inst.operands + inst.implicit_operands
+            if op.dest and op.type == OT.REG and op.value in self._norm
+        )
+        # Writeback forms (pre/post-index) update the base register, but base.json may not
+        # mark it as dest.  For LDR/LDRB/etc. the offset operand is named "simm" (either
+        # IMM=post-index or MEM=pre-index); unsigned-offset uses "pimm" (MEM) — no writeback.
+        # For LDP/STP post-index the offset is "imm" as IMM.
+        if inst.has_memory_access:
+            has_simm = any(op.name.lower() == 'simm' for op in inst.operands + inst.implicit_operands)
+            has_imm = any(op.name.lower() == 'imm' for op in inst.operands + inst.implicit_operands)
+            if has_simm or (len(inst.operands) == 4 and has_imm):
+                base = self._get_mem_base_reg(inst)
+                if base is not None and base in self._norm:
+                    result = result | frozenset([self._norm_reg(base)])
+        return result
+
+    def _get_mem_base_reg(self, inst: Instruction) -> Optional[str]:
+        for op in inst.operands + inst.implicit_operands:
+            if op.type == OT.MEM:
+                return op.value
+        return None
+
+    def _make_offset_sub_insts(self, mem_inst: Instruction, base_reg: str) -> List[Instruction]:
+        """Return SUB instructions that pre-subtract the memory instruction's offset from
+        base_reg so that [base_reg + offset] lands at exactly base_reg's sandboxed address."""
+        result: List[Instruction] = []
+        for op in mem_inst.get_mem_operands()[1:]:
+            if op.name.lower() == "pimm":
+                current = int(op.value)
+                while current > 0:
+                    chunk = min(4095, current)
+                    result.append(Instruction("sub", True, "", False,
+                                              template=f"SUB {base_reg}, {base_reg}, #{chunk}"))
+                    current -= chunk
+            else:
+                result.append(Instruction("sub", True, "", False,
+                                          template=f"SUB {base_reg}, {base_reg}, {op.value}"))
+        return result
+
+    def _make_sandbox_insts(self, reg: str) -> List[Instruction]:
+        """Return [AND reg, reg, #mask; ADD reg, reg, x29] that sandbox reg into the input region."""
+        and_inst = Instruction("and", True, "", False, template=f"AND {reg}, {reg}, {self._sandbox_mask}")
+        add_inst = Instruction("add", True, "", False, template=f"ADD {reg}, {reg}, {self._sandbox_base_reg}")
+        return [and_inst, add_inst]
+
+    @staticmethod
+    def _topo_sort(func: Function) -> Tuple[Dict[BasicBlock, List[BasicBlock]], List[BasicBlock]]:
+        """Return (predecessors, topo_order) for func's CFG."""
+        predecessors: Dict[BasicBlock, List[BasicBlock]] = {}
+        for bb in func:
+            predecessors.setdefault(bb, [])
+            for succ in bb.successors:
+                predecessors.setdefault(succ, []).append(bb)
+        topo: List[BasicBlock] = []
+        seen: Set[BasicBlock] = set()
+        def _dfs(bb: BasicBlock) -> None:
+            if bb in seen:
+                return
+            seen.add(bb)
+            for succ in bb.successors:
+                _dfs(succ)
+            topo.append(bb)
+        _dfs(func.get_first_bb())
+        topo.reverse()
+        return predecessors, topo
+
+
+class PACInstrumentation(_SandboxInstrumentationBase):
 
     def __init__(self, generator: Aarch64Generator, xpac_weight: int, auth_weight: int, sign_weight: int):
         xpac_weight = max(xpac_weight, 0)
@@ -609,6 +683,11 @@ class PACInstrumentation:
         _mask_bits = int(math.log(MAIN_AREA_SIZE + FAULTY_AREA_SIZE, 2))
         self._sandbox_mask = f"#0x{(1 << _mask_bits) - 1:x}"
         self._sandbox_base_reg = "x29"
+
+        # Claim ownership of BASE-PAC: no PAC/AUT/XPAC instruction may appear in
+        # the random base test case.  They enter only through this class's stage1
+        # instrumentation, which uses taint analysis to guarantee AUT targets are signed.
+        generator.register_controlled_instructions({"BASE-PAC"})
 
         # Populated by instrument_stage1 — human-readable taint decision log.
         self.last_taint_log: List[str] = []
@@ -675,69 +754,12 @@ class PACInstrumentation:
             insts.append(self._make_movk(slot_id, start_pos + i, reg, chunks[i], i * 16))
         return insts
 
-    def _make_addr_movk_insts(self, slot_id: int, reg: str, value: int, start_pos: int) -> List[Instruction]:
-        """Return 3 MOVK instructions restoring bits [47:0] of reg from value, preserving bits [63:48] (PAC).
-        Implements: reg = reg | (value & ~PAC_BITS). No MOVZ — bits [63:48] are untouched."""
-        insts = []
-        for i in range(3):
-            chunk = (value >> (16 * i)) & 0xFFFF
-            insts.append(self._make_movk(slot_id, start_pos + i, reg, chunk, i * 16))
-        return insts
-
     def _nops_range(self, slot_id: int, start: int, count: int) -> List[Instruction]:
         return [self._make_nop(slot_id, start + i) for i in range(count)]
-
-    def _make_offset_sub_insts(self, mem_inst: Instruction, base_reg: str) -> List[Instruction]:
-        """Return SUB instructions that pre-subtract the memory instruction's offset from
-        base_reg so that [base_reg + offset] lands at exactly base_reg's sandboxed address."""
-        result: List[Instruction] = []
-        for op in mem_inst.get_mem_operands()[1:]:
-            if op.name.lower() == "pimm":
-                current = int(op.value)
-                while current > 0:
-                    chunk = min(4095, current)
-                    sub = Instruction("sub", True, "", False,
-                                      template=f"SUB {base_reg}, {base_reg}, #{chunk}")
-                    result.append(sub)
-                    current -= chunk
-            else:
-                sub = Instruction("sub", True, "", False,
-                                  template=f"SUB {base_reg}, {base_reg}, {op.value}")
-                result.append(sub)
-        return result
-
-    def _make_sandbox_insts(self, reg: str) -> List[Instruction]:
-        """Return [AND reg, reg, #mask; ADD reg, reg, x29] that sandbox reg into the input region."""
-        and_inst = Instruction("and", True, "", False, template=f"AND {reg}, {reg}, {self._sandbox_mask}")
-        add_inst = Instruction("add", True, "", False, template=f"ADD {reg}, {reg}, {self._sandbox_base_reg}")
-        return [and_inst, add_inst]
 
     # ------------------------------------------------------------------
     # Taint analysis
     # ------------------------------------------------------------------
-
-    def _norm_reg(self, reg: str) -> str:
-        return self._norm.get(reg, reg)
-
-    def _dest_regs(self, inst: Instruction) -> frozenset:
-        name = inst.name.lower()
-        result = frozenset(
-            self._norm_reg(op.value)
-            for op in inst.operands + inst.implicit_operands
-            if op.dest and op.type == OT.REG and op.value in self._norm
-        )
-        # Writeback forms (pre/post-index) update the base register, but base.json may not
-        # mark it as dest.  For LDR/LDRB/etc. the offset operand is named "simm" (either
-        # IMM=post-index or MEM=pre-index); unsigned-offset uses "pimm" (MEM) — no writeback.
-        # For LDP/STP post-index the offset is "imm" as IMM.
-        if inst.has_memory_access:
-            has_simm = any(op.name.lower() == 'simm' for op in inst.operands + inst.implicit_operands)
-            has_imm = any(op.name.lower() == 'imm' for op in inst.operands + inst.implicit_operands)
-            if has_simm or len(inst.operands) == 4 and has_imm:
-                base = self._get_mem_base_reg(inst)
-                if base is not None and base in self._norm:
-                    result = result | frozenset([self._norm_reg(base)])
-        return result
 
     def _apply_pac(self, curr: frozenset, pac_inst: Instruction) -> frozenset:
         name = pac_inst.name.lower()
@@ -803,16 +825,6 @@ class PACInstrumentation:
                 curr = frozenset(x for x in curr if self._norm_reg(x.reg) not in written)
         for succ in bb.successors:
             self._taint_bb(succ, curr, sign_ins, auth_ins, choose_auth, visited)
-
-    # ------------------------------------------------------------------
-    # Memory base register extraction
-    # ------------------------------------------------------------------
-
-    def _get_mem_base_reg(self, inst: Instruction) -> Optional[str]:
-        for op in inst.operands + inst.implicit_operands:
-            if op.type == OT.MEM:
-                return op.value
-        return None
 
     # ------------------------------------------------------------------
     # Stage 1 helpers
@@ -1177,18 +1189,24 @@ class PACInstrumentation:
     ) -> List[Instruction]:
         """Create a fresh SLOT_SIZE instruction list (never reuse objects between fills)."""
         sid = fp.slot_id
-        ctx = (
-            self._make_load_imm_insts(sid, fp.info.ctx_reg, fp.ctx_value, CTX_SLOT_START)
-            if include_ctx and fp.info.ctx_reg is not None and fp.ctx_value is not None
-            else self._nops_range(sid, CTX_SLOT_START, FIX_COUNT_CTX)
-        )
-        if include_ptr and fp.signed_value is not None:
+        if include_ctx and fp.info.ctx_reg is not None:
+            if fp.ctx_value is None:
+                raise RuntimeError(
+                    f"PAC stage2: ctx_value is None for slot {fp.slot_id} "
+                    f"(ctx_reg={fp.info.ctx_reg}) but include_ctx=True — "
+                    f"CE failed to capture the context register at signing"
+                )
+            ctx = self._make_load_imm_insts(sid, fp.info.ctx_reg, fp.ctx_value, CTX_SLOT_START)
+        else:
+            ctx = self._nops_range(sid, CTX_SLOT_START, FIX_COUNT_CTX)
+        if include_ptr:
+            if fp.signed_value is None:
+                raise RuntimeError(
+                    f"PAC stage2: signed_value is None for slot {fp.slot_id} "
+                    f"(reg={fp.info.reg}) but include_ptr=True — "
+                    f"CE failed to capture the signed pointer"
+                )
             ptr = self._make_load_imm_insts(sid, fp.info.reg, fp.signed_value, PTR_SLOT_START)
-        elif include_ptr:
-            # signed_value was not captured by CE — load poison so if this slot fires
-            # architecturally (which should never happen) it fails visibly instead of
-            # silently succeeding with whatever happened to be in the register.
-            ptr = self._make_load_imm_insts(sid, fp.info.reg, _POISON_PTR, PTR_SLOT_START)
         else:
             ptr = self._nops_range(sid, PTR_SLOT_START, FIX_COUNT_PTR)
         auth_inst = self._make_auth_inst(fp.info.auth_mnemonic, fp.info.reg, fp.info.ctx_reg)
@@ -1208,15 +1226,21 @@ class PACInstrumentation:
         After XPAC: reg = P — same as TC2's AUTIA result.
         """
         sid = fp.slot_id
-        ctx = (
-            self._make_load_imm_insts(sid, fp.info.ctx_reg, fp.ctx_value, CTX_SLOT_START)
-            if fp.info.ctx_reg is not None and fp.ctx_value is not None
-            else self._nops_range(sid, CTX_SLOT_START, FIX_COUNT_CTX)
-        )
-        if fp.signed_value is not None:
-            ptr = self._make_load_imm_insts(sid, fp.info.reg, fp.signed_value, PTR_SLOT_START)
+        if fp.info.ctx_reg is not None:
+            if fp.ctx_value is None:
+                raise RuntimeError(
+                    f"PAC stage2 TC1: ctx_value is None for slot {fp.slot_id} "
+                    f"(ctx_reg={fp.info.ctx_reg}) — CE failed to capture context register"
+                )
+            ctx = self._make_load_imm_insts(sid, fp.info.ctx_reg, fp.ctx_value, CTX_SLOT_START)
         else:
-            ptr = self._nops_range(sid, PTR_SLOT_START, FIX_COUNT_PTR)
+            ctx = self._nops_range(sid, CTX_SLOT_START, FIX_COUNT_CTX)
+        if fp.signed_value is None:
+            raise RuntimeError(
+                f"PAC stage2 TC1: signed_value is None for slot {fp.slot_id} "
+                f"(reg={fp.info.reg}) — CE failed to capture the signed pointer"
+            )
+        ptr = self._make_load_imm_insts(sid, fp.info.reg, fp.signed_value, PTR_SLOT_START)
         xpac = self._make_xpac_inst(fp.info.xpac_mnemonic, fp.info.reg, sid, AUTH_SLOT_POS)
         return ctx + ptr + [xpac]
 
@@ -1234,8 +1258,8 @@ class PACInstrumentation:
           positions 4-7 : pointer restore  (MOVZ/MOVK for signed ptr, or NOPs)
           position  8   : AUTH instruction
 
-        TC1 — [ctx_restore, MOVK×3+NOP, XPAC]  ctx restored, lower 48 bits of ptr
-               restored via MOVK, PAC bits preserved so XPAC strips the correct signature
+        TC1 — [ctx_restore, MOVZ+MOVK×3, XPAC]  full 64-bit CE-signed value loaded then
+               stripped by XPAC to produce the canonical pointer
         TC2 — [ctx_restore, ptr_restore, AUTH]  always correct
         TC3 — arch slots identical to TC2; speculative slots each independently
               draw a random combination from:
@@ -1244,9 +1268,9 @@ class PACInstrumentation:
                 (False, True)  ptr only
                 (True,  True)  both restore
 
-        When signed_value/ctx_value is None the corresponding restore positions
-        fall back to NOPs, but AUTH/XPAC is always kept so the slot is valid if
-        it executes speculatively.
+        Raises RuntimeError if signed_value is None, or if ctx_value is None
+        for a non-zero-context variant (ctx_reg is not None).
+        ctx_value being None is valid for zero-context variants (e.g. pacdza).
 
         Returns (tc1, tc2, tc3).
         """
@@ -1266,9 +1290,8 @@ class PACInstrumentation:
             is_spec = fp.spec_nesting is not None and fp.spec_nesting > 0
 
             # Each variant gets its own fresh instruction set (no shared objects between fills).
-            # signed_value/ctx_value being None is handled inside _make_slot_insts: the
-            # restore positions fall back to NOPs, but AUTH/XPAC is always kept so the
-            # slot is valid even if it only executes speculatively.
+            # signed_value/ctx_value being None raises RuntimeError inside _make_slot_insts —
+            # every arch-path slot must have been captured by the CE.
             self._fill_slot(maps['tc1'], fp, self._make_tc1_slot_insts(fp))
             self._fill_slot(maps['tc2'], fp, self._make_slot_insts(fp, True, True, True))
 
@@ -1279,6 +1302,344 @@ class PACInstrumentation:
                 # Speculative slots: pick a random ctx/ptr restore combination.
                 include_ctx, include_ptr = random.choice(_combos)
                 self._fill_slot(maps['tc3'], fp, self._make_slot_insts(fp, include_ctx, include_ptr, True))
+
+        return tc1, tc2, tc3
+
+
+# ===========================================================================
+# MTE non-interference instrumentation
+# ===========================================================================
+
+MTE_SLOT_SIZE = 1  # single ADDG Xd,Xd,#0,#0 sentinel per memory access
+
+
+@dataclass
+class MTEFixPoint:
+    """Per-memory-access metadata for MTE stage-2 variant generation."""
+    slot_id: int
+    bb: BasicBlock
+    mem_inst: Instruction
+    reg: str                       # original base register name (always xN / sp on AArch64)
+    slot_insts: List[Instruction]  # single-element: [sentinel]
+    spec_nesting: Optional[int] = None
+
+    def reset(self) -> None:
+        self.spec_nesting = None
+
+
+class MTEInstrumentation:
+    """
+    Two-stage MTE non-interference instrumentation, modelled after PACInstrumentation.
+
+    Stage 1: insert ADDG Xd,Xd,#0,#0 sentinels before every memory access.
+             For registers not yet correctly sandbox-tagged, AND+ADD is prepended.
+             Taint = frozenset of normalized register names holding a correctly-
+             sandbox-tagged address (went through AND+ADD with x29 without being
+             overwritten).  Taint is cleared on any register write; intersection
+             at CFG join nodes.
+
+    Stage 2: replace each sentinel to produce TC1/TC2/TC3:
+             TC1 → NOP (correct flow, arch_tag everywhere — baseline)
+             TC2 → arch: NOP;  spec: IRG Xd,Xd  (random tag)
+             TC3 → arch: NOP;  spec: MOVK Xd,#wrong_upper16,LSL#48  (deterministic wrong tag)
+    """
+
+    def __init__(self, generator: Aarch64Generator):
+        self.generator = generator
+        self._norm = generator.target_desc.reg_normalized
+        _mask_bits = int(math.log(MAIN_AREA_SIZE + FAULTY_AREA_SIZE, 2))
+        self._sandbox_mask = f"#0x{(1 << _mask_bits) - 1:x}"
+        self._sandbox_base_reg = "x29"
+        self.last_taint_log: List[str] = []
+
+    # ------------------------------------------------------------------
+    # Instruction builders
+    # ------------------------------------------------------------------
+
+    def _make_mte_sentinel(self, reg: str, slot_id: int) -> Instruction:
+        inst = Instruction("addg", True, "", False,
+                           template=f"ADDG {reg}, {reg}, #0, #0")
+        inst._mte_slot_id = slot_id
+        return inst
+
+    def _make_mte_nop(self, slot_id: int) -> Instruction:
+        nop = Instruction("nop", True, "", False, template="NOP")
+        nop._mte_slot_id = slot_id
+        return nop
+
+    def _make_mte_irg(self, reg: str, slot_id: int) -> Instruction:
+        inst = Instruction("irg", True, "", False,
+                           template=f"IRG {reg}, {reg}")
+        inst._mte_slot_id = slot_id
+        return inst
+
+    def _make_mte_movk_wrong_tag(self, reg: str, wrong_upper16: int, slot_id: int) -> Instruction:
+        inst = Instruction("movk", True, "", False,
+                           template=f"MOVK {reg}, #0x{wrong_upper16 & 0xFFFF:04x}, LSL #48")
+        inst._mte_slot_id = slot_id
+        return inst
+
+    def _make_sandbox_insts(self, reg: str) -> List[Instruction]:
+        and_inst = Instruction("and", True, "", False,
+                               template=f"AND {reg}, {reg}, {self._sandbox_mask}")
+        add_inst = Instruction("add", True, "", False,
+                               template=f"ADD {reg}, {reg}, {self._sandbox_base_reg}")
+        return [and_inst, add_inst]
+
+    def _make_offset_sub_insts(self, mem_inst: Instruction, base_reg: str) -> List[Instruction]:
+        result: List[Instruction] = []
+        for op in mem_inst.get_mem_operands()[1:]:
+            if op.name.lower() == "pimm":
+                current = int(op.value)
+                while current > 0:
+                    chunk = min(4095, current)
+                    result.append(Instruction("sub", True, "", False,
+                                              template=f"SUB {base_reg}, {base_reg}, #{chunk}"))
+                    current -= chunk
+            else:
+                result.append(Instruction("sub", True, "", False,
+                                          template=f"SUB {base_reg}, {base_reg}, {op.value}"))
+        return result
+
+    # ------------------------------------------------------------------
+    # Taint helpers
+    # ------------------------------------------------------------------
+
+    def _norm_reg(self, reg: str) -> str:
+        return self._norm.get(reg, reg)
+
+    def _dest_regs(self, inst: Instruction) -> frozenset:
+        """Normalized names of registers written by inst (including writeback base)."""
+        result = frozenset(
+            self._norm_reg(op.value)
+            for op in inst.operands + inst.implicit_operands
+            if op.dest and op.type == OT.REG and op.value in self._norm
+        )
+        if inst.has_memory_access:
+            has_simm = any(op.name.lower() == 'simm'
+                           for op in inst.operands + inst.implicit_operands)
+            has_imm = any(op.name.lower() == 'imm'
+                          for op in inst.operands + inst.implicit_operands)
+            if has_simm or (len(inst.operands) == 4 and has_imm):
+                base = self._get_mem_base_reg(inst)
+                if base is not None and base in self._norm:
+                    result = result | frozenset([self._norm_reg(base)])
+        return result
+
+    def _get_mem_base_reg(self, inst: Instruction) -> Optional[str]:
+        for op in inst.operands + inst.implicit_operands:
+            if op.type == OT.MEM:
+                return op.value
+        return None
+
+    # ------------------------------------------------------------------
+    # Stage-1 dataflow pass
+    # ------------------------------------------------------------------
+
+    def _build_mte_slots(
+        self,
+        func: Function,
+        slot_counter: int,
+        fix_points: List,
+        insertions: List,
+        taint_log: List,
+    ) -> int:
+        """Topological taint pass: build sentinel fix_points for every memory access.
+
+        taint (curr) = frozenset of normalized register names that hold a
+        correctly-sandbox-tagged address (via AND+ADD with x29).
+        Cleared on any register write; intersection at CFG join nodes.
+
+        For each memory access:
+          tainted base  → offset_subs + sentinel only
+          untainted base → AND+ADD + offset_subs + sentinel; reg added to taint
+        """
+        predecessors: Dict[BasicBlock, List[BasicBlock]] = {}
+        for bb in func:
+            predecessors.setdefault(bb, [])
+            for succ in bb.successors:
+                predecessors.setdefault(succ, []).append(bb)
+
+        topo: List[BasicBlock] = []
+        seen: Set[BasicBlock] = set()
+
+        def _dfs(bb: BasicBlock) -> None:
+            if bb in seen:
+                return
+            seen.add(bb)
+            for succ in bb.successors:
+                _dfs(succ)
+            topo.append(bb)
+
+        _dfs(func.get_first_bb())
+        topo.reverse()
+
+        taint_out: Dict[BasicBlock, frozenset] = {}
+
+        for bb in topo:
+            processed = [p for p in predecessors.get(bb, []) if p in taint_out]
+            if not processed:
+                curr: frozenset = frozenset()
+            elif len(processed) == 1:
+                curr = taint_out[processed[0]]
+            else:
+                curr = taint_out[processed[0]]
+                for p in processed[1:]:
+                    curr = curr & taint_out[p]
+
+            for inst in bb:
+                if inst.has_memory_access:
+                    mem_reg = self._get_mem_base_reg(inst)
+                    if mem_reg is not None:
+                        norm_mem = self._norm_reg(mem_reg)
+                        offset_subs = self._make_offset_sub_insts(inst, mem_reg)
+                        sid = slot_counter
+                        slot_counter += 1
+                        sentinel = self._make_mte_sentinel(mem_reg, sid)
+                        fp = MTEFixPoint(slot_id=sid, bb=bb, mem_inst=inst,
+                                         reg=mem_reg, slot_insts=[sentinel])
+                        fix_points.append(fp)
+
+                        if norm_mem in curr:
+                            insertions.append((inst, bb, [], offset_subs, [sentinel]))
+                            taint_log.append(
+                                f"  MEM-ACCESS   inst={inst.name:12s}  base={mem_reg}"
+                                f"  decision=SENTINEL-ONLY"
+                                f"  taint={sorted(curr)}")
+                        else:
+                            sandbox_insts = self._make_sandbox_insts(mem_reg)
+                            insertions.append((inst, bb, sandbox_insts, offset_subs, [sentinel]))
+                            curr = curr | frozenset([norm_mem])
+                            taint_log.append(
+                                f"  MEM-ACCESS   inst={inst.name:12s}  base={mem_reg}"
+                                f"  decision=SANDBOX+SENTINEL"
+                                f"  taint={sorted(curr)}")
+                    else:
+                        taint_log.append(
+                            f"  MEM-ACCESS   inst={inst.name:12s}  base=None(implicit?)"
+                            f"  decision=SKIP")
+
+                for dreg in self._dest_regs(inst):
+                    if dreg in curr:
+                        taint_log.append(
+                            f"  ARITH-CLEAR  inst={inst.name:12s}  clears={dreg}")
+                    curr = curr - frozenset([dreg])
+
+            taint_out[bb] = curr
+
+        return slot_counter
+
+    # ------------------------------------------------------------------
+    # Stage 1 public API
+    # ------------------------------------------------------------------
+
+    def instrument_stage1(self, test_case: TestCase) -> Tuple[TestCase, List[MTEFixPoint]]:
+        """Instrument test_case with ADDG sentinels before every memory access.
+
+        Returns (instrumented_tc, fix_points).
+        instrumented_tc contains:
+          - optional AND+ADD before each memory access (for untainted registers)
+          - optional offset SUBs (for immediate-offset addressing modes)
+          - ADDG Xd,Xd,#0,#0 sentinel immediately before each memory access
+        """
+        tc = copy.deepcopy(test_case)
+        fix_points: List[MTEFixPoint] = []
+        slot_counter = 0
+        self.last_taint_log = []
+
+        for func in tc.functions:
+            insertions: List = []
+            func_log: List[str] = []
+            slot_counter = self._build_mte_slots(
+                func, slot_counter, fix_points, insertions, func_log)
+            self.last_taint_log.extend(func_log)
+
+            for mem_inst, bb, sandbox_insts, offset_subs, sentinel_insts in insertions:
+                for s in sandbox_insts:
+                    bb.insert_before(mem_inst, s)
+                for s in offset_subs:
+                    bb.insert_before(mem_inst, s)
+                for s in sentinel_insts:
+                    bb.insert_before(mem_inst, s)
+
+        return tc, fix_points
+
+    # ------------------------------------------------------------------
+    # Stage-2 slot helpers
+    # ------------------------------------------------------------------
+
+    def _find_slot_insts(self, tc: TestCase) -> Dict[int, Tuple[Any, BasicBlock]]:
+        """Return {slot_id: (inst, bb)} for all MTE-tagged instructions in tc."""
+        slot_map: Dict[int, Tuple[Any, BasicBlock]] = {}
+        for func in tc.functions:
+            for bb in func:
+                for inst in bb:
+                    if hasattr(inst, '_mte_slot_id'):
+                        slot_map[inst._mte_slot_id] = (inst, bb)
+        return slot_map
+
+    def _fill_slot(self, slot_map: Dict, fp: MTEFixPoint,
+                   new_inst: Instruction) -> None:
+        """Replace the single sentinel instruction for fp.slot_id with new_inst."""
+        entry = slot_map.get(fp.slot_id)
+        assert entry is not None, (
+            f"MTE slot_id={fp.slot_id} not in slot_map "
+            f"(keys={sorted(slot_map.keys())})")
+        old_inst, bb = entry
+        bb.insert_before(old_inst, new_inst)
+        bb.delete(old_inst)
+
+    # ------------------------------------------------------------------
+    # Stage 2 public API
+    # ------------------------------------------------------------------
+
+    def instrument_stage2(
+        self,
+        prep_tc: TestCase,
+        fix_points: List[MTEFixPoint],
+        sandbox_base: int,
+    ) -> Tuple[TestCase, TestCase, TestCase]:
+        """Produce TC1/TC2/TC3 from the stage-1 instrumented TC.
+
+        sandbox_base is used to compute the deterministic wrong tag for TC3.
+        spec_nesting must be populated on each FixPoint before calling.
+
+        TC1 — correct flow: all sentinels → NOP
+        TC2 — arch: NOP;  spec: IRG Xd,Xd  (randomizes bits[59:56])
+        TC3 — arch: NOP;  spec: MOVK Xd,#wrong_upper16,LSL#48
+                   wrong_upper16 preserves bits[63:60] and [55:48] of sandbox_base,
+                   and sets bits[59:56] (tag) to arch_tag XOR 1.
+        """
+        sandbox_upper16 = (sandbox_base >> 48) & 0xFFFF
+        arch_tag = (sandbox_base >> 56) & 0xF
+        wrong_tag = arch_tag ^ 1
+        wrong_upper16 = (sandbox_upper16 & ~(0xF << 8)) | (wrong_tag << 8)
+
+        tc1 = copy.deepcopy(prep_tc)
+        tc2 = copy.deepcopy(prep_tc)
+        tc3 = copy.deepcopy(prep_tc)
+        maps = {
+            'tc1': self._find_slot_insts(tc1),
+            'tc2': self._find_slot_insts(tc2),
+            'tc3': self._find_slot_insts(tc3),
+        }
+
+        for fp in fix_points:
+            is_spec = fp.spec_nesting is not None and fp.spec_nesting > 0
+
+            self._fill_slot(maps['tc1'], fp, self._make_mte_nop(fp.slot_id))
+
+            if is_spec:
+                self._fill_slot(maps['tc2'], fp,
+                                self._make_mte_irg(fp.reg, fp.slot_id))
+            else:
+                self._fill_slot(maps['tc2'], fp, self._make_mte_nop(fp.slot_id))
+
+            if is_spec:
+                self._fill_slot(maps['tc3'], fp,
+                                self._make_mte_movk_wrong_tag(fp.reg, wrong_upper16, fp.slot_id))
+            else:
+                self._fill_slot(maps['tc3'], fp, self._make_mte_nop(fp.slot_id))
 
         return tc1, tc2, tc3
 

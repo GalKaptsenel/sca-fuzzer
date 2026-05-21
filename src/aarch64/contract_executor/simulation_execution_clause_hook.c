@@ -184,7 +184,7 @@ static void destroy_execution_clause() {
 static void* early_decision(const struct cpu_state* state) {
 	const uintptr_t target_address = evaluate_cond_target(state->pc, *(uint32_t*)state->pc);
 	const uintptr_t arch_taken_address = evaluate_cond_branch_arch_taken(state);
-	return (void*)arch_taken_address;
+	return NULL; // always mispredict: explore speculative path for every branch
 	const bool arch_taken = target_address == arch_taken_address;
 
 	// check what the director says, if it is the same as real direction, then no deeper speculation needed, otherwise speculate to the mispredicted direction
@@ -268,4 +268,8 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
  * TAGE state, and clears initialized so the next test case starts fresh. */
 void reset_execution_clause_state(void) {
 	destroy_execution_clause();
+}
+
+int is_in_speculation(void) {
+	return initialized && (mgmt.current_nesting > 0);
 }

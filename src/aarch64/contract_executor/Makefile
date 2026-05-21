@@ -1,7 +1,7 @@
 CC = gcc
 
 # Base flags
-CFLAGS = -Wall -Wextra -O0 -g
+CFLAGS = -Wall -Wextra -O0 -g -march=native
 LDFLAGS =
 
 # Add Python3 embedding flags
@@ -19,6 +19,7 @@ SRCS = \
   simulation.c \
   simulation_execution_clause_hook.c \
   pac_sign_plugin.c \
+  mte_tag_plugin.c \
   tage_py.c \
   main.c
 

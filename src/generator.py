@@ -9,7 +9,7 @@ from __future__ import annotations
 import random
 import abc
 import re
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Set
 from subprocess import CalledProcessError, run, Popen, PIPE
 from copy import deepcopy
 
@@ -61,13 +61,29 @@ class ConfigurableGenerator(Generator, abc.ABC):
         super().__init__(instruction_set, seed)
         self.LOG = Logger()
         self.LOG.dbg_gen_instructions(instruction_set.instructions)
-        self.control_flow_instructions = \
-            [i for i in self.instruction_set.instructions if i.control_flow]
+        self._controlled_tags: Set[str] = set()
+        self._rebuild_instruction_pools()
+
+    def register_controlled_instructions(self, tags: Set[str]) -> None:
+        """Exclude instructions tagged with any of *tags* from random generation.
+        They remain accessible via instruction_set.instruction_unfiltered for use
+        by the mechanism that owns them.
+        Calling this after init is safe: the random pools are rebuilt immediately."""
+        self._controlled_tags |= tags
+        self._rebuild_instruction_pools()
+
+    def _rebuild_instruction_pools(self) -> None:
+        """Rebuild all random-generation instruction pools, excluding any instruction
+        whose tags overlap with self._controlled_tags."""
+        def is_free(spec: InstructionSpec) -> bool:
+            return not any(t in self._controlled_tags for t in spec.tags)
+
+        free = [i for i in self.instruction_set.instructions if is_free(i)]
+        self.control_flow_instructions = [i for i in free if i.control_flow]
         assert self.control_flow_instructions or CONF.max_successors_per_bb <= 1, \
                "The instruction set is insufficient to generate a test case"
 
-        self.non_control_flow_instructions = \
-            [i for i in self.instruction_set.instructions if not i.control_flow]
+        self.non_control_flow_instructions = [i for i in free if not i.control_flow]
         assert self.non_control_flow_instructions, \
             "The instruction set is insufficient to generate a test case"
 
@@ -394,6 +410,9 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
 
     def __init__(self, instruction_set: InstructionSet, seed: int):
         super().__init__(instruction_set, seed)
+
+    def _rebuild_instruction_pools(self) -> None:
+        super()._rebuild_instruction_pools()
         self.cond_branches = \
             [i for i in self.control_flow_instructions if "BASE-COND-BRANCH" in i.tags]
 

@@ -14,25 +14,49 @@
 #define REVISOR_CLEAR_ALL_INPUTS_CONSTANT	    9
 #define REVISOR_GET_TEST_LENGTH_CONSTANT	    10
 #define REVISOR_BATCHED_INPUTS_CONSTANT    	    11
-#define REVISOR_PAC_SIGN_CONSTANT               12
-#define REVISOR_PAC_AUTH_CONSTANT               13
+#define REVISOR_SWAP_PAC_KEYS_CONSTANT          12
+#define REVISOR_GET_EXEC_PAC_KEYS_CONSTANT      13
 #define REVISOR_SET_PAC_KEYS_CONSTANT           14
 #define REVISOR_GET_PAC_KEYS_CONSTANT           15
+#define REVISOR_MTE_TAG_REGION_CONSTANT         16
 
 /*
- * Shared request structure for REVISOR_PAC_SIGN / REVISOR_PAC_AUTH.
- * Layout must match the userspace copy in pac_sign_plugin.c.
- * mnemonic (sign): NUL-terminated "pacia"|"pacib"|"pacda"|"pacdb"|
- *                  "paciza"|"pacizb"|"pacdza"|"pacdzb"
- * mnemonic (auth): NUL-terminated "autia"|"autib"|"autda"|"autdb"|
- *                  "autiza"|"autizb"|"autdza"|"autdzb"
- * On return, result holds the kernel-signed/authenticated pointer value.
+ * REVISOR_SWAP_PAC_KEYS: atomically replace the calling task's user PAC keys.
+ * in_keys  : keys to install (hardware + task_struct).
+ * out_keys : previous keys (to pass back for restoration).
+ * APIA is written to task_struct but NOT to the hardware register (the kernel
+ * owns the hardware APIA for CONFIG_ARM64_PTR_AUTH_KERNEL); kernel_exit
+ * installs APIA from task_struct on return to EL0.
  */
-struct pac_sign_req {
-    uint64_t ptr;
-    uint64_t ctx;
-    char     mnemonic[16];
-    uint64_t result;
+struct pac_keys_swap_req {
+    struct pac_keys in_keys;
+    struct pac_keys out_keys;
+};
+
+/*
+ * REVISOR_GET_EXEC_PAC_KEYS: retrieve the keys that the executor will use for
+ * signing.  If executor.config.pac_keys_set is true, returns those keys and
+ * sets use_swap=1 (caller must swap to these keys before EL0 PAC ops).
+ * Otherwise returns current hardware keys and sets use_swap=0 (no swap
+ * needed: current EL0 keys already match the executor's signing keys).
+ */
+struct pac_exec_keys_info {
+    struct pac_keys keys;
+    uint8_t         use_swap;
+};
+
+/*
+ * REVISOR_MTE_TAG_REGION: write a uniform allocation tag to a byte range within
+ * the sandbox, starting at sandbox_offset bytes from the base of main_region.
+ * sandbox_offset : byte offset from main_region base (must be granule-aligned).
+ * length         : number of bytes to tag (granule-aligned,
+ *                  sandbox_offset + length <= MAIN_REGION_SIZE + FAULTY_REGION_SIZE).
+ * tag            : 4-bit tag value (bits[3:0] used; upper bits ignored).
+ */
+struct mte_tag_region_req {
+    uint64_t sandbox_offset;
+    uint64_t length;
+    uint8_t  tag;
 };
 
 #define REVISOR_CHECKOUT_TEST      	    _IO(REVISOR_IOC_MAGIC, REVISOR_CHECKOUT_TEST_CONSTANT)                   // Can read test case and write test case
@@ -46,10 +70,11 @@ struct pac_sign_req {
 #define REVISOR_CLEAR_ALL_INPUTS	    _IO(REVISOR_IOC_MAGIC, REVISOR_CLEAR_ALL_INPUTS_CONSTANT)
 #define REVISOR_GET_TEST_LENGTH		    _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_TEST_LENGTH_CONSTANT, uint64_t)
 #define REVISOR_BATCHED_INPUTS		    _IOWR(REVISOR_IOC_MAGIC, REVISOR_BATCHED_INPUTS_CONSTANT, struct input_batch*)
-#define REVISOR_PAC_SIGN		        _IOWR(REVISOR_IOC_MAGIC, REVISOR_PAC_SIGN_CONSTANT, struct pac_sign_req)
-#define REVISOR_PAC_AUTH		        _IOWR(REVISOR_IOC_MAGIC, REVISOR_PAC_AUTH_CONSTANT, struct pac_sign_req)
 #define REVISOR_SET_PAC_KEYS		    _IOW(REVISOR_IOC_MAGIC, REVISOR_SET_PAC_KEYS_CONSTANT, struct pac_keys)
 #define REVISOR_GET_PAC_KEYS		    _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_PAC_KEYS_CONSTANT, struct pac_keys)
+#define REVISOR_SWAP_PAC_KEYS		    _IOWR(REVISOR_IOC_MAGIC, REVISOR_SWAP_PAC_KEYS_CONSTANT, struct pac_keys_swap_req)
+#define REVISOR_GET_EXEC_PAC_KEYS	    _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_EXEC_PAC_KEYS_CONSTANT, struct pac_exec_keys_info)
+#define REVISOR_MTE_TAG_REGION		    _IOW(REVISOR_IOC_MAGIC, REVISOR_MTE_TAG_REGION_CONSTANT, struct mte_tag_region_req)
 
 #define REVISOR_DEVICE_NAME		        kernel_module_name
 #define REVISOR_DEVICE_CLASS_NAME	    "revisor_device_class"

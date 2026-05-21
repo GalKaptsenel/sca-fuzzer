@@ -521,6 +521,11 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         self.local_executor.set_pac_keys(_pac_keys)
         self._init_pac_keys = _pac_keys
 
+        # Create PACInstrumentation once so register_controlled_instructions("BASE-PAC")
+        # fires before the generator ever produces a test case.
+        self._pac_instrumentation = PACInstrumentation(
+            self._generator, CONF.pac_xpac_weight, CONF.pac_auth_weight, CONF.pac_sign_weight)
+
         # Stage-1 cache — populated by load_test_case(), consumed by trace_test_case_with_taints()
         self._stage1_pac_instrumentation = None
         self._stage1_tc = None
@@ -554,7 +559,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         tc_id = self._tc_counter
 
         patched = copy.deepcopy(self.test_case)
-        pac = PACInstrumentation(self._generator, CONF.pac_xpac_weight, CONF.pac_auth_weight, CONF.pac_sign_weight)
+        pac = self._pac_instrumentation
         stage1_tc, fix_points = pac.instrument_stage1(patched)
         layout: Aarch64ASMLayout = Aarch64ASMLayout(stage1_tc)
 
@@ -652,27 +657,39 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                 for insn in cs.disasm(tc_bytes, 0)]
 
     def _dump_pre_hw(self, tc_name: str, tc: TestCase, inp: Input,
-                     fix_points: List, inp_idx: int, dump_path: str) -> None:
+                     fix_points: List, inp_idx: int, dump_path: str,
+                     all_variants: Optional['TCVariants'] = None,
+                     stage1_bytes: Optional[bytes] = None) -> None:
         """Write a full pre-execution dump to dump_path, synced to disk.
 
         The file is overwritten on every call so after a kernel-panic reset it
         always contains exactly the last thing that was about to run on HW.
         Uses os.fsync + os.sync so the data reaches the disk before we hand
         control to the kernel module.
+
+        all_variants: if provided, all three TC variant disassemblies are included.
+        stage1_bytes: if provided, the stage-1 (pre-stage-2) disassembly is included.
         """
         import os as _os
         data = inp.tobytes()
-        regs = list(memoryview(data[0x2000:]).cast('Q'))
-        mem_hex = data[:128].hex()
+        # GPR input area: 8 uint64 slots — x0, x1, x2, x3, x4, x5, nzcv, sp
+        regs = list(memoryview(data[0x2000:0x2040]).cast('Q'))
+        reg_names = ["x0", "x1", "x2", "x3", "x4", "x5", "nzcv", "sp"]
         disasm = self._disasm_tc(tc)
         lines = [
             f"=== PRE-HW DUMP ===",
             f"tc_counter={self._tc_counter}  variant={tc_name}  input_idx={inp_idx}",
-            f"input regs x0..x15: {[hex(v) for v in regs[:16]]}",
-            f"input memory (first 128 bytes hex):",
-            f"  {mem_hex}",
-            f"fix-points ({len(fix_points)}):",
+            f"input registers (x0-x5, nzcv, sp):",
         ]
+        for name, val in zip(reg_names, regs):
+            lines.append(f"  {name:4s} = 0x{val:016x}")
+        lines.append(f"input memory (first 256 bytes hex):")
+        mem = data[:256]
+        for off in range(0, len(mem), 16):
+            chunk = mem[off:off + 16].hex(' ')
+            lines.append(f"  +{off:04x}: {chunk}")
+        lines.append(f"fix-points ({len(fix_points)}):")
+
         for fp in fix_points:
             sv = hex(fp.signed_value) if fp.signed_value is not None else "None"
             cv = hex(fp.ctx_value) if fp.ctx_value is not None else "None"
@@ -734,8 +751,27 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             except Exception as e:
                 lines.append(f"  slot={fp.slot_id:3d}  [error calling pac_auth: {e}]")
 
-        lines.append(f"{tc_name} disassembly ({len(disasm)} instructions):")
-        lines.extend(f"  {l}" for l in disasm)
+        if stage1_bytes is not None:
+            cs = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
+            cs.detail = False
+            lines.append(f"stage-1 TC disassembly ({len(stage1_bytes)} bytes):")
+            for insn in cs.disasm(stage1_bytes, 0):
+                lines.append(f"  +{insn.address:04x}: {insn.mnemonic} {insn.op_str}")
+
+        if all_variants is not None:
+            cs = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
+            cs.detail = False
+            for v_name, v_tc in [("TC1", all_variants.tc1),
+                                  ("TC2", all_variants.tc2),
+                                  ("TC3", all_variants.tc3)]:
+                marker = " <-- ABOUT TO RUN" if v_name == tc_name else ""
+                v_disasm = self._disasm_tc(v_tc)
+                lines.append(f"{v_name} disassembly ({len(v_disasm)} instructions){marker}:")
+                lines.extend(f"  {l}" for l in v_disasm)
+        else:
+            lines.append(f"{tc_name} disassembly ({len(disasm)} instructions):")
+            lines.extend(f"  {l}" for l in disasm)
+
         text = "\n".join(lines) + "\n"
 
         # Emit to pac log (also flushed below).
@@ -894,9 +930,16 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         fix_points = self._stage1_fix_points or []
         for i, (inp, variants) in enumerate(zip(inputs, tc_variants_per_input)):
             for tc_name, tc in [("TC1", variants.tc1), ("TC2", variants.tc2), ("TC3", variants.tc3)]:
-                self._dump_pre_hw(tc_name, tc, inp, fix_points, i, dump_path)
+                self._dump_pre_hw(tc_name, tc, inp, fix_points, i, dump_path,
+                                  all_variants=variants,
+                                  stage1_bytes=self._stage1_tc_bytes)
+                spec_summary = [(fp.slot_id, fp.spec_nesting) for fp in fix_points
+                                if fp.spec_nesting is not None and fp.spec_nesting > 0]
+                print(f"[PAC HW] tc={self._tc_counter} {tc_name} input={i}"
+                      f"  spec_slots={spec_summary}  STARTING", flush=True)
                 try:
                     ht = self._hw_trace_single_input(tc, inp, n_reps)
+                    print(f"[PAC HW] tc={self._tc_counter} {tc_name} input={i}  OK", flush=True)
                 except Exception as e:
                     self._pac_log(
                         f"\n!!! HW CRASH: {tc_name} input={i} tc_counter={self._tc_counter}: {e}",
@@ -1043,9 +1086,23 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                             reg = fp.info.reg
                             if reg.startswith('x') and reg[1:].isdigit():
                                 fp.signed_value = ite.cpu.gpr[int(reg[1:])]
+                            else:
+                                raise RuntimeError(
+                                    f"PAC capture: unrecognised signed reg format '{reg}' "
+                                    f"for slot {fp.slot_id} — expected xN"
+                                )
                             ctx = fp.info.ctx_reg
-                            if ctx is not None and ctx.startswith('x') and ctx[1:].isdigit():
+                            if ctx is None:
+                                pass  # zero-context variant (PACIZA/PACIZB): no ctx to capture
+                            elif ctx == 'sp':
+                                fp.ctx_value = ite.cpu.sp
+                            elif ctx.startswith('x') and ctx[1:].isdigit():
                                 fp.ctx_value = ite.cpu.gpr[int(ctx[1:])]
+                            else:
+                                raise RuntimeError(
+                                    f"PAC capture: unrecognised ctx_reg format '{ctx}' "
+                                    f"for slot {fp.slot_id} — expected xN or sp"
+                                )
                             fp.spec_nesting = nesting
                             if nesting == 0:
                                 arch_seen_slots.add(fp.slot_id)
@@ -1066,6 +1123,45 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             for ite in cer:
                 if ite.metadata.speculation_nesting == 0 and ite.cpu.pc in slot_auth_pc_to_fp:
                     arch_reached_auth_pcs.add(ite.cpu.pc)
+
+            # ── CE execution profile ─────────────────────────────────────────
+            # For every PAC sign, slot auth, and conditional branch, log which
+            # nesting level(s) the CE executed it at.  This lets us verify that
+            # spec slots really are spec-only, not arch or both.
+            if len(cer) > 0:
+                ce_base = cer[0].cpu.pc
+                pc_nestings: Dict[int, Set[int]] = {}
+                for _ite in cer:
+                    pc_nestings.setdefault(_ite.cpu.pc, set()).add(
+                        _ite.metadata.speculation_nesting)
+
+                def _nesting_label(ns: Set[int]) -> str:
+                    if not ns:
+                        return "NEVER-EXECUTED"
+                    if ns == {0}:
+                        return "ARCH-ONLY"
+                    if 0 in ns:
+                        return f"ARCH+SPEC nestings={sorted(ns)}"
+                    return f"SPEC-ONLY nestings={sorted(ns)}"
+
+                self._pac_log(f"  CE execution profile (sign / slot-auth / cond-branch):")
+                for _pc, _fps in sorted(pac_pc_to_fps.items()):
+                    _ns = pc_nestings.get(_pc, set())
+                    for _fp in _fps:
+                        self._pac_log(
+                            f"    sign @+0x{_pc - ce_base:04x}  slot={_fp.slot_id}"
+                            f"  {_nesting_label(_ns)}")
+                for _auth_pc, _fp in sorted(slot_auth_pc_to_fp.items()):
+                    _ns = pc_nestings.get(_auth_pc, set())
+                    self._pac_log(
+                        f"    auth @+0x{_auth_pc - ce_base:04x}  slot={_fp.slot_id}"
+                        f"  {_nesting_label(_ns)}")
+                _cond_pcs = sorted({_ite.cpu.pc for _ite in cer
+                                    if is_conditional_branch(_ite.cpu.encoding)})
+                for _pc in _cond_pcs:
+                    _ns = pc_nestings.get(_pc, set())
+                    self._pac_log(
+                        f"    branch@+0x{_pc - ce_base:04x}  {_nesting_label(_ns)}")
 
             for fp in fix_points:
                 is_spec = fp.spec_nesting is not None and fp.spec_nesting > 0

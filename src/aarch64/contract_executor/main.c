@@ -3,6 +3,7 @@
 #include "simulation_output.h"
 #include "simulation_execution_clause_hook.h"
 #include "pac_sign_plugin.h"
+#include "mte_tag_plugin.h"
 #include "tage_py.h"
 #include <signal.h>
 #include <ucontext.h>
@@ -16,6 +17,7 @@ simulation_hook_fn hooks_to_install[] = {
 	execution_clause_hook,
 	pac_sign_hook,              /* must run before logging so trace sees kernel-signed value */
 	auth_verify_hook,           /* must run after pac_sign_hook, before logging */
+	mte_tag_hook,               /* intercept ADDG sentinel (NOP in CE), must be before logging */
 //	stdout_print_hook,
 	log_instr_execution_cluase_hook,
 //	log_instr_hook,
@@ -116,7 +118,7 @@ static void ce_crash_handler(int sig, siginfo_t *info, void *uctx) {
 /* ----------------------------------------------------------------------- */
 
 /* ---- watchdog ---------------------------------------------------------- */
-#define CE_ITERATION_TIMEOUT_SEC 30
+#define CE_ITERATION_TIMEOUT_SEC 300
 
 static volatile sig_atomic_t g_iter_phase = 0;  /* 0=idle 1=read 2=sim 3=output */
 static volatile size_t       g_iter_num   = 0;
@@ -140,6 +142,7 @@ int main() {
 	base_hook_c_target = (uint64_t)base_hook_c;
 
 	pac_sign_plugin_init();
+	mte_tag_plugin_init();
 
 	/* Install SIGALRM watchdog */
 	struct sigaction sa = { 0 };
@@ -290,6 +293,7 @@ main_input_free:
 main_failure:
 	python_finalize();
 main_out:
+	mte_tag_plugin_cleanup();
 	pac_sign_plugin_cleanup();
 	return ret;
 }

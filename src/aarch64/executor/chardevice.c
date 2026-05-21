@@ -350,74 +350,6 @@ handle_batch_end:
 	return err;
 }
 
-/* PAC sign/auth callbacks.
- * EL1 PAC keys in Linux are per-TASK (stored in task_struct, loaded on context switch).
- * Running via smp_call_function_single (IPI) uses whatever task is on the target CPU —
- * potentially WRONG keys.  Instead we run directly on the calling CPU so that the caller's
- * task keys are in the hardware registers, matching the keys used during HW trace execution
- * (which also runs in the Python executor's process context). */
-struct pac_cpu_work {
-	struct pac_sign_req req;
-	int status;
-};
-
-static void pac_sign_on_cpu(void *arg)
-{
-	struct pac_cpu_work *w = arg;
-	struct pac_sign_req *req = &w->req;
-	struct pac_keys saved;
-	uint64_t saved_sctlr;
-	w->status = 0;
-
-	if (executor.config.pac_keys_set) {
-		pac_save_keys(&saved);
-		pac_load_keys(&executor.config.pac_keys);
-	}
-	saved_sctlr = pac_enable_all_keys();
-
-	if      (!strcmp(req->mnemonic, "pacia"))  req->result = pacia(req->ptr, req->ctx);
-	else if (!strcmp(req->mnemonic, "pacib"))  req->result = pacib(req->ptr, req->ctx);
-	else if (!strcmp(req->mnemonic, "pacda"))  req->result = pacda(req->ptr, req->ctx);
-	else if (!strcmp(req->mnemonic, "pacdb"))  req->result = pacdb(req->ptr, req->ctx);
-	else if (!strcmp(req->mnemonic, "paciza")) req->result = paciza(req->ptr);
-	else if (!strcmp(req->mnemonic, "pacizb")) req->result = pacizb(req->ptr);
-	else if (!strcmp(req->mnemonic, "pacdza")) req->result = pacdza(req->ptr);
-	else if (!strcmp(req->mnemonic, "pacdzb")) req->result = pacdzb(req->ptr);
-	else w->status = -EINVAL;
-
-	pac_restore_sctlr(saved_sctlr);
-	if (executor.config.pac_keys_set)
-		pac_load_keys(&saved);
-}
-
-static void pac_auth_on_cpu(void *arg)
-{
-	struct pac_cpu_work *w = arg;
-	struct pac_sign_req *req = &w->req;
-	struct pac_keys saved;
-	uint64_t saved_sctlr;
-	w->status = 0;
-
-	if (executor.config.pac_keys_set) {
-		pac_save_keys(&saved);
-		pac_load_keys(&executor.config.pac_keys);
-	}
-	saved_sctlr = pac_enable_all_keys();
-
-	if      (!strcmp(req->mnemonic, "autia"))  req->result = autia(req->ptr, req->ctx);
-	else if (!strcmp(req->mnemonic, "autib"))  req->result = autib(req->ptr, req->ctx);
-	else if (!strcmp(req->mnemonic, "autda"))  req->result = autda(req->ptr, req->ctx);
-	else if (!strcmp(req->mnemonic, "autdb"))  req->result = autdb(req->ptr, req->ctx);
-	else if (!strcmp(req->mnemonic, "autiza")) req->result = autiza(req->ptr);
-	else if (!strcmp(req->mnemonic, "autizb")) req->result = autizb(req->ptr);
-	else if (!strcmp(req->mnemonic, "autdza")) req->result = autdza(req->ptr);
-	else if (!strcmp(req->mnemonic, "autdzb")) req->result = autdzb(req->ptr);
-	else w->status = -EINVAL;
-
-	pac_restore_sctlr(saved_sctlr);
-	if (executor.config.pac_keys_set)
-		pac_load_keys(&saved);
-}
 
 long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
 	int64_t result = 0;
@@ -487,27 +419,26 @@ long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
 			handle_batch((void __user*)arg);
 		    break;
 
-		case REVISOR_PAC_SIGN_CONSTANT: {
-			struct pac_cpu_work w;
-			if (copy_from_user_with_access_check(&w.req, (void __user *)arg, sizeof(w.req)))
+		case REVISOR_SWAP_PAC_KEYS_CONSTANT: {
+			struct pac_keys_swap_req swap;
+			if (copy_from_user_with_access_check(&swap, (void __user *)arg, sizeof(swap)))
 				return -EFAULT;
-			w.req.mnemonic[sizeof(w.req.mnemonic) - 1] = '\0';
-			pac_sign_on_cpu(&w);
-			if (w.status)
-				return w.status;
-			return copy_to_user_with_access_check((void __user *)arg, &w.req, sizeof(w.req))
+			pac_swap_user_keys(&swap.in_keys, &swap.out_keys);
+			return copy_to_user_with_access_check((void __user *)arg, &swap, sizeof(swap))
 				? -EFAULT : 0;
 		}
 
-		case REVISOR_PAC_AUTH_CONSTANT: {
-			struct pac_cpu_work w;
-			if (copy_from_user_with_access_check(&w.req, (void __user *)arg, sizeof(w.req)))
-				return -EFAULT;
-			w.req.mnemonic[sizeof(w.req.mnemonic) - 1] = '\0';
-			pac_auth_on_cpu(&w);
-			if (w.status)
-				return w.status;
-			return copy_to_user_with_access_check((void __user *)arg, &w.req, sizeof(w.req))
+		case REVISOR_GET_EXEC_PAC_KEYS_CONSTANT: {
+			struct pac_exec_keys_info info;
+			memset(&info, 0, sizeof(info));
+			if (executor.config.pac_keys_set) {
+				info.keys = executor.config.pac_keys;
+				info.use_swap = 1;
+			} else {
+				pac_save_keys(&info.keys);
+				info.use_swap = 0;
+			}
+			return copy_to_user_with_access_check((void __user *)arg, &info, sizeof(info))
 				? -EFAULT : 0;
 		}
 
@@ -524,6 +455,19 @@ long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
 			pac_save_keys(&keys);
 			return copy_to_user_with_access_check((void __user *)arg, &keys, sizeof(keys))
 				? -EFAULT : 0;
+		}
+
+		case REVISOR_MTE_TAG_REGION_CONSTANT: {
+			struct mte_tag_region_req req;
+			if (copy_from_user_with_access_check(&req, (void __user *)arg, sizeof(req))) {
+				return -EFAULT;
+			}
+			if (req.sandbox_offset + req.length > MAIN_REGION_SIZE + FAULTY_REGION_SIZE) {
+				return -EINVAL;
+			}
+			mte_init_sandbox_tags(executor.sandbox.main_region + req.sandbox_offset,
+			                      req.length, req.tag & 0xF);
+			return 0;
 		}
 
 		default:

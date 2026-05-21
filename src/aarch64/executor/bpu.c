@@ -154,7 +154,7 @@ void __nocfi apply_branch_training(const branch_training_config_t *cfg) {
 
 void __nocfi set_branch_training_config(const char *buf, size_t len) {
     parse_branch_training_config(buf, len, &saved_config);
-    module_info("bpu: branch training configured with %d entries\n", saved_config.count);
+    //module_info("bpu: branch training configured with %d entries\n", saved_config.count);
 }
 
 void __nocfi reapply_branch_training(void) {

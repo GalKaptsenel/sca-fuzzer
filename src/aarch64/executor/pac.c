@@ -413,6 +413,48 @@ void pac_load_keys(const struct pac_keys *keys) {
 	/* isb() is called inside each pauth_set_key_* */
 }
 
+void pac_swap_user_keys(const struct pac_keys *new_keys, struct pac_keys *saved_keys)
+{
+	preempt_disable();
+
+	/* Save current user PAC keys from task_struct (NOT from hardware, since
+	 * in EL1 the hardware APIA holds the kernel key, not the user key). */
+	saved_keys->apia_lo = (uint64_t)current->thread.keys_user.apia.lo;
+	saved_keys->apia_hi = (uint64_t)current->thread.keys_user.apia.hi;
+	saved_keys->apib_lo = (uint64_t)current->thread.keys_user.apib.lo;
+	saved_keys->apib_hi = (uint64_t)current->thread.keys_user.apib.hi;
+	saved_keys->apda_lo = (uint64_t)current->thread.keys_user.apda.lo;
+	saved_keys->apda_hi = (uint64_t)current->thread.keys_user.apda.hi;
+	saved_keys->apdb_lo = (uint64_t)current->thread.keys_user.apdb.lo;
+	saved_keys->apdb_hi = (uint64_t)current->thread.keys_user.apdb.hi;
+	saved_keys->apga_lo = (uint64_t)current->thread.keys_user.apga.lo;
+	saved_keys->apga_hi = (uint64_t)current->thread.keys_user.apga.hi;
+
+	/* Update task_struct for all 5 keys (kernel_exit installs APIA from here on
+	 * return to EL0; the others are installed on context switch too). */
+	current->thread.keys_user.apia.lo = (unsigned long)new_keys->apia_lo;
+	current->thread.keys_user.apia.hi = (unsigned long)new_keys->apia_hi;
+	current->thread.keys_user.apib.lo = (unsigned long)new_keys->apib_lo;
+	current->thread.keys_user.apib.hi = (unsigned long)new_keys->apib_hi;
+	current->thread.keys_user.apda.lo = (unsigned long)new_keys->apda_lo;
+	current->thread.keys_user.apda.hi = (unsigned long)new_keys->apda_hi;
+	current->thread.keys_user.apdb.lo = (unsigned long)new_keys->apdb_lo;
+	current->thread.keys_user.apdb.hi = (unsigned long)new_keys->apdb_hi;
+	current->thread.keys_user.apga.lo = (unsigned long)new_keys->apga_lo;
+	current->thread.keys_user.apga.hi = (unsigned long)new_keys->apga_hi;
+
+	/* Load APIB/APDA/APDB/APGA into hardware immediately.  Do NOT touch APIA:
+	 * the kernel uses hardware APIA for its own return-address auth, and
+	 * changing it mid-ioctl (while kernel frames are on the stack) would
+	 * corrupt those authenticated return addresses. */
+	pauth_set_key_APIB(new_keys->apib_hi, new_keys->apib_lo);
+	pauth_set_key_APDA(new_keys->apda_hi, new_keys->apda_lo);
+	pauth_set_key_APDB(new_keys->apdb_hi, new_keys->apdb_lo);
+	pauth_set_key_APGA(new_keys->apga_hi, new_keys->apga_lo);
+
+	preempt_enable();
+}
+
 void trigger_pauth_fault(void) {
 	uint64_t value = 100;
 	uint64_t* orig_ptr = &value;
