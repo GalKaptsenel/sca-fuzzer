@@ -27,33 +27,6 @@ void ce_debug_print_last_sim_state(FILE *out) {
 	fflush(out);
 }
 
-//static uint32_t* emit_stub(uintptr_t src_pc, uint32_t* stub, uint32_t** hole) {
-//
-//	size_t idx = 0;
-//
-//	stub[idx++] = 0xA9BF7BFF; // stp xzr, x30 [sp, #-16]!
-//
-//	// x30 <- src_pc + 4
-//	idx += emit_mov64((uintptr_t)(stub + idx), 30, src_pc + 4);
-//
-//	
-//	// b hook --> hole to be filled
-//	*hole = stub + idx;
-//	++idx;
-//
-//	stub[idx++] = 0xA8C17BFF; // LDP xzr, x30, [sp], 16
-//
-//	// b srcpc - to be filled
-//
-//	stub[idx] = encode_b((uintptr_t)(stub + idx), src_pc + 4);
-//	++idx;
-//
-//	return stub + idx;
-//}
-//
-//#define MAX_INSTRUCTIONS (4096UL)
-//static uint32_t* holes[MAX_INSTRUCTIONS] = { 0 };
-
 typedef struct {
 	void *addr;        // Address of the instruction (kept for debugging)
 	uint32_t original; // Original instruction; Rn is extracted from this by apply_fixups

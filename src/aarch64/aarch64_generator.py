@@ -1,5 +1,5 @@
 """
-File: x86 implementation of the test case generator
+File: AArch64 test case generator
 
 Copyright (C) Microsoft Corporation
 SPDX-License-Identifier: MIT
@@ -19,10 +19,8 @@ from ..interfaces import TestCase, Operand, Instruction, BasicBlock, Function, I
     GeneratorException, RegisterOperand, ImmediateOperand, MAIN_AREA_SIZE, FAULTY_AREA_SIZE, \
     MemoryOperand, AgenOperand, OT, OperandSpec, CondOperand, TargetDesc
 from ..generator import ConfigurableGenerator, RandomGenerator, Pass, Printer
-from ..config import CONF
 from .aarch64_target_desc import Aarch64TargetDesc
 from .aarch64_elf_parser import Aarch64ElfParser
-from .aarch64_contract_executor import InstrTraceEntry, ContractExecutionResult
 
 
 class FaultFilter:
@@ -44,12 +42,8 @@ class Aarch64Generator(ConfigurableGenerator, abc.ABC):
         self.elf_parser = Aarch64ElfParser(self.target_desc)
         self.faults = FaultFilter()
 
-        # configure instrumentation passes
         self.passes = [
-#            Aarch64PatchUndefinedLoadsPass(self.target_desc),
             Aarch64PatchUndefinedLoadsStoresPass(self.target_desc),
-#            Aarch64SandboxPass(),
-#            Aarch64DsbSyPass(),
         ]
 
         self.printer = Aarch64Printer(self.target_desc)
@@ -284,10 +278,6 @@ class Aarch64PatchUndefinedLoadsStoresPass(Pass):
         """
         result = set()
         result.add(self._norm(mem_op.value))
-#        for reg in mem_op.value.split(","):
-#            reg = reg.strip()
-#            if reg:
-#                result.add(self._norm(reg))
         return result
 
     def _replace_reg(self, operand: RegisterOperand, forbidden: Set[str]) -> None:

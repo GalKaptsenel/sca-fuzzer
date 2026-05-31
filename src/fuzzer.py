@@ -100,12 +100,8 @@ class FuzzerGeneric(Fuzzer):
         self.generator = factory.get_program_generator(isa, prog_seed)
         self.input_gen = factory.get_input_generator(data_seed)
         self.executor = factory.get_executor()
-        #self.model = factory.get_model(self.executor.read_base_addresses())
         self.analyser = factory.get_analyser()
         self.asm_parser = factory.get_asm_parser(self.generator)
-
-        #self.arch_executor = factory.get_executor(True)
-        #self.arch_model = factory.get_model(self.arch_executor.read_base_addresses(), True)
 
     def start_random(self, num_test_cases: int, num_inputs: int, timeout: int, nonstop: bool,
                      save_violations: bool) -> bool:
@@ -163,7 +159,6 @@ class FuzzerGeneric(Fuzzer):
             violation = self.fuzzing_round(test_case, inputs)
 
             if violation:
-                #self.LOG.fuzzer_report_violations(violation, self.model)
                 if save_violations:
                     self._store_violation_artifact(test_case, violation, self.work_dir)
                 STAT.violations += 1
@@ -171,9 +166,6 @@ class FuzzerGeneric(Fuzzer):
                     break
 
         self.LOG.fuzzer_finish()
-
-
-        #self.LOG.dbg_report_coverage(self.model)
         return STAT.violations > 0
 
     def filter(self, test_case, inputs) -> bool:
@@ -253,27 +245,6 @@ class FuzzerGeneric(Fuzzer):
                 STAT.fp_nesting += 1
                 return None
 
-        # 2.2 FP might appear because of imperfect tainting (e.g., due to a bug in taint tracker).
-        #     To remove such FPs, we collect contract traces for all boosted inputs, and check if
-        #     the violation is still present
-        #if CONF.enable_fast_path_model:
-        #    args.fast_boosting = False
-
-        #    full_ctraces = self.model.trace_test_case(args.inputs, end_nesting)
-        #    if full_ctraces != args.ctraces:
-        #        # notify the user about the mismatch
-        #        self.LOG.warning("fuzzer", "Fast path contract traces do not match the full traces")
-        #        if self.work_dir and not CONF._no_generation:
-        #            self.LOG.warning("fuzzer", f"Storing the bug into {self.work_dir}/bugs/")
-        #            self._store_violation_artifact(test_case, violations[0],
-        #                                           f"{self.work_dir}/bugs/")
-
-        #        # re-run the experiment with the full contract traces
-        #        violations, args.ctraces, _ = self._collect_traces(args)
-        #        if not violations:
-        #            STAT.fp_taint_mistakes += 1
-        #            return None
-
         # At this point, we can be confident in contract traces, so we can start reusing them
         args.reuse_ctraces = True
 
@@ -283,8 +254,6 @@ class FuzzerGeneric(Fuzzer):
             violations = self._priming(violations, args.inputs)
             if not violations:
                 STAT.fp_early_priming += 1
-#                self.LOG.trc_fuzzer_dump_traces(self.model, args.inputs, htraces,
-#                                                self.reference_htraces, args.ctraces, end_nesting)
                 return None
 
         # 2.4 FP might appear because we experienced noise. Retry the experiment with a larger
@@ -306,24 +275,8 @@ class FuzzerGeneric(Fuzzer):
                 violations = self._priming(violations, args.inputs)
                 if not violations:
                     STAT.fp_priming += 1
-#                    self.LOG.trc_fuzzer_dump_traces(self.model, args.inputs, htraces,
-#                                                    self.reference_htraces, args.ctraces,
-#                                                    end_nesting)
                     return None
 
-        # 2.5 FP might appear because of a mismatch between the model and the executor.
-        # Such cases are rare, hence we check for them last.
-        # To remove such FPs, we check if the violation is caused by an architectural mismatch
-        #if self.is_architectural_mismatch(test_case, violations[0]):
-        #    if self.work_dir and not CONF._no_generation:
-        #        self.LOG.warning("fuzzer", f"Storing the bug into {self.work_dir}/bugs/")
-        #        self._store_violation_artifact(test_case, violations[0], f"{self.work_dir}/bugs/")
-        #    return None
-
-        # Violation survived all checks. Report it
-#        self.LOG.trc_fuzzer_dump_traces(self.model, args.inputs, htraces, self.reference_htraces,
-#                                        args.ctraces, end_nesting)
-        
         return violations[0]
 
     def _collect_traces(
@@ -916,8 +869,6 @@ class NoninterfearenceFuzzer(FuzzerGeneric):
             reuse_ctraces=False,
             added_htraces=[])
 
-        # 0. Load the test case into the model and executor
-        #self.model.load_test_case(test_case)
         self.executor.load_test_case(test_case)
 
         violations, args.ctraces, htraces = self._collect_traces(args)

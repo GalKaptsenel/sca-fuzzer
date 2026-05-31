@@ -231,7 +231,7 @@ class ConfigurableGenerator(Generator, abc.ABC):
             return msg
 
         try:
-            out = run(f"aarch64-linux-gnu-as -march=armv9-a+sve+memtag {asm_file} -o {obj_file}", shell=True, check=True, capture_output=True) # TODO: extract assembler to configuration
+            out = run(f"aarch64-linux-gnu-as -march=armv9-a+sve+memtag {asm_file} -o {obj_file}", shell=True, check=True, capture_output=True)
         except CalledProcessError as e:
             error_msg = e.stderr.decode()
             if "Assembler messages:" in error_msg:
@@ -239,9 +239,6 @@ class ConfigurableGenerator(Generator, abc.ABC):
             else:
                 print(error_msg)
             raise e
-        finally:
-            pass
-            # run(f"rm {patched_asm_file}", shell=True, check=True)
 
 
         output = out.stderr.decode()
@@ -249,7 +246,6 @@ class ConfigurableGenerator(Generator, abc.ABC):
             print("WARNING: [generator]" + pretty_error_msg(output))
 
         run(f"cp {obj_file} {bin_file}", shell=True, check=True)
-#        run(f"strip --remove-section=.note.gnu.property {bin_file}", shell=True, check=True)
         run(f"aarch64-linux-gnu-objcopy {bin_file} -O binary {bin_file}", shell=True, check=True)
 
     @abc.abstractmethod

@@ -3,24 +3,22 @@ import uuid
 import tempfile
 import random
 import string
+import functools
+import time
+import os
+import ctypes
+import fcntl
 from defer import return_value
-from ..config import CONF
-from ppadb.client import Client as AdbClient
-from typing import List, Literal, Union, Optional, Type, Callable, Tuple, Type
+from typing import List, Literal, Union, Optional, Type, Callable, Tuple
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields, asdict, MISSING
 from enum import Enum
-import functools
-import time
-import paramiko
-import os
-
-import time
-import ctypes
 from functools import wraps
 from collections import defaultdict
 from contextlib import contextmanager
-import fcntl
+from ..config import CONF
+from ppadb.client import Client as AdbClient
+import paramiko
 
 
 op_timings = defaultdict(list)
