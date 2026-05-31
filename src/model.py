@@ -183,7 +183,6 @@ class L1DTracer(UnicornTracer):
     def add_mem_address_to_trace(self, address, model):
         page_offset = (address & 0b111111000000) >> 6
         cache_set_index = 0x8000000000000000 >> page_offset
-        # print(f"{cache_set_index:064b}")
         if model.in_speculation:
             self.trace[1] |= cache_set_index
         else:
@@ -981,8 +980,6 @@ class BaseTaintTracker(TaintTrackerInterface):
     # ----------------------------------------------------------------------------------------------
     # State management methods
     def reset(self, initial_observations) -> None:
-        """ Reset the taint tracker state """
-        # print("=============")
         self.initial_observations = initial_observations
         self.flag_deps = {}
         self.reg_deps = {}
@@ -1025,8 +1022,6 @@ class BaseTaintTracker(TaintTrackerInterface):
         if self._instruction:
             self._finalize_instruction()
 
-        # restart the tracking
-        # print("-----------------------------------")
         self._instruction = instruction
         self.src_regs = set()
         self.src_flags = set()
@@ -1126,19 +1121,10 @@ class BaseTaintTracker(TaintTrackerInterface):
             else:
                 self.mem_deps[mem] = copy.copy(src_dependencies)
                 self.mem_deps[mem].add(mem)
-        # print(self.dest_regs, self.src_regs)
-        # print(self.dest_flags, self.src_flags)
-        # print(self.dest_mems, self.src_mems)
-        # print(self.reg_deps)
-        # print(self.flag_deps)
-        # print(self.mem_deps)
-
         # Workaround for REP instructions with implicit RCX dependency
         if "rep" in inst_name and "C" in self.src_regs and self.pending_taint:
             self.pending_taint.add('C')
 
-        # Update taints
-        # print(self.pending_taint)
         for label in self.pending_taint:
             if label.startswith("0x"):
                 self.tainted_labels.update(self.mem_deps.get(label, {label}))

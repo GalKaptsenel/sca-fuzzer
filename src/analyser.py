@@ -213,9 +213,6 @@ class MWUAnalyser(EquivalenceAnalyserCommon):
         """ Use the Mann-Withney U test to compare htraces """
         _, p_value = stats.mannwhitneyu(htrace1.raw, htrace2.raw)
 
-        # print(set(htrace1.raw), set(htrace2.raw), p_value)
-        # if p_value <= CONF.analyser_stat_threshold:
-        # print(f"p_value={p_value:.6f}")
         return p_value > CONF.analyser_stat_threshold
 
 
@@ -405,11 +402,9 @@ class ChiSquaredBitwisePValueAnalyser(EquivalenceAnalyserCommon):
         plt.tight_layout()
 
         if save_path is not None:
-            #print("Saving plot")
             plt.savefig(save_path)
 
         plt.close(fig)
-#        plt.show()
 
     def homogeneity_test(self, x: List[np.uint64], y: List[np.uint64], pass_test: Callable[[float], bool], visualize: bool = False) -> bool:
         assert len(x) == len(y)
@@ -562,7 +557,6 @@ class ChiSquaredBitwiseThresholdAnalyser(EquivalenceAnalyserCommon):
         plt.tight_layout()
 
         if save_path is not None:
-            #print(f"Saving plot to {save_path}")
             plt.savefig(save_path)
 
         plt.close(fig)
@@ -586,8 +580,7 @@ class ChiSquaredBitwiseThresholdAnalyser(EquivalenceAnalyserCommon):
 
         result = pass_test(combined_stat)
         if visualize and not result:
-            self.visualize_bitwise_and_correlation(bits_x, bits_y, "bitwise_threshlod.png")
-            #print(f"[DEBUG] bitwise_stat={normalized_bitwise_stat:.4f}, corr_diff={corr_diff:.4f}, combined_stat={combined_stat:.4f}")
+            self.visualize_bitwise_and_correlation(bits_x, bits_y, "bitwise_threshold.png")
 
         return result
 
@@ -608,21 +601,10 @@ class AnsambleAnalyser(EquivalenceAnalyserCommon):
 
     def htraces_are_equivalent(self, htrace1: HTrace, htrace2: HTrace) -> bool:
         votes = 0
-        print(f"htrace1:")
-        for n in htrace1.raw:
-            print(f"{format(n, '064b')}")
-        print(f"htrace2:")
-        for n in htrace2.raw:
-            print(f"{format(n, '064b')}")
-
-
         for name, analyser in self.analysers.items():
             if analyser.htraces_are_equivalent(htrace1, htrace2):
                 self.scores[name] += 1
                 votes += 1
-#                print(f'Analyser {name} claims {htrace1.raw} and {htrace2.raw} are equivalent')
-#            else:
-#                print(f'Analyser {name} claims {htrace1.raw} and {htrace2.raw} are distinct')
 
 
         self.experiments_counter += 1

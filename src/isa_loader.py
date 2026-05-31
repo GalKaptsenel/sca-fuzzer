@@ -85,8 +85,6 @@ class InstructionSet(InstructionSetAbstract):
 
             if CONF.supported_instructions and spec.name not in CONF.supported_instructions:
                 return False
-#            if include_categories and spec.category not in include_categories:
-#                return False
             if spec.category != "general":
                 return False # For now we don't support anything not in general category
 
@@ -103,9 +101,6 @@ class InstructionSet(InstructionSetAbstract):
 
             if include_categories and all(category in include_categories for category in spec.tags):
                 return True
-
-#            if CONF.supported_instructions is not None:
-#                return spec.name in CONF.supported_instructions
 
             for operand in spec.operands:
                 if operand.type == OT.MEM and operand.values \
