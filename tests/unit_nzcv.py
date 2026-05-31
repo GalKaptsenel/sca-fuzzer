@@ -6,8 +6,9 @@ import unittest
 import numpy as np
 
 from src.aarch64.aarch64_target_desc import NZCVScheme
-from src.aarch64.aarch64_executor import _reconstruct_pstate
+from src.aarch64.aarch64_executor import _reconstruct_pstate, _input_bytes_with_pstate
 from src.aarch64.aarch64_input_generator import AArch64InputGenerator
+from src.interfaces import Input
 
 
 # ---------------------------------------------------------------------------
@@ -333,6 +334,83 @@ class TestAArch64InputGenerator(unittest.TestCase):
                 self.assertEqual(int(ia[0]['gpr'][slot_idx]),
                                  int(ib[0]['gpr'][slot_idx]),
                     f"input {i} slot {slot_idx}: generators diverged in non-NZCV slots")
+
+
+# ---------------------------------------------------------------------------
+# _input_bytes_with_pstate — slot-6 must be PSTATE-converted in returned bytes
+# ---------------------------------------------------------------------------
+
+class TestInputBytesWithPstate(unittest.TestCase):
+    """Regression test: bytearray[start:] creates a copy, not a view.
+
+    The bug: memoryview(data[0x2000:]).cast('Q') modifies a copy of data,
+    leaving data[0x2030] unchanged (raw slot 6 value sent to kernel → wrong NZCV).
+    The fix: memoryview(data)[0x2000:].cast('Q') creates a view into data.
+    """
+
+    GPR_OFFSET = 0x2000         # gpr field starts at byte 0x2000 in tobytes()
+    SLOT6_OFFSET = 0x2030       # flags = gpr[6] = gpr_offset + 6*8
+
+    def _make_input_with_slot6(self, n: int, z: int, c: int, v: int) -> Input:
+        inp = Input(1)
+        inp[0]['gpr'][NZCVScheme.SLOT_IDX] = make_slot(n, z, c, v)
+        return inp
+
+    def _read_slot6_from_bytes(self, data: bytes) -> int:
+        return int.from_bytes(data[self.SLOT6_OFFSET:self.SLOT6_OFFSET + 8], 'little')
+
+    def test_slot6_is_pstate_format(self):
+        """_input_bytes_with_pstate must write PSTATE (bits 31:28) not raw per-flag value."""
+        for n, z, c, v in ALL_COMBOS:
+            with self.subTest(n=n, z=z, c=c, v=v):
+                inp = self._make_input_with_slot6(n, z, c, v)
+                result = _input_bytes_with_pstate(inp)
+                got = self._read_slot6_from_bytes(result)
+                want = expected_pstate(n, z, c, v)
+                self.assertEqual(got, want,
+                    f"flags=({n},{z},{c},{v}): slot6 in result = {got:#010x}, "
+                    f"want PSTATE {want:#010x}  (raw would be {make_slot(n,z,c,v):#018x})")
+
+    def test_raw_input_is_not_modified(self):
+        """_input_bytes_with_pstate must not mutate the original Input object."""
+        inp = self._make_input_with_slot6(1, 0, 1, 0)
+        raw_before = make_slot(1, 0, 1, 0)
+        _input_bytes_with_pstate(inp)
+        raw_after = int(inp[0]['gpr'][NZCVScheme.SLOT_IDX])
+        self.assertEqual(raw_after, raw_before,
+            "Input object was mutated by _input_bytes_with_pstate")
+
+    def test_non_slot6_bytes_unchanged(self):
+        """Only slot-6 bytes should differ between raw tobytes() and the result."""
+        inp = self._make_input_with_slot6(0, 1, 0, 1)
+        raw = inp.tobytes()
+        result = _input_bytes_with_pstate(inp)
+        self.assertEqual(len(raw), len(result))
+        # Bytes before slot 6
+        self.assertEqual(raw[:self.SLOT6_OFFSET], result[:self.SLOT6_OFFSET])
+        # Bytes after slot 6
+        self.assertEqual(raw[self.SLOT6_OFFSET + 8:], result[self.SLOT6_OFFSET + 8:])
+        # Slot 6 itself must differ (raw != PSTATE for non-trivial flags)
+        raw_slot6 = int.from_bytes(raw[self.SLOT6_OFFSET:self.SLOT6_OFFSET + 8], 'little')
+        got_slot6 = int.from_bytes(result[self.SLOT6_OFFSET:self.SLOT6_OFFSET + 8], 'little')
+        want_slot6 = expected_pstate(0, 1, 0, 1)
+        self.assertEqual(got_slot6, want_slot6)
+        self.assertNotEqual(raw_slot6, got_slot6)
+
+    def test_known_crash_input_tc2_inp0(self):
+        """Regression: TC2 inp=0 had raw slot6=0x0000010000000100 reaching kernel.
+
+        This caused x6 = 0x0000010000000100 instead of 0x40000000 (Z=1),
+        leading to NZCV=0 on HW while CE had Z=1 → wrong auth → FPAC crash.
+        """
+        inp = Input(1)
+        inp[0]['gpr'][NZCVScheme.SLOT_IDX] = 0x0000010000000100  # raw TC2 inp=0 slot 6
+        result = _input_bytes_with_pstate(inp)
+        got = self._read_slot6_from_bytes(result)
+        self.assertEqual(got, 0x40000000,   # Z=1 in PSTATE format
+            f"slot6 in result = {got:#010x}, want 0x40000000 (Z=1)")
+        self.assertNotEqual(got, 0x0000010000000100,
+            "raw value reached kernel — bytearray copy bug not fixed")
 
 
 if __name__ == '__main__':

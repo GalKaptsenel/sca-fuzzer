@@ -1,0 +1,19 @@
+instruction_set: aarch64
+instruction_categories:
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-BITFIELD
+  - BASE-CONDSEL
+  - BASE-BRANCH
+  - BASE-MEMORY-LOAD
+  - BASE-MEMORY-STORE
+min_bb_per_function: 5
+max_bb_per_function: 5
+max_successors_per_bb: 2
+min_successors_per_bb: 1
+fuzzer: basic
+
+# Overwrite some of the configuration options to reproduce the violation
+input_gen_seed: 20
+inputs_per_class: 1

@@ -474,20 +474,7 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
         return func
 
     def generate_instruction(self, spec: InstructionSpec) -> Instruction:
-        # fill up with random operands, following the spec
-        inst = Instruction.from_spec(spec)
-
-        # generate explicit operands
-        for operand_spec in spec.operands:
-            operand = self.generate_operand(operand_spec, inst)
-            inst.operands.append(operand)
-
-        # generate implicit operands
-        for operand_spec in spec.implicit_operands:
-            operand = self.generate_operand(operand_spec, inst)
-            inst.implicit_operands.append(operand)
-
-        return inst
+        return spec.generate(self)
 
     def generate_reg_operand(self, spec: OperandSpec, _: Instruction) -> Operand:
         reg_type = spec.values[0]

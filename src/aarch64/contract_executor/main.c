@@ -15,9 +15,10 @@ extern uint64_t base_hook_c_target;
 
 simulation_hook_fn hooks_to_install[] = {
 	execution_clause_hook,
-	pac_sign_hook,              /* must run before logging so trace sees kernel-signed value */
-	auth_verify_hook,           /* must run after pac_sign_hook, before logging */
-	mte_emulator_hook,          /* intercept all BASE-MTE instructions before native execution */
+	pac_sign_hook,
+	auth_verify_hook,
+	xpac_hook,
+	mte_emulator_hook,
 //	stdout_print_hook,
 	log_instr_execution_cluase_hook,
 //	log_instr_hook,
@@ -279,6 +280,8 @@ int main() {
 		reset_execution_clause_state(); /* free checkpoint memory + reset TAGE between TCs */
 		destroy_trace_log();
 		free(simulation.simulation_memory);
+		simulation_code_free(&simulation.sim_code, 4 + base_hook_size);
+		simulation_input_free(&simulation.sim_input);
 
 		alarm(0); /* cancel watchdog — iteration completed */
 	}

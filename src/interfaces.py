@@ -91,6 +91,21 @@ class InstructionSpec:
         self.has_mem_operand = any(op.type == OT.MEM for op in self.operands + self.implicit_operands)
         self.has_write = any(op.dest and op.type == OT.MEM for op in self.operands + self.implicit_operands)
 
+    def generate(self, generator: 'ConfigurableGenerator') -> 'Instruction':
+        """Generate a random instruction from this spec.
+
+        Subclasses can override to add custom per-instruction constraints
+        (e.g., enforcing distinct operand registers).  The default generates
+        each operand in declaration order, delegating to the generator's
+        existing operand generators.
+        """
+        inst = Instruction.from_spec(self)
+        for operand_spec in self.operands:
+            inst.operands.append(generator.generate_operand(operand_spec, inst))
+        for operand_spec in self.implicit_operands:
+            inst.implicit_operands.append(generator.generate_operand(operand_spec, inst))
+        return inst
+
     def __str__(self):
         ops = ""
         for o in self.operands:

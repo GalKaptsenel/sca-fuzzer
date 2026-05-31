@@ -351,6 +351,108 @@ handle_batch_end:
 }
 
 
+static int pac_with_exec_keys(bool keys_set, uint64_t *saved_sctlr_out,
+                               struct pac_keys *saved_keys_out)
+{
+	if (!keys_set) {
+		return 0;
+	}
+	pac_save_keys(saved_keys_out);
+	pac_load_keys(&executor.config.pac_keys);
+	*saved_sctlr_out = pac_enable_all_keys();
+	return 1;
+}
+
+static void restore_exec_keys(bool keys_set, uint64_t saved_sctlr,
+                               const struct pac_keys *saved_keys)
+{
+	if (!keys_set) {
+		return;
+	}
+	pac_restore_sctlr(saved_sctlr);
+	pac_load_keys(saved_keys);
+}
+
+static long handle_pac_sign(void __user *arg)
+{
+	struct pac_sign_req req;
+	if (copy_from_user_with_access_check(&req, arg, sizeof(req)))
+		return -EFAULT;
+	req.mnemonic[sizeof(req.mnemonic) - 1] = '\0';
+
+	struct pac_keys saved_keys;
+	uint64_t saved_sctlr = 0;
+	pac_with_exec_keys(executor.config.pac_keys_set, &saved_sctlr, &saved_keys);
+
+	uint64_t r;
+	char *m = req.mnemonic;
+	if      (!strcmp(m, "pacia"))  r = pacia(req.ptr, req.ctx);
+	else if (!strcmp(m, "pacib"))  r = pacib(req.ptr, req.ctx);
+	else if (!strcmp(m, "pacda"))  r = pacda(req.ptr, req.ctx);
+	else if (!strcmp(m, "pacdb"))  r = pacdb(req.ptr, req.ctx);
+	else if (!strcmp(m, "pacga"))  r = pacga(req.ptr, req.ctx);
+	else if (!strcmp(m, "paciza")) r = paciza(req.ptr);
+	else if (!strcmp(m, "pacizb")) r = pacizb(req.ptr);
+	else if (!strcmp(m, "pacdza")) r = pacdza(req.ptr);
+	else if (!strcmp(m, "pacdzb")) r = pacdzb(req.ptr);
+	else {
+		restore_exec_keys(executor.config.pac_keys_set, saved_sctlr, &saved_keys);
+		return -EINVAL;
+	}
+
+	restore_exec_keys(executor.config.pac_keys_set, saved_sctlr, &saved_keys);
+	req.result = r;
+	return copy_to_user_with_access_check(arg, &req, sizeof(req)) ? -EFAULT : 0;
+}
+
+static long handle_pac_xpac(void __user *arg)
+{
+	struct pac_sign_req req;
+	if (copy_from_user_with_access_check(&req, arg, sizeof(req)))
+		return -EFAULT;
+	req.mnemonic[sizeof(req.mnemonic) - 1] = '\0';
+
+	char *m = req.mnemonic;
+	uint64_t r;
+	if      (!strcmp(m, "xpaci")) r = xpaci(req.ptr);
+	else if (!strcmp(m, "xpacd")) r = xpacd(req.ptr);
+	else return -EINVAL;
+
+	req.result = r;
+	return copy_to_user_with_access_check(arg, &req, sizeof(req)) ? -EFAULT : 0;
+}
+
+static long handle_pac_auth(void __user *arg)
+{
+	struct pac_sign_req req;
+	if (copy_from_user_with_access_check(&req, arg, sizeof(req)))
+		return -EFAULT;
+	req.mnemonic[sizeof(req.mnemonic) - 1] = '\0';
+
+	struct pac_keys saved_keys;
+	uint64_t saved_sctlr = 0;
+	pac_with_exec_keys(executor.config.pac_keys_set, &saved_sctlr, &saved_keys);
+
+	uint64_t r;
+	char *m = req.mnemonic;
+	if      (!strcmp(m, "autia"))  r = autia(req.ptr, req.ctx);
+	else if (!strcmp(m, "autib"))  r = autib(req.ptr, req.ctx);
+	else if (!strcmp(m, "autda"))  r = autda(req.ptr, req.ctx);
+	else if (!strcmp(m, "autdb"))  r = autdb(req.ptr, req.ctx);
+	else if (!strcmp(m, "autiza")) r = autiza(req.ptr);
+	else if (!strcmp(m, "autizb")) r = autizb(req.ptr);
+	else if (!strcmp(m, "autdza")) r = autdza(req.ptr);
+	else if (!strcmp(m, "autdzb")) r = autdzb(req.ptr);
+	else {
+		restore_exec_keys(executor.config.pac_keys_set, saved_sctlr, &saved_keys);
+		return -EINVAL;
+	}
+
+	restore_exec_keys(executor.config.pac_keys_set, saved_sctlr, &saved_keys);
+	req.result = r;
+	return copy_to_user_with_access_check(arg, &req, sizeof(req)) ? -EFAULT : 0;
+}
+
 long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
 	int64_t result = 0;
 
@@ -452,7 +554,11 @@ long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
 
 		case REVISOR_GET_PAC_KEYS_CONSTANT: {
 			struct pac_keys keys;
-			pac_save_keys(&keys);
+			if (executor.config.pac_keys_set) {
+				keys = executor.config.pac_keys;
+			} else {
+				pac_save_keys(&keys);
+			}
 			return copy_to_user_with_access_check((void __user *)arg, &keys, sizeof(keys))
 				? -EFAULT : 0;
 		}
@@ -469,6 +575,15 @@ long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
 			                      req.length, req.tag & 0xF);
 			return 0;
 		}
+
+		case REVISOR_PAC_SIGN_CONSTANT:
+			return handle_pac_sign((void __user *)arg);
+
+		case REVISOR_PAC_AUTH_CONSTANT:
+			return handle_pac_auth((void __user *)arg);
+
+		case REVISOR_PAC_XPAC_CONSTANT:
+			return handle_pac_xpac((void __user *)arg);
 
 		default:
 			module_err("Invalid IOCTL! Entered default case..\n");

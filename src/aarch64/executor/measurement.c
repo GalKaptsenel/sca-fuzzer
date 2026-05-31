@@ -216,8 +216,8 @@ static void load_registers_from_input(input_t* input) {
 	// Initial register values
 	*((registers_t*)executor.sandbox.lower_overflow) = input->regs;
 
-	// - flags
-	((registers_t*)executor.sandbox.lower_overflow)->flags <<= 28;
+	// flags is already in ARM PSTATE format (N=bit31 Z=bit30 C=bit29 V=bit28)
+	// from _reconstruct_pstate() in Python; msr nzcv reads bits [31:28] directly.
 
 	// - RSP and RBP
 	((registers_t*)executor.sandbox.lower_overflow)->sp = get_stack_base_address();

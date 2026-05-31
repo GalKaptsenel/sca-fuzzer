@@ -31,4 +31,6 @@ void *pac_sign_hook(struct simulation_state *sim_state);
  */
 void *auth_verify_hook(struct simulation_state *sim_state);
 
+void *xpac_hook(struct simulation_state *sim_state);
+
 #endif /* PAC_SIGN_PLUGIN_H */

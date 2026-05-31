@@ -29,14 +29,12 @@ def profile_by_opcode(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
         cmd = args[1] if len(args) > 0 else None
-        print(f"running profiler with command {cmd}")
         start = time.time()
         try:
             return func(*args, **kwargs)
         finally:
             duration = time.time() - start
             op_timings[cmd].append(duration)
-            print(f"done {cmd}")
 
     return wrapper
 
@@ -144,12 +142,10 @@ class SSHConnection(Connection):
         return out if out else err
 
     def push(self, src, dst):
-        print(f'push {src} -> {dst}')
         with profile_op('push'):
             return self.sftp.put(src, dst)
 
     def pull(self, src, dst):
-        print(f'pull {src} -> {dst}')
         with profile_op('pull'):
             return self.sftp.get(src, dst)
 
@@ -291,7 +287,6 @@ def retry(max_times: int = 1,
                     last_exception = e
                     if attempt < max_times and backoff > 0.0:
                         sleep_time = backoff * (2 ** (attempt - 1))
-                        print(f"[retry] Attempt {attempt} failed with {e!r}, retrying in {sleep_time:.2f}s...")
                         time.sleep(sleep_time)
 
             raise last_exception
@@ -526,11 +521,13 @@ REVISOR_TRACE_CONSTANT              = 8
 REVISOR_CLEAR_ALL_INPUTS_CONSTANT   = 9
 REVISOR_GET_TEST_LENGTH_CONSTANT    = 10
 REVISOR_BATCHED_INPUTS_CONSTANT     = 11
-REVISOR_PAC_SIGN_CONSTANT           = 12
-REVISOR_PAC_AUTH_CONSTANT           = 13
+REVISOR_SWAP_PAC_KEYS_CONSTANT      = 12
+REVISOR_GET_EXEC_PAC_KEYS_CONSTANT  = 13
 REVISOR_SET_PAC_KEYS_CONSTANT       = 14
 REVISOR_GET_PAC_KEYS_CONSTANT       = 15
 REVISOR_MTE_TAG_REGION_CONSTANT     = 16
+REVISOR_PAC_SIGN_CONSTANT           = 17
+REVISOR_PAC_AUTH_CONSTANT           = 18
 
 class MteTagRegionReq(ctypes.Structure):
     _fields_ = [
@@ -573,11 +570,13 @@ IOCTL_NR_TO_NAME = {
     9: "REVISOR_CLEAR_ALL_INPUTS",
     10: "REVISOR_GET_TEST_LENGTH",
     11: "REVISOR_BATCHED_INPUTS",
-    12: "REVISOR_PAC_SIGN",
-    13: "REVISOR_PAC_AUTH",
+    12: "REVISOR_SWAP_PAC_KEYS",
+    13: "REVISOR_GET_EXEC_PAC_KEYS",
     14: "REVISOR_SET_PAC_KEYS",
     15: "REVISOR_GET_PAC_KEYS",
     16: "REVISOR_MTE_TAG_REGION",
+    17: "REVISOR_PAC_SIGN",
+    18: "REVISOR_PAC_AUTH",
 }
 
 
@@ -635,8 +634,8 @@ REVISOR_TRACE = _IO(REVISOR_IOC_MAGIC, REVISOR_TRACE_CONSTANT)
 REVISOR_CLEAR_ALL_INPUTS = _IO(REVISOR_IOC_MAGIC, REVISOR_CLEAR_ALL_INPUTS_CONSTANT)
 REVISOR_GET_TEST_LENGTH = _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_TEST_LENGTH_CONSTANT, ctypes.c_uint64)
 REVISOR_BATCHED_INPUTS = _IOWR(REVISOR_IOC_MAGIC, REVISOR_BATCHED_INPUTS_CONSTANT, ctypes.c_uint64)  # adjust struct
-REVISOR_PAC_SIGN = _IOWR(REVISOR_IOC_MAGIC, REVISOR_PAC_SIGN_CONSTANT, PacSignReq)
-REVISOR_PAC_AUTH = _IOWR(REVISOR_IOC_MAGIC, REVISOR_PAC_AUTH_CONSTANT, PacSignReq)
+REVISOR_PAC_SIGN = _IOWR(REVISOR_IOC_MAGIC, REVISOR_PAC_SIGN_CONSTANT,  PacSignReq)
+REVISOR_PAC_AUTH = _IOWR(REVISOR_IOC_MAGIC, REVISOR_PAC_AUTH_CONSTANT,  PacSignReq)
 REVISOR_SET_PAC_KEYS = _IOW(REVISOR_IOC_MAGIC, REVISOR_SET_PAC_KEYS_CONSTANT, PacKeys)
 REVISOR_GET_PAC_KEYS = _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_PAC_KEYS_CONSTANT, PacKeys)
 REVISOR_MTE_TAG_REGION = _IOW(REVISOR_IOC_MAGIC, REVISOR_MTE_TAG_REGION_CONSTANT, MteTagRegionReq)

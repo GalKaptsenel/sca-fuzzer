@@ -106,6 +106,25 @@ int format_branch_training_config(char *buf, size_t size) {
     return len;
 }
 
+/*
+ * Local-only ICache flush: clean+invalidate the cache lines covering [start, end).
+ * We are pinned to CPU 0 — no other CPU executes the training stubs, so we do
+ * not need flush_icache_range's SMP-wide kick_all_cpus_sync (which requires IRQs
+ * enabled and trips a WARN when called from the IRQ-disabled measurement window).
+ */
+static void local_icache_flush(unsigned long start, unsigned long end)
+{
+    unsigned long addr;
+    for (addr = start; addr < end; addr += 64) {
+        asm volatile("dc cvau, %0" : : "r"(addr) : "memory");
+    }
+    asm volatile("dsb ish" : : : "memory");
+    for (addr = start; addr < end; addr += 64) {
+        asm volatile("ic ivau, %0" : : "r"(addr) : "memory");
+    }
+    asm volatile("dsb ish\n isb" : : : "memory");
+}
+
 void __nocfi apply_branch_training(const branch_training_config_t *cfg) {
     if (!cfg || cfg->count == 0)
         return;
@@ -135,7 +154,7 @@ void __nocfi apply_branch_training(const branch_training_config_t *cfg) {
             view[k-1] = INSN_BTI_C;
             view[k]   = e->train_taken ? INSN_CBNZ_X0 : INSN_CBZ_X0;
             view[k+1] = INSN_RET;
-            flush_icache_range((unsigned long)&view[k-1],
+            local_icache_flush((unsigned long)&view[k-1],
                                (unsigned long)&view[k+2]);
 
             void *entry = (void *)&view[k-1];
@@ -146,7 +165,7 @@ void __nocfi apply_branch_training(const branch_training_config_t *cfg) {
             view[k-1] = saved[0];
             view[k]   = saved[1];
             view[k+1] = saved[2];
-            flush_icache_range((unsigned long)&view[k-1],
+            local_icache_flush((unsigned long)&view[k-1],
                                (unsigned long)&view[k+2]);
         }
     }

@@ -1,7 +1,7 @@
 CC = gcc
 
 # Base flags
-CFLAGS = -Wall -Wextra -O0 -g -march=native
+CFLAGS = -Wall -Wextra -O0 -g -march=native -I../executor
 LDFLAGS =
 
 # Add Python3 embedding flags

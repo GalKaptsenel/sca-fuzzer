@@ -19,7 +19,7 @@ from .isa_loader import InstructionSet
 from .config import CONF
 from .util import Logger, STAT, pretty_htrace
 
-from .aarch64.aarch64_executor import show_context, is_conditional_branch
+from .aarch64.aarch64_executor import show_context, is_conditional_branch, _FuzzLogger
 from contextlib import redirect_stdout
 
 class TracingArguments:
@@ -853,42 +853,35 @@ class NoninterfearenceFuzzer(FuzzerGeneric):
            - args.added_htraces: additional hardware traces to be added to the existing ones
         :return: a tuple of violations, contract traces, and hardware traces
         """
-        # Collect contract traces and generate TC variants (stage-1 cache → CE → stage-2)
+        log = _FuzzLogger.get()
+
+        # CE pass: build TC variants per input and capture arch traces for mistraining
         ctraces, taints, traces, tc_variants = self.executor.trace_test_case_with_taints(args.inputs, args.model_nesting)
         for i, tr in zip(args.inputs, traces):
             i._arch_trace = tr
-
         assert len(ctraces) == len(args.inputs)
 
-        # Debug: run TC1/TC2/TC3 through CE and compare their architectural CTraces
-        if tc_variants:
-            self.executor.debug_compare_variants_on_ce(args.inputs, tc_variants)
-
-        # Stage-2 HW tracing: run each input through its own TC1/TC2/TC3 on real hardware.
-        # tc_variants[i] was built from inputs[i] — pairing must be exact.
-        if tc_variants and args.inputs:
-            hw_variant_traces = self.executor.run_pac_hardware_comparison(
-                args.inputs, tc_variants, n_reps=1)
-            for i, (tc1_ht, tc2_ht, tc3_ht) in enumerate(hw_variant_traces):
-                mismatch_12 = tc1_ht != tc2_ht
-                mismatch_31 = tc3_ht != tc1_ht
-                tag = ""
-                if mismatch_12:
-                    tag += " [UNEXPECTED: TC1!=TC2 — restore-value bug]"
-                if mismatch_31:
-                    tag += " [PAC NON-INTERFERENCE CANDIDATE: TC3!=TC1]"
-                print(f"[PAC HW] input {i}: TC1={tc1_ht.raw}  TC2={tc2_ht.raw}  TC3={tc3_ht.raw}{tag}")
-
-        # Collect hardware traces
+        # HW pass: run every TC variant on its generating input and compare htraces intra-input
         try:
-            htraces, test_cases = self.executor.trace_test_case(args.inputs, args.n_reps)
+            hw_per_input = self.executor.trace_test_case_variants_hw(args.inputs, args.n_reps)
         except HardwareTracingError:
             return [], [], []
-        assert len(htraces) == len(args.inputs)
 
-        # Check for violations
-        violations = self.analyser.filter_violations(
-            args.inputs, ctraces, htraces, stats=args.record_stats, test_cases=test_cases)
+        violations: List[Violation] = []
+        htraces: List[HTrace] = []
+        for idx, (inp, ctr, per_variant) in enumerate(zip(args.inputs, ctraces, hw_per_input)):
+            variant_list = list(per_variant.items())
+            first_htrace = variant_list[0][1] if variant_list else HTrace.get_null()
+            htraces.append(first_htrace)
+            for j, (var_a, ht_a) in enumerate(variant_list):
+                for var_b, ht_b in variant_list[j + 1:]:
+                    if not self.analyser.htraces_are_equivalent(ht_a, ht_b):
+                        log.wp(f"[NI violation] input={idx}: {var_a.name} vs {var_b.name}")
+                        m_a = Measurement(input_id=idx, input_=inp, ctrace=ctr, htrace=ht_a)
+                        m_b = Measurement(input_id=idx, input_=inp, ctrace=ctr, htrace=ht_b)
+                        violations.append(Violation.from_measurements(
+                            ctr, [m_a, m_b], [[m_a], [m_b]], args.inputs))
+                        break
 
         return violations, ctraces, htraces
 

@@ -1,0 +1,1048 @@
+# Violation Report
+
+* Test Case ID: 5
+* Detected: 15.05.26 at 17:56:38
+
+* Time to detection: 3719.431167
+* Statistics:
+Test Cases: 6
+Inputs per test case: 200.0
+Violations: 0
+Effectiveness: 
+  Total Cls: 100.0
+  Effective Cls: 100.0
+Discarded Test Cases:
+  Speculation Filter: 0
+  Observation Filter: 0
+  Fast Path: 5
+  Max Nesting Check: 0
+  Tainting Check: 0
+  Early Priming Check: 0
+  Large Sample Check: 0
+  Priming Check: 0
+
+
+## Generation Properties
+* Program seed: 884961
+* Input seed: 510
+* Faulty page properties:
+  - Actor main:
+    * PTE: 
+
+## Counterexample Inputs
+
+Input #51
+* Hardware trace:
+...^......................^.....^.^..^....^............^.^...^.^ [499]
+...^.^....................^.....^.^..^....^^...........^.^...^.^ [1]
+
+* Contract trace (hash): 15406305255562442011
+
+Input #151
+* Hardware trace:
+..^^............................^.^.......^...^........^.^...^.^ [500]
+
+* Contract trace (hash): 15406305255562442011
+
+## Mistraining Configuration
+* Mistraining: set
+
+Input #0:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #1:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #2:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #3:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #4:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #5:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #6:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #7:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #8:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #9:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #10:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #11:
+  * Sysfs config: 68:0
+  * Entries (1):
+    - offset 0x44 (68 bytes): train NOT-TAKEN -> mispredict on first HW execution
+
+Input #12:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #13:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #14:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #15:
+  * Sysfs config: 68:0
+  * Entries (1):
+    - offset 0x44 (68 bytes): train NOT-TAKEN -> mispredict on first HW execution
+
+Input #16:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #17:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #18:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #19:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #20:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #21:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #22:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #23:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #24:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #25:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #26:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #27:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #28:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #29:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #30:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #31:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #32:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #33:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #34:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #35:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #36:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #37:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #38:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #39:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #40:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #41:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #42:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #43:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #44:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #45:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #46:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #47:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #48:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #49:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #50:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #51:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #52:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #53:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #54:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #55:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #56:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #57:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #58:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #59:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #60:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #61:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #62:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #63:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #64:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #65:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #66:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #67:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #68:
+  * Sysfs config: 68:0
+  * Entries (1):
+    - offset 0x44 (68 bytes): train NOT-TAKEN -> mispredict on first HW execution
+
+Input #69:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #70:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #71:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #72:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #73:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #74:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #75:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #76:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #77:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #78:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #79:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #80:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #81:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #82:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #83:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #84:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #85:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #86:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #87:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #88:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #89:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #90:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #91:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #92:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #93:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #94:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #95:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #96:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #97:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #98:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #99:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #100:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #101:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #102:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #103:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #104:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #105:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #106:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #107:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #108:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #109:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #110:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #111:
+  * Sysfs config: 68:0
+  * Entries (1):
+    - offset 0x44 (68 bytes): train NOT-TAKEN -> mispredict on first HW execution
+
+Input #112:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #113:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #114:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #115:
+  * Sysfs config: 68:0
+  * Entries (1):
+    - offset 0x44 (68 bytes): train NOT-TAKEN -> mispredict on first HW execution
+
+Input #116:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #117:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #118:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #119:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #120:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #121:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #122:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #123:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #124:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #125:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #126:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #127:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #128:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #129:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #130:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #131:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #132:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #133:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #134:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #135:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #136:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #137:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #138:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #139:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #140:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #141:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #142:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #143:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #144:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #145:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #146:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #147:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #148:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #149:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #150:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #151:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #152:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #153:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #154:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #155:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #156:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #157:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #158:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #159:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #160:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #161:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #162:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #163:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #164:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #165:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #166:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #167:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #168:
+  * Sysfs config: 68:0
+  * Entries (1):
+    - offset 0x44 (68 bytes): train NOT-TAKEN -> mispredict on first HW execution
+
+Input #169:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #170:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #171:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #172:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #173:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #174:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #175:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #176:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #177:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #178:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #179:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #180:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #181:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #182:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #183:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #184:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #185:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #186:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #187:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #188:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #189:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #190:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #191:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #192:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #193:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #194:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #195:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #196:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #197:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #198:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution
+
+Input #199:
+  * Sysfs config: 68:1
+  * Entries (1):
+    - offset 0x44 (68 bytes): train TAKEN -> mispredict on first HW execution

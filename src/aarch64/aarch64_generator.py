@@ -517,56 +517,58 @@ class Aarch64Printer(Printer):
 
 
 
-FIX_COUNT_CTX = 4   # MOVZ + MOVK×3 to restore the context register
-FIX_COUNT_PTR = 4   # MOVZ + MOVK×3 to restore the signed pointer
-CTX_SLOT_START = 0                              # slot positions 0-3: context restore
-PTR_SLOT_START = FIX_COUNT_CTX                  # slot positions 4-7: pointer restore
-AUTH_SLOT_POS  = FIX_COUNT_CTX + FIX_COUNT_PTR # slot position  8  : AUTH instruction
-SLOT_SIZE = AUTH_SLOT_POS + 1                   # = 9
+from enum import Enum, auto
 
-_PAC_TO_AUTH: Dict[str, str] = {  # sign mnemonic → matching auth mnemonic
-    # 2-operand (with context register)
-    "pacia": "autia", "pacib": "autib",
-    "pacda": "autda", "pacdb": "autdb",
-    # 1-operand zero-context (modifier = XZR)
-    "paciza": "autiza", "pacizb": "autizb",
-    "pacdza": "autdza", "pacdzb": "autdzb",
+class PACVariant(Enum):
+    """Labels for the TC variants produced by PAC stage-2 instrumentation."""
+    STRIP_ONLY    = auto()  # XPAC strip before every access — no auth, arch-safe baseline
+    AUTH_CORRECT  = auto()  # AUTIA with correct signed pointer and context (auth always succeeds)
+    AUTH_WRONG    = auto()  # AUTIA with wrong PAC bits/ctx for spec slots — NI test
+
+class MTEVariant(Enum):
+    """Labels for the TC variants produced by MTE stage-2 instrumentation."""
+    BASELINE      = auto()  # NOP placeholders — no tag change, reference behavior
+    RANDOMIZE_TAG = auto()  # IRG on spec accesses — random tag (correct for NI contract)
+    WRONG_TAG     = auto()  # MOVK wrong upper16 for spec accesses — deterministic wrong tag
+
+class PACKey(Enum):
+    IA = 'ia'
+    IB = 'ib'
+    DA = 'da'
+    DB = 'db'
+    G  = 'g'
+
+SLOT_SIG_POS  = 0   # slot position 0: NOP (stage-1) or MOVK upper-16 signature (TC1/TC2/TC3)
+AUTH_SLOT_POS = 1   # slot position 1: XPAC (stage-1/TC1) or AUTH (TC2/TC3)
+SLOT_SIZE     = 2
+
+_PAC_INFO: Dict[str, Tuple[PACKey, str, str]] = {
+    # pac_mnemonic: (key, auth_mnemonic, xpac_mnemonic)
+    'pacia':  (PACKey.IA, 'autia',  'xpaci'),  'pacib':  (PACKey.IB, 'autib',  'xpaci'),
+    'pacda':  (PACKey.DA, 'autda',  'xpacd'),  'pacdb':  (PACKey.DB, 'autdb',  'xpacd'),
+    'paciza': (PACKey.IA, 'autiza', 'xpaci'),  'pacizb': (PACKey.IB, 'autizb', 'xpaci'),
+    'pacdza': (PACKey.DA, 'autdza', 'xpacd'),  'pacdzb': (PACKey.DB, 'autdzb', 'xpacd'),
 }
-_PAC_CODE_MNEMONICS: frozenset = frozenset({"pacia", "pacib", "paciza", "pacizb"})
-
-
-@dataclass(frozen=True)
-class SignedRegInfo:
-    reg: str                    # actual register name, e.g. "x0"
-    ctx_reg: Optional[str]      # context register name; None for zero-context variants (paciza…)
-    pac_mnemonic: str           # e.g. "pacia" or "paciza"
-    auth_mnemonic: str          # e.g. "autia" or "autiza"
-    xpac_mnemonic: str          # "xpaci" or "xpacd"
-    # Reference to the Instruction object inserted by stage1 (not part of identity).
-    # Used to locate the PACIA PC in the layout so ctx_reg can be captured at signing time.
-    pac_inst: Optional[Any] = field(default=None, compare=False, hash=False)
+# Reverse maps derived from _PAC_INFO (keyed by auth mnemonic)
+_AUTH_TO_KEY:  Dict[str, PACKey] = {auth: key  for _, (key, auth, _)    in _PAC_INFO.items()}
+_AUTH_TO_XPAC: Dict[str, str]    = {auth: xpac for _, (_,   auth, xpac) in _PAC_INFO.items()}
+_AUTH_TO_PAC:  Dict[str, str]    = {auth: pac  for pac, (_,  auth, _)   in _PAC_INFO.items()}
 
 
 @dataclass
 class FixPoint:
     slot_id: int
-    bb: BasicBlock
-    mem_inst: Instruction
-    info: SignedRegInfo
-    # All PACIA Instruction objects whose output is the "last signing of info.reg" on at
-    # least one CFG path that reaches this fix-point.  At a join node there may be one
-    # per incoming path.  The executor maps every entry here into pac_offset_to_fps so
-    # that whichever PACIA the arch execution actually ran is captured.
-    pac_insts: frozenset = field(default_factory=frozenset)
     slot_insts: List[Instruction] = field(default_factory=list)
-    signed_value: Optional[int] = None  # register value captured right after PACIA executes (signed ptr, PAC bits in [63:48])
-    ctx_value: Optional[int] = None     # context register value captured at PACIA execution time
-    spec_nesting: Optional[int] = None  # speculation nesting at PACIA capture time
+    committed_inst: Optional[Any] = None  # AUT* Instruction committed at stage-1 build time
+    # Per-input values populated by executor from CE trace (reset between inputs):
+    spec_nesting: Optional[int] = None
+    correct_sig: Optional[int] = None  # upper-16 PAC bits signed by kernel; None if CE never reached
+    alt_sig:     Optional[int] = None  # upper-16 PAC bits from an alternative (ptr/ctx) combo; for TC3 spec
 
     def reset(self) -> None:
-        self.signed_value = None
-        self.ctx_value = None
         self.spec_nesting = None
+        self.correct_sig  = None
+        self.alt_sig      = None
 
 
 class _SandboxInstrumentationBase:
@@ -649,16 +651,28 @@ class _SandboxInstrumentationBase:
         return predecessors, topo
 
 
+class AuthInstructionSpec(InstructionSpec):
+    """AUT* instruction spec that retries generation until ptr_reg ≠ ctx_reg."""
+
+    def generate(self, generator) -> Instruction:
+        norm = generator.target_desc.reg_normalized
+        for _ in range(20):
+            inst = super().generate(generator)
+            if len(inst.operands) < 2:
+                return inst  # zero-context variant — always valid
+            if norm.get(inst.operands[0].value) != norm.get(inst.operands[1].value):
+                return inst
+        raise RuntimeError(f"Cannot generate {self.name} with ptr_reg ≠ ctx_reg")
+
+
 class PACInstrumentation(_SandboxInstrumentationBase):
 
-    def __init__(self, generator: Aarch64Generator, xpac_weight: int, auth_weight: int, sign_weight: int):
+    def __init__(self, generator: Aarch64Generator, xpac_weight: int, auth_weight: int):
         xpac_weight = max(xpac_weight, 0)
         auth_weight = max(auth_weight, 0)
-        sign_weight = max(sign_weight, 0)
-        total = (xpac_weight + auth_weight + sign_weight) * 1.0
+        total = (xpac_weight + auth_weight) * 1.0 or 1.0
         self._xpac_prob = xpac_weight / total
         self._auth_prob = auth_weight / total
-        self._sign_prob = sign_weight / total
         self.generator = generator
         self._norm = generator.target_desc.reg_normalized
 
@@ -676,7 +690,12 @@ class PACInstrumentation(_SandboxInstrumentationBase):
 
 
         self._pac_specs = {s.name.lower(): s for s in signing_instructions}
-        self._auth_specs = {s.name.lower(): s for s in verification_instructions}
+        self._auth_specs = {
+            s.name.lower(): AuthInstructionSpec(
+                s.name, s.category, s.control_flow, s.datatype,
+                s.template, s.operands, s.implicit_operands, s.tags)
+            for s in verification_instructions
+        }
         self._xpac_specs = {s.name.lower(): s for s in strip_sign_instructions}
         # Sandbox parameters: mask lower bits of address and add sandbox base (x29).
         # Bundled with every signing operation so that signed values are always sandboxed.
@@ -684,13 +703,8 @@ class PACInstrumentation(_SandboxInstrumentationBase):
         self._sandbox_mask = f"#0x{(1 << _mask_bits) - 1:x}"
         self._sandbox_base_reg = "x29"
 
-        # Claim ownership of BASE-PAC: no PAC/AUT/XPAC instruction may appear in
-        # the random base test case.  They enter only through this class's stage1
-        # instrumentation, which uses taint analysis to guarantee AUT targets are signed.
-        generator.register_controlled_instructions({"BASE-PAC"})
-
-        # Populated by instrument_stage1 — human-readable taint decision log.
-        self.last_taint_log: List[str] = []
+        # PAC/AUT/XPAC instructions are allowed in the base test case; the stage-1 pass
+        # locates every AUT* and replaces it with an XPAC placeholder slot.
 
     # ------------------------------------------------------------------
     # Instruction builders
@@ -714,6 +728,35 @@ class PACInstrumentation(_SandboxInstrumentationBase):
                 return instruction
         raise RuntimeError("Unable to generate PAC signing instruction")
 
+    def _get_auth_instruction(self) -> Instruction:
+        """Generate a random AUT* instruction with distinct operand registers."""
+        for _ in range(20):
+            spec = random.choice(list(self._auth_specs.values()))
+            instruction = self.generator.generate_instruction(spec)
+            if len(instruction.operands) < 2:
+                return instruction  # zero-context variant — always valid
+            r0 = self._norm_reg(instruction.operands[0].value)
+            r1 = self._norm_reg(instruction.operands[1].value)
+            if r0 != r1:
+                return instruction
+        raise RuntimeError("Unable to generate PAC auth instruction")
+
+    def _get_mem_auth_instruction(self, mem_reg: str) -> Optional[Instruction]:
+        """Generate a random AUT* with ptr_reg forced to mem_reg and ctx_reg != mem_reg.
+
+        Returns None if no valid instruction can be found (caller falls back to standalone sandbox).
+        """
+        norm_mem = self._norm_reg(mem_reg)
+        for _ in range(20):
+            candidate = self._get_auth_instruction()
+            if len(candidate.operands) < 2:
+                candidate.operands[0].value = mem_reg
+                return candidate
+            if self._norm_reg(candidate.operands[1].value) != norm_mem:
+                candidate.operands[0].value = mem_reg
+                return candidate
+        return None
+
     def _make_auth_inst(self, mnemonic: str, reg: str, ctx_reg: Optional[str]) -> Instruction:
         inst = self.generator.generate_instruction(self._auth_specs[mnemonic])
         inst.operands[0].value = reg
@@ -734,400 +777,119 @@ class PACInstrumentation(_SandboxInstrumentationBase):
         nop._pac_slot_pos = pos
         return nop
 
-    def _make_movz(self, slot_id: int, pos: int, reg: str, imm: int) -> Instruction:
-        inst = Instruction("movz", True, "", False, template=f"MOVZ {reg}, #0x{imm & 0xFFFF:04x}")
-        inst._pac_slot_id = slot_id
-        inst._pac_slot_pos = pos
-        return inst
-
     def _make_movk(self, slot_id: int, pos: int, reg: str, imm: int, lsl: int) -> Instruction:
         inst = Instruction("movk", True, "", False, template=f"MOVK {reg}, #0x{imm & 0xFFFF:04x}, LSL #{lsl}")
         inst._pac_slot_id = slot_id
         inst._pac_slot_pos = pos
         return inst
 
-    def _make_load_imm_insts(self, slot_id: int, reg: str, value: int, start_pos: int) -> List[Instruction]:
-        """Return 4 instructions (MOVZ + 3×MOVK) loading `value` into `reg` at slot positions start_pos…start_pos+3."""
-        chunks = [(value >> (16 * i)) & 0xFFFF for i in range(4)]
-        insts: List[Instruction] = [self._make_movz(slot_id, start_pos, reg, chunks[0])]
-        for i in range(1, 4):
-            insts.append(self._make_movk(slot_id, start_pos + i, reg, chunks[i], i * 16))
-        return insts
-
-    def _nops_range(self, slot_id: int, start: int, count: int) -> List[Instruction]:
-        return [self._make_nop(slot_id, start + i) for i in range(count)]
-
     # ------------------------------------------------------------------
-    # Taint analysis
+    # Stage 1: replace every AUT* with an XPAC placeholder slot;
+    #          optionally insert a slot before memory accesses.
     # ------------------------------------------------------------------
 
-    def _apply_pac(self, curr: frozenset, pac_inst: Instruction) -> frozenset:
-        name = pac_inst.name.lower()
-        if name not in _PAC_TO_AUTH:
-            return curr
-        reg = pac_inst.operands[0].value
-        norm_reg = self._norm_reg(reg)
-        ctx = pac_inst.operands[1].value if len(pac_inst.operands) > 1 else None
-        info = SignedRegInfo(
-            reg=reg, ctx_reg=ctx,
-            pac_mnemonic=name,
-            auth_mnemonic=_PAC_TO_AUTH[name],
-            xpac_mnemonic="xpaci" if name in _PAC_CODE_MNEMONICS else "xpacd",
-            pac_inst=pac_inst,
-        )
-        # Use normalized comparison so that register aliases resolve to the same physical reg.
-        return frozenset({x for x in curr if self._norm_reg(x.reg) != norm_reg} | {info})
-
-    def _compute_taints(
+    def _build_func_slots(
         self,
         func: Function,
-        sign_ins: Dict[Instruction, Instruction],
-        auth_ins: Dict[Instruction, Tuple[Instruction, BasicBlock]],
-        choose_auth: bool = False,
-    ) -> None:
-        """Forward DFS taint analysis.
-
-        sign_ins  — {anchor_inst: pac_inst}  (read-only)
-        auth_ins  — {anchor_inst: (bb, info: SignedRegInfo)}
-          choose_auth=False: read existing entries to strip taint
-          choose_auth=True : randomly CREATE entries (running taint
-                             prevents inserting a second AUTIA for the same reg)
-        """
-        self._taint_bb(func.get_first_bb(), frozenset(), sign_ins, auth_ins,
-                       choose_auth, {})
-
-    def _taint_bb(
-        self,
-        bb: BasicBlock,
-        curr: frozenset,
-        sign_ins: Dict,
-        auth_ins: Dict,
-        choose_auth: bool,
-        visited: Dict,
-    ) -> None:
-        if bb in visited:
-            return
-        visited[bb] = True
-        for inst in bb:
-            if inst in sign_ins:
-                curr = self._apply_pac(curr, sign_ins[inst])
-            if choose_auth:
-                if random.random() < self._auth_prob and curr:
-                    info = random.choice(list(curr))
-                    auth_ins[inst] = (bb, info)
-                    curr = frozenset(x for x in curr if self._norm_reg(x.reg) != self._norm_reg(info.reg))
-            else:
-                if inst in auth_ins:
-                    _, auth_info = auth_ins[inst]
-                    curr = frozenset(x for x in curr if self._norm_reg(x.reg) != self._norm_reg(auth_info.reg))
-            written = self._dest_regs(inst)
-            if written:
-                curr = frozenset(x for x in curr if self._norm_reg(x.reg) not in written)
-        for succ in bb.successors:
-            self._taint_bb(succ, curr, sign_ins, auth_ins, choose_auth, visited)
-
-    # ------------------------------------------------------------------
-    # Stage 1 helpers
-    # ------------------------------------------------------------------
-
-    def _build_xpac_slots(
-        self,
-        func: Function,
-        sign_ins: Dict,
-        auth_ins: Dict,
         slot_counter: int,
-        fix_points: List,
-        xpac_insertions: List,
-        standalone_insertions: List,
-        all_pac_at_auth: Dict,
-        taint_log: List,
+        fix_points: List[FixPoint],
+        auth_replacements: List,      # (old_auth_inst, bb, new_slot_insts)
+        xpac_insertions: List,        # (mem_inst, bb, slot_insts, offset_subs, sandbox_insts)
+        standalone_insertions: List,  # (mem_inst, bb, sandbox_insts + offset_subs)
     ) -> int:
-        """Data-flow pass: builds xpac_slots and standalone_insertions.
-
-        Uses a running taint carried across BB boundaries (no per-BB reset).
-        Creating an xpac_slot clears that register's taint (PAC consumed).
-        Join nodes (multiple predecessors) use taint intersection.
-        all_pac_at_auth is an output dict filled with {anchor_inst: all_pac_snapshot}
-        taken just before the auth strip, used by instrument_stage1 to build auth-slot
-        pac_insts with the correct union across all CFG paths.
-        """
-        predecessors, topo = self._topo_sort(func)
-
-        taint_out: Dict[BasicBlock, frozenset] = {}
-        # Parallel to taint_out: maps each BB to {norm_reg -> frozenset[Instruction]}.
-        # Each entry holds all PACIA objects that are the most-recent signing of that
-        # register on at least one path reaching the end of that BB.
-        # At join nodes: union across predecessors for regs surviving the intersection.
-        all_pac_out: Dict[BasicBlock, Dict[str, frozenset]] = {}
-
-        for bb in topo:
-            preds = predecessors.get(bb, [])
-            processed = [p for p in preds if p in taint_out]
-
-            if not processed:
-                curr = frozenset()
-                all_pac: Dict[str, frozenset] = {}
-            elif len(processed) == 1:
-                curr = taint_out[processed[0]]
-                all_pac = dict(all_pac_out[processed[0]])
-            else:
-                # Intersection: only keep what is tainted on ALL incoming paths.
-                curr = taint_out[processed[0]]
-                for p in processed[1:]:
-                    curr = curr & taint_out[p]
-                # For regs surviving the intersection (same SignedRegInfo on all paths),
-                # union their PACIA sets so the arch path's signing is always captured.
-                surviving = {self._norm_reg(x.reg) for x in curr}
-                all_pac = {}
-                for nreg in surviving:
-                    merged: frozenset = frozenset()
-                    for p in processed:
-                        # nreg is in taint_out[p] (intersection), so all_pac_out[p]
-                        # is guaranteed to have nreg (taint_out and all_pac_out are
-                        # always kept in sync).
-                        assert nreg in all_pac_out[p], \
-                            f"all_pac_out/taint_out sync violation: {nreg} missing from predecessor"
-                        merged = merged | all_pac_out[p][nreg]
-                    all_pac[nreg] = merged
-
+        for bb in func:
             for inst in bb:
-                # Fresh sign adds to taint (sign_ins values are (pac_inst, bb) tuples).
-                if inst in sign_ins:
-                    pac_inst_obj = sign_ins[inst][0]
-                    norm_signed = self._norm_reg(pac_inst_obj.operands[0].value)
-                    curr = self._apply_pac(curr, pac_inst_obj)
-                    # Replace: this is now the sole last-signer for this reg on this path.
-                    all_pac[norm_signed] = frozenset({pac_inst_obj})
-                    taint_log.append(
-                        f"  SIGN-ANCHOR  inst={inst.name:12s}  signed={norm_signed}"
-                        f"  taint-after={sorted(self._norm_reg(x.reg) for x in curr)}"
-                    )
-                # auth_slot will strip this register's PAC → clear from running taint.
-                if inst in auth_ins:
-                    _, auth_info = auth_ins[inst]
-                    norm_auth = self._norm_reg(auth_info.reg)
-                    # Snapshot all_pac BEFORE the strip so instrument_stage1 can build
-                    # pac_insts for this auth-slot with the correct union across all paths.
-                    all_pac_at_auth[inst] = dict(all_pac)
-                    # Use normalized comparison to stay in sync with all_pac keys.
-                    curr = frozenset(x for x in curr if self._norm_reg(x.reg) != norm_auth)
-                    all_pac.pop(norm_auth, None)
-                    taint_log.append(
-                        f"  AUTH-ANCHOR  inst={inst.name:12s}  stripped={norm_auth}"
-                        f"  taint-after={sorted(self._norm_reg(x.reg) for x in curr)}"
-                    )
+                mn = inst.name.lower()
 
-                # Sandbox the memory access and prepare the fix point if needed
+                # AUT* in generated code: replace with [NOP, XPAC] slot
+                if mn in self._auth_specs:
+                    xpac_mn = _AUTH_TO_XPAC[mn]
+                    ptr_reg = inst.operands[0].value
+                    # Disallow ptr_reg == ctx_reg: resample ctx from the same allowed value pool.
+                    if len(inst.operands) > 1 and \
+                            self._norm_reg(ptr_reg) == self._norm_reg(inst.operands[1].value):
+                        norm_ptr = self._norm_reg(ptr_reg)
+                        for _ in range(20):
+                            fresh = self.generator.generate_instruction(self._auth_specs[mn])
+                            if len(fresh.operands) > 1 and \
+                                    self._norm_reg(fresh.operands[1].value) != norm_ptr:
+                                inst.operands[1].value = fresh.operands[1].value
+                                break
+                    sid = slot_counter; slot_counter += 1
+                    slot_insts = [
+                        self._make_nop(sid, SLOT_SIG_POS),
+                        self._make_xpac_inst(xpac_mn, ptr_reg, sid, AUTH_SLOT_POS),
+                    ]
+                    fix_points.append(FixPoint(slot_id=sid, slot_insts=slot_insts,
+                                               committed_inst=copy.deepcopy(inst)))
+                    auth_replacements.append((inst, bb, slot_insts))
+                    continue  # don't also process as memory access
+
+                # Memory access: sandbox + optional PAC slot
                 if inst.has_memory_access:
                     mem_reg = self._get_mem_base_reg(inst)
-                    if mem_reg is not None:
-                        norm_mem = self._norm_reg(mem_reg)
-                        matching = [x for x in curr if self._norm_reg(x.reg) == norm_mem]
-                        offset_subs = self._make_offset_sub_insts(inst, mem_reg)
-                        if matching:
-                            assert len(matching) == 1
-                            info = matching[0]
-                            sid = slot_counter
-                            slot_counter += 1
-                            xpac = self._make_xpac_inst(info.xpac_mnemonic, info.reg, sid, AUTH_SLOT_POS)
-                            nops = [self._make_nop(sid, pos) for pos in range(AUTH_SLOT_POS)]
-                            slot_insts = nops + [xpac]
-                            assert norm_mem in all_pac, \
-                                f"all_pac/curr sync violation: tainted reg {norm_mem} missing from all_pac"
-                            fix_points.append(FixPoint(
-                                slot_id=sid, bb=bb, mem_inst=inst, info=info,
-                                pac_insts=all_pac[norm_mem],
-                                slot_insts=slot_insts))
-                            xpac_insertions.append((inst, bb, slot_insts, offset_subs))
-                            taint_log.append(
-                                f"  MEM-ACCESS   inst={inst.name:12s}  base={mem_reg}"
-                                f"  decision=XPAC(slot={sid})"
-                                f"  taint={sorted(self._norm_reg(x.reg) for x in curr)}"
-                                f"  n_offset_subs={len(offset_subs)}"
-                            )
-                            # PAC consumed: clear so subsequent accesses use standalone.
-                            curr = frozenset(x for x in curr if self._norm_reg(x.reg) != norm_mem)
-                            all_pac.pop(norm_mem, None)
-                        else:
-                            standalone_insertions.append(
-                                (inst, bb, self._make_sandbox_insts(mem_reg) + offset_subs))
-                            taint_log.append(
-                                f"  MEM-ACCESS   inst={inst.name:12s}  base={mem_reg}"
-                                f"  decision=STANDALONE"
-                                f"  taint={sorted(self._norm_reg(x.reg) for x in curr)}"
-                                f"  n_offset_subs={len(offset_subs)}"
-                            )
-                    else:
-                        taint_log.append(
-                            f"  MEM-ACCESS   inst={inst.name:12s}  base=None(implicit?)"
-                            f"  decision=SKIP"
-                        )
-
-                # Arithmetic (and writeback) clears taint for written registers.
-                for dreg in self._dest_regs(inst):
-                    if dreg in {self._norm_reg(x.reg) for x in curr}:
-                        taint_log.append(
-                            f"  ARITH-CLEAR  inst={inst.name:12s}  clears={dreg}"
-                        )
-                    curr = frozenset(x for x in curr if self._norm_reg(x.reg) != dreg)
-                    all_pac.pop(dreg, None)
-
-            taint_out[bb] = curr
-            all_pac_out[bb] = dict(all_pac)
+                    if mem_reg is None:
+                        continue
+                    sandbox_insts = self._make_sandbox_insts(mem_reg)
+                    offset_subs   = self._make_offset_sub_insts(inst, mem_reg)
+                    if self._auth_specs and random.random() < self._auth_prob:
+                        auth_inst = self._get_mem_auth_instruction(mem_reg)
+                        if auth_inst is not None:
+                            xpac_mn = _AUTH_TO_XPAC[auth_inst.name.lower()]
+                            sid = slot_counter; slot_counter += 1
+                            slot_insts = [
+                                self._make_nop(sid, SLOT_SIG_POS),
+                                self._make_xpac_inst(xpac_mn, mem_reg, sid, AUTH_SLOT_POS),
+                            ]
+                            fix_points.append(FixPoint(slot_id=sid, slot_insts=slot_insts,
+                                                       committed_inst=auth_inst))
+                            xpac_insertions.append((inst, bb, slot_insts, offset_subs, sandbox_insts))
+                            continue
+                    standalone_insertions.append((inst, bb, sandbox_insts + offset_subs))
 
         return slot_counter
 
-    # ------------------------------------------------------------------
-    # Stage 1: instrument with PACIA, safe AUTIA, and XPAC slots
-    # ------------------------------------------------------------------
-
     def instrument_stage1(self, test_case: TestCase) -> Tuple[TestCase, List[FixPoint]]:
-        """
+        """Replace AUT* instructions with XPAC placeholder slots; add slots before some memory accesses.
+
         Returns (instrumented_tc, fix_points).
-
-        instrumented_tc has:
-          - random PACIA instructions inserted
-          - random AUTIA instructions inserted only where the target register is
-            provably signed by taint analysis (safe on FEAT_FPAC hardware)
-          - SLOT_SIZE-instruction slots [XPAC, NOP×(SLOT_SIZE-1)] before each
-            memory access that uses a signed register; each slot instruction is
-            tagged with _pac_slot_id and _pac_slot_pos for later retrieval
-
-        fix_points carries metadata about each slot for instrument_stage2.
         """
         tc = copy.deepcopy(test_case)
         fix_points: List[FixPoint] = []
         slot_counter = 0
-        self.last_taint_log = []
 
         for func in tc.functions:
-            # Step 1: choose random positions for signing insertions.
-            # Each signing block is [AND reg,reg,#mask; ADD reg,reg,x29; PACIA reg,ctx]:
-            # the sandbox is integrated into the sign so every signed value is already
-            # sandboxed and no separate sandbox pass is needed.
-            sign_ins: Dict[Instruction, Tuple[Instruction, BasicBlock]] = {}
-            sandbox_ins: Dict[Instruction, List[Instruction]] = {}
-            for bb in func:
-                for inst in bb:
-                    if random.random() < self._sign_prob:
-                        pac_inst = self._get_signing_instruction()
-                        reg = pac_inst.operands[0].value
-                        sign_ins[inst] = (pac_inst, bb)
-                        sandbox_ins[inst] = self._make_sandbox_insts(reg)
+            auth_replacements: List = []
+            xpac_insertions: List = []
+            standalone_insertions: List = []
+            slot_counter = self._build_func_slots(
+                func, slot_counter, fix_points,
+                auth_replacements, xpac_insertions, standalone_insertions)
 
-            sign_specs = {i: p for i, (p, _) in sign_ins.items()}
+            # AUT* → [NOP, XPAC] (delete old instruction, insert 2 new ones)
+            for old_inst, bb, new_insts in auth_replacements:
+                for ni in new_insts:
+                    bb.insert_before(old_inst, ni)
+                bb.delete(old_inst)
 
-            # Step 2: choose AUTIA insertions via forward taint pass
-            auth_ins: Dict[Instruction, Tuple[Instruction, BasicBlock]] = {}
-            self._compute_taints(func, sign_specs, auth_ins, choose_auth=True)
-            # _taint_bb DFS follows bb.successors and can reach func.exit (which has a
-            # .measurement_end macro but is NOT in func._all_bb).  Slots inserted into
-            # func.exit are invisible to _find_slot_insts / post-step-6 scan.  Drop any
-            # auth anchor whose bb is not in func._all_bb before proceeding.
-            _valid_bbs = set(func._all_bb)
-            auth_ins = {k: v for k, v in auth_ins.items() if v[0] in _valid_bbs}
-
-            # Step 4/5a: running-taint data-flow pass — builds xpac_slots and
-            # standalone_insertions.
-            xpac_insertions: List[Tuple[Instruction, BasicBlock, List[Instruction], List[Instruction]]] = []
-            standalone_insertions: List[Tuple[Instruction, BasicBlock, List[Instruction]]] = []
-            all_pac_at_auth: Dict[Instruction, Dict[str, frozenset]] = {}
-            func_taint_log: List[str] = []
-            slot_counter = self._build_xpac_slots(
-                func, sign_ins, auth_ins, slot_counter,
-                fix_points, xpac_insertions, standalone_insertions,
-                all_pac_at_auth, func_taint_log)
-            self.last_taint_log.extend(func_taint_log)
-
-            # Step 5b: build AUTIA slots — identical layout to XPAC-before-memory slots.
-            # Stage1 uses XPACI at pos 8 (safe strip, never faults) so the execution
-            # completes cleanly.  Stage2 replaces pos 8 with the real AUTH instruction.
-            auth_slot_insertions: List[Tuple[Instruction, BasicBlock, List[Instruction]]] = []
-            for anchor, (bb, info) in auth_ins.items():
-                # _build_xpac_slots records all_pac_at_auth for every anchor in auth_ins,
-                # so this is always populated regardless of path.
-                assert anchor in all_pac_at_auth, (
-                    f"auth-slot anchor {anchor.name} not in all_pac_at_auth — "
-                    f"unreachable BB or topo traversal bug"
-                )
-                norm_reg = self._norm_reg(info.reg)
-                pac_insts_set = all_pac_at_auth[anchor].get(norm_reg)
-                if pac_insts_set is None:
-                    # Topo/DFS join-node disagreement: DFS reached this anchor via a path
-                    # where the reg was signed, but on at least one other incoming path it
-                    # was not.  The topological intersection already dropped the reg, so AUTH
-                    # here would operate on an unsigned pointer on those paths — skip it.
-                    continue
-                assert pac_insts_set, (
-                    f"all_pac_at_auth has empty frozenset for {norm_reg} at anchor "
-                    f"{anchor.name} — invariant violation in _build_xpac_slots"
-                )
-
-                sid = slot_counter
-                slot_counter += 1
-                xpac = self._make_xpac_inst(info.xpac_mnemonic, info.reg, sid, AUTH_SLOT_POS)
-                nops = [self._make_nop(sid, pos) for pos in range(AUTH_SLOT_POS)]
-                slot_insts = nops + [xpac]
-
-                fix_points.append(FixPoint(
-                    slot_id=sid, bb=bb, mem_inst=anchor, info=info,
-                    pac_insts=pac_insts_set,
-                    slot_insts=slot_insts))
-                auth_slot_insertions.append((anchor, bb, slot_insts))
-
-            # Step 6: perform all insertions
-            # Pre-check: every fix_point slot added this function must appear in some insertion list
-            _xpac_slot_ids = {s._pac_slot_id for _, _, sl, _ in xpac_insertions for s in sl}
-            _auth_slot_ids = {s._pac_slot_id for _, _, sl in auth_slot_insertions for s in sl}
-            _all_pending = _xpac_slot_ids | _auth_slot_ids
-            for fp in fix_points:
-                assert fp.slot_id in _all_pending, (
-                    f"pre-step6 bug: slot_id={fp.slot_id} is in fix_points but NOT in any "
-                    f"insertion list (xpac={sorted(_xpac_slot_ids)}, auth={sorted(_auth_slot_ids)})"
-                )
-            for next_inst, (pac_inst, bb) in sign_ins.items():
-                for s in sandbox_ins.get(next_inst, []):
-                    bb.insert_before(next_inst, s)
-                bb.insert_before(next_inst, pac_inst)
-            for anchor, bb, slot_insts in auth_slot_insertions:
-                for s in slot_insts:
-                    bb.insert_before(anchor, s)
-                # Verify: all slot_insts must now be reachable in bb
-                _live = {id(i) for i in bb}
-                for s in slot_insts:
-                    assert id(s) in _live, (
-                        f"stage1 insertion bug: auth slot_id={s._pac_slot_id} "
-                        f"pos={s._pac_slot_pos} inst NOT found in bb after insert_before(anchor={anchor.name})"
-                    )
-            for mem_inst, bb, slot_insts, offset_subs in xpac_insertions:
-                for s in slot_insts:
-                    bb.insert_before(mem_inst, s)
-                for s in offset_subs:
-                    bb.insert_before(mem_inst, s)
-                # Verify: all slot_insts must now be reachable in bb
-                _live = {id(i) for i in bb}
-                for s in slot_insts:
-                    assert id(s) in _live, (
-                        f"stage1 insertion bug: xpac slot_id={s._pac_slot_id} "
-                        f"pos={s._pac_slot_pos} inst NOT found in bb after insert_before(mem_inst={mem_inst.name})"
-                    )
-            for mem_inst, bb, offset_subs in standalone_insertions:
-                for s in offset_subs:
+            # Memory access with slot: [sandbox, NOP, XPAC, offset_subs, mem_access]
+            for mem_inst, bb, slot_insts, offset_subs, sandbox_insts in xpac_insertions:
+                for s in [*sandbox_insts, *slot_insts, *offset_subs]:
                     bb.insert_before(mem_inst, s)
 
-            # Post-step-6 sanity: every fix_point slot added THIS function must be in tc now.
-            _slot_ids_now = set()
-            for _func2 in tc.functions:
-                for _bb2 in _func2:
-                    for _inst2 in _bb2:
-                        if hasattr(_inst2, '_pac_slot_id'):
-                            _slot_ids_now.add(_inst2._pac_slot_id)
+            # Memory access without slot: [sandbox, offset_subs, mem_access]
+            for mem_inst, bb, insts in standalone_insertions:
+                for s in insts:
+                    bb.insert_before(mem_inst, s)
+
+            _slot_ids_now = {
+                i._pac_slot_id
+                for _f in tc.functions for _b in _f for i in _b
+                if hasattr(i, '_pac_slot_id')
+            }
             for fp in fix_points:
                 assert fp.slot_id in _slot_ids_now, (
-                    f"post-step6 bug: slot_id={fp.slot_id} missing from tc after insertions "
-                    f"(xpac_insertions={[e[0].name+'@slot'+str(e[2][0]._pac_slot_id) for e in xpac_insertions]}, "
-                    f"auth_slot_insertions={[e[0].name+'@slot'+str(e[2][0]._pac_slot_id) for e in auth_slot_insertions]}, "
-                    f"slot_ids_in_tc={sorted(_slot_ids_now)})"
+                    f"stage1 insertion bug: slot_id={fp.slot_id} missing from tc after insertions"
                 )
 
         return tc, fix_points
@@ -1135,6 +897,88 @@ class PACInstrumentation(_SandboxInstrumentationBase):
     # ------------------------------------------------------------------
     # Stage 2: produce TC1 / TC2 / TC3 from stage-1 result
     # ------------------------------------------------------------------
+
+    def _committed_info(self, fp: FixPoint) -> Tuple[str, str, str, Optional[str]]:
+        """Return (auth_mn, xpac_mn, ptr_reg, ctx_reg) from fp.committed_inst."""
+        auth_mn = fp.committed_inst.name.lower()
+        xpac_mn = _AUTH_TO_XPAC[auth_mn]
+        ptr_reg = fp.committed_inst.operands[0].value
+        ctx_reg = fp.committed_inst.operands[1].value if len(fp.committed_inst.operands) > 1 else None
+        return auth_mn, xpac_mn, ptr_reg, ctx_reg
+
+    def _make_tc1_slot(self, fp: FixPoint) -> List[Instruction]:
+        """TC1 (STRIP_ONLY): [MOVK correct_sig LSL#48, XPAC] if sig known, else [NOP, XPAC]."""
+        _, xpac_mn, ptr_reg, _ = self._committed_info(fp)
+        sig_inst = (
+            self._make_movk(fp.slot_id, SLOT_SIG_POS, ptr_reg, fp.correct_sig, 48)
+            if fp.correct_sig is not None
+            else self._make_nop(fp.slot_id, SLOT_SIG_POS)
+        )
+        return [sig_inst, self._make_xpac_inst(xpac_mn, ptr_reg, fp.slot_id, AUTH_SLOT_POS)]
+
+    def _make_tc2_slot(self, fp: FixPoint) -> List[Instruction]:
+        """TC2 (AUTH_CORRECT): [MOVK ptr_reg, #correct_sig, LSL#48, AUTH ptr_reg, ctx_reg]."""
+        auth_mn, _, ptr_reg, ctx_reg = self._committed_info(fp)
+        assert fp.correct_sig is not None  # caller must guard: only call when CE reached the slot
+        movk = self._make_movk(fp.slot_id, SLOT_SIG_POS, ptr_reg, fp.correct_sig, 48)
+        auth = self._make_auth_inst(auth_mn, ptr_reg, ctx_reg)
+        auth._pac_slot_id  = fp.slot_id
+        auth._pac_slot_pos = AUTH_SLOT_POS
+        return [movk, auth]
+
+    def _make_tc3_spec_slot(self, fp: FixPoint) -> List[Instruction]:
+        """TC3 spec: [MOVK ptr_reg, #alt_sig, LSL#48, AUTH ptr_reg, ctx_reg].
+
+        alt_sig is an alternative signing combination (different ptr and/or ctx). Always set by executor.
+        """
+        auth_mn, _, ptr_reg, ctx_reg = self._committed_info(fp)
+        assert fp.alt_sig is not None, f"slot_id={fp.slot_id}: alt_sig not set by executor"
+        movk = self._make_movk(fp.slot_id, SLOT_SIG_POS, ptr_reg, fp.alt_sig, 48)
+        auth = self._make_auth_inst(auth_mn, ptr_reg, ctx_reg)
+        auth._pac_slot_id  = fp.slot_id
+        auth._pac_slot_pos = AUTH_SLOT_POS
+        return [movk, auth]
+
+    def instrument_stage2(
+        self, prep_tc: TestCase, fix_points: List[FixPoint],
+    ) -> Dict[PACVariant, TestCase]:
+        """Produce TC1/TC2/TC3 variants from the stage-1 TC.
+
+        TC1 (STRIP_ONLY)   — [MOVK correct_sig, XPAC]     — same strip as stage-1, sig pre-loaded
+        TC2 (AUTH_CORRECT) — [MOVK correct_sig, AUTH]     — AUTH always succeeds
+        TC3 (AUTH_WRONG)   — arch slots: same as TC2
+                           — spec slots: [MOVK alt_sig, AUTH]
+        If CE never reached a slot (correct_sig is None): all variants use TC1.
+        """
+        strip_tc   = copy.deepcopy(prep_tc)
+        correct_tc = copy.deepcopy(prep_tc)
+        wrong_tc   = copy.deepcopy(prep_tc)
+        maps = {
+            PACVariant.STRIP_ONLY:   self._find_slot_insts(strip_tc),
+            PACVariant.AUTH_CORRECT: self._find_slot_insts(correct_tc),
+            PACVariant.AUTH_WRONG:   self._find_slot_insts(wrong_tc),
+        }
+
+        for fp in fix_points:
+            self._fill_slot(maps[PACVariant.STRIP_ONLY], fp, self._make_tc1_slot(fp))
+            if fp.correct_sig is None:
+                # CE never reached this slot: CORRECT → TC1 (safe), WRONG → alt_sig
+                self._fill_slot(maps[PACVariant.AUTH_CORRECT], fp, self._make_tc1_slot(fp))
+                self._fill_slot(maps[PACVariant.AUTH_WRONG],   fp, self._make_tc3_spec_slot(fp))
+                continue
+            # spec_nesting is None when CE never reached the slot → treat as speculative
+            is_spec = fp.spec_nesting != 0 if fp.spec_nesting is not None else True
+            self._fill_slot(maps[PACVariant.AUTH_CORRECT], fp, self._make_tc2_slot(fp))
+            if not is_spec:
+                self._fill_slot(maps[PACVariant.AUTH_WRONG], fp, self._make_tc2_slot(fp))
+            else:
+                self._fill_slot(maps[PACVariant.AUTH_WRONG], fp, self._make_tc3_spec_slot(fp))
+
+        return {
+            PACVariant.STRIP_ONLY:   strip_tc,
+            PACVariant.AUTH_CORRECT: correct_tc,
+            PACVariant.AUTH_WRONG:   wrong_tc,
+        }
 
     def _find_slot_insts(self, tc: TestCase) -> Dict[int, Dict[int, Tuple[Instruction, BasicBlock]]]:
         """Walk tc and return {slot_id: {pos: (inst, bb)}} for all tagged slot instructions."""
@@ -1160,144 +1004,6 @@ class PACInstrumentation(_SandboxInstrumentationBase):
             new_inst = new_insts[pos] if pos < len(new_insts) else self._make_nop(fp.slot_id, pos)
             bb.insert_before(old_inst, new_inst)
             bb.delete(old_inst)
-
-    def _make_slot_insts(
-        self, fp: FixPoint, include_ctx: bool, include_ptr: bool, include_auth: bool
-    ) -> List[Instruction]:
-        """Create a fresh SLOT_SIZE instruction list (never reuse objects between fills)."""
-        sid = fp.slot_id
-        if include_ctx and fp.info.ctx_reg is not None:
-            if fp.ctx_value is None:
-                raise RuntimeError(
-                    f"PAC stage2: ctx_value is None for slot {fp.slot_id} "
-                    f"(ctx_reg={fp.info.ctx_reg}) but include_ctx=True — "
-                    f"CE failed to capture the context register at signing"
-                )
-            ctx = self._make_load_imm_insts(sid, fp.info.ctx_reg, fp.ctx_value, CTX_SLOT_START)
-        else:
-            ctx = self._nops_range(sid, CTX_SLOT_START, FIX_COUNT_CTX)
-        if include_ptr:
-            if fp.signed_value is None:
-                raise RuntimeError(
-                    f"PAC stage2: signed_value is None for slot {fp.slot_id} "
-                    f"(reg={fp.info.reg}) but include_ptr=True — "
-                    f"CE failed to capture the signed pointer"
-                )
-            ptr = self._make_load_imm_insts(sid, fp.info.reg, fp.signed_value, PTR_SLOT_START)
-        else:
-            ptr = self._nops_range(sid, PTR_SLOT_START, FIX_COUNT_PTR)
-        auth_inst = self._make_auth_inst(fp.info.auth_mnemonic, fp.info.reg, fp.info.ctx_reg)
-        auth_inst._pac_slot_id = sid
-        auth_inst._pac_slot_pos = AUTH_SLOT_POS
-        last = [auth_inst] if include_auth else self._nops_range(sid, AUTH_SLOT_POS, 1)
-        return ctx + ptr + last
-
-    def _make_tc1_slot_insts(self, fp: FixPoint) -> List[Instruction]:
-        """TC1 slot: ctx_restore (0-3), MOVZ+MOVK×3 (4-7), XPAC (8).
-
-        Positions 4-7: full 64-bit load of signed_value (CE-captured PACIA output),
-        identical to TC2's ptr restore.  XPAC at position 8 strips the CE's PAC to
-        produce the canonical address.  This avoids depending on runtime bit55 to
-        reconstruct bits[63:48], which caused a kernel crash when hardware's PACIA
-        placed the PAC signature into bit55 (wide PAC implementations).
-        After XPAC: reg = P — same as TC2's AUTIA result.
-        """
-        sid = fp.slot_id
-        if fp.info.ctx_reg is not None:
-            if fp.ctx_value is None:
-                raise RuntimeError(
-                    f"PAC stage2 TC1: ctx_value is None for slot {fp.slot_id} "
-                    f"(ctx_reg={fp.info.ctx_reg}) — CE failed to capture context register"
-                )
-            ctx = self._make_load_imm_insts(sid, fp.info.ctx_reg, fp.ctx_value, CTX_SLOT_START)
-        else:
-            ctx = self._nops_range(sid, CTX_SLOT_START, FIX_COUNT_CTX)
-        if fp.signed_value is None:
-            raise RuntimeError(
-                f"PAC stage2 TC1: signed_value is None for slot {fp.slot_id} "
-                f"(reg={fp.info.reg}) — CE failed to capture the signed pointer"
-            )
-        ptr = self._make_load_imm_insts(sid, fp.info.reg, fp.signed_value, PTR_SLOT_START)
-        xpac = self._make_xpac_inst(fp.info.xpac_mnemonic, fp.info.reg, sid, AUTH_SLOT_POS)
-        return ctx + ptr + [xpac]
-
-    def instrument_stage2(
-        self, prep_tc: TestCase, fix_points: List[FixPoint]
-    ) -> Tuple[TestCase, TestCase, TestCase]:
-        """
-        Produce TC1/TC2/TC3 variants for the *current* input from the preparation TC.
-
-        Call once per input after populating FixPoint.{signed_value, ctx_value,
-        spec_nesting} from the contract trace for that input.
-
-        Slot layout (SLOT_SIZE = 9):
-          positions 0-3 : context restore  (MOVZ/MOVK for ctx_reg, or NOPs)
-          positions 4-7 : pointer restore  (MOVZ/MOVK for signed ptr, or NOPs)
-          position  8   : AUTH instruction
-
-        TC1 — [ctx_restore, MOVZ+MOVK×3, XPAC]  full 64-bit CE-signed value loaded then
-               stripped by XPAC to produce the canonical pointer
-        TC2 — [ctx_restore, ptr_restore, AUTH]  always correct
-        TC3 — arch slots identical to TC2; speculative slots each independently
-              draw a random combination from:
-                (False, False) no restore
-                (True,  False) ctx only
-                (False, True)  ptr only
-                (True,  True)  both restore
-
-        Raises RuntimeError if signed_value is None, or if ctx_value is None
-        for a non-zero-context variant (ctx_reg is not None).
-        ctx_value being None is valid for zero-context variants (e.g. pacdza).
-
-        Returns (tc1, tc2, tc3).
-        """
-        tc1 = copy.deepcopy(prep_tc)
-        tc2 = copy.deepcopy(prep_tc)
-        tc3 = copy.deepcopy(prep_tc)
-        maps = {
-            'tc1': self._find_slot_insts(tc1),
-            'tc2': self._find_slot_insts(tc2),
-            'tc3': self._find_slot_insts(tc3),
-        }
-
-        _combos = [(False, False), (True, False), (False, True), (True, True)]
-
-        for fp in fix_points:
-            sid = fp.slot_id
-            # spec_nesting=0      → definitively arch  → TC3 identical to TC2
-            # spec_nesting>0      → explicitly spec     → TC3 uses random combo
-            # spec_nesting=None   → CE never executed signing (non-arch path) — hardware
-            #                       may speculatively execute it → treat as spec for TC3
-            is_spec = fp.spec_nesting != 0
-
-            if fp.signed_value is not None:
-                # Values captured by CE: fill TC1 (ctx+ptr+XPAC) and TC2 (ctx+ptr+AUTH) normally.
-                self._fill_slot(maps['tc1'], fp, self._make_tc1_slot_insts(fp))
-                self._fill_slot(maps['tc2'], fp, self._make_slot_insts(fp, True, True, True))
-            elif not is_spec:
-                # Arch slot without a captured value is a CE capture bug — raise loudly.
-                raise RuntimeError(
-                    f"PAC stage2: signed_value is None for arch slot {fp.slot_id} "
-                    f"(reg={fp.info.reg}) — CE failed to capture the signed pointer"
-                )
-            # else: spec/non-arch slot, CE never executed the signing instruction.
-            # Stage-1 XPAC placeholder is kept in TC1 and TC2 for this slot.
-
-            if not is_spec:
-                # Arch slots: TC3 identical to TC2 — must succeed architecturally.
-                self._fill_slot(maps['tc3'], fp, self._make_slot_insts(fp, True, True, True))
-            else:
-                # Spec/non-arch slots: pick a random ctx/ptr restore combination, excluding
-                # any combo that requires a value CE did not capture.
-                available = [
-                    (c, p) for (c, p) in _combos
-                    if not (p and fp.signed_value is None)
-                    and not (c and fp.info.ctx_reg is not None and fp.ctx_value is None)
-                ]
-                include_ctx, include_ptr = random.choice(available or [(False, False)])
-                self._fill_slot(maps['tc3'], fp, self._make_slot_insts(fp, include_ctx, include_ptr, True))
-
-        return tc1, tc2, tc3
 
 
 # ===========================================================================
@@ -1545,7 +1251,7 @@ class MTEInstrumentation(_SandboxInstrumentationBase):
         prep_tc: TestCase,
         fix_points: List[MTEFixPoint],
         sandbox_base: int,
-    ) -> Tuple[TestCase, TestCase, TestCase]:
+    ) -> Dict[MTEVariant, TestCase]:
         """Produce TC1/TC2/TC3 from the stage-1 instrumented TC.
 
         sandbox_base is used to compute the deterministic wrong tag for TC3.
@@ -1562,36 +1268,40 @@ class MTEInstrumentation(_SandboxInstrumentationBase):
         wrong_tag = arch_tag ^ 1
         wrong_upper16 = (sandbox_upper16 & ~(0xF << 8)) | (wrong_tag << 8)
 
-        tc1 = copy.deepcopy(prep_tc)
-        tc2 = copy.deepcopy(prep_tc)
-        tc3 = copy.deepcopy(prep_tc)
+        baseline_tc   = copy.deepcopy(prep_tc)
+        randomize_tc  = copy.deepcopy(prep_tc)
+        wrong_tag_tc  = copy.deepcopy(prep_tc)
         maps = {
-            'tc1': self._find_slot_insts(tc1),
-            'tc2': self._find_slot_insts(tc2),
-            'tc3': self._find_slot_insts(tc3),
+            MTEVariant.BASELINE:      self._find_slot_insts(baseline_tc),
+            MTEVariant.RANDOMIZE_TAG: self._find_slot_insts(randomize_tc),
+            MTEVariant.WRONG_TAG:     self._find_slot_insts(wrong_tag_tc),
         }
 
         for fp in fix_points:
-            # spec_nesting=0    → arch path → TC2=NOP, TC3=NOP (correct tag preserved)
-            # spec_nesting>0    → spec path → TC2=IRG, TC3=MOVK wrong tag
+            # spec_nesting=0    → arch path → RANDOMIZE_TAG=NOP, WRONG_TAG=NOP (correct tag preserved)
+            # spec_nesting>0    → spec path → RANDOMIZE_TAG=IRG, WRONG_TAG=MOVK wrong tag
             # spec_nesting=None → CE never executed this memory access (non-arch path);
             #                     hardware may speculate on it → treat as spec
             is_spec = fp.spec_nesting != 0
 
-            self._fill_slot(maps['tc1'], fp, self._make_mte_nop(fp.slot_id))
+            self._fill_slot(maps[MTEVariant.BASELINE], fp, self._make_mte_nop(fp.slot_id))
 
             if is_spec:
-                self._fill_slot(maps['tc2'], fp, self._make_mte_irg(fp.reg, fp.slot_id))
+                self._fill_slot(maps[MTEVariant.RANDOMIZE_TAG], fp, self._make_mte_irg(fp.reg, fp.slot_id))
             else:
-                self._fill_slot(maps['tc2'], fp, self._make_mte_nop(fp.slot_id))
+                self._fill_slot(maps[MTEVariant.RANDOMIZE_TAG], fp, self._make_mte_nop(fp.slot_id))
 
             if is_spec:
-                self._fill_slot(maps['tc3'], fp,
+                self._fill_slot(maps[MTEVariant.WRONG_TAG], fp,
                                 self._make_mte_movk_wrong_tag(fp.reg, wrong_upper16, fp.slot_id))
             else:
-                self._fill_slot(maps['tc3'], fp, self._make_mte_nop(fp.slot_id))
+                self._fill_slot(maps[MTEVariant.WRONG_TAG], fp, self._make_mte_nop(fp.slot_id))
 
-        return tc1, tc2, tc3
+        return {
+            MTEVariant.BASELINE:      baseline_tc,
+            MTEVariant.RANDOMIZE_TAG: randomize_tc,
+            MTEVariant.WRONG_TAG:     wrong_tag_tc,
+        }
 
 
 class BitmapAccessor:

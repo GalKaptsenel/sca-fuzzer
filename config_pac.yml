@@ -1,0 +1,20 @@
+instruction_set: aarch64
+instruction_categories:
+  - BASE-PAC
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-BITFIELD
+  - BASE-CONDSEL
+  - BASE-BRANCH
+  - BASE-MEMORY-LOAD
+  - BASE-MEMORY-STORE
+min_bb_per_function: 5
+max_bb_per_function: 5
+max_successors_per_bb: 2
+min_successors_per_bb: 1
+fuzzer: non-iterfearence
+input_generator: aarch64-nzcv
+pac_sign_weight: 0.3
+pac_auth_weight: 0.3
+pac_xpac_weight: 0.2

@@ -1,0 +1,647 @@
+# Violation Report
+
+* Test Case ID: 1
+* Detected: 15.05.26 at 20:26:45
+
+* Time to detection: 845.967653
+* Statistics:
+Test Cases: 2
+Inputs per test case: 200.0
+Violations: 0
+Effectiveness: 
+  Total Cls: 100.0
+  Effective Cls: 100.0
+Discarded Test Cases:
+  Speculation Filter: 0
+  Observation Filter: 0
+  Fast Path: 1
+  Max Nesting Check: 0
+  Tainting Check: 0
+  Early Priming Check: 0
+  Large Sample Check: 0
+  Priming Check: 0
+
+
+## Generation Properties
+* Program seed: 357005
+* Input seed: 110
+* Faulty page properties:
+  - Actor main:
+    * PTE: 
+
+## Counterexample Inputs
+
+Input #81
+* Hardware trace:
+ ^^.^.......^.............^.^.......^^............^......^...^..^ [500]
+
+* Contract trace (hash): 18122376536203805899
+
+Input #181
+* Hardware trace:
+ ^^.^.......^.............^..........^............^......^^..^.^^ [500]
+
+* Contract trace (hash): 18122376536203805899
+
+## Mistraining Configuration
+* Mistraining: not set
+
+Input #0:
+  * No trainable branches
+
+Input #1:
+  * No trainable branches
+
+Input #2:
+  * No trainable branches
+
+Input #3:
+  * No trainable branches
+
+Input #4:
+  * No trainable branches
+
+Input #5:
+  * No trainable branches
+
+Input #6:
+  * No trainable branches
+
+Input #7:
+  * No trainable branches
+
+Input #8:
+  * No trainable branches
+
+Input #9:
+  * No trainable branches
+
+Input #10:
+  * No trainable branches
+
+Input #11:
+  * No trainable branches
+
+Input #12:
+  * No trainable branches
+
+Input #13:
+  * No trainable branches
+
+Input #14:
+  * No trainable branches
+
+Input #15:
+  * No trainable branches
+
+Input #16:
+  * No trainable branches
+
+Input #17:
+  * No trainable branches
+
+Input #18:
+  * No trainable branches
+
+Input #19:
+  * No trainable branches
+
+Input #20:
+  * No trainable branches
+
+Input #21:
+  * No trainable branches
+
+Input #22:
+  * No trainable branches
+
+Input #23:
+  * No trainable branches
+
+Input #24:
+  * No trainable branches
+
+Input #25:
+  * No trainable branches
+
+Input #26:
+  * No trainable branches
+
+Input #27:
+  * No trainable branches
+
+Input #28:
+  * No trainable branches
+
+Input #29:
+  * No trainable branches
+
+Input #30:
+  * No trainable branches
+
+Input #31:
+  * No trainable branches
+
+Input #32:
+  * No trainable branches
+
+Input #33:
+  * No trainable branches
+
+Input #34:
+  * No trainable branches
+
+Input #35:
+  * No trainable branches
+
+Input #36:
+  * No trainable branches
+
+Input #37:
+  * No trainable branches
+
+Input #38:
+  * No trainable branches
+
+Input #39:
+  * No trainable branches
+
+Input #40:
+  * No trainable branches
+
+Input #41:
+  * No trainable branches
+
+Input #42:
+  * No trainable branches
+
+Input #43:
+  * No trainable branches
+
+Input #44:
+  * No trainable branches
+
+Input #45:
+  * No trainable branches
+
+Input #46:
+  * No trainable branches
+
+Input #47:
+  * No trainable branches
+
+Input #48:
+  * No trainable branches
+
+Input #49:
+  * No trainable branches
+
+Input #50:
+  * No trainable branches
+
+Input #51:
+  * No trainable branches
+
+Input #52:
+  * No trainable branches
+
+Input #53:
+  * No trainable branches
+
+Input #54:
+  * No trainable branches
+
+Input #55:
+  * No trainable branches
+
+Input #56:
+  * No trainable branches
+
+Input #57:
+  * No trainable branches
+
+Input #58:
+  * No trainable branches
+
+Input #59:
+  * No trainable branches
+
+Input #60:
+  * No trainable branches
+
+Input #61:
+  * No trainable branches
+
+Input #62:
+  * No trainable branches
+
+Input #63:
+  * No trainable branches
+
+Input #64:
+  * No trainable branches
+
+Input #65:
+  * No trainable branches
+
+Input #66:
+  * No trainable branches
+
+Input #67:
+  * No trainable branches
+
+Input #68:
+  * No trainable branches
+
+Input #69:
+  * No trainable branches
+
+Input #70:
+  * No trainable branches
+
+Input #71:
+  * No trainable branches
+
+Input #72:
+  * No trainable branches
+
+Input #73:
+  * No trainable branches
+
+Input #74:
+  * No trainable branches
+
+Input #75:
+  * No trainable branches
+
+Input #76:
+  * No trainable branches
+
+Input #77:
+  * No trainable branches
+
+Input #78:
+  * No trainable branches
+
+Input #79:
+  * No trainable branches
+
+Input #80:
+  * No trainable branches
+
+Input #81:
+  * No trainable branches
+
+Input #82:
+  * No trainable branches
+
+Input #83:
+  * No trainable branches
+
+Input #84:
+  * No trainable branches
+
+Input #85:
+  * No trainable branches
+
+Input #86:
+  * No trainable branches
+
+Input #87:
+  * No trainable branches
+
+Input #88:
+  * No trainable branches
+
+Input #89:
+  * No trainable branches
+
+Input #90:
+  * No trainable branches
+
+Input #91:
+  * No trainable branches
+
+Input #92:
+  * No trainable branches
+
+Input #93:
+  * No trainable branches
+
+Input #94:
+  * No trainable branches
+
+Input #95:
+  * No trainable branches
+
+Input #96:
+  * No trainable branches
+
+Input #97:
+  * No trainable branches
+
+Input #98:
+  * No trainable branches
+
+Input #99:
+  * No trainable branches
+
+Input #100:
+  * No trainable branches
+
+Input #101:
+  * No trainable branches
+
+Input #102:
+  * No trainable branches
+
+Input #103:
+  * No trainable branches
+
+Input #104:
+  * No trainable branches
+
+Input #105:
+  * No trainable branches
+
+Input #106:
+  * No trainable branches
+
+Input #107:
+  * No trainable branches
+
+Input #108:
+  * No trainable branches
+
+Input #109:
+  * No trainable branches
+
+Input #110:
+  * No trainable branches
+
+Input #111:
+  * No trainable branches
+
+Input #112:
+  * No trainable branches
+
+Input #113:
+  * No trainable branches
+
+Input #114:
+  * No trainable branches
+
+Input #115:
+  * No trainable branches
+
+Input #116:
+  * No trainable branches
+
+Input #117:
+  * No trainable branches
+
+Input #118:
+  * No trainable branches
+
+Input #119:
+  * No trainable branches
+
+Input #120:
+  * No trainable branches
+
+Input #121:
+  * No trainable branches
+
+Input #122:
+  * No trainable branches
+
+Input #123:
+  * No trainable branches
+
+Input #124:
+  * No trainable branches
+
+Input #125:
+  * No trainable branches
+
+Input #126:
+  * No trainable branches
+
+Input #127:
+  * No trainable branches
+
+Input #128:
+  * No trainable branches
+
+Input #129:
+  * No trainable branches
+
+Input #130:
+  * No trainable branches
+
+Input #131:
+  * No trainable branches
+
+Input #132:
+  * No trainable branches
+
+Input #133:
+  * No trainable branches
+
+Input #134:
+  * No trainable branches
+
+Input #135:
+  * No trainable branches
+
+Input #136:
+  * No trainable branches
+
+Input #137:
+  * No trainable branches
+
+Input #138:
+  * No trainable branches
+
+Input #139:
+  * No trainable branches
+
+Input #140:
+  * No trainable branches
+
+Input #141:
+  * No trainable branches
+
+Input #142:
+  * No trainable branches
+
+Input #143:
+  * No trainable branches
+
+Input #144:
+  * No trainable branches
+
+Input #145:
+  * No trainable branches
+
+Input #146:
+  * No trainable branches
+
+Input #147:
+  * No trainable branches
+
+Input #148:
+  * No trainable branches
+
+Input #149:
+  * No trainable branches
+
+Input #150:
+  * No trainable branches
+
+Input #151:
+  * No trainable branches
+
+Input #152:
+  * No trainable branches
+
+Input #153:
+  * No trainable branches
+
+Input #154:
+  * No trainable branches
+
+Input #155:
+  * No trainable branches
+
+Input #156:
+  * No trainable branches
+
+Input #157:
+  * No trainable branches
+
+Input #158:
+  * No trainable branches
+
+Input #159:
+  * No trainable branches
+
+Input #160:
+  * No trainable branches
+
+Input #161:
+  * No trainable branches
+
+Input #162:
+  * No trainable branches
+
+Input #163:
+  * No trainable branches
+
+Input #164:
+  * No trainable branches
+
+Input #165:
+  * No trainable branches
+
+Input #166:
+  * No trainable branches
+
+Input #167:
+  * No trainable branches
+
+Input #168:
+  * No trainable branches
+
+Input #169:
+  * No trainable branches
+
+Input #170:
+  * No trainable branches
+
+Input #171:
+  * No trainable branches
+
+Input #172:
+  * No trainable branches
+
+Input #173:
+  * No trainable branches
+
+Input #174:
+  * No trainable branches
+
+Input #175:
+  * No trainable branches
+
+Input #176:
+  * No trainable branches
+
+Input #177:
+  * No trainable branches
+
+Input #178:
+  * No trainable branches
+
+Input #179:
+  * No trainable branches
+
+Input #180:
+  * No trainable branches
+
+Input #181:
+  * No trainable branches
+
+Input #182:
+  * No trainable branches
+
+Input #183:
+  * No trainable branches
+
+Input #184:
+  * No trainable branches
+
+Input #185:
+  * No trainable branches
+
+Input #186:
+  * No trainable branches
+
+Input #187:
+  * No trainable branches
+
+Input #188:
+  * No trainable branches
+
+Input #189:
+  * No trainable branches
+
+Input #190:
+  * No trainable branches
+
+Input #191:
+  * No trainable branches
+
+Input #192:
+  * No trainable branches
+
+Input #193:
+  * No trainable branches
+
+Input #194:
+  * No trainable branches
+
+Input #195:
+  * No trainable branches
+
+Input #196:
+  * No trainable branches
+
+Input #197:
+  * No trainable branches
+
+Input #198:
+  * No trainable branches
+
+Input #199:
+  * No trainable branches

@@ -55,6 +55,11 @@ _SANDBOX_BASES = [
 
 def setUpModule():
     global _ISA, _TMPDIR
+    if not os.path.exists('/dev/executor'):
+        raise unittest.SkipTest(
+            "kernel module not loaded — run "
+            "'sudo insmod revizor-executor.ko && sudo chmod 777 /dev/executor' "
+            "to run these tests")
     CONF.load("config.yml")
     _ISA = InstructionSet("base.json", CONF.instruction_categories)
     _TMPDIR = tempfile.mkdtemp()

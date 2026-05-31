@@ -7,12 +7,53 @@ SPDX-License-Identifier: MIT
 """
 
 import os
+import sys
+import traceback
+import signal
+import datetime
 import unicorn
 from argparse import ArgumentParser, ArgumentTypeError
 from .factory import get_minimizer, get_fuzzer, get_downloader
 from .config import CONF
 from typing import List
 from .aarch64.aarch64_connection import print_opcode_summary
+
+_CRASH_LOG = "/home/gal_k_1_1998/revizor_crash.log"
+
+def _install_crash_logger():
+    """Write full Python traceback + signal info to _CRASH_LOG on any unhandled exception or signal."""
+    log_path = _CRASH_LOG
+
+    def _excepthook(exc_type, exc_value, exc_tb):
+        msg = (f"\n{'='*72}\n"
+               f"[PYTHON CRASH] {datetime.datetime.now().isoformat()}\n"
+               f"{'='*72}\n")
+        msg += "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        sys.stderr.write(msg)
+        sys.stderr.flush()
+        with open(log_path, 'a') as f:
+            f.write(msg)
+
+    sys.excepthook = _excepthook
+
+    def _sighandler(signum, frame):
+        msg = (f"\n{'='*72}\n"
+               f"[SIGNAL {signal.Signals(signum).name}] {datetime.datetime.now().isoformat()}\n"
+               f"{'='*72}\n"
+               f"Stack at signal:\n"
+               + "".join(traceback.format_stack(frame)))
+        sys.stderr.write(msg)
+        sys.stderr.flush()
+        with open(log_path, 'a') as f:
+            f.write(msg)
+        signal.signal(signum, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)
+
+    for sig in (signal.SIGSEGV, signal.SIGBUS, signal.SIGILL, signal.SIGABRT, signal.SIGFPE):
+        try:
+            signal.signal(sig, _sighandler)
+        except OSError:
+            pass
 
 
 def arg2bool(arg) -> bool:
@@ -36,6 +77,7 @@ def comma_separated_list(value: str) -> List[str]:
     return [p.strip().strip('"').strip("'") for p in parts if p.strip()]
 
 def main() -> int:
+    _install_crash_logger()
     parser = ArgumentParser(add_help=False)
     subparsers = parser.add_subparsers(dest='subparser_name')
     subparsers.required = True
@@ -396,16 +438,26 @@ def main() -> int:
     if args.subparser_name == 'fuzz' or args.subparser_name == 'tfuzz':
         testcase = args.testcase if args.subparser_name == 'fuzz' else args.template
         fuzzer = get_fuzzer(args.instruction_set, args.working_directory, testcase, "")
-        if args.subparser_name == 'tfuzz':
-            exit_code = fuzzer.start_from_template(args.num_test_cases, args.num_inputs,
-                                                   args.timeout, args.nonstop, args.save_violations)
-        elif testcase:
-            # deprecated mode; will be removed soon (duplicates `reproduce`)
-            exit_code = fuzzer.start_from_asm(args.num_test_cases, args.num_inputs, args.timeout,
-                                              args.nonstop, args.save_violations)
-        else:
-            exit_code = fuzzer.start_random(args.num_test_cases, args.num_inputs, args.timeout,
-                                            args.nonstop, args.save_violations)
+        try:
+            if args.subparser_name == 'tfuzz':
+                exit_code = fuzzer.start_from_template(args.num_test_cases, args.num_inputs,
+                                                       args.timeout, args.nonstop, args.save_violations)
+            elif testcase:
+                exit_code = fuzzer.start_from_asm(args.num_test_cases, args.num_inputs, args.timeout,
+                                                  args.nonstop, args.save_violations)
+            else:
+                exit_code = fuzzer.start_random(args.num_test_cases, args.num_inputs, args.timeout,
+                                                args.nonstop, args.save_violations)
+        except Exception:
+            msg = (f"\n{'='*72}\n"
+                   f"[FUZZER EXCEPTION] {datetime.datetime.now().isoformat()}\n"
+                   f"{'='*72}\n"
+                   + traceback.format_exc())
+            sys.stderr.write(msg)
+            sys.stderr.flush()
+            with open(_CRASH_LOG, 'a') as f:
+                f.write(msg)
+            raise
         print_opcode_summary()
         return exit_code
 

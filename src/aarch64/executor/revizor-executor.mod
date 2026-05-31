@@ -13,3 +13,4 @@
 /home/gal_k_1_1998/revizor/sca-fuzzer/src/aarch64/executor/jit.o
 /home/gal_k_1_1998/revizor/sca-fuzzer/src/aarch64/executor/templates_jit.o
 /home/gal_k_1_1998/revizor/sca-fuzzer/src/aarch64/executor/globals.o
+/home/gal_k_1_1998/revizor/sca-fuzzer/src/aarch64/executor/bpu.o

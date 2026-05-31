@@ -1345,6 +1345,136 @@ static void test_integration_pac_spec_xpac(void) {
     EXPECT_EQ(ma1->cpu.gpr[1],                               KBASE);
 }
 
+/* ---- GROUP 26: PACIZA+AUTIZA round-trip — zero-context variant --------- */
+
+/* PACIZA X<rd>: sign with XZR context (ctx=0) */
+static uint32_t enc_paciza(int rd) { return 0xDAC123E0u | (uint32_t)rd; }
+/* AUTIZA X<rd>: auth with XZR context */
+static uint32_t enc_autiza(int rd) { return 0xDAC133E0u | (uint32_t)rd; }
+
+static void test_integration_paciza_autiza_roundtrip(void) {
+    /*
+     * PACIZA X0 signs X0=kbase with context=0 (XZR).
+     * AUTIZA X0 authenticates on arch path; must recover kbase exactly.
+     * Verifies zero-context dispatch through ioctl 17/18 kernel handlers.
+     *
+     * Memory layout (3 distinct sentinel values at different offsets):
+     *   [+0x00]  0xAA11BB22CC33DD44  ← target of LDR X1,[X29] if pointer OK
+     *   [+0x08]  0x5566778899AABBCC  ← would be loaded if pointer off by 8
+     *   [+0x10]  0xDEAD000000000001  ← would be loaded if pointer off by 16
+     *
+     * If AUTIZA fails to restore kbase the LDR hits a wrong EA and the
+     * effective_address and before checks below expose the failure.
+     */
+    static const uint64_t VAL0 = UINT64_C(0xAA11BB22CC33DD44);
+    static const uint64_t VAL8 = UINT64_C(0x5566778899AABBCC);
+    static const uint64_t VAL16 = UINT64_C(0xDEAD000000000001);
+
+    uint32_t code[] = {
+        enc_paciza(0),         /* PACIZA X0                   */
+        enc_autiza(0),         /* AUTIZA X0 → must restore X0 */
+        enc_ldr_reg(1, 0),     /* LDR X1,[X0] — load via recovered pointer */
+    };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    memcpy(mem + 0x00, &VAL0,  8);
+    memcpy(mem + 0x08, &VAL8,  8);
+    memcpy(mem + 0x10, &VAL16, 8);
+
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[0] = KBASE;
+
+    ce_result_t res;
+    if (!run_ce(code, 3, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, regs, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    EXPECT_EQ(count_mem_entries(&res), 1);
+    instr_trace_entry_t *e = find_mem_entry(&res, 0);
+    EXPECT(e != NULL);
+    if (!e) return;
+
+    /* Pointer must be fully restored — effective_address must equal kbase */
+    EXPECT_EQ(e->metadata.memory_access.effective_address, KBASE);
+    /* Value at kbase offset 0 must be VAL0 */
+    EXPECT_EQ(e->metadata.memory_access.before, VAL0);
+    EXPECT_EQ(e->metadata.memory_access.element_size, (uint64_t)8);
+    EXPECT_EQ(e->metadata.memory_access.is_write, (uint64_t)0);
+    EXPECT_EQ(e->metadata.speculation_nesting, (uint64_t)0);
+    /* gpr[0] must still hold the recovered (stripped) kbase */
+    EXPECT_EQ(e->cpu.gpr[0], KBASE);
+}
+
+/* ---- GROUP 27: PACDA+AUTDA round-trip — D-key variant ------------------ */
+
+/* PACDA X<rd>, X<rn>: data key A */
+static uint32_t enc_pacda(int rd, int rn) {
+    return 0xDAC10800u | ((uint32_t)rn << 5) | (uint32_t)rd;
+}
+/* AUTDA X<rd>, X<rn>: data key A */
+static uint32_t enc_autda(int rd, int rn) {
+    return 0xDAC11800u | ((uint32_t)rn << 5) | (uint32_t)rd;
+}
+
+static void test_integration_pacda_autda_roundtrip(void) {
+    /*
+     * PACDA X0,X29 signs with the DA (data-key A) key, context=kbase (X29).
+     * AUTDA X0,X29 authenticates on arch path; must recover X0=kbase exactly.
+     * Verifies D-key dispatch through ioctl 17/18 kernel handlers.
+     *
+     * Memory layout (3 distinct sentinel values at different offsets):
+     *   [+0x00]  0xDEADBEEFCAFEBABE  ← target of LDR X1,[X0] if pointer OK
+     *   [+0x08]  0x0102030405060708  ← would be loaded if pointer off by 8
+     *   [+0x10]  0xFEDCBA9876543210  ← would be loaded if pointer off by 16
+     *
+     * If AUTDA fails to restore kbase the LDR hits a wrong EA and the
+     * effective_address and before checks below expose the failure.
+     */
+    static const uint64_t VAL0  = UINT64_C(0xDEADBEEFCAFEBABE);
+    static const uint64_t VAL8  = UINT64_C(0x0102030405060708);
+    static const uint64_t VAL16 = UINT64_C(0xFEDCBA9876543210);
+
+    uint32_t code[] = {
+        enc_pacda(0, 29),      /* PACDA X0, X29                    */
+        enc_autda(0, 29),      /* AUTDA X0, X29 → must restore X0  */
+        enc_ldr_reg(1, 0),     /* LDR X1,[X0] — load via recovered pointer */
+    };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    memcpy(mem + 0x00, &VAL0,  8);
+    memcpy(mem + 0x08, &VAL8,  8);
+    memcpy(mem + 0x10, &VAL16, 8);
+
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[0] = KBASE;
+
+    ce_result_t res;
+    if (!run_ce(code, 3, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, regs, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    EXPECT_EQ(count_mem_entries(&res), 1);
+    instr_trace_entry_t *e = find_mem_entry(&res, 0);
+    EXPECT(e != NULL);
+    if (!e) return;
+
+    /* Pointer must be fully restored — effective_address must equal kbase */
+    EXPECT_EQ(e->metadata.memory_access.effective_address, KBASE);
+    /* Value at kbase offset 0 must be VAL0 */
+    EXPECT_EQ(e->metadata.memory_access.before, VAL0);
+    EXPECT_EQ(e->metadata.memory_access.element_size, (uint64_t)8);
+    EXPECT_EQ(e->metadata.memory_access.is_write, (uint64_t)0);
+    EXPECT_EQ(e->metadata.speculation_nesting, (uint64_t)0);
+    /* gpr[0] must still hold the recovered (stripped) kbase */
+    EXPECT_EQ(e->cpu.gpr[0], KBASE);
+}
+
 /* ---- main -------------------------------------------------------------- */
 
 int main(void) {
@@ -1383,6 +1513,8 @@ int main(void) {
 
     test_integration_pac_arch_roundtrip();
     test_integration_pac_spec_xpac();
+    test_integration_paciza_autiza_roundtrip();
+    test_integration_pacda_autda_roundtrip();
 
     printf("\n%d tests, %d failed\n", g_tests_run, g_tests_failed);
     return g_tests_failed ? 1 : 0;

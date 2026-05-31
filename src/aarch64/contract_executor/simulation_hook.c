@@ -76,7 +76,8 @@ static void log_fixup(void *addr, uint32_t original) {
 
 static void apply_fixups(struct cpu_state* state) {
 	for (size_t i = 0; i < fixup_count; ++i) {
-		uint32_t rn = get_rn(fixups[i].original);
+		uint32_t inst = fixups[i].original;
+		uint32_t rn = get_rn(inst);
 		uintptr_t uaddr = cpu_state_read_base_reg(state, rn);
 		cpu_state_write_base_reg(state, rn, (uintptr_t)uaddr2kaddr((void*)uaddr));
 	}

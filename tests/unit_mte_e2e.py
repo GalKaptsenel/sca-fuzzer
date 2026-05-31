@@ -23,9 +23,13 @@ from src.config import CONF
 from src.isa_loader import InstructionSet
 from src.aarch64.aarch64_generator import (
     Aarch64RandomGenerator,
-    MTEInstrumentation, MTEFixPoint,
+    MTEInstrumentation, MTEFixPoint, MTEVariant,
     MTE_SLOT_SIZE,
 )
+
+
+def _unpack_mte(d: dict) -> tuple:
+    return d[MTEVariant.BASELINE], d[MTEVariant.RANDOMIZE_TAG], d[MTEVariant.WRONG_TAG]
 
 _ISA: Optional[InstructionSet] = None
 _TMPDIR = None
@@ -40,6 +44,11 @@ _SANDBOX_BASES = [
 
 def setUpModule():
     global _ISA, _TMPDIR
+    if not os.path.exists('/dev/executor'):
+        raise unittest.SkipTest(
+            "kernel module not loaded — run "
+            "'sudo insmod revizor-executor.ko && sudo chmod 777 /dev/executor' "
+            "to run these tests")
     CONF.load("config.yml")
     _ISA = InstructionSet("base.json", CONF.instruction_categories)
     _TMPDIR = tempfile.mkdtemp()
@@ -134,7 +143,7 @@ class TestMteE2ESlotStructure(unittest.TestCase):
             fix_points, prep_tc, mte = result
             for i, fp in enumerate(fix_points):
                 fp.spec_nesting = i % 2  # alternating arch/spec
-            tc1, tc2, tc3 = mte.instrument_stage2(prep_tc, fix_points, sandbox_base)
+            tc1, tc2, tc3 = _unpack_mte(mte.instrument_stage2(prep_tc, fix_points, sandbox_base))
             cls.cases.append((fix_points, tc1, tc2, tc3, sandbox_base))
             if len(cls.cases) >= 100:
                 break
@@ -244,7 +253,7 @@ class TestMteE2ETc3SpecBehavior(unittest.TestCase):
         fix_points, prep_tc, mte = result
         for i, fp in enumerate(fix_points):
             fp.spec_nesting = spec_nesting_fn(i)
-        tc1, tc2, tc3 = mte.instrument_stage2(prep_tc, fix_points, sandbox_base)
+        tc1, tc2, tc3 = _unpack_mte(mte.instrument_stage2(prep_tc, fix_points, sandbox_base))
         return fix_points, tc1, tc2, tc3
 
     def test_all_arch_tc1_tc2_tc3_all_nop(self):
@@ -302,7 +311,7 @@ class TestMteE2EWrongTagFormula(unittest.TestCase):
             sandbox_base = arch_tag << 56
             expected_wrong = _expected_wrong_upper16(sandbox_base)
 
-            tc1, tc2, tc3 = mte.instrument_stage2(prep_tc, fix_points, sandbox_base)
+            tc1, tc2, tc3 = _unpack_mte(mte.instrument_stage2(prep_tc, fix_points, sandbox_base))
             inst = _find_slot(tc3, fp.slot_id)
             with self.subTest(arch_tag=arch_tag, sandbox=hex(sandbox_base)):
                 self.assertIsNotNone(inst)

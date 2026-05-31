@@ -1,8 +1,10 @@
 #include "simulation.h"
 #include "simulation_output.h"
+#include "simulation_hook.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
+#include <inttypes.h>
 
 static contract_trace_t* trace_log = NULL;
 static size_t current_log_index = 0;
@@ -307,9 +309,14 @@ static instr_trace_entry_t* log_sim_state(struct simulation_state* sim_state) {
 	if(is_memory_access) {
 		assert((uintptr_t)-1 != entry->metadata.memory_access.effective_address && "Effective address should have been set by parse_memory_access_instruction function");
 
-		void* kaddr = (void*)entry->metadata.memory_access.effective_address;
-		void* uaddr = kaddr2uaddr(kaddr);
-		uint64_t value_64bit = *(uint64_t*)uaddr;
+		void* uaddr = kaddr2uaddr((void*)entry->metadata.memory_access.effective_address);
+
+		uint64_t elem_sz = entry->metadata.memory_access.element_size;
+
+		/* Read exactly elem_sz bytes. The sandbox allocation includes a full page of
+		 * padding after mem_size (see main.c) so boundary overflows are safe. */
+		uint64_t value_64bit = 0;
+		memcpy(&value_64bit, uaddr, (size_t)elem_sz);
 		uint64_t write_mask = 0;
 		switch(entry->metadata.memory_access.element_size) {
 			case 1: write_mask = 0xFF; break;

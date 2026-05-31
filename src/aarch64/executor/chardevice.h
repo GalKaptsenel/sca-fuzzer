@@ -1,8 +1,10 @@
 #ifndef ARM64_EXECUTOR_CHARDEV_H
 #define ARM64_EXECUTOR_CHARDEV_H
 
-#define REVISOR_IOC_MAGIC 'r'
+/* Shared kernel/userspace definitions for PAC sign/auth ioctls. */
+#include "userapi/executor_pac_api.h"
 
+/* ioctl serial numbers for kernel-only ioctls. */
 #define REVISOR_CHECKOUT_TEST_CONSTANT		    1
 #define REVISOR_UNLOAD_TEST_CONSTANT		    2
 #define REVISOR_GET_NUMBER_OF_INPUTS_CONSTANT	3
@@ -19,6 +21,9 @@
 #define REVISOR_SET_PAC_KEYS_CONSTANT           14
 #define REVISOR_GET_PAC_KEYS_CONSTANT           15
 #define REVISOR_MTE_TAG_REGION_CONSTANT         16
+/* 17 = REVISOR_PAC_SIGN_CONSTANT  — defined in userapi/executor_pac_api.h */
+/* 18 = REVISOR_PAC_AUTH_CONSTANT  — defined in userapi/executor_pac_api.h */
+/* 19 = REVISOR_PAC_XPAC_CONSTANT  — defined in userapi/executor_pac_api.h */
 
 /*
  * REVISOR_SWAP_PAC_KEYS: atomically replace the calling task's user PAC keys.
@@ -75,6 +80,7 @@ struct mte_tag_region_req {
 #define REVISOR_SWAP_PAC_KEYS		    _IOWR(REVISOR_IOC_MAGIC, REVISOR_SWAP_PAC_KEYS_CONSTANT, struct pac_keys_swap_req)
 #define REVISOR_GET_EXEC_PAC_KEYS	    _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_EXEC_PAC_KEYS_CONSTANT, struct pac_exec_keys_info)
 #define REVISOR_MTE_TAG_REGION		    _IOW(REVISOR_IOC_MAGIC, REVISOR_MTE_TAG_REGION_CONSTANT, struct mte_tag_region_req)
+/* REVISOR_PAC_SIGN and REVISOR_PAC_AUTH — defined in userapi/executor_pac_api.h */
 
 #define REVISOR_DEVICE_NAME		        kernel_module_name
 #define REVISOR_DEVICE_CLASS_NAME	    "revisor_device_class"

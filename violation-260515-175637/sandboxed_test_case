@@ -1,0 +1,70 @@
+.test_case_enter:
+.section .data.main
+.function_0:
+.bb_0.0:
+.macro.measurement_start: NOP
+ORR  w1, w0, #126976 
+CSINV  w0, w0, w1, ge 
+AND x1, x1, 0b1111111111111 // instrumentation
+ADD x1, x1, x29 // instrumentation
+SUB x1, x1, x0 // instrumentation
+LDR  w5, [x1, x0] 
+ORR  w3, w0, w0 
+ADDS  w1, w1, #2493, lsl #0 
+B .bb_0.1 
+.bb_0.1:
+CSEL  w5, w0, w5, al 
+CSINC  x0, x2, x0, ls 
+AND x0, x0, 0b1111111111111 // instrumentation
+ADD x0, x0, x29 // instrumentation
+SUB x0, x0, 1968 // instrumentation
+LDR  x1, [x0, #1968] 
+SDIV  w3, w3, w5 
+CBZ  x3, .bb_0.2 
+B .bb_0.4 
+.bb_0.2:
+AND x1, x1, 0b1111111111111 // instrumentation
+ADD x1, x1, x29 // instrumentation
+LDR  w5, [x1], #136 
+AND x1, x1, 0b1111111111111 // instrumentation
+ADD x1, x1, x29 // instrumentation
+SUB x1, x1, 4095 // instrumentation
+SUB x1, x1, 2861 // instrumentation
+STR  w3, [x1, #6956] 
+B .bb_0.3 
+.bb_0.3:
+AND x1, x1, 0b1111111111111 // instrumentation
+ADD x1, x1, x29 // instrumentation
+LDR  w3, [x1], #108 
+AND x5, x5, 0b1111111111111 // instrumentation
+ADD x5, x5, x29 // instrumentation
+LDR  x3, [x5] 
+AND x4, x4, 0b1111111111111 // instrumentation
+ADD x4, x4, x29 // instrumentation
+SUB x4, x4, x1 // instrumentation
+LDR  w3, [x4, x1] 
+CSNEG  x1, x0, x3, pl 
+ORR  w5, w3, w2 
+SUBS  x4, x3, #3831, lsl #0 
+B .bb_0.4 
+.bb_0.4:
+AND x4, x4, 0b1111111111111 // instrumentation
+ADD x4, x4, x29 // instrumentation
+LDR  w3, [x4] 
+CSINC  x2, x3, x5, vs 
+AND x3, x3, 0b1111111111111 // instrumentation
+ADD x3, x3, x29 // instrumentation
+STR  x5, [x3], #228 
+AND x0, x0, 0b1111111111111 // instrumentation
+ADD x0, x0, x29 // instrumentation
+LDR  x5, [x0], #124 
+AND  w2, w1, w1 
+ADDS  x4, x4, x3, lsl #16 
+AND x0, x0, 0b1111111111111 // instrumentation
+ADD x0, x0, x29 // instrumentation
+LDR  w1, [x0], #72 
+.exit_0:
+.macro.measurement_end: NOP
+B .test_case_exit 
+.section .data.main
+.test_case_exit:

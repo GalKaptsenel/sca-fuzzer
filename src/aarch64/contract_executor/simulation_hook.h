@@ -30,4 +30,5 @@ extern volatile struct cpu_state g_last_hook_cpu_state;
 extern volatile uint32_t g_last_hook_orig_instr;
 void ce_debug_print_last_sim_state(FILE *out);
 
+
 #endif // SIMULATION_HOOK_H

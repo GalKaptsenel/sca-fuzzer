@@ -96,6 +96,11 @@ def _simple_function(*instructions: Instruction) -> Function:
     func.append(bb)
     return func
 
+def _unpack_mte(d: dict) -> tuple:
+    """Extract (baseline, randomize_tag, wrong_tag) TestCases from instrument_stage2 dict."""
+    return d[MTEVariant.BASELINE], d[MTEVariant.RANDOMIZE_TAG], d[MTEVariant.WRONG_TAG]
+
+
 def _fp(slot_id=0, reg="x5", spec_nesting=None) -> MTEFixPoint:
     return MTEFixPoint(slot_id=slot_id, bb=BasicBlock(".bb"),
                        mem_inst=None, reg=reg, slot_insts=[],
@@ -198,10 +203,12 @@ class TestMteWrongTagComputation(unittest.TestCase):
         return (sandbox_upper16 & ~(0xF << 8)) | (wrong_tag << 8)
 
     def _run_stage2(self, sandbox_base: int, spec_nesting: int) -> Tuple[TestCase, TestCase, TestCase]:
+        from src.aarch64.aarch64_generator import MTEVariant
         mte = _MTE()
         fp = _fp(slot_id=0, reg="x5", spec_nesting=spec_nesting)
         prep = _build_prep_tc([fp])
-        return mte.instrument_stage2(prep, [fp], sandbox_base)
+        d = mte.instrument_stage2(prep, [fp], sandbox_base)
+        return d[MTEVariant.BASELINE], d[MTEVariant.RANDOMIZE_TAG], d[MTEVariant.WRONG_TAG]
 
     def test_tc3_spec_slot_has_movk(self):
         _, _, tc3 = self._run_stage2(sandbox_base=0x0600000000000000, spec_nesting=1)
@@ -268,10 +275,12 @@ class TestMteFillSlot(unittest.TestCase):
 class TestMteInstrumentStage2(unittest.TestCase):
 
     def _run(self, fps, sandbox_base=0x0600000000000000, prep=None):
+        from src.aarch64.aarch64_generator import MTEVariant
         mte = _MTE()
         if prep is None:
             prep = _build_prep_tc(fps)
-        return mte.instrument_stage2(prep, fps, sandbox_base)
+        d = mte.instrument_stage2(prep, fps, sandbox_base)
+        return d[MTEVariant.BASELINE], d[MTEVariant.RANDOMIZE_TAG], d[MTEVariant.WRONG_TAG]
 
     # ── TC1: all placeholders → NOP ───────────────────────────────────────
 
@@ -543,7 +552,7 @@ class TestMteErrorCases(unittest.TestCase):
     def test_spec_nesting_none_treated_as_spec(self):
         """spec_nesting=None (CE never reached this access) → treated as spec → IRG/MOVK."""
         fp = _fp(spec_nesting=None)
-        tc1, tc2, tc3 = self.mte.instrument_stage2(_build_prep_tc([fp]), [fp], 0)
+        tc1, tc2, tc3 = _unpack_mte(self.mte.instrument_stage2(_build_prep_tc([fp]), [fp], 0))
         self.assertEqual(_slot_inst(tc1, 0).name, "nop")   # TC1 always NOP
         self.assertEqual(_slot_inst(tc2, 0).name, "irg")   # spec → IRG
         self.assertEqual(_slot_inst(tc3, 0).name, "movk")  # spec → MOVK wrong tag
@@ -551,14 +560,14 @@ class TestMteErrorCases(unittest.TestCase):
     def test_spec_nesting_zero_treated_as_arch(self):
         """spec_nesting=0 → not speculative → NOP in TC2 and TC3."""
         fp = _fp(spec_nesting=0)
-        tc1, tc2, tc3 = self.mte.instrument_stage2(_build_prep_tc([fp]), [fp], 0)
+        tc1, tc2, tc3 = _unpack_mte(self.mte.instrument_stage2(_build_prep_tc([fp]), [fp], 0))
         self.assertEqual(_slot_inst(tc2, 0).name, "nop")
         self.assertEqual(_slot_inst(tc3, 0).name, "nop")
 
     def test_spec_nesting_positive_treated_as_spec(self):
         """spec_nesting=1 (or any >0) → speculative → IRG/MOVK in TC2/TC3."""
         fp = _fp(spec_nesting=1)
-        _, tc2, tc3 = self.mte.instrument_stage2(_build_prep_tc([fp]), [fp], 0)
+        _, tc2, tc3 = _unpack_mte(self.mte.instrument_stage2(_build_prep_tc([fp]), [fp], 0))
         self.assertEqual(_slot_inst(tc2, 0).name, "irg")
         self.assertEqual(_slot_inst(tc3, 0).name, "movk")
 
@@ -634,7 +643,7 @@ class TestMteStage1E2E(unittest.TestCase):
         prep, fix_points = self.mte.instrument_stage1(tc)
         for fp in fix_points:
             fp.spec_nesting = 0
-        tc1, tc2, tc3 = self.mte.instrument_stage2(prep, fix_points, 0x0600000000000000)
+        tc1, tc2, tc3 = _unpack_mte(self.mte.instrument_stage2(prep, fix_points, 0x0600000000000000))
         self.assertIsInstance(tc1, TestCase)
         self.assertIsInstance(tc2, TestCase)
         self.assertIsInstance(tc3, TestCase)
@@ -644,7 +653,7 @@ class TestMteStage1E2E(unittest.TestCase):
         prep, fix_points = self.mte.instrument_stage1(tc)
         for fp in fix_points:
             fp.spec_nesting = 0
-        tc1, _, _ = self.mte.instrument_stage2(prep, fix_points, 0)
+        tc1, _, _ = _unpack_mte(self.mte.instrument_stage2(prep, fix_points, 0))
         inst = _slot_inst(tc1, fix_points[0].slot_id)
         self.assertEqual(inst.name, "nop")
 
