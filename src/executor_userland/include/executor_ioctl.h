@@ -16,7 +16,13 @@
 #define REVISOR_CLEAR_ALL_INPUTS_CONSTANT	    9
 #define REVISOR_GET_TEST_LENGTH_CONSTANT	    10
 #define REVISOR_BATCHED_INPUTS_CONSTANT    	    11
-#define REVISOR_GET_AUX_BUFFER_CONSTANT 		12
+#define REVISOR_SWAP_PAC_KEYS_CONSTANT          12
+#define REVISOR_GET_EXEC_PAC_KEYS_CONSTANT      13
+#define REVISOR_SET_PAC_KEYS_CONSTANT           14
+#define REVISOR_GET_PAC_KEYS_CONSTANT           15
+#define REVISOR_MTE_TAG_REGION_CONSTANT         16
+#define REVISOR_PAC_SIGN_CONSTANT               17
+#define REVISOR_PAC_AUTH_CONSTANT               18
 
 #define REVISOR_CHECKOUT_TEST      	    _IO(REVISOR_IOC_MAGIC, REVISOR_CHECKOUT_TEST_CONSTANT)                   // Can read test case and write test case
 #define REVISOR_UNLOAD_TEST    		    _IO(REVISOR_IOC_MAGIC, REVISOR_UNLOAD_TEST_CONSTANT)
@@ -30,17 +36,7 @@
 #define REVISOR_GET_TEST_LENGTH		    _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_TEST_LENGTH_CONSTANT, uint64_t)
 #define REVISOR_BATCHED_INPUTS		    _IOWR(REVISOR_IOC_MAGIC, REVISOR_BATCHED_INPUTS_CONSTANT, struct input_batch*)
 
-struct aux_buffer_ioctl {
-	size_t size;   // On input: size of user buffer, on output: actual buffer size
-	void* data;    // User pointer to buffer
-};
-
-// If 'data' field is NULL, then the Kernel Module will return the number of bytes needed for the data, in the 'size' field.
-// If 'data' fiels is not NULL,
-// 	On input: 
-// 		'size' field tells the kernel the size of the buffer pointed by 'data' field.
-// 	On output:
-// 		'size' field tells the user the actual number of bytes written to the buffer pointed by the 'data' field.
-#define REVISOR_GET_AUX_BUFFER		    _IOWR(REVISOR_IOC_MAGIC, REVISOR_GET_AUX_BUFFER_CONSTANT, struct aux_buffer_ioctl)
+// PAC/MTE ioctls (12-18) are handled by the kernel module but not dispatched by this tool;
+// their constants are kept in sync with the kernel's chardevice.h for correct numbering.
 
 #endif // EXECUTOR_USERLAND_CHARDEV_H

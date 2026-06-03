@@ -96,6 +96,7 @@ void tagebp_update(uintptr_t address, int taken, uintptr_t target) {
 	PyObject *result = PyObject_CallMethod(tage_instance, "update", "OOO", py_addr, py_taken, py_target);
 	Py_DECREF(py_addr);
 	Py_DECREF(py_taken);
+	Py_DECREF(py_target);
 
 	if (!result) {
 		PyErr_Print();
@@ -126,11 +127,6 @@ void python_finalize() {
     tagebp_destroy_instance();
 
     if (python_initialized) {
-        PyObject *modules = PyImport_GetModuleDict();
-        if (modules) {
-            PyDict_DelItemString(modules, "bootstrap_director");
-        }
-
         Py_FinalizeEx();
         python_initialized = 0;
     }

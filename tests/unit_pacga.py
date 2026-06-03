@@ -28,7 +28,7 @@ def setUpModule():
             "to run these tests")
     from src.aarch64.aarch64_connection import LocalExecutorImp, PacKeys
     CONF.load("config.yml")
-    _executor = LocalExecutorImp('/dev/executor', '/sys/executor', '')
+    _executor = LocalExecutorImp('/dev/executor', '/sys/executor')
     keys = _executor.get_pac_keys()
     _executor.set_pac_keys(keys)
 

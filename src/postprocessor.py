@@ -813,9 +813,9 @@ class InputSequenceMinimizationPass(BaseInputMinimizationPass):
         for iteration in range(n_iterations):
             self.progress.pass_msg(f"Iteration {iteration + 1}")
             org_len = len(inputs)
-            for input_id in range(org_len, 0, -1):
+            for input_id in range(org_len - 1, -1, -1):
                 new_inputs = inputs[0:input_id] + inputs[input_id + 1:]
-                new_violation = self.fuzzer.fuzzing_round(test_case, inputs)
+                new_violation = self.fuzzer.fuzzing_round(test_case, new_inputs)
                 if not new_violation:
                     self.progress.next(False)
                     continue

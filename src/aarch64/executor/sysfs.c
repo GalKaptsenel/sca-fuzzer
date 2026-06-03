@@ -1,10 +1,4 @@
 #include "main.h"
-#include "pac.h"
-#include <linux/mutex.h>
-
-static ssize_t number_of_inputs_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
-    return sprintf(buf, "%llu\n", executor.number_of_inputs);
-}
 
 static ssize_t warmups_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
     return sprintf(buf, "%lu\n", executor.config.uarch_reset_rounds);
@@ -140,68 +134,12 @@ static ssize_t pin_to_core_store(struct kobject *kobj, struct kobj_attribute *at
 	return count;
 }
 
-/* ---------------------------------------------------------------------------
- * PAC signing service
- *
- * Write: "<ptr_hex> <ctx_hex> <mnemonic>\n"
- *   ptr_hex  — 16 hex digits: the raw (unsigned) pointer value to sign
- *   ctx_hex  — 16 hex digits: the modifier/context register value
- *              (ignored for zero-context variants paciza/pacizb/pacdza/pacdzb)
- *   mnemonic — one of: pacia pacib pacda pacdb paciza pacizb pacdza pacdzb
- *
- * Read: "<signed_hex>\n" — 16 hex digits: the signed result from the last write
- *
- * All PAC instructions execute in EL1 (kernel context) with the live key
- * registers, so the result is identical to what a kernel-mode test case would
- * produce.
- * --------------------------------------------------------------------------- */
-static DEFINE_MUTEX(pac_sign_mutex);
-static u64 pac_sign_result;
-
-static ssize_t pac_sign_store(struct kobject *kobj, struct kobj_attribute *attr,
-			      const char *buf, size_t count)
-{
-	u64 ptr = 0, ctx = 0;
-	char mnemonic[16] = { 0 };
-	u64 result;
-
-	if (sscanf(buf, "%llx %llx %15s", &ptr, &ctx, mnemonic) < 3)
-		return -EINVAL;
-
-	if      (!strcmp(mnemonic, "pacia"))  result = pacia(ptr, ctx);
-	else if (!strcmp(mnemonic, "pacib"))  result = pacib(ptr, ctx);
-	else if (!strcmp(mnemonic, "pacda"))  result = pacda(ptr, ctx);
-	else if (!strcmp(mnemonic, "pacdb"))  result = pacdb(ptr, ctx);
-	else if (!strcmp(mnemonic, "paciza")) result = paciza(ptr);
-	else if (!strcmp(mnemonic, "pacizb")) result = pacizb(ptr);
-	else if (!strcmp(mnemonic, "pacdza")) result = pacdza(ptr);
-	else if (!strcmp(mnemonic, "pacdzb")) result = pacdzb(ptr);
-	else return -EINVAL;
-
-	mutex_lock(&pac_sign_mutex);
-	pac_sign_result = result;
-	mutex_unlock(&pac_sign_mutex);
-
-	return count;
-}
-
-static ssize_t pac_sign_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
-{
-	u64 result;
-	mutex_lock(&pac_sign_mutex);
-	result = pac_sign_result;
-	mutex_unlock(&pac_sign_mutex);
-	return sprintf(buf, "%016llx\n", result);
-}
-
-static struct kobj_attribute number_of_inputs_attribute = __ATTR(number_of_inputs, 0444, number_of_inputs_show, NULL);
 static struct kobj_attribute warmups_attribute = __ATTR(warmups, 0666, warmups_show, warmups_store);
 static struct kobj_attribute print_sandbox_base_attribute = __ATTR(print_sandbox_base, 0444, print_sandbox_base_show, NULL);
 static struct kobj_attribute print_code_base_attribute = __ATTR(print_code_base, 0444, print_code_base_show, NULL);
 static struct kobj_attribute enable_pre_run_flush_attribute = __ATTR(enable_pre_run_flush, 0666, enable_pre_run_flush_show, enable_pre_run_flush_store);
 static struct kobj_attribute measurement_mode_attribute = __ATTR(measurement_mode, 0666, measurement_mode_show, measurement_mode_store);
 static struct kobj_attribute pin_to_core_attribute = __ATTR(pin_to_core, 0666, pin_to_core_show, pin_to_core_store);
-static struct kobj_attribute pac_sign_attribute = __ATTR(pac_sign, 0666, pac_sign_show, pac_sign_store);
 
 static ssize_t branch_training_config_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
     set_branch_training_config(buf, count);
@@ -227,17 +165,30 @@ static ssize_t enable_branch_training_show(struct kobject *kobj, struct kobj_att
 static struct kobj_attribute branch_training_config_attribute = __ATTR(branch_training_config, 0666, branch_training_config_show, branch_training_config_store);
 static struct kobj_attribute enable_branch_training_attribute = __ATTR(enable_branch_training, 0666, enable_branch_training_show, enable_branch_training_store);
 
+/* DEBUG: pre-test PHR action (0=flush, 1=random, 2=none) */
+static ssize_t phr_mode_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
+    unsigned int value = 0;
+    sscanf(buf, "%u", &value);
+    debug_phr_mode = (value <= 2) ? (int)value : 0;
+    return count;
+}
+
+static ssize_t phr_mode_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+    return sprintf(buf, "%d\n", debug_phr_mode);
+}
+
+static struct kobj_attribute phr_mode_attribute = __ATTR(phr_mode, 0666, phr_mode_show, phr_mode_store);
+
 static struct attribute *sysfs_attributes[] = {
-	&number_of_inputs_attribute.attr,
 	&warmups_attribute.attr,
 	&print_sandbox_base_attribute.attr,
 	&print_code_base_attribute.attr,
 	&enable_pre_run_flush_attribute.attr,
 	&measurement_mode_attribute.attr,
 	&pin_to_core_attribute.attr,
-	&pac_sign_attribute.attr,
 	&branch_training_config_attribute.attr,
 	&enable_branch_training_attribute.attr,
+	&phr_mode_attribute.attr,
 	NULL, /* need to NULL terminate the list of attributes */
 };
 

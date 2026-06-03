@@ -85,8 +85,8 @@ class InstructionSet(InstructionSetAbstract):
 
             if CONF.supported_instructions and spec.name not in CONF.supported_instructions:
                 return False
-            if spec.category != "general":
-                return False # For now we don't support anything not in general category
+            if "aarch64" in CONF.instruction_set and spec.category != "general":
+                return False  # aarch64 currently supports only the "general" category
 
             if CONF._no_generation:
                 # if we use an existing test case, then instruction filtering is irrelevant
@@ -117,7 +117,7 @@ class InstructionSet(InstructionSetAbstract):
                         and implicit_operand.values[0] in register_blocklist:
                     assert len(implicit_operand.values) == 1
                     return False
-            return False
+            return include_categories is None
 
         skip_list = []
         register_blocklist = set(CONF.register_blocklist) - set(CONF.register_allowlist)

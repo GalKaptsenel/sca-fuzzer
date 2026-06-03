@@ -19,7 +19,7 @@ from src.interfaces import (
     OT, RegisterOperand, MemoryOperand, ImmediateOperand,
 )
 from src.aarch64.aarch64_generator import (
-    MTEInstrumentation, MTEFixPoint,
+    MTEInstrumentation, MTEFixPoint, MTEVariant,
     _SandboxInstrumentationBase,
     MTE_SLOT_SIZE,
 )

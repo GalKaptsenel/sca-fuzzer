@@ -37,8 +37,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from src.config import CONF
 from src.isa_loader import InstructionSet
 from src.aarch64.aarch64_generator import (
-    Aarch64RandomGenerator, MTEInstrumentation, MTEFixPoint, MTE_SLOT_SIZE,
+    Aarch64RandomGenerator, MTEInstrumentation, MTEFixPoint, MTE_SLOT_SIZE, MTEVariant,
 )
+
+
+def _variant_tuple(variants):
+    """instrument_stage2 returns a dict; unpack it as (TC1, TC2, TC3) in variant order."""
+    return (variants[MTEVariant.BASELINE],
+            variants[MTEVariant.RANDOMIZE_TAG],
+            variants[MTEVariant.WRONG_TAG])
 
 _ISA: Optional[InstructionSet] = None
 _TMPDIR = None
@@ -166,7 +173,7 @@ class TestMteRandomPromises(unittest.TestCase):
             sandbox_base = rng.choice(_SANDBOX_BASES)
 
             try:
-                tc1, tc2, tc3 = mte.instrument_stage2(prep_tc, fix_points, sandbox_base)
+                tc1, tc2, tc3 = _variant_tuple(mte.instrument_stage2(prep_tc, fix_points, sandbox_base))
             except Exception as e:
                 cls._SCENARIOS.append((fix_points, None, None, None, sandbox_base, str(e)))
                 continue
@@ -370,7 +377,7 @@ class TestMteRandomWrongTagFormula(unittest.TestCase):
                 fix_points, prep_tc, mte = result
                 for fp in fix_points:
                     fp.spec_nesting = 1  # all spec so MOVK is generated
-                tc1, tc2, tc3 = mte.instrument_stage2(prep_tc, fix_points, sb)
+                tc1, tc2, tc3 = _variant_tuple(mte.instrument_stage2(prep_tc, fix_points, sb))
                 for fp in fix_points:
                     inst = _find_slot(tc3, fp.slot_id)
                     if inst is None or inst.name.lower() != 'movk':
@@ -410,12 +417,12 @@ class TestMteRandomAllCombinations(unittest.TestCase):
             # Run with spec_nesting=1
             for fp in fix_points:
                 fp.spec_nesting = 1
-            _, tc2_1, tc3_1 = mte.instrument_stage2(prep_tc, fix_points, sb)
+            _, tc2_1, tc3_1 = _variant_tuple(mte.instrument_stage2(prep_tc, fix_points, sb))
 
             # Run with spec_nesting=None
             for fp in fix_points:
                 fp.spec_nesting = None
-            _, tc2_n, tc3_n = mte.instrument_stage2(prep_tc, fix_points, sb)
+            _, tc2_n, tc3_n = _variant_tuple(mte.instrument_stage2(prep_tc, fix_points, sb))
 
             for fp in fix_points:
                 i2_1 = _find_slot(tc2_1, fp.slot_id)

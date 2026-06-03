@@ -366,9 +366,9 @@ instruction_blocklist.extend(_buggy_instructions)
 
 register_allowlist: List[str] = [
     ]
-# aarch64 executor internally uses x15...x22, x29, SP, thus, they are excluded
+# Usable by the generator: x0-x5 (plus NZCV/SP via their input slots).
+# Reserved (blocked): x6-x30 and sp — used internally by the executor sandbox/instrumentation.
 register_blocklist: List[str] = [
-    # free - x0 - x14, x23-x29
     *[f'x{number}' for number in range(6, 31)], 'sp',
     *[f'w{number}' for number in range(6, 31)], 'wsp',
     *[f'q{number}' for number in range(32)],

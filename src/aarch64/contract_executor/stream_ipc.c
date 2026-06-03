@@ -69,7 +69,6 @@ void ring_send(void* shm_base, struct ring* r, uint32_t msg_type, const uint8_t*
 
 	if (sizeof(header) + payload_len > r->size) {
 		fprintf(stderr, "Payload+header too big!\n");
-		while(1);
 		exit(1);
 	}
 

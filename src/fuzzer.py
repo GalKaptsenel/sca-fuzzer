@@ -19,7 +19,7 @@ from .isa_loader import InstructionSet
 from .config import CONF
 from .util import Logger, STAT, pretty_htrace
 
-from .aarch64.aarch64_executor import show_context, is_conditional_branch, _FuzzLogger
+from .util import FuzzLogger
 from contextlib import redirect_stdout
 
 class TracingArguments:
@@ -221,6 +221,10 @@ class FuzzerGeneric(Fuzzer):
 
         # 1. Fast path: Collect traces with minimal nesting and repetitions
         args.inputs, args.ctraces = self._boost_inputs(inputs, start_nesting)
+        # Propagate _arch_trace from originals to boosted inputs (same ctrace class → same arch path)
+        n_orig = len(inputs)
+        for i in range(n_orig, len(args.inputs)):
+            args.inputs[i]._arch_trace = inputs[(i - n_orig) % n_orig]._arch_trace
 
         violations, args.ctraces, htraces = self._collect_traces(args)
         if not violations:
@@ -442,8 +446,9 @@ class FuzzerGeneric(Fuzzer):
         taints: List[InputTaint]
 
         # collect taints and contract traces for initial inputs
-        #ctraces, taints = self.model.trace_test_case_with_taints(inputs, nesting)
-        ctraces, taints, _, _tc_variants = self.executor.trace_test_case_with_taints(inputs, nesting)
+        ctraces, taints, traces, _tc_variants = self.executor.trace_test_case_with_taints(inputs, nesting)
+        for inp, tr in zip(inputs, traces):
+            inp._arch_trace = tr
 
         # ensure that we have many inputs in each input classes
         self.input_gen.reset_boosting_state()
@@ -484,11 +489,15 @@ class FuzzerGeneric(Fuzzer):
         test_case.save(f"{violation_dir}/{test_case.asm_path}")
         for i, input_ in enumerate(violation.input_sequence):
             input_.save(f"{violation_dir}/input_{i:04}.bin")
+            arch_trace = getattr(input_, "_arch_trace", None)
+            if arch_trace is None:
+                continue  # only the AArch64 executor records a CE arch trace
+            from .aarch64.aarch64_executor import show_context
             with open(f"{violation_dir}/input_{i:04}_trace_log.txt", "w") as f:
                 with redirect_stdout(f):
-                    show_context(input_._arch_trace, -1)
+                    show_context(arch_trace, -1)
                     print()
-                    input_._arch_trace.pretty_print()
+                    arch_trace.pretty_print()
 
         for m in violation.measurements:
             if m.test_case is not None:
@@ -562,27 +571,12 @@ class FuzzerGeneric(Fuzzer):
                 #f.write(f"* Contract trace (detailed): {ctrace_full}\n")
 
             f.write("\n## Mistraining Configuration\n")
-            if not hasattr(self.executor, 'set_branch_mistraining'):
+            if not hasattr(self.executor, 'branch_mistraining_entries'):
                 f.write("* Mistraining: not supported by this executor\n")
             else:
-                per_input = []
-                for idx, input_ in enumerate(violation.input_sequence):
-                    cer = getattr(input_, '_arch_trace', None)
-                    if not cer:
-                        per_input.append((idx, []))
-                        continue
-                    ce_base = cer[0].cpu.pc
-                    entries = []
-                    for i, ite in enumerate(cer):
-                        if ite.metadata.speculation_nesting != 0:
-                            continue
-                        if not is_conditional_branch(ite.cpu.encoding):
-                            continue
-                        if i + 1 >= len(cer):
-                            continue
-                        taken = (cer[i + 1].cpu.pc != ite.cpu.pc + 4)
-                        entries.append((ite.cpu.pc - ce_base, not taken))
-                    per_input.append((idx, entries))
+                per_input = [(idx, self.executor.branch_mistraining_entries(
+                                  getattr(input_, '_arch_trace', None)))
+                             for idx, input_ in enumerate(violation.input_sequence)]
                 any_set = any(e for _, e in per_input)
                 f.write(f"* Mistraining: {'set' if any_set else 'not set'}\n")
                 for idx, entries in per_input:
@@ -806,7 +800,7 @@ class NoninterfearenceFuzzer(FuzzerGeneric):
            - args.added_htraces: additional hardware traces to be added to the existing ones
         :return: a tuple of violations, contract traces, and hardware traces
         """
-        log = _FuzzLogger.get()
+        log = FuzzLogger.get()
 
         # CE pass: build TC variants per input and capture arch traces for mistraining
         ctraces, taints, traces, tc_variants = self.executor.trace_test_case_with_taints(args.inputs, args.model_nesting)
@@ -874,10 +868,6 @@ class NoninterfearenceFuzzer(FuzzerGeneric):
         violations, args.ctraces, htraces = self._collect_traces(args)
         if not violations:
             STAT.fast_path += 1
-            return None
-        # keep only violations where all measurements are from odd-indexed (non-reference) inputs
-        violations = list(filter(lambda v: all(m.input_id % 2 == 1 for m in v.measurements), violations))
-        if not violations:
             return None
 
         self.reference_htraces = htraces  # we use the fast path traces as a reference

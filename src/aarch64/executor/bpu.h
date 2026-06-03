@@ -66,6 +66,12 @@ void *invalidate_bpu_entries(void);
  * equals the full 300-bit PHR depth (75 records × 4 bits/record). */
 void flush_bpu_phr(void);
 
+/* DEBUG: perturb PHR to a random state (1-16 taken branches, random distances). */
+void set_phr_random(void);
+
+/* DEBUG: pre-test PHR action when branch training is on. 0=flush, 1=random, 2=none. */
+extern int debug_phr_mode;
+
 /* Write [BTI C | CBNZ X0, +4 | RET] at view[loc..loc+2], flush icache, and
  * return &view[loc] as a callable function pointer.  The CBNZ X0 at view[loc+1]
  * trains the base predictor at that PC to TAKEN.  Call the pointer ≤16 times
@@ -84,18 +90,22 @@ int parse_branch_training_config(const char *buf, size_t len,
 /* Format the currently stored training configuration into buf (sysfs show). */
 int format_branch_training_config(char *buf, size_t size);
 
-/* Apply cfg to all MAX_MEASUREMENT_VIEWS code views immediately.
- * Must be called after load_template() so the views hold the assembled TC. */
-void __nocfi apply_branch_training(const branch_training_config_t *cfg);
+/* Apply cfg to active_view only.
+ * Trains the branch at the exact virtual address used by the upcoming
+ * test-case execution, with PRNG-driven PHR perturbation between iterations
+ * to isolate the effect to the base PHT.
+ * Must be called after load_template() so tc_insert_offset_words is set. */
+void __nocfi apply_branch_training(void *active_view,
+                                   const branch_training_config_t *cfg);
 
 /* Parse and store as the active training config.  Training is applied lazily
  * by reapply_branch_training() on each measurement, after load_template()
  * has populated tc_insert_offset_words.  An empty string clears the config. */
 void __nocfi set_branch_training_config(const char *buf, size_t len);
 
-/* Re-apply the previously stored training config to all views.
- * Called automatically by load_template() after every TC reload so that
- * branch training survives test-case updates. */
-void __nocfi reapply_branch_training(void);
+/* Re-apply the previously stored training config to active_view only.
+ * active_view is the code view selected for the upcoming measurement
+ * (returned by invalidate_bpu_entries(), or measurement_code_views[0]). */
+void __nocfi reapply_branch_training(void *active_view);
 
 #endif /* ARM64_EXECUTOR_BPU_H */

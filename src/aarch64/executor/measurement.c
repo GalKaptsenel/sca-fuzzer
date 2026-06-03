@@ -340,10 +340,14 @@ static void __nocfi run_experiments(void) {
 		}
 
 		if (executor.config.enable_branch_training) {
-			reapply_branch_training();
-		}
-
-		if (executor.config.pre_run_flush) {
+			reapply_branch_training(measurement_code);
+			/* DEBUG phr_mode: 0=flush (constant PHR), 1=random PHR, 2=none */
+			if (debug_phr_mode == 1) {
+				set_phr_random();
+			} else if (debug_phr_mode != 2) {
+				flush_bpu_phr();
+			}
+		} else if (executor.config.pre_run_flush) {
 			flush_bpu_phr();
 		}
 		config_pfc();

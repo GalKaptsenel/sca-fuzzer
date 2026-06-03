@@ -17,10 +17,20 @@ Skipped cases:
   - i+1 >= len(cer)               (no successor — can't determine taken/not-taken)
   - cer is None or empty          (clear_branch_training called instead)
 """
+import os
 import types
 import unittest
 
 from src.aarch64.aarch64_executor import Aarch64LocalExecutor, is_conditional_branch
+
+_CODE_BASE_SYSFS = "/sys/executor/print_code_base"
+_MODULE_LOADED = os.path.exists(_CODE_BASE_SYSFS)
+
+
+def _query_code_base() -> int:
+    """Read the executor's code base from the loaded kernel module."""
+    with open(_CODE_BASE_SYSFS) as f:
+        return int(f.read().strip(), 16)
 
 # ---------------------------------------------------------------------------
 # AArch64 conditional branch encodings (bits [31:24])
@@ -54,14 +64,15 @@ class _FakeLocalExecutor:
 
 
 class _Trainer:
-    """Minimal object that exposes set_branch_mistraining without hardware."""
+    """Minimal object that exposes branch mistraining without hardware."""
     def __init__(self):
         self.local_executor = _FakeLocalExecutor()
 
-    set_branch_mistraining = Aarch64LocalExecutor.set_branch_mistraining
+    branch_mistraining_entries = Aarch64LocalExecutor.branch_mistraining_entries
+    apply_branch_mistraining   = Aarch64LocalExecutor.apply_branch_mistraining
 
 
-BASE = 0x1000_0000   # arbitrary code base
+BASE = _query_code_base() if _MODULE_LOADED else 0   # real code base from the kernel module
 
 
 class TestMistrainingEncoding(unittest.TestCase):
@@ -94,13 +105,16 @@ class TestMistrainingEncoding(unittest.TestCase):
         self.assertFalse(is_conditional_branch(0x94000001))
 
 
+@unittest.skipUnless(_MODULE_LOADED, "executor kernel module not loaded")
 class TestMistrainingEntries(unittest.TestCase):
 
     def setUp(self):
         self.trainer = _Trainer()
 
     def _run(self, cer):
-        return self.trainer.set_branch_mistraining(cer)
+        entries = self.trainer.branch_mistraining_entries(cer)
+        self.trainer.apply_branch_mistraining(entries)
+        return entries
 
     # -----------------------------------------------------------------------
     # Core taken / not-taken polarity

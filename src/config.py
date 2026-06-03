@@ -214,8 +214,7 @@ class Conf:
     """ executor_taskset: id of the CPU core on which the executor is running test cases """
     enable_pre_run_flush: int = 1
     """ enable_pre_run_flush: controls BPU flush before measurement.
-    0 = disabled; 1 = per-input view rotation + PHR flush;
-    2 = saturate all base-predictor entries once per batch (slower but thorough) + per-input flush """
+    0 = disabled; 1 = per-input view rotation + PHR flush; """
 
     # ==============================================================================================
     # Analyser

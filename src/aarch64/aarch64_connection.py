@@ -641,7 +641,7 @@ REVISOR_MTE_TAG_REGION = _IOW(REVISOR_IOC_MAGIC, REVISOR_MTE_TAG_REGION_CONSTANT
 
 class LocalExecutorImp(UserlandExecutor):
 
-	def __init__(self, device_path: str, sys_executor_path: str, module_path: str):
+	def __init__(self, device_path: str, sys_executor_path: str):
 		self.executor_device_path: str = device_path
 		self.executor_sysfs: str = sys_executor_path
 		self.current_region: ExecutorRegion = TestCaseRegion()
@@ -649,6 +649,7 @@ class LocalExecutorImp(UserlandExecutor):
 		self._write_sysfs("measurement_mode", b"P")
 		self._write_sysfs("pin_to_core", b"0")
 		self._write_sysfs("enable_pre_run_flush", str(CONF.enable_pre_run_flush).encode())
+		self._write_sysfs("warmups", str(CONF.executor_warmups).encode())
 		self.discard_all_inputs()
 		self.checkout_region(TestCaseRegion())
 		del self.contents 

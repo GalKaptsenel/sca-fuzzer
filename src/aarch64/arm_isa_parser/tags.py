@@ -540,7 +540,7 @@ def get_tags(inst: InstructionSpec) -> list[str]:
     if inst.control_flow or has_label:
         tags.add("BASE-BRANCH")
 
-    if has_flags and not tags & {"BASE-CONDSEL", "BASE-FLAG", "BASE-ARITH"}:
+    if has_flags and not tags & {"BASE-CONDSEL", "BASE-FLAG", "BASE-ARITH", "BASE-BRANCH"}:
         tags.add("BASE-FLAG")
 
     if has_mem and not has_sve_regs:

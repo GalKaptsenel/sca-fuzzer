@@ -1,17 +1,6 @@
 #include "pac.h"
 #include "main.h"
 
-#define write_sysreg(val, reg) \
-    asm volatile("msr " #reg ", %0" :: "r"(val))
-
-#define read_sysreg(reg) ({ \
-    uint64_t __val; \
-    asm volatile("mrs %0, " #reg : "=r"(__val)); \
-    __val; \
-})
-
-#define isb() asm volatile("isb" ::: "memory")
-
 /* ------------------ FEATURE DETECTION ------------------ */
 
 static inline int pauth_apa(void) {
@@ -66,10 +55,6 @@ static void pauth_set_keys(
 	pauth_set_key_APGA(ga_hi, ga_lo);
 }
 
-#define SCTLR_EL1_EnIA (1UL << 31)
-#define SCTLR_EL1_EnIB (1UL << 30)
-#define SCTLR_EL1_EnDA (1UL << 27)
-#define SCTLR_EL1_EnDB (1UL << 13)
 
 static void pauth_enable_all(void) {
 	uint64_t sctlr = read_sysreg(SCTLR_EL1);

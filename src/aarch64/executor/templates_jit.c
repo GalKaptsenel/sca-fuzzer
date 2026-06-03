@@ -564,6 +564,18 @@ int load_jit_template(size_t tc_size) {
 	}
 
 	jit_free(jit);
+
+	/* Replicate the JIT'd code into every view so view rotation
+	 * (invalidate_bpu_entries) executes the real test case rather than zeros.
+	 * Each view is an independent MAX_MEASUREMENT_CODE_SIZE region with the
+	 * same internal layout, so a straight copy preserves all offsets. */
+	for (int v = 1; v < MAX_MEASUREMENT_VIEWS; ++v) {
+		void *dst = executor.measurement_code_views[v];
+		memcpy(dst, executor.measurement_code_views[0], MAX_MEASUREMENT_CODE_SIZE);
+		flush_icache_range((unsigned long)dst,
+				   (unsigned long)dst + MAX_MEASUREMENT_CODE_SIZE);
+	}
+
 	return expanded_size;
 }
 

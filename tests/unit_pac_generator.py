@@ -89,7 +89,7 @@ def setUpModule():
         CONF.load("config.yml")
         _isa          = InstructionSet("base.json", CONF.instruction_categories)
         _target_desc  = Aarch64TargetDesc()
-        _executor     = LocalExecutorImp('/dev/executor', '/sys/executor', '')
+        _executor     = LocalExecutorImp('/dev/executor', '/sys/executor')
         # Fix PAC keys so _pac_sign (Python) and the CE both use the same key context.
         _ce           = ContractExecutorService(_CE_BINARY)
         keys = PacKeys()
@@ -460,10 +460,15 @@ class TestStage2VariantContracts(unittest.TestCase):
         for _, fix_points, variants, _inp in self.cases:
             tc2 = variants[PACVariant.AUTH_CORRECT]
             for fp in fix_points:
+                auth_mn = fp.committed_inst.name.lower()
                 s = _slot(tc2, fp.slot_id)
                 with self.subTest(slot=fp.slot_id):
-                    self.assertEqual(s[AUTH_SLOT_POS].name,
-                                     fp.committed_inst.name.lower())
+                    if fp.correct_sig is None:
+                        # CE never reached the slot → treated as a speculative flow:
+                        # TC2 strips with XPAC (simulating a correct auth with no real signature).
+                        self.assertEqual(s[AUTH_SLOT_POS].name, _AUTH_TO_XPAC[auth_mn])
+                    else:
+                        self.assertEqual(s[AUTH_SLOT_POS].name, auth_mn)
 
     def test_tc3_arch_slot_identical_to_tc2(self):
         for _, fix_points, variants, _inp in self.cases:

@@ -5,9 +5,12 @@ Copyright (C) Microsoft Corporation
 SPDX-License-Identifier: MIT
 """
 
+import os
+import random
 import xxhash
 from datetime import datetime
-from typing import NoReturn, Dict, List
+from pathlib import Path
+from typing import NoReturn, Dict, List, Optional, Any
 from pprint import pformat
 from traceback import print_stack
 from collections import Counter
@@ -664,3 +667,90 @@ def stable_hash_bytes(data: bytes) -> int:
 
 def stable_hash_intlist(data: List[int]) -> int:
     return xxhash.xxh64(str(data), seed=0).intdigest()
+
+
+class FuzzLogger:
+    """Append-only per-process logger writing to logs/SESSION_DIR/.
+
+    All writes are line-buffered so the log survives a machine crash.
+    Verbosity levels:
+      0 — off (no logging)
+      1 — structured per-component log files under logs/SESSION_DIR/
+      2 — level 1 + verbose CE trace comparison tables
+    """
+    _instance: Optional['FuzzLogger'] = None
+    _VERBOSITY: int = 2
+
+    @classmethod
+    def get(cls) -> 'FuzzLogger':
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
+    def __init__(self) -> None:
+        import string
+        self._null = open(os.devnull, "w")
+        self._channels: Dict[str, Any] = {}   # name → file handle
+        self._active = "session"
+        self._session_dir: Optional[Path] = None
+
+        if self._VERBOSITY == 0:
+            return
+
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        rand_id = ''.join(random.choices(string.hexdigits[:16], k=6)).lower()
+        self._session_dir = Path("logs") / f"{ts}_{rand_id}"
+        self._session_dir.mkdir(parents=True, exist_ok=True)
+
+        self.register("session", "session.log", min_verbosity=1)
+        self.w(f"=== fuzzer session {ts}_{rand_id} ===", ch="session")
+        self.w(f"log directory: {self._session_dir}\n", ch="session")
+
+    def register(self, name: str, rel_path: str, min_verbosity: int = 1) -> Optional[str]:
+        """Open and register a named log channel inside the session directory.
+
+        The channel file is only created if _VERBOSITY >= min_verbosity; writes to an
+        unregistered channel are silently dropped. Safe to call repeatedly with the same name.
+        """
+        if name in self._channels:
+            return None
+        if self._session_dir is not None and self._VERBOSITY >= min_verbosity:
+            full = self._session_dir / rel_path
+            full.parent.mkdir(parents=True, exist_ok=True)
+            self._channels[name] = open(full, "w", buffering=1)
+        return name
+
+    def use(self, channel: str) -> 'FuzzLogger':
+        """Switch the active channel; returns self for chaining."""
+        self._active = channel
+        return self
+
+    def _fh(self, ch: Optional[str] = None) -> Any:
+        name = ch if ch is not None else self._active
+        return self._channels.get(name, self._null)
+
+    def w(self, msg: str, ch: Optional[str] = None) -> None:
+        """Write to the active channel (or ch if specified)."""
+        self._fh(ch).write(msg + "\n")
+
+    def wp(self, msg: str) -> None:
+        """Write to the session channel (persistent high-level events)."""
+        self.w(msg, ch="session")
+
+    def broadcast(self, msg: str, channels: List[str]) -> None:
+        """Write the same line to every listed channel."""
+        for ch in channels:
+            self.w(msg, ch=ch)
+
+    def header(self, title: str, ch: Optional[str] = None) -> None:
+        sep = "=" * 72
+        self.w(f"\n{sep}\n  {title}\n{sep}", ch=ch)
+
+    def ensure_flushed(self) -> None:
+        """fsync all open channels so data survives a machine crash."""
+        for fh in self._channels.values():
+            try:
+                fh.flush()
+                os.fsync(fh.fileno())
+            except OSError:
+                pass

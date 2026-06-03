@@ -93,7 +93,7 @@ class Aarch64TargetDesc(TargetDesc):
     reg_denormalized = {
         **{f"{i}": {64: f"x{i}", 32: f"w{i}"} for i in range(31)},
         **{f"V{i}": {128: f"v{i}", 64: f"d{i}", 32: f"s{i}", 16: f"h{i}", 8: f"b{i}"}
-           for i in range(31)},
+           for i in range(32)},
         "SP": {64: "sp", 32: "wsp"},
         "ZERO": {64: "xzr", 32: "wzr"},
         "PC": {64: "pc", 32: "pc", 16: "pc", 8: "pc"},

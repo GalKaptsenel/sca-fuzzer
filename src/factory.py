@@ -11,8 +11,7 @@ from . import input_generator, analyser, postprocessor, interfaces, model
 from .x86 import (x86_model, x86_executor, x86_fuzzer, x86_generator, x86_asm_parser,
                   get_spec as x86_get_spec)
 from .aarch64 import (aarch64_model, aarch64_executor, aarch64_fuzzer, aarch64_generator, aarch64_asm_parser,
-                      get_spec as aarch64_get_spec, aarch64_connection, arm_isa_parser,
-                      aarch64_input_generator)
+                      arm_isa_parser, aarch64_input_generator)
 from .config import CONF, ConfigException
 from .fuzzer import NoninterfearenceFuzzer
 
@@ -167,21 +166,7 @@ def get_model(bases: Tuple[int, int], enable_mismatch_check_mode: bool = False) 
 
 
 def get_executor(enable_mismatch_check_mode: bool = False) -> interfaces.Executor:
-    args = [enable_mismatch_check_mode]
-
-    if 'aarch64-android' == CONF.executor:
-        connection = aarch64_connection.ADBConnection()
-        workdir = '/data/local/tmp/revizor'
-        args = [connection, workdir] + args
-    elif 'aarch64-remote' == CONF.executor:
-        connection = aarch64_connection.SSHConnection(username="rvzr_prj", password="Abc1234#")
-        workdir = '/home/rvzr_prj/revizor'
-        args = [connection, workdir] + args
-    elif 'aarch64' == CONF.executor:
-        workdir = '/home/rvzr_prj/revizor'
-        args = [workdir] + args
-
-    return _get_from_config(EXECUTORS, CONF.executor, "executor", *args)
+    return _get_from_config(EXECUTORS, CONF.executor, "executor", enable_mismatch_check_mode)
 
 
 def get_noninterference_executor(generator: interfaces.Generator,
@@ -198,8 +183,7 @@ def get_noninterference_executor(generator: interfaces.Generator,
         raise ConfigException(
             f"ERROR: non-interference executor requires aarch64 instruction set; "
             f"got '{CONF.instruction_set}'")
-    workdir = '/home/rvzr_prj/revizor'
-    return aarch64_executor.Aarch64NonInterferenceExecutor(workdir, generator, enable_mismatch_check_mode)
+    return aarch64_executor.Aarch64NonInterferenceExecutor(generator, enable_mismatch_check_mode)
 
 
 def get_analyser() -> interfaces.Analyser:

@@ -16,9 +16,6 @@
 #define KEY_HTRACES		"htraces"
 #define KEY_PFCS		"pfcs"
 #define KEY_MEMORY_IDS_BITMAP	"memory_ids_bitmap"
-#define KEY_AUX_BUFFER          "aux_buffer"
-#define KEY_AUX_BUFFER_SIZE     "size"
-#define KEY_AUX_BUFFER_DATA     "data_b64"
 
 struct trace_json {
 	uint64_t order;
@@ -29,7 +26,6 @@ struct trace_json {
 	uint64_t* pfcs;
 	char** memory_ids_bitmap;
 	void* arrays[HTRACE_WIDTH + NUM_PFC + WIDTH_MEMORY_IDS];
-	struct buffer_t* aux_buffer;
 };
 
 typedef enum {

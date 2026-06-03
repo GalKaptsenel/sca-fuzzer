@@ -32,11 +32,14 @@ from capstone.arm64 import (ARM64_OP_REG, ARM64_OP_MEM,
                              ARM64_CC_GE, ARM64_CC_LT, ARM64_CC_GT, ARM64_CC_LE,
                              ARM64_CC_AL, ARM64_CC_NV)
 
+_CAPSTONE = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
+_CAPSTONE.detail = True
+
 from .aarch64_generator import Aarch64Printer, Aarch64ASMLayout, Aarch64Generator
 from .. import ConfigurableGenerator
 from ..interfaces import HTrace, Input, TestCase, Executor, HardwareTracingError, Analyser, CTrace, InputTaint, TargetDesc
 from ..config import CONF
-from ..util import Logger, STAT
+from ..util import Logger, STAT, FuzzLogger
 from .aarch64_target_desc import Aarch64TargetDesc, NZCVScheme
 from .aarch64_connection import LocalExecutorImp, TestCaseRegion, InputRegion, PacKeys
 from .aarch64_generator import Pass, Aarch64SandboxPass, PACInstrumentation, FixPoint, AUTH_SLOT_POS, SLOT_SIG_POS, MTEInstrumentation, MTEFixPoint, PACVariant, MTEVariant, _AUTH_TO_PAC
@@ -54,108 +57,6 @@ _C_TAKEN  = "\033[36m"    # cyan   — branch taken
 _C_NTAKEN = "\033[35m"    # magenta — branch not taken
 _C_BOLD   = "\033[1m"
 _C_DIM    = "\033[2m"
-
-# ==================================================================================================
-# Fuzzer logger — one append-only log file per process, written to logs/session_TIMESTAMP.log.
-# All writes are line-buffered (flushed immediately) so the log survives a machine crash.
-# ==================================================================================================
-class _FuzzLogger:
-    _instance: Optional['_FuzzLogger'] = None
-    # Verbosity levels:
-    #   0 — off (no logging)
-    #   1 — normal: structured per-component log files under logs/SESSION_DIR/
-    #   2 — verbose: level 1 + CE trace comparison table written to comparison.log
-    _VERBOSITY: int = 0
-
-    @classmethod
-    def get(cls) -> '_FuzzLogger':
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
-
-    def __init__(self) -> None:
-        import string
-        self._null    = open(os.devnull, "w")
-        self._channels: Dict[str, Any] = {}   # name → file handle
-        self._active  = "session"
-        self._session_dir: Optional[Path] = None
-
-        if self._VERBOSITY == 0:
-            return
-
-        ts      = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        rand_id = ''.join(random.choices(string.hexdigits[:16], k=6)).lower()
-        self._session_dir = Path("logs") / f"{ts}_{rand_id}"
-        self._session_dir.mkdir(parents=True, exist_ok=True)
-
-        # Only session.log by default — everything else is registered on demand.
-        self.register("session", "session.log", min_verbosity=1)
-        self.w(f"=== PAC fuzzer session {ts}_{rand_id} ===", ch="session")
-        self.w(f"log directory: {self._session_dir}\n",      ch="session")
-
-    # ------------------------------------------------------------------
-    # Channel registration
-    # ------------------------------------------------------------------
-
-    def register(self, name: str, rel_path: str, min_verbosity: int = 1) -> Optional[str]:
-        """Open and register a named log channel inside the session directory.
-
-        Returns a channel descriptor (cd) — the channel name — which can be
-        passed directly to w(), header(), use(), and broadcast().
-
-        The channel file is only created if _VERBOSITY >= min_verbosity;
-        writes to an unregistered channel are silently dropped.
-        Safe to call multiple times with the same name (returns the name
-        immediately without re-opening).  rel_path may contain subdirectories
-        — they are created automatically.
-        """
-        if name in self._channels:
-            return None  # already registered
-        if self._session_dir is not None and self._VERBOSITY >= min_verbosity:
-            full = self._session_dir / rel_path
-            full.parent.mkdir(parents=True, exist_ok=True)
-            self._channels[name] = open(full, "w", buffering=1)
-        return name
-
-    def use(self, channel: str) -> '_FuzzLogger':
-        """Switch the active channel; returns self for chaining."""
-        self._active = channel
-        return self
-
-    # ------------------------------------------------------------------
-    # Write primitives
-    # ------------------------------------------------------------------
-
-    def _fh(self, ch: Optional[str] = None) -> Any:
-        name = ch if ch is not None else self._active
-        return self._channels.get(name, self._null)
-
-    def w(self, msg: str, ch: Optional[str] = None) -> None:
-        """Write to the active channel (or ch if specified)."""
-        self._fh(ch).write(msg + "\n")
-
-    def wp(self, msg: str) -> None:
-        """Write to the session channel (persistent high-level events)."""
-        self.w(msg, ch="session")
-
-    def broadcast(self, msg: str, channels: List[str]) -> None:
-        """Write the same line to every listed channel."""
-        for ch in channels:
-            self.w(msg, ch=ch)
-
-    def header(self, title: str, ch: Optional[str] = None) -> None:
-        sep = "=" * 72
-        self.w(f"\n{sep}\n  {title}\n{sep}", ch=ch)
-
-    def ensure_flushed(self) -> None:
-        """fsync all open channels so data survives a machine crash."""
-        for fh in self._channels.values():
-            try:
-                fh.flush()
-                os.fsync(fh.fileno())
-            except OSError:
-                pass
-
 
 def _fmt_ce_entry(ite, code_base: int) -> str:
     disas = disassemble_instruction(ite.cpu.encoding, ite.cpu.pc) or "<unk>"
@@ -176,7 +77,7 @@ def _fmt_ce_entry(ite, code_base: int) -> str:
     return f"[{nest}]+{offset:04x}  {disas:<28}  {'  '.join(reg_parts)}{ea}"
 
 
-def log_start_test_case(log: _FuzzLogger, tc_counter: int) -> None:
+def log_start_test_case(log: FuzzLogger, tc_counter: int) -> None:
     sep = "#" * 72
     ts  = datetime.datetime.now().strftime("%H:%M:%S.%f")
     for line in (f"\n{sep}", f"  TEST CASE #{tc_counter}   {ts}", f"{sep}\n"):
@@ -184,7 +85,7 @@ def log_start_test_case(log: _FuzzLogger, tc_counter: int) -> None:
     log.use("session")
 
 
-def log_input(log: _FuzzLogger, inp_idx: int, inp, ch: Optional[str] = None) -> None:
+def log_input(log: FuzzLogger, inp_idx: int, inp, ch: Optional[str] = None) -> None:
     log.header(f"INPUT  inp={inp_idx}", ch=ch)
     data     = inp.tobytes()
     reg_blob = data[0x2000:]
@@ -202,7 +103,7 @@ def log_input(log: _FuzzLogger, inp_idx: int, inp, ch: Optional[str] = None) -> 
     log.w("", ch=ch)
 
 
-def log_ce_trace(log: _FuzzLogger, label: str, inp_idx: int, cer_list: List,
+def log_ce_trace(log: FuzzLogger, label: str, inp_idx: int, cer_list: List,
                  ch: Optional[str] = None) -> None:
     log.header(f"CE TRACE: {label}  inp={inp_idx}  rows={len(cer_list)}", ch=ch)
     if not cer_list:
@@ -236,7 +137,7 @@ def log_ce_trace(log: _FuzzLogger, label: str, inp_idx: int, cer_list: List,
     log.w("", ch=ch)
 
 
-def log_bb_map(log: _FuzzLogger, variant_label: str, inp_idx: int,
+def log_bb_map(log: FuzzLogger, variant_label: str, inp_idx: int,
                sorted_pcs: List[int], bb_info: Dict[int, Dict],
                pc_to_id: Dict[int, int], code_base: int, entry_x7: int,
                ch: Optional[str] = None) -> None:
@@ -255,7 +156,7 @@ def log_bb_map(log: _FuzzLogger, variant_label: str, inp_idx: int,
     log.w("", ch=ch)
 
 
-def log_tc_binary(log: _FuzzLogger, label: str, tc_bytes: bytes,
+def log_tc_binary(log: FuzzLogger, label: str, tc_bytes: bytes,
                   ch: Optional[str] = None) -> None:
     log.header(f"TC BINARY: {label}  ({len(tc_bytes)} bytes)", ch=ch)
     for row_off in range(0, len(tc_bytes), 16):
@@ -264,29 +165,27 @@ def log_tc_binary(log: _FuzzLogger, label: str, tc_bytes: bytes,
         log.w(f"  {row_off:04x}:  {hex_part}", ch=ch)
     log.w("\n  Disassembly:", ch=ch)
     try:
-        from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
-        cs = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
-        for insn in cs.disasm(tc_bytes, 0):
+        for insn in _CAPSTONE.disasm(tc_bytes, 0):
             log.w(f"    +{insn.address:04x}:  {insn.mnemonic} {insn.op_str}", ch=ch)
     except Exception as exc:
         log.w(f"  [disasm error: {exc}]", ch=ch)
     log.w("", ch=ch)
 
 
-def log_pac_op(log: _FuzzLogger, op: str, mnemonic: str,
+def log_pac_op(log: FuzzLogger, op: str, mnemonic: str,
                ptr: int, ctx: int, result: int) -> None:
     log.w(f"  PAC {op:<6}  {mnemonic:<10}  ptr=0x{ptr:016x}  "
           f"ctx=0x{ctx:016x}  =>  0x{result:016x}", ch="pac_signing")
 
 
-def log_slot(log: _FuzzLogger, inp_idx: int, fp) -> None:
+def log_slot(log: FuzzLogger, inp_idx: int, fp) -> None:
     cs  = f"0x{fp.correct_sig:04x}" if fp.correct_sig is not None else "None"
     alt = f"0x{fp.alt_sig:04x}"     if fp.alt_sig     is not None else "None"
     log.w(f"  slot={fp.slot_id:2d}  spec_nesting={str(fp.spec_nesting):<6}  "
           f"correct_sig={cs}  alt_sig={alt}", ch="pac_signing")
 
 
-def log_mistraining(log: _FuzzLogger, tc_counter: int, inp_idx: int,
+def log_mistraining(log: FuzzLogger, tc_counter: int, inp_idx: int,
                     entries: List[Tuple[int, bool]], cer,
                     ch: Optional[str] = None) -> None:
     """Log branch mistraining config with arch-flow context."""
@@ -490,17 +389,13 @@ class Aarch64Executor(Executor):
 
 class Aarch64LocalExecutor(Aarch64Executor):
 
-    def __init__(self, workdir: str, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         Aarch64Executor.__init__(self, *args, **kwargs)
 
         self.test_case: Optional[TestCase] = None
-        self.workdir = workdir
         self._tc_counter: int = 0
-        self.local_executor = LocalExecutorImp(
-				'/dev/executor',
-				'/sys/executor',
-				f'{self.workdir}/revizor-executor.ko',
-			)
+        self._sandboxed_cache = None
+        self.local_executor = LocalExecutorImp('/dev/executor', '/sys/executor')
 
         if self.target_desc.cpu_desc.vendor.lower() != "aarch64":  # Technically ARM currently does not produce ARM processors, and other vendors do produce ARM processors
             self.LOG.error(
@@ -528,22 +423,24 @@ class Aarch64LocalExecutor(Aarch64Executor):
         """
         return self.local_executor.sandbox_base, self.local_executor.code_base
 
-    def set_branch_mistraining(self, cer) -> None:
-        """Train base predictor opposite to CE branch outcomes for one input.
+    def branch_mistraining_entries(self, cer) -> List[Tuple[int, bool]]:
+        """Compute the per-branch mistraining config from a CE trace, without touching the device.
 
-        For each architectural conditional branch in cer, saturates the base predictor
+        For each architectural conditional branch in cer, the base predictor must be saturated
         in the opposite direction so the first HW execution always mispredicts it.
-        Must be called once per input, before the corresponding HW trace call.
 
-        :param cer: ContractExecutionResult for the input about to be measured
+        :param cer: ContractExecutionResult for the input, or None
+        :return: list of (byte_offset, train_taken) entries; empty if no branches to train
         """
+        # Mistraining temporarily disabled: return [] so apply_branch_mistraining()
+        # clears training. Re-enable by removing this line.
+        return []
+
         if cer is None or len(cer) == 0:
-            self.local_executor.clear_branch_training()
             return []
 
         ce_code_base = cer[0].cpu.pc
         entries = []
-
         for i, ite in enumerate(cer):
             if ite.metadata.speculation_nesting != 0:
                 continue
@@ -551,40 +448,48 @@ class Aarch64LocalExecutor(Aarch64Executor):
                 continue
             if i + 1 >= len(cer):
                 continue
-
             taken = (cer[i + 1].cpu.pc != ite.cpu.pc + 4)
             byte_offset = ite.cpu.pc - ce_code_base
             entries.append((byte_offset, not taken))  # opposite → guaranteed mispredict
+        return entries
 
+    def apply_branch_mistraining(self, entries: List[Tuple[int, bool]]) -> None:
+        """Apply a precomputed mistraining config to the device for the next trace.
+
+        An empty list clears any training left over from a previous input, so an input
+        with no branches to train is always measured with a clean predictor state.
+        """
         if entries:
             self.local_executor.write_branch_training_config(entries)
         else:
             self.local_executor.clear_branch_training()
-        return entries
 
     def load_test_case(self, test_case: TestCase):
         self._tc_counter += 1
-        log = _FuzzLogger.get()
+        log = FuzzLogger.get()
         log.register("basic_flow", "basic/flow.log", min_verbosity=1)
         log.register("basic_hw",   "basic/hw.log",  min_verbosity=1)
         log.wp(f"[TC #{self._tc_counter}] loading test case")
         written_tc = self._write_test_case(test_case)
         self.curr_test_case = test_case
         self.ignore_list = set()
+        self._sandboxed_cache = None  # invalidate cached sandboxed binary for the new TC
         return written_tc
 
     def _write_test_case(self, test_case: TestCase) -> None:
         self.test_case = test_case
 
     def _write_mod_test_case_to_local_executor(self, local_name: str, passes: List[Pass]):
-        patched = copy.deepcopy(self.test_case)
-        pass_on_test_case(patched, passes)
-        layout: Aarch64ASMLayout = Aarch64ASMLayout(patched)
-        assembly = Aarch64Printer(self.target_desc).print_layout(layout)
-        tc_bytes = ConfigurableGenerator.in_memory_assemble(assembly)
+        if self._sandboxed_cache is None:
+            patched = copy.deepcopy(self.test_case)
+            pass_on_test_case(patched, passes)
+            layout: Aarch64ASMLayout = Aarch64ASMLayout(patched)
+            assembly = Aarch64Printer(self.target_desc).print_layout(layout)
+            tc_bytes = ConfigurableGenerator.in_memory_assemble(assembly)
+            patched.asm_path, patched.obj_path, patched.bin_path = local_name, local_name, local_name
+            self._sandboxed_cache = (tc_bytes, patched)
 
-        patched.asm_path, patched.obj_path, patched.bin_path = local_name, local_name, local_name
-
+        tc_bytes, patched = self._sandboxed_cache
         self.local_executor.checkout_region(TestCaseRegion())
         self.local_executor.write(tc_bytes)
 
@@ -614,36 +519,50 @@ class Aarch64LocalExecutor(Aarch64Executor):
         n_inputs = len(inputs)
         STAT.executor_reruns += n_reps * n_inputs
 
-        self.local_executor.discard_all_inputs()
-
         sandboxed_test_case = self._write_mod_test_case_to_local_executor("sandboxed_test_case", [Aarch64SandboxPass()])
-        iid = self.local_executor.allocate_iid()
-        self.local_executor.checkout_region(InputRegion(iid))
 
         input_to_trace_list = defaultdict(list)
         counter_log = defaultdict(list)
         expected_log = {}
-        log = _FuzzLogger.get()
+        log = FuzzLogger.get()
 
-        for rep in range(n_reps):
-            for idx, i in enumerate(inputs):
-                self.local_executor.write(ExecutorMemory(_input_bytes_with_pstate(i)))
-                trained_entries = []
-                if hasattr(i, "_arch_trace"):
-                    trained_entries = self.set_branch_mistraining(i._arch_trace)
-                    if rep == 0 and trained_entries:
-                        log_mistraining(log, self._tc_counter, idx, trained_entries,
-                                        i._arch_trace, ch="basic_hw")
-                if idx not in expected_log:
-                    expected_log[idx] = len(trained_entries)
-                assert expected_log[idx] == len(trained_entries)
+        payloads = [ExecutorMemory(_input_bytes_with_pstate(i)) for i in inputs]
+        train_entries = [self.branch_mistraining_entries(getattr(i, "_arch_trace", None))
+                         for i in inputs]
+        for idx, entries in enumerate(train_entries):
+            expected_log[idx] = len(entries)
+            if entries:
+                log_mistraining(log, self._tc_counter, idx, entries,
+                                inputs[idx]._arch_trace, ch="basic_hw")
+
+        # Batch inputs sharing a mistraining config (the kernel applies one global config per
+        # trace and measures every loaded input in that trace).
+        groups: Dict[Tuple, List[int]] = defaultdict(list)
+        for idx, entries in enumerate(train_entries):
+            groups[tuple(entries)].append(idx)
+
+        for entries, idxs in groups.items():
+            self.local_executor.discard_all_inputs()
+            iids = []
+            for idx in idxs:
+                iid = self.local_executor.allocate_iid()
+                self.local_executor.checkout_region(InputRegion(iid))
+                self.local_executor.write(payloads[idx])
+                iids.append(iid)
+            self.apply_branch_mistraining(list(entries))
+            for _ in range(n_reps):
                 self.local_executor.trace()
-                hwm = self.local_executor.hardware_measurement()
-                input_to_trace_list[idx].append(hwm.htrace)
-                counter_log[idx].append(hwm.pfcs[2])
+                for iid, idx in zip(iids, idxs):
+                    self.local_executor.checkout_region(InputRegion(iid))
+                    hwm = self.local_executor.hardware_measurement()
+                    input_to_trace_list[idx].append(hwm.htrace)
+                    counter_log[idx].append(hwm.pfcs[2])
+
         for idx, vals in counter_log.items():
-            avg = 100 * (((1.0 * sum(vals)) / len(vals)) / expected_log[idx]) if expected_log[idx] > 0 else "NA"
-            log.w(f"  input={idx} miss-rate: {sum(vals)/len(vals):.1f}/{expected_log[idx]} = {avg}%  reps={vals}",
+            avg_m = sum(vals) / len(vals)
+            exp = expected_log[idx]
+            rate = f" = {100 * avg_m / exp:.0f}% of expected" if exp > 0 else ""
+            log.w(f"  input={idx} mispredicts: avg={avg_m:.2f}{rate}  reps={vals}",
                   ch="basic_hw")
 
         results = []
@@ -678,6 +597,16 @@ class Aarch64LocalExecutor(Aarch64Executor):
         tc_bytes = ConfigurableGenerator.in_memory_assemble(assembly)
 
         sandbox_base, _ = self.read_base_addresses()
+
+        clause = CONF.contract_execution_clause
+        if any(c in clause for c in ("seq", "no_speculation")):
+            ct = ContractType.ARCH_ONLY
+        elif "bpu_neoverse_n3" in clause:
+            ct = ContractType.BPU_NEOVERSE_N3
+        else:
+            ct = ContractType.ALWAYS_MISPREDICT
+        nesting_depth = 0 if ct == ContractType.ARCH_ONLY else 5
+
         traces: List[ContractExecutionResult] = []
 
         for inp in inputs:
@@ -687,8 +616,10 @@ class Aarch64LocalExecutor(Aarch64Executor):
             view = memoryview(tc_regs).cast('Q')
             _reconstruct_pstate(view)
             tc_regs = bytes(tc_regs)
-            execution = ContractExecution(tc_bytes, tc_memory, tc_regs, SimArch.RVZR_ARCH_AARCH64, 5, 10,
-                                          req_mem_base_virt=sandbox_base)
+            execution = ContractExecution(tc_bytes, tc_memory, tc_regs, SimArch.RVZR_ARCH_AARCH64,
+                                          nesting_depth, 10,
+                                          req_mem_base_virt=sandbox_base,
+                                          contract_type=ct)
             cer = self._contract_executor.run(execution)
             traces.append(cer)
 
@@ -712,8 +643,8 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
        Returns ctraces/taints derived from the stage-1 CE traces.
     """
 
-    def __init__(self, workdir: str, generator: Aarch64Generator, *args, **kwargs):
-        super().__init__(workdir, *args, **kwargs)
+    def __init__(self, generator: Aarch64Generator, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self._generator: Aarch64Generator = generator
         self._pac_instrumentation = PACInstrumentation(
             self._generator, CONF.pac_xpac_weight, CONF.pac_auth_weight)
@@ -726,7 +657,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         self._last_stage1_traces: Optional[List[ContractExecutionResult]] = None
 
     def load_test_case(self, test_case: TestCase):
-        log = _FuzzLogger.get()
+        log = FuzzLogger.get()
         # Register channels on first use; subsequent calls are no-ops.
         log.register("pac_flow",  "pac/flow.log",   min_verbosity=1)
         log.register("pac_stage1","pac/stage1.log", min_verbosity=2)
@@ -764,7 +695,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         self._stage1_fix_points = fix_points
         self._stage1_tc_bytes = tc_bytes
         self._stage1_slot_offset_to_fp = xpac_offset_to_fp
-        _FuzzLogger.get().wp(f"  [STAGE1] fix_points={len(fix_points)}")
+        FuzzLogger.get().wp(f"  [STAGE1] fix_points={len(fix_points)}")
 
     def _write_prebuilt_tc_to_executor(self, tc: TestCase) -> None:
         layout = Aarch64ASMLayout(tc)
@@ -808,6 +739,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                         tc_bytes, tc_memory, tc_regs,
                         SimArch.RVZR_ARCH_AARCH64, 5, 10,
                         req_mem_base_virt=sandbox_base,
+                        contract_type=ContractType.ALWAYS_MISPREDICT,
                     )
                     ce_ctraces[variant] = compute_ctrace(self._contract_executor.run(execution))
             except RuntimeError:
@@ -816,7 +748,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             baseline_variant, baseline_ct = variant_list[0]
             for variant, ct in variant_list[1:]:
                 if ct != baseline_ct:
-                    _FuzzLogger.get().w(
+                    FuzzLogger.get().w(
                         f"  CE ctrace diff: {baseline_variant.name}={baseline_ct.raw}"
                         f"  {variant.name}={ct.raw}", ch="pac_flow")
 
@@ -864,7 +796,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                 return None
             return cpu.sp if reg == 'sp' else cpu.gpr[int(reg[1:])]
 
-        log = _FuzzLogger.get()
+        log = FuzzLogger.get()
         log.register("pac_signing",    "pac/signing.log",    min_verbosity=1)
         log.register("pac_comparison", "pac/comparison.log", min_verbosity=2)
 
@@ -886,6 +818,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                 tc_bytes, tc_memory, tc_regs,
                 SimArch.RVZR_ARCH_AARCH64, nesting, 10,
                 req_mem_base_virt=sandbox_base,
+                contract_type=ContractType.ALWAYS_MISPREDICT,
             )
             cer = self._contract_executor.run(execution)
             stage1_traces.append(cer)
@@ -896,7 +829,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                 candidates = [f"x{i}" for i in range(29) if f"x{i}" not in excl]
                 return _read_reg(cpu, random.choice(candidates))
 
-            log = _FuzzLogger.get()
+            log = FuzzLogger.get()
             log_ce_trace(log, "STAGE1", inp_idx, list(cer))
             log.header(f"STAGE1 PAC-SIGN OPS  inp={inp_idx}")
 
@@ -986,10 +919,11 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                 tc_bytes, data[:0x2000], bytes(tc_regs),
                 SimArch.RVZR_ARCH_AARCH64, 5, 10,
                 req_mem_base_virt=sandbox_base,
+                contract_type=ContractType.ALWAYS_MISPREDICT,
             )
             return list(self._contract_executor.run(execution))
         except RuntimeError as exc:
-            _FuzzLogger.get().w(f"  [CE ERROR] {exc}")
+            FuzzLogger.get().w(f"  [CE ERROR] {exc}")
             return None
 
     @staticmethod
@@ -1059,6 +993,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                     tc_bytes, data[:0x2000], bytes(tc_regs),
                     SimArch.RVZR_ARCH_AARCH64, 5, 10,
                     req_mem_base_virt=sandbox_base,
+                    contract_type=ContractType.ALWAYS_MISPREDICT,
                 )
                 return list(self._contract_executor.run(execution))
             except RuntimeError as exc:
@@ -1157,9 +1092,9 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                 f"  {row:>4}  | " + " | ".join(f"{c:<{COL_W}}" for c in cells) + flag
             )
 
-        if _FuzzLogger._VERBOSITY < 2:
+        if FuzzLogger._VERBOSITY < 2:
             return
-        log = _FuzzLogger.get()
+        log = FuzzLogger.get()
         for line in out_lines:
             log.w(line, ch="pac_comparison")
         log.ensure_flushed()
@@ -1185,7 +1120,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         sandbox_base, _ = self.read_base_addresses()
         _AUTH_MNEMONICS = {'autia', 'autib', 'autda', 'autdb', 'autiza', 'autizb', 'autdza', 'autdzb'}
 
-        log = _FuzzLogger.get()
+        log = FuzzLogger.get()
 
         # ----------------------------------------------------------------
         # Phase 1: CE analysis — run CE on EVERY variant for EVERY input,
@@ -1237,7 +1172,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                 per_inp[variant] = (cer, self._tc_to_bytes(tc))
 
             # Also log comparison table when TC3 differs from TC1 in control flow (verbosity 2).
-            if _FuzzLogger._VERBOSITY >= 2:
+            if FuzzLogger._VERBOSITY >= 2:
                 tc1_pair = per_inp.get(PACVariant.STRIP_ONLY)
                 tc3_pair = per_inp.get(PACVariant.AUTH_WRONG)
                 if tc1_pair and tc3_pair:
@@ -1273,6 +1208,14 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
 
             per_inp = pre_hw[inp_idx]
 
+            # Mistraining depends only on the input's arch trace (shared by all variants and
+            # reps), and the kernel re-applies the saved config on every trace, so set it once.
+            entries = self.branch_mistraining_entries(getattr(inp, "_arch_trace", None))
+            self.apply_branch_mistraining(entries)
+            expected_log[inp_idx] = len(entries)
+            if entries:
+                log_mistraining(log, self._tc_counter, inp_idx, entries, inp._arch_trace)
+
             for variant, tc in variants.items():
                 vname = variant.name
                 _, instr_bin = per_inp.get(variant, (None, None))
@@ -1288,14 +1231,6 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
 
                 trace_list = []
                 for rep in range(n_reps):
-                    if hasattr(inp, "_arch_trace"):
-                        entries = self.set_branch_mistraining(inp._arch_trace)
-                        if rep == 0:
-                            log_mistraining(log, self._tc_counter, inp_idx, entries,
-                                            inp._arch_trace)
-                    if inp_idx not in expected_log:
-                        expected_log[inp_idx] = len(entries)
-                    assert expected_log[inp_idx] == len(entries)
                     self.local_executor.trace()
                     self.local_executor.checkout_region(InputRegion(iid))
                     hwm = self.local_executor.hardware_measurement()
@@ -1335,8 +1270,8 @@ class Aarch64MteNonInterferenceExecutor(Aarch64LocalExecutor):
               TC3 — spec slots → MOVK Xd,#wrong_upper16,LSL#48; arch slots → NOP
     """
 
-    def __init__(self, workdir: str, generator: Aarch64Generator, *args, **kwargs):
-        super().__init__(workdir, *args, **kwargs)
+    def __init__(self, generator: Aarch64Generator, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self._generator: Aarch64Generator = generator
         self._mte = MTEInstrumentation(generator)
 
@@ -1354,7 +1289,7 @@ class Aarch64MteNonInterferenceExecutor(Aarch64LocalExecutor):
 
     def _run_stage1(self) -> None:
         """Instrument test_case with NOP placeholders (stage-1) and cache layout."""
-        log = _FuzzLogger.get()
+        log = FuzzLogger.get()
         log.register("mte_flow",   "mte/flow.log",   min_verbosity=1)
         log.register("mte_stage1", "mte/stage1.log", min_verbosity=2)
         log.register("mte_hw",     "mte/hw.log",     min_verbosity=1)
@@ -1411,7 +1346,7 @@ class Aarch64MteNonInterferenceExecutor(Aarch64LocalExecutor):
         sandboxed_tc_bytes = ConfigurableGenerator.in_memory_assemble(sandboxed_assembly)
         sandboxed_traces: List[ContractExecutionResult] = []
 
-        log = _FuzzLogger.get()
+        log = FuzzLogger.get()
         for inp_idx, inp in enumerate(inputs):
             mte_inp_ch = log.register(f"mte_inp_{inp_idx:03d}",
                                       f"mte/inputs/inp_{inp_idx:03d}.log",
@@ -1429,14 +1364,15 @@ class Aarch64MteNonInterferenceExecutor(Aarch64LocalExecutor):
             _reconstruct_pstate(memoryview(tc_regs).cast('Q'))
             tc_regs = bytes(tc_regs)
 
+            # ALWAYS_MISPREDICT so the CE reveals speculative paths (PAC NI relies on this).
             execution = ContractExecution(
                 tc_bytes, tc_memory, tc_regs,
                 SimArch.RVZR_ARCH_AARCH64,
                 nesting,   # max_misspred_branch_nesting
                 10,        # max_misspred_instructions (unused by CE)
                 req_mem_base_virt=sandbox_base,
+                contract_type=ContractType.ALWAYS_MISPREDICT,
             )
-            # contract_type defaults to ALWAYS_MISPREDICT — reveals speculative paths
             cer = self._contract_executor.run(execution)
             traces.append(cer)
 
@@ -1445,6 +1381,7 @@ class Aarch64MteNonInterferenceExecutor(Aarch64LocalExecutor):
                 sandboxed_tc_bytes, tc_memory, tc_regs,
                 SimArch.RVZR_ARCH_AARCH64, nesting, 10,
                 req_mem_base_virt=sandbox_base,
+                contract_type=ContractType.ALWAYS_MISPREDICT,
             )
             try:
                 sandboxed_cer = self._contract_executor.run(sandboxed_execution)
@@ -1644,14 +1581,11 @@ def get_srcs_dests_operands(encoding: int, pc: int) -> Union[List, List]:
         }
         return cond_map.get(cc, {"N", "Z", "C", "V"})
 
-    capstone_arm64 = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
-    capstone_arm64.detail = True
-
     dest = set()
     src = set()
     try:
         code_bytes = encoding.to_bytes(4, byteorder="little")
-        insns = list(capstone_arm64.disasm(code_bytes, pc))
+        insns = list(_CAPSTONE.disasm(code_bytes, pc))
         assert insns and len(insns) == 1
         insn = insns[0]
         if insn.update_flags:
@@ -1693,16 +1627,9 @@ def is_conditional_branch(encoding: int) -> bool:
 
 
 def disassemble_instruction(encoding: int, pc: int):
-    from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
-    import json
-    
-    # Capstone disassembler instance
-    capstone_arm64 = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
-    capstone_arm64.detail = True
-
     try:
         code_bytes = encoding.to_bytes(4, byteorder="little")
-        insns = list(capstone_arm64.disasm(code_bytes, pc))
+        insns = list(_CAPSTONE.disasm(code_bytes, pc))
         if insns:
             insn = insns[0]
             return f"{insn.mnemonic} {insn.op_str}".strip()

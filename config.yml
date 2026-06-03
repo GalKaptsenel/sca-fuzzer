@@ -8,9 +8,11 @@ instruction_categories:
   - BASE-BRANCH
   - BASE-MEMORY-LOAD
   - BASE-MEMORY-STORE
-min_bb_per_function: 5
+min_bb_per_function: 2
 max_bb_per_function: 5
 max_successors_per_bb: 2
 min_successors_per_bb: 1
 fuzzer: basic
 input_generator: aarch64-nzcv
+enable_pre_run_flush: 1
+executor_warmups: 1

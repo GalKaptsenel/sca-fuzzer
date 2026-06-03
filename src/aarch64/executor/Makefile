@@ -12,12 +12,11 @@ HW_SUPPORTS_MTE ?= $(shell grep -q 'Features.*mte' /proc/cpuinfo 2>/dev/null && 
 
 ifeq ($(HW_SUPPORTS_MTE),y)
 $(info Hardware supports MTE)
-ccflags-y += -DCONFIG_ARM64_MTE_HW=1 -march=armv8.5-a+sve+memtag
+ccflags-y += -DCONFIG_ARM64_MTE_HW=1 -march=armv8.5-a+sve+memtag+pauth
 else
 $(info Hardware does NOT support MTE)
-ccflags-y += -DCONFIG_ARM64_MTE_HW=0 -march=armv8.2-a+sve
-endif
 ccflags-y += -DCONFIG_ARM64_MTE_HW=0 -march=armv8.3-a+sve+pauth
+endif
 
 # Common flags
 ccflags-y += -g -DL1D_SIZE_K=64 -DL1D_ASSOCIATIVITY=4

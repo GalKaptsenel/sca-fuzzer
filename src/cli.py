@@ -20,6 +20,22 @@ from .aarch64.aarch64_connection import print_opcode_summary
 
 _CRASH_LOG = "/home/gal_k_1_1998/revizor_crash.log"
 
+
+def _run_with_profiler(fn):
+    """Run fn() under cProfile; dump stats to profile_<timestamp>.pstats and print the
+    top hotspots by cumulative time. Stats are written even if fn raises."""
+    import cProfile
+    import pstats
+    profiler = cProfile.Profile()
+    try:
+        return profiler.runcall(fn)
+    finally:
+        path = f"profile_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pstats"
+        profiler.dump_stats(path)
+        print(f"\n=== cProfile: top 30 by cumulative time (full stats in {path}) ===")
+        pstats.Stats(profiler).sort_stats("cumulative").print_stats(30)
+
+
 def _install_crash_logger():
     """Write full Python traceback + signal info to _CRASH_LOG on any unhandled exception or signal."""
     log_path = _CRASH_LOG
@@ -107,6 +123,11 @@ def main() -> int:
         type=str,
         required=True,
         help="Path to the instruction set specification (JSON) file.",
+    )
+    common_parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="Run under cProfile and write profile_<timestamp>.pstats + print the top hotspots.",
     )
 
     # ==============================================================================================
@@ -438,16 +459,19 @@ def main() -> int:
     if args.subparser_name == 'fuzz' or args.subparser_name == 'tfuzz':
         testcase = args.testcase if args.subparser_name == 'fuzz' else args.template
         fuzzer = get_fuzzer(args.instruction_set, args.working_directory, testcase, "")
-        try:
+
+        def _run_fuzzing():
             if args.subparser_name == 'tfuzz':
-                exit_code = fuzzer.start_from_template(args.num_test_cases, args.num_inputs,
-                                                       args.timeout, args.nonstop, args.save_violations)
-            elif testcase:
-                exit_code = fuzzer.start_from_asm(args.num_test_cases, args.num_inputs, args.timeout,
-                                                  args.nonstop, args.save_violations)
-            else:
-                exit_code = fuzzer.start_random(args.num_test_cases, args.num_inputs, args.timeout,
-                                                args.nonstop, args.save_violations)
+                return fuzzer.start_from_template(args.num_test_cases, args.num_inputs,
+                                                  args.timeout, args.nonstop, args.save_violations)
+            if testcase:
+                return fuzzer.start_from_asm(args.num_test_cases, args.num_inputs, args.timeout,
+                                             args.nonstop, args.save_violations)
+            return fuzzer.start_random(args.num_test_cases, args.num_inputs, args.timeout,
+                                       args.nonstop, args.save_violations)
+
+        try:
+            exit_code = _run_with_profiler(_run_fuzzing) if args.profile else _run_fuzzing()
         except Exception:
             msg = (f"\n{'='*72}\n"
                    f"[FUZZER EXCEPTION] {datetime.datetime.now().isoformat()}\n"
@@ -458,7 +482,8 @@ def main() -> int:
             with open(_CRASH_LOG, 'a') as f:
                 f.write(msg)
             raise
-        print_opcode_summary()
+        finally:
+            print_opcode_summary()
         return exit_code
 
     # Reproducing a violation
