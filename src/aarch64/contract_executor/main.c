@@ -119,7 +119,9 @@ static void ce_crash_handler(int sig, siginfo_t *info, void *uctx) {
 /* ----------------------------------------------------------------------- */
 
 /* ---- watchdog ---------------------------------------------------------- */
-#define CE_ITERATION_TIMEOUT_SEC 300
+#define CE_ITERATION_TIMEOUT_SEC 3600  /* 1h: safety net for genuine CE hangs; long
+                                          enough not to abort legitimate slow-path
+                                          confirmations / idle waits for the next input */
 
 static volatile sig_atomic_t g_iter_phase = 0;  /* 0=idle 1=read 2=sim 3=output */
 static volatile size_t       g_iter_num   = 0;
