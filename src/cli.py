@@ -16,7 +16,7 @@ from argparse import ArgumentParser, ArgumentTypeError
 from .factory import get_minimizer, get_fuzzer, get_downloader
 from .config import CONF
 from typing import List
-from .aarch64.aarch64_connection import print_opcode_summary
+from .aarch64.aarch64_kernel import print_opcode_summary
 
 _CRASH_LOG = "/home/gal_k_1_1998/revizor_crash.log"
 

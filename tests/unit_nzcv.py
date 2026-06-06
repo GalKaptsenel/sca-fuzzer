@@ -5,8 +5,7 @@ import struct
 import unittest
 import numpy as np
 
-from src.aarch64.aarch64_target_desc import NZCVScheme
-from src.aarch64.aarch64_executor import _reconstruct_pstate, _input_bytes_with_pstate
+from src.aarch64.aarch64_input_layout import NZCVScheme, _reconstruct_pstate, _input_bytes_with_pstate
 from src.aarch64.aarch64_input_generator import AArch64InputGenerator
 from src.interfaces import Input
 

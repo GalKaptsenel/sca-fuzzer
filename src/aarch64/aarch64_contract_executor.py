@@ -1,11 +1,14 @@
+"""
+File: AArch64 contract-executor (CE) service — request encoding and CE process management.
+"""
+import select
 import subprocess
-import struct
 from pathlib import Path
 from typing import Optional
 from dataclasses import dataclass
-from enum import IntFlag
-import time
+from enum import IntFlag, IntEnum
 from .contract_executor.stream_ipc import StreamIPC
+from .aarch64_trace import ContractExecutionResult
 
 class SimFlags(IntFlag):
     RVZR_FLAG_NONE          = 0
@@ -22,20 +25,27 @@ class ConfigFlags(IntFlag):
     CONFIG_FLAG_REQ_MEM_BASE_VIRT   = 1 << 3
 
 
-class SimArch(IntFlag):
+class SimArch(IntEnum):
     RVZR_ARCH_X86_64    = 1
     RVZR_ARCH_AARCH64   = 2
 
-class SimVersion(IntFlag):
+class SimVersion(IntEnum):
     VER_1    = 1
 
-class ContractType(IntFlag):
+class ContractType(IntEnum):
     ALWAYS_MISPREDICT   = 0   # explore every mispredicted branch (default)
     ARCH_ONLY           = 1   # follow architectural path, no speculation
     BPU_NEOVERSE_N3     = 2   # mispredict when TAGE (Neoverse N3 model) disagrees
 
 
 RVZR_MAGIC      = b"RVZR" # 0x525A5652u
+
+# IPC message types exchanged with the CE over StreamIPC.
+_MSG_REQUEST  = 1
+_MSG_RESPONSE = 2
+
+# GPRs per CE trace entry: x0..x30 (x30=lr at gpr[30]); pinned by the CE's simulation_state.h.
+AARCH64_NUM_GPRS = 31
 
 @dataclass(slots=True)
 class ContractExecution:
@@ -117,174 +127,6 @@ class ContractExecution:
 
         return bytes(data)
 
-U64 = struct.Struct("<Q")
-SIZE_T = struct.Struct("<Q")   # size_t = 8
-
-class MemAccess:
-    _STRUCT = struct.Struct("<QQQQQ")
-
-    def __init__(self, buf: memoryview, offset: int):
-        (self.effective_address,
-        self.before,
-        self.after,
-        self.element_size,
-        self.is_write) = self._STRUCT.unpack_from(buf, offset)
-
-        self.size = self._STRUCT.size
-
-    def __repr__(self):
-        return (f"<MemAccess ea=0x{self.effective_address:x} "
-                f"before=0x{self.before:x} after=0x{self.after:x} "
-                f"size={self.element_size} "
-                f"{'WRITE' if self.is_write else 'READ'}>")
-
-    def pretty_print(self, indent=0):
-        prefix = " " * indent
-        print(f"{prefix}MemAccess:")
-        print(f"{prefix}  EA: 0x{self.effective_address:x}")
-        print(f"{prefix}  Before: 0x{self.before:x}")
-        print(f"{prefix}  After: 0x{self.after:x}")
-        print(f"{prefix}  Size: {self.element_size}")
-        print(f"{prefix}  Type: {'WRITE' if self.is_write else 'READ'}")
-
-
-
-
-class CPUState:
-    def __init__(self, buf: memoryview, offset: int, num_gprs: int):
-        self._buf = buf
-        self._base = offset
-
-        off = offset
-
-        # gprs
-        self.gpr = list(struct.unpack_from(
-            f"<{num_gprs}Q", buf, off
-        ))
-        off += U64.size * num_gprs
-
-        self.sp, = U64.unpack_from(buf, off); off += U64.size
-        self.pc, = U64.unpack_from(buf, off); off += U64.size
-        self.nzcv, = U64.unpack_from(buf, off); off += U64.size
-        self.encoding, = U64.unpack_from(buf, off); off += U64.size
-
-        self.extra_data_size, = SIZE_T.unpack_from(buf, off); off += SIZE_T.size
-
-        self.extra_data = buf[off:off + self.extra_data_size]
-        off += self.extra_data_size
-
-        self.size = off - offset
-
-    def __repr__(self):
-        gprs_str = ", ".join(f"x{i}=0x{val:x}" for i, val in enumerate(self.gpr))
-        return (f"<CPUState {gprs_str} SP=0x{self.sp:x} PC=0x{self.pc:x} "
-                f"NZCV=0x{self.nzcv:x} ENC=0x{self.encoding:x} "
-                f"extra_data_len={self.extra_data_size}>")
-
-    def pretty_print(self, indent=0):
-        from .aarch64_executor import disassemble_instruction
-        prefix = " " * indent
-        print(f"{prefix}CPUState:")
-        for i, val in enumerate(self.gpr):
-            print(f"{prefix}  x{i:02d}: 0x{val:016x}")
-        print(f"{prefix}  SP : 0x{self.sp:016x}")
-        print(f"{prefix}  PC : 0x{self.pc:016x}")
-        print(f"{prefix}  NZCV: 0x{self.nzcv:016x}")
-        print(f"{prefix}  Encoding: 0x{self.encoding:08x} ({disassemble_instruction(self.encoding, self.pc)})")
-        print(f"{prefix}  Extra data size: {self.extra_data_size}")
-
-
-class InstrMetadata:
-    _STRUCT = struct.Struct("<QQQ")
-
-    def __init__(self, buf: memoryview, offset: int):
-        off = offset
-
-        (self.instr_index, self.has_memory_access, self.speculation_nesting) = self._STRUCT.unpack_from(buf, offset)
-        off += self._STRUCT.size
-
-        self.memory_access = MemAccess(buf, off)
-        off += self.memory_access.size
-
-
-        self.size = off - offset
-
-    def __repr__(self):
-        return (f"<InstrMetadata idx={self.instr_index} "
-                f"speculation_nesting={self.speculation_nesting} "
-                f"has_mem={self.has_memory_access} "
-                f"{self.memory_access}>")
-
-    def pretty_print(self, indent=0):
-        prefix = " " * indent
-        print(f"{prefix}InstrMetadata:")
-        print(f"{prefix}  Index: {self.instr_index}")
-        print(f"{prefix}  Speculation nesting: {self.speculation_nesting}")
-        print(f"{prefix}  Has memory access: {self.has_memory_access}")
-        self.memory_access.pretty_print(indent + 2)
-
-
-
-class InstrTraceEntry:
-    def __init__(self, buf: memoryview, offset: int, num_gprs: int):
-        self.cpu = CPUState(buf, offset, num_gprs)
-        off = offset + self.cpu.size
-
-        self.metadata = InstrMetadata(buf, off)
-        off += self.metadata.size
-
-        self.size = off - offset
-
-    def __repr__(self):
-        return f"<InstrTraceEntry {self.cpu} {self.metadata}>"
-
-    def pretty_print(self, indent=0):
-        prefix = " " * indent
-        print(f"{prefix}=== InstrTraceEntry ===")
-        self.cpu.pretty_print(indent + 2)
-        self.metadata.pretty_print(indent + 2)
-        print()
-
-
-class ContractExecutionResult:
-    def __init__(self, blob: bytes, num_gprs: int):
-        self._buf = memoryview(blob)
-
-        off = 0
-        self.entry_count, = SIZE_T.unpack_from(self._buf, off)
-        off += SIZE_T.size
-
-        self.entries = []
-        for _ in range(self.entry_count):
-            entry = InstrTraceEntry(self._buf, off, num_gprs)
-            self.entries.append(entry)
-            off += entry.size
-
-        self.size = off
-
-    def __len__(self) -> int:
-        return self.entry_count
-
-    def __iter__(self) -> InstrTraceEntry:
-        for i in range(self.entry_count):
-            yield self[i]
-
-    def __getitem__(self, idx) -> InstrTraceEntry:
-        if not (0 <= idx < self.entry_count):
-            raise IndexError(idx)
-
-        return self.entries[idx]
-
-    def __repr__(self):
-        return f"<ContractExecutionResult entries={self.entry_count}>"
-
-    def pretty_print(self):
-        print(f"ContractExecutionResult: {self.entry_count} entries")
-        for i, entry in enumerate(self.entries):
-            print(f"\n--- Entry {i} ---")
-            entry.pretty_print(indent=2)
-
-
 class ContractExecutorService:
     def __init__(self, binary: Path):
         self._binary = binary
@@ -315,7 +157,6 @@ class ContractExecutorService:
     def _drain_stderr(self) -> str:
         if self._proc.stderr is None:
             return "(stderr inherited by parent process)"
-        import select
         stderr_output = []
         while True:
             ready, _, _ = select.select([self._proc.stderr], [], [], 0.1)
@@ -334,7 +175,7 @@ class ContractExecutorService:
         caller can decide whether to skip the test case.
         """
         data = execution.encode()
-        self._stream_ipc.send_req(1, data)
+        self._stream_ipc.send_req(_MSG_REQUEST, data)
         try:
             msg_type, reply = self._stream_ipc.recv_resp()
         except EOFError:
@@ -360,5 +201,6 @@ class ContractExecutorService:
                 f"  hang details: {e}\n"
                 f"stderr before kill:\n{stderr or '(empty)'}"
             ) from None
-        assert msg_type == 2
-        return ContractExecutionResult(reply, 31) # NUM GPRS of aarch64 is 31 (x0 to x30)
+        if msg_type != _MSG_RESPONSE:
+            raise RuntimeError(f"unexpected CE message type {msg_type} (expected {_MSG_RESPONSE})")
+        return ContractExecutionResult(reply, AARCH64_NUM_GPRS)

@@ -1,8 +1,7 @@
 """
-File: Parser of ELF files for x86 architecture
-
-Copyright (C) Microsoft Corporation
-SPDX-License-Identifier: MIT
+File: Parser of ELF files for the AArch64 architecture.
+Populates instruction addresses/sizes and section data on the TestCase (consumed by the
+minimizer); the core fuzzing path re-prints from the IR and does not read these.
 """
 from typing import Dict, List, Tuple, NoReturn
 
@@ -196,8 +195,10 @@ class Aarch64ElfParser:
         returns: a dictionary mapping section names to lists of its instruction addresses
         """
         instruction_addresses: Dict[str, List[int]] = {}
+        # objdump auto-detects the architecture from the ELF header; the awk only scrapes
+        # instruction addresses and section headers, which are disassembly-flavor independent.
         dump = run(
-            f"objdump --no-show-raw-insn -D -M intel -m i386:x86-64 {obj_file} "
+            f"objdump --no-show-raw-insn -D {obj_file} "
             "| awk '/ [0-9a-f]+:/{print $1} /section/{print $0}'",
             shell=True,
             check=True,

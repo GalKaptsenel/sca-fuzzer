@@ -76,11 +76,6 @@ class InstructionSet(InstructionSetAbstract):
     def reduce(self, include_categories):
         """ Remove unsupported instructions and operand values """
 
-        # If BASE-BRANCH is requested, automatically include its sub-tags so that
-        # the all(tag in include_categories) filter keeps passing after retagging.
-        if include_categories and "BASE-BRANCH" in include_categories:
-            include_categories = set(include_categories) | {"BASE-COND-BRANCH", "BASE-UNCOND-BRANCH"}
-
         def is_supported(spec: InstructionSpec):
 
             if CONF.supported_instructions and spec.name not in CONF.supported_instructions:
@@ -99,7 +94,7 @@ class InstructionSet(InstructionSetAbstract):
             if spec.name in CONF.instruction_blocklist:
                 return False
 
-            if include_categories and all(category in include_categories for category in spec.tags):
+            if include_categories and any(category in include_categories for category in spec.tags):
                 return True
 
             for operand in spec.operands:

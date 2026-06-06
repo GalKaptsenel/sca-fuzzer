@@ -1448,9 +1448,10 @@ def _extract_flags_operand(section: ET.Element) -> Optional[OperandSpec]:
     is_dest = False
     for f in slots:
         r, w = flag_state.get(f, [False, False])
-        if w:
-            is_src  = True
+        # A read flag makes the operand a source; a written flag makes it a destination.
         if r:
+            is_src = True
+        if w:
             is_dest = True
 
         if r and w:

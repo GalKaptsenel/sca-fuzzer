@@ -109,7 +109,7 @@ class ISADownloader:
         logger.info("Downloading %s", self.url)
         tmp = dest.with_suffix(".tmp")
         try:
-            with urllib.request.urlopen(self.url) as resp, tmp.open("wb") as fh:
+            with urllib.request.urlopen(self.url, timeout=60) as resp, tmp.open("wb") as fh:
                 total = int(resp.headers.get("Content-Length", 0))
                 done = 0
                 while chunk := resp.read(1 << 16):   # 64 KiB
@@ -135,6 +135,10 @@ class ISADownloader:
         logger.info("Extracting %s → %s", tarball.name, self._xml_dir)
         with tarfile.open(tarball, "r:gz") as tf:
             for member in tf.getmembers():
+                # Only extract regular files — skip dirs, symlinks, hardlinks and devices
+                # (tar-slip hardening: a .xml-named symlink/link must never be materialized).
+                if not member.isfile():
+                    continue
                 p = Path(member.name)
                 if p.suffix != ".xml":
                     continue

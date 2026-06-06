@@ -492,7 +492,7 @@ class FuzzerGeneric(Fuzzer):
             arch_trace = getattr(input_, "_arch_trace", None)
             if arch_trace is None:
                 continue  # only the AArch64 executor records a CE arch trace
-            from .aarch64.aarch64_executor import show_context
+            from .aarch64.aarch64_trace import show_context
             with open(f"{violation_dir}/input_{i:04}_trace_log.txt", "w") as f:
                 with redirect_stdout(f):
                     show_context(arch_trace, -1)

@@ -1,16 +1,14 @@
 """
 File: aarch64-specific constants and lists
-
-Copyright (C) Microsoft Corporation
-SPDX-License-Identifier: MIT
 """
 from typing import List
-import re
-import unicorn.arm64_const as ucc
 
 from ..interfaces import Instruction, TargetDesc, MacroSpec, CPUDesc
-from ..model import UnicornTargetDesc
 from ..config import CONF
+
+# Parked in this shared constants module — a dedicated sandbox-ABI home would fit better.
+SANDBOX_BASE_REGISTER = "x29"
+
 
 class Aarch64TargetDesc(TargetDesc):
 
@@ -99,9 +97,10 @@ class Aarch64TargetDesc(TargetDesc):
         "PC": {64: "pc", 32: "pc", 16: "pc", 8: "pc"},
         "FLAGS": {4: "nzcv"},
     }  # yapf: disable
+    # TODO: wzr/xzr omitted for now — including them complicates memory-access instrumentation.
     registers = {
-            32:     [*[f"w{i}" for i in range(31)]], # TODO: For now we are ommiting wzr because it complecates the instrumentation for memory access
-            64:     [*[f"x{i}" for i in range(31)]], # TODO: For now we are ommiting wzr because it complecates the instrumentation for memory access
+            32:     [*[f"w{i}" for i in range(31)]],
+            64:     [*[f"x{i}" for i in range(31)]],
     }  # yapf: disable
 
     simd_registers = {
@@ -152,46 +151,15 @@ class Aarch64TargetDesc(TargetDesc):
             MacroSpec(2, "measurement_end", ("", "", "", "")),
         "fault_handler":
             MacroSpec(3, "fault_handler", ("", "", "", "")),
-        # "switch":
-        #     MacroSpec(4, "switch", ("actor_id", "function_id", "", "")),
-        # "set_k2u_target":
-        #     MacroSpec(5, "set_k2u_target", ("actor_id", "function_id", "", "")),
-        # "switch_k2u":
-        #     MacroSpec(6, "switch_k2u", ("actor_id", "", "", "")),
-        # "set_u2k_target":
-        #     MacroSpec(7, "set_u2k_target", ("actor_id", "function_id", "", "")),
-        # "switch_u2k":
-        #     MacroSpec(8, "switch_u2k", ("actor_id", "", "", "")),
-        # "set_h2g_target":
-        #     MacroSpec(9, "set_h2g_target", ("actor_id", "function_id", "", "")),
-        # "switch_h2g":
-        #     MacroSpec(10, "switch_h2g", ("actor_id", "", "", "")),
-        # "set_g2h_target":
-        #     MacroSpec(11, "set_g2h_target", ("actor_id", "function_id", "", "")),
-        # "switch_g2h":
-        #     MacroSpec(12, "switch_g2h", ("actor_id", "", "", "")),
-        # "landing_k2u":
-        #     MacroSpec(13, "landing_k2u", ("", "", "", "")),
-        # "landing_u2k":
-        #     MacroSpec(14, "landing_u2k", ("", "", "", "")),
-        # "landing_h2g":
-        #     MacroSpec(15, "landing_h2g", ("", "", "", "")),
-        # "landing_g2h":
-        #     MacroSpec(16, "landing_g2h", ("", "", "", "")),
-        # "set_data_permissions":
-        #     MacroSpec(18, "set_data_permissions", ("actor_id", "int", "int", ""))
     }
-
-
-
 
     def __init__(self):
         super().__init__()
         # remove blocked registers
         filtered_decoding = {}
-        for size, registers in self.registers.items():
+        for size, regs in self.registers.items():
             filtered_decoding[size] = []
-            for register in registers:
+            for register in regs:
                 if register not in CONF.register_blocklist or register in CONF.register_allowlist:
                     filtered_decoding[size].append(register)
         self.registers = filtered_decoding
@@ -210,264 +178,3 @@ class Aarch64TargetDesc(TargetDesc):
     @staticmethod
     def is_call(inst: Instruction) -> bool:
         return inst.name.lower() in ["bl"]
-
-
-class Aarch64UnicornTargetDesc(UnicornTargetDesc):
-    reg_str_to_constant = {
-        "x0": ucc.UC_ARM64_REG_X0,
-        "x1": ucc.UC_ARM64_REG_X1,
-        "x2": ucc.UC_ARM64_REG_X2,
-        "x3": ucc.UC_ARM64_REG_X3,
-        "x4": ucc.UC_ARM64_REG_X4,
-        "x5": ucc.UC_ARM64_REG_X5,
-        "x6": ucc.UC_ARM64_REG_X6,
-        "x7": ucc.UC_ARM64_REG_X7,
-        "x8": ucc.UC_ARM64_REG_X8,
-        "x9": ucc.UC_ARM64_REG_X9,
-        "x10": ucc.UC_ARM64_REG_X10,
-        "x11": ucc.UC_ARM64_REG_X11,
-        "x12": ucc.UC_ARM64_REG_X12,
-        "x13": ucc.UC_ARM64_REG_X13,
-        "x14": ucc.UC_ARM64_REG_X14,
-        "x15": ucc.UC_ARM64_REG_X15,
-        "x16": ucc.UC_ARM64_REG_X16,
-        "x17": ucc.UC_ARM64_REG_X17,
-        "x18": ucc.UC_ARM64_REG_X18,
-        "x19": ucc.UC_ARM64_REG_X19,
-        "x20": ucc.UC_ARM64_REG_X20,
-        "x21": ucc.UC_ARM64_REG_X21,
-        "x22": ucc.UC_ARM64_REG_X22,
-        "x23": ucc.UC_ARM64_REG_X23,
-        "x24": ucc.UC_ARM64_REG_X24,
-        "x25": ucc.UC_ARM64_REG_X25,
-        "x26": ucc.UC_ARM64_REG_X26,
-        "x27": ucc.UC_ARM64_REG_X27,
-        "x28": ucc.UC_ARM64_REG_X28,
-        "x29": ucc.UC_ARM64_REG_X29,
-        "x30": ucc.UC_ARM64_REG_X30,
-        "v0": ucc.UC_ARM64_REG_V0,
-        "v1": ucc.UC_ARM64_REG_V1,
-        "v2": ucc.UC_ARM64_REG_V2,
-        "v3": ucc.UC_ARM64_REG_V3,
-        "v4": ucc.UC_ARM64_REG_V4,
-        "v5": ucc.UC_ARM64_REG_V5,
-        "v6": ucc.UC_ARM64_REG_V6,
-        "v7": ucc.UC_ARM64_REG_V7,
-        "v8": ucc.UC_ARM64_REG_V8,
-        "v9": ucc.UC_ARM64_REG_V9,
-        "v10": ucc.UC_ARM64_REG_V10,
-        "v11": ucc.UC_ARM64_REG_V11,
-        "v12": ucc.UC_ARM64_REG_V12,
-        "v13": ucc.UC_ARM64_REG_V13,
-        "v14": ucc.UC_ARM64_REG_V14,
-        "v15": ucc.UC_ARM64_REG_V15,
-        "v16": ucc.UC_ARM64_REG_V16,
-        "v17": ucc.UC_ARM64_REG_V17,
-        "v18": ucc.UC_ARM64_REG_V18,
-        "v19": ucc.UC_ARM64_REG_V19,
-        "v20": ucc.UC_ARM64_REG_V20,
-        "v21": ucc.UC_ARM64_REG_V21,
-        "v22": ucc.UC_ARM64_REG_V22,
-        "v23": ucc.UC_ARM64_REG_V23,
-        "v24": ucc.UC_ARM64_REG_V24,
-        "v25": ucc.UC_ARM64_REG_V25,
-        "v26": ucc.UC_ARM64_REG_V26,
-        "v27": ucc.UC_ARM64_REG_V27,
-        "v28": ucc.UC_ARM64_REG_V28,
-        "v29": ucc.UC_ARM64_REG_V29,
-        "v30": ucc.UC_ARM64_REG_V30,
-        "v31": ucc.UC_ARM64_REG_V31,
-
-        "fp": ucc.UC_ARM64_REG_FP,
-        "lr": ucc.UC_ARM64_REG_FP,
-
-        "nzcv": ucc.UC_ARM64_REG_NZCV,
-        "sp": ucc.UC_ARM64_REG_SP,
-        "wsp": ucc.UC_ARM64_REG_WSP,
-        "xzr": ucc.UC_ARM64_REG_XZR,
-        "wzr": ucc.UC_ARM64_REG_WZR,
-        'pc': ucc.UC_ARM64_REG_PC,
-    }
-
-    reg_decode = {
-        "0": ucc.UC_ARM64_REG_X0,
-        "1": ucc.UC_ARM64_REG_X1,
-        "2": ucc.UC_ARM64_REG_X2,
-        "3": ucc.UC_ARM64_REG_X3,
-        "4": ucc.UC_ARM64_REG_X4,
-        "5": ucc.UC_ARM64_REG_X5,
-        "6": ucc.UC_ARM64_REG_X6,
-        "7": ucc.UC_ARM64_REG_X7,
-        "8": ucc.UC_ARM64_REG_X8,
-        "9": ucc.UC_ARM64_REG_X9,
-        "10": ucc.UC_ARM64_REG_X10,
-        "11": ucc.UC_ARM64_REG_X11,
-        "12": ucc.UC_ARM64_REG_X12,
-        "13": ucc.UC_ARM64_REG_X13,
-        "14": ucc.UC_ARM64_REG_X14,
-        "15": ucc.UC_ARM64_REG_X15,
-        "16": ucc.UC_ARM64_REG_X16,
-        "17": ucc.UC_ARM64_REG_X17,
-        "18": ucc.UC_ARM64_REG_X18,
-        "19": ucc.UC_ARM64_REG_X19,
-        "20": ucc.UC_ARM64_REG_X20,
-        "21": ucc.UC_ARM64_REG_X21,
-        "22": ucc.UC_ARM64_REG_X22,
-        "23": ucc.UC_ARM64_REG_X23,
-        "24": ucc.UC_ARM64_REG_X24,
-        "25": ucc.UC_ARM64_REG_X25,
-        "26": ucc.UC_ARM64_REG_X26,
-        "27": ucc.UC_ARM64_REG_X27,
-        "28": ucc.UC_ARM64_REG_X28,
-        "29": ucc.UC_ARM64_REG_X29,
-        "30": ucc.UC_ARM64_REG_X30,
-
-        "V0": ucc.UC_ARM64_REG_V0,
-        "V1": ucc.UC_ARM64_REG_V1,
-        "V2": ucc.UC_ARM64_REG_V2,
-        "V3": ucc.UC_ARM64_REG_V3,
-        "V4": ucc.UC_ARM64_REG_V4,
-        "V5": ucc.UC_ARM64_REG_V5,
-        "V6": ucc.UC_ARM64_REG_V6,
-        "V7": ucc.UC_ARM64_REG_V7,
-        "V8": ucc.UC_ARM64_REG_V8,
-        "V9": ucc.UC_ARM64_REG_V9,
-        "V10": ucc.UC_ARM64_REG_V10,
-        "V11": ucc.UC_ARM64_REG_V11,
-        "V12": ucc.UC_ARM64_REG_V12,
-        "V13": ucc.UC_ARM64_REG_V13,
-        "V14": ucc.UC_ARM64_REG_V14,
-        "V15": ucc.UC_ARM64_REG_V15,
-        "V16": ucc.UC_ARM64_REG_V16,
-        "V17": ucc.UC_ARM64_REG_V17,
-        "V18": ucc.UC_ARM64_REG_V18,
-        "V19": ucc.UC_ARM64_REG_V19,
-        "V20": ucc.UC_ARM64_REG_V20,
-        "V21": ucc.UC_ARM64_REG_V21,
-        "V22": ucc.UC_ARM64_REG_V22,
-        "V23": ucc.UC_ARM64_REG_V23,
-        "V24": ucc.UC_ARM64_REG_V24,
-        "V25": ucc.UC_ARM64_REG_V25,
-        "V26": ucc.UC_ARM64_REG_V26,
-        "V27": ucc.UC_ARM64_REG_V27,
-        "V28": ucc.UC_ARM64_REG_V28,
-        "V29": ucc.UC_ARM64_REG_V29,
-        "V30": ucc.UC_ARM64_REG_V30,
-        "V31": ucc.UC_ARM64_REG_V31,
-
-        "FLAGS": ucc.UC_ARM64_REG_NZCV,
-        "GEFLAGS": ucc.UC_ARM64_REG_NZCV,
-        "NF": ucc.UC_ARM64_REG_NZCV,
-        "ZF": ucc.UC_ARM64_REG_NZCV,
-        "CF": ucc.UC_ARM64_REG_NZCV,
-        "VF": ucc.UC_ARM64_REG_NZCV,
-        "QF": ucc.UC_ARM64_REG_NZCV,
-        "EFLAG": ucc.UC_ARM64_REG_NZCV,
-        "AFLAG": ucc.UC_ARM64_REG_NZCV,
-        "IRQFLAG": ucc.UC_ARM64_REG_NZCV,
-        "FIQFLAG": ucc.UC_ARM64_REG_NZCV,
-        "PEMODE": ucc.UC_ARM64_REG_NZCV,
-        "SSBSFLAG": ucc.UC_ARM64_REG_NZCV,
-        "PANFALG": ucc.UC_ARM64_REG_NZCV,
-        "DITFLAG": ucc.UC_ARM64_REG_NZCV,
-
-        "PC": ucc.UC_ARM64_REG_PC, # pseudo register
-        "SP": ucc.UC_ARM64_REG_SP,
-        "TPIDR_EL0": ucc.UC_ARM64_REG_TPIDR_EL0,
-        "TPIDRRO_EL0": ucc.UC_ARM64_REG_TPIDRRO_EL0,
-        "TPIDR_EL1": ucc.UC_ARM64_REG_TPIDR_EL1,
-        "PSTATE": ucc.UC_ARM64_REG_PSTATE,
-        "ELR_EL0": ucc.UC_ARM64_REG_ELR_EL0,
-        "ELR_EL1": ucc.UC_ARM64_REG_ELR_EL1,
-        "ELR_EL2": ucc.UC_ARM64_REG_ELR_EL2,
-        "ELR_EL3": ucc.UC_ARM64_REG_ELR_EL3,
-        "SP_EL0": ucc.UC_ARM64_REG_SP_EL0,
-        "SP_EL1": ucc.UC_ARM64_REG_SP_EL1,
-        "SP_EL2": ucc.UC_ARM64_REG_SP_EL2,
-        "SP_EL3": ucc.UC_ARM64_REG_SP_EL3,
-        "TTBR0_EL1": ucc.UC_ARM64_REG_TTBR0_EL1,
-        "TTBR1_EL1": ucc.UC_ARM64_REG_TTBR1_EL1,
-        "ESR_EL0": ucc.UC_ARM64_REG_ESR_EL0,
-        "ESR_EL1": ucc.UC_ARM64_REG_ESR_EL1,
-        "ESR_EL2": ucc.UC_ARM64_REG_ESR_EL2,
-        "ESR_EL3": ucc.UC_ARM64_REG_ESR_EL3,
-        "FAR_EL0": ucc.UC_ARM64_REG_FAR_EL0,
-        "FAR_EL1": ucc.UC_ARM64_REG_FAR_EL1,
-        "FAR_EL2": ucc.UC_ARM64_REG_FAR_EL2,
-        "FAR_EL3": ucc.UC_ARM64_REG_FAR_EL3,
-        "PAR_EL1": ucc.UC_ARM64_REG_PAR_EL1,
-        "MAIR_EL1": ucc.UC_ARM64_REG_MAIR_EL1,
-        "VBAR_EL0": ucc.UC_ARM64_REG_VBAR_EL0,
-        "VBAR_EL1": ucc.UC_ARM64_REG_VBAR_EL1,
-        "VBAR_EL2": ucc.UC_ARM64_REG_VBAR_EL2,
-        "VBAR_EL3": ucc.UC_ARM64_REG_VBAR_EL3,
-
-        "MSRS": -1,
-    }
-
-    registers: List[int] = [
-        ucc.UC_ARM64_REG_X0, ucc.UC_ARM64_REG_X1, ucc.UC_ARM64_REG_X2, ucc.UC_ARM64_REG_X3,
-        ucc.UC_ARM64_REG_X4, ucc.UC_ARM64_REG_X5, ucc.UC_ARM64_REG_NZCV, ucc.UC_ARM64_REG_SP
-    ]
-    simd128_registers: List[int] = [
-        ucc.UC_ARM64_REG_V0, ucc.UC_ARM64_REG_V1, ucc.UC_ARM64_REG_V2, ucc.UC_ARM64_REG_V3,
-        ucc.UC_ARM64_REG_V4, ucc.UC_ARM64_REG_V5, ucc.UC_ARM64_REG_V6, ucc.UC_ARM64_REG_V7,
-        ucc.UC_ARM64_REG_V8, ucc.UC_ARM64_REG_V9, ucc.UC_ARM64_REG_V10, ucc.UC_ARM64_REG_V11,
-        ucc.UC_ARM64_REG_V12, ucc.UC_ARM64_REG_V13, ucc.UC_ARM64_REG_V14, ucc.UC_ARM64_REG_V15,
-        ucc.UC_ARM64_REG_V16, ucc.UC_ARM64_REG_V17, ucc.UC_ARM64_REG_V18, ucc.UC_ARM64_REG_V19,
-        ucc.UC_ARM64_REG_V20, ucc.UC_ARM64_REG_V21, ucc.UC_ARM64_REG_V22, ucc.UC_ARM64_REG_V23,
-        ucc.UC_ARM64_REG_V24, ucc.UC_ARM64_REG_V25, ucc.UC_ARM64_REG_V26, ucc.UC_ARM64_REG_V27,
-        ucc.UC_ARM64_REG_V28, ucc.UC_ARM64_REG_V29, ucc.UC_ARM64_REG_V30, ucc.UC_ARM64_REG_V31
-    ]
-    barriers: List[str] = ['DMB', 'DSB', 'ISB', 'PSSBB', 'SB',
-                           'LDAR', 'STLR', 'LDAXR', 'STLXR'] # One-way barrier
-    flags_register: int = ucc.UC_ARM64_REG_NZCV
-    pc_register: int = ucc.UC_ARM64_REG_PC
-    sp_register: int = ucc.UC_ARM64_REG_SP
-
-
-class NZCVScheme:
-    """Single source of truth for per-flag NZCV encoding in the input register slot.
-
-    Each of the 4 flags occupies bit 0 of its own byte within slot 6 of the GPR
-    register region.  Bytes 4-7 of the slot mirror bytes 0-3 (standard Revizor
-    duplication pattern).  Reconstruction to PSTATE is done just before execution.
-
-    Full 4-way byte-granularity taint separation:
-        N → byte 48, Z → byte 49, C → byte 50, V → byte 51.
-    """
-    SLOT_IDX: int = 6
-    SLOT_BASE_BYTE: int = SLOT_IDX * 8  # = 48, byte offset in register region
-
-    # flag → (byte_offset_within_slot, PSTATE_bit)
-    _LAYOUT: dict = {
-        'n': (0, 31),
-        'z': (1, 30),
-        'c': (2, 29),
-        'v': (3, 28),
-    }
-
-    @classmethod
-    def input_byte(cls, flag: str) -> int:
-        """Return the register-region byte offset for the given flag (for taint tracking)."""
-        return cls.SLOT_BASE_BYTE + cls._LAYOUT[flag.lower()][0]
-
-    @classmethod
-    def to_pstate(cls, raw_slot: int) -> int:
-        """Convert raw per-flag slot value (bit 0 of each byte) to ARM PSTATE format."""
-        pstate = 0
-        for byte_off, pstate_bit in cls._LAYOUT.values():
-            pstate |= ((raw_slot >> (byte_off * 8)) & 1) << pstate_bit
-        return pstate
-
-    @classmethod
-    def make_random(cls, rng) -> int:
-        """Generate a random NZCV slot: bit 0 of bytes 0-3 is random, bytes 4-7 mirror."""
-        val = 0
-        for byte_off, _ in cls._LAYOUT.values():
-            val |= int(rng.integers(0, 2)) << (byte_off * 8)
-        return val | (val << 32)
-
-    @classmethod
-    def flag_names(cls):
-        return cls._LAYOUT.keys()

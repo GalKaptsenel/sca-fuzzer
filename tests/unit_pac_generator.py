@@ -50,19 +50,20 @@ from src.interfaces import TestCase, Instruction, Input
 from src.input_generator import NumpyRandomInputGenerator
 from src.aarch64.aarch64_generator import (
     PACInstrumentation, PACVariant, FixPoint,
-    Aarch64RandomGenerator, Aarch64Printer, Aarch64ASMLayout,
+    Aarch64RandomGenerator,
     SLOT_SIZE, SLOT_SIG_POS, AUTH_SLOT_POS,
     _AUTH_TO_PAC, _AUTH_TO_XPAC, _AUTH_TO_KEY, PACKey,
 )
+from src.aarch64.aarch64_printer import Aarch64Printer, Aarch64ASMLayout
 from src.aarch64.aarch64_target_desc import Aarch64TargetDesc
 from src.aarch64.aarch64_contract_executor import (
     ContractExecution, ContractExecutionResult, ContractExecutorService, SimArch,
 )
-from src.aarch64.aarch64_executor import _reconstruct_pstate
+from src.aarch64.aarch64_input_layout import _reconstruct_pstate
 from src.generator import ConfigurableGenerator
 
 _isa:          Optional[InstructionSet] = None
-_executor      = None    # LocalExecutorImp — pac_sign() + sandbox_base
+_executor      = None    # LocalHWExecutor — pac_sign() + sandbox_base
 _ce:           Optional[ContractExecutorService] = None
 _target_desc:  Optional[Aarch64TargetDesc] = None
 _input_gen:    Optional[NumpyRandomInputGenerator] = None
@@ -85,11 +86,11 @@ def setUpModule():
     if not os.path.exists('/dev/executor'):
         raise unittest.SkipTest("kernel module not loaded — /dev/executor missing")
     try:
-        from src.aarch64.aarch64_connection import LocalExecutorImp, PacKeys
+        from src.aarch64.aarch64_kernel import LocalHWExecutor, PacKeys
         CONF.load("config.yml")
         _isa          = InstructionSet("base.json", CONF.instruction_categories)
         _target_desc  = Aarch64TargetDesc()
-        _executor     = LocalExecutorImp('/dev/executor', '/sys/executor')
+        _executor     = LocalHWExecutor('/dev/executor', '/sys/executor')
         # Fix PAC keys so _pac_sign (Python) and the CE both use the same key context.
         _ce           = ContractExecutorService(_CE_BINARY)
         keys = PacKeys()

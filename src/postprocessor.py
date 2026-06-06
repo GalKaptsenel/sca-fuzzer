@@ -16,9 +16,8 @@ from math import log2
 from copy import deepcopy
 from subprocess import run
 from typing import List, NamedTuple, Dict
-from .interfaces import Input, TestCase, Minimizer, Fuzzer, InstructionSetAbstract, Violation
-from .model import CTTracer
-from .x86.x86_model import X86UnicornDEH, SANDBOX_CODE_SIZE
+from .interfaces import Input, TestCase, Minimizer, Fuzzer, InstructionSetAbstract, Violation, \
+    SANDBOX_CODE_SIZE
 from .config import CONF
 from .util import Logger
 
@@ -627,6 +626,10 @@ class FenceInsertionPass(BaseInstructionMinimizationPass):
     name = "Fence Insertion Pass"
 
     def run(self, test_case: TestCase, inputs: List[Input]) -> TestCase:
+        # x86-only: inserts the x86 `lfence` barrier and uses x86 control-flow detection. An
+        # aarch64 port should reuse the generator's Aarch64DsbSyPass (IR-level DSB SY) instead.
+        if "x86" not in CONF.instruction_set:
+            return test_case
         inst_ids = self.minimization_loop(test_case, inputs)
         self.progress.pass_finish()
 
@@ -697,6 +700,13 @@ class AddViolationCommentsPass(BaseInstructionMinimizationPass):
         self.violation = violation
 
     def run(self, test_case: TestCase, inputs: List[Input]) -> TestCase:
+        # x86-only: this annotation recovers load/store addresses via the x86 emulation model.
+        # Other architectures have no such model, so the pass is a no-op there.
+        if "x86" not in CONF.instruction_set:
+            return test_case
+        from .model import CTTracer
+        from .x86.x86_model import X86UnicornDEH
+
         # reproduce the violation to get violating input IDs
         v_inputs = [m.input_ for m in self.violation.measurements[:2]]
         v_input_ids = [m.input_id for m in self.violation.measurements[:2]]

@@ -1,194 +1,142 @@
 """
 File: Parsing of assembly files into our internal representation (TestCase).
-      This file contains x86-specific code.
-
-Copyright (C) Microsoft Corporation
-SPDX-License-Identifier: MIT
+      AArch64-specific.
 """
 import re
 import os
-import itertools
 from typing import List, Dict
 
 from .aarch64_generator import Aarch64Generator
 from ..asm_parser import AsmParserGeneric, parser_assert, parser_error
-from ..interfaces import OT, Instruction, InstructionSpec, LabelOperand, Operand, RegisterOperand, \
-    MemoryOperand, ImmediateOperand, AgenOperand, CondOperand
-
-PATTERN_CONST_INT = re.compile("^-?[0-9]+$")
-PATTERN_CONST_HEX = re.compile("^-?0x[0-9abcdef]+$")
-PATTERN_CONST_BIN = re.compile("^-?0b[01]+$")
-PATTERN_CONST_SUM = re.compile("^-?[0-9]+ *[+-] *[0-9]+$")
+from ..interfaces import OT, Instruction, InstructionSpec, LabelOperand, RegisterOperand, \
+    MemoryOperand, ImmediateOperand, CondOperand
 
 
-TOKEN_REGEX = re.compile(r"""
-    \[          |   # left bracket
-    \]!         |   # post-index close with '!'
-    \]          |   # right bracket
-    \#          |   # immidiate symbol (optional)
-    [.A-Za-z0-9_\-]+ |  # identifiers: registers, labels, shifts
-    !           |   # stand-alone '!' (pre/post-index)
-""", re.VERBOSE)
+_TEMPLATE_REGEX_CACHE = {}
 
-def tokenize_operands(tokens):
-    out = []
-    for tok in tokens:
-        tok = tok.strip()
-        parts = TOKEN_REGEX.findall(tok)
-        for p in parts:
-            if p.strip() and "#" not in p:
-                out.append(p)
-    return out
+def _operand_pattern(op) -> str:
+    """Regex fragment for one operand. If the operand has a small enumerable value set we match
+    those exactly (this also distinguishes 32-bit w-regs from 64-bit x-regs straight from the
+    data); otherwise fall back to a type-based pattern."""
+    vals = list(op.values) if op.values else []
+    if vals and len(vals) <= 64:
+        return "(?:" + "|".join(re.escape(v) for v in sorted(vals, key=len, reverse=True)) + ")"
+    if op.type == OT.IMM:
+        return r"-?(?:0x[0-9a-fA-F]+|0b[01]+|[0-9]+)"
+    if op.type == OT.LABEL:
+        return r"\.[^\s,]+"
+    return r"[^\s,\[\]#!]+"
+
+def _template_regex(spec):
+    """Compile (and cache) an anchored regex from a spec's template: literal text (mnemonic,
+    brackets, '#', ',', '!') is matched verbatim, each {placeholder} becomes a capture group
+    built from the matching operand, in template/operand order. Returns None if the template's
+    placeholder count does not line up with the operand count (so it is simply never matched)."""
+    rx = _TEMPLATE_REGEX_CACHE.get(id(spec), False)
+    if rx is not False:
+        return rx
+    parts, op_idx = ["^"], 0
+    for tok in re.split(r"(\{[^}]*\}|\s+)", (spec.template or "").strip()):
+        if not tok:
+            continue
+        if tok.isspace():
+            parts.append(r"\s*")
+        elif tok[0] == "{" and tok[-1] == "}":
+            if op_idx >= len(spec.operands):
+                op_idx = -1
+                break
+            parts.append("(" + _operand_pattern(spec.operands[op_idx]) + ")")
+            op_idx += 1
+        else:
+            parts.append(re.escape(tok))
+    rx = None
+    if op_idx == len(spec.operands) and spec.template:
+        parts.append("$")
+        rx = re.compile("".join(parts), re.IGNORECASE)
+    _TEMPLATE_REGEX_CACHE[id(spec)] = rx
+    return rx
+
 
 class Aarch64AsmParser(AsmParserGeneric):
     generator: Aarch64Generator
 
     asm_prefixes = []
-    asm_synonyms = {
-    }
-    memory_sizes = {
-
-    }
+    asm_synonyms = {}
+    memory_sizes = {}
 
     def parse_line(self, line: str, line_num: int,
                    instruction_map: Dict[str, List[InstructionSpec]]) -> Instruction:
-
         raw_line = line
         line = line.strip().lower()
-
-        # detect instrumentation & noremove
         is_instrumentation = "instrumentation" in line
         is_noremove = "noremove" in line
 
-        re_tokenize = re.compile(
-            r""" ^
-                \s*
-                (?P<mnemonic>[a-z][a-z0-9.]*)
-                (?:\s+(?P<operands>[^/]+?))?
-                \s*(?://\s*(?P<comment>.*))?
-                $
-            """,
-            re.VERBOSE
-        )
-
-        m = re_tokenize.match(line)
+        m = re.match(r"^\s*(?P<mnemonic>[a-z][a-z0-9.]*)(?:\s+(?P<operands>[^/]+?))?\s*(?://.*)?$",
+                     line)
         parser_assert(m is not None, line_num, f"Failure to parse instruction: {raw_line}")
-
         name = m.group("mnemonic")
-        operands_raw = m.group("operands")
-        comment = m.group("comment") or ""
+        operands_raw = (m.group("operands") or "").strip()
 
-        if operands_raw:
-            operand_tokens = [op.strip() for op in operands_raw.split(",")]
-            operand_tokens = list(itertools.chain.from_iterable(tok.split(" ") for tok in operand_tokens))
-            operand_tokens = tokenize_operands(operand_tokens)
-        else:
-            operand_tokens = []
+        # Synthetic pseudo-instructions (no real asm template): parse their operands directly.
+        if name in ("opcode", "macro"):
+            return self._build_instruction(instruction_map[name][0],
+                                            [t.strip() for t in operands_raw.split(",") if t.strip()],
+                                            is_instrumentation, is_noremove, line_num)
 
-        # fix conditional suffix in the mnemonic ("b.eq", "csel.ne", etc.)
-        if "." in name:
-            mnemonic, cond = name.split(".", 1)
-            mnemonic += "."
-            operand_tokens = [cond] + operand_tokens
-            name = mnemonic
+        # Real instruction: match the line against every candidate spec's template.
+        lookup = name
+        if name not in instruction_map and "." in name:
+            lookup = name.split(".", 1)[0] + "."     # b.eq -> b.
+        candidates = instruction_map.get(lookup, [])
+        parser_assert(len(candidates) > 0, line_num, f"Unknown instruction {line}")
 
-        spec_candidates = instruction_map.get(name, [])
-        parser_assert(len(spec_candidates) > 0, line_num, f"Unknown instruction {line}")
-
-        operand_tokens_clean = [o for o in operand_tokens if not o.startswith(("[", "]"))]
-        matching_specs = [s for s in spec_candidates if len(s.operands) == len(operand_tokens_clean)]
-
-        size_map = {"x": 64, "w": 32, "v": 128, "q": 128, "d": 64, "s": 32, "h": 16, "b": 8}
-
-        inside_mem = False
-        op_id = 0
-        for op_raw in operand_tokens:
-            if op_raw == "COND" or op_raw in self.target_desc.branch_conditions:
-                matching_specs = [s for s in matching_specs if s.operands[op_id].type == OT.COND]
-
-            elif op_raw.startswith("."):  # label operand
-                matching_specs = [s for s in matching_specs if s.operands[op_id].type == OT.LABEL]
-
-            elif "[" in op_raw or "]" in op_raw:  # memory addressing mode
-                inside_mem = "[" in op_raw
+        code = re.sub(r"\s+", " ", name if not operands_raw else f"{name} {operands_raw}")
+        matches = []
+        for spec in candidates:
+            rx = _template_regex(spec)
+            if rx is None:
                 continue
+            mm = rx.match(code)
+            if mm:
+                matches.append((spec, list(mm.groups())))
 
-            elif op_raw.startswith("#") or op_raw.startswith("0b") or op_raw.startswith("0x") or re.match(r"^[+-]?\d+$", op_raw) or op_raw in ["asr", "lsl", "lsr", "ror"]:  # immediates
-                matching_specs = [s for s in matching_specs if s.operands[op_id].type == OT.IMM]
+        # Tie-break on magic-value specs (as before), then require a single unambiguous match.
+        if len(matches) > 1:
+            magic = [(s, v) for s, v in matches if s.has_magic_value]
+            if magic:
+                matches = magic
+        parser_assert(len(matches) > 0, line_num, f"Could not find matching spec for {line}")
+        # Only a genuine ambiguity is an error: specs that would build a *different* instruction
+        # (distinct operand shape). Specs differing only cosmetically (e.g. {Wn|WSP} vs {Wn})
+        # yield the same parse, so picking the first is safe.
+        shapes = {tuple((o.type, o.width) for o in s.operands) for s, _ in matches}
+        parser_assert(len(shapes) == 1, line_num,
+                      f"Ambiguous parse: {len(shapes)} distinct operand shapes match {line!r}")
 
-            elif op_raw == "sp":
-                matching_specs = [s for s in matching_specs if s.operands[op_id].width == 64]
+        spec, values = matches[0]
+        return self._build_instruction(spec, values, is_instrumentation, is_noremove, line_num)
 
-            elif op_raw[0] in size_map:  # register (x0, w3, v2, q1, etc.)
-                type_to_check = OT.MEM if inside_mem else OT.REG
-                matching_specs = [
-                    s for s in matching_specs
-                    if s.operands[op_id].type == type_to_check and
-                    s.operands[op_id].width == size_map[op_raw[0]]
-                ]
-
-            elif op_raw in ["sy", "ld", "st"]:  # system immediates
-                matching_specs = [s for s in matching_specs if s.operands[op_id].type == OT.IMM]
-
-            else:
-                parser_error(line_num, f"Unknown type of operand: {op_raw}")
-
-            op_id += 1
-        parser_assert(
-            len(matching_specs) != 0,
-            line_num,
-            f"Could not find matching spec for {line}"
-        )
-
-        parser_assert(
-            not inside_mem,
-            line_num,
-            f"Memory operand was not closed: {line}"
-        )
-
-
-        # resolve magic-value overload
-        if len(matching_specs) > 1:
-            magic_value_specs = [s for s in matching_specs if s.has_magic_value]
-            if magic_value_specs:
-                matching_specs = magic_value_specs
-
-        # pick first (they should be equivalent)
-        spec = matching_specs[0]
+    def _build_instruction(self, spec, values, is_instrumentation, is_noremove, line_num):
         inst = Instruction.from_spec(spec, is_instrumentation=is_instrumentation)
         inst.is_noremove = is_noremove
-
-        # build operand objects
-        for op_id, op_raw in enumerate(operand_tokens_clean):
-            op_spec = spec.operands[op_id]
-
+        for op_spec, value in zip(spec.operands, values):
             if op_spec.type == OT.REG:
-                op = RegisterOperand(op_raw, op_spec.width, op_spec.src, op_spec.dest)
-
+                op = RegisterOperand(value, op_spec.width, op_spec.src, op_spec.dest)
             elif op_spec.type == OT.MEM:
-                op = MemoryOperand(op_raw, op_spec.width, op_spec.src, op_spec.dest)
-
+                op = MemoryOperand(value, op_spec.width, op_spec.src, op_spec.dest)
             elif op_spec.type == OT.IMM:
-                op = ImmediateOperand(op_raw, op_spec.width)
-
+                op = ImmediateOperand(value, op_spec.width)
             elif op_spec.type == OT.LABEL:
-                op = LabelOperand(op_raw)
-
+                op = LabelOperand(value)
             elif op_spec.type == OT.COND:
-                op = CondOperand(op_raw)
-
+                op = CondOperand(value)
             else:
                 parser_error(line_num, f"Unknown operand type {op_spec.type}")
-
             op.name = op_spec.name
             inst.operands.append(op)
-
-        # implicit operands
         for op_spec in spec.implicit_operands:
             inst.implicit_operands.append(self.generator.generate_operand(op_spec, inst))
-
         return inst
-
 
     def _patch_asm(self, asm_file: str, patched_asm_file: str):
         """

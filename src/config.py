@@ -305,6 +305,7 @@ class Conf:
     _generator_fault_to_fault_name: Dict[str, str]  # set by ISA-specific config.py
     _actors: OrderedDict[str, Dict]
     _actor_default: Dict
+    _unsupported_options: List[str] = []  # ISA options that raise if accessed; set by ISA config.py
     _config_path: str = ""
 
     def __init__(self) -> None:
@@ -312,6 +313,15 @@ class Conf:
         setattr(self, '__dict__', self._borg_shared_state)
         if not getattr(self, '_actors', None):
             self._actors = OrderedDict()
+
+    def __getattr__(self, name: str):
+        # Invoked only when normal lookup fails. Options declared unsupported by the
+        # ISA-specific config are never stored, so any access to them lands here.
+        if name in self.__dict__.get('_unsupported_options', ()):
+            raise ConfigException(
+                f"Configuration option '{name}' is not supported on architecture "
+                f"'{self.__dict__.get('instruction_set', '?')}'")
+        raise AttributeError(name)
 
     def load(self, config_path: str, include_dir: str = "") -> None:
         self._config_path = config_path
@@ -412,6 +422,7 @@ class Conf:
 
     def set_to_arch_defaults(self):
         """ Set config options according to the architecture-specific defaults """
+        self._unsupported_options = []
 
         if self.instruction_set == "x86-64":
             config = x86_config
@@ -446,6 +457,9 @@ class Conf:
             if name == "_option_values":
                 for k, v in value.items():
                     self._option_values[k] = v
+                continue
+            if name == "_unsupported_options":
+                self._unsupported_options = list(value)
                 continue
 
             setattr(self, name, value)

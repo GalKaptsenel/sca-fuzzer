@@ -10,7 +10,7 @@ from typing import Tuple, Dict, Type, List, Callable
 from . import input_generator, analyser, postprocessor, interfaces, model
 from .x86 import (x86_model, x86_executor, x86_fuzzer, x86_generator, x86_asm_parser,
                   get_spec as x86_get_spec)
-from .aarch64 import (aarch64_model, aarch64_executor, aarch64_fuzzer, aarch64_generator, aarch64_asm_parser,
+from .aarch64 import (aarch64_executor, aarch64_fuzzer, aarch64_generator, aarch64_asm_parser,
                       arm_isa_parser, aarch64_input_generator)
 from .config import CONF, ConfigException
 from .fuzzer import NoninterfearenceFuzzer
@@ -172,7 +172,7 @@ def get_executor(enable_mismatch_check_mode: bool = False) -> interfaces.Executo
 def get_noninterference_executor(generator: interfaces.Generator,
                                   enable_mismatch_check_mode: bool = False) -> interfaces.Executor:
     """
-    Create an Aarch64NonInterferenceExecutor with the generator injected at construction.
+    Create an Aarch64PacNonInterferenceExecutor with the generator injected at construction.
 
     This is the only supported way to create a non-interference executor — the generator
     is a required constructor argument and cannot be set after the fact.
@@ -183,7 +183,7 @@ def get_noninterference_executor(generator: interfaces.Generator,
         raise ConfigException(
             f"ERROR: non-interference executor requires aarch64 instruction set; "
             f"got '{CONF.instruction_set}'")
-    return aarch64_executor.Aarch64NonInterferenceExecutor(generator, enable_mismatch_check_mode)
+    return aarch64_executor.Aarch64PacNonInterferenceExecutor(generator, enable_mismatch_check_mode)
 
 
 def get_analyser() -> interfaces.Analyser:

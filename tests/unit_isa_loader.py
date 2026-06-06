@@ -4,11 +4,13 @@ SPDX-License-Identifier: MIT
 """
 import unittest
 
+import copy
 import os
 import tempfile
 
 from src.isa_loader import InstructionSet
 from src.interfaces import OT, InstructionSpec
+from src.config import CONF
 
 basic = """
 [
@@ -44,6 +46,18 @@ duplicate = """
 
 
 class InstructionSetParserTest(unittest.TestCase):
+
+    def setUp(self):
+        # CONF is a global (Borg) singleton, so another test's arch defaults can leak
+        # in. Snapshot it, then select the generic (non-aarch64) load path with no
+        # instruction filter — what these synthetic fixtures assume. tearDown restores.
+        self._saved = copy.deepcopy(CONF._borg_shared_state)
+        CONF.instruction_set = "x86-64"
+        CONF.supported_instructions = None
+
+    def tearDown(self):
+        CONF._borg_shared_state.clear()
+        CONF._borg_shared_state.update(self._saved)
 
     def test_parsing(self):
         spec_file = tempfile.NamedTemporaryFile("w", delete=False)
@@ -89,3 +103,44 @@ class InstructionSetParserTest(unittest.TestCase):
         os.unlink(spec_file.name)
 
         self.assertEqual(len(instruction_set.instructions), 1, "No deduplication")
+
+
+class CategoryFilterAnySemanticsTest(unittest.TestCase):
+    """The category filter keeps an instruction if ANY of its tags is included."""
+
+    def setUp(self):
+        # CONF is a Borg singleton; snapshot and make the gates permissive so the
+        # test isolates the tag filter (no supported/blocklist/register gating).
+        self._saved = copy.deepcopy(CONF._borg_shared_state)
+        CONF.instruction_set = "x86-64"   # avoid the aarch64 "general"-only gate
+        CONF.supported_instructions = []
+        CONF.instruction_blocklist = []
+        CONF.instruction_allowlist = []
+        CONF.register_blocklist = []
+        CONF.register_allowlist = []
+        CONF._no_generation = False
+
+    def tearDown(self):
+        CONF._borg_shared_state.clear()
+        CONF._borg_shared_state.update(self._saved)
+
+    @staticmethod
+    def _reduce(specs, include):
+        iset = InstructionSet.__new__(InstructionSet)
+        iset.instructions = list(specs)
+        iset.reduce(include)
+        return {i.name for i in iset.instructions}
+
+    def test_kept_when_any_tag_matches(self):
+        # tags {A, B}, include {A} -> kept under any() (would be dropped under all())
+        spec = InstructionSpec("multi", "general", tags=["TAG-A", "TAG-B"])
+        self.assertIn("multi", self._reduce([spec], ["TAG-A"]))
+
+    def test_dropped_when_no_tag_matches(self):
+        spec = InstructionSpec("none", "general", tags=["TAG-A", "TAG-B"])
+        self.assertNotIn("none", self._reduce([spec], ["TAG-C"]))
+
+    def test_mixed_set(self):
+        hit = InstructionSpec("hit", "general", tags=["X", "Y"])
+        miss = InstructionSpec("miss", "general", tags=["Z"])
+        self.assertEqual(self._reduce([hit, miss], ["X"]), {"hit"})

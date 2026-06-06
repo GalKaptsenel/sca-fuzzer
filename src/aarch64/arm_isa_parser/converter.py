@@ -35,7 +35,9 @@ _TYPE_MAP: dict[str, OT] = {
 
 
 def _convert_operand(op: OperandSpec) -> RT_OperandSpec:
-    ot = _TYPE_MAP.get(op.type_, OT.IMM)
+    if op.type_ not in _TYPE_MAP:
+        raise ValueError(f"Unknown operand type {op.type_!r} for operand {op.name!r}")
+    ot = _TYPE_MAP[op.type_]
     return RT_OperandSpec(
         type=ot,
         width=op.width,

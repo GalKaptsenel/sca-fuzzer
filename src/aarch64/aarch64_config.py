@@ -1,8 +1,5 @@
 """
-File: x86-specific Configuration Options
-
-Copyright (C) Microsoft Corporation
-SPDX-License-Identifier: MIT
+File: AArch64-specific Configuration Options
 """
 from typing import List
 
@@ -17,8 +14,13 @@ _option_values = {
         'P+P',
         'F+R',
     ],
+    # UNUSED by AArch64 Revizor: fault injection is not implemented (the generator
+    # reads this allowlist into flags that are never acted upon).
     'generator_faults_allowlist': [
     ],
+    # Valid actor keys. UNUSED by AArch64 Revizor: 'observer' (multi-actor
+    # non-interference), 'data_ept_properties' (stage-2), and 'fault_blocklist'
+    # (no fault support) — AArch64 runs a single host/kernel actor.
     'actor': [
         'name',
         'mode',
@@ -29,6 +31,8 @@ _option_values = {
         'instruction_blocklist',
         'fault_blocklist',
     ],
+    # UNUSED by AArch64 Revizor: only a single 'host'/'kernel' actor is supported;
+    # 'guest' and 'user' are accepted by the schema but never exercised.
     "actor_mode": [
         'host',
         'guest',
@@ -37,6 +41,8 @@ _option_values = {
         'kernel',
         'user',
     ],
+    # UNUSED by AArch64 Revizor: these page-table property bits are NOT programmed
+    # into the AArch64 page tables.
     "actor_data_properties": [
         "present",
         "is_table",
@@ -55,10 +61,9 @@ _option_values = {
         "privileged-execute-never",
         "user-execute-never",
         "randomized",
-
     ],
+    # UNUSED by AArch64 Revizor: stage-2 (EPT) properties; no guest/stage-2 support.
     "actor_data_ept_properties": [
-        # What is the different from above?
         "present",
         "is_table",
         "attribute-index-in-mair-register-0",
@@ -76,7 +81,6 @@ _option_values = {
         "privileged-execute-never",
         "user-execute-never",
         "randomized",
-
     ],
     'instruction_categories': [
             "BASE-ARITH",
@@ -86,6 +90,8 @@ _option_values = {
             "BASE-BITCOUNT",
             "BASE-CONDSEL",
             "BASE-BRANCH",
+            "BASE-COND-BRANCH",
+            "BASE-UNCOND-BRANCH",
             "BASE-MEMORY-LOAD",
             "BASE-MEMORY-STORE",
             "BASE-ATOMIC",
@@ -96,7 +102,8 @@ _option_values = {
             "BASE-PAC",
             "BASE-COPY",
             "BASE-SYSTEM",
-            "BASE-FLAG",
+            "BASE-NZCV",
+            "BASE-MISC",
             "SVE-ARITH",
             "SVE-LOGICAL",
             "SVE-MEMORY-LOAD",
@@ -108,6 +115,7 @@ _option_values = {
             "SVE-PERMUTE",
             "SVE-COMPARE",
             "SVE-MISC",
+            "SVE-NZCV",
             "SVE2-ARITH",
             "SVE2-CRYPTO",
             "SVE2-BITMANIP",
@@ -117,57 +125,30 @@ _option_values = {
     ],
 }
 
-# by default, we always handle page faults
-# _handled_faults: List[str] = ["PF"]
+# Options present in the config schema but not (yet) implemented for AArch64.
+# Reading or setting any of them raises ConfigException (see Conf.__getattr__).
+_unsupported_options: List[str] = [
+    "aarch64_executor_enable_prefetcher",  # prefetcher control not wired to the executor
+    "aarch64_executor_enable_ssbp_patch",  # SSB mitigation toggle not implemented
+    "aarch64_disable_div64",               # 64-bit division filtering not implemented
+]
 
-aarch64_executor_enable_prefetcher: bool = False
-""" x86_executor_enable_prefetcher: enable all prefetchers"""
-aarch64_executor_enable_ssbp_patch: bool = True
-""" x86_executor_enable_ssbp_patch: enable a patch against Speculative Store Bypass"""
-# x86_enable_hpa_gpa_collisions: bool = False
-# """ x86_enable_hpa_gpa_collisions: enable collisions between HPA and GPA;
-# useful for testing Foreshadow-like leaks"""
-aarch64_disable_div64: bool = True
-""" x86_disable_div64: do not generate 64-bit division instructions """
-# x86_generator_align_locks: bool = True
-# """ x86_generator_align_locks: align all generated locks to 8 bytes """
-
-# Overwrite executor
 executor: str = try_get_cpu_vendor()
 """ executor: the default executor depending on the current platform """
 
-instruction_categories: List[str] = ["BASE-BINARY", "BASE-BITBYTE", "BASE-COND_BR"]
+instruction_categories: List[str] = ["BASE-ARITH", "BASE-LOGICAL", "BASE-COND-BRANCH"]
 """ instruction_categories: a default list of tested instruction categories """
 
-_buggy_instructions: List[str] = [
-    # "sti",  # enables interrupts
-    # "cli",  # disables interrupts; blocked just in case
-    # "xlat",  # requires support of segment registers
-    # "xlatb",  # requires support of segment registers
-    # "cmpxchg8b",  # known bug: doesn't execute the mem. access hook
-    # "lock cmpxchg8b",  # https://github.com/unicorn-engine/unicorn/issues/990
-    # "cmpxchg16b",  # known bug: doesn't execute the mem. access hook
-    # "lock cmpxchg16b",  # https://github.com/unicorn-engine/unicorn/issues/990
-    # "cpuid",  # causes false positives: the model and the CPU will likely have different values
-    # "cmpps",  # causes crash
-    # "cmpss",  # causes crash
-    # 'cmppd',  # causes crash
-    # 'cmpsd',  # causes crash
-    # "movq2dq",  # requires MMX
-    # 'movdq2q',  # requires MMX
-    # "rcpps",  # incorrect emulation
-    # "rcpss",  # incorrect emulation
-    # "maskmovdqu",  # incorrect emulation
-]
+# Instructions known to misbehave under the executor; none identified for AArch64 yet.
+_buggy_instructions: List[str] = []
 
-supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "ldr", "orr", "ands", "and", "eor", "cbnz", #"asrv",
-                                     "csel", "csinc", "csinv", "csneg", "ccmn", "ccmp", #"addpt", "addspl", "addsvl", "addvl", 
+supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "ldr", "orr", "ands", "and", "eor", "cbnz", "tbz", "tbnz",
+                                     "csel", "csinc", "csinv", "csneg", "ccmn", "ccmp",
                                      "sdiv", "udiv", "xpacd", "xpaci", "autda", "autdza", "autdb", "autdzb", "pacda", "pacdza", "pacdb", "pacdzb", "pacga"
                                      ]
-#                                     "ldp", "stp"]
 
 instruction_blocklist: List[str] = [
-    # Currently don't support them - they require very specific order of instruction (they must appear one after the other, what happens otherwise? I don't know)
+    # Not supported: these require a specific consecutive ordering of instructions.
     "setgp", "setgm", "setge",
     "setgpn", "setgmn", "setgen",
     "setgpt", "setgmt", "setget",
@@ -177,8 +158,8 @@ instruction_blocklist: List[str] = [
     "setpt", "setmt", "setet",
     "setptn", "setmtn", "setetn",
     *["cpy" + first + second + third for first in ["f", ""] for second in ["p", "m", "e"] for third in ["", "n", "rn", "rt", "rtn", "rtrn", "rtwn", "t", "tn", "trn", "twn", "wn", "wt", "wtn", "wtrn", "wtwn"]],
-    "caspa", "caspal", "casp", "caspl", "casp",
-    # For some reason it does not recognized by our assembler
+    "caspa", "caspal", "casp", "caspl",
+    # For some reason it is not recognized by our assembler
     "ldtaddal",
     "rcwcas",
     "rcwsclrpl",
@@ -220,7 +201,6 @@ instruction_blocklist: List[str] = [
     "ldtclra",
     "ldtset",
     "pacia171615",
-    "pacib171615i",
     "ldsetpal",
     "pacnbiasppc",
     "rcwswpal",
@@ -236,7 +216,6 @@ instruction_blocklist: List[str] = [
     "rcwsclrpal",
     "rcwssetpa",
     "sttp",
-    "retabsppcr",
     "ctz",
     "ldclrpa",
     "rcwsclrpa",
@@ -252,7 +231,6 @@ instruction_blocklist: List[str] = [
     "rcwsset",
     "rcwswp",
     "rcwscasa",
-    "retaasppcr",
     "ldtadda",
     "pacnbibsppc",
     "swptal",
@@ -337,35 +315,11 @@ instruction_blocklist: List[str] = [
     "stlp",
     "ldap",
     "ldapp",
-
-    # Assembel says the cpu does not cupport those instructions
-
-
-
-    # # Hard to fix:
-    # # - Requires complex instrumentation
-    # "enterw", "enter", "leavew", "leave",
-    # # - requires support of all possible interrupts
-    # "int",
-    # # - system management instruction
-    # "encls", "vmxon", "stgi", "skinit", "ldmxcsr", "stmxcsr",
-    #
-    # # - not supported
-    # "lfence", "mfence", "sfence", "clflush", "clflushopt",
-    #
-    # # - under construction
-    # # -- trigger FPVI (we have neither a contract nor an instrumentation for it yet)
-    # "divps", "divss", 'divpd', 'divsd',
-    # "mulss", "mulps", 'mulpd', 'mulsd',
-    # "rsqrtps", "rsqrtss", "sqrtps", "sqrtss", 'sqrtpd', 'sqrtsd',
-    # 'addps', 'addss', 'addpd', 'addsd',
-    # 'subps', 'subss', 'subpd', 'subsd',
-    # 'addsubpd', 'addsubps', 'haddpd', 'haddps', 'hsubpd', 'hsubps',
 ]  # yapf: disable
 instruction_blocklist.extend(_buggy_instructions)
 
-register_allowlist: List[str] = [
-    ]
+register_allowlist: List[str] = []
+
 # Usable by the generator: x0-x5 (plus NZCV/SP via their input slots).
 # Reserved (blocked): x6-x30 and sp — used internally by the executor sandbox/instrumentation.
 register_blocklist: List[str] = [
@@ -402,8 +356,6 @@ _actor_default = {
         "privileged-execute-never": True,
         "user-execute-never": True,
         "randomized": False,
-
-        "reserved_bit": False # TODO: Does Aarch64 has reserved bits? For what reason do we need them?
     },
     'data_ept_properties': {
         "present": True,
@@ -423,10 +375,7 @@ _actor_default = {
         "privileged-execute-never": True,
         "user-execute-never": True,
         "randomized": False,
-
-        "reserved_bit": False # TODO: Does Aarch64 has reserved bits? For what reason do we need them?
     },
     'instruction_blocklist': set(),
     'fault_blocklist': set(),
 }
-

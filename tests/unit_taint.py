@@ -1,6 +1,6 @@
 """
-Unit tests for the taint analysis: TaintTracker, compute_taint, compute_ctrace,
-map_operand_to_input_offsets, map_operand_to_dest_offsets.
+Unit tests for the taint analysis: _TaintTracker, compute_taint, compute_ctrace,
+map_register_to_offsets.
 """
 import unittest
 from dataclasses import dataclass
@@ -8,14 +8,8 @@ from typing import List, Optional, Tuple, Dict
 from unittest.mock import patch
 import numpy as np
 
-from src.aarch64.aarch64_executor import (
-    TaintTracker,
-    map_operand_to_input_offsets,
-    map_operand_to_dest_offsets,
-    compute_taint,
-    compute_ctrace,
-    _reconstruct_pstate,
-)
+from src.aarch64.aarch64_trace import _TaintTracker, compute_taint, compute_ctrace
+from src.aarch64.aarch64_input_layout import map_register_to_offsets, _reconstruct_pstate
 
 # ===========================================================================
 # Mock CE trace infrastructure
@@ -87,7 +81,7 @@ def _make_trace(*steps: dict) -> Tuple[List[_ITE], object]:
     return ites, _fake
 
 
-_PATCH = 'src.aarch64.aarch64_executor.get_srcs_dests_operands'
+_PATCH = 'src.aarch64.aarch64_trace.decode_reg_accesses'
 
 
 def _taint(*steps: dict):
@@ -127,19 +121,19 @@ X0, X1, X2, X3, X4, X5, FLAGS, SP = range(8)
 class TestTaintTracker(unittest.TestCase):
 
     def test_unread_cell_not_preserved(self):
-        tt = TaintTracker()
+        tt = _TaintTracker()
         tt.set_depth(0)
         tt.on_write([0, 1, 2], depth=0)
         self.assertFalse(tt.must_preserve)
 
     def test_read_before_write_preserved(self):
-        tt = TaintTracker()
+        tt = _TaintTracker()
         tt.set_depth(0)
         tt.on_read([5], depth=0)
         self.assertIn(5, tt.must_preserve)
 
     def test_arch_write_then_arch_read_freed(self):
-        tt = TaintTracker()
+        tt = _TaintTracker()
         tt.set_depth(0)
         tt.on_write([5], depth=0)
         tt.on_read([5], depth=0)
@@ -147,7 +141,7 @@ class TestTaintTracker(unittest.TestCase):
 
     def test_arch_write_then_spec_read_freed(self):
         # Arch write at depth 0 before the spec branch → spec read sees written value.
-        tt = TaintTracker()
+        tt = _TaintTracker()
         tt.set_depth(0)
         tt.on_write([5], depth=0)
         tt.set_depth(1)
@@ -156,7 +150,7 @@ class TestTaintTracker(unittest.TestCase):
 
     def test_spec_read_before_arch_write_preserved(self):
         # Spec branch BEFORE the arch write (DFS: spec sub-tree comes first).
-        tt = TaintTracker()
+        tt = _TaintTracker()
         tt.set_depth(1)
         tt.on_read([5], depth=1)  # spec reads original input value
         tt.set_depth(0)
@@ -165,7 +159,7 @@ class TestTaintTracker(unittest.TestCase):
 
     def test_spec_write_squashed_arch_read_preserved(self):
         # Spec writes cell, then spec exits (write squashed), then arch reads it.
-        tt = TaintTracker()
+        tt = _TaintTracker()
         tt.set_depth(1)
         tt.on_write([7], depth=1)
         tt.set_depth(0)           # spec exits: written[1] popped
@@ -174,7 +168,7 @@ class TestTaintTracker(unittest.TestCase):
 
     def test_spec_write_then_spec_read_same_depth_freed(self):
         # Within the same speculative path: write before read → freed.
-        tt = TaintTracker()
+        tt = _TaintTracker()
         tt.set_depth(1)
         tt.on_write([3], depth=1)
         tt.on_read([3], depth=1)
@@ -182,7 +176,7 @@ class TestTaintTracker(unittest.TestCase):
 
     def test_nested_spec_sees_outer_spec_write(self):
         # Depth-1 writes, depth-2 reads — depth-2 should see depth-1's write.
-        tt = TaintTracker()
+        tt = _TaintTracker()
         tt.set_depth(1)
         tt.on_write([9], depth=1)
         tt.set_depth(2)
@@ -191,7 +185,7 @@ class TestTaintTracker(unittest.TestCase):
 
     def test_nested_spec_write_squashed_on_exit(self):
         # Depth-2 writes, exits back to depth-1, depth-1 reads → squashed → preserved.
-        tt = TaintTracker()
+        tt = _TaintTracker()
         tt.set_depth(2)
         tt.on_write([4], depth=2)
         tt.set_depth(1)           # depth-2 squashed
@@ -201,7 +195,7 @@ class TestTaintTracker(unittest.TestCase):
     def test_two_spec_branches_union_of_reads(self):
         # Two sequential spec branches from the same arch point.
         # First branch reads 5; second branch reads 8. Both must be preserved.
-        tt = TaintTracker()
+        tt = _TaintTracker()
         tt.set_depth(1)
         tt.on_read([5], depth=1)
         tt.set_depth(0)           # first spec exits
@@ -214,7 +208,7 @@ class TestTaintTracker(unittest.TestCase):
     def test_second_spec_branch_sees_only_arch_writes(self):
         # First spec branch writes 5. Second spec branch (new, after exit) reads 5.
         # The first spec's write was squashed — second branch sees only arch writes.
-        tt = TaintTracker()
+        tt = _TaintTracker()
         tt.set_depth(1)
         tt.on_write([5], depth=1)
         tt.set_depth(0)           # first spec exits, write squashed
@@ -224,7 +218,7 @@ class TestTaintTracker(unittest.TestCase):
 
     def test_deep_nesting_stack_integrity(self):
         # 0→1→2→3→2→1→0, verify each level's writes are scoped correctly.
-        tt = TaintTracker()
+        tt = _TaintTracker()
         tt.set_depth(0); tt.on_write([0], depth=0)
         tt.set_depth(1); tt.on_write([1], depth=1)
         tt.set_depth(2); tt.on_write([2], depth=2)
@@ -249,7 +243,7 @@ class TestTaintTracker(unittest.TestCase):
         self.assertNotIn(0, tt.must_preserve)
 
     def test_empty_offsets_noop(self):
-        tt = TaintTracker()
+        tt = _TaintTracker()
         tt.set_depth(0)
         tt.on_read([], depth=0)
         tt.on_write([], depth=0)
@@ -257,7 +251,7 @@ class TestTaintTracker(unittest.TestCase):
 
     def test_partial_overlap_preserved(self):
         # Write covers bytes 0-3, read covers bytes 2-5 → bytes 4-5 not written → preserved.
-        tt = TaintTracker()
+        tt = _TaintTracker()
         tt.set_depth(0)
         tt.on_write([0, 1, 2, 3], depth=0)
         tt.on_read([2, 3, 4, 5], depth=0)
@@ -268,80 +262,47 @@ class TestTaintTracker(unittest.TestCase):
 
 
 # ===========================================================================
-# Operand offset mapping tests
+# Register offset mapping tests
 # ===========================================================================
 
-class TestOperandOffsets(unittest.TestCase):
+class TestRegisterOffsets(unittest.TestCase):
 
-    # src mapping: w-regs → 4 bytes, x-regs → 8 bytes
-    def test_src_x_register_8_bytes(self):
+    def test_x_register_8_bytes(self):
         for n in range(6):
-            offsets = map_operand_to_input_offsets(f'x{n}')
-            self.assertEqual(offsets, list(range(n * 8, n * 8 + 8)), f'x{n}')
+            self.assertEqual(map_register_to_offsets(f'x{n}'),
+                             list(range(n * 8, n * 8 + 8)), f'x{n}')
 
-    def test_src_w_register_4_bytes(self):
+    def test_w_register_not_recognized(self):
+        # Only x-form registers are recognized; w-forms map to nothing.
         for n in range(6):
-            offsets = map_operand_to_input_offsets(f'w{n}')
-            self.assertEqual(offsets, list(range(n * 8, n * 8 + 4)), f'w{n}')
-
-    def test_src_w_register_upper_half_not_covered(self):
-        # Sanity: src w3 does NOT cover upper 4 bytes of x3 slot.
-        offsets = set(map_operand_to_input_offsets('w3'))
-        upper = set(range(3 * 8 + 4, 3 * 8 + 8))
-        self.assertTrue(offsets.isdisjoint(upper))
-
-    # dest mapping: w-regs → 8 bytes (zero-extends)
-    def test_dest_w_register_8_bytes(self):
-        for n in range(6):
-            offsets = map_operand_to_dest_offsets(f'w{n}')
-            self.assertEqual(offsets, list(range(n * 8, n * 8 + 8)), f'w{n} dest')
-
-    def test_dest_x_register_8_bytes(self):
-        for n in range(6):
-            offsets = map_operand_to_dest_offsets(f'x{n}')
-            self.assertEqual(offsets, list(range(n * 8, n * 8 + 8)), f'x{n} dest')
-
-    def test_src_dest_differ_for_w_register(self):
-        # The key correctness property: dest covers more bytes than src for w-regs.
-        for n in range(6):
-            src = set(map_operand_to_input_offsets(f'w{n}'))
-            dst = set(map_operand_to_dest_offsets(f'w{n}'))
-            self.assertLess(len(src), len(dst), f'w{n}: dest should cover more bytes')
-            self.assertTrue(src.issubset(dst))
+            self.assertEqual(map_register_to_offsets(f'w{n}'), [], f'w{n}')
 
     def test_out_of_range_registers_empty(self):
         for n in range(6, 31):
-            self.assertEqual(map_operand_to_input_offsets(f'x{n}'), [], f'x{n} src')
-            self.assertEqual(map_operand_to_input_offsets(f'w{n}'), [], f'w{n} src')
-            self.assertEqual(map_operand_to_dest_offsets(f'x{n}'), [], f'x{n} dst')
-            self.assertEqual(map_operand_to_dest_offsets(f'w{n}'), [], f'w{n} dst')
+            self.assertEqual(map_register_to_offsets(f'x{n}'), [], f'x{n}')
 
     def test_ignored_special_registers(self):
         for reg in ('fp', 'lr', 'xzr', 'wzr', 'FP', 'XZR'):
-            self.assertEqual(map_operand_to_input_offsets(reg), [], reg)
-            self.assertEqual(map_operand_to_dest_offsets(reg), [], reg)
+            self.assertEqual(map_register_to_offsets(reg), [], reg)
 
     def test_flags_per_flag_granularity(self):
         # Each flag gets its own single byte within the flags slot (slot 6, base = 48).
         expected = {'N': 48, 'Z': 49, 'C': 50, 'V': 51}
         for flag, byte in expected.items():
-            self.assertEqual(map_operand_to_input_offsets(flag), [byte], flag)
-            self.assertEqual(map_operand_to_dest_offsets(flag), [byte], flag)
-            self.assertEqual(map_operand_to_input_offsets(flag.lower()), [byte], flag.lower())
+            self.assertEqual(map_register_to_offsets(flag), [byte], flag)
+            self.assertEqual(map_register_to_offsets(flag.lower()), [byte], flag.lower())
 
     def test_flags_are_independent_bytes(self):
-        offsets = [map_operand_to_input_offsets(f)[0] for f in ('N', 'Z', 'C', 'V')]
+        offsets = [map_register_to_offsets(f)[0] for f in ('N', 'Z', 'C', 'V')]
         self.assertEqual(len(offsets), len(set(offsets)), "flag bytes must be distinct")
 
-    def test_sp_8_bytes_both(self):
+    def test_sp_8_bytes(self):
         sp_base = 7 * 8
-        for fn in (map_operand_to_input_offsets, map_operand_to_dest_offsets):
-            self.assertEqual(fn('sp'), list(range(sp_base, sp_base + 8)))
+        self.assertEqual(map_register_to_offsets('sp'), list(range(sp_base, sp_base + 8)))
 
     def test_unknown_operand_empty(self):
         for reg in ('q0', 'v0', 'xyz', '', 'pstate'):
-            self.assertEqual(map_operand_to_input_offsets(reg), [])
-            self.assertEqual(map_operand_to_dest_offsets(reg), [])
+            self.assertEqual(map_register_to_offsets(reg), [])
 
 
 # ===========================================================================
@@ -365,26 +326,6 @@ class TestComputeTaint(unittest.TestCase):
             {'depth': 0, 'srcs': ['x2'], 'dests': []},      # read x2
         )
         self.assertFalse(_gpr_preserved(t, X2))
-
-    def test_w_dest_covers_full_x_slot(self):
-        # Writing w3 (dest) should mark all 8 bytes of x3's slot as overwritten.
-        # A subsequent full x3 read should NOT taint.
-        t = _taint(
-            {'depth': 0, 'srcs': [],     'dests': ['w3']},  # w3 dest → zero-extends x3
-            {'depth': 0, 'srcs': ['x3'], 'dests': []},      # read x3 (64-bit)
-        )
-        self.assertFalse(_gpr_preserved(t, X3))
-
-    def test_w_src_read_upper_half_still_tainted(self):
-        # Write only lower 4 bytes via w3 dest, then read all 8 via x3 src.
-        # If we instead had w3 as src (reads 4 bytes), upper 4 stay unread → not tainted.
-        # This test confirms dest w3 covers all 8 bytes (previous test), and src w3 covers 4.
-        t = _taint(
-            {'depth': 0, 'srcs': [],     'dests': ['w3']},  # covers all 8
-            {'depth': 0, 'srcs': ['w3'], 'dests': []},      # reads only lower 4
-        )
-        # x3 slot not tainted because dest w3 covered all 8 bytes first
-        self.assertFalse(_gpr_preserved(t, X3))
 
     # --- Key spec/arch ordering scenarios ---
 

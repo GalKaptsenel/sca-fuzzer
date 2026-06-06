@@ -26,9 +26,9 @@ def setUpModule():
             "kernel module not loaded — run "
             "'sudo insmod revizor-executor.ko && sudo chmod 777 /dev/executor' "
             "to run these tests")
-    from src.aarch64.aarch64_connection import LocalExecutorImp, PacKeys
+    from src.aarch64.aarch64_kernel import LocalHWExecutor, PacKeys
     CONF.load("config.yml")
-    _executor = LocalExecutorImp('/dev/executor', '/sys/executor')
+    _executor = LocalHWExecutor('/dev/executor', '/sys/executor')
     keys = _executor.get_pac_keys()
     _executor.set_pac_keys(keys)
 
@@ -119,7 +119,7 @@ class TestPacgaKeyIsolation(unittest.TestCase):
     """PACGA output must change when the APGA key changes."""
 
     def test_pacga_changes_with_different_apga_key(self):
-        from src.aarch64.aarch64_connection import PacKeys
+        from src.aarch64.aarch64_kernel import PacKeys
         xn, xm = 0xDEADBEEF00000000, 0x00000000CAFEBABE
 
         # Result with current (default) keys

@@ -33,7 +33,7 @@ BASE-MTE            Memory Tagging Extension (IRG, GMI, LDG, STG, …)
 BASE-PAC            Pointer Authentication (PACIA, AUTIA, PACDA, …)
 BASE-COPY           Memory copy / set (CPYE, SETE, …)
 BASE-SYSTEM         System / misc (RET, UDF, PRFM, …)
-BASE-FLAG           Flag manipulation (SETF8, SETF16, …)
+BASE-NZCV           Writes the NZCV condition flags (ADDS, SUBS, ANDS, CCMP, RMIF, SETF8, …)
 SVE-ARITH           SVE integer / FP arithmetic
 SVE-LOGICAL         SVE bitwise logical
 SVE-MEMORY-LOAD     SVE loads (LD1B, LD1H, LDFF1, …)
@@ -45,6 +45,7 @@ SVE-BITCOUNT        SVE bit-count (CNT, CLZ, CLS on vectors)
 SVE-PERMUTE         SVE permute / shuffle (TRN, ZIP, UZP, REV, …)
 SVE-COMPARE         SVE compare (CMPEQ, CMPGT, …)
 SVE-MISC            SVE instructions not in the above groups
+SVE-NZCV            SVE instruction that writes the NZCV condition flags
 SVE2-ARITH          SVE2-only arithmetic (SRSRA, URSRA, …)
 SVE2-CRYPTO         SVE2 crypto (SHA512, SM4, …)
 SVE2-BITMANIP       SVE2 bit manipulation (BEXT, BDEP, BGRP, …)
@@ -118,7 +119,8 @@ _PREFIX_RULES: list[tuple[str, tuple[str, ...]]] = [
                   "autia", "autib", "autda", "autdb",
                   "autiza", "autizb", "autdza", "autdzb",
                   "autia171615", "autib171615",
-                  "autiasppcr", "autibsppcr")),
+                  "autiasppcr", "autibsppcr",
+                  "xpacd", "xpaci", "xpaclri")),
 
     # --- MTE (Memory Tagging Extension) ---
     ("BASE-MTE", ("irg", "gmi", "addg", "subg", "subp", "subps",
@@ -166,11 +168,14 @@ _PREFIX_RULES: list[tuple[str, tuple[str, ...]]] = [
     # --- prefetch ---
     ("BASE-PREFETCH", ("prfm", "rprfm")),
 
-    # --- system / misc ---
-    ("BASE-SYSTEM", ("udf", "nop")),
+    # --- system ---
+    ("BASE-SYSTEM", ("udf",)),
+
+    # --- misc ---
+    ("BASE-MISC", ("nop",)),
 
     # --- flag manipulation ---
-    ("BASE-FLAG", ("rmif", "setf8", "setf16")),
+    ("BASE-NZCV", ("rmif", "setf8", "setf16")),
 ]
 
 # Flatten for O(1) lookup: mnemonic → [tags]
@@ -178,39 +183,6 @@ _EXACT_TAG_MAP: dict[str, list[str]] = {}
 for _tag, _mnemonics in _PREFIX_RULES:
     for _m in _mnemonics:
         _EXACT_TAG_MAP.setdefault(_m, []).append(_tag)
-
-
-# ---------------------------------------------------------------------------
-# Prefix-based fallback for large BASE families
-# ---------------------------------------------------------------------------
-
-_BASE_PREFIX_FALLBACKS: list[tuple[str, str]] = [
-    ("BASE-COPY",         "cpy"),
-    ("BASE-COPY",         "set"),
-    ("BASE-ATOMIC",       "ldadd"),
-    ("BASE-ATOMIC",       "ldclr"),
-    ("BASE-ATOMIC",       "ldeor"),
-    ("BASE-ATOMIC",       "ldset"),
-    ("BASE-ATOMIC",       "ldsmax"),
-    ("BASE-ATOMIC",       "ldsmin"),
-    ("BASE-ATOMIC",       "ldumax"),
-    ("BASE-ATOMIC",       "ldumin"),
-    ("BASE-ATOMIC",       "ldtadd"),
-    ("BASE-ATOMIC",       "ldtclr"),
-    ("BASE-ATOMIC",       "ldtset"),
-    ("BASE-ATOMIC",       "swp"),
-    ("BASE-ATOMIC",       "cas"),
-    ("BASE-ATOMIC",       "rcw"),
-    ("BASE-MTE",          "setg"),
-    ("BASE-MEMORY-LOAD",  "ldr"),
-    ("BASE-MEMORY-STORE", "str"),
-    ("BASE-BRANCH",       "b"),
-    ("BASE-BRANCH",       "bl"),
-    ("BASE-BRANCH",       "ret"),
-    ("BASE-PAC",          "pac"),
-    ("BASE-PAC",          "xpac"),
-    ("BASE-PAC",          "aut"),
-]
 
 
 # ---------------------------------------------------------------------------
@@ -353,28 +325,6 @@ _sve("SVE-COMPARE",
      "fcmuo",
      )
 
-# ---------------------------------------------------------------------------
-# SVE prefix fallbacks (catch ld1b_gather, st1h_scatter, etc.)
-# ---------------------------------------------------------------------------
-
-_SVE_PREFIX_FALLBACKS: list[tuple[str, str]] = [
-    ("SVE-MEMORY-LOAD",  "ld1"),
-    ("SVE-MEMORY-LOAD",  "ld2"),
-    ("SVE-MEMORY-LOAD",  "ld3"),
-    ("SVE-MEMORY-LOAD",  "ld4"),
-    ("SVE-MEMORY-LOAD",  "ldff"),
-    ("SVE-MEMORY-LOAD",  "ldnf"),
-    ("SVE-MEMORY-LOAD",  "ldnt"),
-    ("SVE-MEMORY-STORE", "st1"),
-    ("SVE-MEMORY-STORE", "st2"),
-    ("SVE-MEMORY-STORE", "st3"),
-    ("SVE-MEMORY-STORE", "st4"),
-    ("SVE-MEMORY-STORE", "stnt"),
-    ("SVE-PREDICATE",    "while"),
-    ("SVE-PREDICATE",    "brk"),
-    ("SVE-COMPARE",      "cmp"),
-    ("SVE-COMPARE",      "fcmp"),
-]
 
 # ---------------------------------------------------------------------------
 # SVE2-only mnemonics
@@ -386,7 +336,6 @@ _SVE2_EXACT: dict[str, list[str]] = {}
 def _sve2(tag: str, *mnemonics: str) -> None:
     for m in mnemonics:
         _SVE2_EXACT.setdefault(m, []).append(tag)
-        _SVE2_EXACT.setdefault(m, [])  # ensure key exists
 
 
 _sve2("SVE2-ARITH",
@@ -428,16 +377,6 @@ _sve2("SVE2-MMLA",
       "smmla", "ummla", "usmmla",
       )
 
-_SVE2_PREFIX_FALLBACKS: list[tuple[str, str]] = [
-    ("SVE2-ARITH",   "srsra"),
-    ("SVE2-ARITH",   "ursra"),
-    ("SVE2-ARITH",   "sqrshr"),
-    ("SVE2-ARITH",   "uqrshr"),
-    ("SVE2-CRYPTO",  "aes"),
-    ("SVE2-CRYPTO",  "sha512"),
-    ("SVE2-CRYPTO",  "sm4"),
-]
-
 
 # ---------------------------------------------------------------------------
 # Branch sub-classification helpers
@@ -459,17 +398,19 @@ def get_tags(inst: InstructionSpec) -> list[str]:
     """
     Return a sorted, deduplicated list of tags for *inst*.
 
+    Tags come only from explicit rules and operand facts — there are no
+    name-prefix guesses or catch-all fallbacks. An instruction that matches
+    none of the rules below gets no tags.
+
     Resolution order
     ----------------
     1. SVE2 exact match  → adds SVE2-* tag + SVE tag
     2. SVE exact match   → adds SVE-* tag
     3. SVE operand inference (z/p registers present) → adds SVE + SVE-MISC
-    4. SVE prefix fallback
-    5. SVE2 prefix fallback
-    6. BASE exact match
-    7. BASE prefix fallback
-    8. BASE operand-type inference (MEM, LABEL, FLAGS)
-    9. BASE-MISC fallback
+    4. BASE exact match (non-SVE only)
+    5. Operand-type inference: BRANCH (control_flow/label), NZCV (writes flags,
+       namespaced SVE-NZCV/BASE-NZCV), MEMORY-LOAD/STORE (non-SVE)
+    6. Branch sub-classification: COND/UNCOND-BRANCH (+ RET)
     """
     name = inst.name.lower()
     tags: set[str] = set()
@@ -505,43 +446,28 @@ def get_tags(inst: InstructionSpec) -> list[str]:
         tags.add("SVE-MISC")
 
     # ------------------------------------------------------------------
-    # SVE prefix fallbacks
-    # ------------------------------------------------------------------
-    if has_sve_regs or "SVE" in tags:
-        for tag, prefix in _SVE_PREFIX_FALLBACKS:
-            if name.startswith(prefix) and tag not in tags:
-                tags.add(tag)
-                tags.add("SVE")
-        for tag, prefix in _SVE2_PREFIX_FALLBACKS:
-            if name.startswith(prefix) and tag not in tags:
-                tags.add(tag)
-                tags.add("SVE")
-
-    # ------------------------------------------------------------------
     # BASE exact match (only for non-SVE instructions)
     # ------------------------------------------------------------------
     if not has_sve_regs:
         if name in _EXACT_TAG_MAP:
             tags.update(_EXACT_TAG_MAP[name])
 
-        # BASE prefix fallback
-        if not tags:
-            for tag, prefix in _BASE_PREFIX_FALLBACKS:
-                if name.startswith(prefix):
-                    tags.add(tag)
-
     # ------------------------------------------------------------------
     # Operand-type inference (supplements both SVE and BASE)
     # ------------------------------------------------------------------
     has_mem   = any(op.type_ == "MEM"   for op in inst.operands)
     has_label = any(op.type_ == "LABEL" for op in inst.operands)
-    has_flags = any(op.type_ == "FLAGS" for op in inst.implicit_operands)
+    writes_flags = any(
+        op.type_ == "FLAGS" and any("w" in v for v in op.values)
+        for op in inst.implicit_operands
+    )
 
     if inst.control_flow or has_label:
         tags.add("BASE-BRANCH")
 
-    if has_flags and not tags & {"BASE-CONDSEL", "BASE-FLAG", "BASE-ARITH", "BASE-BRANCH"}:
-        tags.add("BASE-FLAG")
+    # Every instruction that writes NZCV gets a flag tag, namespaced by ISA family.
+    if writes_flags:
+        tags.add("SVE-NZCV" if (has_sve_regs or "SVE" in tags) else "BASE-NZCV")
 
     if has_mem and not has_sve_regs:
         for op in inst.operands:
@@ -560,12 +486,6 @@ def get_tags(inst: InstructionSpec) -> list[str]:
         tags.add("BASE-COND-BRANCH" if is_cond else "BASE-UNCOND-BRANCH")
         if name in _RET_EXACT:
             tags.add("BASE-RET")
-
-    # ------------------------------------------------------------------
-    # Final fallback
-    # ------------------------------------------------------------------
-    if not tags:
-        tags.add("BASE-MISC")
 
     return sorted(tags)
 

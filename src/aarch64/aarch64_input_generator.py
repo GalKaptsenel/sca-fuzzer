@@ -1,6 +1,9 @@
+"""
+File: AArch64 input generator — per-flag NZCV randomisation of the flags slot.
+"""
 import numpy as np
 from ..input_generator import NumpyRandomInputGenerator
-from .aarch64_target_desc import NZCVScheme
+from .aarch64_input_layout import NZCVScheme
 
 
 class AArch64InputGenerator(NumpyRandomInputGenerator):

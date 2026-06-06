@@ -47,9 +47,9 @@ from src.aarch64.aarch64_generator import (
     MTE_SLOT_SIZE,
 )
 from src.aarch64.aarch64_contract_executor import (
-    ContractExecutorService, ContractExecution, ContractExecutionResult,
-    SimArch, ContractType,
+    ContractExecutorService, ContractExecution, SimArch, ContractType,
 )
+from src.aarch64.aarch64_trace import ContractExecutionResult
 
 # ===========================================================================
 # Module-level constants and state
