@@ -255,6 +255,9 @@ class Conf:
     # Output
     multiline_output: bool = False
     """ multiline_output: """
+    dashboard: bool = True
+    """ dashboard: show the interactive curses dashboard when stdout is a TTY;
+    set to false to force the plain low-overhead single-line output """
     logging_modes: List[str] = ["info", "stat"]
     """ logging_modes: """
     color: bool = False

@@ -5,6 +5,8 @@ Copyright (C) Microsoft Corporation
 SPDX-License-Identifier: MIT
 """
 import os
+import sys
+import random
 import shutil
 from pathlib import Path
 from datetime import datetime
@@ -125,10 +127,27 @@ class FuzzerGeneric(Fuzzer):
                save_violations: bool) -> bool:
 
         start_time = datetime.today()
-        self.LOG.fuzzer_start(num_test_cases, start_time)
+
+        # Fix the seeds up front so the session is reproducible, and build a
+        # command that re-runs it exactly (program_generator_seed defaults to a
+        # random value, so we draw and pin it ourselves).
+        rng = random.Random()
+        prog_seed = CONF.program_generator_seed or rng.randint(1, 1_000_000)
+        input_seed = CONF.input_gen_seed or rng.randint(1, 2 ** 32 - 1)
+        self.generator.set_seed(prog_seed)
+        self.input_gen.set_seed(input_seed)
+        rerun_cmd = self._build_rerun_command(prog_seed, input_seed, num_test_cases,
+                                              num_inputs, timeout)
+
+        self.LOG.fuzzer_start(num_test_cases, start_time, timeout, self.work_dir, rerun_cmd)
+        self.LOG.inform("fuzzer", f"seeds — program:{prog_seed} input:{input_seed}")
 
         for i in range(num_test_cases):
             self.LOG.fuzzer_start_round(i)
+
+            # interactive stop request (dashboard 'q')
+            if self.LOG.fuzzer_should_stop():
+                break
 
             # terminate the fuzzer if the timeout has expired
             if timeout:
@@ -159,14 +178,50 @@ class FuzzerGeneric(Fuzzer):
             violation = self.fuzzing_round(test_case, inputs)
 
             if violation:
+                vdir = None
                 if save_violations:
-                    self._store_violation_artifact(test_case, violation, self.work_dir)
+                    vdir = self._store_violation_artifact(test_case, violation, self.work_dir)
                 STAT.violations += 1
+                name = os.path.basename(vdir) if vdir else f"violation #{STAT.violations}"
+                self.LOG.fuzzer_report_violation(name)
                 if not nonstop:
                     break
 
         self.LOG.fuzzer_finish()
         return STAT.violations > 0
+
+    @staticmethod
+    def _argv_after(*flags):
+        for f in flags:
+            if f in sys.argv:
+                k = sys.argv.index(f)
+                if k + 1 < len(sys.argv):
+                    return sys.argv[k + 1]
+        return None
+
+    def _build_rerun_command(self, prog_seed, input_seed, n, i, timeout) -> str:
+        """Write <work_dir>/rerun.yaml (the config + the fixed seeds) and return a
+        command that reproduces this exact session."""
+        try:
+            import yaml
+            cfg_path = self._argv_after("-c", "--config")
+            spec_path = self._argv_after("-s") or "base.json"
+            cfg = {}
+            if cfg_path and os.path.isfile(cfg_path):
+                with open(cfg_path) as f:
+                    cfg = yaml.safe_load(f) or {}
+            cfg["program_generator_seed"] = prog_seed
+            cfg["input_gen_seed"] = input_seed
+            os.makedirs(self.work_dir, exist_ok=True)
+            rerun_cfg = os.path.join(self.work_dir, "rerun.yaml")
+            with open(rerun_cfg, "w") as f:
+                yaml.safe_dump(cfg, f, sort_keys=False)
+            cmd = f"python3 revizor.py fuzz -s {spec_path} -c {rerun_cfg} -n {n} -i {i}"
+            if timeout:
+                cmd += f" --timeout {timeout}"
+            return cmd + f" --nonstop -w {self.work_dir}"
+        except Exception:
+            return " ".join(sys.argv)
 
     def filter(self, test_case, inputs) -> bool:
         return False  # implemented by architecture-specific subclasses
@@ -423,8 +478,17 @@ class FuzzerGeneric(Fuzzer):
                 f.write("--- stack at assertion point ---\n")
                 f.write("".join(_tb.format_stack()))
             print(f"[mismatch log saved to {path}]")
+            # Save the full test case + every (boosted) input so the mismatch is reproducible.
+            tcdir = path[:-4] + "_tc"
+            _os.makedirs(tcdir, exist_ok=True)
+            self.generator.printer.print(self.executor.curr_test_case,
+                                         _os.path.join(tcdir, "generated.asm"))
+            for _k, _inp in enumerate(inputs):
+                with open(_os.path.join(tcdir, f"input_{_k:04d}.bin"), "wb") as _f:
+                    _f.write(_inp.tobytes())
+            print(f"[mismatch TC + {len(inputs)} inputs saved to {tcdir}]")
         except Exception as e:
-            print(f"[warn: could not save mismatch log: {e}]")
+            print(f"[warn: could not save mismatch artifacts: {e}]")
 
     def _boost_inputs(self, inputs: List[Input], nesting) -> Tuple[List[Input], List[CTrace]]:
         """
@@ -594,6 +658,7 @@ class FuzzerGeneric(Fuzzer):
 
         # re-enable colors if enabled previously
         CONF.color = color_on
+        return violation_dir
 
     # ==============================================================================================
     # Single-stage interfaces

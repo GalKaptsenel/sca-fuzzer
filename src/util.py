@@ -6,6 +6,7 @@ SPDX-License-Identifier: MIT
 """
 
 import os
+import sys
 import random
 import xxhash
 from datetime import datetime
@@ -28,6 +29,14 @@ PURPLE = '\033[33;35m'
 CYAN = '\033[33;36m'
 GRAY = '\033[33;37m'
 COL_RESET = "\033[0m"
+CLR_EOL = "\033[K"  # erase from cursor to end of line
+
+
+def _fmt_duration(seconds: float) -> str:
+    s = int(seconds)
+    if s < 60:
+        return f"{s}s"
+    return f"{s // 60}m{s % 60:02d}s"
 
 
 class StatisticsCls:
@@ -80,30 +89,18 @@ class StatisticsCls:
         s += f"  Priming Check: {self.fp_priming}\n"
         return s
 
-    def get_brief(self):
+    def get_brief(self, elapsed: float = 0.0):
         if self.test_cases == 0:
             return ""
+        rate = self.test_cases / elapsed if elapsed > 0 else 0.0
+        filtered = self.fast_path + self.spec_filter + self.observ_filter
+        if self.violations > 0:
+            viol = f"{RED}⚠ {self.violations} violations{COL_RESET}"
         else:
-            if self.analysed_test_cases:
-                all_cls = (self.eff_classes + self.single_entry_classes) // self.analysed_test_cases
-                eff_cls = self.eff_classes // self.analysed_test_cases
-            else:
-                all_cls = 0
-                eff_cls = 0
-            executor_reruns = self.executor_reruns // self.num_inputs
-            s = f"Cls:{eff_cls}/{all_cls},"
-            s += f"In:{self.num_inputs // self.test_cases},"
-            s += f"R:{executor_reruns},"
-            s += f"SF:{self.spec_filter},"
-            s += f"OF:{self.observ_filter},"
-            s += f"Fst:{self.fast_path}," \
-                 f"CN:{self.fp_nesting}," \
-                 f"CT:{self.fp_taint_mistakes}," \
-                 f"P1:{self.fp_early_priming}," \
-                 f"CS:{self.fp_large_sample}," \
-                 f"P2:{self.fp_priming}," \
-                 f"V:{self.violations}"
-            return s
+            viol = "0 violations"
+        return (f"{CONF.executor_mode}  {self.test_cases} tc · "
+                f"{_fmt_duration(elapsed)} · {rate:.2f} tc/s · "
+                f"{filtered} filtered · {viol}")
 
 
 STAT = StatisticsCls()
@@ -127,6 +124,8 @@ class Logger:
     msg: str = ""
     line_ending: str = ""
     redraw_mode: bool = True
+    dashboard = None  # interactive curses dashboard, when stdout is a TTY
+    rerun_command: str = ""
 
     # info modes
     info: bool = False
@@ -169,6 +168,9 @@ class Logger:
                     "Remove '-O' from python arguments")
 
     def error(self, msg: str, print_tb: bool = False, print_last_tb: bool = False) -> NoReturn:
+        if self.dashboard is not None:
+            self.dashboard.stop()
+            self.dashboard = None
         if self.redraw_mode:
             print("")
 
@@ -196,6 +198,9 @@ class Logger:
             print(f"WARNING: [{src}] {msg}")
 
     def inform(self, src, msg, end="\n") -> None:
+        if self.dashboard is not None:
+            self.dashboard.set_message(f"[{src}] {msg}".replace("\n", " ").strip())
+            return
         if self.info:
             if self.redraw_mode:
                 print("")
@@ -227,7 +232,9 @@ class Logger:
 
     # ==============================================================================================
     # Fuzzer
-    def fuzzer_start(self, iterations: int, start_time):
+    def fuzzer_start(self, iterations: int, start_time, timeout: int = 0, work_dir: str = ".",
+                     rerun_command: str = ""):
+        self.rerun_command = rerun_command
         if self.info:
             self.one_percent_progress = iterations / 100
             self.progress = 0
@@ -236,20 +243,70 @@ class Logger:
             self.line_ending = '\n' if CONF.multiline_output else ''
             self.redraw_mode = False if CONF.multiline_output else True
             self.start_time = start_time
+            self._maybe_start_dashboard(iterations, start_time, timeout, work_dir, rerun_command)
         self.inform("fuzzer", start_time.strftime('Starting at %H:%M:%S'))
+
+    def _maybe_start_dashboard(self, iterations, start_time, timeout, work_dir, rerun_command=""):
+        self.dashboard = None
+        if not CONF.dashboard or CONF.multiline_output or not sys.stdout.isatty():
+            return
+
+        def argval(*flags):
+            for f in flags:
+                if f in sys.argv:
+                    i = sys.argv.index(f)
+                    if i + 1 < len(sys.argv):
+                        return sys.argv[i + 1]
+            return "?"
+
+        meta = {
+            "mode": CONF.executor_mode,
+            "isa": CONF.instruction_set,
+            "cmd": " ".join(sys.argv),
+            "config": argval("-c", "--config"),
+            "spec": argval("-s", "--instruction-set-spec"),
+            "num_test_cases": iterations,
+            "timeout": timeout,
+            "work_dir": work_dir,
+            "start_time": start_time,
+            "rerun": rerun_command,
+        }
+        try:
+            from .dashboard import Dashboard
+            self.dashboard = Dashboard(meta)
+        except Exception:
+            self.dashboard = None
+
+    def fuzzer_should_stop(self) -> bool:
+        return self.dashboard is not None and self.dashboard.should_stop
+
+    def fuzzer_report_violation(self, name: str):
+        if self.dashboard is not None:
+            elapsed = (datetime.today() - self.start_time).total_seconds()
+            self.dashboard.add_violation(name, elapsed)
+
+    def _dashboard_phase(self, phase: str, note: str = "") -> bool:
+        if self.dashboard is None:
+            return False
+        if note:
+            self.dashboard.set_message(note)
+        elapsed = (datetime.today() - self.start_time).total_seconds()
+        self.dashboard.tick(STAT, elapsed, phase)
+        return True
 
     def fuzzer_start_round(self, round_id):
         if self.info:
             if STAT.test_cases > self.progress:
                 self.progress += self.one_percent_progress
                 self.progress_percent += 1
-            if STAT.test_cases == 0:
-                msg = ""
+            if self._dashboard_phase("running"):
+                pass
+            elif STAT.test_cases == 0:
+                self.msg = ""
             else:
-                msg = f"\r{STAT.test_cases:<6}({self.progress_percent:>2}%)| Stats: "
-                msg += STAT.get_brief()
-                print(msg + "                         ", end=self.line_ending, flush=True)
-            self.msg = msg
+                elapsed = (datetime.today() - self.start_time).total_seconds()
+                self.msg = "\r⟳ " + STAT.get_brief(elapsed)
+                print(self.msg + CLR_EOL, end=self.line_ending, flush=True)
 
         if not __debug__:
             return
@@ -260,34 +317,47 @@ class Logger:
                 f" Duration: {(datetime.today() - self.start_time).total_seconds()} seconds")
 
     def fuzzer_priming(self, num_violations: int):
-        if self.info:
+        if self.info and not self._dashboard_phase(f"priming {num_violations}",
+                                                   f"priming candidate violation (run {num_violations})"):
             print(
-                self.msg + f"> Priming  {num_violations}             ",
+                self.msg + f" → priming {num_violations}…" + CLR_EOL,
                 end=self.line_ending,
                 flush=True)
 
     def fuzzer_nesting_increased(self):
-        if self.info:
+        if self.info and not self._dashboard_phase(f"nesting {CONF.model_max_nesting}",
+                                                   f"nesting increased to {CONF.model_max_nesting}"):
             print(
-                self.msg + "> Nest   " + str(CONF.model_max_nesting) + "         ",
+                self.msg + f" → nesting {CONF.model_max_nesting}…" + CLR_EOL,
                 end=self.line_ending,
                 flush=True)
 
     def fuzzer_slow_path(self):
-        if self.info:
-            print(self.msg + "> Entering slow path...", end=self.line_ending, flush=True)
+        if self.info and not self._dashboard_phase("slow path", "slow path: verifying candidate violation"):
+            print(self.msg + " → slow path…" + CLR_EOL, end=self.line_ending, flush=True)
 
     def fuzzer_timeout(self):
         self.inform("fuzzer", "\nTimeout expired")
 
     def fuzzer_sample_size_increase(self, sample_size):
-        if self.info:
+        if self.dashboard is not None:
+            self.dashboard.sample_size = sample_size
+        if self.info and not self._dashboard_phase(f"sample {sample_size}",
+                                                   f"sample size increased to {sample_size}"):
             print(
-                f"{self.msg} > Increase sample size to {sample_size}",
+                f"{self.msg} → sample {sample_size}…" + CLR_EOL,
                 end=self.line_ending,
                 flush=True)
 
     def fuzzer_finish(self):
+        if self.dashboard is not None:
+            # If fuzzing finished on its own (not via 'q'), keep the dashboard open
+            # so the user can scroll/inspect; exit when they press 'q'.
+            if not self.dashboard.should_stop:
+                elapsed = (datetime.today() - self.start_time).total_seconds()
+                self.dashboard.finish_hold(STAT, elapsed)
+            self.dashboard.stop()
+            self.dashboard = None
         if self.info:
             now = datetime.today()
             print("")  # new line after the progress bar
@@ -297,6 +367,8 @@ class Logger:
                 print(STAT)
             print(f"Duration: {(now - self.start_time).total_seconds():.1f}")
             print(datetime.today().strftime('Finished at %H:%M:%S'))
+            if self.rerun_command:
+                print(f"\nRe-run this exact session:\n  {self.rerun_command}")
 
     def trc_fuzzer_dump_traces(self, model: Model, inputs, htraces, reference_htraces, ctraces,
                                nesting: int):
