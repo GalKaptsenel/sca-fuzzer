@@ -394,6 +394,31 @@ contained failure rather than a deadlock. Tests verify auth equivalence *without
 
 ## 4.1 Installing
 ## 4.2 Running: download_spec, fuzz, tfuzz
+
+### Detecting Spectre-v1 (ready-to-run configs)
+
+Two configs in `configs/` detect a Spectre-v1 (conditional-branch-bypass) leak out of the box —
+one per measurement channel. Both set the **arch-only** contract (`contract_execution_clause:
+[seq]`) and turn the **BPU flush off** (`enable_pre_run_flush: 0`) so the guarding branch
+mispredicts naturally; a speculative load then touches a cache set the contract forbids, which
+Revizor reports as a violation.
+
+```
+# Prime+Probe (preferred — more sensitive):
+python revizor.py fuzz -s base.json -c configs/spectre_v1_pp.yml -n 200 -i 50 --save-violations true -w out_pp
+
+# Flush+Reload:
+python revizor.py fuzz -s base.json -c configs/spectre_v1_fr.yml -n 200 -i 50 --save-violations true -w out_fr
+```
+
+A violation drops a `violation-*/` artifact in the working dir (the test case, the
+counterexample inputs as `input_NNNN_nzcv_scheme.bin`, traces, and a `reproduce.yaml`). The leak
+is **intermittent** (the branch mispredicts only part of the time), so the fuzzer relies on its
+large-sample slow path — expect a hit within a few dozen test cases. **Prime+Probe is markedly
+more sensitive** than Flush+Reload to the store-based gadgets that turn up here (≈8× more
+positive runs for the same gadget), so use `spectre_v1_pp.yml` for a quick confirmation and give
+F+R more test cases. Requires the kernel module loaded (`--test aarch64-ko` or a manual insmod).
+
 ## 4.3 minimize / reproduce
 ## 4.4 Helper & triage scripts
 

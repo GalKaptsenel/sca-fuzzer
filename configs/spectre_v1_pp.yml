@@ -1,0 +1,38 @@
+# Spectre-v1 detection config — Prime+Probe.
+#
+# Finds a Spectre-v1 (conditional-branch-bypass) leak: with the BPU flush OFF
+# (enable_pre_run_flush: 0) the guarding conditional branch is left to mispredict
+# naturally, so a speculatively-executed load lands in a cache set that the
+# architectural-only contract (contract_execution_clause: seq) does not permit —
+# i.e. a contract violation. Prime+Probe is the more sensitive channel for this.
+#
+# Run:
+#   python revizor.py fuzz -s base.json -c configs/spectre_v1_pp.yml -n 100 -i 50 --save-violations .
+#
+# The leak is intermittent (the branch mispredicts only part of the time), so the
+# fuzzer leans on its large-sample slow path; expect a violation within a few
+# dozen test cases.
+instruction_set: aarch64
+instruction_categories:
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-BITFIELD
+  - BASE-CONDSEL
+  - BASE-BRANCH
+  - BASE-MEMORY-LOAD
+  - BASE-MEMORY-STORE
+min_bb_per_function: 2
+max_bb_per_function: 5
+max_successors_per_bb: 2
+min_successors_per_bb: 1
+fuzzer: basic
+input_generator: aarch64-nzcv
+executor_warmups: 5
+input_gen_seed: 0
+
+# Prime+Probe, arch-only contract, BPU flush OFF so the branch mispredicts.
+executor_mode: P+P
+contract_execution_clause:
+  - seq
+enable_pre_run_flush: 0
