@@ -1,7 +1,6 @@
 # Force AArch64 cross-compiler
 ARCH := arm64
 CROSS_COMPILE := aarch64-linux-gnu-
-# CC := aarch64-linux-gnu-gcc-13
 CC := aarch64-linux-gnu-gcc
 
 # Module name
@@ -20,7 +19,7 @@ endif
 
 # Common flags
 ccflags-y += -g -DL1D_SIZE_K=64 -DL1D_ASSOCIATIVITY=4
-ccflags-y += -I$(PWD)/userapi
+ccflags-y += -I$(src)/userapi
 
 # Object list
 revizor-executor-y := \
@@ -35,26 +34,20 @@ revizor-executor-y := \
 	pagetable.o \
 	sandbox.o \
 	sysfs.o \
-	templates.o \
 	jit.o \
 	templates_jit.o \
 	globals.o \
 	bpu.o \
 
 KDIR := /lib/modules/$(shell uname -r)/build
-
-ifneq ($(KDIR),)
-    KERNEL_DIR := $(KDIR)
-else
-    KERNEL_DIR := /lib/modules/$(shell uname -r)/build
-endif
+KERNEL_DIR := $(KDIR)
 
 # Default target: build kernel module
 all:
 	@echo "Building Revizor executor (MTE HW: $(HW_SUPPORTS_MTE))..."
-	$(MAKE) -C $(KERNEL_DIR) M=$(PWD) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) CC=$(CC)
+	$(MAKE) -C $(KERNEL_DIR) M=$(CURDIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) CC=$(CC)
 
 # Cleanup
 clean:
-	$(MAKE) -C $(KERNEL_DIR) M=$(PWD) clean
+	$(MAKE) -C $(KERNEL_DIR) M=$(CURDIR) clean
 

@@ -32,16 +32,6 @@ struct input_node {
 	struct rb_node node;
 };
 
-struct input_and_id_pair {
-    input_t input;
-    int64_t id;
-};
-
-struct input_batch {
-    uint64_t size;
-    struct input_and_id_pair array[];
-};
-
 void initialize_inputs_db(void);
 int64_t allocate_input(void);
 measurement_t* get_measurement(int64_t id);

@@ -1,5 +1,6 @@
 #include "main.h"
 #include "pac.h"
+#include <linux/mutex.h>
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
 #define CLASS_CREATE(DEV_CLASS, DEV_NAME) class_create(DEV_NAME);
@@ -7,10 +8,74 @@
 #define CLASS_CREATE(DEV_CLASS, DEV_NAME) class_create(DEV_CLASS, DEV_NAME);
 #endif
 
+/* Serializes all device access (ioctl/read/write) against the shared executor
+ * state: the inputs rbtree, state machine, and test-case/measurement buffers
+ * have no other synchronization. */
+static DEFINE_MUTEX(executor_lock);
+
+/*
+ * Device-lock safety against faults under the lock.
+ *
+ * A fault (Oops) inside an ioctl/read/write while holding executor_lock — e.g. a
+ * failed PAC AUTH at EL1 on FEAT_FPAC hardware, or a faulting memset over an RX
+ * page — kills the faulting task WITHOUT releasing the lock. With a plain
+ * mutex_lock() every later caller then blocks forever in uninterruptible (D)
+ * state: an unkillable pile-up that can only be cleared by rebooting.
+ *
+ * We cannot safely force-release a mutex whose holder died in-kernel (its waiters
+ * are on the mutex wait_list; the dead holder also pins a module reference, so
+ * rmmod won't work either) — and the executor state it was mutating is left
+ * half-updated. That fault class genuinely requires a reboot. What we CAN do is
+ * stop it from becoming a silent, unkillable deadlock:
+ *   (a) wait killably, so a blocked caller can always be killed (never D-state);
+ *   (b) if a new caller finds the lock held far longer than any legitimate
+ *       operation, conclude the holder faulted/wedged under it, latch a "wedged"
+ *       flag, log loudly, and fail fast with -EIO instead of blocking. The user
+ *       is told exactly what happened and that a module reload / reboot is needed.
+ * This never re-initialises or force-unlocks the mutex (that would corrupt the
+ * wait_list and the executor state).
+ */
+#define EXECUTOR_LOCK_DEADLOCK_MS 60000u   /* far beyond any legitimate operation */
+static pid_t         executor_lock_owner;
+static unsigned long executor_lock_acquired_jiffies;
+static bool          executor_wedged;
+
+static int executor_lock_acquire(const char* who) {
+	if (READ_ONCE(executor_wedged)) {
+		module_err("%s rejected: device is wedged — a previous operation faulted while "
+			   "holding the lock. Reload the module or reboot to recover.\n", who);
+		return -EIO;
+	}
+
+	if (!mutex_trylock(&executor_lock)) {
+		if (time_after(jiffies, READ_ONCE(executor_lock_acquired_jiffies) +
+		    msecs_to_jiffies(EXECUTOR_LOCK_DEADLOCK_MS))) {
+			WRITE_ONCE(executor_wedged, true);
+			module_err("CRITICAL: device lock held by pid %d for >%u ms — the holder is "
+				   "wedged, almost certainly because it faulted while holding the lock "
+				   "(check dmesg for an Oops/Internal error). Failing fast so callers do "
+				   "not deadlock; without this the device would hang until reboot. Reload "
+				   "the module or reboot to recover.\n",
+				   executor_lock_owner, EXECUTOR_LOCK_DEADLOCK_MS);
+			return -EIO;
+		}
+		if (mutex_lock_killable(&executor_lock)) {
+			return -EINTR;   /* killable: a stuck device never produces unkillable waiters */
+		}
+	}
+
+	executor_lock_owner = current->pid;
+	WRITE_ONCE(executor_lock_acquired_jiffies, jiffies);
+	return 0;
+}
+
+static void executor_lock_release(void) {
+	executor_lock_owner = 0;
+	mutex_unlock(&executor_lock);
+}
 
 static unsigned long copy_to_user_with_access_check(void __user* user_buffer,
  const void* from_buffer, size_t size) {
-
 	if(!access_ok(user_buffer, size)) {
 		module_err("Unable to access user buffer for writing!\n");
 		return -EFAULT;
@@ -21,7 +86,6 @@ static unsigned long copy_to_user_with_access_check(void __user* user_buffer,
 
 static unsigned long copy_from_user_with_access_check(void* to_buffer,
  const void __user* user_buffer, size_t size) {
-
 	if(!access_ok(user_buffer, size)) {
 		module_err("Unable to access user buffer for reading!\n");
 		return -EFAULT;
@@ -50,28 +114,22 @@ static void checkout_into_input_id(void __user* arg) {
 	load_input_id(&input_id, arg);
 
 	if(0 <= input_id) {
-
 		input_t* current_input = get_input(input_id);
 
 		if(NULL != current_input) {
 			executor.checkout_region = input_id;
-
 		} else {
 			module_err("Checkedout an input id that does not exist! (requested input id: %lld)\n",
 			 input_id);
-
 		}
 	}
 }
 
 static void measurements_became_unavailable(void) {
-	//module_info("Measurements became unavailable!\n");
 }
 
 static void reset_state_and_region_after_unloading_all_inputs(void) {
-
-	//module_info("all inputs were unloaded, checking out into TEST_REGION\n");
-	executor.checkout_region = TEST_REGION;
+	executor.checkout_region = REGION_DEFAULT;
 
 	switch(executor.state) {
 		case TRACED_STATE:
@@ -94,10 +152,8 @@ static void free_input_id(void __user* arg) {
 	load_input_id(&input_id, arg);
 
 	if(0 <= input_id) {
-
 		if(input_id == executor.checkout_region) {
-			//module_info("Freeing the currently checked out input, checking out into TEST_REGION.\n");
-			executor.checkout_region = TEST_REGION;
+			executor.checkout_region = REGION_DEFAULT;
 		}
 
 		remove_input(input_id);
@@ -118,11 +174,9 @@ static void kernel_measurement_to_user_measurement(user_measurement_t* um, const
 	memset(um, 0, sizeof(*um));
 	memcpy(um->htrace, km->htrace, sizeof(um->htrace));
 	memcpy(um->pfc, km->pfc, sizeof(um->pfc));
-	memcpy(um->memory_ids_bitmap, km->memory_ids_bitmap, sizeof(um->memory_ids_bitmap));
 }
 
 static void measure_input_id(void __user* arg) {
-
 	if(TRACED_STATE != executor.state) {
 		module_err("Measurements are available only after performing a trace!\n");
 		return;
@@ -179,8 +233,7 @@ static void update_state_after_writing_test(void) {
 	}
 }
 
-static size_t load_test_and_update_state(const char __user* test, size_t length) {
-
+static ssize_t load_test_and_update_state(const char __user* test, size_t length) {
 	if (MAX_TEST_CASE_SIZE < length) {
 		module_err("%lu bytes couldnt be written into test memory!, as it is more then %lu!\n", length, MAX_TEST_CASE_SIZE);
 		return -ENOMEM;
@@ -188,14 +241,12 @@ static size_t load_test_and_update_state(const char __user* test, size_t length)
 
 	if(copy_from_user_with_access_check(executor.test_case, test, length)) {
 		module_err("Failed to read entire test case from userspace!");
-		return 0;
+		return -EFAULT;
 	}
 
 	executor.test_case_length = length;
 
 	update_state_after_writing_test();
-
-	//module_info("%zu bytes were written into test case memory!\n", length);
 
 	return executor.test_case_length;
 }
@@ -214,13 +265,11 @@ static int trace(void) {
 		return -EINVAL;
 	}
 
-	full_test_case_size = load_template(executor.test_case_length);
-	if(full_test_case_size < 0) {
+	full_test_case_size = load_jit_template(executor.test_case_length);
+	if (0 > full_test_case_size) {
 		module_err("Failed to load test case (error code: %d)\n", full_test_case_size);
 		return full_test_case_size;
 	}
-
-	//module_info("%u bytes were written into measurement memory!\n", full_test_case_size);
 
 	int err = execute_on_pinned_cpu(executor.config.pinned_cpu_id, execute_on_target, NULL);
 	if(0 != err) {
@@ -231,19 +280,20 @@ static int trace(void) {
 	return execute_result;
 }
 
-static void get_test_length(void __user* arg) {
-	uint64_t size = (uint64_t)-1;
-
-	if(LOADED_TEST_STATE == executor.state ||
-	 READY_STATE == executor.state ||
-	  TRACED_STATE == executor.state) {
-
-		size = executor.test_case_length;
-		copy_to_user_with_access_check(arg, &size, sizeof(size));
-
-	} else {
+static int get_test_length(void __user* arg) {
+	if(LOADED_TEST_STATE != executor.state &&
+	 READY_STATE != executor.state &&
+	  TRACED_STATE != executor.state) {
 		module_err("Test has not been loaded!\n");
+		return -EINVAL;
 	}
+
+	uint64_t size = executor.test_case_length;
+	if (copy_to_user_with_access_check(arg, &size, sizeof(size))) {
+		return -EFAULT;
+	}
+
+	return 0;
 }
 
 static void update_state_after_writing_input(void) {
@@ -258,98 +308,6 @@ static void update_state_after_writing_input(void) {
 			break;
 	}
 }
-
-static int64_t handle_batch(void __user* arg) {
-	int64_t err = 0;
-	uint64_t i = 0;
-	struct input_batch batch = { 0 };
-	struct input_and_id_pair* input_and_id_array = NULL;
-	struct input_batch* user_batch = (struct input_batch*)arg;
-
-	if (copy_from_user_with_access_check(&batch,  user_batch, sizeof(struct input_batch))) {
-		err = -EFAULT;
-		goto handle_batch_end;
-	}
-
-	if(batch.size >= (SIZE_MAX / sizeof(struct input_and_id_pair))) {
-		err = -EFAULT;
-		goto handle_batch_end;
-	}
-
-	input_and_id_array = vmalloc_array(batch.size, sizeof(struct input_and_id_pair));
-	if(NULL == input_and_id_array) {
-		err = -ENOMEM;
-		goto handle_batch_end;
-	}
-
-	//module_info("Loading a batch of %llu inputs", batch.size);
-
-	if (copy_from_user_with_access_check(input_and_id_array,  user_batch->array, batch.size * sizeof(struct input_and_id_pair))) {
-		err = -EFAULT;
-		goto handle_batch_free_array;
-	}
-
-	for(i = 0; i < batch.size; ++i) {
-		input_and_id_array[i].id = -1;
-	}
-
-	for(i = 0; i < batch.size; ++i) {
-		void* to_buffer = NULL;
-		int64_t chosen_iid = allocate_input();
-
-		if (0 > chosen_iid) {
-			err = chosen_iid;
-			goto handle_batch_free_all_inputs;
-		}
-
-		to_buffer = get_input(chosen_iid);
-		BUG_ON(NULL == to_buffer);
-
-		memcpy(to_buffer, &input_and_id_array[i].input, USER_CONTROLLED_INPUT_LENGTH);
-
-		input_and_id_array[i].id = chosen_iid;
-
-		if (copy_to_user_with_access_check(&user_batch->array[i].id,  &input_and_id_array[i].id, sizeof(int64_t))) {
-			int64_t failed_value = -1;
-			remove_input(chosen_iid);
-			input_and_id_array[i].id = -1;
-			chosen_iid = -1;
-			copy_to_user_with_access_check(&user_batch->array[i].id,  &failed_value, sizeof(int64_t)); // Try to notify the user about invalid iid
-		}
-
-		if(-1 < input_and_id_array[i].id) {
-
-			update_state_after_writing_input();
-
-		}
-	}
-
-	vfree(input_and_id_array);
-
-	return 0;
-
-handle_batch_free_all_inputs:
-	for(i = 0; i < batch.size; ++i) {
-		int64_t failed_value = -1;
-		if(-1 != input_and_id_array[i].id) {
-			remove_input(input_and_id_array[i].id);
-			input_and_id_array[i].id = -1;
-		}
-
-		copy_to_user_with_access_check(&user_batch->array[i].id,  &failed_value, sizeof(int64_t));
-	}
-
-	if(0 == executor.number_of_inputs) {
-		reset_state_and_region_after_unloading_all_inputs();
-	}
-
-handle_batch_free_array:
-	vfree(input_and_id_array);
-
-handle_batch_end:
-	return err;
-}
-
 
 static int pac_with_exec_keys(bool keys_set, uint64_t *saved_sctlr_out,
                                struct pac_keys *saved_keys_out)
@@ -376,8 +334,9 @@ static void restore_exec_keys(bool keys_set, uint64_t saved_sctlr,
 static long handle_pac_sign(void __user *arg)
 {
 	struct pac_sign_req req;
-	if (copy_from_user_with_access_check(&req, arg, sizeof(req)))
+	if (copy_from_user_with_access_check(&req, arg, sizeof(req))) {
 		return -EFAULT;
+	}
 	req.mnemonic[sizeof(req.mnemonic) - 1] = '\0';
 
 	struct pac_keys saved_keys;
@@ -386,15 +345,15 @@ static long handle_pac_sign(void __user *arg)
 
 	uint64_t r;
 	char *m = req.mnemonic;
-	if      (!strcmp(m, "pacia"))  r = pacia(req.ptr, req.ctx);
-	else if (!strcmp(m, "pacib"))  r = pacib(req.ptr, req.ctx);
-	else if (!strcmp(m, "pacda"))  r = pacda(req.ptr, req.ctx);
-	else if (!strcmp(m, "pacdb"))  r = pacdb(req.ptr, req.ctx);
-	else if (!strcmp(m, "pacga"))  r = pacga(req.ptr, req.ctx);
-	else if (!strcmp(m, "paciza")) r = paciza(req.ptr);
-	else if (!strcmp(m, "pacizb")) r = pacizb(req.ptr);
-	else if (!strcmp(m, "pacdza")) r = pacdza(req.ptr);
-	else if (!strcmp(m, "pacdzb")) r = pacdzb(req.ptr);
+	if      (!strcmp(m, "pacia"))  { r = pacia(req.ptr, req.ctx); }
+	else if (!strcmp(m, "pacib"))  { r = pacib(req.ptr, req.ctx); }
+	else if (!strcmp(m, "pacda"))  { r = pacda(req.ptr, req.ctx); }
+	else if (!strcmp(m, "pacdb"))  { r = pacdb(req.ptr, req.ctx); }
+	else if (!strcmp(m, "pacga"))  { r = pacga(req.ptr, req.ctx); }
+	else if (!strcmp(m, "paciza")) { r = paciza(req.ptr); }
+	else if (!strcmp(m, "pacizb")) { r = pacizb(req.ptr); }
+	else if (!strcmp(m, "pacdza")) { r = pacdza(req.ptr); }
+	else if (!strcmp(m, "pacdzb")) { r = pacdzb(req.ptr); }
 	else {
 		restore_exec_keys(executor.config.pac_keys_set, saved_sctlr, &saved_keys);
 		return -EINVAL;
@@ -408,15 +367,16 @@ static long handle_pac_sign(void __user *arg)
 static long handle_pac_xpac(void __user *arg)
 {
 	struct pac_sign_req req;
-	if (copy_from_user_with_access_check(&req, arg, sizeof(req)))
+	if (copy_from_user_with_access_check(&req, arg, sizeof(req))) {
 		return -EFAULT;
+	}
 	req.mnemonic[sizeof(req.mnemonic) - 1] = '\0';
 
 	char *m = req.mnemonic;
 	uint64_t r;
-	if      (!strcmp(m, "xpaci")) r = xpaci(req.ptr);
-	else if (!strcmp(m, "xpacd")) r = xpacd(req.ptr);
-	else return -EINVAL;
+	if      (!strcmp(m, "xpaci")) { r = xpaci(req.ptr); }
+	else if (!strcmp(m, "xpacd")) { r = xpacd(req.ptr); }
+	else { return -EINVAL; }
 
 	req.result = r;
 	return copy_to_user_with_access_check(arg, &req, sizeof(req)) ? -EFAULT : 0;
@@ -425,8 +385,9 @@ static long handle_pac_xpac(void __user *arg)
 static long handle_pac_auth(void __user *arg)
 {
 	struct pac_sign_req req;
-	if (copy_from_user_with_access_check(&req, arg, sizeof(req)))
+	if (copy_from_user_with_access_check(&req, arg, sizeof(req))) {
 		return -EFAULT;
+	}
 	req.mnemonic[sizeof(req.mnemonic) - 1] = '\0';
 
 	struct pac_keys saved_keys;
@@ -435,14 +396,14 @@ static long handle_pac_auth(void __user *arg)
 
 	uint64_t r;
 	char *m = req.mnemonic;
-	if      (!strcmp(m, "autia"))  r = autia(req.ptr, req.ctx);
-	else if (!strcmp(m, "autib"))  r = autib(req.ptr, req.ctx);
-	else if (!strcmp(m, "autda"))  r = autda(req.ptr, req.ctx);
-	else if (!strcmp(m, "autdb"))  r = autdb(req.ptr, req.ctx);
-	else if (!strcmp(m, "autiza")) r = autiza(req.ptr);
-	else if (!strcmp(m, "autizb")) r = autizb(req.ptr);
-	else if (!strcmp(m, "autdza")) r = autdza(req.ptr);
-	else if (!strcmp(m, "autdzb")) r = autdzb(req.ptr);
+	if      (!strcmp(m, "autia"))  { r = autia(req.ptr, req.ctx); }
+	else if (!strcmp(m, "autib"))  { r = autib(req.ptr, req.ctx); }
+	else if (!strcmp(m, "autda"))  { r = autda(req.ptr, req.ctx); }
+	else if (!strcmp(m, "autdb"))  { r = autdb(req.ptr, req.ctx); }
+	else if (!strcmp(m, "autiza")) { r = autiza(req.ptr); }
+	else if (!strcmp(m, "autizb")) { r = autizb(req.ptr); }
+	else if (!strcmp(m, "autdza")) { r = autdza(req.ptr); }
+	else if (!strcmp(m, "autdzb")) { r = autdzb(req.ptr); }
 	else {
 		restore_exec_keys(executor.config.pac_keys_set, saved_sctlr, &saved_keys);
 		return -EINVAL;
@@ -453,7 +414,7 @@ static long handle_pac_auth(void __user *arg)
 	return copy_to_user_with_access_check(arg, &req, sizeof(req)) ? -EFAULT : 0;
 }
 
-long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
+static long do_revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
 	int64_t result = 0;
 
 	if(REVISOR_IOC_MAGIC != _IOC_TYPE(cmd)) {
@@ -461,93 +422,60 @@ long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
 	}
 
 	switch(_IOC_NR(cmd)) {
-
 		case REVISOR_CHECKOUT_TEST_CONSTANT:
-			//module_debug("Checking out test memory (cmd: %d)..\n", REVISOR_CHECKOUT_TEST_CONSTANT);
 			executor.checkout_region = TEST_REGION;
 			break;
 
 		case REVISOR_UNLOAD_TEST_CONSTANT:
-			//module_debug("Unloading test case (cmd: %d)..\n", REVISOR_UNLOAD_TEST_CONSTANT);
 			unload_test_and_update_state();
 			break;
 
 		case REVISOR_GET_NUMBER_OF_INPUTS_CONSTANT:
-			//module_debug("Querying number of inputs configured (cmd: %d)..\n",
-			//REVISOR_GET_NUMBER_OF_INPUTS_CONSTANT);
 			result = executor.number_of_inputs;
 			result = copy_to_user_with_access_check((void __user*)arg, &result,
 			            sizeof(result));
 			break;
 
 		case REVISOR_CHECKOUT_INPUT_CONSTANT:
-			//module_debug("Checking out an input (cmd: %d)..\n", REVISOR_CHECKOUT_INPUT_CONSTANT);
 			checkout_into_input_id((void __user*)arg);
 			break;
 
 		case REVISOR_ALLOCATE_INPUT_CONSTANT:
-			//module_debug("Allocating new input (cmd: %d)..\n", REVISOR_CHECKOUT_INPUT_CONSTANT);
 			result = allocate_input();
 			result = copy_to_user_with_access_check((void __user*)arg, &result, sizeof(result));
 			break;
 
 		case REVISOR_FREE_INPUT_CONSTANT:
-			//module_debug("Freeing input (cmd: %d)..\n", REVISOR_FREE_INPUT_CONSTANT);
 			free_input_id((void __user*)arg);
 			break;
 
 		case REVISOR_MEASUREMENT_CONSTANT:
-			//module_debug("Querying measurement (cmd: %d)..\n", REVISOR_MEASUREMENT_CONSTANT);
 			measure_input_id((void __user*)arg);
 			break;
 
 		case REVISOR_TRACE_CONSTANT:
-			//module_debug("Beginning trace (cmd: %d)..\n", REVISOR_TRACE_CONSTANT);
 			trace();
 			break;
 
 		case REVISOR_CLEAR_ALL_INPUTS_CONSTANT:
-			//module_debug("Clearing all inputs (cmd: %d)..\n", REVISOR_CLEAR_ALL_INPUTS_CONSTANT);
 			clear_all_inputs();
 			break;
 
 		case REVISOR_GET_TEST_LENGTH_CONSTANT:
-			//module_debug("Querying test case length (cmd: %d)..\n", REVISOR_GET_TEST_LENGTH_CONSTANT);
-			get_test_length((void __user*)arg);
+			result = get_test_length((void __user*)arg);
 			break;
 
-		case REVISOR_BATCHED_INPUTS_CONSTANT:
-			//module_debug("Batch of inputs (cmd: %d)..\n", REVISOR_BATCHED_INPUTS_CONSTANT);
-			handle_batch((void __user*)arg);
-		    break;
-
-		case REVISOR_SWAP_PAC_KEYS_CONSTANT: {
-			struct pac_keys_swap_req swap;
-			if (copy_from_user_with_access_check(&swap, (void __user *)arg, sizeof(swap)))
-				return -EFAULT;
-			pac_swap_user_keys(&swap.in_keys, &swap.out_keys);
-			return copy_to_user_with_access_check((void __user *)arg, &swap, sizeof(swap))
-				? -EFAULT : 0;
-		}
-
-		case REVISOR_GET_EXEC_PAC_KEYS_CONSTANT: {
-			struct pac_exec_keys_info info;
-			memset(&info, 0, sizeof(info));
-			if (executor.config.pac_keys_set) {
-				info.keys = executor.config.pac_keys;
-				info.use_swap = 1;
-			} else {
-				pac_save_keys(&info.keys);
-				info.use_swap = 0;
-			}
-			return copy_to_user_with_access_check((void __user *)arg, &info, sizeof(info))
-				? -EFAULT : 0;
-		}
-
 		case REVISOR_SET_PAC_KEYS_CONSTANT: {
+			/* A NULL argument clears the configured keys, so the executor
+			 * falls back to the live hardware keys. */
+			if (0 == arg) {
+				executor.config.pac_keys_set = false;
+				return 0;
+			}
 			if (copy_from_user_with_access_check(&executor.config.pac_keys,
-			    (void __user *)arg, sizeof(struct pac_keys)))
+			    (void __user *)arg, sizeof(struct pac_keys))) {
 				return -EFAULT;
+			}
 			executor.config.pac_keys_set = true;
 			return 0;
 		}
@@ -568,7 +496,10 @@ long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
 			if (copy_from_user_with_access_check(&req, (void __user *)arg, sizeof(req))) {
 				return -EFAULT;
 			}
-			if (req.sandbox_offset + req.length > MAIN_REGION_SIZE + FAULTY_REGION_SIZE) {
+			/* Overflow-safe bounds check: sandbox_offset + length is u64 and
+			 * could wrap, so compare against the limit without adding them. */
+			if (req.length > MAIN_REGION_SIZE + FAULTY_REGION_SIZE ||
+			    req.sandbox_offset > (MAIN_REGION_SIZE + FAULTY_REGION_SIZE) - req.length) {
 				return -EINVAL;
 			}
 			mte_init_sandbox_tags(executor.sandbox.main_region + req.sandbox_offset,
@@ -593,7 +524,7 @@ long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
 	return result;
 }
 
-static ssize_t revisor_read(struct file* File, char __user* user_buffer,
+static ssize_t do_revisor_read(struct file* File, char __user* user_buffer,
  size_t count, loff_t* off) {
 	int number_of_bytes_to_copy  = 0;
 	int not_copied = 0;
@@ -603,13 +534,10 @@ static ssize_t revisor_read(struct file* File, char __user* user_buffer,
 	BUG_ON(NULL == user_buffer);
 
 	if(TEST_REGION == executor.checkout_region) {
-
 		number_of_bytes_to_copy = min(count, (size_t)(executor.test_case_length - *off));
 		from_buffer = executor.test_case;
 		total_size = executor.test_case_length;
-
 	} else {
-
 		number_of_bytes_to_copy = min(count, (size_t)(sizeof(input_t) - *off));
 		from_buffer = get_input(executor.checkout_region);
 		total_size = sizeof(input_t);
@@ -630,10 +558,7 @@ static ssize_t revisor_read(struct file* File, char __user* user_buffer,
 	return number_of_bytes_to_copy - not_copied;
 }
 
-
-
 static void copy_input_from_user_and_update_state(const char __user* user_buffer, size_t count) {
-
 	if(USER_CONTROLLED_INPUT_LENGTH > count) {
 	    module_err("Input must be exactly of length USER_CONTROLLED_INPUT_LENGTH(=%lu)!\n",
 	    USER_CONTROLLED_INPUT_LENGTH);
@@ -643,31 +568,62 @@ static void copy_input_from_user_and_update_state(const char __user* user_buffer
 	BUG_ON(NULL == to_buffer);
 
 	if(copy_from_user_with_access_check(to_buffer, user_buffer, USER_CONTROLLED_INPUT_LENGTH)) {
-
 		module_err("Was unable to read entire input from user\n");
-
 	} else {
-
 		update_state_after_writing_input();
-
 	}
 }
 
-static ssize_t revisor_write(struct file* File, const char __user* user_buffer,
+static ssize_t do_revisor_write(struct file* File, const char __user* user_buffer,
  size_t count, loff_t* off) {
-
 	BUG_ON(NULL == user_buffer);
 
 	if(TEST_REGION == executor.checkout_region) {
-
-		load_test_and_update_state(user_buffer, count);
-
-	} else {
-		BUG_ON(0 > executor.checkout_region);
-		copy_input_from_user_and_update_state(user_buffer, count);
+		ssize_t ret = load_test_and_update_state(user_buffer, count);
+		if (0 > ret) {
+			return ret;
+		}
+		return ret;
 	}
 
+	BUG_ON(0 > executor.checkout_region);
+	copy_input_from_user_and_update_state(user_buffer, count);
+
 	return count;
+}
+
+static long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
+	long ret = executor_lock_acquire("ioctl");
+	if (ret) {
+		return ret;
+	}
+	ret = do_revisor_ioctl(file, cmd, arg);
+	executor_lock_release();
+	return ret;
+}
+
+static ssize_t revisor_read(struct file* file, char __user* user_buffer,
+ size_t count, loff_t* off) {
+	int err = executor_lock_acquire("read");
+	ssize_t ret;
+	if (err) {
+		return err;
+	}
+	ret = do_revisor_read(file, user_buffer, count, off);
+	executor_lock_release();
+	return ret;
+}
+
+static ssize_t revisor_write(struct file* file, const char __user* user_buffer,
+ size_t count, loff_t* off) {
+	int err = executor_lock_acquire("write");
+	ssize_t ret;
+	if (err) {
+		return err;
+	}
+	ret = do_revisor_write(file, user_buffer, count, off);
+	executor_lock_release();
+	return ret;
 }
 
 static struct file_operations fops = {
@@ -681,7 +637,7 @@ int initialize_device_interface(void) {
 	int status = 0;
 
 	status = alloc_chrdev_region(&executor.device_mgmt.device_number, 0, 1, REVISOR_DEVICE_NAME);
-	if(status < 0) {
+	if (0 > status) {
 		module_err("Unable to allocate character device number! Error code: %d\n", status);
 		goto initialize_cleanup_exit_with_error;
 	}
@@ -690,7 +646,7 @@ int initialize_device_interface(void) {
 	executor.device_mgmt.character_device.owner = THIS_MODULE;
 
 	status = cdev_add(&executor.device_mgmt.character_device, executor.device_mgmt.device_number, 1);
-	if(status < 0) {
+	if (0 > status) {
 		module_err("Unable to add character device to the system! Error code: %d\n", status);
 		goto initialize_cleanup_allocated_device_numbers;
 	}
@@ -724,10 +680,8 @@ initialize_cleanup_allocated_device_numbers:
 initialize_cleanup_exit_with_error:
 	return status;
 }
-EXPORT_SYMBOL(initialize_device_interface);
 
 void free_device_interface(void) {
-
     if (executor.device_mgmt.device_class) {
         device_destroy(executor.device_mgmt.device_class, executor.device_mgmt.device_number);
         class_destroy(executor.device_mgmt.device_class);
@@ -744,4 +698,3 @@ void free_device_interface(void) {
     module_info("Unregistered device number MAJOR: %d, MINOR: %d and deleted cdev\n",
      MAJOR(executor.device_mgmt.device_number), MINOR(executor.device_mgmt.device_number));
 }
-EXPORT_SYMBOL(free_device_interface);

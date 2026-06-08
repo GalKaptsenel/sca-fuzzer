@@ -15,11 +15,8 @@
 #include <sys/ioctl.h>
 #endif
 
-#define REVISOR_IOC_MAGIC            'r'
-#define REVISOR_GET_PAC_KEYS_CONSTANT 15
-#define REVISOR_PAC_SIGN_CONSTANT    17
-#define REVISOR_PAC_AUTH_CONSTANT    18
-#define REVISOR_PAC_XPAC_CONSTANT    19
+/* ioctl numbers + magic come from the single source of truth. */
+#include "executor_ioctl_nr.h"
 
 /*
  * Matches struct pac_keys in executor/pac.h.

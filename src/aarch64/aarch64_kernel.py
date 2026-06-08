@@ -152,6 +152,8 @@ class UserMeasurement(ctypes.Structure):
         ("pfc", ctypes.c_uint64 * 3),
     ]
 
+# Mirror of src/aarch64/executor/userapi/executor_ioctl_nr.h — keep the numbers
+# in sync with that header (the canonical, consecutive source of truth).
 REVISOR_IOC_MAGIC = ord('r')
 
 REVISOR_CHECKOUT_TEST_CONSTANT      = 1
@@ -164,13 +166,12 @@ REVISOR_MEASUREMENT_CONSTANT        = 7
 REVISOR_TRACE_CONSTANT              = 8
 REVISOR_CLEAR_ALL_INPUTS_CONSTANT   = 9
 REVISOR_GET_TEST_LENGTH_CONSTANT    = 10
-REVISOR_SWAP_PAC_KEYS_CONSTANT      = 12
-REVISOR_GET_EXEC_PAC_KEYS_CONSTANT  = 13
-REVISOR_SET_PAC_KEYS_CONSTANT       = 14
-REVISOR_GET_PAC_KEYS_CONSTANT       = 15
+REVISOR_SET_PAC_KEYS_CONSTANT       = 11
+REVISOR_GET_PAC_KEYS_CONSTANT       = 12
+REVISOR_PAC_SIGN_CONSTANT           = 13
+REVISOR_PAC_AUTH_CONSTANT           = 14
+REVISOR_PAC_XPAC_CONSTANT           = 15
 REVISOR_MTE_TAG_REGION_CONSTANT     = 16
-REVISOR_PAC_SIGN_CONSTANT           = 17
-REVISOR_PAC_AUTH_CONSTANT           = 18
 
 class MteTagRegionReq(ctypes.Structure):
     _fields_ = [
@@ -212,13 +213,12 @@ IOCTL_NR_TO_NAME = {
     8: "REVISOR_TRACE",
     9: "REVISOR_CLEAR_ALL_INPUTS",
     10: "REVISOR_GET_TEST_LENGTH",
-    12: "REVISOR_SWAP_PAC_KEYS",
-    13: "REVISOR_GET_EXEC_PAC_KEYS",
-    14: "REVISOR_SET_PAC_KEYS",
-    15: "REVISOR_GET_PAC_KEYS",
+    11: "REVISOR_SET_PAC_KEYS",
+    12: "REVISOR_GET_PAC_KEYS",
+    13: "REVISOR_PAC_SIGN",
+    14: "REVISOR_PAC_AUTH",
+    15: "REVISOR_PAC_XPAC",
     16: "REVISOR_MTE_TAG_REGION",
-    17: "REVISOR_PAC_SIGN",
-    18: "REVISOR_PAC_AUTH",
 }
 
 
@@ -277,6 +277,7 @@ REVISOR_CLEAR_ALL_INPUTS = _IO(REVISOR_IOC_MAGIC, REVISOR_CLEAR_ALL_INPUTS_CONST
 REVISOR_GET_TEST_LENGTH = _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_TEST_LENGTH_CONSTANT, ctypes.c_uint64)
 REVISOR_PAC_SIGN = _IOWR(REVISOR_IOC_MAGIC, REVISOR_PAC_SIGN_CONSTANT,  PacSignReq)
 REVISOR_PAC_AUTH = _IOWR(REVISOR_IOC_MAGIC, REVISOR_PAC_AUTH_CONSTANT,  PacSignReq)
+REVISOR_PAC_XPAC = _IOWR(REVISOR_IOC_MAGIC, REVISOR_PAC_XPAC_CONSTANT,  PacSignReq)
 REVISOR_SET_PAC_KEYS = _IOW(REVISOR_IOC_MAGIC, REVISOR_SET_PAC_KEYS_CONSTANT, PacKeys)
 REVISOR_GET_PAC_KEYS = _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_PAC_KEYS_CONSTANT, PacKeys)
 REVISOR_MTE_TAG_REGION = _IOW(REVISOR_IOC_MAGIC, REVISOR_MTE_TAG_REGION_CONSTANT, MteTagRegionReq)
@@ -389,13 +390,22 @@ class LocalHWExecutor(HWExecutor):
     def pac_auth(self, ptr: int, ctx: int, mnemonic: str) -> int:
         return self._pac_op(REVISOR_PAC_AUTH, ptr, ctx, mnemonic)
 
+    def pac_xpac(self, ptr: int, mnemonic: str = "xpaci") -> int:
+        # Strips the PAC field (never faults); mnemonic is "xpaci" or "xpacd".
+        return self._pac_op(REVISOR_PAC_XPAC, ptr, 0, mnemonic)
+
     def get_pac_keys(self) -> PacKeys:
         keys = PacKeys()
         self._ioctl(REVISOR_GET_PAC_KEYS, keys)
         return keys
 
-    def set_pac_keys(self, keys: PacKeys) -> None:
-        self._ioctl(REVISOR_SET_PAC_KEYS, keys)
+    def set_pac_keys(self, keys: PacKeys | None = None) -> None:
+        # keys=None clears the configured keys: the executor reverts to the
+        # live hardware keys (signalled to the kernel with a NULL argument).
+        if keys is None:
+            fcntl.ioctl(self.fd, REVISOR_SET_PAC_KEYS, 0)
+        else:
+            self._ioctl(REVISOR_SET_PAC_KEYS, keys)
 
     def mte_tag_sandbox_region(self, sandbox_offset: int, length: int, tag: int) -> None:
         req = MteTagRegionReq()
