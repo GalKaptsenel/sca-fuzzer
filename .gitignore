@@ -34,11 +34,17 @@ modules.order
 # fuzzing run outputs
 logs/
 violation-*/
+violations_*/
 
 # compiled binaries (regenerable via their Makefiles)
 src/aarch64/contract_executor/contract_executor
-src/aarch64/contract_executor/asm_to_bytes
 src/aarch64/contract_executor/test_ce
 src/aarch64/contract_executor/test_ce_integration
+src/aarch64/asm_to_bytes/asm_to_bytes
 src/executor_userland/executor_userland
 test_pac_ioctls
+
+# AArch64 docs (generated + local TLS cert)
+docs/aarch64/index.html
+docs/aarch64/docs_tls.pem
+docs/aarch64/__pycache__/
