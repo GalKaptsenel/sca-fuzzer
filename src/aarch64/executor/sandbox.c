@@ -6,5 +6,4 @@ void initialize_sandbox(sandbox_t* sandbox) {
 	mte_randomly_tag_region(sandbox->faulty_region, sizeof(sandbox->faulty_region));
 	disable_mte_for_region(executor.sandbox.eviction_region, sizeof(executor.sandbox.eviction_region));
 }
-EXPORT_SYMBOL(initialize_sandbox);
 

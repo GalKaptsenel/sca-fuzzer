@@ -14,13 +14,17 @@ static ssize_t print_sandbox_base_show(struct kobject *kobj, struct kobj_attribu
 }
 
 static ssize_t print_code_base_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
-    return sprintf(buf, "%px\n", executor.test_case);
+    /* Address where the test case actually executes inside the JIT'd harness:
+     * the view base plus the (constant per template) offset of the test case. */
+    char* base = (char*)executor.measurement_code_views[0]
+               + current_tc_insert_offset_bytes();
+    return sprintf(buf, "%px\n", base);
 }
 
 static ssize_t enable_pre_run_flush_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
     unsigned int value = 0;
     sscanf(buf, "%u", &value);
-    executor.config.pre_run_flush = (value <= 2) ? (char)value : 2;
+    executor.config.pre_run_flush = (0 != value);
     return count;
 }
 
@@ -29,20 +33,16 @@ static ssize_t enable_pre_run_flush_show(struct kobject *kobj, struct kobj_attri
 }
 
 static ssize_t measurement_mode_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
-	switch(buf[0]) {
-		case 'F':
-			executor.config.measurement_template = FLUSH_AND_RELOAD_TEMPLATE;
-			break;
-		case 'P':
-			executor.config.measurement_template = PRIME_AND_PROBE_TEMPLATE;
-			break;
-		default:
-			module_err("Invalid measurement mode.. Clearing the measurement method, please chose an existing one!.\n");
-			executor.config.measurement_template = UNSET_TEMPLATE;
-			return -1;
+	if (sysfs_streq(buf, "P+P")) {
+		executor.config.measurement_template = PRIME_AND_PROBE_TEMPLATE;
+	} else if (sysfs_streq(buf, "F+R")) {
+		executor.config.measurement_template = FLUSH_AND_RELOAD_TEMPLATE;
+	} else {
+		module_err("Invalid measurement mode '%s'; expected 'P+P' or 'F+R'\n", buf);
+		return -EINVAL;
 	}
 
-    return count;
+	return count;
 }
 
 static ssize_t measurement_mode_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
@@ -105,7 +105,7 @@ static ssize_t pin_to_core_store(struct kobject *kobj, struct kobj_attribute *at
 	memcpy(tmp_buf, buf, len);
 	tmp_buf[len] = '\0';
 	
-	while (len > 0 && isspace(tmp_buf[len - 1])) {
+	while (0 < len && isspace(tmp_buf[len - 1])) {
 		tmp_buf[len - 1] = '\0';
 		--len;
 	}
@@ -123,7 +123,7 @@ static ssize_t pin_to_core_store(struct kobject *kobj, struct kobj_attribute *at
 	if (CPU_ID_DEFAULT == requested_cpu) {
 	    executor.config.pinned_cpu_id = CPU_ID_DEFAULT;
 	    module_err("Pin to core cleared, will run on current CPU\n");
-	} else if (requested_cpu < 0 || requested_cpu >= nr_cpu_ids || !cpu_online(requested_cpu)) {
+	} else if (0 > requested_cpu || requested_cpu >= nr_cpu_ids || !cpu_online(requested_cpu)) {
 	    executor.config.pinned_cpu_id = CPU_ID_DEFAULT;
 	    module_err("Requested CPU %d is invalid or offline, pinning cleared (will run on current CPU)\n", requested_cpu);
 	} else {
@@ -154,7 +154,7 @@ static ssize_t branch_training_config_show(struct kobject *kobj, struct kobj_att
 static ssize_t enable_branch_training_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
     unsigned int value = 0;
     sscanf(buf, "%u", &value);
-    executor.config.enable_branch_training = (value != 0);
+    executor.config.enable_branch_training = (0 != value);
     return count;
 }
 
@@ -165,20 +165,6 @@ static ssize_t enable_branch_training_show(struct kobject *kobj, struct kobj_att
 static struct kobj_attribute branch_training_config_attribute = __ATTR(branch_training_config, 0666, branch_training_config_show, branch_training_config_store);
 static struct kobj_attribute enable_branch_training_attribute = __ATTR(enable_branch_training, 0666, enable_branch_training_show, enable_branch_training_store);
 
-/* DEBUG: pre-test PHR action (0=flush, 1=random, 2=none) */
-static ssize_t phr_mode_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
-    unsigned int value = 0;
-    sscanf(buf, "%u", &value);
-    debug_phr_mode = (value <= 2) ? (int)value : 0;
-    return count;
-}
-
-static ssize_t phr_mode_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
-    return sprintf(buf, "%d\n", debug_phr_mode);
-}
-
-static struct kobj_attribute phr_mode_attribute = __ATTR(phr_mode, 0666, phr_mode_show, phr_mode_store);
-
 static struct attribute *sysfs_attributes[] = {
 	&warmups_attribute.attr,
 	&print_sandbox_base_attribute.attr,
@@ -188,7 +174,6 @@ static struct attribute *sysfs_attributes[] = {
 	&pin_to_core_attribute.attr,
 	&branch_training_config_attribute.attr,
 	&enable_branch_training_attribute.attr,
-	&phr_mode_attribute.attr,
 	NULL, /* need to NULL terminate the list of attributes */
 };
 
@@ -209,13 +194,13 @@ int initialize_sysfs(void) {
 		struct attribute *attr = NULL;
 		int i = 0;
 		for (i = 0, attr = sysfs_attributes[i];
-			       	(!err) && attr;
+			       	(0 == err) && (NULL != attr);
 				++i, attr = sysfs_attributes[i]) {
 			err = sysfs_create_file(kobj_interface, attr);
 		}
 	}
 
-	if (err) {
+	if (0 != err) {
 		module_err("Failed to create a sysfs group\n");
 		goto sysfs_init_failed_remove_directory;
 	}
@@ -229,14 +214,12 @@ sysfs_init_failed_remove_directory:
 sysfs_init_failed_execution:
 	return err;
 }
-EXPORT_SYMBOL(initialize_sysfs);
 
 void free_sysfs(void) {
 
-	if(kobj_interface) {
+	if (NULL != kobj_interface) {
 		kobject_put(kobj_interface);
 		kobj_interface = NULL;
 	}
 }
-EXPORT_SYMBOL(free_sysfs);
 

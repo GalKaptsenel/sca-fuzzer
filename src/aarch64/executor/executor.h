@@ -2,10 +2,9 @@
 #define ARM64_EXECUTOR_EXECUTOR_H
 
 #include "utils.h"
-#include "templates.h"
+#include "templates_jit.h"
 #include "pac.h"
 
-enum Templates;  // Forward declaration
 enum State {
 	CONFIGURATION_STATE,
 	LOADED_TEST_STATE,
@@ -16,13 +15,12 @@ enum State {
 };
 
 // Executor Configuration Interface
-#define UARCH_RESET_ROUNDS_DEFAULT	    	1
+#define UARCH_RESET_ROUNDS_DEFAULT	    	5
 #define ENABLE_FAULTY_DEFAULT		    	0
 #define PRE_RUN_FLUSH_DEFAULT		    	1
-#define NUMBER_OF_INPUTS_DEFAULT	    	1
 #define MEASUREMENT_TEMPLATE_DEFAULT		(FLUSH_AND_RELOAD_TEMPLATE)
-#define CPU_ID_DEFAULT				(-1)	
-#define REGION_DEFFAULT			        (TEST_REGION)
+#define CPU_ID_DEFAULT				(-1)
+#define REGION_DEFAULT				(TEST_REGION)
 
 #define MAX_TEST_CASE_SIZE              (1 * PAGESIZE)
 #define MAX_MEASUREMENT_CODE_SIZE       (MAX_TEST_CASE_SIZE * 4)
@@ -54,8 +52,6 @@ typedef struct executor {
 	volatile uint64_t number_of_inputs;
 	char* test_case; // The member test_case is NOT embedded inside the struct because we require that it wll be continuous within physical memory, and therefore it should be acquired by kmalloc
 	size_t test_case_length;
-	char* mistraining_code;    /* optional: branches forced to opposite direction; NULL if unused */
-	size_t mistraining_code_length;
 	struct rb_root inputs_root;
 	int64_t checkout_region;
 	int tracing_error;

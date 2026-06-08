@@ -1,62 +1,6 @@
 #include "main.h"
 
-// =================================================================================================
-// Helper Functions
-// =================================================================================================
-
-/// Clears the programmable performance counters and writes the
-/// configurations to the corresponding MSRs.
-
-//static void prepare_perf_event_attribute(struct perf_event_attr* attr, uint32_t type, uint64_t config) {
-//	if(!attr) return;
-//
-//	memset(attr, 0, sizeof(*attr));
-//	attr->type		= type;
-//	attr->config		= config;
-//	attr->size		= sizeof(*attr);
-//	attr->disabled		= 0;      /* start counting immediately */
-//	attr->pinned		= 1;      /* try hard not to multiplex */
-//	attr->exclude_hv	= 1;
-//	attr->exclude_user	= 1;
-//	attr->exclude_kernel	= 0;
-////	attr->exclude_idle	= 1;
-//}
-//
-//static uint64_t next_perf_event_index = 0;
-//static struct perf_event* perf_events[16] = { 0 };
-//static int perf_event_to_pmevcntr_index(struct perf_event* ev) { return ev ? ev->hw.idx : -1; }
-//static void overflow_cb(struct perf_event *event, struct perf_sample_data *data, struct pt_regs *regs) { }
-//static int create_perf_event(uint32_t type, uint64_t config) {
-//	if(next_perf_event_index >= ARRAY_SIZE(perf_events)) return -2;
-//
-//	uint64_t current_index = next_perf_event_index;
-//
-//	struct perf_event_attr attr = { 0 };
-//	prepare_perf_event_attribute(&attr, type, config);
-//	perf_events[current_index] = perf_event_create_kernel_counter(&attr, smp_processor_id(), NULL, overflow_cb, NULL);
-//	if (IS_ERR(perf_events[current_index])) {
-//		int err = PTR_ERR(perf_events[current_index]);
-//		module_err("failed to create pmu event: %d (type: %u, config: %llu)", err, type, config);
-//		perf_events[current_index] = NULL;
-//		return -3;
-//	}
-//
-//	perf_event_enable(perf_events[current_index]);
-//
-//	++next_perf_event_index;
-//
-//	return perf_event_to_pmevcntr_index(perf_events[current_index]);
-//}
-//
-
-//static inline bool has_pmu(void)
-//{
-//    u64 dfr0 = read_sysreg(id_aa64dfr0_el1);
-//    u64 pmuver = (dfr0 >> 8) & 0xF; // Bits [11:8]
-//    module_err("PMEVER: 0x%llx", pmuver);
-//    return (pmuver != 0 && pmuver != 0xF);
-//}
-
+/* Clears and reconfigures the programmable performance counters. */
 static int config_pfc(void) {
 
     // disable PMU user-mode access (not necessary?)
@@ -103,91 +47,15 @@ static int config_pfc(void) {
     asm volatile("msr pmcr_el0, %0" :: "r" (val | 0b111));
     asm volatile("isb\n");
     
-    // debug prints (view via 'sudo dmesg')
-    
-//     val = 0;
-//     asm volatile("mrs %0, pmuserenr_el0" : "=r" (val));
-//     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMUSERENR_EL0:", val);
-//     asm volatile("mrs %0, pmcr_el0" : "=r" (val));
-//     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMCR_EL0:", val);
-//     asm volatile("mrs %0, pmselr_el0" : "=r" (val));
-//     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMSELR_EL0:", val);
-//     asm volatile("mrs %0, pmevtyper0_el0" : "=r" (val));
-//     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMEVTYPER0_EL0:", val);
-//     asm volatile("mrs %0, pmcntenset_el0" : "=r" (val));
-//     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMCNTENSET_EL0:", val);
-//     asm volatile("mrs %0, pmevcntr1_el0" : "=r" (val));
-//     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMECNTR1_EL0:", val);
-//     asm volatile("mrs %0, pmevcntr2_el0" : "=r" (val));
-//     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMECNTR2_EL0:", val);
-//     asm volatile("mrs %0, pmevcntr3_el0" : "=r" (val));
-//     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PMECNTR3_EL0:", val);
-//     asm volatile("mrs %0, pmccntr_el0" : "=r"(val));
-//     module_debug(KERN_ERR "%-24s 0x%0llx\n", "PNCCNTR_EL0:", val);
-
     return 0;
 }
 
-//static void pmu_discover(void *arg)
-//{
-//    unsigned long flags;
-//    u64 pmcr, pmceid0, pmceid1, n, i;
-//
-//    preempt_disable();
-//    local_irq_save(flags);
-//
-//    /* Read PMCR_EL0 */
-//    asm volatile("mrs %0, pmcr_el0" : "=r"(pmcr));
-//    pr_info("PMCR_EL0: 0x%016llx\n", pmcr);
-//
-//    /* Number of general-purpose counters: N = bits[15:11] + 1 */
-//    n = ((pmcr >> 11) & 0x1f) + 1;
-//    pr_info("Number of general-purpose counters: %llu\n", n);
-//
-//    /* Check cycle counter */
-//    pr_info("Cycle counter exists: %s\n", (pmcr & (1<<31)) ? "YES" : "NO");
-//
-//    /* Read supported events (PMCEID0_EL0 and PMCEID1_EL0) */
-//    asm volatile("mrs %0, pmceid0_el0" : "=r"(pmceid0));
-//    asm volatile("mrs %0, pmceid1_el0" : "=r"(pmceid1));
-//
-//    pr_info("Supported event IDs 0-31 : 0x%016llx\n", pmceid0);
-//    pr_info("Supported event IDs 32-63: 0x%016llx\n", pmceid1);
-//
-//    /* Print which counters are enabled (PMCNTENSET_EL0) */
-//    u64 cntenset;
-//    asm volatile("mrs %0, pmcntenset_el0" : "=r"(cntenset));
-//    pr_info("PMCNTENSET_EL0: 0x%016llx\n", cntenset);
-//
-//    /* Print initial values of general-purpose counters and cycle counter */
-//    for (i = 0; i < n; i++) {
-//        u64 val;
-//        switch(i) {
-//            case 0: asm volatile("mrs %0, pmevcntr0_el0" : "=r"(val)); break;
-//            case 1: asm volatile("mrs %0, pmevcntr1_el0" : "=r"(val)); break;
-//            case 2: asm volatile("mrs %0, pmevcntr2_el0" : "=r"(val)); break;
-//            case 3: asm volatile("mrs %0, pmevcntr3_el0" : "=r"(val)); break;
-//            default: val = 0; break;
-//        }
-//        pr_info("PMEVCNTR%llu_EL0 initial value: %llu\n", i, val);
-//    }
-//
-//    /* Cycle counter */
-//    u64 cc;
-//    asm volatile("mrs %0, pmccntr_el0" : "=r"(cc));
-//    pr_info("PMCCNTR_EL0 initial value: %llu\n", cc);
-//
-//    local_irq_restore(flags);
-//    preempt_enable();
-//}
 
 static inline int setup_environment(void) {
-    int err = 0;
-
-    // TBD: configure PFC
-    err = config_pfc();
-    if (err)
+    int err = config_pfc();
+    if (0 != err) {
         return err;
+    }
 
     // TBD: configure faulty page
     return 0;
@@ -251,20 +119,24 @@ static void initialize_overflow_pages(void) {
 }
 
 int64_t initialize_measurement(measurement_t* measurement) {
-	if(NULL == measurement) return -EINVAL;
+	if (NULL == measurement) {
+		return -EINVAL;
+	}
 	memset(measurement, 0, sizeof(measurement_t));
 	return 0;
 }
-EXPORT_SYMBOL(initialize_measurement);
 
 
 void free_measurement(measurement_t* measurement) {
-	if(NULL == measurement) return;
+	if (NULL == measurement) {
+		return;
+	}
 }
-EXPORT_SYMBOL(free_measurement);
 
 static void measure(measurement_t* measurement) {
-	if(NULL == measurement) return;
+	if (NULL == measurement) {
+		return;
+	}
 
 	for(size_t i = 0; i < HTRACE_WIDTH; ++i) {
 		measurement->htrace[i] = executor.sandbox.latest_measurement.htrace[i];
@@ -272,10 +144,6 @@ static void measure(measurement_t* measurement) {
 	
 	for(size_t i = 0; i < NUM_PFC; ++i) {
 		measurement->pfc[i] = executor.sandbox.latest_measurement.pfc[i];
-	}
-
-	for(size_t i = 0; i < WIDTH_MEMORY_IDS; ++i) {
-		measurement->memory_ids_bitmap[i] = executor.sandbox.latest_measurement.memory_ids_bitmap[i];
 	}
 }
 
@@ -296,27 +164,20 @@ static void __nocfi run_experiments(void) {
 	// Zero-initialize the region of memory used by Prime+Probe
 	memset(executor.sandbox.eviction_region, 0, sizeof(executor.sandbox.eviction_region));
 
+	/* Run the measurement at RT priority pinned to this CPU; the previous
+	 * policy/priority/affinity are restored after the loop so we don't leave the
+	 * calling thread permanently RT-pinned. */
+	int saved_policy = current->policy;
+	int saved_rt_priority = current->rt_priority;
+	cpumask_t saved_mask;
+	cpumask_copy(&saved_mask, &current->cpus_mask);
+
 	current->policy = SCHED_FIFO;
 	current->rt_priority = MAX_RT_PRIO - 1;
 	cpumask_t mask;
 	cpumask_clear(&mask);
 	cpumask_set_cpu(smp_processor_id(), &mask);
 	set_cpus_allowed_ptr(current, &mask);
-
-	/* pre_run_flush == 2: saturate every base-predictor entry to TAKEN once
-	 * per batch, before the input loop.  Slow but thorough.
-	 * pre_run_flush == 1: rely on per-input view rotation + PHR flush only. */
-	if (2 == executor.config.pre_run_flush) {
-		size_t n_entries = MAX_MEASUREMENT_CODE_SIZE / sizeof(uint32_t) - 2;
-		flush_bpu_phr();
-		for (size_t k = 0; k < n_entries; ++k) {
-			void *tview = invalidate_bpu_entries();
-			void *addr  = load_training_entry_at((uint32_t *)tview, k);
-			for (int t = 0; t < 16; ++t)
-				((void (*)(void *))addr)(&executor.sandbox);
-		}
-		load_template(executor.test_case_length);
-	}
 
 	for (int64_t i = -executor.config.uarch_reset_rounds; i < rounds; ++i) {
 		struct input_node* current_input = NULL;
@@ -341,12 +202,7 @@ static void __nocfi run_experiments(void) {
 
 		if (executor.config.enable_branch_training) {
 			reapply_branch_training(measurement_code);
-			/* DEBUG phr_mode: 0=flush (constant PHR), 1=random PHR, 2=none */
-			if (debug_phr_mode == 1) {
-				set_phr_random();
-			} else if (debug_phr_mode != 2) {
-				flush_bpu_phr();
-			}
+			flush_bpu_phr();
 		} else if (executor.config.pre_run_flush) {
 			flush_bpu_phr();
 		}
@@ -372,6 +228,10 @@ static void __nocfi run_experiments(void) {
 
 		measure(&current_input->measurement);
 	}
+
+	set_cpus_allowed_ptr(current, &saved_mask);
+	current->policy = saved_policy;
+	current->rt_priority = saved_rt_priority;
 }
 
 int execute(void) {
@@ -383,5 +243,4 @@ int execute(void) {
     run_experiments();
     return 0;
 }
-EXPORT_SYMBOL(execute);
 

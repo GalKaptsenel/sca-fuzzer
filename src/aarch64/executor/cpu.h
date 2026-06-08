@@ -23,7 +23,7 @@
 	enum { field##_BIT_SHIFT = shift };					\
 	static inline uint8_t set_##field##_bit(uint8_t value) {		\
 		uint64_t reg_val = read_##msr();				\
-		uint8_t prev = (reg_val & (1UL << field##_BIT_SHIFT)) != 0;	\
+		uint8_t prev = 0 != (reg_val & (1UL << field##_BIT_SHIFT));	\
 										\
 		if (value) {							\
 			reg_val |= (1UL << field##_BIT_SHIFT);			\

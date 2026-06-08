@@ -100,7 +100,7 @@ void jit_isb(jit_t* jit);
 void jit_dsb_sy(jit_t* jit);
 void jit_nop(jit_t* jit);
 void jit_svc0(jit_t* jit);
-void jit_ret(jit_t* jit);
+void jit_ret(jit_t* jit, int rn);
 void jit_bti(jit_t* jit, bool calls, bool branches);
 
 void jit_sys(jit_t* jit, int op1, int CRn, int CRm, int op2, int rt);

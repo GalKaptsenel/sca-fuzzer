@@ -190,13 +190,12 @@ void page_walk_explorer(void *addr) {
 	}
 
 	pte = pte_offset_kernel(pmd, vaddr);
-	if (!pte) {
+	if (NULL == pte) {
 		module_err("Invalid PTE\n");
 		return;
 	}
 	decode_pte(*pte);
 }
-EXPORT_SYMBOL(page_walk_explorer);
 
 static pte_t* get_pte(void *addr) {
 	pgd_t *pgd = NULL;
@@ -206,7 +205,7 @@ static pte_t* get_pte(void *addr) {
 	pte_t *pte = NULL;
 	size_t vaddr = (size_t)addr;
 
-	if (NULL == init_mm_ptr) return NULL;
+	if (NULL == init_mm_ptr) { return NULL; }
 
 	pgd = pgd_offset(init_mm_ptr, vaddr);
 	if (pgd_none(*pgd) || pgd_bad(*pgd)) {
@@ -239,7 +238,7 @@ static pte_t* get_pte(void *addr) {
 	}
 
 	pte = pte_offset_kernel(pmd, vaddr);
-	if (!pte) {
+	if (NULL == pte) {
 		module_err("Invalid PTE\n");
 		return NULL;
 	}
@@ -268,12 +267,13 @@ void disable_mte_for_region(void* start, size_t size) {
 			continue;
 		}
 	
-		// Remove the MTE bit (bit 54) from the PTE
+		// Reset the memory attribute index to MAIR index 0 (MT_NORMAL):
+		// untagged, Normal cacheable. Removes MTE tag-checking for the region
+		// without changing its cacheability.
 		*pte = pte_clear_flags_custom(*pte, PTE_ATTRINDX_MASK);
-	
+
 		// Ensure the update takes effect
 		flush_tlb_kernel_range(addr, addr + PAGE_SIZE);
 	}
 }
-EXPORT_SYMBOL(disable_mte_for_region);
 

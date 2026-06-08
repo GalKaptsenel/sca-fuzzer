@@ -4,9 +4,6 @@
 // Includes
 #include <linux/module.h>
 #include <linux/init.h>
-MODULE_LICENSE("GPL");
-MODULE_AUTHOR("ACSL - Gal Kaptsenel");
-MODULE_DESCRIPTION("AArch64 implementation of Revisor's executor");
 #include <linux/kernel.h>
 #include <linux/version.h>
 #include <linux/types.h>
@@ -48,11 +45,9 @@ MODULE_DESCRIPTION("AArch64 implementation of Revisor's executor");
 #include "bpu.h"
 #include "sandbox.h"
 #include "executor.h"
-#include "templates.h"
 #include "templates_jit.h"
 #include "chardevice.h"
 #include "sysfs.h"
-#include "pfc.h"
 #include "inputs.h"
 #include "mte.h"
 #include "pac.h"

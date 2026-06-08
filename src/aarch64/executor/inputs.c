@@ -5,7 +5,6 @@ void initialize_inputs_db(void) {
 	executor.inputs_root = RB_ROOT;
 	executor.number_of_inputs = 0;
 }
-EXPORT_SYMBOL(initialize_inputs_db);
 
 int64_t allocate_input(void) {
 	static int64_t input_id = 0;
@@ -30,7 +29,7 @@ int64_t allocate_input(void) {
 		return success;
 	}
 
-	while(*link) {
+	while (NULL != *link) {
 		parent = *link;
 		if(new_node->id < rb_entry(parent, struct input_node, node)->id) {
 			link = &(parent->rb_left);
@@ -47,12 +46,11 @@ int64_t allocate_input(void) {
 
 	return new_node->id;
 }
-EXPORT_SYMBOL(allocate_input);
 
 static struct input_node* get_input_node(int64_t id) {
 	struct rb_node* node = executor.inputs_root.rb_node;
 
-	while(node) {
+	while (NULL != node) {
 		struct input_node* data = rb_entry(node, struct input_node, node);
 
 		if(id < data->id) {
@@ -72,36 +70,33 @@ static struct input_node* get_input_node(int64_t id) {
 measurement_t* get_measurement(int64_t id) {
 	struct input_node* node = get_input_node(id);
 
-	if(NULL == node) return NULL;
+	if (NULL == node) { return NULL; }
 
 	return &(node->measurement);
 }
-EXPORT_SYMBOL(get_measurement);
 
 input_t* get_input(int64_t id) {
 	struct input_node* node = get_input_node(id);
 
-	if (NULL == node) return NULL;
+	if (NULL == node) { return NULL; }
 
 	return &(node->input);
 }
-EXPORT_SYMBOL(get_input);
 
 void remove_input(int64_t id) {
 	struct input_node* node_to_remove = get_input_node(id);
-	if(NULL == node_to_remove) return;
+	if (NULL == node_to_remove) { return; }
 	free_measurement(&node_to_remove->measurement);
 	rb_erase(&(node_to_remove->node), &(executor.inputs_root));
 	vfree(node_to_remove);
 	--executor.number_of_inputs;
 }
-EXPORT_SYMBOL(remove_input);
 
 void destroy_inputs_db(void) {
 	struct input_node* node = NULL;
 	struct rb_node* rb_node = rb_first(&(executor.inputs_root));
 
-	while(rb_node) {
+	while (NULL != rb_node) {
 		node = rb_entry(rb_node, struct input_node, node);
 		rb_node = rb_next(rb_node);
 		free_measurement(&node->measurement);
@@ -112,4 +107,3 @@ void destroy_inputs_db(void) {
 	executor.inputs_root.rb_node = NULL;
 	executor.number_of_inputs = 0;
 }
-EXPORT_SYMBOL(destroy_inputs_db);
