@@ -8,6 +8,7 @@ SPDX-License-Identifier: MIT
 
 import os
 import sys
+import tempfile
 import traceback
 import signal
 import datetime
@@ -18,7 +19,9 @@ from .config import CONF
 from typing import List
 from .aarch64.aarch64_kernel import print_opcode_summary
 
-_CRASH_LOG = "/home/gal_k_1_1998/revizor_crash.log"
+# Crash log: $REVIZOR_CRASH_LOG if set, else a portable temp-dir default.
+_CRASH_LOG = os.environ.get("REVIZOR_CRASH_LOG") \
+    or os.path.join(tempfile.gettempdir(), "revizor_crash.log")
 
 
 def _run_with_profiler(fn):
