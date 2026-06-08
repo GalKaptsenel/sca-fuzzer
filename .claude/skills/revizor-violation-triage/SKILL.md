@@ -20,7 +20,7 @@ If all three hold → **genuine Spectre-v1**. If the HW shows no stable divergen
 ## Method
 
 ### 1. Get the counterexample pair
-From `violation-*/report.txt`, the `## Counterexample Inputs` section lists `Input #A` and `Input #B` (indices into the boosted input set). The saved `input_AAAA.bin` files are those boosted inputs.
+From `violation-*/report.txt`, the `## Counterexample Inputs` section lists `Input #A` and `Input #B` (indices into the boosted input set). The saved `input_AAAA_nzcv_scheme.bin` files (older runs: `input_AAAA.bin`) are those boosted inputs.
 
 ### 2. CE arch vs speculative cache lines
 Run the CE under **ALWAYS_MISPREDICT** (`CONF.contract_execution_clause=['cond']`) on the pair. For each input, split memory accesses by `speculation_nesting`:
@@ -80,7 +80,7 @@ The kernel `prime()` in `templates_jit.c` runs many store-loop iterations with c
 `Generator.update_seed()` reads `self._state` (set from `program_generator_seed` **at construction**), NOT a later `CONF.program_generator_seed` assignment, and `_state==0` → a *random* seed each run. For a reproducible TC in a script, set `gen._state = SEED` directly **before** `create_test_case(...)`. `create_test_case(path)` takes an asm-file PATH, not a seed.
 
 ## Gotchas / environment
-- Activate the venv: `/home/gal_k_1_1998/revizor/revizor-venv`; `chmod 777 /dev/executor` after insmod.
+- Activate your Revizor Python venv (the one created by the installer); `chmod 777 /dev/executor` after insmod.
 - The CE binary must be rebuilt after any `contract_executor/*.c|*.h` change (`make -C src/aarch64/contract_executor`; the Makefile now tracks header deps). Kernel module: `make KDIR=/usr/src/linux-headers-6.12.90+deb13-cloud-arm64`.
 - Module reload can leave `refcnt` stuck if a `contract_executor` subprocess was SIGKILLed while holding `/dev/executor` (orphaned holder) → `rmmod` fails, only a reboot clears it. Kill CE subprocesses cleanly before `rmmod`.
 - `map_register_to_offsets` must map `wN` to the same slot as `xN` (taint completeness — a w-reg gap there caused spurious "Mismatching CTraces"). See memory `project_ce_audit_findings`.

@@ -9,15 +9,28 @@ inputs; speculative sets should diverge at the gadget (a load whose address is a
 previously-loaded value), and those divergent sets must equal the HW-divergent bits.
 
 Usage:
-    source /home/gal_k_1_1998/revizor/revizor-venv/bin/activate
+    source <your-revizor-venv>/bin/activate
     sudo chmod 777 /dev/executor
     python3 manual_emulate.py <path/to/violation-YYMMDD-HHMMSS>
 """
 import os, sys, re
-REPO = "/home/gal_k_1_1998/revizor/sca-fuzzer"
+
+
+def _find_repo_root():
+    """Repo root = nearest ancestor containing revizor.py (override with $REVIZOR_ROOT)."""
+    d = os.path.dirname(os.path.abspath(__file__))
+    while d != os.path.dirname(d):
+        if os.path.exists(os.path.join(d, "revizor.py")):
+            return d
+        d = os.path.dirname(d)
+    return os.getcwd()
+
+
+REPO = os.environ.get("REVIZOR_ROOT") or _find_repo_root()
 
 
 def main(VD):
+    VD = os.path.abspath(VD)   # resolve before chdir
     os.chdir(REPO); sys.path.insert(0, REPO)
     from src.config import CONF; CONF.load('config.yml')
     CONF.contract_execution_clause = ['cond']          # ALWAYS_MISPREDICT
@@ -31,7 +44,10 @@ def main(VD):
     report = open(os.path.join(VD, 'report.txt')).read()
     cex = list(dict.fromkeys(re.findall(r'^Input #(\d+)\s*$', report, re.M)))[:2]
     tc = ap.parse_file(os.path.join(VD, 'generated.asm')); ex.load_test_case(tc)
-    inp = ig.load([os.path.join(VD, f'input_{int(i):04d}.bin') for i in cex])
+    def _inp(i):  # saved inputs are input_NNNN_nzcv_scheme.bin (old: input_NNNN.bin)
+        b = os.path.join(VD, f'input_{int(i):04d}')
+        return next(b + s for s in ('_nzcv_scheme.bin', '.bin') if os.path.exists(b + s))
+    inp = ig.load([_inp(i) for i in cex])
     _, _, cer, _ = ex.trace_test_case_with_taints(inp, 5)
 
     def collect(c):

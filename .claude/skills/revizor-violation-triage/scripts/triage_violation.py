@@ -7,7 +7,7 @@ hardware htrace divergence recorded in the violation report — WITHOUT re-runni
 test on hardware (which would train the BPU and hide the leak).
 
 Usage:
-    source /home/gal_k_1_1998/revizor/revizor-venv/bin/activate
+    source <your-revizor-venv>/bin/activate
     sudo chmod 777 /dev/executor
     python3 triage_violation.py <path/to/violation-YYMMDD-HHMMSS>
 
@@ -18,7 +18,17 @@ Verdict per violation:
 """
 import os, sys, re
 
-REPO = "/home/gal_k_1_1998/revizor/sca-fuzzer"
+def _find_repo_root():
+    """Repo root = nearest ancestor containing revizor.py (override with $REVIZOR_ROOT)."""
+    d = os.path.dirname(os.path.abspath(__file__))
+    while d != os.path.dirname(d):
+        if os.path.exists(os.path.join(d, "revizor.py")):
+            return d
+        d = os.path.dirname(d)
+    return os.getcwd()
+
+
+REPO = os.environ.get("REVIZOR_ROOT") or _find_repo_root()
 FREQ_DIVERGENCE_THRESHOLD = 0.3   # |freq_A - freq_B| above this == a stable per-bit divergence
 
 
@@ -39,6 +49,7 @@ def per_bit_freq(report_text, input_idx):
 
 
 def main(vdir):
+    vdir = os.path.abspath(vdir)   # resolve before chdir
     os.chdir(REPO)
     sys.path.insert(0, REPO)
     from src.config import CONF

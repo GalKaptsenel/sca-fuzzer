@@ -8,11 +8,16 @@ stays loaded). Prints the architectural and speculative (mispredict-the-first-co
 line-by-line flows for each input, with per-access cache-set, and the speculative-only
 (leaked) sets. Independent cross-check for tools/ce_always_mispredict.py.
 """
-import numpy as np, re, sys
+import numpy as np, os, re, sys
 D=sys.argv[1]; X29=int(sys.argv[2],16); A=int(sys.argv[3]); B=int(sys.argv[4])
+def _exists(p): return p if os.path.exists(p) else None
+_tc = _exists(f"{D}/sandboxed_test_case.asm") or f"{D}/sandboxed_test_case"
+def _inp(i):  # saved inputs are input_NNNN_nzcv_scheme.bin (old: input_NNNN.bin)
+    base=f"{D}/input_{i:04d}"
+    return next(base+s for s in ("_nzcv_scheme.bin",".bin") if os.path.exists(base+s))
 M64=(1<<64)-1; M32=(1<<32)-1; u64=lambda v:v&M64; u32=lambda v:v&M32
 prog=[]
-for t in open(f"{D}/sandboxed_test_case"):
+for t in open(_tc):
     s=t.split("//")[0].strip()
     if not s or s.startswith(".section") or s.startswith(".macro"): continue
     if s.endswith(":") or not s.startswith("."): prog.append(s)
@@ -72,7 +77,7 @@ def emu(sb,gpr,force):
         log.append((ins,note)); pc+=1
     return log,acc
 for idx in (A,B):
-    sb,gp=load_mem(f"{D}/input_{idx:04d}.bin")
+    sb,gp=load_mem(_inp(idx))
     la,aa=emu(bytearray(sb),dict(gp),None); tk=any("TAKEN" in n for _,n in la)
     ls,asp=emu(bytearray(sb),dict(gp),not tk)
     print(f"\n================= INPUT #{idx} =================")

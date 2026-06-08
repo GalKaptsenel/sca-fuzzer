@@ -16,7 +16,8 @@ Run analysis FIRST (no HW needed) to know the expected leaking set:
 The **distinguishing speculative set** (e.g. P+P #15/#65 → set 50 only for #65) is the bit to watch.
 
 ## Inputs you need
-- `VD` = violation dir (has `generated.asm`, `sandboxed_test_case`, `input_NNNN.bin`, `report.txt`).
+- `VD` = violation dir (has `generated.asm`, `sandboxed_test_case.asm`, `input_NNNN_nzcv_scheme.bin`, `report.txt`).
+  (Older runs named these `sandboxed_test_case` / `input_NNNN.bin` — the steps below accept either.)
 - The two counterexample input numbers from `report.txt` ("## Counterexample Inputs", `Input #A` / `Input #B`).
 - `LOW` = min(A,B). You load inputs `0..LOW` (the real preceding context) and put the violating
   input in the last slot (iid `LOW`); that slot is the only thing you swap and the only thing you measure.
@@ -32,17 +33,22 @@ Also: `EU w file` (write file to current checkout), `EU r file` (read current ch
 ```
 mkdir -p /tmp/exp
 # test case = sandboxed asm assembled to raw machine code (as -march=armv9-a+sve+memtag | objcopy -O binary)
-src/aarch64/asm_to_bytes/asm_to_bytes < "$VD/sandboxed_test_case" > /tmp/exp/tc.bin   # ~4 bytes/instr
-# inputs: copy each .bin and reconstruct ONLY the NZCV flags slot to PSTATE
+TC="$VD/sandboxed_test_case.asm"; [ -f "$TC" ] || TC="$VD/sandboxed_test_case"
+src/aarch64/asm_to_bytes/asm_to_bytes < "$TC" > /tmp/exp/tc.bin   # ~4 bytes/instr
+# inputs: copy each saved input and reconstruct the NZCV flags slot to PSTATE
 python3 - <<'PY'
-import sys,struct; sys.path.insert(0,".")
-from src.aarch64.aarch64_input_layout import NZCVScheme
-VD="<VD>"; FO=8192+6*8                 # gpr slot 6 = flags, at byte 8240
+import os,sys; sys.path.insert(0,".")
+from src.aarch64.aarch64_input_layout import _reconstruct_pstate, REGISTER_REGION_OFFSET
+VD="<VD>"
+def inp(i):  # new name first, fall back to the old one
+    b=f"{VD}/input_{i:04d}"
+    return next(b+s for s in ("_nzcv_scheme.bin",".bin") if os.path.exists(b+s))
 for i in list(range(LOW+1))+[OTHER]:   # 0..LOW plus the other violating input
-    raw=bytearray(open(f"{VD}/input_{i:04d}.bin","rb").read())
-    struct.pack_into("<Q",raw,FO,NZCVScheme.to_pstate(struct.unpack_from("<Q",raw,FO)[0]))
-    open(f"/tmp/exp/in{i}.bin","wb").write(raw)
+    raw=bytearray(open(inp(i),"rb").read())
+    _reconstruct_pstate(memoryview(raw)[REGISTER_REGION_OFFSET:].cast('Q'))
+    open(f"/tmp/exp/in{i}.bin","wb").write(bytes(raw))
 PY
+# (equivalently: src/aarch64/debugging/to_executor_input.py <saved.bin> /tmp/exp/inN.bin)
 ```
 
 ## Step 2 — reload the module and set the regime

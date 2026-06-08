@@ -456,40 +456,25 @@ checkout.
 ### Triaging and reproducing a violation (skills)
 
 A `fuzz` run reports a *contract violation* — two inputs that are architecturally equivalent
-(same contract trace) yet produce different hardware traces. Two
-[Claude Code](https://claude.com/claude-code) **skills**, shipped in the repo under
-`.claude/skills/`, turn such a report into a confirmed (or rejected) speculative leak. When you
-ask Claude Code to "triage" or "reproduce" a `violation-*/` directory it invokes them
-automatically; the underlying scripts can also be run directly (activate the venv and
-`sudo chmod 777 /dev/executor` first).
+yet produce different hardware traces. Two [Claude Code](https://claude.com/claude-code)
+**skills** under `.claude/skills/` help you make sense of one; ask Claude Code to "triage" or
+"reproduce" a `violation-*/` directory, or run the scripts directly (activate your venv +
+`sudo chmod 777 /dev/executor`).
 
-- **`revizor-violation-triage`** — decides *genuine Spectre-v1 vs measurement noise* **without
-  re-running the test on hardware**. It runs the contract executor under `ALWAYS_MISPREDICT`
-  and checks three things: the two inputs' architectural (nest-0) cache lines are identical;
-  their speculative (nest>0) lines differ; and the speculative divergence explains the HW
-  htrace divergence *already captured in the report* (bit-for-bit). Verdict: **GENUINE**,
-  **NOISE**, or **INVESTIGATE** (a HW-divergent bit the CE doesn't predict — deeper nesting or
-  a CE modelling gap). Run it with
-  `python3 .claude/skills/revizor-violation-triage/scripts/triage_violation.py <violation-dir>`
-  (`scripts/manual_emulate.py` dumps the per-instruction CE trace for a by-hand cross-check).
-- **`reproduce-revizor-violation`** — independently confirms the leak on hardware. It rebuilds
-  the *exact* micro-architectural state for both inputs: assemble the sandboxed test case with
-  `asm_to_bytes`, load the real preceding context inputs `0..min(A,B)` via the
-  allocate→checkout→write protocol, then **swap only the violating input** in the last slot,
-  measure, and read which cache set lit up. A genuine leak shows a set that lights for one
-  input and ~never for the other (intermittent, so collect statistics over many trials). The
-  helper `tools/ce_always_mispredict.py` / `tools/emulate_violation.py` print the expected
-  leaking set up front.
+- **`revizor-violation-triage`** — genuine leak vs noise **without re-running on hardware**.
+  Runs the CE under `ALWAYS_MISPREDICT` and checks: the two inputs' architectural cache lines
+  are identical, their speculative lines differ, and that speculative divergence matches the HW
+  htrace divergence *already in the report*. Verdict **GENUINE** / **NOISE** / **INVESTIGATE**.
+  `python3 .claude/skills/revizor-violation-triage/scripts/triage_violation.py <violation-dir>`.
+- **`reproduce-revizor-violation`** — confirms it on hardware by recreating the exact µarch
+  state: load context inputs `0..min(A,B)`, **swap only the violating input**, measure, and see
+  which cache set encodes which input ran. Intermittent, so collect statistics over many trials.
 
-> ⚠️ **Do not "confirm noise" by re-measuring the same test many times on hardware.** Repetition
-> *trains the branch predictor* to predict the guarding branch correctly, which removes the very
-> misprediction the leak depends on — so a real Spectre-v1 will look like clean, identical
-> htraces. Use the CE's speculative trace and the report's already-captured htrace distribution
-> (triage), and the controlled same-context swap (reproduce), never high-rep re-measurement.
-
-Validated end-to-end on this hardware: separate P+P and F+R campaigns each produced a violation
-that triaged **GENUINE** and reproduced cleanly under the controlled swap (each input lit a
-distinct cache set the other did not).
+> ⚠️ **Caveats.** These are *quick verification heuristics, not proofs* — a GENUINE verdict plus a
+> clean reproduction is strong corroboration, not a guarantee; NOISE/INVESTIGATE warrants a manual
+> look. They have **not been exercised by other users yet**, so expect to refine them by hand for
+> your setup (rough edges will be fixed over time). And never "confirm noise" by re-measuring the
+> same test many times — repetition trains the branch predictor and *hides* a genuine leak.
 
 ## 4.5 Testing
 

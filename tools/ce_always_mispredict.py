@@ -11,7 +11,7 @@ import os, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT); os.chdir(ROOT)
 D, a, b = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
-cfg = sys.argv[4] if len(sys.argv) > 4 else "config_PP.yml"
+cfg = sys.argv[4] if len(sys.argv) > 4 else "configs/spectre_v1_pp.yml"
 from contextlib import redirect_stdout
 from src.config import CONF
 CONF.load(cfg, None)
@@ -21,7 +21,10 @@ from src.aarch64.aarch64_trace import show_context
 fz = get_fuzzer("base.json", "/tmp/ce_work", None, "")
 fz.initialize_modules(); ex = fz.executor
 tc = fz.asm_parser.parse_file(f"{D}/generated.asm"); ex.load_test_case(tc)
-inputs = fz.input_gen.load([f"{D}/input_{a:04d}.bin", f"{D}/input_{b:04d}.bin"])
+def _inp(i):  # saved inputs are input_NNNN_nzcv_scheme.bin (old: input_NNNN.bin)
+    base = f"{D}/input_{i:04d}"
+    return next(base + s for s in ("_nzcv_scheme.bin", ".bin") if os.path.exists(base + s))
+inputs = fz.input_gen.load([_inp(a), _inp(b)])
 ctraces, _, traces, _ = ex.trace_test_case_with_taints(inputs, 5)
 print(f"contract = ALWAYS_MISPREDICT   inputs #{a}, #{b}")
 print(f"ctrace #{a} = {ctraces[0]}")
