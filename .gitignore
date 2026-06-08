@@ -48,3 +48,6 @@ test_pac_ioctls
 docs/aarch64/index.html
 docs/aarch64/docs_tls.pem
 docs/aarch64/__pycache__/
+
+# BPU RE visualization (regenerable via src/directed_fuzzing/tage_predictor.py)
+bpu_interactive.html
