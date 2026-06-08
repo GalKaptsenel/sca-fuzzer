@@ -33,6 +33,20 @@ sudo insmod src/aarch64/executor/revizor-executor.ko
 sudo chmod 777 /dev/executor
 ```
 
+### Download the AArch64 instruction set
+
+The fuzzer needs an instruction-set spec (`base.json`); it is **not** shipped and
+is generated from ARM's machine-readable A64 ISA. Download and build it once:
+
+```bash
+python revizor.py download_spec -a aarch64 -o base.json
+```
+
+This fetches the ARM A64 ISA XML release from `developer.arm.com` (cached locally
+after the first run) and parses it into `base.json`, which the `fuzz`/`tfuzz`
+commands consume via `-s base.json`. Restrict to specific instruction-class
+categories with `--extensions <cat> ...` (default: all).
+
 ## 2. Documentation
 
 Build the full manual to a standalone HTML file:

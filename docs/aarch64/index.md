@@ -395,6 +395,21 @@ contained failure rather than a deadlock. Tests verify auth equivalence *without
 ## 4.1 Installing
 ## 4.2 Running: download_spec, fuzz, tfuzz
 
+### Downloading the instruction set (`base.json`)
+
+The fuzzer drives generation from an instruction-set spec, `base.json`. It is **not**
+checked in — it is generated from ARM's machine-readable A64 ISA. Build it once:
+
+```
+python revizor.py download_spec -a aarch64 -o base.json
+```
+
+This downloads the ARM A64 ISA XML release (`A64-2025-09`) from `developer.arm.com`
+(the tarball is cached locally, so re-runs are fast) and parses it into `base.json`.
+All `fuzz`/`tfuzz` invocations below consume it via `-s base.json`. Pass
+`--extensions <category> ...` to keep only specific instruction-class categories
+(default: the full set).
+
 ### Detecting Spectre-v1 (ready-to-run configs)
 
 Two configs in `configs/` detect a Spectre-v1 (conditional-branch-bypass) leak out of the box —
