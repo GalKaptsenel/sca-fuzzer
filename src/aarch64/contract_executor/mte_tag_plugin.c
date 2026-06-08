@@ -134,7 +134,7 @@ void mte_tag_plugin_cleanup(void) {}
  * ------------------------------------------------------------------------- */
 void* mte_emulator_hook(struct simulation_state* sim_state)
 {
-	if (!sim_state) { return NULL; }
+	if (NULL == sim_state) { return NULL; }
 
 	uint32_t enc = *(uint32_t*)sim_state->cpu_state.pc;
 	mte_type_t mtype = classify_mte(enc);

@@ -108,10 +108,10 @@ static uintptr_t evaluate_cond_branch_bool(const struct cpu_state* state, bool r
 	return 0;
 }
 
-static uintptr_t evaluate_cond_branch_arch_taken(const struct cpu_state* state) {
+static uintptr_t cond_branch_architectural_next(const struct cpu_state* state) {
 	return evaluate_cond_branch_bool(state, true);
 }
-static uintptr_t evaluate_cond_branch_arch_not_taken(const struct cpu_state* state) {
+static uintptr_t cond_branch_mispredicted_next(const struct cpu_state* state) {
 	return evaluate_cond_branch_bool(state, false);
 }
 
@@ -184,7 +184,7 @@ static void destroy_execution_clause() {
 }
 
 static void* early_decision(const struct cpu_state* state) {
-	const uintptr_t arch_taken_address = evaluate_cond_branch_arch_taken(state);
+	const uintptr_t arch_taken_address = cond_branch_architectural_next(state);
 	uint64_t ct = simulation.sim_input.hdr.config.contract_type;
 
 	if (ct == CONTRACT_ARCH_ONLY) {
@@ -256,7 +256,7 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 		 * When max_nesting=0, this handles the base case without trapping.
 		 * When already speculating at max depth, we continue on the arch path
 		 * rather than squashing to the parent checkpoint. */
-		return (void*)evaluate_cond_branch_arch_taken(&sim_state->cpu_state);
+		return (void*)cond_branch_architectural_next(&sim_state->cpu_state);
 	}
 
 	void* skip_mispredict = early_decision(&sim_state->cpu_state);
@@ -269,12 +269,12 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 	++mgmt.current_nesting;
 	
 	uint64_t checkpoint_id = take_checkpoint(sim_state);
-	mgmt.stack[mgmt.stack_top].return_addr = evaluate_cond_branch_arch_taken(&sim_state->cpu_state);
+	mgmt.stack[mgmt.stack_top].return_addr = cond_branch_architectural_next(&sim_state->cpu_state);
 	mgmt.stack[mgmt.stack_top].checkpoint_id = checkpoint_id;
 	mgmt.stack[mgmt.stack_top].reserved = 0;
 	++mgmt.stack_top;
 
-	return (void*)evaluate_cond_branch_arch_not_taken(&sim_state->cpu_state);
+	return (void*)cond_branch_mispredicted_next(&sim_state->cpu_state);
 }
 
 /* Called from main.c after each simulation ends — frees checkpoint memory, resets

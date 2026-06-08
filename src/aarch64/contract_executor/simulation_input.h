@@ -2,6 +2,7 @@
 #define SIMULATION_INPUT_H 
 
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
@@ -68,6 +69,10 @@ struct input_header {
 
     uint64_t reserved;    /* must be 0 */
 };
+
+/* Wire ABI must match the Python encoder (ContractExecution.encode). */
+_Static_assert(sizeof(struct configuration) == 8 * sizeof(uint64_t), "configuration ABI mismatch");
+_Static_assert(sizeof(struct input_header) == 112, "input_header ABI mismatch");
 
 /* ============================
  * In-memory representation

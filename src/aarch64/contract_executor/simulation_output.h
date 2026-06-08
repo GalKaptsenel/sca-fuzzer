@@ -2,6 +2,7 @@
 #define SIMULATION_OUTPUT_H 
 
 #include <stdint.h>
+#include <stdio.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,7 +32,7 @@ typedef struct {
 	uint64_t encoding;		// Upper bits are 0 for aarch64
 	size_t extra_data_size;
 	// dynamic array of size extra_data_size
-} cpu_state_t;
+} trace_cpu_state_t;
 
 typedef struct {
 	uint64_t instr_index;		// instruction index in trace
@@ -41,7 +42,7 @@ typedef struct {
 } instr_metadata_t;
 
 typedef struct {
-    cpu_state_t cpu;
+    trace_cpu_state_t cpu;
     instr_metadata_t metadata;
 } instr_trace_entry_t;
 

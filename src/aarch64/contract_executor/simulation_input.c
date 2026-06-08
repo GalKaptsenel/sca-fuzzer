@@ -1,4 +1,5 @@
 #include <stdbool.h>
+#include <errno.h>
 #include "simulation_input.h"
 
 static int read_full(int fd, void* buf, size_t size) {

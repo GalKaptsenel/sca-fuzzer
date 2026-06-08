@@ -246,7 +246,7 @@ int main() {
 		} else {
 			alarm(0);
 			fprintf(stderr, "[ERR] Expected memory base for the sandbox!\n");
-			exit(0);
+			exit(1);
 		}
 
 		g_iter_phase = 2; /* simulation */

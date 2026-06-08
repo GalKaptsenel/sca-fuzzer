@@ -101,11 +101,13 @@ _Static_assert(offsetof(struct cpu_state, gprs) == 32,  "gprs offset wrong");
  */
 static inline uintptr_t cpu_state_read_base_reg(const struct cpu_state *s, uint32_t rn) {
     if (rn == 31) { return s->sp; }
+    if (rn == 30) { return s->lr; }   /* x30/lr is a separate field, not part of gpr[] */
     return s->gpr[29 - (int)rn];
 }
 
 static inline void cpu_state_write_base_reg(struct cpu_state *s, uint32_t rn, uintptr_t val) {
     if (rn == 31) { s->sp = val; return; }
+    if (rn == 30) { s->lr = val; return; }   /* x30/lr is a separate field, not part of gpr[] */
     s->gpr[29 - (int)rn] = val;
 }
 

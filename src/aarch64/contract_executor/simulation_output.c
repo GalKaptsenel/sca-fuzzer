@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <string.h>
 #include <inttypes.h>
+#include <errno.h>
 
 static contract_trace_t* trace_log = NULL;
 static size_t current_log_index = 0;
@@ -23,7 +24,7 @@ static inline void free_contract_trace(contract_trace_t* trace) {
 	free(trace);
 }
 
-static inline uint64_t read_reg(const cpu_state_t *s, unsigned r) {
+static inline uint64_t read_reg(const trace_cpu_state_t *s, unsigned r) {
 	if (r == 31) return s->sp;
 	return s->gpr[r];
 }
@@ -88,7 +89,7 @@ void* uaddr2kaddr(void* uaddr) {
 
 static int parse_memory_access_instruction(
 	uint32_t inst,
-	const cpu_state_t *state,
+	const trace_cpu_state_t *state,
 	uintptr_t* effective_address,
 	uint32_t* target_register,
 	uint32_t* base_register,
@@ -293,7 +294,7 @@ static instr_trace_entry_t* log_sim_state(struct simulation_state* sim_state) {
 
 	uint32_t target_register = (uint32_t)-1;
 	uint32_t target_register2 = (uint32_t)-1;
-	int is_memory_access = parse_memory_access_instruction(entry->cpu.encoding, &entry->cpu,
+	int has_mem_access = parse_memory_access_instruction(entry->cpu.encoding, &entry->cpu,
 			&entry->metadata.memory_access.effective_address,
 			&target_register,
 			NULL,
@@ -304,9 +305,9 @@ static instr_trace_entry_t* log_sim_state(struct simulation_state* sim_state) {
 			&entry->metadata.memory_access.element_size
 	);
 
-	entry->metadata.has_memory_access = is_memory_access ? 1 : 0;
+	entry->metadata.has_memory_access = has_mem_access ? 1 : 0;
 
-	if(is_memory_access) {
+	if(has_mem_access) {
 		assert((uintptr_t)-1 != entry->metadata.memory_access.effective_address && "Effective address should have been set by parse_memory_access_instruction function");
 
 		void* uaddr = kaddr2uaddr((void*)entry->metadata.memory_access.effective_address);

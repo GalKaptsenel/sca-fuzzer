@@ -230,7 +230,7 @@ static uint64_t kernel_pac_auth(auth_type_t atype, uint64_t ptr, uint64_t ctx)
 
 void *pac_sign_hook(struct simulation_state *sim_state)
 {
-    if (!sim_state) { return NULL; }
+    if (NULL == sim_state) { return NULL; }
 
     uint32_t inst = *(uint32_t *)sim_state->cpu_state.pc;
 
@@ -265,7 +265,7 @@ void *pac_sign_hook(struct simulation_state *sim_state)
 
 void *auth_verify_hook(struct simulation_state *sim_state)
 {
-    if (!sim_state) { return NULL; }
+    if (NULL == sim_state) { return NULL; }
 
     uint32_t inst = *(uint32_t *)sim_state->cpu_state.pc;
     uint32_t rd, rn;
@@ -290,7 +290,7 @@ void *auth_verify_hook(struct simulation_state *sim_state)
 
 void *xpac_hook(struct simulation_state *sim_state)
 {
-    if (!sim_state) { return NULL; }
+    if (NULL == sim_state) { return NULL; }
 
     uint32_t inst = *(uint32_t *)sim_state->cpu_state.pc;
     uint32_t masked = inst & XPAC_MASK;
