@@ -107,7 +107,7 @@ def _fp(slot_id=0, reg="x5", spec_nesting=None) -> MTEFixPoint:
                        spec_nesting=spec_nesting)
 
 def _build_prep_tc(fps: List[MTEFixPoint]) -> TestCase:
-    """Build a stage-1 TestCase: one BB per FixPoint with a tagged NOP."""
+    """Build a stage-1 TestCase: one BB per PACFixPoint with a tagged NOP."""
     tc = TestCase(seed=0)
     actor = list(tc.actors.values())[0]
     func = Function(".function_main_0", actor)
@@ -144,48 +144,32 @@ def _call_build_mte_slots(mte: _MTE, func: Function):
 
 class TestMteInstructionBuilders(unittest.TestCase):
 
-    # ── NOP ───────────────────────────────────────────────────────────────
+    def test_nop_builder_produces_instrumentation_nop(self):
+        # NOP placeholder: name "nop", template "NOP", flagged as instrumentation.
+        inst = _MTE_INST._make_mte_nop(0)
+        self.assertEqual(inst.name, "nop")
+        self.assertEqual(inst.template, "NOP")
+        self.assertTrue(inst.is_instrumentation)
 
-    def test_nop_name(self):
-        self.assertEqual(_MTE_INST._make_mte_nop(0).name, "nop")
-
-    def test_nop_template(self):
-        self.assertEqual(_MTE_INST._make_mte_nop(0).template, "NOP")
-
-    def test_nop_is_instrumentation(self):
-        self.assertTrue(_MTE_INST._make_mte_nop(0).is_instrumentation)
-
-    # ── IRG ───────────────────────────────────────────────────────────────
-
-    def test_irg_name(self):
-        self.assertEqual(_MTE_INST._make_mte_irg("x5", 0).name, "irg")
-
-    def test_irg_template_format(self):
+    def test_irg_builder_randomizes_tag_in_place(self):
+        # IRG re-tags its register in place: "IRG x5, x5".
         inst = _MTE_INST._make_mte_irg("x5", 0)
-        self.assertIn("x5", inst.template)
+        self.assertEqual(inst.name, "irg")
         self.assertIn("IRG", inst.template)
+        self.assertIn("x5", inst.template)
 
-    # ── MOVK wrong tag ───────────────────────────────────────────────────
-
-    def test_movk_name(self):
-        self.assertEqual(_MTE_INST._make_mte_movk_wrong_tag("x5", 0x1234, 0).name, "movk")
-
-    def test_movk_lsl_48(self):
-        inst = _MTE_INST._make_mte_movk_wrong_tag("x5", 0x1234, 0)
+    def test_movk_builder_writes_wrong_tag_into_top16(self):
+        # MOVK injects the wrong tag into bits[63:48]: "MOVK x5, #0xabcd, LSL #48".
+        inst = _MTE_INST._make_mte_movk_wrong_tag("x5", 0xABCD, 0)
+        self.assertEqual(inst.name, "movk")
+        self.assertIn("x5", inst.template)
+        self.assertIn("0xabcd", inst.template.lower())
         self.assertIn("LSL #48", inst.template)
 
-    def test_movk_immediate_16bit_clamp(self):
-        # wrong_upper16 must be truncated to 16 bits
+    def test_movk_immediate_truncated_to_16_bits(self):
+        # wrong_upper16 wider than 16 bits must be masked to 16 bits.
         inst = _MTE_INST._make_mte_movk_wrong_tag("x5", 0x1_0000, 0)
         self.assertIn("#0x0000", inst.template)
-
-    def test_movk_immediate_encoded(self):
-        inst = _MTE_INST._make_mte_movk_wrong_tag("x5", 0xABCD, 0)
-        self.assertIn("0xabcd", inst.template.lower())
-
-    def test_movk_register_in_template(self):
-        inst = _MTE_INST._make_mte_movk_wrong_tag("x3", 0x1234, 0)
-        self.assertIn("x3", inst.template)
 
 
 

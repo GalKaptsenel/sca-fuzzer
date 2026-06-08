@@ -8,29 +8,39 @@ Verifies:
   4. PACGA encoding constants (PACGA_MASK / PACGA_BASE) match known instructions.
   5. PACGA output changes when the pinned APGA key changes (key isolation).
 """
+import copy
 import os
 import sys
 import unittest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from src.config import CONF
 
 _executor = None
+_SAVED_CONF = None
 
 
 def setUpModule():
-    global _executor
+    global _executor, _SAVED_CONF
     if not os.path.exists('/dev/executor'):
         raise unittest.SkipTest(
             "kernel module not loaded — run "
             "'sudo insmod revizor-executor.ko && sudo chmod 777 /dev/executor' "
             "to run these tests")
     from src.aarch64.aarch64_kernel import LocalHWExecutor, PacKeys
+    # Snapshot the CONF Borg so CONF.load() does not leak into other modules.
+    _SAVED_CONF = copy.deepcopy(CONF._borg_shared_state)
     CONF.load("config.yml")
     _executor = LocalHWExecutor('/dev/executor', '/sys/executor')
     keys = _executor.get_pac_keys()
     _executor.set_pac_keys(keys)
+
+
+def tearDownModule():
+    if _SAVED_CONF is not None:
+        CONF._borg_shared_state.clear()
+        CONF._borg_shared_state.update(_SAVED_CONF)
 
 
 class TestPacgaIoctl(unittest.TestCase):
@@ -139,6 +149,50 @@ class TestPacgaKeyIsolation(unittest.TestCase):
         _executor.set_pac_keys(keys_orig)
 
         self.assertNotEqual(r1, r2, "PACGA output must differ under different APGA keys")
+
+
+class TestPacAuth(unittest.TestCase):
+    """PAC sign/auth round-trips, checked two ways.
+
+    A canonical low VA is used so XPAC recovers the original pointer exactly.
+    """
+
+    PTR = 0x0000556677889990   # canonical (bits[63:48]=0), 16-byte aligned
+    CTX = 0x1234
+
+    def test_real_auth_roundtrip_instruction_key(self):
+        # Faithful check: sign, then execute the real AUT* instruction.
+        # A correctly-signed pointer authenticates without faulting; the
+        # --test dmesg guard catches it if the kernel ever Oopses here.
+        signed = _executor.pac_sign(self.PTR, self.CTX, "pacia")
+        self.assertNotEqual(signed, self.PTR, "PACIA should add a PAC field")
+        authed = _executor.pac_auth(signed, self.CTX, "autia")
+        self.assertEqual(authed, self.PTR, "AUTIA of a correctly-signed pointer recovers it")
+
+    def test_real_auth_roundtrip_data_key(self):
+        signed = _executor.pac_sign(self.PTR, self.CTX, "pacda")
+        authed = _executor.pac_auth(signed, self.CTX, "autda")
+        self.assertEqual(authed, self.PTR)
+
+    def test_verify_without_auth_matches_success(self):
+        # Non-faulting equivalent of AUTIA: strip (XPAC) then re-sign (PAC) and
+        # compare. Equal => auth would succeed; result == the stripped pointer.
+        # Uses only instructions that never fault, so it is safe even on a bad
+        # pointer.
+        signed = _executor.pac_sign(self.PTR, self.CTX, "pacia")
+        stripped = _executor.pac_xpac(signed, "xpaci")
+        self.assertEqual(stripped, self.PTR, "XPACI recovers the original pointer")
+        resigned = _executor.pac_sign(stripped, self.CTX, "pacia")
+        self.assertEqual(resigned, signed, "re-signing matches => AUTIA would succeed")
+
+    def test_verify_detects_would_fail_without_faulting(self):
+        # Wrong context must NOT re-sign to the same value: the verify path
+        # detects an auth failure WITHOUT ever executing a faulting AUT*.
+        signed = _executor.pac_sign(self.PTR, self.CTX, "pacia")
+        stripped = _executor.pac_xpac(signed, "xpaci")
+        resigned_wrong = _executor.pac_sign(stripped, self.CTX ^ 0xABCD, "pacia")
+        self.assertNotEqual(resigned_wrong, signed,
+                            "wrong context must not authenticate (detected, not faulted)")
 
 
 if __name__ == '__main__':

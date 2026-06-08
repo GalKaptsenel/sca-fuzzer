@@ -6,6 +6,7 @@ modes (offset / pre-index / post-index), which a previous heuristic parser colla
 (`[x3, #6212]` was mis-parsed as post-index `[x3], #6212`), and 32- vs 64-bit register
 disambiguation driven by each operand's allowed `values`.
 """
+import copy
 import re
 import unittest
 
@@ -16,13 +17,22 @@ from src.aarch64.aarch64_generator import Aarch64RandomGenerator
 from src.aarch64.aarch64_asm_parser import Aarch64AsmParser
 
 _PARSER = None
+_SAVED_CONF = None
 
 
 def setUpModule():
-    global _PARSER
+    global _PARSER, _SAVED_CONF
+    # CONF is a Borg singleton; snapshot it so CONF.load() here does not leak
+    # config into other test modules during a full run.
+    _SAVED_CONF = copy.deepcopy(CONF._borg_shared_state)
     CONF.load("config.yml")
     isa = InstructionSet("base.json", CONF.instruction_categories)
     _PARSER = Aarch64AsmParser(Aarch64RandomGenerator(isa, 0))
+
+
+def tearDownModule():
+    CONF._borg_shared_state.clear()
+    CONF._borg_shared_state.update(_SAVED_CONF)
 
 
 def _norm(s: str) -> str:

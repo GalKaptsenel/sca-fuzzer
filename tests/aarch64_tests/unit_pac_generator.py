@@ -2,7 +2,7 @@
 PAC generator pipeline tests: TC generation → stage1 → simulated executor → stage2.
 
 Each test works over randomly-seeded test cases.  The executor is simulated by
-querying the kernel module for real PAC signatures for each FixPoint.
+querying the kernel module for real PAC signatures for each PACFixPoint.
 
 Invariants under test (stage1):
   - Every slot has exactly SLOT_SIZE instructions tagged with _pac_slot_id
@@ -42,14 +42,14 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from src.config import CONF
 from src.isa_loader import InstructionSet
 from src.interfaces import TestCase, Instruction, Input
 from src.input_generator import NumpyRandomInputGenerator
 from src.aarch64.aarch64_generator import (
-    PACInstrumentation, PACVariant, FixPoint,
+    PACInstrumentation, PACVariant, PACFixPoint,
     Aarch64RandomGenerator,
     SLOT_SIZE, SLOT_SIG_POS, AUTH_SLOT_POS,
     _AUTH_TO_PAC, _AUTH_TO_XPAC, _AUTH_TO_KEY, PACKey,
@@ -76,7 +76,7 @@ _I_KEY_XPAC = 'xpaci'
 _D_KEY_XPAC = 'xpacd'
 
 _CE_BINARY = os.path.abspath(os.path.join(
-    os.path.dirname(__file__), "..",
+    os.path.dirname(__file__), "..", "..",
     "src/aarch64/contract_executor/contract_executor",
 ))
 
@@ -153,7 +153,7 @@ def _other_gpr(cpu, exclude1: str, exclude2: Optional[str]) -> int:
 
 def _fill_fixpoints_from_ce(
     stage1_tc: TestCase,
-    fix_points: List[FixPoint],
+    fix_points: List[PACFixPoint],
     _combo_observer: Optional[Any] = None,
 ) -> Input:
     """Run stage1_tc through the real CE and populate fix_point metadata from the trace.
@@ -173,9 +173,9 @@ def _fill_fixpoints_from_ce(
 
     Returns the input used to run the CE so callers can reuse it.
     """
-    # Map byte offset of XPAC placeholder → FixPoint (same as production executor)
+    # Map byte offset of XPAC placeholder → PACFixPoint (same as production executor)
     layout = Aarch64ASMLayout(stage1_tc)
-    xpac_off_to_fp: Dict[int, FixPoint] = {
+    xpac_off_to_fp: Dict[int, PACFixPoint] = {
         layout.instruction_address[fp.slot_insts[AUTH_SLOT_POS]]: fp
         for fp in fix_points
     }
@@ -234,7 +234,7 @@ def _fill_fixpoints_from_ce(
     return inp
 
 
-def _run_stage1(max_attempts: int = 500) -> Tuple[PACInstrumentation, TestCase, List[FixPoint]]:
+def _run_stage1(max_attempts: int = 500) -> Tuple[PACInstrumentation, TestCase, List[PACFixPoint]]:
     """Generate TC and run stage1 with random seeds until fix_points are produced.
 
     Never returns without fix_points — raises RuntimeError after max_attempts.
@@ -254,7 +254,7 @@ def _run_stage1(max_attempts: int = 500) -> Tuple[PACInstrumentation, TestCase, 
     raise RuntimeError(f"No fix_points found after {max_attempts} random seeds")
 
 
-def _run_pipeline() -> Tuple[TestCase, List[FixPoint], Dict, Input]:
+def _run_pipeline() -> Tuple[TestCase, List[PACFixPoint], Dict, Input]:
     """Full pipeline: stage1 → CE trace → fix_point fill → stage2. Always returns a result.
 
     Returns (stage1_tc, fix_points, variants, ref_input) where ref_input is the

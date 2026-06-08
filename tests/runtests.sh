@@ -27,6 +27,14 @@ python3 -m unittest discover tests -p "unit_*.py" -v
 cd - >/dev/null || exit
 
 echo ""
+echo "===== AArch64 Unit Tests ====="
+# discover does not recurse into the test subdir, so run it explicitly.
+# HW-gated tests skip themselves when /dev/executor is absent.
+cd $SCRIPT_DIR/.. || exit
+python3 -m unittest discover -s tests/aarch64_tests -p "unit_*.py" -t . -v
+cd - >/dev/null || exit
+
+echo ""
 echo "===== x86 kernel module ====="
 cd $SCRIPT_DIR || exit
 ./x86_tests/kernel_module.bats

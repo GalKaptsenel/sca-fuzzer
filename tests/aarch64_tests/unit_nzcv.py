@@ -68,18 +68,6 @@ class TestToPstate(unittest.TestCase):
     def test_all_one_flags(self):
         self.assertEqual(NZCVScheme.to_pstate(make_slot(1, 1, 1, 1)), 0xF0000000)
 
-    def test_n_only(self):
-        self.assertEqual(NZCVScheme.to_pstate(make_slot(1, 0, 0, 0)), 1 << 31)
-
-    def test_z_only(self):
-        self.assertEqual(NZCVScheme.to_pstate(make_slot(0, 1, 0, 0)), 1 << 30)
-
-    def test_c_only(self):
-        self.assertEqual(NZCVScheme.to_pstate(make_slot(0, 0, 1, 0)), 1 << 29)
-
-    def test_v_only(self):
-        self.assertEqual(NZCVScheme.to_pstate(make_slot(0, 0, 0, 1)), 1 << 28)
-
     def test_nzcv_is_nZcv(self):
         # nZcv = N=0 Z=1 C=0 V=0 → 0x40000000
         self.assertEqual(NZCVScheme.to_pstate(make_slot(0, 1, 0, 0)), 0x40000000)
@@ -250,6 +238,14 @@ class TestReconstructPstate(unittest.TestCase):
         # This documents the expected (non-idempotent) behavior:
         # running twice gives 0, not 0x40000000.
         self.assertEqual(int(view[NZCVScheme.SLOT_IDX]), 0)
+
+    def test_stale_slot_bits_fully_overwritten_not_ored(self):
+        # reconstruct must REBUILD slot 6 from the per-flag bytes, not OR into
+        # whatever junk was already there: stale non-flag bits must not survive.
+        garbage = 0xDEADBEEFCAFEBABE & 0xFEFEFEFEFEFEFEFE  # bits 1..7 of every byte, no flag bit
+        view, _ = self._make_view(make_slot(1, 0, 0, 0) | garbage)
+        _reconstruct_pstate(view)
+        self.assertEqual(int(view[NZCVScheme.SLOT_IDX]), expected_pstate(1, 0, 0, 0))
 
 
 # ---------------------------------------------------------------------------

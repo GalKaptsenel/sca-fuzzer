@@ -32,7 +32,7 @@ import tempfile
 import unittest
 from typing import Dict, List, Optional
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from src.config import CONF
 from src.isa_loader import InstructionSet

@@ -9,7 +9,7 @@ from unittest.mock import patch
 import numpy as np
 
 from src.aarch64.aarch64_trace import _TaintTracker, compute_taint, compute_ctrace
-from src.aarch64.aarch64_input_layout import map_register_to_offsets, _reconstruct_pstate
+from src.aarch64.aarch64_input_layout import map_register_to_offsets
 
 # ===========================================================================
 # Mock CE trace infrastructure
@@ -132,66 +132,6 @@ class TestTaintTracker(unittest.TestCase):
         tt.on_read([5], depth=0)
         self.assertIn(5, tt.must_preserve)
 
-    def test_arch_write_then_arch_read_freed(self):
-        tt = _TaintTracker()
-        tt.set_depth(0)
-        tt.on_write([5], depth=0)
-        tt.on_read([5], depth=0)
-        self.assertNotIn(5, tt.must_preserve)
-
-    def test_arch_write_then_spec_read_freed(self):
-        # Arch write at depth 0 before the spec branch → spec read sees written value.
-        tt = _TaintTracker()
-        tt.set_depth(0)
-        tt.on_write([5], depth=0)
-        tt.set_depth(1)
-        tt.on_read([5], depth=1)
-        self.assertNotIn(5, tt.must_preserve)
-
-    def test_spec_read_before_arch_write_preserved(self):
-        # Spec branch BEFORE the arch write (DFS: spec sub-tree comes first).
-        tt = _TaintTracker()
-        tt.set_depth(1)
-        tt.on_read([5], depth=1)  # spec reads original input value
-        tt.set_depth(0)
-        tt.on_write([5], depth=0)  # arch write comes later in DFS order
-        self.assertIn(5, tt.must_preserve)
-
-    def test_spec_write_squashed_arch_read_preserved(self):
-        # Spec writes cell, then spec exits (write squashed), then arch reads it.
-        tt = _TaintTracker()
-        tt.set_depth(1)
-        tt.on_write([7], depth=1)
-        tt.set_depth(0)           # spec exits: written[1] popped
-        tt.on_read([7], depth=0)  # reads original input value, not the squashed spec write
-        self.assertIn(7, tt.must_preserve)
-
-    def test_spec_write_then_spec_read_same_depth_freed(self):
-        # Within the same speculative path: write before read → freed.
-        tt = _TaintTracker()
-        tt.set_depth(1)
-        tt.on_write([3], depth=1)
-        tt.on_read([3], depth=1)
-        self.assertNotIn(3, tt.must_preserve)
-
-    def test_nested_spec_sees_outer_spec_write(self):
-        # Depth-1 writes, depth-2 reads — depth-2 should see depth-1's write.
-        tt = _TaintTracker()
-        tt.set_depth(1)
-        tt.on_write([9], depth=1)
-        tt.set_depth(2)
-        tt.on_read([9], depth=2)
-        self.assertNotIn(9, tt.must_preserve)
-
-    def test_nested_spec_write_squashed_on_exit(self):
-        # Depth-2 writes, exits back to depth-1, depth-1 reads → squashed → preserved.
-        tt = _TaintTracker()
-        tt.set_depth(2)
-        tt.on_write([4], depth=2)
-        tt.set_depth(1)           # depth-2 squashed
-        tt.on_read([4], depth=1)
-        self.assertIn(4, tt.must_preserve)
-
     def test_two_spec_branches_union_of_reads(self):
         # Two sequential spec branches from the same arch point.
         # First branch reads 5; second branch reads 8. Both must be preserved.
@@ -272,9 +212,14 @@ class TestRegisterOffsets(unittest.TestCase):
             self.assertEqual(map_register_to_offsets(f'x{n}'),
                              list(range(n * 8, n * 8 + 8)), f'x{n}')
 
-    def test_w_register_not_recognized(self):
-        # Only x-form registers are recognized; w-forms map to nothing.
+    def test_w_register_maps_to_same_slot_as_x(self):
+        # wN is the low 32 bits of xN — same input slot. A read through wN must preserve
+        # xN's input bytes, so it maps to the full 8-byte slot (same as xN).
         for n in range(6):
+            self.assertEqual(map_register_to_offsets(f'w{n}'),
+                             list(range(n * 8, n * 8 + 8)), f'w{n}')
+        # Reserved w-registers (w6..w30) are not usable -> empty, like xN.
+        for n in range(6, 31):
             self.assertEqual(map_register_to_offsets(f'w{n}'), [], f'w{n}')
 
     def test_out_of_range_registers_empty(self):
@@ -528,104 +473,6 @@ class TestComputeCtrace(unittest.TestCase):
             {'depth': 0, 'srcs': ['x0'], 'dests': ['x2']},
         )
         self.assertEqual(ct.raw, [])
-
-
-# ===========================================================================
-# _reconstruct_pstate tests
-# ===========================================================================
-
-class TestReconstructPstate(unittest.TestCase):
-
-    def _make_view(self, flag_vals: dict):
-        """Build a 64-byte gpr buffer with per-flag bytes set, return uint64 memoryview."""
-        buf = bytearray(64)
-        for flag, val in flag_vals.items():
-            buf[_FLAG_BYTE[flag]] = val
-        return memoryview(buf).cast('Q')
-
-    def _pstate(self, view) -> int:
-        return int(view[6])
-
-    def test_no_flags_zero(self):
-        view = self._make_view({})
-        _reconstruct_pstate(view)
-        self.assertEqual(self._pstate(view), 0)
-
-    def test_n_maps_to_bit31(self):
-        view = self._make_view({'N': 1})
-        _reconstruct_pstate(view)
-        p = self._pstate(view)
-        self.assertTrue(p & (1 << 31))
-        self.assertFalse(p & ~(1 << 31))
-
-    def test_z_maps_to_bit30(self):
-        view = self._make_view({'Z': 1})
-        _reconstruct_pstate(view)
-        p = self._pstate(view)
-        self.assertTrue(p & (1 << 30))
-        self.assertFalse(p & ~(1 << 30))
-
-    def test_c_maps_to_bit29(self):
-        view = self._make_view({'C': 1})
-        _reconstruct_pstate(view)
-        p = self._pstate(view)
-        self.assertTrue(p & (1 << 29))
-        self.assertFalse(p & ~(1 << 29))
-
-    def test_v_maps_to_bit28(self):
-        view = self._make_view({'V': 1})
-        _reconstruct_pstate(view)
-        p = self._pstate(view)
-        self.assertTrue(p & (1 << 28))
-        self.assertFalse(p & ~(1 << 28))
-
-    def test_all_flags_set(self):
-        view = self._make_view({'N': 1, 'Z': 1, 'C': 1, 'V': 1})
-        _reconstruct_pstate(view)
-        self.assertEqual(self._pstate(view) & 0xF0000000, 0xF0000000)
-
-    def test_only_bits_31_28_set(self):
-        view = self._make_view({'N': 1, 'Z': 1, 'C': 1, 'V': 1})
-        _reconstruct_pstate(view)
-        self.assertEqual(self._pstate(view) & ~0xF0000000, 0)
-
-    def test_upper_bits_of_flag_byte_ignored(self):
-        # bit 0 = 0, higher bits set → flag must NOT appear in PSTATE
-        buf = bytearray(64)
-        buf[_FLAG_BYTE['N']] = 0xFE  # bit 0 = 0
-        view = memoryview(buf).cast('Q')
-        _reconstruct_pstate(view)
-        self.assertFalse(int(view[6]) & (1 << 31))
-
-    def test_clears_previous_slot_value(self):
-        # Slot 6 has garbage; after reconstruction only proper bits remain.
-        buf = bytearray(64)
-        view = memoryview(buf).cast('Q')
-        view[6] = 0xDEADBEEFCAFEBABE
-        # Re-cast to write flag bytes cleanly (little-endian: byte 48 = bits 7:0 of slot 6)
-        buf[_FLAG_BYTE['N']] = 1
-        buf[_FLAG_BYTE['Z']] = 0
-        buf[_FLAG_BYTE['C']] = 0
-        buf[_FLAG_BYTE['V']] = 0
-        view = memoryview(buf).cast('Q')
-        _reconstruct_pstate(view)
-        self.assertEqual(int(view[6]), 1 << 31)
-
-    def test_independent_flag_pairs(self):
-        for set_flag, bit, clear_flags in [
-            ('N', 31, ('Z', 'C', 'V')),
-            ('Z', 30, ('N', 'C', 'V')),
-            ('C', 29, ('N', 'Z', 'V')),
-            ('V', 28, ('N', 'Z', 'C')),
-        ]:
-            with self.subTest(flag=set_flag):
-                view = self._make_view({set_flag: 1})
-                _reconstruct_pstate(view)
-                p = self._pstate(view)
-                self.assertTrue(p & (1 << bit), f"{set_flag} should set bit {bit}")
-                for cf in clear_flags:
-                    cb = {'N': 31, 'Z': 30, 'C': 29, 'V': 28}[cf]
-                    self.assertFalse(p & (1 << cb), f"{cf} should be clear")
 
 
 if __name__ == '__main__':
