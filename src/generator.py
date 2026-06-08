@@ -6,6 +6,7 @@ SPDX-License-Identifier: MIT
 """
 from __future__ import annotations
 
+import os
 import random
 import abc
 import re
@@ -196,8 +197,10 @@ class ConfigurableGenerator(Generator, abc.ABC):
         if not asm.endswith('\n'):
             asm += '\n'
 
+        asm_to_bytes = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                    "aarch64", "asm_to_bytes", "asm_to_bytes")
         p = Popen(
-                ["/home/gal_k_1_1998/revizor/sca-fuzzer/src/aarch64/contract_executor/asm_to_bytes"],
+                [asm_to_bytes],
                 stdin=PIPE,
                 stdout=PIPE,
                 stderr=PIPE,

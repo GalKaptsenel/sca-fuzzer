@@ -324,7 +324,7 @@ _AUTH_TO_PAC:  Dict[str, str]    = {auth: pac  for pac, (_,  auth, _)   in _PAC_
 
 
 @dataclass
-class FixPoint:
+class PACFixPoint:
     slot_id: int
     slot_insts: List[Instruction] = field(default_factory=list)
     committed_inst: Optional[Any] = None  # AUT* Instruction committed at stage-1 build time
@@ -554,7 +554,7 @@ class PACInstrumentation(_SandboxInstrumentationBase):
         self,
         func: Function,
         slot_counter: int,
-        fix_points: List[FixPoint],
+        fix_points: List[PACFixPoint],
         auth_replacements: List,      # (old_auth_inst, bb, new_slot_insts)
         xpac_insertions: List,        # (mem_inst, bb, slot_insts, offset_subs, sandbox_insts)
         standalone_insertions: List,  # (mem_inst, bb, sandbox_insts + offset_subs)
@@ -582,7 +582,7 @@ class PACInstrumentation(_SandboxInstrumentationBase):
                         self._make_nop(sid, SLOT_SIG_POS),
                         self._make_xpac_inst(xpac_mn, ptr_reg, sid, AUTH_SLOT_POS),
                     ]
-                    fix_points.append(FixPoint(slot_id=sid, slot_insts=slot_insts,
+                    fix_points.append(PACFixPoint(slot_id=sid, slot_insts=slot_insts,
                                                committed_inst=copy.deepcopy(inst)))
                     auth_replacements.append((inst, bb, slot_insts))
                     continue  # don't also process as memory access
@@ -603,7 +603,7 @@ class PACInstrumentation(_SandboxInstrumentationBase):
                                 self._make_nop(sid, SLOT_SIG_POS),
                                 self._make_xpac_inst(xpac_mn, mem_reg, sid, AUTH_SLOT_POS),
                             ]
-                            fix_points.append(FixPoint(slot_id=sid, slot_insts=slot_insts,
+                            fix_points.append(PACFixPoint(slot_id=sid, slot_insts=slot_insts,
                                                        committed_inst=auth_inst))
                             xpac_insertions.append((inst, bb, slot_insts, offset_subs, sandbox_insts))
                             continue
@@ -611,13 +611,13 @@ class PACInstrumentation(_SandboxInstrumentationBase):
 
         return slot_counter
 
-    def instrument_stage1(self, test_case: TestCase) -> Tuple[TestCase, List[FixPoint]]:
+    def instrument_stage1(self, test_case: TestCase) -> Tuple[TestCase, List[PACFixPoint]]:
         """Replace AUT* instructions with XPAC placeholder slots; add slots before some memory accesses.
 
         Returns (instrumented_tc, fix_points).
         """
         tc = copy.deepcopy(test_case)
-        fix_points: List[FixPoint] = []
+        fix_points: List[PACFixPoint] = []
         slot_counter = 0
 
         for func in tc.functions:
@@ -660,7 +660,7 @@ class PACInstrumentation(_SandboxInstrumentationBase):
     # Stage 2: produce TC1 / TC2 / TC3 from stage-1 result
     # ------------------------------------------------------------------
 
-    def _committed_info(self, fp: FixPoint) -> Tuple[str, str, str, Optional[str]]:
+    def _committed_info(self, fp: PACFixPoint) -> Tuple[str, str, str, Optional[str]]:
         """Return (auth_mn, xpac_mn, ptr_reg, ctx_reg) from fp.committed_inst."""
         auth_mn = fp.committed_inst.name.lower()
         xpac_mn = _AUTH_TO_XPAC[auth_mn]
@@ -668,7 +668,7 @@ class PACInstrumentation(_SandboxInstrumentationBase):
         ctx_reg = fp.committed_inst.operands[1].value if len(fp.committed_inst.operands) > 1 else None
         return auth_mn, xpac_mn, ptr_reg, ctx_reg
 
-    def _make_tc1_slot(self, fp: FixPoint) -> List[Instruction]:
+    def _make_tc1_slot(self, fp: PACFixPoint) -> List[Instruction]:
         """TC1 (STRIP_ONLY): [MOVK correct_sig LSL#48, XPAC] if sig known, else [NOP, XPAC]."""
         _, xpac_mn, ptr_reg, _ = self._committed_info(fp)
         sig_inst = (
@@ -678,7 +678,7 @@ class PACInstrumentation(_SandboxInstrumentationBase):
         )
         return [sig_inst, self._make_xpac_inst(xpac_mn, ptr_reg, fp.slot_id, AUTH_SLOT_POS)]
 
-    def _make_tc2_slot(self, fp: FixPoint) -> List[Instruction]:
+    def _make_tc2_slot(self, fp: PACFixPoint) -> List[Instruction]:
         """TC2 (AUTH_CORRECT): [MOVK ptr_reg, #correct_sig, LSL#48, AUTH ptr_reg, ctx_reg]."""
         auth_mn, _, ptr_reg, ctx_reg = self._committed_info(fp)
         assert fp.correct_sig is not None  # caller must guard: only call when CE reached the slot
@@ -688,7 +688,7 @@ class PACInstrumentation(_SandboxInstrumentationBase):
         auth._pac_slot_pos = AUTH_SLOT_POS
         return [movk, auth]
 
-    def _make_tc3_spec_slot(self, fp: FixPoint) -> List[Instruction]:
+    def _make_tc3_spec_slot(self, fp: PACFixPoint) -> List[Instruction]:
         """TC3 spec: [MOVK ptr_reg, #alt_sig, LSL#48, AUTH ptr_reg, ctx_reg].
 
         alt_sig is an alternative signing combination (different ptr and/or ctx). Always set by executor.
@@ -702,7 +702,7 @@ class PACInstrumentation(_SandboxInstrumentationBase):
         return [movk, auth]
 
     def instrument_stage2(
-        self, prep_tc: TestCase, fix_points: List[FixPoint],
+        self, prep_tc: TestCase, fix_points: List[PACFixPoint],
     ) -> Dict[PACVariant, TestCase]:
         """Produce TC1/TC2/TC3 variants from the stage-1 TC.
 
@@ -754,7 +754,7 @@ class PACInstrumentation(_SandboxInstrumentationBase):
                         slot_map.setdefault(sid, {})[pos] = (inst, bb)
         return slot_map
 
-    def _fill_slot(self, slot_map: Dict, fp: FixPoint, new_insts: List[Instruction]) -> None:
+    def _fill_slot(self, slot_map: Dict, fp: PACFixPoint, new_insts: List[Instruction]) -> None:
         """Replace the SLOT_SIZE instructions in slot_map[fp.slot_id] with new_insts (padded with NOPs)."""
         positions = slot_map.get(fp.slot_id)
         assert positions is not None, (
@@ -1016,7 +1016,7 @@ class MTEInstrumentation(_SandboxInstrumentationBase):
         """Produce TC1/TC2/TC3 from the stage-1 instrumented TC.
 
         sandbox_base is used to compute the deterministic wrong tag for TC3.
-        spec_nesting must be populated on each FixPoint before calling.
+        spec_nesting must be populated on each PACFixPoint before calling.
 
         TC1 — correct flow: all placeholders → NOP
         TC2 — arch: NOP;  spec: IRG Xd,Xd  (randomizes bits[59:56])

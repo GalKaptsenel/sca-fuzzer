@@ -78,13 +78,13 @@ def _input_bytes_with_pstate(inp) -> bytes:
 def map_register_to_offsets(register: str) -> List[int]:
     """Input byte offsets of the register's 8-byte slot, or the single NZCV flag byte."""
     reg = register.lower()
-    if reg in ("fp", "lr", "xzr"):
+    if reg in ("fp", "lr", "xzr", "wzr"):
         return []
-    if reg.startswith("x"):
-        try:
-            n = int(reg[1:])
-        except ValueError:
-            return []
+    # xN and wN are the same architectural register (wN = low 32 bits of xN); both map to
+    # input slot N. A read through wN still reads xN's input bytes, so the taint must
+    # preserve the whole slot — otherwise boosting mutates it and the trace diverges.
+    if reg[:1] in ("x", "w") and reg[1:].isdigit():
+        n = int(reg[1:])
         if n < 0 or n > 5:
             return []
     elif reg in NZCVScheme.flag_names():

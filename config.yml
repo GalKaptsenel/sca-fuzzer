@@ -15,4 +15,5 @@ min_successors_per_bb: 1
 fuzzer: basic
 input_generator: aarch64-nzcv
 enable_pre_run_flush: 1
-executor_warmups: 1
+executor_warmups: 5
+input_gen_seed: 0
