@@ -368,8 +368,36 @@ lands somewhere in `main`+`faulty` (8 KB). Cache set = `(offset // 64) % 64`.
 ## 4.2 Running: download_spec, fuzz, tfuzz
 ## 4.3 minimize / reproduce
 ## 4.4 Helper & triage scripts
-## 4.5 Troubleshooting & gotchas
-## 4.6 Experimental / WIP
+
+## 4.5 Testing
+
+The installer doubles as the test runner — `src/aarch64/install_revizor_env.sh --test <group>`:
+
+| group | what it runs |
+|-------|--------------|
+| `aarch64-ce`     | contract-executor C tests (`test_ce` unit + `test_ce_integration`) |
+| `aarch64-ko`     | builds + (re)loads the kernel module, then the `/dev/executor` Python tests |
+| `aarch64-python` | all Python unit tests (common + `tests/aarch64_tests/`) |
+| `aarch64-all`    | all of the above |
+
+Each device-touching group is wrapped in a **dmesg guard**: it scans the kernel log for new
+`Oops` / `Internal error` / `FPAC` / `Call trace` lines around the run and fails loudly if the
+module faulted, so a kernel exception is reported rather than silently swallowed.
+
+Tests also run directly from the repo root: `python3 -m unittest discover -s tests -p 'unit_*.py'`
+(common) and `python3 -m unittest discover -s tests/aarch64_tests -p 'unit_*.py' -t .` (AArch64);
+`tests/runtests.sh` runs the whole thing (mypy, flake8, common + AArch64 + x86).
+
+**Hardware caveat:** the `/dev/executor` tests need the module loaded
+(`sudo insmod revizor-executor.ko && sudo chmod 777 /dev/executor`). A fault under the device
+lock (e.g. a failed PAC AUTH at EL1 on FEAT_FPAC) latches the device "wedged" and fails fast;
+recover with a module reload or a reboot.
+
+To read this manual as a styled page, build it to a standalone HTML file with
+`src/aarch64/install_revizor_env.sh --doc` (prints the path to open in a browser).
+
+## 4.6 Troubleshooting & gotchas
+## 4.7 Experimental / WIP
 
 # Part V — Reference
 

@@ -19,6 +19,8 @@ set -e
 #                                              aarch64-ko      build+load module, run /dev/executor tests
 #                                              aarch64-python  all Python unit tests
 #                                              aarch64-all     all of the above
+#   ./install_revizor_env.sh --doc           build the docs to a standalone HTML file, then exit
+#                                            (prints the path to open in a browser)
 #
 # Flags can be combined, e.g. --build --dev-environment.
 # ------------------------------------------------------------
@@ -26,11 +28,12 @@ set -e
 BUILD=false
 DEV=false
 TEST_GROUP=""
+DOC=false
 GIT_NAME=""
 GIT_EMAIL=""
 GIT_TOKEN=""
 
-usage() { sed -n '6,25p' "$0"; }
+usage() { sed -n '6,26p' "$0"; }
 
 if [ "$(uname -m)" != "aarch64" ]; then
     echo "[!] This installer targets AArch64 (ARM64) hosts; found '$(uname -m)'. Aborting."
@@ -41,6 +44,7 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --build) BUILD=true; shift ;;
         --test) TEST_GROUP="$2"; shift 2 ;;
+        --doc) DOC=true; shift ;;
         --dev-environment) DEV=true; shift ;;
         --git-name) GIT_NAME="$2"; DEV=true; shift 2 ;;
         --git-email) GIT_EMAIL="$2"; DEV=true; shift 2 ;;
@@ -229,6 +233,16 @@ run_tests() {
 }
 
 # -------------------------
+# Build the AArch64 docs to a standalone HTML file
+# -------------------------
+build_docs_html() {
+    activate_venv
+    local docs_dir="$DEST_DIR/docs/aarch64"
+    ( cd "$docs_dir" && python3 build_docs.py )
+    echo "[*] Docs built — open in a browser: $docs_dir/index.html"
+}
+
+# -------------------------
 # Developer setup (git)
 # -------------------------
 setup_dev() {
@@ -247,6 +261,14 @@ setup_dev() {
             "https://$GIT_TOKEN@github.com/GalKaptsenel/sca-fuzzer.git" || true
     fi
 }
+
+# -------------------------
+# Doc mode: build the docs HTML and exit (assumes the venv is set up)
+# -------------------------
+if [ "$DOC" = true ]; then
+    build_docs_html
+    exit 0
+fi
 
 # -------------------------
 # Test mode: run the requested group and exit (assumes the env is set up)
