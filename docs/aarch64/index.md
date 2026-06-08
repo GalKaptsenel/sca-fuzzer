@@ -362,12 +362,58 @@ lands somewhere in `main`+`faulty` (8 KB). Cache set = `(offset // 64) % 64`.
 ## 3.3 Instruction tagging
 ## 3.4 Data-structure reference
 
+## 3.5 Device lock & fault safety
+
+All `/dev/executor` access (ioctl / read / write) is serialized by one mutex (`executor_lock`
+in `chardevice.c`) — the inputs rbtree, the state machine and the test-case/measurement buffers
+have no other synchronization.
+
+**The hazard:** a fault *inside* an ioctl while the lock is held — e.g. a failed PAC `AUT*` at
+EL1 on FEAT_FPAC hardware Oopses the kernel — kills the faulting task without releasing the
+lock. With a plain blocking `mutex_lock`, every later caller then blocks forever in
+uninterruptible **D** state: an unkillable deadlock that only a reboot clears (the dead holder
+also pins a module reference, so `rmmod` won't work either).
+
+So the device lock is **self-healing** — it can't recover the executor state a faulting op left
+half-mutated (that genuinely needs a reboot), but it refuses to become a silent, unkillable hang:
+
+- **killable waits** (`mutex_lock_killable`): a blocked caller can always be killed, never the
+  D-state pile-up;
+- **wedged fail-fast**: if a new caller finds the lock held longer than any legitimate operation
+  (`EXECUTOR_LOCK_DEADLOCK_MS`), it latches a `wedged` flag, logs a **CRITICAL** message naming
+  the holder pid, and returns `-EIO` instead of blocking — telling you to check `dmesg` for the
+  Oops and reload the module or reboot.
+
+It never force-unlocks or re-initialises the mutex (that would corrupt the wait-list and the
+shared state). `handle_pac_auth` runs the real `AUT*` (faithful to hardware), so a bad pointer
+still faults; the self-healing lock plus the test runner's dmesg guard turn that into a reported,
+contained failure rather than a deadlock. Tests verify auth equivalence *without* faulting via
+`XPAC` (strip) + `PAC` (re-sign) + compare — see `unit_pacga`.
+
 # Part IV — Operating it
 
 ## 4.1 Installing
 ## 4.2 Running: download_spec, fuzz, tfuzz
 ## 4.3 minimize / reproduce
 ## 4.4 Helper & triage scripts
+
+**Debugging utilities** (`src/aarch64/debugging/`):
+
+- `make_input.py` — build a raw `input_t` binary from an optional JSON spec (per-register
+  values and per-byte memory overrides; unspecified bytes are randomized). The layout is
+  main 4K + faulty 4K + register region 4K; flags/sp are written verbatim. Example:
+  `make_input.py --input input_pattern.json --output input.bin [--print]`.
+- `to_executor_input.py` — convert a saved input (NZCV flags in the per-flag NZCVScheme
+  encoding, i.e. `input_NNNN_nzcv_scheme.bin`) into the form `/dev/executor` accepts (flags
+  slot reconstructed to PSTATE). Needed for **manual** reproduction via `executor_userland`,
+  which bypasses the Python executor that normally does this conversion on write:
+  `to_executor_input.py saved.bin executor_ready.bin`.
+
+**`executor_userland`** (`src/executor_userland/`) is the minimal C tool to drive
+`/dev/executor` by hand: numbered ioctls plus `w file` / `r file` to write/read the current
+checkout. Full step-by-step manual reproduction of a saved violation (assemble the sandboxed
+test case with `asm_to_bytes`, load inputs by the allocate→checkout→write protocol, measure,
+and read the leaking cache set) is captured in the `reproduce-revizor-violation` skill.
 
 ## 4.5 Testing
 
