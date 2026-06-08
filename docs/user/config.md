@@ -83,6 +83,14 @@ If enabled, the output will be colored.
 This option is helps a lot with readability, but may produce corrupted output when redirected to a file.
 
 ```yaml
+Name: dashboard
+Default: True
+```
+
+If enabled, show the interactive curses dashboard when stdout is a TTY.
+Falls back to the plain single-line progress output otherwise (piped/redirected runs).
+
+```yaml
 Name: logging_modes
 Default: ['info', 'stat']
 Options: 'info' | 'stat' | 'dbg_timestamp' | 'dbg_violation' | 'dbg_dump_htraces' | 'dbg_dump_ctraces' | 'dbg_dump_traces_unlimited' | 'dbg_executor_raw' | 'dbg_model' | 'dbg_coverage' | 'dbg_generator' | 'dbg_priming'

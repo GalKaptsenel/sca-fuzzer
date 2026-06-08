@@ -90,10 +90,9 @@ class Conf:
     """ enable_speculation_filter: if True, discard test cases that don't trigger speculation"""
     enable_observation_filter: bool = False
     """ enable_observation_filter: if True,discard test cases that don't leave speculative traces"""
-    enable_fast_path_model: bool = False # True
+    enable_fast_path_model: bool = True
     """ enable_fast_path_boosting: if enabled, the same contract trace will be used
     for all inputs in the same taint-based input class """
-    dbg_predictor: bool = False
 
     # ==============================================================================================
     # Program Generator
@@ -101,9 +100,6 @@ class Conf:
     """ generator: type of the program generator """
     instruction_set: str = "x86-64"
     """ instruction_set: ISA under test """
-    supported_instructions: List[str] = None
-    """ supported_instructions: A list of all the supported instruction mnenmonics.
-    If present, takes precence over block and allow lists """
     instruction_categories: List[str] = []
     """ instruction_categories: list of instruction categories to use for generating programs """
     instruction_allowlist: List[str] = []
@@ -153,17 +149,6 @@ class Conf:
     'unsafe' instruction sequences that could potentially trigger an exception. Model and executor
      will also be configured to handle these exceptions gracefully """
 
-    pac_sign_weight: float = 0.2
-    """ pac_sign_weight: relative weight for inserting PACIA signing instructions during
-    PAC non-interference instrumentation (stage 1). Normalized against the sum of all three
-    PAC weights. """
-    pac_auth_weight: float = 0.2
-    """ pac_auth_weight: relative weight for inserting AUTIA slots during PAC
-    non-interference instrumentation (stage 1). """
-    pac_xpac_weight: float = 0.2
-    """ pac_xpac_weight: relative weight for inserting standalone XPAC strips during PAC
-    non-interference instrumentation (stage 1). """
-
     # ==============================================================================================
     # Input Generator
     input_generator: str = 'random'
@@ -203,7 +188,7 @@ class Conf:
     executor_warmups: int = 5
     """ executor_warmups: number of warmup rounds executed before starting to collect
     hardware traces """
-    executor_sample_sizes: List[int] = [50, 100, 500]
+    executor_sample_sizes: List[int] = [10, 50, 100, 500]
     """ executor_sample_sizes: a list of sample sizes to be used during the measurements;
     the executor will first collect the hardware traces with the first sample size in the list,
     and if a violation is detected, it will try to reproduce it with all the following
@@ -212,9 +197,9 @@ class Conf:
     """ executor_filtering_repetitions: number of repetitions while filtering test cases """
     executor_taskset: int = 0
     """ executor_taskset: id of the CPU core on which the executor is running test cases """
-    enable_pre_run_flush: int = 1
-    """ enable_pre_run_flush: controls BPU flush before measurement.
-    0 = disabled; 1 = per-input view rotation + PHR flush; """
+    enable_pre_run_flush: bool = True
+    """ enable_pre_run_flush: when enabled, the executor rotates the per-input view
+    and flushes the PHR before each measurement run; when disabled, neither. """
 
     # ==============================================================================================
     # Analyser
@@ -265,10 +250,10 @@ class Conf:
     # ==============================================================================================
     # Alternatives for config options (also extended by ISA-specific config.py)
     _option_values: Dict[str, List] = {
-        "fuzzer": ["basic", "architectural", "archdiff", "non-iterfearence"],
+        "fuzzer": ["basic", "architectural", "archdiff"],
         "generator": ["random"],
         "instruction_set": ["x86-64"],
-        "input_generator": ["random", "aarch64-nzcv"],
+        "input_generator": ["random"],
         "model": ["x86-unicorn"],
         "contract_execution_clause": [
             "seq", "no_speculation", "seq-assist", "cond", "conditional_br_misprediction", "bpas",
@@ -356,7 +341,6 @@ class Conf:
 
         # set the rest of the options
         for var, value in config_update.items():
-            # print(f"CONF: setting {var} to {value}")
             if var == "generator_faults_allowlist":
                 self.update_handled_faults_with_generator_faults(value)
                 self.safe_set(var, value)
@@ -379,9 +363,14 @@ class Conf:
         if getattr(self, name, None) is None:
             raise ConfigException(f"Unknown configuration variable {name}.\n"
                                   f"It's likely a typo in the configuration file.")
-        if type(self.__getattribute__(name)) != type(value):
-            raise ConfigException(f"Wrong type of the configuration variable {name}.\n"
-                                  f"It's likely a typo in the configuration file.")
+        current = self.__getattribute__(name)
+        if type(current) != type(value):
+            # Allow an int 0/1 to set a bool option (the yaml/sysfs convention).
+            if isinstance(current, bool) and isinstance(value, int) and not isinstance(value, bool):
+                value = bool(value)
+            else:
+                raise ConfigException(f"Wrong type of the configuration variable {name}.\n"
+                                      f"It's likely a typo in the configuration file.")
 
         self._check_options(name, value)
         setattr(self, name, value)
@@ -458,8 +447,12 @@ class Conf:
                 self._actors['main'] = deepcopy(value)
                 continue
             if name == "_option_values":
+                # Rebuild from the pristine class defaults into instance state, so arch
+                # overrides never mutate the shared class dict, don't accumulate across
+                # arches, and are captured by _borg_shared_state (test isolation).
+                self.__dict__["_option_values"] = deepcopy(type(self)._option_values)
                 for k, v in value.items():
-                    self._option_values[k] = v
+                    self.__dict__["_option_values"][k] = v
                 continue
             if name == "_unsupported_options":
                 self._unsupported_options = list(value)

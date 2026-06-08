@@ -292,7 +292,8 @@ class LocalHWExecutor(HWExecutor):
         self.fd = os.open(self.executor_device_path, os.O_RDWR)
         self._write_sysfs("measurement_mode", CONF.executor_mode.encode())
         self._write_sysfs("pin_to_core", b"0")
-        self._write_sysfs("enable_pre_run_flush", str(CONF.enable_pre_run_flush).encode())
+        # sysfs parses an int (sscanf %u); emit 1/0 so a bool writes correctly.
+        self._write_sysfs("enable_pre_run_flush", str(int(CONF.enable_pre_run_flush)).encode())
         self._write_sysfs("warmups", str(CONF.executor_warmups).encode())
         self.discard_all_inputs()
         self.checkout_region(TestCaseRegion())

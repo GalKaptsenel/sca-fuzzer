@@ -78,7 +78,9 @@ class InstructionSet(InstructionSetAbstract):
 
         def is_supported(spec: InstructionSpec):
 
-            if CONF.supported_instructions and spec.name not in CONF.supported_instructions:
+            # supported_instructions is an AArch64-only allow-list; absent on other arches.
+            supported = getattr(CONF, "supported_instructions", None)
+            if supported and spec.name not in supported:
                 return False
             if "aarch64" in CONF.instruction_set and spec.category != "general":
                 return False  # aarch64 currently supports only the "general" category
@@ -188,8 +190,6 @@ class InstructionSet(InstructionSetAbstract):
                             match = False
                             continue
 
-                        # assert op1.src == op2.src
-                        # assert op1.dest == op2.dest
 
                     if match:
                         skip_list.add(inst1)

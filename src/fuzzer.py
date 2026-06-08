@@ -56,6 +56,10 @@ class FuzzerGeneric(Fuzzer):
     """
     instruction_set: InstructionSet
     existing_test_case: str
+
+    # Tag appended to saved input filenames to note their on-disk encoding.
+    # Overridden per-architecture (e.g. AArch64 stores NZCV in per-flag form).
+    input_artifact_tag: str = ""
     input_paths: List[str]
     generation_function: Callable[[str], TestCase]
 
@@ -269,7 +273,6 @@ class FuzzerGeneric(Fuzzer):
             added_htraces=[])
 
         # 0. Load the test case into the model and executor
-        #self.model.load_test_case(test_case)
         self.executor.load_test_case(test_case)
         if ignore_list:
             self.executor.set_ignore_list(ignore_list)
@@ -393,8 +396,6 @@ class FuzzerGeneric(Fuzzer):
             args.inputs, ctraces, htraces, stats=args.record_stats, test_cases=test_cases)
         if not violations:
             # if violation is detected, print debug traces (if requested)
-            #self.LOG.trc_fuzzer_dump_traces(self.model, args.inputs, htraces,
-            #                                self.reference_htraces, ctraces, CONF.model_max_nesting)
             pass
 
         if args.update_ignore_list:
@@ -552,7 +553,7 @@ class FuzzerGeneric(Fuzzer):
         # store violation
         test_case.save(f"{violation_dir}/{test_case.asm_path}")
         for i, input_ in enumerate(violation.input_sequence):
-            input_.save(f"{violation_dir}/input_{i:04}.bin")
+            input_.save(f"{violation_dir}/input_{i:04}{self.input_artifact_tag}.bin")
             arch_trace = getattr(input_, "_arch_trace", None)
             if arch_trace is None:
                 continue  # only the AArch64 executor records a CE arch trace
@@ -631,8 +632,6 @@ class FuzzerGeneric(Fuzzer):
                 f.write(f"\nInput #{m.input_id}\n")
                 f.write(f"* Hardware trace:\n {pretty_htrace(m.htrace)}\n")
                 f.write(f"* Contract trace (hash): {m.ctrace}\n")
-                #ctrace_full = self.model.dbg_get_trace_detailed(m.input_, CONF.model_max_nesting)
-                #f.write(f"* Contract trace (detailed): {ctrace_full}\n")
 
             f.write("\n## Mistraining Configuration\n")
             if not hasattr(self.executor, 'branch_mistraining_entries'):

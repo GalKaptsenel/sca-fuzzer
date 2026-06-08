@@ -23,7 +23,7 @@ from ..config import CONF
 from ..util import Logger, STAT, FuzzLogger
 from .aarch64_target_desc import Aarch64TargetDesc
 from .aarch64_kernel import LocalHWExecutor, TestCaseRegion, InputRegion, ExecutorMemory
-from .aarch64_generator import Pass, Aarch64SandboxPass, PACInstrumentation, FixPoint, AUTH_SLOT_POS, MTEInstrumentation, MTEFixPoint, PACVariant, MTEVariant, _AUTH_TO_PAC
+from .aarch64_generator import Pass, Aarch64SandboxPass, PACInstrumentation, PACFixPoint, AUTH_SLOT_POS, MTEInstrumentation, MTEFixPoint, PACVariant, MTEVariant, _AUTH_TO_PAC
 from .aarch64_contract_executor import (ContractExecution, ContractExecutorService,
                                         ContractType, SimArch)
 from .aarch64_disasm import disassemble_instruction, decode_reg_accesses, is_conditional_branch
@@ -278,7 +278,8 @@ class Aarch64LocalExecutor(Aarch64Executor):
             patched = copy.deepcopy(self.test_case)
             pass_on_test_case(patched, passes)
             tc_bytes = self._assemble_tc(patched)[0]
-            patched.asm_path, patched.obj_path, patched.bin_path = label, label, label
+            patched.asm_path, patched.obj_path, patched.bin_path = \
+                f"{label}.asm", f"{label}.o", f"{label}.bin"
             self._sandboxed_cache = (tc_bytes, patched)
 
         tc_bytes, patched = self._sandboxed_cache
@@ -679,9 +680,9 @@ class Aarch64PacNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
             self._generator, CONF.pac_xpac_weight, CONF.pac_auth_weight)
 
         self._stage1_tc: Optional[TestCase] = None
-        self._stage1_fix_points: Optional[List[FixPoint]] = None
+        self._stage1_fix_points: Optional[List[PACFixPoint]] = None
         self._stage1_tc_bytes: Optional[bytes] = None
-        self._stage1_slot_offset_to_fp: Optional[Dict[int, FixPoint]] = None
+        self._stage1_slot_offset_to_fp: Optional[Dict[int, PACFixPoint]] = None
         self._last_tc_variants: Optional[List[TCVariants]] = None
         self._last_stage1_traces: Optional[List[ContractExecutionResult]] = None
 
@@ -710,8 +711,8 @@ class Aarch64PacNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
         stage1_tc, fix_points = self._pac_instrumentation.instrument_stage1(patched)
         tc_bytes, layout = self._assemble_tc(stage1_tc)
 
-        # Map byte offset of each XPAC placeholder → FixPoint (pre-slot state captured here)
-        xpac_offset_to_fp: Dict[int, FixPoint] = {}
+        # Map byte offset of each XPAC placeholder → PACFixPoint (pre-slot state captured here)
+        xpac_offset_to_fp: Dict[int, PACFixPoint] = {}
         for fp in fix_points:
             xpac_inst = fp.slot_insts[AUTH_SLOT_POS]
             xpac_offset_to_fp[layout.instruction_address[xpac_inst]] = fp

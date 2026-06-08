@@ -14,6 +14,18 @@ _option_values = {
         'P+P',
         'F+R',
     ],
+    # AArch64 adds the non-interference fuzzer to the common set (x86 has no NI).
+    'fuzzer': [
+        'basic',
+        'architectural',
+        'archdiff',
+        'non-iterfearence',
+    ],
+    # AArch64 adds the NZCV-aware input generator to the common set.
+    'input_generator': [
+        'random',
+        'aarch64-nzcv',
+    ],
     # UNUSED by AArch64 Revizor: fault injection is not implemented (the generator
     # reads this allowlist into flags that are never acted upon).
     'generator_faults_allowlist': [
@@ -146,6 +158,12 @@ supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "l
                                      "csel", "csinc", "csinv", "csneg", "ccmn", "ccmp",
                                      "sdiv", "udiv", "xpacd", "xpaci", "autda", "autdza", "autdb", "autdzb", "pacda", "pacdza", "pacdb", "pacdzb", "pacga"
                                      ]
+
+# AArch64-only: relative weights for the PAC non-interference instrumentation
+# (stage 1). AUTIA and XPAC strips are inserted with these weights, normalized
+# against each other; signing is the unweighted baseline.
+pac_auth_weight: float = 0.2
+pac_xpac_weight: float = 0.2
 
 instruction_blocklist: List[str] = [
     # Not supported: these require a specific consecutive ordering of instructions.

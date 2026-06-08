@@ -43,6 +43,10 @@ def create_fenced_test_case(test_case: TestCase) -> TestCase:
 class Aarch64Fuzzer(FuzzerGeneric):
     executor: Aarch64Executor
 
+    # AArch64 saves inputs with NZCV in the per-flag NZCVScheme encoding, not the
+    # PSTATE form the kernel expects (see debugging/to_executor_input.py).
+    input_artifact_tag: str = "_nzcv_scheme"
+
     def filter(self, test_case: TestCase, inputs: List[Input]) -> bool:
         """
         This function implements a multi-stage algorithm that gradually filters out
