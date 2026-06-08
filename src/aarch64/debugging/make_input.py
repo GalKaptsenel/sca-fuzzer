@@ -1,11 +1,19 @@
-#!/bin/python
+#!/usr/bin/env python3
+"""Build a raw input_t binary for /dev/executor from an optional JSON spec.
+
+Layout produced (matches the kernel input_t in aarch64/executor/inputs.h):
+  main_region[4K] + faulty_region[4K] + register region[4K]
+The register region's first 8 u64 slots are x0-x5, flags, sp (little-endian);
+unspecified bytes/registers are randomised. Register values — including flags
+and sp — are written verbatim (no NZCV re-encoding); the kernel may still
+override sp at run time. Intended as a manual debugging aid, not for fuzzing.
+"""
 import json
 import random
 import argparse
 import struct
-from typing import Dict, Tuple
+from typing import Dict
 
-# Constants
 KB = 1024
 MAIN_REGION_SIZE = 4 * KB
 FAULTY_REGION_SIZE = 4 * KB
@@ -20,8 +28,8 @@ def parse_memory_keys(mem_dict):
     for k, v in mem_dict.items():
         try:
             parsed[int(k, 0)] = v
-        except ValueError:
-            raise ValueError(f"Invalid memory key format: {k}")
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Invalid memory key format: {k}") from e
     return parsed
 
 def fill_memory_region(buffer: bytearray, offset: int, size: int, user_region_raw: Dict[str, int]):
@@ -128,11 +136,9 @@ def main():
     with open(args.output, "wb") as f:
         f.write(binary_data)
 
-    # Optionally write hexdump
+    # Optionally write a human-readable hexdump alongside the binary.
     if args.print:
-        hex_text = hexdump(binary_data)
-        txt_output = args.output + ".txt"
-        write_pretty_output(txt_output, binary_data, reg_values)
+        write_pretty_output(args.output + ".txt", binary_data, reg_values)
 
 if __name__ == "__main__":
     main()

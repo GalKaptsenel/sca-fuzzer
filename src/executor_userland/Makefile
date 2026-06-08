@@ -1,10 +1,9 @@
 CC = aarch64-linux-gnu-gcc
-CFLAGS = -g -I../include -Iinclude -I$(PWD)/../aarch64/executor/userapi -static -march=armv9-a+sve+memtag -Wall -Wextra -O2
+CFLAGS = -g -I../include -Iinclude -I../aarch64/executor/userapi -static -march=armv9-a+sve+memtag -Wall -Wextra -O2
 
 SRC_DIR = ./src
-THIRD_PARTY_DIR = ../third_party
 
-SRCS = $(SRC_DIR)/executor_userland.c $(SRC_DIR)/trace_writer.c $(SRC_DIR)/buffer.c $(THIRD_PARTY_DIR)/cJSON.c
+SRCS = $(SRC_DIR)/executor_userland.c
 OBJS = $(SRCS:.c=.o)
 
 TARGET = executor_userland
@@ -17,9 +16,6 @@ $(TARGET): $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $^
 
 %.o: %.c
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(UTILS_DIR)/%.o: $(UTILS_DIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:

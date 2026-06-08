@@ -3,27 +3,13 @@
 
 #include <stddef.h>
 
-#define REVISOR_IOC_MAGIC 'r'
+/* ioctl serial numbers + magic — shared with the kernel (single source of truth). */
+#include <executor_ioctl_nr.h>
 
-#define REVISOR_CHECKOUT_TEST_CONSTANT		    1
-#define REVISOR_UNLOAD_TEST_CONSTANT		    2
-#define REVISOR_GET_NUMBER_OF_INPUTS_CONSTANT	3
-#define REVISOR_CHECKOUT_INPUT_CONSTANT		    4
-#define REVISOR_ALLOCATE_INPUT_CONSTANT		    5
-#define REVISOR_FREE_INPUT_CONSTANT		        6
-#define REVISOR_MEASUREMENT_CONSTANT		    7
-#define REVISOR_TRACE_CONSTANT			        8
-#define REVISOR_CLEAR_ALL_INPUTS_CONSTANT	    9
-#define REVISOR_GET_TEST_LENGTH_CONSTANT	    10
-#define REVISOR_BATCHED_INPUTS_CONSTANT    	    11
-#define REVISOR_SWAP_PAC_KEYS_CONSTANT          12
-#define REVISOR_GET_EXEC_PAC_KEYS_CONSTANT      13
-#define REVISOR_SET_PAC_KEYS_CONSTANT           14
-#define REVISOR_GET_PAC_KEYS_CONSTANT           15
-#define REVISOR_MTE_TAG_REGION_CONSTANT         16
-#define REVISOR_PAC_SIGN_CONSTANT               17
-#define REVISOR_PAC_AUTH_CONSTANT               18
-
+/*
+ * Request macros for the ioctls this tool dispatches. The PAC/MTE ioctls
+ * (numbers 11-18) are handled by the kernel module but not driven from here.
+ */
 #define REVISOR_CHECKOUT_TEST      	    _IO(REVISOR_IOC_MAGIC, REVISOR_CHECKOUT_TEST_CONSTANT)                   // Can read test case and write test case
 #define REVISOR_UNLOAD_TEST    		    _IO(REVISOR_IOC_MAGIC, REVISOR_UNLOAD_TEST_CONSTANT)
 #define REVISOR_GET_NUMBER_OF_INPUTS   	_IOR(REVISOR_IOC_MAGIC, REVISOR_GET_NUMBER_OF_INPUTS_CONSTANT, uint64_t)
@@ -34,9 +20,5 @@
 #define REVISOR_TRACE			        _IO(REVISOR_IOC_MAGIC, REVISOR_TRACE_CONSTANT)
 #define REVISOR_CLEAR_ALL_INPUTS	    _IO(REVISOR_IOC_MAGIC, REVISOR_CLEAR_ALL_INPUTS_CONSTANT)
 #define REVISOR_GET_TEST_LENGTH		    _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_TEST_LENGTH_CONSTANT, uint64_t)
-#define REVISOR_BATCHED_INPUTS		    _IOWR(REVISOR_IOC_MAGIC, REVISOR_BATCHED_INPUTS_CONSTANT, struct input_batch*)
-
-// PAC/MTE ioctls (12-18) are handled by the kernel module but not dispatched by this tool;
-// their constants are kept in sync with the kernel's chardevice.h for correct numbering.
 
 #endif // EXECUTOR_USERLAND_CHARDEV_H
