@@ -277,7 +277,6 @@ class Input(np.ndarray):
         return str(self.seed)
 
     def linear_view(self, actor_id) -> np.ndarray:
-        #return self[actor_id].view((np.uint64, self[actor_id].itemsize // 8))
         return self[actor_id:actor_id+1].view(np.uint64)
 
     def save(self, path: str) -> None:
@@ -855,10 +854,6 @@ class TestCase:
         raise Exception(f"ERROR: Actor {aid} not found")
 
     def save(self, path: str) -> None:
-#        import pdb; pdb.set_trace()
-#        if self.asm_path:
-#            shutil.copy2(self.asm_path, path)
-#        else:
         with open(path, 'w') as f:
             from .aarch64.aarch64_printer import Aarch64Printer
             from .aarch64.aarch64_target_desc import Aarch64TargetDesc

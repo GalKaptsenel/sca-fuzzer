@@ -245,7 +245,6 @@ def main() -> int:
         '-i',
         '--inputs',
         type=comma_separated_list,
-#        nargs='*',
         default=None,
         help="Comma-separated list of input file paths")
     parser_reproduce.add_argument(

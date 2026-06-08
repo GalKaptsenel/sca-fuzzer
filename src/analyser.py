@@ -422,7 +422,6 @@ class ChiSquaredBitwisePValueAnalyser(EquivalenceAnalyserCommon):
         result = pass_test(final_p)
         if visualize and not result:
             self.visualize_bitwise_and_correlation(bits_x, bits_y, "bitwise_pvalues_and_corr_diff.png")
-            #print(f"Bitwise p = {p_dist:.4g}, Corr p = {p_corr:.4g}, Final combined p = {final_p:.4g}")
 
         return result
 

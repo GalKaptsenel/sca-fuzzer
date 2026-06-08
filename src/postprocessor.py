@@ -42,7 +42,6 @@ def get_test_case_from_instructions(fuzzer: Fuzzer,
         fp = tempfile.NamedTemporaryFile(dir=TMP_DIR, delete=False)
         path = fp.name
         fp.close()
-    # print(path)
 
     # write the instructions to the file
     with open(path, "w+") as f:

@@ -98,19 +98,16 @@ class AsmParserGeneric(AsmParser):
 
         # parse lines and create their object representations
         for func_name, bbs in test_case_map.items():
-            # print(func_name)
             actor = test_case.actors[function_owners[func_name]]
             func = Function(func_name, actor)
             test_case.functions.append(func)
 
             for bb_name, lines in bbs.items():
-                # print(">>", bb_name)
                 bb = BasicBlock(bb_name)
                 func.append(bb)
 
                 terminators_started = False
                 for line in lines:
-                    # print(f"    {line}")
                     inst = self.parse_line(line.clean_str, line.line_num, self.instruction_map)
                     inst.line_num = line.line_num
                     if inst.control_flow and not self.target_desc.is_call(inst):
