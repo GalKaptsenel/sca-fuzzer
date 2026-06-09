@@ -2,6 +2,8 @@
 #include "simulation.h"
 #include "simulation_output.h"
 #include "simulation_execution_clause_hook.h"
+#include "execution_clause_bpu.h"
+#include "neoverse_n3_bpu.h"
 #include "pac_sign_plugin.h"
 #include "mte_tag_plugin.h"
 #include "tage_py.h"
@@ -146,6 +148,7 @@ int main() {
 
 	pac_sign_plugin_init();
 	mte_tag_plugin_init();
+	bpu_clause_set_predictor(&neoverse_n3_bpu);   // inject the BPU clause's predictor
 
 	/* Install SIGALRM watchdog */
 	struct sigaction sa = { 0 };

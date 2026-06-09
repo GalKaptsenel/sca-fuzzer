@@ -28,12 +28,14 @@ enum config_flags {
 	CONFIG_FLAG_REQ_MEM_BASE_VIRT	= 1 << 3,
 };
 
-/* Which speculative contract to simulate. */
-enum contract_type {
-	CONTRACT_ALWAYS_MISPREDICT	= 0,	/* explore every mispredicted branch */
-	CONTRACT_ARCH_ONLY		= 1,	/* follow architectural path, no speculation */
-	CONTRACT_BPU_NEOVERSE_N3	= 2,	/* mispredict when TAGE (Neoverse N3 model) disagrees with arch */
-};
+/* Contracts are COMPOSABLE: `configuration.execution_clauses` is a BITMASK of clauses, so
+ * several speculation behaviours can be enabled at once (e.g. cond | bpas == cond-bpas).
+ * Each bit enables one execution clause (see execution_clauses.c). */
+#define EXEC_CLAUSE_COND  (1u << 0)  /* mispredict every conditional branch                     */
+#define EXEC_CLAUSE_BPAS  (1u << 1)  /* speculatively bypass stores (read stale memory)         */
+#define EXEC_CLAUSE_BPU   (1u << 2)  /* mispredict branches per an INJECTED branch predictor    */
+/* seq / arch-only == no clauses enabled (execution_clauses == 0).
+ * The concrete predictor behind EXEC_CLAUSE_BPU is dependency-injected. */
 
 /* ============================
  * On-disk header format
@@ -52,7 +54,7 @@ struct configuration {
 	uint64_t requested_code_base_virt;
 	uint64_t requested_mem_base_phys; // NOT SUPPORTED
 	uint64_t requested_mem_base_virt;
-	uint64_t contract_type;            /* enum contract_type; 0 = always-mispredict */
+	uint64_t execution_clauses;        /* bitmask of EXEC_CLAUSE_*; 0 = seq (no speculation) */
 };
 
 struct input_header {

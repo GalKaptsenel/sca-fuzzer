@@ -111,6 +111,16 @@ static inline void cpu_state_write_base_reg(struct cpu_state *s, uint32_t rn, ui
     s->gpr[29 - (int)rn] = val;
 }
 
+/*
+ * Read a general-purpose register with ZERO-register semantics: index 31 reads as XZR (0),
+ * not SP. This is the correct decode for data operands such as CBZ/TBZ's Rt (whereas the
+ * base-register accessor above maps 31 to SP, as memory addressing requires).
+ */
+static inline uintptr_t cpu_state_read_gpr_zr(const struct cpu_state *s, uint32_t r) {
+    if (r == 31) { return 0; }
+    return cpu_state_read_base_reg(s, r);
+}
+
 
 struct simulation_state {
 	struct cpu_state cpu_state;

@@ -187,7 +187,7 @@ static size_t build_ce_input(
     hdr.config.flags                    = CONFIG_FLAG_REQ_MEM_BASE_VIRT;
     hdr.config.max_misspred_branch_nesting = max_nesting;
     hdr.config.requested_mem_base_virt  = kbase_addr;
-    hdr.config.contract_type            = contract;
+    hdr.config.execution_clauses            = contract;
     hdr.code_size  = (uint64_t)code_sz;
     hdr.mem_size   = (uint64_t)mem_sz;
     hdr.regs_size  = (uint64_t)regs_sz;
@@ -356,7 +356,7 @@ static void test_integration_ldr_base(void) {
     memcpy(mem, &expect_val, 8);
 
     ce_result_t res;
-    if (!run_ce_simple(code, 1, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+    if (!run_ce_simple(code, 1, mem, sizeof(mem), KBASE, 0, 0u, &res)) {
         ++g_tests_run; ++g_tests_failed;
         fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
         return;
@@ -385,7 +385,7 @@ static void test_integration_str_base(void) {
     memcpy(mem, &init_val, 8);
 
     ce_result_t res;
-    if (!run_ce_simple(code, 1, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+    if (!run_ce_simple(code, 1, mem, sizeof(mem), KBASE, 0, 0u, &res)) {
         ++g_tests_run; ++g_tests_failed;
         fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
         return;
@@ -414,7 +414,7 @@ static void test_integration_ldr_unsigned_offset(void) {
     memcpy(mem + 16, &expect_val, 8);
 
     ce_result_t res;
-    if (!run_ce_simple(code, 1, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+    if (!run_ce_simple(code, 1, mem, sizeof(mem), KBASE, 0, 0u, &res)) {
         ++g_tests_run; ++g_tests_failed;
         fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
         return;
@@ -446,7 +446,7 @@ static void test_integration_ldr_postidx(void) {
     memcpy(mem + 8, &val8, 8);
 
     ce_result_t res;
-    if (!run_ce_simple(code, 2, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+    if (!run_ce_simple(code, 2, mem, sizeof(mem), KBASE, 0, 0u, &res)) {
         ++g_tests_run; ++g_tests_failed;
         fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
         return;
@@ -480,7 +480,7 @@ static void test_integration_ldr_preidx(void) {
     memcpy(mem + 8, &val8, 8);
 
     ce_result_t res;
-    if (!run_ce_simple(code, 2, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+    if (!run_ce_simple(code, 2, mem, sizeof(mem), KBASE, 0, 0u, &res)) {
         ++g_tests_run; ++g_tests_failed;
         fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
         return;
@@ -511,7 +511,7 @@ static void test_integration_ldp(void) {
     memcpy(mem + 8, &v8, 8);
 
     ce_result_t res;
-    if (!run_ce_simple(code, 1, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+    if (!run_ce_simple(code, 1, mem, sizeof(mem), KBASE, 0, 0u, &res)) {
         ++g_tests_run; ++g_tests_failed;
         fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
         return;
@@ -548,7 +548,7 @@ static void test_integration_kaddr_transparency(void) {
         memcpy(mem + off, &val, 8);
 
         ce_result_t res;
-        if (!run_ce_simple(code, 1, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+        if (!run_ce_simple(code, 1, mem, sizeof(mem), KBASE, 0, 0u, &res)) {
             ++g_tests_run; ++g_tests_failed;
             fprintf(stderr, "FAIL %s[%zu]: run_ce failed\n", __func__, i);
             continue;
@@ -584,7 +584,7 @@ static void test_integration_sequential_loads(void) {
     for (int i = 0; i < 4; ++i) memcpy(mem + i * 8, &expected[i], 8);
 
     ce_result_t res;
-    if (!run_ce_simple(code, 4, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+    if (!run_ce_simple(code, 4, mem, sizeof(mem), KBASE, 0, 0u, &res)) {
         ++g_tests_run; ++g_tests_failed;
         fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
         return;
@@ -620,7 +620,7 @@ static void test_integration_store_then_load(void) {
     memcpy(mem, &init_val, 8);
 
     ce_result_t res;
-    if (!run_ce_simple(code, 2, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+    if (!run_ce_simple(code, 2, mem, sizeof(mem), KBASE, 0, 0u, &res)) {
         ++g_tests_run; ++g_tests_failed;
         fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
         return;
@@ -653,7 +653,7 @@ static void test_integration_nop_no_mem(void) {
     memcpy(mem, &val, 8);
 
     ce_result_t res;
-    if (!run_ce_simple(code, 2, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+    if (!run_ce_simple(code, 2, mem, sizeof(mem), KBASE, 0, 0u, &res)) {
         ++g_tests_run; ++g_tests_failed;
         fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
         return;
@@ -686,10 +686,7 @@ static void test_integration_nop_no_mem(void) {
 /* ---- GROUP 11: access size — LDRB → element_size=1 ------------------- */
 
 static void test_integration_access_size_byte(void) {
-    /*
-     * before/after always record the full aligned 8-byte word at EA.
-     * Only element_size tells us the access granularity.
-     */
+    /* before/after record the accessed-size value (element_size bytes), not the surrounding word. */
     uint32_t code[] = { enc_ldrb(0, 29) };  /* LDRB W0,[X29] */
 
     uint8_t mem[MEM_SIZE];
@@ -698,7 +695,7 @@ static void test_integration_access_size_byte(void) {
     memcpy(mem, &word, 8);
 
     ce_result_t res;
-    if (!run_ce_simple(code, 1, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+    if (!run_ce_simple(code, 1, mem, sizeof(mem), KBASE, 0, 0u, &res)) {
         ++g_tests_run; ++g_tests_failed;
         fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
         return;
@@ -711,7 +708,7 @@ static void test_integration_access_size_byte(void) {
     EXPECT_EQ(e->metadata.memory_access.element_size,      (uint64_t)1);
     EXPECT_EQ(e->metadata.memory_access.is_write,          (uint64_t)0);
     EXPECT_EQ(e->metadata.memory_access.effective_address, KBASE);
-    EXPECT_EQ(e->metadata.memory_access.before,            word);  /* full 8-byte word */
+    EXPECT_EQ(e->metadata.memory_access.before,            word & 0xFF);
 }
 
 /* ---- GROUP 12: access size — LDRH → element_size=2 ------------------- */
@@ -725,7 +722,7 @@ static void test_integration_access_size_halfword(void) {
     memcpy(mem, &word, 8);
 
     ce_result_t res;
-    if (!run_ce_simple(code, 1, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+    if (!run_ce_simple(code, 1, mem, sizeof(mem), KBASE, 0, 0u, &res)) {
         ++g_tests_run; ++g_tests_failed;
         fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
         return;
@@ -737,7 +734,7 @@ static void test_integration_access_size_halfword(void) {
 
     EXPECT_EQ(e->metadata.memory_access.element_size,      (uint64_t)2);
     EXPECT_EQ(e->metadata.memory_access.effective_address, KBASE);
-    EXPECT_EQ(e->metadata.memory_access.before,            word);
+    EXPECT_EQ(e->metadata.memory_access.before,            word & 0xFFFF);
 }
 
 /* ---- GROUP 13: access size — LDR W → element_size=4 ------------------ */
@@ -751,7 +748,7 @@ static void test_integration_access_size_word(void) {
     memcpy(mem, &word, 8);
 
     ce_result_t res;
-    if (!run_ce_simple(code, 1, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+    if (!run_ce_simple(code, 1, mem, sizeof(mem), KBASE, 0, 0u, &res)) {
         ++g_tests_run; ++g_tests_failed;
         fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
         return;
@@ -763,7 +760,7 @@ static void test_integration_access_size_word(void) {
 
     EXPECT_EQ(e->metadata.memory_access.element_size,      (uint64_t)4);
     EXPECT_EQ(e->metadata.memory_access.effective_address, KBASE);
-    EXPECT_EQ(e->metadata.memory_access.before,            word);
+    EXPECT_EQ(e->metadata.memory_access.before,            word & 0xFFFFFFFF);
 }
 
 /* ---- GROUP 14: STRB partial write — after field shows byte merge ------ */
@@ -771,9 +768,7 @@ static void test_integration_access_size_word(void) {
 static void test_integration_strb_partial_write(void) {
     /*
      * STRB W0,[X29] with X0=0x42 (set via regs blob slot 0 = X0).
-     * mem[0..7] = 0xAABBCCDDEEFF0011
-     *
-     * after = (word & ~0xFF) | (0x42 & 0xFF) = 0xAABBCCDDEEFF0042
+     * mem[0..7] = 0xAABBCCDDEEFF0011; access-size = 1 byte, so before=0x11, after=0x42.
      */
     uint32_t code[] = { enc_strb(0, 29) };
 
@@ -786,7 +781,7 @@ static void test_integration_strb_partial_write(void) {
     regs[0] = 0x42;  /* X0 = 0x42 */
 
     ce_result_t res;
-    if (!run_ce(code, 1, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, regs, &res)) {
+    if (!run_ce(code, 1, mem, sizeof(mem), KBASE, 0, 0u, regs, &res)) {
         ++g_tests_run; ++g_tests_failed;
         fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
         return;
@@ -799,8 +794,8 @@ static void test_integration_strb_partial_write(void) {
     EXPECT_EQ(e->metadata.memory_access.element_size,      (uint64_t)1);
     EXPECT_EQ(e->metadata.memory_access.is_write,          (uint64_t)1);
     EXPECT_EQ(e->metadata.memory_access.effective_address, KBASE);
-    EXPECT_EQ(e->metadata.memory_access.before,            init_word);
-    EXPECT_EQ(e->metadata.memory_access.after,             (UINT64_C(0xAABBCCDDEEFF0042)));
+    EXPECT_EQ(e->metadata.memory_access.before,            init_word & 0xFF);
+    EXPECT_EQ(e->metadata.memory_access.after,             (uint64_t)0x42);
 }
 
 /* ---- GROUP 15: non-X29 base register from regs blob ------------------- */
@@ -822,7 +817,7 @@ static void test_integration_non_x29_base(void) {
     regs[1] = KBASE;  /* X1 = kbase */
 
     ce_result_t res;
-    if (!run_ce(code, 1, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, regs, &res)) {
+    if (!run_ce(code, 1, mem, sizeof(mem), KBASE, 0, 0u, regs, &res)) {
         ++g_tests_run; ++g_tests_failed;
         fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
         return;
@@ -856,7 +851,7 @@ static void test_integration_nzcv_in_cpu_state(void) {
     regs[6] = UINT64_C(0x40000000);  /* slot 6 = NZCV, Z=1 */
 
     ce_result_t res;
-    if (!run_ce(code, 1, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, regs, &res)) {
+    if (!run_ce(code, 1, mem, sizeof(mem), KBASE, 0, 0u, regs, &res)) {
         ++g_tests_run; ++g_tests_failed;
         fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
         return;
@@ -892,7 +887,7 @@ static void test_integration_register_offset(void) {
     regs[1] = 16;  /* X1 = 16 (byte offset) */
 
     ce_result_t res;
-    if (!run_ce(code, 1, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, regs, &res)) {
+    if (!run_ce(code, 1, mem, sizeof(mem), KBASE, 0, 0u, regs, &res)) {
         ++g_tests_run; ++g_tests_failed;
         fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
         return;
@@ -928,7 +923,7 @@ static void test_integration_load_updates_dest_reg(void) {
     memcpy(mem, &loaded_val, 8);
 
     ce_result_t res;
-    if (!run_ce_simple(code, 2, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+    if (!run_ce_simple(code, 2, mem, sizeof(mem), KBASE, 0, 0u, &res)) {
         ++g_tests_run; ++g_tests_failed;
         fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
         return;
@@ -966,7 +961,7 @@ static void test_integration_postidx_writeback_cpu_state(void) {
     memcpy(mem + 8, &v8, 8);
 
     ce_result_t res;
-    if (!run_ce_simple(code, 2, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, &res)) {
+    if (!run_ce_simple(code, 2, mem, sizeof(mem), KBASE, 0, 0u, &res)) {
         ++g_tests_run; ++g_tests_failed;
         fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
         return;
@@ -1009,7 +1004,7 @@ static void test_integration_always_mispredict_cbz(void) {
 
     /* X0=0, NZCV=0, max_nesting=1 */
     ce_result_t res;
-    if (!run_ce_simple(code, 3, mem, sizeof(mem), KBASE, 1, CONTRACT_ALWAYS_MISPREDICT, &res)) {
+    if (!run_ce_simple(code, 3, mem, sizeof(mem), KBASE, 1, EXEC_CLAUSE_COND, &res)) {
         ++g_tests_run; ++g_tests_failed;
         fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
         return;
@@ -1066,7 +1061,7 @@ static void test_integration_always_mispredict_cbnz(void) {
     memcpy(mem + 8, &v8, 8);
 
     ce_result_t res;
-    if (!run_ce_simple(code, 3, mem, sizeof(mem), KBASE, 1, CONTRACT_ALWAYS_MISPREDICT, &res)) {
+    if (!run_ce_simple(code, 3, mem, sizeof(mem), KBASE, 1, EXEC_CLAUSE_COND, &res)) {
         ++g_tests_run; ++g_tests_failed;
         fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
         return;
@@ -1128,7 +1123,7 @@ static void test_integration_tbz_bit32(void) {
         regs[0] = UINT64_C(1) << 32;  /* bit 32 set */
 
         ce_result_t res;
-        if (!run_ce(code, 3, mem, sizeof(mem), KBASE, 1, CONTRACT_ALWAYS_MISPREDICT, regs, &res)) {
+        if (!run_ce(code, 3, mem, sizeof(mem), KBASE, 1, EXEC_CLAUSE_COND, regs, &res)) {
             ++g_tests_run; ++g_tests_failed;
             fprintf(stderr, "FAIL %s(A): run_ce failed\n", __func__);
         } else {
@@ -1153,7 +1148,7 @@ static void test_integration_tbz_bit32(void) {
     /* --- sub-case B: bit 32 CLEAR (X0=0) → TBZ TAKEN arch --- */
     {
         ce_result_t res;
-        if (!run_ce_simple(code, 3, mem, sizeof(mem), KBASE, 1, CONTRACT_ALWAYS_MISPREDICT, &res)) {
+        if (!run_ce_simple(code, 3, mem, sizeof(mem), KBASE, 1, EXEC_CLAUSE_COND, &res)) {
             ++g_tests_run; ++g_tests_failed;
             fprintf(stderr, "FAIL %s(B): run_ce failed\n", __func__);
         } else {
@@ -1197,8 +1192,8 @@ static void test_integration_contract_type_comparison(void) {
 
     ce_result_t arch_res, spec_res;
 
-    bool arch_ok = run_ce_simple(code, 3, mem, sizeof(mem), KBASE, 1, CONTRACT_ARCH_ONLY,          &arch_res);
-    bool spec_ok = run_ce_simple(code, 3, mem, sizeof(mem), KBASE, 1, CONTRACT_ALWAYS_MISPREDICT,  &spec_res);
+    bool arch_ok = run_ce_simple(code, 3, mem, sizeof(mem), KBASE, 1, 0u,          &arch_res);
+    bool spec_ok = run_ce_simple(code, 3, mem, sizeof(mem), KBASE, 1, EXEC_CLAUSE_COND,  &spec_res);
 
     EXPECT(arch_ok);
     EXPECT(spec_ok);
@@ -1259,7 +1254,7 @@ static void test_integration_pac_arch_roundtrip(void) {
     regs[0] = KBASE;  /* X0 = kbase (pointer to sign) */
 
     ce_result_t res;
-    if (!run_ce(code, 3, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, regs, &res)) {
+    if (!run_ce(code, 3, mem, sizeof(mem), KBASE, 0, 0u, regs, &res)) {
         ++g_tests_run; ++g_tests_failed;
         fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
         return;
@@ -1321,7 +1316,7 @@ static void test_integration_pac_spec_xpac(void) {
     regs[1] = KBASE;  /* X1 = kbase (to be signed by PACIA on spec path) */
 
     ce_result_t res;
-    if (!run_ce(code, 4, mem, sizeof(mem), KBASE, 1, CONTRACT_ALWAYS_MISPREDICT, regs, &res)) {
+    if (!run_ce(code, 4, mem, sizeof(mem), KBASE, 1, EXEC_CLAUSE_COND, regs, &res)) {
         ++g_tests_run; ++g_tests_failed;
         fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
         return;
@@ -1386,7 +1381,7 @@ static void test_integration_paciza_autiza_roundtrip(void) {
     regs[0] = KBASE;
 
     ce_result_t res;
-    if (!run_ce(code, 3, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, regs, &res)) {
+    if (!run_ce(code, 3, mem, sizeof(mem), KBASE, 0, 0u, regs, &res)) {
         ++g_tests_run; ++g_tests_failed;
         fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
         return;
@@ -1453,7 +1448,7 @@ static void test_integration_pacda_autda_roundtrip(void) {
     regs[0] = KBASE;
 
     ce_result_t res;
-    if (!run_ce(code, 3, mem, sizeof(mem), KBASE, 0, CONTRACT_ARCH_ONLY, regs, &res)) {
+    if (!run_ce(code, 3, mem, sizeof(mem), KBASE, 0, 0u, regs, &res)) {
         ++g_tests_run; ++g_tests_failed;
         fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
         return;
@@ -1476,6 +1471,76 @@ static void test_integration_pacda_autda_roundtrip(void) {
 }
 
 /* ---- main -------------------------------------------------------------- */
+
+/* ---- bpas: store-then-load to the same address ----------------------- */
+static void test_integration_bpas_store_bypass(void) {
+    /*
+     * STR X0,[X29] ; LDR X1,[X29].  mem[0]=STALE, X0=NEW.
+     * seq:  the load reads the stored (NEW) value -> store + 1 load.
+     * bpas: the store is bypassed, so a speculative load reads the STALE value; after the
+     *       window the load re-runs architecturally with NEW -> store + 2 loads.
+     */
+    uint32_t code[] = { enc_str_reg(0, 29), enc_ldr_reg(1, 29) };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t stale = UINT64_C(0xDEADDEADDEADDEAD);
+    memcpy(mem, &stale, 8);
+    uint64_t newv = UINT64_C(0xBEEFBEEFBEEFBEEF);
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[0] = newv;
+
+    ce_result_t seq_res, bpas_res;
+    bool seq_ok  = run_ce(code, 2, mem, sizeof(mem), KBASE, 0, 0u,              regs, &seq_res);
+    bool bpas_ok = run_ce(code, 2, mem, sizeof(mem), KBASE, 8, EXEC_CLAUSE_BPAS, regs, &bpas_res);
+    EXPECT(seq_ok);
+    EXPECT(bpas_ok);
+
+    if (seq_ok) {
+        EXPECT_EQ(count_mem_entries(&seq_res), 2);
+        instr_trace_entry_t *ld = find_mem_entry(&seq_res, 1);   /* the load */
+        EXPECT(ld != NULL);
+        if (ld) EXPECT_EQ(ld->metadata.memory_access.before, newv);   /* arch store-forward */
+    }
+
+    if (bpas_ok) {
+        EXPECT(count_mem_entries(&bpas_res) > count_mem_entries(&seq_res));
+        int saw_stale_spec_load = 0;
+        for (int i = 0; i < count_mem_entries(&bpas_res); ++i) {
+            instr_trace_entry_t *e = find_mem_entry(&bpas_res, i);
+            if (e && !e->metadata.memory_access.is_write &&
+                e->metadata.speculation_nesting > 0 &&
+                e->metadata.memory_access.before == stale) {
+                saw_stale_spec_load = 1;
+            }
+        }
+        EXPECT(saw_stale_spec_load);
+    }
+}
+
+/* ---- bpas: a store with no following instruction must not corrupt ----- */
+static void test_integration_bpas_trailing_store(void) {
+    /* The store sets a pending bypass that is never applied (the sim ends). Must not crash;
+     * the trace is just the store. Guards the "pending dangles past the window" case. */
+    uint32_t code[] = { enc_str_reg(0, 29) };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    ce_result_t res;
+    bool ok = run_ce_simple(code, 1, mem, sizeof(mem), KBASE, 8, EXEC_CLAUSE_BPAS, &res);
+    EXPECT(ok);
+    if (ok) EXPECT_EQ(count_mem_entries(&res), 1);
+}
+
+/* ---- unsupported clause combination must be rejected by the CE -------- */
+static void test_integration_unsupported_clauses_rejected(void) {
+    /* COND|BPU is two branch models — not a supported contract; the CE must reject it. */
+    uint32_t code[] = { enc_ldr_reg(0, 29) };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    ce_result_t res;
+    bool ok = run_ce_simple(code, 1, mem, sizeof(mem), KBASE, 8,
+                            EXEC_CLAUSE_COND | EXEC_CLAUSE_BPU, &res);
+    EXPECT(!ok);   /* CE traps on the unsupported bitmask */
+}
 
 int main(void) {
     printf("Running CE integration tests (fork+exec)...\n");
@@ -1510,6 +1575,9 @@ int main(void) {
     test_integration_always_mispredict_cbnz();
     test_integration_tbz_bit32();
     test_integration_contract_type_comparison();
+    test_integration_bpas_store_bypass();
+    test_integration_bpas_trailing_store();
+    test_integration_unsupported_clauses_rejected();
 
     // DISABLED — KNOWN BUG, UNDER INVESTIGATION: CE currently runs a real AUT*
     // through the kernel on a pointer that is not correctly signed. A failing AUT*

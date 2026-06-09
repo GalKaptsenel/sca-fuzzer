@@ -22,6 +22,13 @@ SRCS = \
   simulation_output.c \
   simulation.c \
   simulation_execution_clause_hook.c \
+  branch_speculation.c \
+  execution_clauses.c \
+  execution_clause_cond.c \
+  execution_clause_bpu.c \
+  execution_clause_bpas.c \
+  neoverse_n3_bpu.c \
+  utils.c \
   pac_sign_plugin.c \
   mte_tag_plugin.c \
   tage_py.c \

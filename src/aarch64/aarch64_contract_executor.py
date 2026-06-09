@@ -32,10 +32,23 @@ class SimArch(IntEnum):
 class SimVersion(IntEnum):
     VER_1    = 1
 
-class ContractType(IntEnum):
-    ALWAYS_MISPREDICT   = 0   # explore every mispredicted branch (default)
-    ARCH_ONLY           = 1   # follow architectural path, no speculation
-    BPU_NEOVERSE_N3     = 2   # mispredict when TAGE (Neoverse N3 model) disagrees
+class ExecutionClause(IntFlag):
+    """Composable execution clauses (a bitmask). seq == no clauses (SEQ == 0)."""
+    SEQ  = 0
+    COND = 1   # mispredict conditional branches
+    BPAS = 2   # speculative store bypass
+    BPU  = 4   # mispredict per an injected branch predictor
+
+
+# The only execution-clause combinations the CE supports. Arbitrary bitmask mixes are not
+# meaningful contracts (e.g. COND|BPU is two conflicting branch models) and are rejected.
+SUPPORTED_EXECUTION_CLAUSES = frozenset({
+    ExecutionClause.SEQ,
+    ExecutionClause.COND,
+    ExecutionClause.BPAS,
+    ExecutionClause.BPU,
+    ExecutionClause.COND | ExecutionClause.BPAS,   # cond-bpas
+})
 
 
 RVZR_MAGIC      = b"RVZR" # 0x525A5652u
@@ -60,7 +73,7 @@ class ContractExecution:
     req_mem_base_phys: Optional[int]    = None
     req_mem_base_virt: Optional[int]    = None
     version: SimVersion = SimVersion.VER_1
-    contract_type: ContractType = ContractType.ALWAYS_MISPREDICT
+    execution_clauses: ExecutionClause = ExecutionClause.COND
 
     def encode(self) -> bytes:
         """
@@ -113,7 +126,7 @@ class ContractExecution:
         data += (req_code_base_virt).to_bytes(8, 'little')
         data += (req_mem_base_phys).to_bytes(8, 'little')
         data += (req_mem_base_virt).to_bytes(8, 'little')
-        data += (int(self.contract_type)).to_bytes(8, 'little')
+        data += (int(self.execution_clauses)).to_bytes(8, 'little')
 
         data += code_size.to_bytes(8, 'little')
         data += mem_size.to_bytes(8, 'little')

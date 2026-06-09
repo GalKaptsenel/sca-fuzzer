@@ -1,178 +1,40 @@
 #include "simulation_execution_clause_hook.h"
 #include "simulation.h"
 #include "simulation_output.h"
-#include "tage_py.h"
+#include "execution_clauses.h"
 
-static inline bool get_bit(uint32_t val, int n) {
-	return (val >> n) & 1;
-}
-
-static bool condition_passed(uint32_t cond, uint32_t nzcv) {
-	bool N = get_bit(nzcv, 31);
-	bool Z = get_bit(nzcv, 30);
-	bool C = get_bit(nzcv, 29);
-	bool V = get_bit(nzcv, 28);
-
-	switch (cond) {
-		case 0x0: return Z;			// EQ
-		case 0x1: return !Z;			// NE
-		case 0x2: return C;			// CS\HS
-		case 0x3: return !C;			// CC\LO
-		case 0x4: return N;			// MI
-		case 0x5: return !N;			// PL
-		case 0x6: return V;			// VS
-		case 0x7: return !V;			// VC
-		case 0x8: return !Z && C;		// HI
-		case 0x9: return Z || !C;		// LS
-		case 0xA: return N == V;		// GE
-		case 0xB: return N != V;		// LT
-		case 0xC: return !Z && (N == V);	// GT
-		case 0xD: return Z || (N != V);		// LE
-		case 0xE: return true;			// AL (always taken)
-		case 0xF: return true;			// NV (always taken): According to "https://developer.arm.com/documentation/ddi0487/mb/-Part-J-Architectural-Pseudocode/-Chapter-J1-A-profile-Architecture-Pseudocode/-J1-4-Shared-pseudocode/-J1-4-508-ConditionHolds?lang=en#asl_func_conditionholds_1", the pseudo code confirms that NV behaves exactly as AL
-		default:  return false;			// invalid
-	}
-}
-
-static uintptr_t gpr_x(const struct cpu_state* state, uint64_t n) {
-	switch (n) {
-		case 0: return state->gprs.x0;
-		case 1: return state->gprs.x1;
-		case 2: return state->gprs.x2;
-		case 3: return state->gprs.x3;
-		case 4: return state->gprs.x4;
-		case 5: return state->gprs.x5;
-		case 6: return state->gprs.x6;
-		case 7: return state->gprs.x7;
-		case 8: return state->gprs.x8;
-		case 9: return state->gprs.x9;
-		case 10: return state->gprs.x10;
-		case 11: return state->gprs.x11;
-		case 12: return state->gprs.x12;
-		case 13: return state->gprs.x13;
-		case 14: return state->gprs.x14;
-		case 15: return state->gprs.x15;
-		case 16: return state->gprs.x16;
-		case 17: return state->gprs.x17;
-		case 18: return state->gprs.x18;
-		case 19: return state->gprs.x19;
-		case 20: return state->gprs.x20;
-		case 21: return state->gprs.x21;
-		case 22: return state->gprs.x22;
-		case 23: return state->gprs.x23;
-		case 24: return state->gprs.x24;
-		case 25: return state->gprs.x25;
-		case 26: return state->gprs.x26;
-		case 27: return state->gprs.x27;
-		case 28: return state->gprs.x28;
-		case 29: return state->gprs.x29;
-		case 30: return state->lr;
-		default:  return 0;			// invalid
-	}
-}
-
-static uintptr_t evaluate_cond_branch_bool(const struct cpu_state* state, bool req_direction) {
-	uintptr_t pc = state->pc;
-	uint32_t insn = *(uint32_t*)pc;
-	branch_type_t btype = classify_branch(insn);
-	uintptr_t target = evaluate_cond_target(pc, insn);
-
-	if(BRANCH_B_COND == btype) {
-		uint32_t cond = insn & 0xF;
-		bool arch_take = condition_passed(cond, state->nzcv) == req_direction;
-		return arch_take ? target : pc + 4;
-	}
-
-	if (BRANCH_CBZ == btype || BRANCH_CBNZ == btype) {
-		uint32_t Rt = insn & 0x1F;
-		uint32_t is_64bit = (insn >> 31) & 1;
-		uint64_t value = gpr_x(state, Rt);
-		value = is_64bit ? value : (uint32_t)value;
-		bool take = (0 == value) == (BRANCH_CBZ == btype);
-		bool arch_take = take == req_direction;
-		return arch_take ? target : pc + 4;
-	}
-
-	if (BRANCH_TBZ == btype || BRANCH_TBNZ == btype) {
-		uint32_t Rt     = insn & 0x1F;
-		uint32_t b5_msb = (insn >> 31) & 0x1;   // high bit of the 6-bit test-bit index
-		uint32_t b40    = (insn >> 19) & 0x1F;   // low 5 bits
-		uint32_t bit_num = (b5_msb << 5) | b40;  // full 6-bit test-bit index (0..63)
-		bool bit_set = (gpr_x(state, Rt) >> bit_num) & 1;
-		bool take = (0 == bit_set) == (BRANCH_TBZ == btype);
-		bool arch_take = take == req_direction;
-		return arch_take ? target : pc + 4;
-	}
-
-	// Not a conditional branch we recognize
-	return 0;
-}
-
-static uintptr_t cond_branch_architectural_next(const struct cpu_state* state) {
-	return evaluate_cond_branch_bool(state, true);
-}
-static uintptr_t cond_branch_mispredicted_next(const struct cpu_state* state) {
-	return evaluate_cond_branch_bool(state, false);
-}
+/* Generic speculation engine: a checkpoint/rollback stack + nesting counter. Per-instruction
+ * behavior lives in the execution clauses, dispatched via the registry. */
 
 static struct execution_mgmt mgmt = { 0 };
 static int initialized = 0;
-static int director_initialized = 0; // director lives for the full process lifetime
+static int clauses_inited = 0;
 
 static uint64_t take_checkpoint(struct simulation_state* sim_state) {
 	if(mgmt.current_checkpoint_id >= mgmt.max_checkpoints) {
-		__builtin_trap(); // sanity check
+		__builtin_trap();
 	}
 	mgmt.checkpoints_array[mgmt.current_checkpoint_id].cpu_state = sim_state->cpu_state;
 	void* checkpoint_memory = malloc(mgmt.memory_size);
 	if(NULL == checkpoint_memory) {
 		fprintf(stderr, "OUT OF MEMORY - Unable to allocate a new checkpoint!");
-		__builtin_trap(); // sanity check
+		__builtin_trap();
 	}
 	mgmt.checkpoints_array[mgmt.current_checkpoint_id].memory = checkpoint_memory;
 	memcpy(checkpoint_memory, sim_state->memory, mgmt.memory_size);
-	uint64_t checkpoint_id = mgmt.current_checkpoint_id;
-	++mgmt.current_checkpoint_id;
-	return checkpoint_id;
+	return mgmt.current_checkpoint_id++;
 }
 
 static void reload_checkpoint(struct simulation_state* sim_state, uint64_t checkpoint_id) {
 	if(checkpoint_id >= mgmt.max_checkpoints) {
-		__builtin_trap(); // sanity check
+		__builtin_trap();
 	}
-
 	sim_state->cpu_state = mgmt.checkpoints_array[checkpoint_id].cpu_state;
 	memcpy(sim_state->memory, mgmt.checkpoints_array[checkpoint_id].memory, mgmt.memory_size);
 }
 
-static void initialize_director() {
-	if(director_initialized) return;
-	if(0 != tagebp_init("src/aarch64/contract_executor", "bootstrap_director")) {
-		__builtin_trap(); // sanity check
-	}
-	director_initialized = 1;
-}
-
-static void destroy_director() {
-	/* Reset TAGE prediction tables in-place between test cases.
-	 * Calling reset() clears the LRU caches and PHR without recreating Python objects,
-	 * so the reference-cycle GC pause that plagued the old destroy+recreate approach
-	 * does not occur.  The Python instance itself lives for the full process lifetime. */
-	tagebp_reset();
-}
-
-static uintptr_t director_predict(uintptr_t pc) {
-	return tagebp_predict(pc);
-}
-
-static void director_update(uintptr_t pc, bool taken, uintptr_t target) {
-	tagebp_update(pc, taken, target);
-}
-
-static void destroy_execution_clause() {
-	// When adding support for call and ret, I should make this a hook, that catches RET + no calls inside stack + no speculation
+static void destroy_execution_clause(void) {
 	if(initialized) {
-		destroy_director();
 		for(size_t i = 0; i < mgmt.current_checkpoint_id; ++i) {
 			free(mgmt.checkpoints_array[i].memory);
 			mgmt.checkpoints_array[i].memory = NULL;
@@ -183,27 +45,83 @@ static void destroy_execution_clause() {
 	}
 }
 
-static void* early_decision(const struct cpu_state* state) {
-	const uintptr_t arch_taken_address = cond_branch_architectural_next(state);
-	uint64_t ct = simulation.sim_input.hdr.config.contract_type;
+uint64_t spec_nesting(void)     { return mgmt.current_nesting; }
+uint64_t spec_max_nesting(void) { return mgmt.max_nesting; }
+uint64_t spec_memory_size(void) { return mgmt.memory_size; }
 
-	if (ct == CONTRACT_ARCH_ONLY) {
-		return (void*)arch_taken_address;
+void spec_push_frame(struct simulation_state* sim_state, uintptr_t return_addr, uint64_t owner) {
+	mgmt.stack[mgmt.stack_top].nesting       = mgmt.current_nesting;
+	mgmt.stack[mgmt.stack_top].return_addr   = return_addr;
+	mgmt.stack[mgmt.stack_top].checkpoint_id = take_checkpoint(sim_state);
+	mgmt.stack[mgmt.stack_top].owner         = owner;
+	++mgmt.stack_top;
+	++mgmt.current_nesting;
+}
+
+static void init_clauses_once(void) {
+	if(clauses_inited) return;
+	int n = execution_clause_count();
+	for(int i = 0; i < n; ++i) {
+		const struct execution_clause_descriptor* ecd = execution_clause_at(i);
+		if(ecd->on_init) ecd->on_init((uint64_t)i);
+	}
+	clauses_inited = 1;
+}
+
+static void ensure_initialized(void) {
+	if(initialized) return;
+	mgmt.current_nesting = 0;
+	mgmt.max_nesting = simulation.sim_input.hdr.config.max_misspred_branch_nesting;
+	mgmt.stack_top = 0;
+	memset(mgmt.stack, 0, sizeof(mgmt.stack));
+	mgmt.max_checkpoints = 1024;
+	mgmt.current_checkpoint_id = 0;
+	mgmt.memory_size = simulation.sim_input.hdr.mem_size + 0x1000; // + overflow page
+	size_t checkpoints_array_size = mgmt.max_checkpoints * sizeof(struct execution_checkpoint);
+	mgmt.checkpoints_array = malloc(checkpoints_array_size);
+	if(NULL == mgmt.checkpoints_array) return;
+	memset(mgmt.checkpoints_array, 0, checkpoints_array_size);
+
+	uint64_t clauses = simulation.sim_input.hdr.config.execution_clauses;
+	if(!execution_clauses_supported(clauses)) {
+		fprintf(stderr, "Unsupported execution_clauses bitmask: 0x%lx\n", (unsigned long)clauses);
+		__builtin_trap();
 	}
 
-	if (ct == CONTRACT_BPU_NEOVERSE_N3) {
-		const uintptr_t target_address = evaluate_cond_target(state->pc, *(uint32_t*)state->pc);
-		const bool arch_taken = target_address == arch_taken_address;
-		const uintptr_t predicted = director_predict(state->pc);
-		director_update(state->pc, arch_taken, arch_taken_address);
-		if ((arch_taken && predicted) || (!arch_taken && !predicted)) {
-			return (void*)arch_taken_address;
-		}
+	int n = execution_clause_count();
+	for(int i = 0; i < n; ++i) {
+		const struct execution_clause_descriptor* ecd = execution_clause_at(i);
+		if((ecd->clause_bit & clauses) && ecd->on_reset) ecd->on_reset();
+	}
+	initialized = 1;
+}
+
+static void* handle_window_end(struct simulation_state* sim_state) {
+	if(0 == mgmt.current_nesting) {
+		destroy_execution_clause();
 		return NULL;
 	}
+	if(0 == mgmt.stack_top) __builtin_trap();
+	--mgmt.stack_top;
+	struct execution_checkpoint_desc* frame = &mgmt.stack[mgmt.stack_top];
+	mgmt.current_nesting = frame->nesting;
 
-	/* CONTRACT_ALWAYS_MISPREDICT (0) and any unknown value: always speculate */
-	return NULL;
+	const struct execution_clause_descriptor* ecd = execution_clause_at((int)frame->owner);
+	if(ecd->on_rollback) {
+		ecd->on_rollback(sim_state, frame);
+	} else {
+		reload_checkpoint(sim_state, frame->checkpoint_id);
+	}
+
+	/* Checkpoints are strictly LIFO with the frame stack, so the one being popped is the most
+	 * recent: free it and reuse the slot. This bounds total checkpoints by live nesting depth
+	 * (not by the number of speculative excursions). */
+	if(frame->checkpoint_id != mgmt.current_checkpoint_id - 1) __builtin_trap();
+	free(mgmt.checkpoints_array[frame->checkpoint_id].memory);
+	mgmt.checkpoints_array[frame->checkpoint_id].memory = NULL;
+	--mgmt.current_checkpoint_id;
+
+	return (void*)frame->return_addr;
 }
 
 void* log_instr_execution_cluase_hook(struct simulation_state* sim_state) {
@@ -214,71 +132,29 @@ void* log_instr_execution_cluase_hook(struct simulation_state* sim_state) {
 void* execution_clause_hook(struct simulation_state* sim_state) {
 	if(NULL == sim_state) return NULL;
 
-	if(!initialized) {
-		mgmt.current_nesting = 0;
-		mgmt.max_nesting = simulation.sim_input.hdr.config.max_misspred_branch_nesting;
-		mgmt.stack_top = 0;
-		memset(mgmt.stack, 0, sizeof(mgmt.stack));
-		mgmt.max_checkpoints = 1024;
-		mgmt.current_checkpoint_id = 0;
-		mgmt.memory_size = simulation.sim_input.hdr.mem_size + 0x1000; // Including the overflow page
-		size_t checkpoints_array_size = mgmt.max_checkpoints * sizeof(struct execution_checkpoint);
-		mgmt.checkpoints_array = malloc(checkpoints_array_size);
-		if(NULL == mgmt.checkpoints_array) return NULL;
-		memset(mgmt.checkpoints_array, 0, checkpoints_array_size);
-
-		/* TAGE director is only needed for the BPU-model contract. */
-		uint64_t ct = simulation.sim_input.hdr.config.contract_type;
-		if (ct == CONTRACT_BPU_NEOVERSE_N3) {
-			initialize_director();
-		}
-		initialized = 1;
-	}
+	init_clauses_once();
+	ensure_initialized();
+	if(!initialized) return NULL;
 
 	if(out_of_simulation(&sim_state->cpu_state)) {
-		if(0 == mgmt.current_nesting) {
-			destroy_execution_clause();
-			return NULL;
+		return handle_window_end(sim_state);
+	}
+
+	uint64_t clauses = simulation.sim_input.hdr.config.execution_clauses;
+	void* redirect = NULL;
+	int n = execution_clause_count();
+	for(int i = 0; i < n; ++i) {
+		const struct execution_clause_descriptor* ecd = execution_clause_at(i);
+		if(!(ecd->clause_bit & clauses)) continue;
+		void* r = ecd->on_instruction(sim_state);
+		if(NULL != r) {
+			if(NULL != redirect && redirect != r) __builtin_trap(); // clauses disagree on redirect
+			redirect = r;
 		}
-
-		if(0 == mgmt.stack_top) __builtin_trap(); // Should never happen
-		--mgmt.stack_top;
-		mgmt.current_nesting = mgmt.stack[mgmt.stack_top].nesting;
-		reload_checkpoint(sim_state, mgmt.stack[mgmt.stack_top].checkpoint_id);
-		return (void*)mgmt.stack[mgmt.stack_top].return_addr;
 	}
-
-	uint32_t branch_type = classify_branch(*(uint32_t*)sim_state->cpu_state.pc);
-	if(BRANCH_NONE == branch_type || BRANCH_B == branch_type || BRANCH_BL == branch_type || BRANCH_BLR == branch_type) return NULL;
-
-	if(mgmt.max_nesting <= mgmt.current_nesting) {
-		/* At or beyond max speculation depth: always take the architectural path.
-		 * When max_nesting=0, this handles the base case without trapping.
-		 * When already speculating at max depth, we continue on the arch path
-		 * rather than squashing to the parent checkpoint. */
-		return (void*)cond_branch_architectural_next(&sim_state->cpu_state);
-	}
-
-	void* skip_mispredict = early_decision(&sim_state->cpu_state);
-	if(NULL != skip_mispredict) {
-		return skip_mispredict;
-	}
-
-
-	mgmt.stack[mgmt.stack_top].nesting = mgmt.current_nesting;
-	++mgmt.current_nesting;
-	
-	uint64_t checkpoint_id = take_checkpoint(sim_state);
-	mgmt.stack[mgmt.stack_top].return_addr = cond_branch_architectural_next(&sim_state->cpu_state);
-	mgmt.stack[mgmt.stack_top].checkpoint_id = checkpoint_id;
-	mgmt.stack[mgmt.stack_top].reserved = 0;
-	++mgmt.stack_top;
-
-	return (void*)cond_branch_mispredicted_next(&sim_state->cpu_state);
+	return redirect;
 }
 
-/* Called from main.c after each simulation ends — frees checkpoint memory, resets
- * TAGE state, and clears initialized so the next test case starts fresh. */
 void reset_execution_clause_state(void) {
 	destroy_execution_clause();
 }
