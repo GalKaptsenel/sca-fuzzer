@@ -33,6 +33,8 @@ typedef struct executor_config {
 	long uarch_reset_rounds;
 	char enable_faulty_page;
 	char pre_run_flush;
+	char phr_flush;        /* independent: run flush_bpu_phr before the measured run */
+	char view_rotation;    /* independent: rotate measurement view (invalidate_bpu_entries) */
 	enum Templates measurement_template;
 	int pinned_cpu_id;
 	struct pac_keys pac_keys;

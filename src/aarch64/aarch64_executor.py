@@ -237,9 +237,16 @@ class Aarch64LocalExecutor(Aarch64Executor):
                 continue
             if not is_conditional_branch(ite.cpu.encoding):
                 continue
-            if i + 1 >= len(cer):
+            # arch direction from the next nest-0 entry: cer[i+1] may be a speculative
+            # (opposite-direction) entry at nesting>1, which would invert the training.
+            succ_pc = None
+            for j in range(i + 1, len(cer)):
+                if cer[j].metadata.speculation_nesting == 0:
+                    succ_pc = cer[j].cpu.pc
+                    break
+            if succ_pc is None:
                 continue
-            taken = (cer[i + 1].cpu.pc != ite.cpu.pc + 4)
+            taken = (succ_pc != ite.cpu.pc + 4)
             byte_offset = ite.cpu.pc - ce_code_base
             entries.append((byte_offset, not taken))  # opposite → guaranteed mispredict
         return entries
@@ -369,6 +376,13 @@ class Aarch64LocalExecutor(Aarch64Executor):
             rate = f" = {100 * avg_m / exp:.0f}% of expected" if exp > 0 else ""
             log.w(f"  input={idx} mispredicts: avg={avg_m:.2f}{rate}  reps={vals}",
                   ch="basic_hw")
+            # Speculative-execution view: pfc[0]=INST_RETIRED, pfc[1]=INST_SPEC; their
+            # difference = instructions executed speculatively but not retired (wrong-path).
+            pf = pfc_log[idx]
+            ret = sum(p[0] for p in pf) / len(pf)
+            spec = sum(p[1] for p in pf) / len(pf)
+            log.w(f"  input={idx} spec: retired={ret:.0f} inst_spec={spec:.0f} "
+                  f"wrongpath={spec - ret:.1f}", ch="basic_hw")
 
         results = []
         for idx in range(len(inputs)):

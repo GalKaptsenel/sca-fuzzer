@@ -117,17 +117,27 @@ static void local_icache_flush(unsigned long start, unsigned long end)
     asm volatile("dsb ish\n isb" : : : "memory");
 }
 
-/* Decode the signed word offset of an imm19-form conditional branch
- * (CBZ/CBNZ/B.cond).  Returns true and sets *doff when recognized. */
+/* Decode the signed word offset of a conditional branch (CBZ/CBNZ/B.cond imm19,
+ * TBZ/TBNZ imm14).  Returns true and sets *doff when recognized. */
 static bool branch_word_offset(uint32_t insn, int64_t *doff)
 {
     bool is_cbz_cbnz = (0x34000000u == (insn & 0x7E000000u));
     bool is_bcond    = (0x54000000u == (insn & 0xFF000010u));
-    if (!is_cbz_cbnz && !is_bcond) {
+    bool is_tbz_tbnz = (0x36000000u == (insn & 0x7E000000u));
+    if (!is_cbz_cbnz && !is_bcond && !is_tbz_tbnz) {
         return false;
     }
 
-    int32_t imm19 = (int32_t)((insn >> 5) & 0x7FFFFu);
+    if (is_tbz_tbnz) {                /* TBZ/TBNZ use a 14-bit imm at bits [18:5] */
+        int32_t imm14 = (int32_t)((insn >> 5) & 0x3FFFu);
+        if (imm14 & 0x2000) {         /* sign-extend bit 13 */
+            imm14 |= ~0x3FFF;
+        }
+        *doff = imm14;
+        return true;
+    }
+
+    int32_t imm19 = (int32_t)((insn >> 5) & 0x7FFFFu);  /* CBZ/CBNZ/B.cond: 19-bit imm */
     if (imm19 & 0x40000) {            /* sign-extend bit 18 */
         imm19 |= ~0x7FFFF;
     }

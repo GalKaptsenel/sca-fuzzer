@@ -24,12 +24,35 @@ static ssize_t print_code_base_show(struct kobject *kobj, struct kobj_attribute 
 static ssize_t enable_pre_run_flush_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
     unsigned int value = 0;
     sscanf(buf, "%u", &value);
+    /* legacy combined knob: drives BOTH independent knobs for back-compat */
     executor.config.pre_run_flush = (0 != value);
+    executor.config.phr_flush = (0 != value);
+    executor.config.view_rotation = (0 != value);
     return count;
 }
 
 static ssize_t enable_pre_run_flush_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
 	return sprintf(buf, "%d\n", executor.config.pre_run_flush);
+}
+
+static ssize_t enable_phr_flush_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
+    unsigned int value = 0;
+    sscanf(buf, "%u", &value);
+    executor.config.phr_flush = (0 != value);
+    return count;
+}
+static ssize_t enable_phr_flush_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+	return sprintf(buf, "%d\n", executor.config.phr_flush);
+}
+
+static ssize_t enable_view_rotation_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
+    unsigned int value = 0;
+    sscanf(buf, "%u", &value);
+    executor.config.view_rotation = (0 != value);
+    return count;
+}
+static ssize_t enable_view_rotation_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+	return sprintf(buf, "%d\n", executor.config.view_rotation);
 }
 
 static ssize_t measurement_mode_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
@@ -138,6 +161,8 @@ static struct kobj_attribute warmups_attribute = __ATTR(warmups, 0666, warmups_s
 static struct kobj_attribute print_sandbox_base_attribute = __ATTR(print_sandbox_base, 0444, print_sandbox_base_show, NULL);
 static struct kobj_attribute print_code_base_attribute = __ATTR(print_code_base, 0444, print_code_base_show, NULL);
 static struct kobj_attribute enable_pre_run_flush_attribute = __ATTR(enable_pre_run_flush, 0666, enable_pre_run_flush_show, enable_pre_run_flush_store);
+static struct kobj_attribute enable_phr_flush_attribute = __ATTR(enable_phr_flush, 0666, enable_phr_flush_show, enable_phr_flush_store);
+static struct kobj_attribute enable_view_rotation_attribute = __ATTR(enable_view_rotation, 0666, enable_view_rotation_show, enable_view_rotation_store);
 static struct kobj_attribute measurement_mode_attribute = __ATTR(measurement_mode, 0666, measurement_mode_show, measurement_mode_store);
 static struct kobj_attribute pin_to_core_attribute = __ATTR(pin_to_core, 0666, pin_to_core_show, pin_to_core_store);
 
@@ -170,6 +195,8 @@ static struct attribute *sysfs_attributes[] = {
 	&print_sandbox_base_attribute.attr,
 	&print_code_base_attribute.attr,
 	&enable_pre_run_flush_attribute.attr,
+	&enable_phr_flush_attribute.attr,
+	&enable_view_rotation_attribute.attr,
 	&measurement_mode_attribute.attr,
 	&pin_to_core_attribute.attr,
 	&branch_training_config_attribute.attr,

@@ -196,14 +196,17 @@ static void __nocfi run_experiments(void) {
 
 		void* measurement_code = executor.measurement_code_views[0];
 
-		if (executor.config.pre_run_flush) {
+		/* Three independent knobs (decoupled from the legacy pre_run_flush):
+		 *   view_rotation : serve the next view (invalidate_bpu_entries) -> tagged-table miss
+		 *   branch_training: re-apply the mistraining config
+		 *   phr_flush     : overwrite the branch-history register before the run */
+		if (executor.config.view_rotation) {
 			measurement_code = invalidate_bpu_entries();
 		}
-
 		if (executor.config.enable_branch_training) {
 			reapply_branch_training(measurement_code);
-			flush_bpu_phr();
-		} else if (executor.config.pre_run_flush) {
+		}
+		if (executor.config.phr_flush) {
 			flush_bpu_phr();
 		}
 		config_pfc();

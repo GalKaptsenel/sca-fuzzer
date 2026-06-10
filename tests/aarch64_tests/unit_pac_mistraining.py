@@ -144,6 +144,28 @@ class TestMistrainingEntries(unittest.TestCase):
         _, direction = entries[0]
         self.assertFalse(direction, "taken branch should train as not-taken")
 
+    def test_direction_from_arch_successor_not_speculative(self):
+        """Speculative (nest>0) entries right after the branch must not flip the
+        trained direction: direction comes from the next nest-0 successor."""
+        # arch NOT-taken (successor = PC+4) with a speculative "taken"-looking interleave
+        cer = [
+            _ite(BASE + 0,     _BCOND_ENC),                 # arch branch
+            _ite(BASE + 0x100, _NOP_ENC, nesting=1),        # wrong-path → looks taken
+            _ite(BASE + 0x104, _NOP_ENC, nesting=1),
+            _ite(BASE + 4,     _NOP_ENC),                   # arch successor = PC+4 → not-taken
+        ]
+        _, direction = self._run(cer)[0]
+        self.assertTrue(direction, "arch not-taken must train taken despite spec interleave")
+
+        # arch taken (successor != PC+4) with a speculative "not-taken"-looking interleave
+        cer = [
+            _ite(BASE + 0,     _BCOND_ENC),
+            _ite(BASE + 4,     _NOP_ENC, nesting=1),        # wrong-path fall-through → looks not-taken
+            _ite(BASE + 0x200, _NOP_ENC),                   # arch successor = jump → taken
+        ]
+        _, direction = self._run(cer)[0]
+        self.assertFalse(direction, "arch taken must train not-taken despite spec interleave")
+
     # -----------------------------------------------------------------------
     # Byte offset computation
     # -----------------------------------------------------------------------
