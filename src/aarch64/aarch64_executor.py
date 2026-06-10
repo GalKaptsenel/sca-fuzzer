@@ -227,10 +227,6 @@ class Aarch64LocalExecutor(Aarch64Executor):
         :param cer: ContractExecutionResult for the input, or None
         :return: list of (byte_offset, train_taken) entries; empty if no branches to train
         """
-        # Mistraining temporarily disabled: return [] so apply_branch_mistraining()
-        # clears training. Re-enable by removing this line.
-        return []
-
         if cer is None or len(cer) == 0:
             return []
 
