@@ -33,6 +33,7 @@ import unittest
 from typing import Dict, List, Optional
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")  # repo root: config.yml / base.json
 
 from src.config import CONF
 from src.isa_loader import InstructionSet
@@ -67,8 +68,8 @@ def setUpModule():
             "kernel module not loaded — run "
             "'sudo insmod revizor-executor.ko && sudo chmod 777 /dev/executor' "
             "to run these tests")
-    CONF.load("config.yml")
-    _ISA = InstructionSet("base.json", CONF.instruction_categories)
+    CONF.load(os.path.join(_ROOT, "config.yml"))
+    _ISA = InstructionSet(os.path.join(_ROOT, "base.json"), CONF.instruction_categories)
     _TMPDIR = tempfile.mkdtemp()
 
 

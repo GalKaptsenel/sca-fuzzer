@@ -14,6 +14,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")  # repo root: config.yml / base.json
 
 from src.config import CONF
 
@@ -31,7 +32,7 @@ def setUpModule():
     from src.aarch64.aarch64_kernel import LocalHWExecutor, PacKeys
     # Snapshot the CONF Borg so CONF.load() does not leak into other modules.
     _SAVED_CONF = copy.deepcopy(CONF._borg_shared_state)
-    CONF.load("config.yml")
+    CONF.load(os.path.join(_ROOT, "config.yml"))
     _executor = LocalHWExecutor('/dev/executor', '/sys/executor')
     keys = _executor.get_pac_keys()
     _executor.set_pac_keys(keys)

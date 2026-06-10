@@ -20,6 +20,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
+_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")  # repo root: config.yml / base.json
 
 _SYSFS = "/sys/executor"
 _MODULE_LOADED = os.path.exists(f"{_SYSFS}/print_code_base")
@@ -71,11 +72,11 @@ class PrintCodeBaseTest(unittest.TestCase):
     def test_self_check_passes_on_real_trace(self):
         """A real trace runs the kernel self-check; success ⇒ offset is correct."""
         from src.config import CONF
-        CONF.load("config.yml")
+        CONF.load(os.path.join(_ROOT, "config.yml"))
         from src.isa_loader import InstructionSet
         from src import factory
 
-        isa = InstructionSet("base.json", CONF.instruction_categories)
+        isa = InstructionSet(os.path.join(_ROOT, "base.json"), CONF.instruction_categories)
         gen = factory.get_program_generator(isa, CONF.program_generator_seed)
         ig = factory.get_input_generator(CONF.input_gen_seed)
         ex = factory.get_executor()

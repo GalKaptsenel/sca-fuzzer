@@ -11,6 +11,7 @@ import re
 import unittest
 
 import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
+_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")  # repo root: config.yml / base.json
 from src.config import CONF
 from src.isa_loader import InstructionSet
 from src.interfaces import OT
@@ -26,8 +27,8 @@ def setUpModule():
     # CONF is a Borg singleton; snapshot it so CONF.load() here does not leak
     # config into other test modules during a full run.
     _SAVED_CONF = copy.deepcopy(CONF._borg_shared_state)
-    CONF.load("config.yml")
-    isa = InstructionSet("base.json", CONF.instruction_categories)
+    CONF.load(os.path.join(_ROOT, "config.yml"))
+    isa = InstructionSet(os.path.join(_ROOT, "base.json"), CONF.instruction_categories)
     _PARSER = Aarch64AsmParser(Aarch64RandomGenerator(isa, 0))
 
 

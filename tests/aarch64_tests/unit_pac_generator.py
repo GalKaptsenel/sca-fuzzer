@@ -43,6 +43,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")  # repo root: config.yml / base.json
 
 from src.config import CONF
 from src.isa_loader import InstructionSet
@@ -87,8 +88,8 @@ def setUpModule():
         raise unittest.SkipTest("kernel module not loaded — /dev/executor missing")
     try:
         from src.aarch64.aarch64_kernel import LocalHWExecutor, PacKeys
-        CONF.load("config.yml")
-        _isa          = InstructionSet("base.json", CONF.instruction_categories)
+        CONF.load(os.path.join(_ROOT, "config.yml"))
+        _isa          = InstructionSet(os.path.join(_ROOT, "base.json"), CONF.instruction_categories)
         _target_desc  = Aarch64TargetDesc()
         _executor     = LocalHWExecutor('/dev/executor', '/sys/executor')
         # Fix PAC keys so _pac_sign (Python) and the CE both use the same key context.

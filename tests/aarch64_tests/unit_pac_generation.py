@@ -15,6 +15,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")  # repo root: config.yml / base.json
 
 from src.config import CONF
 from src.interfaces import OT, Instruction
@@ -29,8 +30,8 @@ _TMPDIR = None
 
 def setUpModule():
     global _ISA, _TMPDIR
-    CONF.load("config.yml")
-    _ISA = InstructionSet("base.json", CONF.instruction_categories)
+    CONF.load(os.path.join(_ROOT, "config.yml"))
+    _ISA = InstructionSet(os.path.join(_ROOT, "base.json"), CONF.instruction_categories)
     _TMPDIR = tempfile.mkdtemp()
 
 
