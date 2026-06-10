@@ -314,7 +314,9 @@ many variants of the program (e.g. different PAC signing slots); their htraces a
 ```
 
 **CE single-step loop.** The CE rewrites every test-case instruction into a `BL hook`
-trampoline, then walks them one at a time.
+trampoline, then walks them one at a time. At each *speculation point* — a conditional branch
+(mispredict) or, under the `bpas` clause, a store (bypass) — it checkpoints, explores the
+speculative path, and rolls back; the enabled execution clauses decide what counts as one (§3.1).
 
 ```
    +----------------------------------------------------+
@@ -382,9 +384,28 @@ runs them together over one instruction stream.
 **Per-instruction dispatch.** For each instruction the engine iterates the enabled clauses in
 registry order, calling `on_instruction(state)`; each may return a redirect PC or `NULL`. The
 rule: multiple clauses *may* return a redirect, but every non-`NULL` redirect must be the **same**
-address, else the engine hard-traps (it never assumes a clause returns `NULL`). **Registry order
-matters:** `bpas` is registered **before** `cond`/`bpu` (memory effects before control), so a
-branch nests *inside* a store-bypass window and checkpoints the stale memory.
+address, else the engine hard-traps (it never assumes a clause returns `NULL`).
+
+**Each fork is independent → 2ᴺ flows.** A store (bypass/apply) and a branch (mispredict/correct)
+are both 2-way speculation forks. Crucially, when a window ends the engine reverts the checkpoint
+and then **re-dispatches the clauses on the instruction it resumes into** — so a store or branch on
+an *architectural continuation* re-forks just like one on a speculative path. Thus N forks before a
+load produce up to 2ᴺ flows reaching it, and `max_misspred_branch_nesting` bounds how many forks may
+be open at once (so a flow that bypasses *k* stores needs depth *k*). Stores and branches are
+symmetric: the same program shape with N stores or N branches yields the identical fork tree. (If a
+resumed continuation is itself past the code end — e.g. a branch target beyond the program — the
+engine keeps unwinding the stack rather than ending the run with frames still pending.)
+
+**Why registry order matters.** The checkpoint stack is strictly **LIFO** — `handle_window_end`
+always pops the top frame and returns to *its* `return_addr`. When a store is followed by a
+branch, **both** clauses act on that branch instruction in one dispatch: `bpas` (phase B) pushes
+the **outer** store-bypass frame and installs the stale memory, then `cond`/`bpu` pushes the
+**inner** branch-mispredict frame and redirects. The branch window resolves first (the wrong path
+re-converges to the branch's architectural continuation), so by LIFO it must sit on top — i.e. be
+pushed **last**. Both frames are pushed in the same dispatch, in registry order, so `bpas` must be
+registered **before** `cond`/`bpu`. Reversed, the branch's wrong path would pop the bypass frame
+and "return" to the store's PC with the bypass snapshot — the wrong address and the wrong memory
+(this is what the `checkpoint_id == current_checkpoint_id - 1` LIFO assert guards).
 
 **The three clauses:**
 

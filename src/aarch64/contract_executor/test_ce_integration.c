@@ -1775,6 +1775,276 @@ static void test_integration_cond_nesting_cap(void) {
     }
 }
 
+/* ======================================================================== *
+ *  Combination / nesting-cap flows: each store and each branch is an
+ *  independent 2-way speculation fork, so N forks => up to 2^N flows, and
+ *  max_misspred_branch_nesting bounds how many can be active at once.
+ * ======================================================================== */
+
+static int saw_load_value(ce_result_t *res, uint64_t val) {
+    for (int i = 0; i < res->n_entries; ++i) {
+        instr_trace_entry_t *e = &res->entries[i];
+        if (e->metadata.has_memory_access && !e->metadata.memory_access.is_write
+            && e->metadata.memory_access.before == val) return 1;
+    }
+    return 0;
+}
+static int saw_spec_load_value(ce_result_t *res, uint64_t val) {
+    for (int i = 0; i < res->n_entries; ++i) {
+        instr_trace_entry_t *e = &res->entries[i];
+        if (e->metadata.has_memory_access && !e->metadata.memory_access.is_write
+            && e->metadata.speculation_nesting > 0
+            && e->metadata.memory_access.before == val) return 1;
+    }
+    return 0;
+}
+static uint64_t trace_max_nesting(ce_result_t *res) {
+    uint64_t m = 0;
+    for (int i = 0; i < res->n_entries; ++i)
+        if (res->entries[i].metadata.speculation_nesting > m)
+            m = res->entries[i].metadata.speculation_nesting;
+    return m;
+}
+static int count_loads(ce_result_t *res) {
+    int c = 0;
+    for (int i = 0; i < res->n_entries; ++i)
+        if (res->entries[i].metadata.has_memory_access && !res->entries[i].metadata.memory_access.is_write)
+            ++c;
+    return c;
+}
+
+#define ORIG  UINT64_C(0xA0A0A0A0A0A0A0A0)
+#define SV1   UINT64_C(0x1111111111111111)
+#define SV2   UINT64_C(0x2222222222222222)
+#define SV3   UINT64_C(0x3333333333333333)
+
+/* run a bpas/cond gadget at a given nesting cap; mem[0]=ORIG */
+static bool run_gadget(uint32_t *code, int nw, uint64_t cap, uint64_t clauses,
+                       uint64_t *regs, ce_result_t *res) {
+    uint8_t mem[MEM_SIZE]; memset(mem, 0, sizeof(mem));
+    memcpy(mem, &(uint64_t){ORIG}, 8);
+    return run_ce(code, nw, mem, sizeof(mem), KBASE, cap, clauses, regs, res);
+}
+
+/* ---- three stores, same address: full 2^N value set, bounded by the cap ---- */
+static void test_integration_bpas_three_stores_value_set(void) {
+    /* STR x0;STR x1;STR x2;LDR x3 (all [x29]).  The end load can read the value of the most
+     * recent NON-bypassed store, or ORIG if a suffix of stores is bypassed:
+     *   read SV3=none bypassed (nest0); SV2=bypass S3 (nest1); SV1=bypass S3,S2 (nest2);
+     *   ORIG=bypass S3,S2,S1 (nest3).  The cap limits how deep the suffix-bypass can go. */
+    uint32_t code[] = { enc_str_reg(0,29), enc_str_reg(1,29), enc_str_reg(2,29), enc_ldr_reg(3,29) };
+    uint64_t regs[REGS_COUNT]={0}; regs[0]=SV1; regs[1]=SV2; regs[2]=SV3;
+    ce_result_t r;
+
+    bool ok = run_gadget(code, 4, 3, EXEC_CLAUSE_BPAS, regs, &r);   /* cap 3: all four values */
+    EXPECT(ok);
+    if (ok) {
+        EXPECT(saw_load_value(&r, SV3)); EXPECT(saw_load_value(&r, SV2));
+        EXPECT(saw_load_value(&r, SV1)); EXPECT(saw_load_value(&r, ORIG));
+        EXPECT_EQ(trace_max_nesting(&r), (uint64_t)3);
+    }
+    ok = run_gadget(code, 4, 2, EXEC_CLAUSE_BPAS, regs, &r);        /* cap 2: ORIG unreachable */
+    EXPECT(ok);
+    if (ok) {
+        EXPECT(saw_load_value(&r, SV3)); EXPECT(saw_load_value(&r, SV2));
+        EXPECT(saw_load_value(&r, SV1)); EXPECT(!saw_load_value(&r, ORIG));
+        EXPECT_EQ(trace_max_nesting(&r), (uint64_t)2);
+    }
+    ok = run_gadget(code, 4, 1, EXEC_CLAUSE_BPAS, regs, &r);        /* cap 1: only SV3,SV2 */
+    EXPECT(ok);
+    if (ok) {
+        EXPECT(saw_load_value(&r, SV3)); EXPECT(saw_load_value(&r, SV2));
+        EXPECT(!saw_load_value(&r, SV1)); EXPECT(!saw_load_value(&r, ORIG));
+    }
+    ok = run_gadget(code, 4, 0, EXEC_CLAUSE_BPAS, regs, &r);        /* cap 0: architectural only */
+    EXPECT(ok);
+    if (ok) {
+        EXPECT(saw_load_value(&r, SV3)); EXPECT(!saw_load_value(&r, SV2));
+        EXPECT_EQ(trace_max_nesting(&r), (uint64_t)0);
+    }
+}
+
+/* ---- branch BEFORE three stores (cond|bpas) ---- */
+static void test_integration_cond_bpas_branch_before_stores(void) {
+    /* CBZ x3,+? ; STR;STR;STR ; LDR.  x3!=0 -> arch falls through to the stores; the stores fork
+     * (bypass/apply) on the architectural path, and the branch adds another fork. */
+    uint32_t code[] = { enc_cbz(3,+16), enc_str_reg(0,29), enc_str_reg(1,29), enc_str_reg(2,29),
+                        enc_ldr_reg(4,29) };
+    uint64_t regs[REGS_COUNT]={0}; regs[0]=SV1; regs[1]=SV2; regs[2]=SV3; regs[3]=1;
+    ce_result_t r;
+    bool ok = run_gadget(code, 5, 8, EXEC_CLAUSE_COND|EXEC_CLAUSE_BPAS, regs, &r);
+    EXPECT(ok);
+    if (ok) {
+        EXPECT(saw_spec_load_value(&r, ORIG));   /* a suffix-of-stores bypass reaches ORIG */
+        EXPECT(saw_load_value(&r, SV3));         /* architectural store value */
+        EXPECT(trace_max_nesting(&r) >= 3);      /* three stores can nest */
+    }
+    /* cap bounds the combined depth */
+    ok = run_gadget(code, 5, 1, EXEC_CLAUSE_COND|EXEC_CLAUSE_BPAS, regs, &r);
+    EXPECT(ok);
+    if (ok) EXPECT(trace_max_nesting(&r) <= 1);
+}
+
+/* ---- branch AFTER the stores, before the load ---- */
+static void test_integration_cond_bpas_branch_after_stores(void) {
+    /* STR;STR; CBZ x3,+4 ; LDR.  The branch sits between the stores and the load. */
+    uint32_t code[] = { enc_str_reg(0,29), enc_str_reg(1,29), enc_cbz(3,+8), enc_ldr_reg(4,29) };
+    uint64_t regs[REGS_COUNT]={0}; regs[0]=SV1; regs[1]=SV2; regs[3]=0;
+    ce_result_t r;
+    bool ok = run_gadget(code, 4, 8, EXEC_CLAUSE_COND|EXEC_CLAUSE_BPAS, regs, &r);
+    EXPECT(ok);
+    if (ok) {
+        EXPECT(saw_spec_load_value(&r, ORIG));   /* both stores bypassed */
+        EXPECT(saw_spec_load_value(&r, SV1));    /* only the 2nd store bypassed */
+        EXPECT(saw_load_value(&r, SV2));         /* architectural */
+    }
+}
+
+/* ---- branch in the MIDDLE of the stores ---- */
+static void test_integration_cond_bpas_branch_in_middle(void) {
+    /* STR x0 ; CBZ x3,+4 ; STR x1 ; LDR.  Branch interleaved between two stores. */
+    uint32_t code[] = { enc_str_reg(0,29), enc_cbz(3,+8), enc_str_reg(1,29), enc_ldr_reg(4,29) };
+    uint64_t regs[REGS_COUNT]={0}; regs[0]=SV1; regs[1]=SV2; regs[3]=1;   /* arch falls through */
+    ce_result_t r;
+    bool ok = run_gadget(code, 4, 8, EXEC_CLAUSE_COND|EXEC_CLAUSE_BPAS, regs, &r);
+    EXPECT(ok);
+    if (ok) {
+        EXPECT(saw_spec_load_value(&r, ORIG));   /* both stores bypassed somewhere */
+        EXPECT(saw_load_value(&r, SV2));         /* architectural: both applied */
+        EXPECT(trace_max_nesting(&r) >= 2);
+    }
+}
+
+/* ---- store THEN branch ---- */
+static void test_integration_cond_bpas_store_then_branch(void) {
+    /* STR x0 ; CBZ x3,+4 ; LDR.  Store immediately followed by a branch. */
+    uint32_t code[] = { enc_str_reg(0,29), enc_cbz(3,+8), enc_ldr_reg(4,29) };
+    uint64_t regs[REGS_COUNT]={0}; regs[0]=SV1; regs[3]=1;
+    ce_result_t r;
+    bool ok = run_gadget(code, 3, 8, EXEC_CLAUSE_COND|EXEC_CLAUSE_BPAS, regs, &r);
+    EXPECT(ok);
+    if (ok) {
+        EXPECT(saw_spec_load_value(&r, ORIG));   /* the store was bypassed */
+        EXPECT(saw_load_value(&r, SV1));         /* architectural store value */
+    }
+}
+
+/* ---- branch THEN store ---- */
+static void test_integration_cond_bpas_branch_then_store_flow(void) {
+    /* CBZ x3,+4 ; STR x0 ; LDR.  Branch immediately followed by a store. */
+    uint32_t code[] = { enc_cbz(3,+8), enc_str_reg(0,29), enc_ldr_reg(4,29) };
+    uint64_t regs[REGS_COUNT]={0}; regs[0]=SV1; regs[3]=1;   /* arch falls through to the store */
+    ce_result_t r;
+    bool ok = run_gadget(code, 3, 8, EXEC_CLAUSE_COND|EXEC_CLAUSE_BPAS, regs, &r);
+    EXPECT(ok);
+    if (ok) {
+        EXPECT(saw_spec_load_value(&r, ORIG));   /* store bypassed */
+        EXPECT(saw_load_value(&r, SV1));         /* architectural */
+    }
+}
+
+/* ---- two branches in the middle of two stores ---- */
+static void test_integration_cond_bpas_branches_in_middle(void) {
+    uint32_t code[] = { enc_str_reg(0,29), enc_cbz(3,+4), enc_cbz(4,+4),
+                        enc_str_reg(1,29), enc_ldr_reg(5,29) };
+    uint64_t regs[REGS_COUNT]={0}; regs[0]=SV1; regs[1]=SV2; regs[3]=1; regs[4]=1;
+    ce_result_t r;
+    bool ok = run_gadget(code, 5, 8, EXEC_CLAUSE_COND|EXEC_CLAUSE_BPAS, regs, &r);
+    EXPECT(ok);
+    if (ok) {
+        EXPECT(saw_load_value(&r, SV2));         /* architectural */
+        EXPECT(saw_spec_load_value(&r, ORIG));   /* both stores bypassed on some path */
+    }
+}
+
+/* ---- depth cap with only branches ---- */
+static void test_integration_cond_only_nesting_cap(void) {
+    /* three conditional branches: cap=3 reaches depth 3, cap=1 never exceeds 1, cap=0 no spec. */
+    uint32_t code[] = { enc_cbz(0,+4), enc_cbz(1,+4), enc_cbz(2,+4), enc_ldr_reg(3,29) };
+    uint64_t regs[REGS_COUNT]={0};   /* x0=x1=x2=0 */
+    ce_result_t r;
+    bool ok = run_gadget(code, 4, 3, EXEC_CLAUSE_COND, regs, &r);
+    EXPECT(ok); if (ok) EXPECT_EQ(trace_max_nesting(&r), (uint64_t)3);
+    ok = run_gadget(code, 4, 1, EXEC_CLAUSE_COND, regs, &r);
+    EXPECT(ok); if (ok) EXPECT(trace_max_nesting(&r) <= 1);
+    ok = run_gadget(code, 4, 0, EXEC_CLAUSE_COND, regs, &r);
+    EXPECT(ok); if (ok) EXPECT_EQ(trace_max_nesting(&r), (uint64_t)0);
+}
+
+/* ---- depth cap with interleaved stores and branches ---- */
+static void test_integration_cond_bpas_interleaved_nesting_cap(void) {
+    /* STR ; CBZ ; STR ; CBZ ; LDR — caps must bound the combined fork depth. */
+    uint32_t code[] = { enc_str_reg(0,29), enc_cbz(3,+4), enc_str_reg(1,29), enc_cbz(4,+4),
+                        enc_ldr_reg(5,29) };
+    uint64_t regs[REGS_COUNT]={0}; regs[0]=SV1; regs[1]=SV2; regs[3]=1; regs[4]=1;
+    ce_result_t r;
+    for (uint64_t cap = 0; cap <= 4; ++cap) {
+        bool ok = run_gadget(code, 5, cap, EXEC_CLAUSE_COND|EXEC_CLAUSE_BPAS, regs, &r);
+        EXPECT(ok);
+        if (ok) EXPECT(trace_max_nesting(&r) <= cap);   /* cap is always respected */
+    }
+}
+
+/* ---- a store fork and a branch fork are the SAME 2-way speculation (symmetry) ---- */
+static void test_integration_forks_store_vs_branch_symmetry(void) {
+    /* Three stores and three branches must reach the end load on the identical set of leaves:
+     * count = sum_{i=0}^{cap} C(3,i) = {1,4,7,8} for caps {0,1,2,3}.  Same engine, same shape. */
+    uint32_t stores[]   = { enc_str_reg(0,29), enc_str_reg(1,29), enc_str_reg(2,29), enc_ldr_reg(3,29) };
+    uint32_t branches[] = { enc_cbz(0,+4), enc_cbz(1,+4), enc_cbz(2,+4), enc_ldr_reg(3,29) };
+    uint64_t sregs[REGS_COUNT]={0}; sregs[0]=SV1; sregs[1]=SV2; sregs[2]=SV3;
+    uint64_t bregs[REGS_COUNT]={0};   /* x0=x1=x2=0 -> CBZ taken architecturally */
+    int expected[] = { 1, 4, 7, 8 };
+    for (uint64_t cap = 0; cap <= 3; ++cap) {
+        ce_result_t rs, rb;
+        bool oks = run_gadget(stores,   4, cap, EXEC_CLAUSE_BPAS, sregs, &rs);
+        bool okb = run_gadget(branches, 4, cap, EXEC_CLAUSE_COND, bregs, &rb);
+        EXPECT(oks); EXPECT(okb);
+        if (oks) EXPECT_EQ(count_loads(&rs), expected[cap]);   /* stores: 2^N leaves, cap-bounded */
+        if (okb) EXPECT_EQ(count_loads(&rb), expected[cap]);   /* branches: identical */
+    }
+}
+
+/* ---- a store-pair (STP) is ONE instruction => ONE fork covering both elements ---- */
+static void test_integration_bpas_store_pair_single_fork(void) {
+    /* STP x0,x1,[x29] ; LDR x2,[x29].  The pair bypasses as a unit, so the load forks to depth 1
+     * (not 2): it reads ORIG (pair bypassed) or SV1 (pair applied -> element 0 = x0). */
+    uint32_t code[] = { enc_stp(0,1,29), enc_ldr_reg(2,29) };
+    uint64_t regs[REGS_COUNT]={0}; regs[0]=SV1; regs[1]=SV2;
+    ce_result_t r;
+    bool ok = run_gadget(code, 2, 8, EXEC_CLAUSE_BPAS, regs, &r);
+    EXPECT(ok);
+    if (ok) {
+        EXPECT(saw_load_value(&r, ORIG));               /* pair bypassed */
+        EXPECT(saw_load_value(&r, SV1));                /* pair applied */
+        EXPECT_EQ(trace_max_nesting(&r), (uint64_t)1);  /* a pair is a SINGLE fork */
+    }
+}
+
+/* ---- registry order: a store-bypass window must ENCLOSE a following branch's window ---- */
+static void test_integration_cond_bpas_store_encloses_branch(void) {
+    /* STR x0 ; CBZ x3,+8 ; LDR x1.  On the CBZ (the instruction after the store) bpas is dispatched
+     * BEFORE cond, so the store-bypass window opens first (nest 1) and the branch forks INSIDE it
+     * (nest 2).  x3=0 => arch takes the branch and skips the load, so the load is reached only on
+     * the branch's speculative path, at nesting 2, where it must read the STALE (bypassed) memory.
+     * Reversing the order would nest the branch window OUTSIDE the store window and corrupt the
+     * LIFO checkpoint unwind (the engine would trap). */
+    uint32_t code[] = { enc_str_reg(0,29), enc_cbz(3,+8), enc_ldr_reg(1,29) };
+    uint64_t regs[REGS_COUNT]={0}; regs[0]=SV1; regs[3]=0;
+    ce_result_t r;
+    bool ok = run_gadget(code, 3, 8, EXEC_CLAUSE_COND|EXEC_CLAUSE_BPAS, regs, &r);
+    EXPECT(ok);   /* must not trap the LIFO checkpoint assertion */
+    if (ok) {
+        int found = 0;
+        for (int i = 0; i < r.n_entries; ++i) {
+            instr_trace_entry_t *e = &r.entries[i];
+            if (e->metadata.has_memory_access && !e->metadata.memory_access.is_write
+                && e->metadata.speculation_nesting == 2
+                && e->metadata.memory_access.before == ORIG) found = 1;
+        }
+        EXPECT(found);   /* branch (nest 2) nested inside the store-bypass window (nest 1) reads stale */
+    }
+}
+
 /* ---- BPU resolves its predictor from the input (not a hardcoded injection) ---- */
 static void test_integration_bpu_input_selected_predictor(void) {
     /* build_ce_input selects Neoverse-N3 for a BPU contract; the run must succeed, proving the
@@ -1840,6 +2110,18 @@ int main(void) {
     test_integration_bpas_consecutive_stores();
     test_integration_cond_bpas_composition();
     test_integration_cond_nesting_cap();
+    test_integration_bpas_three_stores_value_set();
+    test_integration_cond_bpas_branch_before_stores();
+    test_integration_cond_bpas_branch_after_stores();
+    test_integration_cond_bpas_branch_in_middle();
+    test_integration_cond_bpas_store_then_branch();
+    test_integration_cond_bpas_branch_then_store_flow();
+    test_integration_cond_bpas_branches_in_middle();
+    test_integration_cond_only_nesting_cap();
+    test_integration_cond_bpas_interleaved_nesting_cap();
+    test_integration_forks_store_vs_branch_symmetry();
+    test_integration_bpas_store_pair_single_fork();
+    test_integration_cond_bpas_store_encloses_branch();
     test_integration_unsupported_clauses_rejected();
     test_integration_bpu_input_selected_predictor();
     test_integration_bpu_without_predictor_traps();

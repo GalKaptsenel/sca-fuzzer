@@ -136,8 +136,14 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 	ensure_initialized();
 	if(!initialized) return NULL;
 
-	if(out_of_simulation(&sim_state->cpu_state)) {
-		return handle_window_end(sim_state);
+	/* End of a path: unwind checkpoints until we resume on an in-sim instruction, then fall
+	 * through and dispatch the clauses on it so an architectural continuation re-forks too. */
+	int rolled_back = 0;
+	while(out_of_simulation(&sim_state->cpu_state)) {
+		void* resume = handle_window_end(sim_state);
+		if(NULL == resume) return NULL;
+		sim_state->cpu_state.pc = (uintptr_t)resume;
+		rolled_back = 1;
 	}
 
 	uint64_t clauses = simulation.sim_input.hdr.config.execution_clauses;
@@ -152,6 +158,10 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 			redirect = r;
 		}
 	}
+	/* After a rollback the resume PC must be returned even when no clause forked, so the engine
+	 * continues on the architectural continuation rather than the (out-of-sim) end PC. In the
+	 * normal path this equals the default (state->pc), so returning NULL there is unchanged. */
+	if(rolled_back && NULL == redirect) return (void*)sim_state->cpu_state.pc;
 	return redirect;
 }
 
