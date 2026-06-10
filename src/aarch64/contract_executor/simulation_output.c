@@ -308,7 +308,11 @@ static instr_trace_entry_t* log_sim_state(struct simulation_state* sim_state) {
 	entry->metadata.has_memory_access = has_mem_access ? 1 : 0;
 
 	if(has_mem_access) {
-		assert((uintptr_t)-1 != entry->metadata.memory_access.effective_address && "Effective address should have been set by parse_memory_access_instruction function");
+		/* effective address must have been set by parse_memory_access_instruction (active check:
+		 * assert() is compiled out under -DNDEBUG from python3-config) */
+		if ((uintptr_t)-1 == entry->metadata.memory_access.effective_address) {
+			__builtin_trap();
+		}
 
 		void* uaddr = kaddr2uaddr((void*)entry->metadata.memory_access.effective_address);
 

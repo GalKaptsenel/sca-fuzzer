@@ -177,6 +177,7 @@ static size_t build_ce_input(
         uint64_t kbase_addr,
         uint64_t max_nesting,
         uint64_t contract,
+        uint64_t branch_predictor,
         const uint64_t *regs_override)
 {
     uint64_t regs[REGS_COUNT];
@@ -209,9 +210,7 @@ static size_t build_ce_input(
     hdr.config.max_misspred_branch_nesting = max_nesting;
     hdr.config.requested_mem_base_virt  = kbase_addr;
     hdr.config.execution_clauses            = contract;
-    /* mirror the Python mapping: a BPU contract selects the Neoverse-N3 predictor */
-    hdr.config.branch_predictor = (contract & EXEC_CLAUSE_BPU) ? BRANCH_PREDICTOR_NEOVERSE_N3
-                                                               : BRANCH_PREDICTOR_NONE;
+    hdr.config.branch_predictor             = branch_predictor;
     hdr.code_size  = (uint64_t)code_sz;
     hdr.mem_size   = (uint64_t)mem_sz;
     hdr.regs_size  = (uint64_t)regs_sz;
@@ -270,12 +269,13 @@ static bool parse_ce_output(int fd, ce_result_t *out) {
  * Fork + exec CE, pipe input/output, return parsed trace.
  * regs_override: optional 9-element array (X0..X5, NZCV, X7, X8); NULL = zeros.
  */
-static bool run_ce(
+static bool run_ce_full(
         const uint32_t *code, size_t n_words,
         const uint8_t  *mem,  size_t mem_sz,
         uint64_t kbase_addr,
         uint64_t max_nesting,
         uint64_t contract,
+        uint64_t branch_predictor,
         const uint64_t *regs_override,
         ce_result_t *result)
 {
@@ -284,7 +284,7 @@ static bool run_ce(
     size_t in_len = build_ce_input(in_buf, sizeof(in_buf),
                                    code, n_words, mem, mem_sz,
                                    kbase_addr, max_nesting, contract,
-                                   regs_override);
+                                   branch_predictor, regs_override);
     if (in_len == 0) return false;
 
     int to_ce[2], from_ce[2];
@@ -334,6 +334,22 @@ static bool run_ce(
     waitpid(pid, &status, 0);
 
     return ok;
+}
+
+/* Run, auto-selecting the predictor the way the Python mapping does (BPU => Neoverse-N3). */
+static bool run_ce(
+        const uint32_t *code, size_t n_words,
+        const uint8_t  *mem,  size_t mem_sz,
+        uint64_t kbase_addr,
+        uint64_t max_nesting,
+        uint64_t contract,
+        const uint64_t *regs_override,
+        ce_result_t *result)
+{
+    uint64_t bp = (contract & EXEC_CLAUSE_BPU) ? BRANCH_PREDICTOR_NEOVERSE_N3
+                                               : BRANCH_PREDICTOR_NONE;
+    return run_ce_full(code, n_words, mem, mem_sz, kbase_addr, max_nesting, contract, bp,
+                       regs_override, result);
 }
 
 /* Convenience: run with all-zero regs. */
@@ -1652,6 +1668,113 @@ static void test_integration_cond_bpas_composition(void) {
     }
 }
 
+/* ---- bpas with max_nesting=0 must gate the bypass off entirely (== seq) ---- */
+static void test_integration_bpas_max_nesting_zero(void) {
+    /* Phase A only fires when spec_nesting() < spec_max_nesting(); with the cap at 0 that is
+     * 0 < 0 == false, so no window ever opens. STR;LDR must then behave exactly like seq:
+     * the store executes and the load reads the NEW (forwarded) value — no stale spec read. */
+    uint32_t code[] = { enc_str_reg(0, 29), enc_ldr_reg(1, 29) };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t stale = UINT64_C(0xDEADDEADDEADDEAD);
+    memcpy(mem, &stale, 8);
+    uint64_t newv = UINT64_C(0xBEEFBEEFBEEFBEEF);
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[0] = newv;
+
+    ce_result_t res;
+    bool ok = run_ce(code, 2, mem, sizeof(mem), KBASE, 0, EXEC_CLAUSE_BPAS, regs, &res);
+    EXPECT(ok);
+    if (ok) {
+        EXPECT_EQ(count_mem_entries(&res), 2);   /* store + 1 load, no extra spec load */
+        for (int i = 0; i < count_mem_entries(&res); ++i) {
+            instr_trace_entry_t *e = find_mem_entry(&res, i);
+            if (e) EXPECT_EQ(e->metadata.speculation_nesting, (uint64_t)0);  /* never speculates */
+        }
+        instr_trace_entry_t *ld = find_mem_entry(&res, 1);
+        if (ld) EXPECT_EQ(ld->metadata.memory_access.before, newv);          /* arch store-forward */
+    }
+}
+
+/* ---- bpas with two consecutive stores to the same address: windows nest ---- */
+static void test_integration_bpas_consecutive_stores(void) {
+    /*
+     * STR X0,[X29] ; STR X1,[X29] ; LDR X2,[X29].  mem[0]=ORIG, X0=V1, X1=V2.
+     * store2's phase A snapshots AFTER store1's phase B already restored ORIG, so the second
+     * window's pre-image is ORIG. The two bypass windows therefore NEST (store2 inside store1),
+     * and the deepest speculative load reads the ORIGINAL pre-both value — proving "multiple
+     * stores" compose into nested bypasses rather than clobbering one snapshot.
+     */
+    uint32_t code[] = { enc_str_reg(0, 29), enc_str_reg(1, 29), enc_ldr_reg(2, 29) };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t orig = UINT64_C(0x0123456789ABCDEF);
+    memcpy(mem, &orig, 8);
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[0] = UINT64_C(0x1111111111111111);   /* V1 */
+    regs[1] = UINT64_C(0x2222222222222222);   /* V2 */
+
+    /* single-store baseline for the "more exploration" comparison */
+    uint32_t one[] = { enc_str_reg(0, 29), enc_ldr_reg(2, 29) };
+    ce_result_t one_res, res;
+    bool one_ok = run_ce(one, 2, mem, sizeof(mem), KBASE, 8, EXEC_CLAUSE_BPAS, regs, &one_res);
+    bool ok     = run_ce(code, 3, mem, sizeof(mem), KBASE, 8, EXEC_CLAUSE_BPAS, regs, &res);
+    EXPECT(one_ok); EXPECT(ok);
+    if (ok && one_ok) {
+        int saw_orig = 0; uint64_t max_nest = 0;
+        for (int i = 0; i < count_mem_entries(&res); ++i) {
+            instr_trace_entry_t *e = find_mem_entry(&res, i);
+            if (!e) continue;
+            if (e->metadata.speculation_nesting > max_nest)
+                max_nest = e->metadata.speculation_nesting;
+            if (!e->metadata.memory_access.is_write &&
+                e->metadata.speculation_nesting > 0 &&
+                e->metadata.memory_access.before == orig)
+                saw_orig = 1;
+        }
+        EXPECT(saw_orig);                 /* deepest window reads the original (both stores bypassed) */
+        EXPECT(max_nest >= 2);            /* the two store windows nested */
+        EXPECT(count_mem_entries(&res) > count_mem_entries(&one_res));  /* more than one store */
+    }
+}
+
+/* ---- cond max_nesting cap: depth 2 reachable at cap 2, never exceeds cap 1 ---- */
+static void test_integration_cond_nesting_cap(void) {
+    /*
+     * Two always-mispredicted branches stack: CBZ X0 forks (nest 1), and inside that window
+     * CBZ X1 forks again (nest 2). The cap (spec_nesting() < spec_max_nesting()) must bound this:
+     *   max_nesting=2 -> a load at nesting 2 exists; max_nesting=1 -> nothing exceeds nesting 1.
+     */
+    uint32_t code[] = {
+        enc_cbz(0, +8),              /* CBZ X0,+8 : arch taken, spec falls through */
+        enc_cbz(1, +8),              /* CBZ X1,+8 : second mispredict, deeper window */
+        enc_ldr_reg(2, 29),
+        enc_ldr_unsigned(3, 29, 8),
+    };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t regs[REGS_COUNT] = { 0 };   /* X0=X1=0 → both CBZ arch-taken, spec not-taken */
+
+    ce_result_t r2, r1;
+    bool ok2 = run_ce(code, 4, mem, sizeof(mem), KBASE, 2, EXEC_CLAUSE_COND, regs, &r2);
+    bool ok1 = run_ce(code, 4, mem, sizeof(mem), KBASE, 1, EXEC_CLAUSE_COND, regs, &r1);
+    EXPECT(ok2); EXPECT(ok1);
+    if (ok2) {
+        uint64_t mx = 0;
+        for (int i = 0; i < count_mem_entries(&r2); ++i) {
+            instr_trace_entry_t *e = find_mem_entry(&r2, i);
+            if (e && e->metadata.speculation_nesting > mx) mx = e->metadata.speculation_nesting;
+        }
+        EXPECT_EQ(mx, (uint64_t)2);   /* cap 2 reaches depth 2 */
+    }
+    if (ok1) {
+        for (int i = 0; i < count_mem_entries(&r1); ++i) {
+            instr_trace_entry_t *e = find_mem_entry(&r1, i);
+            if (e) EXPECT(e->metadata.speculation_nesting <= 1);   /* cap 1 never exceeds 1 */
+        }
+    }
+}
+
 /* ---- BPU resolves its predictor from the input (not a hardcoded injection) ---- */
 static void test_integration_bpu_input_selected_predictor(void) {
     /* build_ce_input selects Neoverse-N3 for a BPU contract; the run must succeed, proving the
@@ -1663,6 +1786,17 @@ static void test_integration_bpu_input_selected_predictor(void) {
     bool ok = run_ce_simple(code, 3, mem, sizeof(mem), KBASE, 4, EXEC_CLAUSE_BPU, &res);
     EXPECT(ok);
     if (ok) EXPECT(count_mem_entries(&res) >= 1);   /* at least the architectural load */
+}
+
+/* ---- BPU with no predictor selected is rejected by the CE ---- */
+static void test_integration_bpu_without_predictor_traps(void) {
+    uint32_t code[] = { enc_cbz(0, +8), enc_ldr_reg(1, 29), enc_ldr_unsigned(2, 29, 8) };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    ce_result_t res;
+    bool ok = run_ce_full(code, 3, mem, sizeof(mem), KBASE, 4,
+                          EXEC_CLAUSE_BPU, BRANCH_PREDICTOR_NONE, NULL, &res);
+    EXPECT(!ok);   /* CE traps: BPU enabled with no predictor */
 }
 
 int main(void) {
@@ -1702,9 +1836,13 @@ int main(void) {
     test_integration_bpas_trailing_store();
     test_integration_bpas_preserves_writeback();
     test_integration_bpas_store_pair();
+    test_integration_bpas_max_nesting_zero();
+    test_integration_bpas_consecutive_stores();
     test_integration_cond_bpas_composition();
+    test_integration_cond_nesting_cap();
     test_integration_unsupported_clauses_rejected();
     test_integration_bpu_input_selected_predictor();
+    test_integration_bpu_without_predictor_traps();
 
     // DISABLED — KNOWN BUG, UNDER INVESTIGATION: CE currently runs a real AUT*
     // through the kernel on a pointer that is not correctly signed. A failing AUT*
