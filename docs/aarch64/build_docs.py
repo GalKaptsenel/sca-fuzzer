@@ -76,7 +76,12 @@ def convert(md):
 
         # table (header row then |---| separator)
         if "|" in line and i + 1 < n and re.match(r"^\s*\|?\s*:?-{2,}", lines[i+1]) and "|" in lines[i+1]:
-            def cells(r): return [c.strip() for c in r.strip().strip("|").split("|")]
+            def cells(r):
+                r = r.strip()
+                if r.startswith("|"): r = r[1:]
+                if r.endswith("|") and not r.endswith("\\|"): r = r[:-1]
+                # split on unescaped pipes only, then unescape literal \| inside cells
+                return [c.strip().replace("\\|", "|") for c in re.split(r"(?<!\\)\|", r)]
             header = cells(line); i += 2
             rows = []
             while i < n and "|" in lines[i] and lines[i].strip():
@@ -95,20 +100,28 @@ def convert(md):
             out.append("<blockquote>" + _inline(" ".join(buf)) + "</blockquote>")
             continue
 
-        # lists (one nesting level via 2+ leading spaces)
+        # lists (one nesting level via 2+ leading spaces; wrapped continuation lines absorbed)
         if re.match(r"^\s*([-*]|\d+\.)\s+", line):
             tag = "ol" if re.match(r"^\s*\d+\.\s+", line) else "ul"
             buf = [f"<{tag}>"]; stack = [tag]
-            while i < n and re.match(r"^\s*([-*]|\d+\.)\s+", lines[i]):
+            while i < n:
                 lm = re.match(r"^(\s*)([-*]|\d+\.)\s+(.*)", lines[i])
+                if not lm:
+                    break
                 indent = len(lm.group(1))
                 if indent >= 2 and len(stack) == 1:
                     sub = "ol" if re.match(r"\d+\.", lm.group(2)) else "ul"
                     buf.append(f"<{sub}>"); stack.append(sub)
                 elif indent < 2 and len(stack) == 2:
                     buf.append(f"</{stack.pop()}>")
-                buf.append(f"<li>{_inline(lm.group(3))}</li>")
-                i += 1
+                item = lm.group(3); i += 1
+                # lazy continuation: fold wrapped (indented, marker-less) lines into this item
+                while i < n and lines[i].strip() \
+                        and not re.match(r"^\s*([-*]|\d+\.)\s+", lines[i]) \
+                        and not re.match(r"(#{1,6}\s|```|>)", lines[i]) \
+                        and not re.match(r"^(-{3,}|\*{3,})\s*$", lines[i]):
+                    item += " " + lines[i].strip(); i += 1
+                buf.append(f"<li>{_inline(item)}</li>")
             while stack: buf.append(f"</{stack.pop()}>")
             out.append("".join(buf)); continue
 
@@ -152,7 +165,7 @@ h2{font-size:1.5em;border-bottom:1px solid var(--border);padding-bottom:.3em;mar
 h3{font-size:1.2em;margin-top:1.5em;}
 code{background:var(--code);padding:.15em .4em;border-radius:6px;font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
 pre{background:var(--code);padding:14px 16px;border-radius:8px;overflow:auto;border:1px solid var(--border);}
-pre code{background:none;padding:0;font-size:12.5px;line-height:1.45;white-space:pre;}
+pre code{background:none;padding:0;font-size:12.5px;line-height:1.0;white-space:pre;}
 table{border-collapse:collapse;margin:1em 0;width:100%;font-size:14px;}
 th,td{border:1px solid var(--border);padding:6px 10px;text-align:left;vertical-align:top;}
 th{background:var(--code);}

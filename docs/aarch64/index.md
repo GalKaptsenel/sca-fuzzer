@@ -183,10 +183,17 @@ followed by `length` payload bytes; payloads begin with the magic `RVZR`.
 *Under the hood — message & request format:*
 
 - **Types:** `REQUEST = 1`, `RESPONSE = 2`.
-- A request carries a `configuration` (flags, `max_misspred_branch_nesting`, `contract_type`,
-  optional requested code/mem bases) plus optional **code**, **registers**, and **memory**
-  sections selected by `sim_flags` (`HAS_CODE` / `HAS_REGS` / `HAS_MEMORY`).
-- **`contract_type`:** `0` always-mispredict, `1` arch-only, `2` BPU Neoverse-N3 (TAGE model).
+- A request carries a `configuration` (flags, `max_misspred_branch_nesting`, `execution_clauses`,
+  `branch_predictor`, optional requested code/mem bases) plus optional **code**, **registers**,
+  and **memory** sections selected by `sim_flags` (`HAS_CODE` / `HAS_REGS` / `HAS_MEMORY`).
+- **`execution_clauses`:** a **bitmask** of independently-composable clauses —
+  `EXEC_CLAUSE_COND = 1` (conditional-branch misprediction), `EXEC_CLAUSE_BPAS = 2`
+  (speculative store bypass), `EXEC_CLAUSE_BPU = 4` (branch-predictor model). `0` = seq/arch-only.
+  Only an explicit allowlist is accepted (e.g. `COND`, `BPAS`, `COND|BPAS`); the CE traps on any
+  other combination (see §3.1).
+- **`branch_predictor`:** an enum selecting the model used when `EXEC_CLAUSE_BPU` is set —
+  `BRANCH_PREDICTOR_NONE = 0`, `BRANCH_PREDICTOR_NEOVERSE_N3 = 1` (TAGE). Chosen from the input,
+  not hardcoded; BPU with `NONE` traps.
 - The response carries the per-instruction trace (registers, PC, memory accesses, speculation
   nesting) the fuzzer turns into the ctrace.
 - *(maintainer note)* `max_misspred_instructions` and the physical base requests exist in the
@@ -358,6 +365,53 @@ lands somewhere in `main`+`faulty` (8 KB). Cache set = `(offset // 64) % 64`.
 # Part III — Subsystems in depth
 
 ## 3.1 Contract executor (CE)
+
+The CE produces a ctrace by *modelling* a test case's execution, including the speculation a
+contract permits. Its speculation engine is built so contracts are **composable**: a run enables
+a set of independent *execution clauses* (the `execution_clauses` bitmask, §2.1), and the engine
+runs them together over one instruction stream.
+
+**Three layers, mutually ignorant** (`src/aarch64/contract_executor/`):
+
+| Layer | Files | Responsibility |
+|---|---|---|
+| **Engine** | `simulation_execution_clause_hook.{c,h}` | Mechanism only: speculation nesting, the `max_misspred_branch_nesting` cap, a LIFO checkpoint stack, `spec_push_frame()` (stamps a frame with the clause that owns it), and `handle_window_end()` (routes a window's end to the owning clause's `on_rollback`, default = reload memory + registers). Knows nothing about branches, stores, or TAGE. |
+| **Execution clauses** | `execution_clauses.{c,h}` (registry + `execution_clauses_supported`), `execution_clause_{cond,bpu,bpas}.c`, `branch_speculation.{c,h}` | Each clause is a `struct execution_clause_descriptor { name; clause_bit; on_init; on_reset; on_instruction → redirect\|NULL; on_rollback; }`. Enabled per-run by its bit. |
+| **Branch predictor** (DI) | `branch_predictors.{c,h}`, `neoverse_n3_bpu.c` | `branch_predictor_by_id()` maps the input's `branch_predictor` enum to a `{init,reset,predict,update}` vtable. The BPU clause resolves it in `on_reset`; the engine references no predictor. |
+
+**Per-instruction dispatch.** For each instruction the engine iterates the enabled clauses in
+registry order, calling `on_instruction(state)`; each may return a redirect PC or `NULL`. The
+rule: multiple clauses *may* return a redirect, but every non-`NULL` redirect must be the **same**
+address, else the engine hard-traps (it never assumes a clause returns `NULL`). **Registry order
+matters:** `bpas` is registered **before** `cond`/`bpu` (memory effects before control), so a
+branch nests *inside* a store-bypass window and checkpoints the stale memory.
+
+**The three clauses:**
+
+- **`cond`** (always-mispredict): at a conditional branch, checkpoints the architectural
+  continuation and redirects to the mispredicted path; the engine reloads at the window's end.
+- **`bpu`**: like `cond`, but the branch's outcome is driven by the injected predictor model
+  (Neoverse-N3 TAGE), so only branches the model mispredicts fork.
+- **`bpas`** (speculative store bypass / Spectre-v4): **two-phase**. *Phase A* at a store —
+  snapshot the whole memory image, then let the model execute the store (register writeback
+  included). *Phase B* on the next instruction — push a frame checkpointing the **post-store**
+  state (so the store is never re-executed and rollback stays uniform), then restore the
+  pre-store snapshot so the speculative window reads the **stale** value. A whole-memory
+  snapshot makes `STR`/`STP`/writeback/atomics all uniform. Phase B is skipped if a rollback
+  changed the nesting depth since phase A (its snapshot would belong to a discarded context).
+
+**Supported combinations** are validated in **both** Python (`SUPPORTED_EXECUTION_CLAUSES`,
+`aarch64_contract_executor.py`) and C (`execution_clauses_supported` → trap): `seq` (empty),
+`cond`, `bpas`, `bpu`, and `cond|bpas`. Two branch models together (`cond|bpu`) are rejected.
+
+**Invariants (do not regress):** predictor init is **lazy** in `bpu_on_reset` (eager init breaks
+non-BPU runs); checkpoint slots are **reused** on rollback (LIFO free, else the 1024-slot cap
+traps in a loop with many windows); `is_conditional_branch` is defined by **inclusion**
+(`B.cond`/`CBZ`/`CBNZ`/`TBZ`/`TBNZ`); the `max_misspred_branch_nesting` cap gates **every** clause
+(`spec_nesting() < spec_max_nesting()`), so a cap of 0 disables speculation entirely. These are
+covered by `test_ce_integration.c` (`bpas_*`, `cond_*`, `unsupported_clauses_rejected`,
+`bpu_*`).
+
 ## 3.2 Mistraining
 ## 3.3 Instruction tagging
 ## 3.4 Data-structure reference
