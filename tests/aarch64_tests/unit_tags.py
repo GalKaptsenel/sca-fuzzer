@@ -7,6 +7,7 @@ Unit tests for arm_isa_parser.tags.get_tags:
 import unittest
 from types import SimpleNamespace as NS
 
+import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
 from src.aarch64.arm_isa_parser.tags import get_tags
 
 

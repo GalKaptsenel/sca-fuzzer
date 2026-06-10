@@ -10,6 +10,7 @@ import copy
 import re
 import unittest
 
+import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
 from src.config import CONF
 from src.isa_loader import InstructionSet
 from src.interfaces import OT

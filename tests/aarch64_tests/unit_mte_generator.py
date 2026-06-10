@@ -14,6 +14,7 @@ import copy
 import unittest
 from typing import Dict, List, Optional, Tuple
 
+import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
 from src.interfaces import (
     TestCase, Function, BasicBlock, Instruction, Actor, ActorMode, ActorPL,
     OT, RegisterOperand, MemoryOperand, ImmediateOperand,

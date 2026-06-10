@@ -5,6 +5,7 @@ import struct
 import unittest
 import numpy as np
 
+import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
 from src.aarch64.aarch64_input_layout import NZCVScheme, _reconstruct_pstate, _input_bytes_with_pstate
 from src.aarch64.aarch64_input_generator import AArch64InputGenerator
 from src.interfaces import Input

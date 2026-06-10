@@ -21,6 +21,7 @@ import os
 import types
 import unittest
 
+import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
 from src.aarch64.aarch64_executor import Aarch64LocalExecutor, is_conditional_branch
 
 _CODE_BASE_SYSFS = "/sys/executor/print_code_base"

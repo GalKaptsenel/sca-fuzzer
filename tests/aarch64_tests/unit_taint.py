@@ -8,6 +8,7 @@ from typing import List, Optional, Tuple, Dict
 from unittest.mock import patch
 import numpy as np
 
+import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
 from src.aarch64.aarch64_trace import _TaintTracker, compute_taint, compute_ctrace
 from src.aarch64.aarch64_input_layout import map_register_to_offsets
 

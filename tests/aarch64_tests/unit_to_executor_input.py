@@ -5,6 +5,7 @@ slot (per-flag -> PSTATE) and leave every other byte of the saved input intact.
 import struct
 import unittest
 
+import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
 from src.aarch64.debugging.to_executor_input import convert
 from src.aarch64.aarch64_input_layout import REGISTER_REGION_OFFSET
 
