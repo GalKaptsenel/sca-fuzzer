@@ -100,18 +100,18 @@ The `Valid in` column of the ioctl table below refers to these states.
 | `TRACED` | yes | yes | yes | Run done; per-input measurements readable. |
 
 ```
-   ┌───────────────┐                         ┌───────────────┐
-   │ CONFIGURATION │ ───── write test ─────► │  LOADED_TEST  │
-   │   (T0, I0)    │ ◄──── unload test ───── │   (T1, I0)    │
-   └───────────────┘                         └───────────────┘
-        │   ▲                                     │   ▲
-  write │   │ clear                         write │   │ clear
-  input │   │ inputs                        input │   │ inputs
-        ▼   │                                     ▼   │
-   ┌───────────────┐                         ┌───────────────┐     TRACE     ┌──────────────┐
-   │ LOADED_INPUTS │ ───── write test ─────► │     READY     │ ────────────► │    TRACED    │  ⟲ re-run
-   │   (T0, I1)    │ ◄──── unload test ───── │   (T1, I1)    │               │  (measured)  │
-   └───────────────┘                         └───────────────┘               └──────────────┘
+   +---------------+                         +---------------+
+   | CONFIGURATION | ----- write test -----> |  LOADED_TEST  |
+   |   (T0, I0)    | <---- unload test ----- |   (T1, I0)    |
+   +---------------+                         +---------------+
+        |   ^                                     |   ^
+  write |   | clear                         write |   | clear
+  input |   | inputs                        input |   | inputs
+        v   |                                     v   |
+   +---------------+                         +---------------+     TRACE     +--------------+
+   | LOADED_INPUTS | ----- write test -----> |     READY     | ------------> |    TRACED    |  re-run
+   |   (T0, I1)    | <---- unload test ----- |   (T1, I1)    |               |  (measured)  |
+   +---------------+                         +---------------+               +--------------+
 ```
 
 `T` = test loaded, `I` = inputs loaded (`1` = yes, `0` = no). From `TRACED`, *unload test* /
@@ -268,74 +268,74 @@ priming) that confirms a real violation.
 inputs; the model and the hardware each produce a trace, and inputs are grouped by ctrace.
 
 ```
-                       ┌───────────────────────┐
-                       │   test case (program) │
-                       └───────────┬───────────┘
-                                   │ boost → inputs i0…iN
-                   ┌───────────────┴───────────────┐
-            model  │                               │  hardware
-             (CE)  ▼                               ▼  (kernel)
-            ┌───────────────┐               ┌───────────────┐
-            │ ctrace(i0…iN) │               │ htrace(i0…iN) │
-            └───────┬───────┘               └───────┬───────┘
-                    └───────────────┬───────────────┘
-                                    ▼
+                       +-----------------------+
+                       |   test case (program) |
+                       +-----------+-----------+
+                                   | boost > inputs i0~iN
+                   +---------------+---------------+
+            model  |                               |  hardware
+             (CE)  v                               v  (kernel)
+            +---------------+               +---------------+
+            | ctrace(i0~iN) |               | htrace(i0~iN) |
+            +-------+-------+               +-------+-------+
+                    +---------------+---------------+
+                                    v
                          group inputs by ctrace
-                                    │
-                                    ▼
-            ┌───────────────────────────────────────────┐
-            │  same ctrace + different htrace ⇒ VIOLATION │
-            └───────────────────────────────────────────┘
+                                    |
+                                    v
+            +---------------------------------------------+
+            |  same ctrace + different htrace > VIOLATION |
+            +---------------------------------------------+
 ```
 
 **PAC / non-interference setup — one input, many sibling programs.** One input is run against
 many variants of the program (e.g. different PAC signing slots); their htraces are compared.
 
 ```
-                          ┌───────────┐
-                          │ one input │
-                          └─────┬─────┘
-              ┌─────────────────┼─────────────────┐
-              ▼                 ▼                 ▼
-        ┌───────────┐     ┌───────────┐     ┌───────────┐
-        │ program P0│     │ program P1│ ··· │ program PN│
-        └─────┬─────┘     └─────┬─────┘     └─────┬─────┘
-              │   (same code, different PAC slot / variant)
-              ▼                 ▼                 ▼
-        ┌───────────┐     ┌───────────┐     ┌───────────┐
-        │ htrace P0 │     │ htrace P1 │     │ htrace PN │
-        └─────┬─────┘     └─────┬─────┘     └─────┬─────┘
-              └─────────────────┼─────────────────┘
-                                ▼
-            ┌────────────────────────────────────────┐
-            │ htraces differ across variants          │
-            │              ⇒ PAC-related leak         │
-            └────────────────────────────────────────┘
+                          +-----------+
+                          | one input |
+                          +-----+-----+
+              +-----------------+-----------------+
+              v                 v                 v
+        +-----------+     +-----------+     +-----------+
+        | program P0|     | program P1| ... | program PN|
+        +-----+-----+     +-----+-----+     +-----+-----+
+              |   (same code, different PAC slot / variant)
+              v                 v                 v
+        +-----------+     +-----------+     +-----------+
+        | htrace P0 |     | htrace P1 |     | htrace PN |
+        +-----+-----+     +-----+-----+     +-----+-----+
+              +-----------------+-----------------+
+                                v
+            +----------------------------------------+
+            | htraces differ across variants          |
+            |              > PAC-related leak         |
+            +----------------------------------------+
 ```
 
 **CE single-step loop.** The CE rewrites every test-case instruction into a `BL hook`
 trampoline, then walks them one at a time.
 
 ```
-   ┌──────────────────────────────────────────────────┐
-   │  load TC: rewrite each instruction → "BL hook"     │
-   └─────────────────────────┬────────────────────────┘
-                             ▼
-              ┌────────────────────────────┐ ◄────────────────┐
-              │      next instruction i     │                  │
-              └─────────────┬──────────────┘                  │
-                            ▼                                  │
-   ┌──────────────────────────────────────────────────┐       │
-   │  BL hook → base_hook_c:                            │  repeat for
-   │    • emulate effect (regs / mem / flags, PAC/MTE)  │  every instruction
-   │    • record trace entry (regs, PC, EA, nesting)    │───────┘
-   │    • at a branch: optionally mispredict            │
-   │        (checkpoint → wrong path → roll back)       │
-   └─────────────────────────┬────────────────────────┘
-                             ▼  (program end)
-   ┌──────────────────────────────────────────────────┐
-   │       per-instruction trace  →  ctrace             │
-   └──────────────────────────────────────────────────┘
+   +----------------------------------------------------+
+   |  load TC: rewrite each instruction > "BL hook"     |
+   +--------------------------+-------------------------+
+                              v
+              +------------------------------+<---------------+
+              |     next instruction i       |                |
+              +---------------+--------------+                |
+                              v                               |
+   +----------------------------------------------------+     |
+   |  BL hook > base_hook_c:                            |     |  repeat for
+   |    * emulate effect (regs / mem / flags, PAC/MTE)  |     |  every instruction
+   |    * record trace entry (regs, PC, EA, nesting)    |-----+
+   |    * at a branch: optionally mispredict            |
+   |        (checkpoint > wrong path > roll back)       |
+   +--------------------------+-------------------------+
+                              v  (program end)
+   +----------------------------------------------------+
+   |    per-instruction trace  >  ctrace                |
+   +----------------------------------------------------+
 ```
 
 **Sandbox memory map.** A test case may only touch this fixed arena. During the run `x29`
@@ -344,21 +344,21 @@ lands somewhere in `main`+`faulty` (8 KB). Cache set = `(offset // 64) % 64`.
 
 ```
    low address
-   ╔═══════════════════════════════╗
-   ║  eviction_region     (32 KB)  ║   Prime+Probe fills this
-   ╠═══════════════════════════════╣
-   ║  lower_overflow      ( 4 KB)  ║   guard (zeroed)
-   ╠═══════════════════════════════╣
-   ║  main_region         ( 4 KB)  ║ ◄── x29   input page 0   (offset 0x000–0x0FFF)
-   ╠═══════════════════════════════╣
-   ║  faulty_region       ( 4 KB)  ║           input page 1   (offset 0x1000–0x1FFF)
-   ╠═══════════════════════════════╣
-   ║  upper_overflow      ( 4 KB)  ║   guard (zeroed)
-   ╠═══════════════════════════════╣
-   ║  stored_rsp          (  8 B)  ║   saved stack pointer
-   ╠═══════════════════════════════╣
-   ║  latest_measurement           ║   htrace + performance counters
-   ╚═══════════════════════════════╝
+   +-------------------------------+
+   |  eviction_region     (32 KB)  |   Prime+Probe fills this
+   +-------------------------------+
+   |  lower_overflow      ( 4 KB)  |   guard (zeroed)
+   +-------------------------------+
+   |  main_region         ( 4 KB)  | <-- x29   input page 0   (offset 0x000-0x0FFF)
+   +-------------------------------+
+   |  faulty_region       ( 4 KB)  |           input page 1   (offset 0x1000-0x1FFF)
+   +-------------------------------+
+   |  upper_overflow      ( 4 KB)  |   guard (zeroed)
+   +-------------------------------+
+   |  stored_rsp          (  8 B)  |   saved stack pointer
+   +-------------------------------+
+   |  latest_measurement           |   htrace + performance counters
+   +-------------------------------+
    high address
 ```
 
@@ -473,7 +473,7 @@ mispredicts naturally; a speculative load then touches a cache set the contract 
 Revizor reports as a violation.
 
 ```
-# Prime+Probe (preferred — more sensitive):
+# Prime+Probe (preferred - more sensitive):
 python revizor.py fuzz -s base.json -c configs/spectre_v1_pp.yml -n 200 -i 50 --save-violations true -w out_pp
 
 # Flush+Reload:
