@@ -16,7 +16,10 @@ Two checks (matching the design):
 """
 import copy
 import os
+import sys
 import unittest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
 
 _SYSFS = "/sys/executor"
 _MODULE_LOADED = os.path.exists(f"{_SYSFS}/print_code_base")
@@ -28,7 +31,6 @@ def setUpModule():
     # test_self_check_passes_on_real_trace does CONF.load(); snapshot the Borg
     # singleton so it does not leak config into other test modules.
     global _SAVED_CONF
-import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
     from src.config import CONF
     _SAVED_CONF = copy.deepcopy(CONF._borg_shared_state)
 
