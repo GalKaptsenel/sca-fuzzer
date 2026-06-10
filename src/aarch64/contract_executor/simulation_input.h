@@ -33,9 +33,15 @@ enum config_flags {
  * Each bit enables one execution clause (see execution_clauses.c). */
 #define EXEC_CLAUSE_COND  (1u << 0)  /* mispredict every conditional branch                     */
 #define EXEC_CLAUSE_BPAS  (1u << 1)  /* speculatively bypass stores (read stale memory)         */
-#define EXEC_CLAUSE_BPU   (1u << 2)  /* mispredict branches per an INJECTED branch predictor    */
-/* seq / arch-only == no clauses enabled (execution_clauses == 0).
- * The concrete predictor behind EXEC_CLAUSE_BPU is dependency-injected. */
+#define EXEC_CLAUSE_BPU   (1u << 2)  /* mispredict branches per the selected branch predictor   */
+/* seq / arch-only == no clauses enabled (execution_clauses == 0). */
+
+/* Branch predictor EXEC_CLAUSE_BPU uses, selected via the input (see branch_predictors.c).
+ * Extend by adding an enum value here + a registry entry. */
+enum branch_predictor_id {
+	BRANCH_PREDICTOR_NONE        = 0,
+	BRANCH_PREDICTOR_NEOVERSE_N3 = 1,
+};
 
 /* ============================
  * On-disk header format
@@ -55,6 +61,7 @@ struct configuration {
 	uint64_t requested_mem_base_phys; // NOT SUPPORTED
 	uint64_t requested_mem_base_virt;
 	uint64_t execution_clauses;        /* bitmask of EXEC_CLAUSE_*; 0 = seq (no speculation) */
+	uint64_t branch_predictor;         /* enum branch_predictor_id; used iff EXEC_CLAUSE_BPU */
 };
 
 struct input_header {
@@ -73,8 +80,8 @@ struct input_header {
 };
 
 /* Wire ABI must match the Python encoder (ContractExecution.encode). */
-_Static_assert(sizeof(struct configuration) == 8 * sizeof(uint64_t), "configuration ABI mismatch");
-_Static_assert(sizeof(struct input_header) == 112, "input_header ABI mismatch");
+_Static_assert(sizeof(struct configuration) == 9 * sizeof(uint64_t), "configuration ABI mismatch");
+_Static_assert(sizeof(struct input_header) == 120, "input_header ABI mismatch");
 
 /* ============================
  * In-memory representation

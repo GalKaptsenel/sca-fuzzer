@@ -27,6 +27,7 @@ SRCS = \
   execution_clause_cond.c \
   execution_clause_bpu.c \
   execution_clause_bpas.c \
+  branch_predictors.c \
   neoverse_n3_bpu.c \
   utils.c \
   pac_sign_plugin.c \
@@ -34,8 +35,14 @@ SRCS = \
   tage_py.c \
   main.c
 
-.PHONY: all clean
+.PHONY: all clean test
 all: contract_executor
+
+# Build + run both C test suites. The binaries resolve paths from their own location, so this
+# works from any cwd (no need to cd anywhere first).
+test: test_ce test_ce_integration contract_executor
+	./test_ce
+	./test_ce_integration
 
 # Target
 contract_executor: $(SRCS) $(HDRS)

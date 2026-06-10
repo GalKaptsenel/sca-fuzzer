@@ -51,6 +51,23 @@ SUPPORTED_EXECUTION_CLAUSES = frozenset({
 })
 
 
+class BranchPredictor(IntEnum):
+    """Predictor the BPU clause uses (selected via the input). Mirror of enum branch_predictor_id."""
+    NONE        = 0
+    NEOVERSE_N3 = 1
+
+
+# Maps an accepted contract_execution_clause string to (clause bit it sets, predictor it implies).
+EXECUTION_CLAUSE_MAP = {
+    "seq":                          (ExecutionClause.SEQ,  BranchPredictor.NONE),
+    "no_speculation":               (ExecutionClause.SEQ,  BranchPredictor.NONE),
+    "cond":                         (ExecutionClause.COND, BranchPredictor.NONE),
+    "conditional_br_misprediction": (ExecutionClause.COND, BranchPredictor.NONE),
+    "bpas":                         (ExecutionClause.BPAS, BranchPredictor.NONE),
+    "bpu_neoverse_n3":              (ExecutionClause.BPU,  BranchPredictor.NEOVERSE_N3),
+}
+
+
 RVZR_MAGIC      = b"RVZR" # 0x525A5652u
 
 # IPC message types exchanged with the CE over StreamIPC.
@@ -74,6 +91,7 @@ class ContractExecution:
     req_mem_base_virt: Optional[int]    = None
     version: SimVersion = SimVersion.VER_1
     execution_clauses: ExecutionClause = ExecutionClause.COND
+    branch_predictor: BranchPredictor = BranchPredictor.NONE
 
     def encode(self) -> bytes:
         """
@@ -127,6 +145,7 @@ class ContractExecution:
         data += (req_mem_base_phys).to_bytes(8, 'little')
         data += (req_mem_base_virt).to_bytes(8, 'little')
         data += (int(self.execution_clauses)).to_bytes(8, 'little')
+        data += (int(self.branch_predictor)).to_bytes(8, 'little')
 
         data += code_size.to_bytes(8, 'little')
         data += mem_size.to_bytes(8, 'little')

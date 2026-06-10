@@ -1,29 +1,21 @@
 #include "execution_clause_bpu.h"
 #include "branch_speculation.h"
+#include "branch_predictors.h"
 #include "instruction_encodings.h"   /* evaluate_cond_target */
 #include "simulation_input.h"        /* EXEC_CLAUSE_BPU */
+#include "simulation.h"              /* simulation.sim_input.hdr.config */
 
-/* Mispredict branches according to an injected predictor; the concrete model (e.g. Neoverse-N3)
- * is wired in at the composition root. No default — using the clause without a predictor traps. */
+/* Mispredict branches per the predictor selected by the input (config.branch_predictor).
+ * No default — an unknown/none selection on a BPU run traps. */
 static const struct branch_predictor* g_predictor = NULL;
 static uint64_t bpu_index;
-static int      predictor_inited = 0;
-
-void bpu_clause_set_predictor(const struct branch_predictor* predictor) {
-	g_predictor = predictor;
-}
 
 static void bpu_on_init(uint64_t index) { bpu_index = index; }
 
-/* Construct lazily and once (only reached when the BPU clause is enabled), then reset per run.
- * Eagerly constructing at injection would force the predictor's setup on every CE invocation,
- * including non-BPU ones. */
 static void bpu_on_reset(void) {
-	if (NULL == g_predictor) __builtin_trap();   // BPU enabled but no predictor injected
-	if (!predictor_inited) {
-		if (g_predictor->init) g_predictor->init();
-		predictor_inited = 1;
-	}
+	g_predictor = branch_predictor_by_id(simulation.sim_input.hdr.config.branch_predictor);
+	if (NULL == g_predictor) __builtin_trap();   // BPU enabled but no/unknown predictor selected
+	if (g_predictor->init)  g_predictor->init();  // idempotent (predictor self-guards)
 	if (g_predictor->reset) g_predictor->reset();
 }
 

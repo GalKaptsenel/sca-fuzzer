@@ -25,7 +25,8 @@ from .aarch64_target_desc import Aarch64TargetDesc
 from .aarch64_kernel import LocalHWExecutor, TestCaseRegion, InputRegion, ExecutorMemory
 from .aarch64_generator import Pass, Aarch64SandboxPass, PACInstrumentation, PACFixPoint, AUTH_SLOT_POS, MTEInstrumentation, MTEFixPoint, PACVariant, MTEVariant, _AUTH_TO_PAC
 from .aarch64_contract_executor import (ContractExecution, ContractExecutorService,
-                                        ExecutionClause, SUPPORTED_EXECUTION_CLAUSES, SimArch)
+                                        ExecutionClause, SUPPORTED_EXECUTION_CLAUSES,
+                                        BranchPredictor, EXECUTION_CLAUSE_MAP, SimArch)
 from .aarch64_disasm import disassemble_instruction, decode_reg_accesses, is_conditional_branch
 from .aarch64_trace import compute_ctrace, compute_taint, ContractExecutionResult
 from .aarch64_input_layout import _input_bytes_with_pstate, REGISTER_REGION_OFFSET
@@ -295,7 +296,8 @@ class Aarch64LocalExecutor(Aarch64Executor):
         return ConfigurableGenerator.in_memory_assemble(assembly), layout
 
     def _make_ce_execution(self, tc_bytes: bytes, inp: Input, sandbox_base: int, nesting: int,
-                           max_mispred_instructions: int, ct: ExecutionClause) -> ContractExecution:
+                           max_mispred_instructions: int, ct: ExecutionClause,
+                           bp: BranchPredictor = BranchPredictor.NONE) -> ContractExecution:
         tc_memory, tc_regs = _ce_memory_regs(inp)
         return ContractExecution(
             tc_bytes, tc_memory, tc_regs, SimArch.RVZR_ARCH_AARCH64,
@@ -303,6 +305,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
             max_mispred_instructions,  # unused by CE
             req_mem_base_virt=sandbox_base,
             execution_clauses=ct,
+            branch_predictor=bp,
         )
 
     def trace_test_case(self, inputs: List[Input], n_reps: int) -> Tuple[List[HTrace], List[TestCase]]:
@@ -398,19 +401,16 @@ class Aarch64LocalExecutor(Aarch64Executor):
 
         sandbox_base, _ = self.read_base_addresses()
 
-        clause = CONF.contract_execution_clause
         ct = ExecutionClause.SEQ
-        if not any(c in clause for c in ("seq", "no_speculation")):
-            if any(c in clause for c in ("cond", "conditional_br_misprediction")):
-                ct |= ExecutionClause.COND
-            if "bpas" in clause:
-                ct |= ExecutionClause.BPAS
-            if "bpu_neoverse_n3" in clause:
-                ct |= ExecutionClause.BPU
-            if ct == ExecutionClause.SEQ:        # non-seq clause with no recognized speculation
-                ct = ExecutionClause.COND
+        bp = BranchPredictor.NONE
+        for c in CONF.contract_execution_clause:
+            if c not in EXECUTION_CLAUSE_MAP:
+                raise ValueError(f"contract_execution_clause not supported on aarch64: {c!r}")
+            bit, bp = EXECUTION_CLAUSE_MAP[c]
+            ct |= bit
         if ct not in SUPPORTED_EXECUTION_CLAUSES:
-            raise ValueError(f"unsupported contract_execution_clause {list(clause)} -> {ct!r}; "
+            raise ValueError(f"unsupported execution-clause combination {ct!r} "
+                             f"from {list(CONF.contract_execution_clause)}; "
                              f"supported: {sorted(SUPPORTED_EXECUTION_CLAUSES)}")
         nesting_depth = 0 if ct == ExecutionClause.SEQ else CONF.model_max_nesting
 

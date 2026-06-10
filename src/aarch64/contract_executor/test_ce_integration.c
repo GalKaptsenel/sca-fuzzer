@@ -23,6 +23,8 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <inttypes.h>
+#include <libgen.h>
+#include <limits.h>
 
 #include "simulation_input.h"
 #include "simulation_output.h"
@@ -55,7 +57,17 @@ static int g_tests_failed = 0;
 
 /* ---- constants ---------------------------------------------------------- */
 
-#define CE_BINARY  "./contract_executor"
+/* Absolute path to contract_executor next to THIS test binary, so the test runs from any cwd. */
+static const char* ce_binary_path(void) {
+    static char path[PATH_MAX];
+    if (path[0]) return path;                       // cached
+    char exe[PATH_MAX];
+    ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+    if (n <= 0) { return "./contract_executor"; }   // fallback
+    exe[n] = '\0';
+    snprintf(path, sizeof(path), "%s/contract_executor", dirname(exe));
+    return path;
+}
 #define KBASE      UINT64_C(0xFFFF000080000000)
 #define MEM_SIZE   4096u
 #define REGS_COUNT 9u   /* X0..X5, NZCV(slot6), X7, X8 */
@@ -188,6 +200,9 @@ static size_t build_ce_input(
     hdr.config.max_misspred_branch_nesting = max_nesting;
     hdr.config.requested_mem_base_virt  = kbase_addr;
     hdr.config.execution_clauses            = contract;
+    /* mirror the Python mapping: a BPU contract selects the Neoverse-N3 predictor */
+    hdr.config.branch_predictor = (contract & EXEC_CLAUSE_BPU) ? BRANCH_PREDICTOR_NEOVERSE_N3
+                                                               : BRANCH_PREDICTOR_NONE;
     hdr.code_size  = (uint64_t)code_sz;
     hdr.mem_size   = (uint64_t)mem_sz;
     hdr.regs_size  = (uint64_t)regs_sz;
@@ -285,7 +300,7 @@ static bool run_ce(
         int devnull = open("/dev/null", O_WRONLY);
         if (devnull >= 0) dup2(devnull, STDERR_FILENO);
 
-        execl(CE_BINARY, CE_BINARY, NULL);
+        execl(ce_binary_path(), ce_binary_path(), NULL);
         _exit(127);
     }
 
@@ -1542,11 +1557,24 @@ static void test_integration_unsupported_clauses_rejected(void) {
     EXPECT(!ok);   /* CE traps on the unsupported bitmask */
 }
 
+/* ---- BPU resolves its predictor from the input (not a hardcoded injection) ---- */
+static void test_integration_bpu_input_selected_predictor(void) {
+    /* build_ce_input selects Neoverse-N3 for a BPU contract; the run must succeed, proving the
+     * predictor was resolved from the input. (BPU with no predictor would trap in the CE.) */
+    uint32_t code[] = { enc_cbz(0, +8), enc_ldr_reg(1, 29), enc_ldr_unsigned(2, 29, 8) };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    ce_result_t res;
+    bool ok = run_ce_simple(code, 3, mem, sizeof(mem), KBASE, 4, EXEC_CLAUSE_BPU, &res);
+    EXPECT(ok);
+    if (ok) EXPECT(count_mem_entries(&res) >= 1);   /* at least the architectural load */
+}
+
 int main(void) {
     printf("Running CE integration tests (fork+exec)...\n");
 
-    if (access(CE_BINARY, X_OK) != 0) {
-        fprintf(stderr, "SKIP: %s not found or not executable\n", CE_BINARY);
+    if (access(ce_binary_path(), X_OK) != 0) {
+        fprintf(stderr, "SKIP: %s not found or not executable\n", ce_binary_path());
         printf("\n0 tests, 0 failed (CE binary not found)\n");
         return 0;
     }
@@ -1578,6 +1606,7 @@ int main(void) {
     test_integration_bpas_store_bypass();
     test_integration_bpas_trailing_store();
     test_integration_unsupported_clauses_rejected();
+    test_integration_bpu_input_selected_predictor();
 
     // DISABLED — KNOWN BUG, UNDER INVESTIGATION: CE currently runs a real AUT*
     // through the kernel on a pointer that is not correctly signed. A failing AUT*

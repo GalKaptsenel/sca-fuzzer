@@ -522,12 +522,12 @@ static void test_payload_size(void) {
 /* ======================================================================== */
 
 static void test_struct_sizes(void) {
-    /* struct configuration: 8 fields × 8 bytes = 64 bytes */
-    EXPECT_EQ(sizeof(struct configuration), (size_t)64);
+    /* struct configuration: 9 fields × 8 bytes = 72 bytes */
+    EXPECT_EQ(sizeof(struct configuration), (size_t)72);
 
-    /* struct input_header: magic(4)+version(2)+arch(2)+flags(8)+config(64)
-     *   +code_size(8)+mem_size(8)+regs_size(8)+reserved(8) = 112 bytes */
-    EXPECT_EQ(sizeof(struct input_header), (size_t)112);
+    /* struct input_header: magic(4)+version(2)+arch(2)+flags(8)+config(72)
+     *   +code_size(8)+mem_size(8)+regs_size(8)+reserved(8) = 120 bytes */
+    EXPECT_EQ(sizeof(struct input_header), (size_t)120);
 
     /* input_header starts with magic at offset 0 */
     EXPECT_EQ(offsetof(struct input_header, magic), (size_t)0);

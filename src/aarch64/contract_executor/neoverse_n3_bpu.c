@@ -1,5 +1,8 @@
 #include "neoverse_n3_bpu.h"
 #include "tage_py.h"
+#include <unistd.h>
+#include <libgen.h>
+#include <limits.h>
 
 /* Neoverse-N3 branch predictor: a TAGE model implemented in Python (tage_py), exposed here
  * behind the generic branch_predictor interface so the BPU clause can be model-agnostic. */
@@ -8,7 +11,15 @@ static int n3_initialized = 0;
 
 static void neoverse_n3_init(void) {
 	if (n3_initialized) return;
-	if (0 != tagebp_init("src/aarch64/contract_executor", "bootstrap_director")) {
+	/* bootstrap_director.py sits next to the executable; resolve its dir from the binary's own
+	 * location so the CE works regardless of the current working directory. */
+	char exe[PATH_MAX];
+	ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+	if (n <= 0) {
+		__builtin_trap();
+	}
+	exe[n] = '\0';
+	if (0 != tagebp_init(dirname(exe), "bootstrap_director")) {
 		__builtin_trap(); // sanity check
 	}
 	n3_initialized = 1;
