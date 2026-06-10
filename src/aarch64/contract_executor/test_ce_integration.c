@@ -83,6 +83,15 @@ static uint32_t enc_ldr_reg(int rt, int rn) {
 static uint32_t enc_str_reg(int rt, int rn) {
     return 0xF9000000u | ((uint32_t)rn << 5) | (uint32_t)rt;
 }
+/* STR X<rt>, [X<rn>], #<imm9> — post-index, 64-bit (writes [Xn], then Xn += imm9) */
+static uint32_t enc_str_postidx(int rt, int rn, int imm9) {
+    uint32_t i = (uint32_t)(int32_t)imm9 & 0x1FF;
+    return 0xF8000400u | (i << 12) | ((uint32_t)rn << 5) | (uint32_t)rt;
+}
+/* STP X<rt>, X<rt2>, [X<rn>] — signed offset 0, 64-bit (writes two 8-byte elements) */
+static uint32_t enc_stp(int rt, int rt2, int rn) {
+    return 0xA9000000u | ((uint32_t)rt2 << 10) | ((uint32_t)rn << 5) | (uint32_t)rt;
+}
 /* LDR X<rt>, [X<rn>, #<off>] — unsigned offset, 64-bit; off must be mult of 8 */
 static uint32_t enc_ldr_unsigned(int rt, int rn, int off) {
     uint32_t pimm12 = (uint32_t)(off / 8);
@@ -1557,6 +1566,92 @@ static void test_integration_unsupported_clauses_rejected(void) {
     EXPECT(!ok);   /* CE traps on the unsupported bitmask */
 }
 
+/* ---- bpas preserves a store's register writeback while bypassing its memory write ---- */
+static void test_integration_bpas_preserves_writeback(void) {
+    /* STR X0,[X1],#8 bypassed: the memory write is undone, but the post-index writeback
+     * (X1 += 8) must persist (the HW applied it; only memory is restored). So the following
+     * load's EA is X1+8 even on the speculative (stale-memory) path. */
+    uint32_t code[] = { enc_str_postidx(0, 1, 8), enc_ldr_reg(2, 1) };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[1] = KBASE;                              /* X1 = base */
+    ce_result_t res;
+    bool ok = run_ce(code, 2, mem, sizeof(mem), KBASE, 8, EXEC_CLAUSE_BPAS, regs, &res);
+    EXPECT(ok);
+    if (ok) {
+        int saw_writeback = 0;
+        for (int i = 0; i < count_mem_entries(&res); ++i) {
+            instr_trace_entry_t *e = find_mem_entry(&res, i);
+            if (e && !e->metadata.memory_access.is_write &&
+                e->metadata.speculation_nesting > 0 &&
+                e->metadata.memory_access.effective_address == KBASE + 8) {
+                saw_writeback = 1;
+            }
+        }
+        EXPECT(saw_writeback);   /* would be KBASE (not +8) if writeback were lost */
+    }
+}
+
+/* ---- bpas bypasses a whole store-pair (both elements) ---- */
+static void test_integration_bpas_store_pair(void) {
+    /* STP X0,X1,[X29] bypassed: the whole-memory restore undoes BOTH elements, so loads from
+     * [X29] and [X29+8] read the stale values on the speculative path. */
+    uint32_t code[] = { enc_stp(0, 1, 29), enc_ldr_reg(2, 29), enc_ldr_unsigned(3, 29, 8) };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t stale0 = UINT64_C(0x1111111111111111), stale8 = UINT64_C(0x2222222222222222);
+    memcpy(mem, &stale0, 8);
+    memcpy(mem + 8, &stale8, 8);
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[0] = 0xAAAA;                             /* new values the STP would write */
+    regs[1] = 0xBBBB;
+    ce_result_t res;
+    bool ok = run_ce(code, 3, mem, sizeof(mem), KBASE, 8, EXEC_CLAUSE_BPAS, regs, &res);
+    EXPECT(ok);
+    if (ok) {
+        int saw0 = 0, saw8 = 0;
+        for (int i = 0; i < count_mem_entries(&res); ++i) {
+            instr_trace_entry_t *e = find_mem_entry(&res, i);
+            if (e && !e->metadata.memory_access.is_write && e->metadata.speculation_nesting > 0) {
+                if (e->metadata.memory_access.before == stale0) saw0 = 1;
+                if (e->metadata.memory_access.before == stale8) saw8 = 1;
+            }
+        }
+        EXPECT(saw0);   /* first element bypassed */
+        EXPECT(saw8);   /* second element bypassed too */
+    }
+}
+
+/* ---- cond-bpas composition: both store-bypass and branch-mispredict windows fire ---- */
+static void test_integration_cond_bpas_composition(void) {
+    /* A store followed by a conditional branch. Under cond-bpas the trace must be at least as
+     * large as either clause alone, and strictly larger than seq — i.e. both speculations run. */
+    uint32_t code[] = {
+        enc_str_reg(0, 29),          /* STR X0,[X29] */
+        enc_cbz(3, +8),              /* CBZ X3, +8   */
+        enc_ldr_reg(1, 29),          /* LDR X1,[X29] */
+        enc_ldr_unsigned(2, 29, 8),
+    };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t regs[REGS_COUNT] = { 0 };           /* X0=0 (store value), X3=0 (CBZ taken) */
+    ce_result_t seq_r, cond_r, bpas_r, both_r;
+    bool sq = run_ce(code, 4, mem, sizeof(mem), KBASE, 0, 0u, regs, &seq_r);
+    bool cd = run_ce(code, 4, mem, sizeof(mem), KBASE, 8, EXEC_CLAUSE_COND, regs, &cond_r);
+    bool bp = run_ce(code, 4, mem, sizeof(mem), KBASE, 8, EXEC_CLAUSE_BPAS, regs, &bpas_r);
+    bool bo = run_ce(code, 4, mem, sizeof(mem), KBASE, 8,
+                     EXEC_CLAUSE_COND | EXEC_CLAUSE_BPAS, regs, &both_r);
+    EXPECT(sq); EXPECT(cd); EXPECT(bp); EXPECT(bo);
+    if (sq && cd && bp && bo) {
+        int ns = count_mem_entries(&seq_r),  nc = count_mem_entries(&cond_r);
+        int nb = count_mem_entries(&bpas_r), nbo = count_mem_entries(&both_r);
+        EXPECT(nbo >= nc);   /* at least what cond explores */
+        EXPECT(nbo >= nb);   /* at least what bpas explores */
+        EXPECT(nbo > ns);    /* strictly more than no speculation */
+    }
+}
+
 /* ---- BPU resolves its predictor from the input (not a hardcoded injection) ---- */
 static void test_integration_bpu_input_selected_predictor(void) {
     /* build_ce_input selects Neoverse-N3 for a BPU contract; the run must succeed, proving the
@@ -1605,6 +1700,9 @@ int main(void) {
     test_integration_contract_type_comparison();
     test_integration_bpas_store_bypass();
     test_integration_bpas_trailing_store();
+    test_integration_bpas_preserves_writeback();
+    test_integration_bpas_store_pair();
+    test_integration_cond_bpas_composition();
     test_integration_unsupported_clauses_rejected();
     test_integration_bpu_input_selected_predictor();
 
