@@ -9,7 +9,6 @@ from typing import Dict, List
 from copy import deepcopy
 from .interfaces import OT, InstructionSetAbstract, OperandSpec, InstructionSpec
 from .config import CONF
-from .aarch64 import arm_isa_parser
 
 
 class InstructionSet(InstructionSetAbstract):
@@ -33,10 +32,6 @@ class InstructionSet(InstructionSetAbstract):
         self.dedup()
 
     def init_from_file(self, filename: str):
-        if CONF.instruction_set == "aarch64":
-            self.instructions = arm_isa_parser.load_json(filename)
-            return
-
         with open(filename, "r") as f:
             root = json.load(f)
         for instruction_node in root:
@@ -45,6 +40,10 @@ class InstructionSet(InstructionSetAbstract):
             instruction.category = instruction_node["category"]
             instruction.control_flow = instruction_node["control_flow"]
             instruction.template = instruction_node.get("template", None)
+            # tags default to the single category (x86 stores its tag there); optional alias constraints
+            instruction.tags = tuple(instruction_node.get("tags") or [instruction.category])
+            if "constraints" in instruction_node:
+                instruction.constraints = tuple(tuple(c) for c in instruction_node["constraints"])
 
             for op_node in instruction_node["operands"]:
                 op = self.parse_operand(op_node, instruction)
@@ -152,7 +151,7 @@ class InstructionSet(InstructionSetAbstract):
         # set parameters
         for inst in self.instructions:
             if inst.control_flow:
-                if "BASE-COND-BRANCH" in inst.tags:
+                if "BASE-BRANCH-COND" in inst.tags:
                     self.has_conditional_branch = True
                 else:
                     self.has_unconditional_branch = True

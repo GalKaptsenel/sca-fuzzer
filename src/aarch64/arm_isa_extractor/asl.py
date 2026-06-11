@@ -32,6 +32,10 @@ class AslSemantics:
 def _mem_access(asl: str) -> MemAccess:
     if "CreateAccDescAtomicOp" in asl or "MemAtomic" in asl:
         return MemAccess.RMW
+    if "MemCpyBytes" in asl:        # memory copy (MOPS): reads source and writes destination
+        return MemAccess.RMW
+    if "MemSetBytes" in asl:        # memory set (MOPS): writes destination
+        return MemAccess.STORE
     m = _ACCDESC_MEMOP.search(asl)
     if m is not None:
         kind, op = m.group(1).lower(), m.group(2).upper()

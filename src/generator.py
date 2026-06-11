@@ -413,7 +413,7 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
     def _rebuild_instruction_pools(self) -> None:
         super()._rebuild_instruction_pools()
         self.cond_branches = \
-            [i for i in self.control_flow_instructions if "BASE-COND-BRANCH" in i.tags]
+            [i for i in self.control_flow_instructions if "BASE-BRANCH-COND" in i.tags]
 
     def generate_function(self, label: str, owner: Actor, parent: TestCase):
         """ Generates a random DAG of basic blocks within a function """

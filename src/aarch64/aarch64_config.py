@@ -95,45 +95,25 @@ _option_values = {
         "randomized",
     ],
     'instruction_categories': [
-            "BASE-ARITH",
-            "BASE-LOGICAL",
-            "BASE-SHIFT",
-            "BASE-BITFIELD",
-            "BASE-BITCOUNT",
-            "BASE-CONDSEL",
-            "BASE-BRANCH",
-            "BASE-COND-BRANCH",
-            "BASE-UNCOND-BRANCH",
-            "BASE-MEMORY-LOAD",
-            "BASE-MEMORY-STORE",
-            "BASE-ATOMIC",
-            "BASE-EXCLUSIVE",
-            "BASE-ACQUIRE",
-            "BASE-CRC",
-            "BASE-MTE",
-            "BASE-PAC",
-            "BASE-COPY",
-            "BASE-SYSTEM",
-            "BASE-NZCV",
-            "BASE-MISC",
-            "SVE-ARITH",
-            "SVE-LOGICAL",
-            "SVE-MEMORY-LOAD",
-            "SVE-MEMORY-STORE",
-            "SVE-PREDICATE",
-            "SVE-MOVE",
-            "SVE-REDUCE",
-            "SVE-BITCOUNT",
-            "SVE-PERMUTE",
-            "SVE-COMPARE",
-            "SVE-MISC",
-            "SVE-NZCV",
-            "SVE2-ARITH",
-            "SVE2-CRYPTO",
-            "SVE2-BITMANIP",
-            "SVE2-HISTCNT",
-            "SVE2-MATCH",
-            "SVE2-MMLA",
+            # functional
+            "BASE-ARITH", "BASE-LOGICAL", "BASE-SHIFT", "BASE-BITFIELD", "BASE-BITCOUNT",
+            "BASE-BITBYTE", "BASE-CONDSEL", "BASE-FLAGOP", "BASE-CRC", "BASE-PAC", "BASE-MTE",
+            "BASE-MOVE", "BASE-NOP", "BASE-HINT", "BASE-SYSTEM", "BASE-BARRIER", "BASE-EXCEPTION",
+            "BASE-FPSIMD",
+            # memory (coarse + direction + kind) and prefetch
+            "BASE-MEM", "BASE-MEM-LOAD", "BASE-MEM-STORE", "BASE-MEM-ATOMIC", "BASE-MEM-EXCLUSIVE",
+            "BASE-MEM-ACQREL", "BASE-MEM-COPY", "BASE-MEM-SET", "BASE-PREFETCH",
+            # control flow
+            "BASE-BRANCH", "BASE-BRANCH-COND", "BASE-BRANCH-UNCOND", "BASE-BRANCH-CALL",
+            "BASE-BRANCH-RET", "BASE-BRANCH-INDIRECT",
+            # flags
+            "BASE-FLAGS", "BASE-FLAGS-WRITE", "BASE-FLAGS-READ",
+            # SVE / SVE2 / SME
+            "SVE", "SVE-ARITH", "SVE-LOGICAL", "SVE-COMPARE", "SVE-MOVE", "SVE-PERMUTE",
+            "SVE-PREDICATE", "SVE-REDUCE", "SVE-BITCOUNT", "SVE-MEM", "SVE-MEM-LOAD",
+            "SVE-MEM-STORE", "SVE-PREFETCH", "SVE-FLAGS", "SVE-FLAGS-WRITE", "SVE-FLAGS-READ",
+            "SVE2-ARITH", "SVE2-CRYPTO", "SVE2-BITMANIP", "SVE2-HISTCNT", "SVE2-MATCH", "SVE2-MMLA",
+            "SME", "SME-MEM", "SME-MEM-LOAD", "SME-MEM-STORE",
     ],
 }
 
@@ -148,7 +128,7 @@ _unsupported_options: List[str] = [
 executor: str = try_get_cpu_vendor()
 """ executor: the default executor depending on the current platform """
 
-instruction_categories: List[str] = ["BASE-ARITH", "BASE-LOGICAL", "BASE-COND-BRANCH"]
+instruction_categories: List[str] = ["BASE-ARITH", "BASE-LOGICAL", "BASE-BRANCH-COND"]
 """ instruction_categories: a default list of tested instruction categories """
 
 # Instructions known to misbehave under the executor; none identified for AArch64 yet.
