@@ -24,6 +24,7 @@ class _MA:
     effective_address: int
     element_size: int
     is_write: bool
+    is_atomic: bool = False
 
 
 @dataclass
@@ -31,6 +32,13 @@ class _Meta:
     speculation_nesting: int
     has_memory_access: bool = False
     memory_access: Optional[_MA] = None
+    is_pair: bool = False
+    memory_access2: Optional[_MA] = None
+
+    def accesses(self):
+        if not self.has_memory_access:
+            return []
+        return [self.memory_access, self.memory_access2] if self.is_pair else [self.memory_access]
 
 
 @dataclass

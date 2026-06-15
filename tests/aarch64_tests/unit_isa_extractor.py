@@ -18,6 +18,7 @@ from src.aarch64.arm_isa_extractor.models import (
 from src.aarch64.arm_isa_extractor.asl import AslSemantics
 from src.aarch64.arm_isa_extractor.operands import (
     _register_range, _enumerated, _enum_value, build_operands, _writeback_targets, _composite_pair,
+    _tokens,
 )
 from src.aarch64.arm_isa_extractor.constraints import unpredictable_constraints
 from src.aarch64.arm_isa_extractor.extract import _COMMENT
@@ -166,6 +167,36 @@ class TestImmediate(unittest.TestCase):
                           '<row><entry class="symbol">LSL</entry></row>'
                           '<row><entry class="symbol">SXTW</entry></row></table></definition>')
         self.assertEqual(_enumerated("<extend>", d).kind, OperandKind.EXTEND)
+
+
+class TestTokens(unittest.TestCase):
+    """`_tokens` numbers only STANDALONE `[...]` (memory addresses) as memory brackets; a `[...]`
+    attached to the register it indexes (lane/element/tile index) is not a memory bracket (-> 0)."""
+
+    def _brackets(self, asm):
+        return {sym: br for sym, br in _tokens(asm)}
+
+    def test_standalone_memory_bracket(self):
+        self.assertEqual(self._brackets("LDR <Wt>, [<Xn|SP>]"), {"<Wt>": 0, "<Xn|SP>": 1})
+
+    def test_first_operand_memory_bracket(self):
+        # MOPS SET: the memory bracket is the FIRST operand (after the mnemonic gap, not a comma)
+        self.assertEqual(self._brackets("SETGP [<Xd>]!, <Xn>!, <Xs>"),
+                         {"<Xd>": 1, "<Xn>": 0, "<Xs>": 0})
+
+    def test_two_memory_brackets_numbered_apart(self):
+        self.assertEqual(self._brackets("CPYFP [<Xd>]!, [<Xs>]!, <Xn>!"),
+                         {"<Xd>": 1, "<Xs>": 2, "<Xn>": 0})
+
+    def test_lane_index_bracket_is_not_memory(self):
+        # `<Vt>.D[<index>]` : the `[index]` abuts the register element -> not a memory bracket
+        self.assertEqual(self._brackets("LD1 { <Vt>.D }[<index>], [<Xn|SP>]"),
+                         {"<Vt>": 0, "<index>": 0, "<Xn|SP>": 1})
+
+    def test_tile_index_bracket_is_not_memory(self):
+        # SME `ZA[<Wv>, <offs>]` abuts `ZA` -> tile index, not memory; only `[<Xn|SP>]` is memory
+        self.assertEqual(self._brackets("LDR ZA[<Wv>, <offs>], [<Xn|SP>]"),
+                         {"<Wv>": 0, "<offs>": 0, "<Xn|SP>": 1})
 
 
 class TestMemoryOperands(unittest.TestCase):
@@ -400,6 +431,14 @@ class TestEnumValueFiltering(unittest.TestCase):
                           '<row><entry class="symbol">#270</entry></row>'
                           '<row><entry class="symbol">RESERVED</entry></row></table></definition>')
         self.assertEqual(_enumerated("<const>", d).values, ("90", "270"))
+
+    def test_enumerated_splits_display_alias_symbols(self):
+        # a cell listing display aliases of one encoding (e.g. an extend `LSL|UXTX`) yields both
+        d = ET.fromstring('<definition><table>'
+                          '<row><entry class="symbol">UXTW</entry></row>'
+                          '<row><entry class="symbol">LSL|UXTX</entry></row>'
+                          '<row><entry class="symbol">SXTX</entry></row></table></definition>')
+        self.assertEqual(_enumerated("<extend>", d).values, ("uxtw", "lsl", "uxtx", "sxtx"))
 
 
 class TestValidation(unittest.TestCase):

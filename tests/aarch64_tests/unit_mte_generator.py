@@ -24,6 +24,7 @@ from src.aarch64.aarch64_generator import (
     _SandboxInstrumentationBase,
     MTE_SLOT_SIZE,
 )
+from src.aarch64.aarch64_target_desc import AArch64MemRole
 
 
 # ===========================================================================
@@ -51,7 +52,9 @@ _MTE_INST = _MTE()  # shared stateless instance
 
 
 def _mem_base(reg: str) -> MemoryOperand:
-    return MemoryOperand(reg, 64, src=True, dest=False)
+    base = RegisterOperand(reg, 64, src=True, dest=False)
+    base.mem_role = AArch64MemRole.BASE
+    return MemoryOperand(reg, 64, src=True, dest=False, inner=[base])
 
 def _reg_dest(reg: str) -> RegisterOperand:
     return RegisterOperand(reg, 64, src=False, dest=True)
