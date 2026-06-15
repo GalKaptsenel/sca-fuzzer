@@ -13,6 +13,7 @@ import re
 from typing import List, Tuple, Optional, Set
 from subprocess import CalledProcessError, run, Popen, PIPE
 from copy import deepcopy
+from itertools import chain
 
 from .isa_loader import InstructionSet
 from .interfaces import Generator, TestCase, Operand, RegisterOperand, FlagsOperand, \
@@ -351,6 +352,7 @@ class ConfigurableGenerator(Generator, abc.ABC):
         }
         op = generators[spec.type](spec, parent)
         op.name = spec.name
+        op.mem_role = spec.mem_role   # addressing role (base/index/offset/extend/none) for the sandbox
         return op
 
     @abc.abstractmethod
@@ -482,7 +484,8 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
         elif reg_type == "simd":  # deprecated?
             choices = self.target_desc.simd_registers[spec.width]
         else:
-            choices = [s for s in spec.values if s in chain.from_iterable(Aarch64TargetDesc.registers.values())]
+            choices = [s for s in spec.values
+                       if s in chain.from_iterable(self.target_desc.registers.values())]
 
         reg = random.choice(choices)
         return RegisterOperand(reg, spec.width, spec.src, spec.dest)

@@ -102,6 +102,11 @@ class Conf:
     """ instruction_set: ISA under test """
     instruction_categories: List[str] = []
     """ instruction_categories: list of instruction categories to use for generating programs """
+    avoid_extended_memory_operands: bool = False
+    """ avoid_extended_memory_operands: [AArch64] when True, skip memory-access instruction forms
+    whose address has an extended-register index (UXTW/SXTW/SXTX/UXTX), keeping only base /
+    base+immediate / plain (LSL) register-offset forms. Experimental knob for isolating whether
+    extended-register addressing affects Spectre-v1 gadget detectability. """
     instruction_allowlist: List[str] = []
     """ instruction_allowlist: list of instructions to use for generating programs;
     combined with instruction_categories; has priority over instruction_blocklist.
@@ -200,6 +205,20 @@ class Conf:
     enable_pre_run_flush: bool = True
     """ enable_pre_run_flush: when enabled, the executor rotates the per-input view
     and flushes the PHR before each measurement run; when disabled, neither. """
+    enable_branch_mistraining: bool = False
+    """ enable_branch_mistraining: when enabled, before measuring an input the executor
+    saturates each of its architectural conditional branches (taken directions read from the
+    input's CE arch trace) in the OPPOSITE direction, so the first hardware run is guaranteed
+    to mispredict that branch and open a speculative window — the intended way to reliably
+    trigger Spectre-style leaks instead of relying on natural misprediction.
+
+    WARNING - WORK IN PROGRESS, KEEP DISABLED: in its current state the applied training, for a
+    reason not yet understood, ends up saturating the branch toward its ARCHITECTURAL (taken)
+    direction rather than the opposite. That is the exact inverse of the goal: instead of forcing
+    a misprediction it makes the branch predict correctly, which SUPPRESSES the speculative window
+    and hides Spectre-v1 violations that natural misprediction (enable_pre_run_flush: 0) would
+    otherwise expose. Leave this off until the training direction is fixed and verified on
+    hardware to actually induce (not suppress) misprediction. """
 
     # ==============================================================================================
     # Analyser

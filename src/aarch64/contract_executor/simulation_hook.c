@@ -30,6 +30,10 @@ void ce_debug_print_last_sim_state(FILE *out) {
 typedef struct {
 	void *addr;        // Address of the instruction (kept for debugging)
 	uint32_t original; // Original instruction; Rn is extracted from this by apply_fixups
+	/* apply_fixups (post-store) rewrites store_fix_size bytes of store_fix_value at store_fix_uaddr. */
+	void *store_fix_uaddr;
+	uint64_t store_fix_value;
+	uint32_t store_fix_size;
 } fixup_t;
 
 #define MAX_FIXUPS 1024
@@ -40,10 +44,14 @@ static void revert_log_fixup(void) {
 	memset(fixups, 0, fixup_count * sizeof(fixups[0]));
 	fixup_count = 0;
 }
-static void log_fixup(void *addr, uint32_t original) {
+static void log_fixup(void *addr, uint32_t original, void *store_fix_uaddr,
+                      uint64_t store_fix_value, uint32_t store_fix_size) {
 	if (fixup_count >= MAX_FIXUPS) return;
 	fixups[fixup_count].addr = addr;
 	fixups[fixup_count].original = original;
+	fixups[fixup_count].store_fix_uaddr = store_fix_uaddr;
+	fixups[fixup_count].store_fix_value = store_fix_value;
+	fixups[fixup_count].store_fix_size = store_fix_size;
 	++fixup_count;
 }
 
@@ -51,6 +59,21 @@ static void apply_fixups(struct cpu_state* state) {
 	for (size_t i = 0; i < fixup_count; ++i) {
 		uint32_t inst = fixups[i].original;
 		uint32_t rn = get_rn(inst);
+		/* A store whose data register aliased the base wrote the translated uaddr as data; restore
+		 * the real architectural bytes the native store clobbered in the sandbox memory. */
+		if (fixups[i].store_fix_uaddr != NULL) {
+			memcpy(fixups[i].store_fix_uaddr, &fixups[i].store_fix_value, fixups[i].store_fix_size);
+		}
+		/* Normally rn still holds a uaddr-space address here (the unchanged base, or
+		 * base+offset after writeback), so revert it to the kernel-space address.
+		 * EXCEPTION: a load whose destination register aliases the base (regular Rt,
+		 * or either element Rt/Rt2 of a pair) has overwritten the base with the loaded
+		 * *data* value — reverting that would corrupt the architectural result, so skip
+		 * it. Stores never write a GPR; writeback (dest != base, enforced) stays uaddr. */
+		if (is_load(inst) &&
+		    (get_rt(inst) == rn || (is_pair_load_store(inst) && get_rt2(inst) == rn))) {
+			continue;
+		}
 		uintptr_t uaddr = cpu_state_read_base_reg(state, rn);
 		cpu_state_write_base_reg(state, rn, (uintptr_t)uaddr2kaddr((void*)uaddr));
 	}
@@ -166,10 +189,33 @@ void base_hook_c(struct cpu_state* state) {
 
 	/* LAST write to *state — nothing must follow this block. */
 	if(is_memory_access(*(uint32_t*)state->pc)) {
-		uint32_t rn = get_rn(*(uint32_t*)state->pc);
+		uint32_t inst = *(uint32_t*)state->pc;
+		uint32_t rn = get_rn(inst);
 		uintptr_t kaddr = cpu_state_read_base_reg(state, rn);
 		cpu_state_write_base_reg(state, rn, (uintptr_t)kaddr2uaddr((void*)kaddr));
-		log_fixup((void*)state->pc, *(uint32_t*)state->pc);
+
+		/* A store whose data register aliases the base will, after this in-place translation, store
+		 * the sandbox pointer (uaddr) instead of the architectural value (the original base, kaddr).
+		 * Record the offset + correct value so apply_fixups repairs sandbox memory after the store. */
+		void *sf_uaddr = NULL; uint64_t sf_val = 0; uint32_t sf_size = 0;
+		if (is_store(inst)) {
+			int pair = is_pair_load_store(inst);
+			int rt_aliases = (get_rt(inst) == rn);
+			int rt2_aliases = (pair && get_rt2(inst) == rn);
+			if (rt_aliases || rt2_aliases) {
+				/* rn already holds uaddr, so the decoded EA is in sandbox-memory space. */
+				trace_cpu_state_t tcs = { 0 };
+				for (uint32_t r = 0; r < 31; ++r) { tcs.gpr[r] = cpu_state_read_base_reg(state, r); }
+				tcs.sp = state->sp; tcs.pc = state->pc;
+				mem_access_info_t mi = parse_memory_access_instruction(inst, &tcs);
+				sf_val = (uint64_t)kaddr;                 /* architectural data = original base value */
+				sf_size = (uint32_t)mi.data_size;
+				/* a pair writes element 0 at EA and element 1 at EA + element_size */
+				sf_uaddr = rt_aliases ? (void*)mi.effective_address
+				                      : (void*)(mi.effective_address + mi.data_size);
+			}
+		}
+		log_fixup((void*)state->pc, inst, sf_uaddr, sf_val, sf_size);
 	}
 }
 

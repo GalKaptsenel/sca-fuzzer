@@ -435,7 +435,48 @@ covered by `test_ce_integration.c` (`bpas_*`, `cond_*`, `unsupported_clauses_rej
 
 ## 3.2 Mistraining
 ## 3.3 Instruction tagging
+
+`base.json` is produced by the **`arm_isa_extractor`** pipeline (download ARM's A64 XML → extract a
+general ISA IR → `isa_downloader` serialises it into the shape `isa_loader` reads). Every spec
+carries a `tags` list (the x86 path stores its single category there instead). Tags are
+ISA-prefixed and coarse-to-fine: an ISA prefix (`BASE`/`SVE`/`SME`), a coarse family (`BASE-ARITH`,
+`BASE-MEM`, `BASE-FLAGS`, `BASE-BRANCH`, `BASE-BITCOUNT`, …) and optional fine tags
+(`BASE-MEM-LOAD`/`-STORE`/`-ATOMIC`, `BASE-FLAGS-WRITE`, `BASE-BRANCH-COND`, …). Every spec gets
+≥1 tag — the tagger asserts this, since an untagged spec is ungeneratable.
+
+Generation is gated by three knobs in `isa_loader.reduce`, **all** of which must pass (and for
+AArch64 only `category == "general"` specs are eligible at all):
+
+- `supported_instructions` — an AArch64-only mnemonic allow-list (the curated known-good set); a
+  spec whose name is absent is dropped first.
+- `instruction_categories` (from the config) — a spec is kept if **any** of its tags is listed.
+- `instruction_blocklist` — names dropped outright. It holds the permanent crash/stall/HW-absent
+  hazards: `eretaa`/`eretab`/`udf` (trap or EL change), `wfe`/`wfi`/`wfet`/`wfit` (stall),
+  `cnt`/`ctz` (FEAT_CSSC, absent on the N3 → would SIGILL), plus the MOPS/atomic ordering families.
+
 ## 3.4 Data-structure reference
+
+Specs and runtime instructions share one operand model (`src/interfaces.py`) common to both ISAs;
+the memory pieces are AArch64-specific.
+
+- `OperandSpec` — one operand template: `type` (`OT.REG/IMM/MEM/LABEL/COND/FLAGS`), `width`,
+  `signed`, `src`/`dest` (read/written), `values` (the choices), `name`, and `mem_role`.
+- `MemorySpec(OperandSpec)` — a memory access (`type == OT.MEM`) that **wraps** its address
+  components in `inner: List[OperandSpec]`. Its `src`/`dest` give the access *direction* (a load
+  reads, a store writes, an RMW both), derived from the ASL — never inferred from a register's
+  position or the mnemonic.
+- `MemoryRole` — an empty common base enum each ISA subtypes; `AArch64MemRole` =
+  `BASE`/`INDEX`/`OFFSET`/`EXTEND`, and "no role" is plain Python `None`. Only inner components
+  carry a role, never a top-level operand. The `OFFSET` role is overloaded: an additive
+  displacement when there is no index, otherwise the index's shift amount.
+- Runtime mirrors: `Operand` and `MemoryOperand(inner: List[Operand])`.
+  `Instruction.to_asm_string` renders from the spec's `template` (a Python format string),
+  flattening each `MemoryOperand`'s inner components into the substitution dict by name.
+
+`has_mem_operand`/`has_read`/`has_write` derive from the MEM operand's type and direction. The
+sandbox finds the BASE component **by role** and confines it (`AND base,#mask; ADD base,x29`),
+then cancels every other component so the effective address stays `x29 + (base & mask)`; it
+iterates **every** memory operand, so multi-access instructions are all confined.
 
 ## 3.5 Device lock & fault safety
 

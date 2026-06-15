@@ -37,6 +37,15 @@ class OT(Enum):
         return str(self._name_)
 
 
+class MemoryRole(Enum):
+    """Role of an operand within a memory-address expression (base register, index, offset, ...).
+
+    This is an empty common base: each architecture subtypes it with its own role set
+    (``AArch64MemRole``, ``X86MemRole``). The role is typed as this base class, so a concrete value
+    is always one architecture's subtype — the enum is enforced through subtyping. ``None`` means the
+    operand is not part of an address (it is not a memory component)."""
+
+
 class OperandSpec:
     type: OT
     width: int
@@ -50,7 +59,12 @@ class OperandSpec:
     # magic_value attribute indicates a specification for this special value
     magic_value: bool = False
 
-    def __init__(self, type: OT, width: int, signed: bool, src: bool, dest: bool, values: Tuple[str], name:str = "n/a"):
+    # addressing role of this operand (base/index/offset/...), as the architecture's MemoryRole subtype.
+    # None when the operand is not an address component.
+    mem_role: Optional[MemoryRole] = None
+
+    def __init__(self, type: OT, width: int, signed: bool, src: bool, dest: bool, values: Tuple[str],
+                 name: str = "n/a", mem_role: Optional[MemoryRole] = None):
         self.type = type
         self.width = width
         self.signed = signed
@@ -58,9 +72,21 @@ class OperandSpec:
         self.dest = dest
         self.values = values
         self.name = name
+        self.mem_role = mem_role
 
     def __str__(self):
         return f"{self.values}" # TODO: Maybe it is better to print the name?
+
+
+class MemorySpec(OperandSpec):
+    """Specification of a memory access. `inner` is the list of address-component operand specs
+    (base/index/offset/...), each carrying its own type, read/write and `mem_role`. This spec's own
+    src/dest is the access direction (a load reads the location, a store writes it)."""
+
+    def __init__(self, width: int, signed: bool, src: bool, dest: bool,
+                 inner: List["OperandSpec"], name: str = "n/a"):
+        super().__init__(OT.MEM, width, signed, src, dest, (), name)
+        self.inner = inner
 
 
 class InstructionSpec:
@@ -340,6 +366,10 @@ class Operand(ABC):
     # magic_value attribute indicates a specification for this special value
     magic_value: bool = False
 
+    # addressing role (base/index/offset/...) as the architecture's MemoryRole subtype, set on the
+    # components of a memory access. None when the operand is not part of an address.
+    mem_role: Optional[MemoryRole] = None
+
     def __init__(self, value: str, type_, src: bool, dest: bool, name: str = "n/a"):
         self.name = name
         self.value = value
@@ -360,11 +390,16 @@ class RegisterOperand(Operand):
 
 
 class MemoryOperand(Operand):
+    """A memory access. `inner` is the list of address-component operands (base/index/offset/...), each
+    a RegisterOperand/ImmediateOperand carrying its own MemoryRole. src/dest is the access direction (a
+    load reads the location, a store writes it). x86 builds a plain access from a combined address
+    string and leaves `inner` empty."""
     mte_memory_tag: Optional[int]
-    """ mte_memory_tag: The mte tag of the memory access instruction """
-    def __init__(self, address: str, width: int, src: bool, dest: bool):
+    def __init__(self, address: str, width: int, src: bool, dest: bool,
+                 inner: Optional[List["Operand"]] = None):
         self.width = width
-        self.mte_memory_tag = 6#random.randint(0,15)
+        self.mte_memory_tag = 6
+        self.inner = inner if inner is not None else []
         super().__init__(address.lower(), OT.MEM, src, dest)
 
 
@@ -683,7 +718,13 @@ class Instruction:
             raise RuntimeError("Unavailable, template member is not set!")
         values = {}
         for op in self.operands:
-            values[op.name] = op.value
+            # a memory access wraps its address components; the template has a placeholder per component
+            # (e.g. "[{Xn}, {Xm}]"), so substitute each inner operand by its own name.
+            if isinstance(op, MemoryOperand) and op.inner:
+                for component in op.inner:
+                    values[component.name] = component.value
+            else:
+                values[op.name] = op.value
         return self.template.format(**values)
 
 

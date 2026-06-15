@@ -1,0 +1,26 @@
+# Check #1: budget-dilution test for the Spectre-v1 generation regression.
+# New extractor base.json, but ONLY the old 8 categories (no Tier-1 FLAGOP/
+# BITCOUNT/CRC/BITBYTE) so the instruction budget is not diluted. Same
+# detection regime as the Monday genuine run: P+P, arch-only seq, flush OFF.
+instruction_set: aarch64
+instruction_categories:
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-BITFIELD
+  - BASE-CONDSEL
+  - BASE-BRANCH
+  - BASE-MEM-LOAD
+  - BASE-MEM-STORE
+min_bb_per_function: 2
+max_bb_per_function: 5
+max_successors_per_bb: 2
+min_successors_per_bb: 1
+fuzzer: basic
+input_generator: aarch64-nzcv
+executor_warmups: 5
+input_gen_seed: 0
+executor_mode: P+P
+contract_execution_clause:
+  - seq
+enable_pre_run_flush: 0

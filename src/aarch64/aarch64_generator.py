@@ -14,9 +14,9 @@ from ..config import CONF
 from ..isa_loader import InstructionSet
 from ..interfaces import TestCase, Operand, Instruction, BasicBlock, Function, InstructionSpec, \
     GeneratorException, RegisterOperand, MAIN_AREA_SIZE, FAULTY_AREA_SIZE, \
-    MemoryOperand, OT, OperandSpec, CondOperand
+    MemoryOperand, OT, OperandSpec, MemorySpec, CondOperand
 from ..generator import ConfigurableGenerator, RandomGenerator, Pass
-from .aarch64_target_desc import Aarch64TargetDesc, SANDBOX_BASE_REGISTER
+from .aarch64_target_desc import Aarch64TargetDesc, SANDBOX_BASE_REGISTER, AArch64MemRole
 from .aarch64_elf_parser import Aarch64ElfParser
 from .aarch64_printer import Aarch64Printer
 
@@ -86,6 +86,9 @@ _STXP = frozenset({"stxp", "stlxp"})
 # Store pair with writeback: src0|src1 == base → UNPREDICTABLE.
 _STP_WRITEBACK = frozenset({"stp"})
 
+# Single-register store with writeback: transferred reg == base → UNPREDICTABLE.
+_STR_WRITEBACK = frozenset({"str", "strb", "strh"})
+
 
 class Aarch64PatchUndefinedLoadsStoresPass(Pass):
     """
@@ -108,10 +111,17 @@ class Aarch64PatchUndefinedLoadsStoresPass(Pass):
                     self._patch_instruction(inst)
 
     def _patch_instruction(self, inst: Instruction) -> None:
+        # sandboxing subtracts the index from the base (SUB base, base, index), so base == index would
+        # zero the base and the access would escape the sandbox; force them to differ first.
+        self._patch_address_register_collision(inst)
+
         name = inst.name.lower()
 
         if any(name.startswith(m) for m in _LDR_WRITEBACK):
-            self._patch_ldr_writeback(inst)
+            self._patch_single_writeback(inst)
+
+        elif any(name.startswith(m) for m in _STR_WRITEBACK):
+            self._patch_single_writeback(inst)
 
         elif any(name.startswith(m) for m in _LDP_ANY):
             self._patch_ldp(inst)
@@ -128,8 +138,26 @@ class Aarch64PatchUndefinedLoadsStoresPass(Pass):
         elif any(name.startswith(m) for m in _STP_WRITEBACK):
             self._patch_stp_writeback(inst)
 
-    def _patch_ldr_writeback(self, inst: Instruction) -> None:
-        if not inst.get_imm_operands():
+    def _patch_address_register_collision(self, inst: Instruction) -> None:
+        """For every memory access, force the index register to differ from the base. The sandbox masks
+        the base then subtracts the index (`SUB base, base, index`); if they are the same register the
+        base becomes zero and the effective address escapes the sandbox."""
+        for mem_op in inst.get_mem_operands():
+            base = next((c for c in mem_op.inner if c.mem_role is AArch64MemRole.BASE), None)
+            index = next((c for c in mem_op.inner if c.mem_role is AArch64MemRole.INDEX), None)
+            if base is not None and index is not None \
+                    and self._norm(base.value) == self._norm(index.value):
+                self._replace_reg(index, forbidden={self._norm(base.value)})
+
+    def _writes_back(self, inst: Instruction) -> bool:
+        """Whether the access updates its base register (pre/post-index), marked on the inner base."""
+        return any(c.mem_role is AArch64MemRole.BASE and c.dest
+                   for mem_op in inst.get_mem_operands() for c in mem_op.inner)
+
+    def _patch_single_writeback(self, inst: Instruction) -> None:
+        # Single-register load/store with writeback: the transferred register (ops[0]) must differ
+        # from the base; t == n is CONSTRAINED UNPREDICTABLE.
+        if not self._writes_back(inst):
             return  # unsigned-offset or register-offset form — no writeback
 
         ops = inst.operands
@@ -152,7 +180,7 @@ class Aarch64PatchUndefinedLoadsStoresPass(Pass):
         assert isinstance(ops[1], RegisterOperand)
         assert isinstance(ops[2], MemoryOperand)
 
-        has_writeback = bool(inst.get_imm_operands())
+        has_writeback = self._writes_back(inst)
         norm0 = self._norm(ops[0].value)
         norm1 = self._norm(ops[1].value)
         base_norms = self._mem_regs_normalized(ops[2])
@@ -197,7 +225,7 @@ class Aarch64PatchUndefinedLoadsStoresPass(Pass):
             self._replace_reg(ops[1], forbidden=base_norms | {norm0})
 
     def _patch_stp_writeback(self, inst: Instruction) -> None:
-        if not inst.get_imm_operands():
+        if not self._writes_back(inst):
             return  # unsigned-offset form — no writeback constraint
 
         ops = inst.operands
@@ -261,14 +289,9 @@ class Aarch64PatchUndefinedLoadsStoresPass(Pass):
         return self.target_desc.reg_normalized[reg]
 
     def _mem_regs_normalized(self, mem_op: MemoryOperand) -> Set[str]:
-        """
-        Return the set of normalised register names referenced by a
-        MemoryOperand.  mem_op.value is a string like "x1" or "x1, x2"
-        depending on the addressing mode.
-        """
-        result = set()
-        result.add(self._norm(mem_op.value))
-        return result
+        """Normalised names of the registers used in the address: the base and any index register
+        (the offset/extend components are immediates, not registers)."""
+        return {self._norm(op.value) for op in mem_op.inner if op.type == OT.REG}
 
     def _replace_reg(self, operand: RegisterOperand, forbidden: Set[str]) -> None:
         """
@@ -350,45 +373,60 @@ class _SandboxInstrumentationBase:
         return self._norm.get(reg, reg)
 
     def _dest_regs(self, inst: Instruction) -> frozenset:
-        result = frozenset(
-            self._norm_reg(op.value)
-            for op in inst.operands + inst.implicit_operands
-            if op.dest and op.type == OT.REG and op.value in self._norm
-        )
-        # Writeback forms (pre/post-index) update the base register, but base.json may not
-        # mark it as dest.  For LDR/LDRB/etc. the offset operand is named "simm" (either
-        # IMM=post-index or MEM=pre-index); unsigned-offset uses "pimm" (MEM) — no writeback.
-        # For LDP/STP post-index the offset is "imm" as IMM.
-        if inst.has_memory_access:
-            has_simm = any(op.name.lower() == 'simm' for op in inst.operands + inst.implicit_operands)
-            has_imm = any(op.name.lower() == 'imm' for op in inst.operands + inst.implicit_operands)
-            if has_simm or (len(inst.operands) == 4 and has_imm):
-                base = self._get_mem_base_reg(inst)
-                if base is not None and base in self._norm:
-                    result = result | frozenset([self._norm_reg(base)])
-        return result
+        result = {self._norm_reg(op.value) for op in inst.operands + inst.implicit_operands
+                  if op.dest and op.type == OT.REG and op.value in self._norm}
+        # writeback (pre/post-index) updates the base register; the extractor marks that on the inner
+        # base component (component.dest), so read it directly instead of guessing from operand names.
+        for mem_op in inst.get_mem_operands():
+            for c in mem_op.inner:
+                if c.dest and c.type == OT.REG and c.value in self._norm:
+                    result.add(self._norm_reg(c.value))
+        return frozenset(result)
+
+    @staticmethod
+    def _base_reg(mem_op: MemoryOperand) -> str:
+        for c in mem_op.inner:
+            if c.mem_role is AArch64MemRole.BASE:
+                return c.value
+        raise GeneratorException(f"memory operand {mem_op.value!r} has no base register")
 
     def _get_mem_base_reg(self, inst: Instruction) -> Optional[str]:
-        for op in inst.operands + inst.implicit_operands:
-            if op.type == OT.MEM:
-                return op.value
-        return None
+        mem_ops = inst.get_mem_operands()
+        return self._base_reg(mem_ops[0]) if mem_ops else None
 
-    def _make_offset_sub_insts(self, mem_inst: Instruction, base_reg: str) -> List[Instruction]:
-        """Return SUB instructions that pre-subtract the memory instruction's offset from
-        base_reg so that [base_reg + offset] lands at exactly base_reg's sandboxed address."""
-        result: List[Instruction] = []
-        for op in mem_inst.get_mem_operands()[1:]:
-            if op.name.lower() == "pimm":
-                current = int(op.value)
-                while current > 0:
-                    chunk = min(4095, current)
-                    result.append(Instruction("sub", True, "", False,
-                                              template=f"SUB {base_reg}, {base_reg}, #{chunk}"))
-                    current -= chunk
+    def _make_offset_sub_insts(self, mem_op: MemoryOperand) -> List[Instruction]:
+        """SUBs that remove every non-base contribution to the address (an index register with its
+        optional shift/extend, or a standalone displacement) from the base, so the effective address
+        lands exactly at the base's already-sandboxed value. Components carry their roles."""
+        base = self._base_reg(mem_op)
+        comp = {c.mem_role: c for c in mem_op.inner}
+        index = comp.get(AArch64MemRole.INDEX)
+        offset = comp.get(AArch64MemRole.OFFSET)
+        extend = comp.get(AArch64MemRole.EXTEND)
+        if index is not None:
+            # EA = base + <shift/extend>(index); replicate the modifier in the SUB so it cancels exactly
+            if extend is not None:                          # extended register: e.g. `, sxtw #2`
+                modifier = f", {extend.value}" + (f" #{offset.value}" if offset is not None else "")
+            elif offset is not None:                        # shifted register: `, lsl #amount`
+                modifier = f", lsl #{offset.value}"
             else:
-                result.append(Instruction("sub", True, "", False,
-                                          template=f"SUB {base_reg}, {base_reg}, {op.value}"))
+                modifier = ""
+            return [Instruction("sub", True, "", False,
+                                template=f"SUB {base}, {base}, {index.value}{modifier}")]
+        if offset is not None:                              # standalone displacement
+            return self._make_disp_sub_insts(base, int(offset.value))
+        return []
+
+    def _make_disp_sub_insts(self, base: str, disp: int) -> List[Instruction]:
+        """Cancel a signed displacement from base (chunked to the 12-bit immediate), so [base+disp]
+        resolves to base. A negative displacement is cancelled with ADD."""
+        mnemonic = "SUB" if disp >= 0 else "ADD"
+        remaining, result = abs(disp), []
+        while remaining > 0:
+            chunk = min(4095, remaining)
+            result.append(Instruction(mnemonic.lower(), True, "", False,
+                                       template=f"{mnemonic} {base}, {base}, #{chunk}"))
+            remaining -= chunk
         return result
 
     def _make_sandbox_insts(self, reg: str) -> List[Instruction]:
@@ -589,11 +627,15 @@ class PACInstrumentation(_SandboxInstrumentationBase):
 
                 # Memory access: sandbox + optional PAC slot
                 if inst.has_memory_access:
+                    if len(inst.get_mem_operands()) > 1:
+                        raise GeneratorException(
+                            "PAC instrumentation models one memory access per instruction; "
+                            f"{inst.name!r} has several")
                     mem_reg = self._get_mem_base_reg(inst)
                     if mem_reg is None:
                         continue
                     sandbox_insts = self._make_sandbox_insts(mem_reg)
-                    offset_subs   = self._make_offset_sub_insts(inst, mem_reg)
+                    offset_subs   = self._make_offset_sub_insts(inst.get_mem_operands()[0])
                     if self._auth_specs and random.random() < self._auth_prob:
                         auth_inst = self._get_mem_auth_instruction(mem_reg)
                         if auth_inst is not None:
@@ -891,10 +933,14 @@ class MTEInstrumentation(_SandboxInstrumentationBase):
 
             for inst in bb:
                 if inst.has_memory_access:
+                    if len(inst.get_mem_operands()) > 1:
+                        raise GeneratorException(
+                            "MTE instrumentation models one memory access per instruction; "
+                            f"{inst.name!r} has several")
                     mem_reg = self._get_mem_base_reg(inst)
                     if mem_reg is not None:
                         norm_mem = self._norm_reg(mem_reg)
-                        offset_subs = self._make_offset_sub_insts(inst, mem_reg)
+                        offset_subs = self._make_offset_sub_insts(inst.get_mem_operands()[0])
                         sid = slot_counter
                         slot_counter += 1
                         nop = self._make_mte_nop(sid)
@@ -1079,14 +1125,18 @@ class Aarch64SandboxPass(Pass, _SandboxInstrumentationBase):
                     self.sandbox_memory_access(inst, bb)
 
     def sandbox_memory_access(self, instr: Instruction, parent: BasicBlock) -> None:
-        """Force the memory access into the sandbox region starting at the base register."""
+        """Force every memory access of *instr* into the sandbox region. For each memory operand, mask
+        its base into [x29 .. x29+mask], then cancel the index/offset/extend so the effective address
+        lands at the masked base. Multiple memory operands (e.g. MOPS copy) are each handled."""
         if instr.get_implicit_mem_operands():
             raise GeneratorException("Implicit memory accesses are not supported")
-        base_reg = self._get_mem_base_reg(instr)
-        if base_reg is None:
+        mem_ops = instr.get_mem_operands()
+        if not mem_ops:
             raise GeneratorException("Attempt to sandbox an instruction without memory operands")
-        for inst in self._make_sandbox_insts(base_reg) + self._make_offset_sub_insts(instr, base_reg):
-            parent.insert_before(instr, inst)
+        for mem_op in mem_ops:
+            base = self._base_reg(mem_op)
+            for inst in self._make_sandbox_insts(base) + self._make_offset_sub_insts(mem_op):
+                parent.insert_before(instr, inst)
 
 
 class Aarch64RandomGenerator(Aarch64Generator, RandomGenerator):
@@ -1104,16 +1154,15 @@ class Aarch64RandomGenerator(Aarch64Generator, RandomGenerator):
             elif not op.startswith(register_prefixes):
                 result.append(op)
             elif op in chain.from_iterable(self.target_desc.registers.values()):
-                # We omit situations where the same physical register is in memory operand and outside the memory operand.
-                # in causes warning of the assembler and unrecognized instructions
-                cond = lambda o: o.type == OT.MEM and o.value in chain.from_iterable(self.target_desc.registers.values())
-                if spec.type == OT.MEM:
-                    cond = lambda _: True
-
-                memory_registers = [o for o in inst.operands if cond(o)]
-                if any(o.value not in Aarch64TargetDesc.reg_normalized for o in memory_registers):
+                # avoid the same physical register being both here and inside a memory operand of this
+                # instruction (the assembler warns on / rejects such forms). The address registers are
+                # the inner components of the memory access (base/index), not the operand's value string.
+                mem_regs = [c.value for m in inst.operands if isinstance(m, MemoryOperand)
+                            for c in m.inner if c.type == OT.REG]
+                if any(v not in Aarch64TargetDesc.reg_normalized for v in mem_regs):
                     continue
-                if all(Aarch64TargetDesc.reg_normalized[op] != Aarch64TargetDesc.reg_normalized[o.value] for o in memory_registers):
+                if all(Aarch64TargetDesc.reg_normalized[op] != Aarch64TargetDesc.reg_normalized[v]
+                       for v in mem_regs):
                     result.append(op)
         return result
 
@@ -1126,7 +1175,9 @@ class Aarch64RandomGenerator(Aarch64Generator, RandomGenerator):
         cond = random.choice(spec.values)
         return CondOperand(cond)
 
-    def generate_mem_operand(self, spec: OperandSpec, inst: Instruction) -> Operand:
-        choices = self._filter_invalid_operands(spec, inst)
-        address_reg = random.choice(choices)
-        return MemoryOperand(address_reg, spec.width, spec.src, spec.dest)
+    def generate_mem_operand(self, spec: MemorySpec, inst: Instruction) -> Operand:
+        # a memory access wraps its address components (base/index/offset/extend); generate each via the
+        # normal dispatch (which also stamps its MemoryRole), and keep them as the operand's `inner`.
+        inner = [self.generate_operand(component, inst) for component in spec.inner]
+        address = ", ".join(op.value for op in inner)
+        return MemoryOperand(address, spec.width, spec.src, spec.dest, inner=inner)

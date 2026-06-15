@@ -9,10 +9,20 @@ from typing import List, Dict
 from .aarch64_generator import Aarch64Generator
 from ..asm_parser import AsmParserGeneric, parser_assert, parser_error
 from ..interfaces import OT, Instruction, InstructionSpec, LabelOperand, RegisterOperand, \
-    MemoryOperand, ImmediateOperand, CondOperand
+    MemoryOperand, MemorySpec, ImmediateOperand, CondOperand
 
 
 _TEMPLATE_REGEX_CACHE = {}
+
+
+def _flatten_specs(spec):
+    """The operand specs that own a template placeholder, in order: a memory access contributes its
+    address components (the `[...]` placeholders), every other operand contributes itself. Mirrors
+    Instruction.to_asm_string, which substitutes the inner components by name."""
+    flat = []
+    for op in spec.operands:
+        flat.extend(op.inner) if isinstance(op, MemorySpec) else flat.append(op)
+    return flat
 
 def _operand_pattern(op) -> str:
     """Regex fragment for one operand. If the operand has a small enumerable value set we match
@@ -35,6 +45,7 @@ def _template_regex(spec):
     rx = _TEMPLATE_REGEX_CACHE.get(id(spec), False)
     if rx is not False:
         return rx
+    flat = _flatten_specs(spec)            # one placeholder per flattened operand (memory -> its parts)
     parts, op_idx = ["^"], 0
     for tok in re.split(r"(\{[^}]*\}|\s+)", (spec.template or "").strip()):
         if not tok:
@@ -42,15 +53,15 @@ def _template_regex(spec):
         if tok.isspace():
             parts.append(r"\s*")
         elif tok[0] == "{" and tok[-1] == "}":
-            if op_idx >= len(spec.operands):
+            if op_idx >= len(flat):
                 op_idx = -1
                 break
-            parts.append("(" + _operand_pattern(spec.operands[op_idx]) + ")")
+            parts.append("(" + _operand_pattern(flat[op_idx]) + ")")
             op_idx += 1
         else:
             parts.append(re.escape(tok))
     rx = None
-    if op_idx == len(spec.operands) and spec.template:
+    if op_idx == len(flat) and spec.template:
         parts.append("$")
         rx = re.compile("".join(parts), re.IGNORECASE)
     _TEMPLATE_REGEX_CACHE[id(spec)] = rx
@@ -116,23 +127,37 @@ class Aarch64AsmParser(AsmParserGeneric):
         spec, values = matches[0]
         return self._build_instruction(spec, values, is_instrumentation, is_noremove, line_num)
 
+    def _simple_operand(self, op_spec, value, line_num):
+        if op_spec.type == OT.REG:
+            op = RegisterOperand(value, op_spec.width, op_spec.src, op_spec.dest)
+        elif op_spec.type == OT.IMM:
+            op = ImmediateOperand(value, op_spec.width)
+        elif op_spec.type == OT.LABEL:
+            op = LabelOperand(value)
+        elif op_spec.type == OT.COND:
+            op = CondOperand(value)
+        else:
+            parser_error(line_num, f"Unknown operand type {op_spec.type}")
+        op.name = op_spec.name
+        op.mem_role = op_spec.mem_role          # address components carry their role for the sandbox
+        return op
+
     def _build_instruction(self, spec, values, is_instrumentation, is_noremove, line_num):
         inst = Instruction.from_spec(spec, is_instrumentation=is_instrumentation)
         inst.is_noremove = is_noremove
-        for op_spec, value in zip(spec.operands, values):
-            if op_spec.type == OT.REG:
-                op = RegisterOperand(value, op_spec.width, op_spec.src, op_spec.dest)
-            elif op_spec.type == OT.MEM:
-                op = MemoryOperand(value, op_spec.width, op_spec.src, op_spec.dest)
-            elif op_spec.type == OT.IMM:
-                op = ImmediateOperand(value, op_spec.width)
-            elif op_spec.type == OT.LABEL:
-                op = LabelOperand(value)
-            elif op_spec.type == OT.COND:
-                op = CondOperand(value)
+        vi = 0
+        for op_spec in spec.operands:
+            if isinstance(op_spec, MemorySpec):
+                # consume one captured value per inner component and wrap them as a memory access
+                inner = [self._simple_operand(c, values[vi + k], line_num)
+                         for k, c in enumerate(op_spec.inner)]
+                vi += len(op_spec.inner)
+                address = ", ".join(o.value for o in inner)
+                op = MemoryOperand(address, op_spec.width, op_spec.src, op_spec.dest, inner=inner)
+                op.name = op_spec.name
             else:
-                parser_error(line_num, f"Unknown operand type {op_spec.type}")
-            op.name = op_spec.name
+                op = self._simple_operand(op_spec, values[vi], line_num)
+                vi += 1
             inst.operands.append(op)
         for op_spec in spec.implicit_operands:
             inst.implicit_operands.append(self.generator.generate_operand(op_spec, inst))

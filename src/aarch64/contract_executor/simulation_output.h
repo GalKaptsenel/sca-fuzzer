@@ -22,6 +22,7 @@ typedef struct {
 	uint64_t after;		// value after access
 	uint64_t  element_size;		// size in bytes
 	uint64_t  is_write;	// 1 = write, 0 = read
+	uint64_t  is_atomic;	// 1 = read-modify-write (atomic/exclusive/CAS): reads AND writes the cell
 } mem_access_t;
 
 typedef struct {
@@ -36,9 +37,11 @@ typedef struct {
 
 typedef struct {
 	uint64_t instr_index;		// instruction index in trace
-	uint64_t has_memory_access;		// does the instruction accesses memory
+	uint64_t has_memory_access;		// boolean: the instruction accesses memory
 	uint64_t speculation_nesting;	// Speculation nesting (0 for no speculation)
-	mem_access_t memory_access;
+	uint64_t is_pair;		// boolean: LDP/STP — memory_access2 (element 1) is also valid
+	mem_access_t memory_access;	// first (or only) access
+	mem_access_t memory_access2;	// second access (pair element 1); valid iff is_pair
 } instr_metadata_t;
 
 typedef struct {
@@ -59,4 +62,22 @@ void destroy_trace_log();
 // TODO: TMP
 void* kaddr2uaddr(void*);
 void* uaddr2kaddr(void*);
+
+/* Decoded memory-access description. is_mem == 0 means the instruction is not a (real) memory
+ * access and all other fields are unset; a *_register field of (uint32_t)-1 means "not applicable". */
+typedef struct {
+	int       is_mem;
+	uintptr_t effective_address;
+	uint32_t  target_register;   /* Rt */
+	uint32_t  base_register;     /* Rn */
+	uint32_t  index_register;    /* Rm (register-offset forms) */
+	uint32_t  rt2_register;      /* Rt2 (pair forms) */
+	int       is_load;
+	int       is_store;
+	int       is_pair;          /* LDP/STP family: a second element is accessed at EA + data_size */
+	int       is_atomic;        /* LSE atomic / CAS / SWP / exclusive / acquire-release (RMW-class) */
+	uint64_t  data_size;        /* access / element size in bytes (per element for pairs) */
+} mem_access_info_t;
+
+mem_access_info_t parse_memory_access_instruction(uint32_t inst, const trace_cpu_state_t *state);
 #endif // SIMULATION_OUTPUT_H

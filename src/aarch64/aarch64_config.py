@@ -100,6 +100,8 @@ _option_values = {
             "BASE-BITBYTE", "BASE-CONDSEL", "BASE-FLAGOP", "BASE-CRC", "BASE-PAC", "BASE-MTE",
             "BASE-MOVE", "BASE-NOP", "BASE-HINT", "BASE-SYSTEM", "BASE-BARRIER", "BASE-EXCEPTION",
             "BASE-FPSIMD",
+            # legacy v1 tag names (TEMP, bisect: lets current code load an old-tag v1 base.json)
+            "BASE-MEMORY-LOAD", "BASE-MEMORY-STORE", "BASE-COND-BRANCH", "BASE-UNCOND-BRANCH",
             # memory (coarse + direction + kind) and prefetch
             "BASE-MEM", "BASE-MEM-LOAD", "BASE-MEM-STORE", "BASE-MEM-ATOMIC", "BASE-MEM-EXCLUSIVE",
             "BASE-MEM-ACQREL", "BASE-MEM-COPY", "BASE-MEM-SET", "BASE-PREFETCH",
@@ -136,7 +138,11 @@ _buggy_instructions: List[str] = []
 
 supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "ldr", "orr", "ands", "and", "eor", "cbnz", "tbz", "tbnz",
                                      "csel", "csinc", "csinv", "csneg", "ccmn", "ccmp",
-                                     "sdiv", "udiv", "xpacd", "xpaci", "autda", "autdza", "autdb", "autdzb", "pacda", "pacdza", "pacdb", "pacdzb", "pacga"
+                                     "sdiv", "udiv", "xpacd", "xpaci", "autda", "autdza", "autdb", "autdzb", "pacda", "pacdza", "pacdb", "pacdzb", "pacga",
+                                     "bics", "rmif", "setf8", "setf16",
+                                     "cls", "clz",
+                                     "crc32b", "crc32h", "crc32w", "crc32x", "crc32cb", "crc32ch", "crc32cw", "crc32cx",
+                                     "rbit", "rev", "rev16", "rev32",
                                      ]
 
 # AArch64-only: relative weights for the PAC non-interference instrumentation
@@ -146,6 +152,11 @@ pac_auth_weight: float = 0.2
 pac_xpac_weight: float = 0.2
 
 instruction_blocklist: List[str] = [
+    # Crash/stall hazards: must never be generated regardless of enabled categories.
+    "eretaa", "eretab", "udf",   # exception return / undefined -> trap or EL change
+    "wfe", "wfi", "wfet", "wfit",  # wait-for-event/interrupt -> stalls the harness
+    # FEAT_CSSC GPR forms absent on the target HW (Neoverse N3) -> would SIGILL.
+    "cnt", "ctz",
     # Not supported: these require a specific consecutive ordering of instructions.
     "setgp", "setgm", "setge",
     "setgpn", "setgmn", "setgen",

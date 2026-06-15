@@ -246,7 +246,6 @@ class X86TargetDesc(TargetDesc):
         self.registers = filtered_decoding
 
         # identify the CPU model we are running on
-        import pdb; pdb.set_trace()
 #        with open("/proc/cpuinfo", "r") as f:
 #            cpuinfo = f.read()
 #            if 'Intel' in cpuinfo:

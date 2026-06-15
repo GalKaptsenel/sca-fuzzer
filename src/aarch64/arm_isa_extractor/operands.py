@@ -19,21 +19,29 @@ _PLACEHOLDER = frozenset({"reserved", "unallocated"})   # ARM marks unallocated 
 
 
 def _tokens(asm: str):
-    """Ordered (symbol, bracket) from an asmtemplate. `bracket` is 0 outside `[...]`, else the index
-    (1, 2, ...) of the memory bracket the token sits in, so two regions (`[<Xd>], [<Xs>]`) are told
-    apart. E.g. `[<Xn|SP>]` -> ('<Xn|SP>', 1)."""
-    out, depth, bracket, i = [], 0, 0, 0
+    """Ordered (symbol, bracket) from an asmtemplate. `bracket` is the index (1, 2, ...) of the memory
+    `[...]` the token sits in, so two regions (`[<Xd>], [<Xs>]`) are told apart, else 0.
+
+    Only a STANDALONE `[...]` is a memory address: it is separated (a space or comma) from what
+    precedes it — a comma for a later operand, the mnemonic gap for a first operand (MOPS `SET [<Xd>]!`).
+    A `[...]` ATTACHED to the register it indexes (no separator) is a lane/element/tile index, not an
+    address (e.g. `<Vt>.D[<index>]`, `ZA.D[<Wv>, <offs>]`); its tokens get bracket 0, like any operand."""
+    out, depth, bracket, current, i = [], 0, 0, 0, 0
     while i < len(asm):
         c = asm[i]
         if c == "[":
             if depth == 0:
-                bracket += 1            # a new top-level memory bracket
+                if i == 0 or asm[i - 1] in " \t,":  # separated -> a memory address bracket
+                    bracket += 1
+                    current = bracket
+                else:                               # abuts a register -> element/lane index
+                    current = 0
             depth += 1; i += 1
         elif c == "]":
             depth -= 1; i += 1
         elif c == "<":
             j = asm.index(">", i)
-            out.append((asm[i:j + 1], bracket if depth > 0 else 0)); i = j + 1
+            out.append((asm[i:j + 1], current if depth > 0 else 0)); i = j + 1
         else:
             i += 1
     return out
@@ -175,7 +183,9 @@ def _enumerated(symbol, definition) -> Operand:
     tbl = definition.find(".//table")
     syms = [e.text for e in tbl.iter("entry")
             if e.get("class") == "symbol" and e.text] if tbl is not None else []
-    vals = tuple(v for v in (_enum_value(s) for s in syms) if v is not None)
+    # a single table cell may list display aliases of one encoding joined by '|' (e.g. an extend
+    # `LSL|UXTW` for the same option value); each alias is an independent valid mnemonic, so split them.
+    vals = tuple(part for v in (_enum_value(s) for s in syms) if v is not None for part in v.split("|"))
     if vals and set(vals) <= _COND_CODES:
         kind = OperandKind.COND
     elif vals and set(vals) <= _EXTEND_OPS:
@@ -233,9 +243,9 @@ def build_operands(encoding_name: str, asm: str, explanations: list[ET.Element],
     for symbol, bracket in _tokens(asm):
         if symbol in selectors:
             continue                            # the width selector is folded into its register
-        # `[...]` is a memory-addressing bracket only if the instruction accesses memory; otherwise
-        # it is register/tile indexing (e.g. SME `ZA.<T>[<Wv>, <offs>]`).
-        is_addr = bracket > 0 and sem.mem_access is not MemAccess.NONE
+        # a token addresses memory iff it sits in a memory `[...]` (bracket > 0; _tokens excludes
+        # register element/lane indices) of a memory-accessing instruction.
+        is_addr = sem.mem_access is not MemAccess.NONE and bracket > 0
         ex = _explanation_for(symbol, encoding_name, explanations)
         if ex is None:
             raise ExtractionError(f"{encoding_name}: no explanation for operand {symbol!r}")

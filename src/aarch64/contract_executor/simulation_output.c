@@ -87,89 +87,49 @@ void* uaddr2kaddr(void* uaddr) {
 }
 
 
-static int parse_memory_access_instruction(
-	uint32_t inst,
-	const trace_cpu_state_t *state,
-	uintptr_t* effective_address,
-	uint32_t* target_register,
-	uint32_t* base_register,
-	uint32_t* index_register,
-	uint32_t* rt2_register,
-	bool* is_load_inst,
-	bool* is_store_inst,
-	uint64_t* data_size) {
+mem_access_info_t parse_memory_access_instruction(uint32_t inst, const trace_cpu_state_t *state) {
+	mem_access_info_t mi = {
+		.is_mem = 0,
+		.effective_address = (uintptr_t)-1,
+		.target_register = (uint32_t)-1,
+		.base_register = (uint32_t)-1,
+		.index_register = (uint32_t)-1,
+		.rt2_register = (uint32_t)-1,
+		.is_load = 0,
+		.is_store = 0,
+		.data_size = 0,
+	};
 
-	if(effective_address) *effective_address = (uintptr_t)-1;
-	if(target_register) *target_register = (uint32_t)-1;
-	if(base_register) *base_register = (uint32_t)-1;
-	if(index_register) *index_register = (uint32_t)-1;
-	if(is_load_inst) *is_load_inst = false;
-	if(is_store_inst) *is_store_inst = false;
-	if(rt2_register) *rt2_register = (uint32_t)-1;
-	if(data_size) *data_size = 0;
+	if(!is_memory_access(inst)) return mi;
 
-	if(!is_memory_access(inst)) return 0;
+	mi.is_mem = 1;
+	mi.target_register = get_rt(inst);
 
-	if(target_register) *target_register = get_rt(inst);
-
-	uintptr_t effective_address_computed = (uintptr_t)-1;
 	if (is_regular_load_store(inst)) {
-		if(is_load_inst) *is_load_inst = is_load(inst);
-		if(is_store_inst) *is_store_inst = is_store(inst);
-
-		uint32_t Rn   = get_rn(inst);
-		uint64_t base = read_reg(state, Rn);
-		if(base_register) *base_register = Rn;
-
-		if(data_size) *data_size = access_size(inst);
+		mi.is_load = is_load(inst);
+		mi.is_store = is_store(inst);
+		mi.base_register = get_rn(inst);
+		uint64_t base = read_reg(state, mi.base_register);
+		mi.data_size = access_size(inst);
 
 		if(is_reg_offset(inst)) {
-
-			size_t shift_amount = decode_amount_log2(inst);		
-			uint64_t Rm = get_rm(inst);
-			if(NULL != index_register) {
-				*index_register = Rm;
-			}
+			size_t shift_amount = decode_amount_log2(inst);
+			mi.index_register = get_rm(inst);
 
 			bool is_signed = false;
 			size_t src_len = 0;
 			switch(decode_extend(inst)) {
-				case EXT_UXTB: 
-					src_len = 8;
-					is_signed = false;
-					break;
-				case EXT_UXTH: 
-					src_len = 16;
-					is_signed = false;
-					break;
-				case EXT_UXTW: 
-					src_len = 32;
-					is_signed = false;
-					break;
-				case EXT_UXTX: 
-					src_len = 64;
-					is_signed = false;
-					break;
-				case EXT_SXTB: 
-					src_len = 8;
-					is_signed = true;
-					break;
-				case EXT_SXTH: 
-					src_len = 16;
-					is_signed = true;
-					break;
-				case EXT_SXTW: 
-					src_len = 32;
-					is_signed = true;
-					break;
-				case EXT_SXTX:
-					src_len = 64;
-					is_signed = true;
-					break;
-				default:
-					__builtin_unreachable();
+				case EXT_UXTB: src_len = 8;  is_signed = false; break;
+				case EXT_UXTH: src_len = 16; is_signed = false; break;
+				case EXT_UXTW: src_len = 32; is_signed = false; break;
+				case EXT_UXTX: src_len = 64; is_signed = false; break;
+				case EXT_SXTB: src_len = 8;  is_signed = true;  break;
+				case EXT_SXTH: src_len = 16; is_signed = true;  break;
+				case EXT_SXTW: src_len = 32; is_signed = true;  break;
+				case EXT_SXTX: src_len = 64; is_signed = true;  break;
+				default: __builtin_unreachable();
 			}
-			uint64_t rm_val = read_reg(state, Rm);
+			uint64_t rm_val = read_reg(state, mi.index_register);
 			if(is_32bit_rm(inst)) {
 				rm_val &= ((1ull << 32) - 1);
 			}
@@ -179,57 +139,113 @@ static int parse_memory_access_instruction(
 			uint64_t rm_narrow = rm_val & mask_src;
 			if (is_signed) {
 				int64_t sext_val = signextend(src_len, 64, (int64_t)rm_narrow);
-				effective_address_computed = (uint64_t)((int64_t)base + (int64_t)((uint64_t)sext_val << shift_amount));
+				mi.effective_address = (uint64_t)((int64_t)base + (int64_t)((uint64_t)sext_val << shift_amount));
 			} else {
-				effective_address_computed = base + (rm_narrow << shift_amount);
+				mi.effective_address = base + (rm_narrow << shift_amount);
 			}
 
 		} else if(is_immediate_offset(inst)){
 			if(is_unsigned_offset(inst)) {
-				uint64_t offset = (uint64_t)get_offset(inst);
-				effective_address_computed = base + offset;
+				mi.effective_address = base + (uint64_t)get_offset(inst);
 			} else if (is_pre_index(inst)){
-				int64_t offset = get_offset(inst);
-				effective_address_computed = (uint64_t)((int64_t)base + offset);
+				mi.effective_address = (uint64_t)((int64_t)base + get_offset(inst));
 			} else {
-				effective_address_computed = base;
+				mi.effective_address = base;
 			}
 		} else {
-			__builtin_unreachable();
+			/* bits[24:23]==00 && bits[11:10]==00: an unscaled immediate (LDUR/STUR/LDAPUR) when
+			 * bit21==0, or an LSE atomic / SWP (read-modify-write on [Xn], no offset) when bit21==1. */
+			if ((inst >> 21) & 1) {
+				mi.is_atomic = 1;
+				mi.is_load = 1;   /* RMW: reads and writes [Xn] */
+				mi.is_store = 1;
+				mi.effective_address = base;
+			} else {
+				mi.effective_address = (uint64_t)((int64_t)base + (int64_t)decode_imm9(inst));
+			}
 		}
 	} else if(is_pair_load_store(inst)) {
-		uint32_t Rn   = get_rn(inst);
-		uint64_t base = read_reg(state, Rn);
-		if(base_register) *base_register = Rn;
-
-		if(is_load_inst) *is_load_inst = is_load(inst);
-		if(is_store_inst) *is_store_inst = is_store(inst);
-		if(data_size) *data_size = pair_element_access_size(inst);
-
-		uint32_t Rt2 = get_rt2(inst);
-		if(rt2_register) *rt2_register = Rt2;
+		mi.is_load = is_load(inst);
+		mi.is_store = is_store(inst);
+		mi.is_pair = 1;
+		mi.base_register = get_rn(inst);
+		uint64_t base = read_reg(state, mi.base_register);
+		mi.data_size = pair_element_access_size(inst);
+		mi.rt2_register = get_rt2(inst);
 
 		if(is_pair_pre_index(inst) || is_pair_signed_offset(inst)) {
 			int64_t offset = decode_imm7(inst) * pair_element_access_size(inst);
-			effective_address_computed = (uint64_t)((int64_t)base + offset);
+			mi.effective_address = (uint64_t)((int64_t)base + offset);
 		} else if(is_pair_post_index(inst)) {
-			effective_address_computed = base;
+			mi.effective_address = base;
 		} else {
 			__builtin_unreachable();
 		}
 	} else if(is_literal_pc_relative(inst)) {
 		uint64_t sz = literal_pc_relative_access_size(inst);
-		if (0 == sz) { return 0; } // PRFM: prefetch hint, not a real memory load
-		if (is_store_inst) { *is_store_inst = false; }
-		if (is_load_inst) { *is_load_inst = 1; }
-		if (data_size) { *data_size = sz; }
-		int64_t offset = decode_imm19(inst) * 4;
-		effective_address_computed = (uint64_t)((int64_t)state->pc + offset);
+		if (0 == sz) { mi.is_mem = 0; return mi; } // PRFM: prefetch hint, not a real memory load
+		mi.is_store = 0;
+		mi.is_load = 1;
+		mi.data_size = sz;
+		mi.effective_address = (uint64_t)((int64_t)state->pc + (decode_imm19(inst) * 4));
+	} else {
+		/* Remaining memory accesses all address [Xn] with no offset: load/store exclusive
+		 * (LDXR/STXR/LDAXR/STLXR and the pair forms LDXP/STXP), acquire/release ordered
+		 * (LDAR/STLR/LDLAR/STLLR) and compare-and-swap (CAS/CASP).  Distinguishing fields:
+		 * o2 = bit23, L = bit22 (1 = load), o1 = bit21 (set for exclusive-pair and for CAS). */
+		int o2 = (inst >> 23) & 1;
+		int L  = (inst >> 22) & 1;
+		int o1 = (inst >> 21) & 1;
+		mi.base_register = get_rn(inst);
+		mi.effective_address = read_reg(state, mi.base_register);
+		mi.data_size = access_size(inst);
+		if (o2 && o1) {
+			/* compare-and-swap: a genuine read-modify-write (CASP's 2nd element not modelled). */
+			mi.is_atomic = 1;
+			mi.is_load = 1;
+			mi.is_store = 1;
+		} else {
+			/* exclusive / ordered: a pure load or store, selected by the L bit. */
+			mi.is_load = L;
+			mi.is_store = !L;
+			if (!o2 && o1) {            /* exclusive pair: LDXP / STXP -> a second element at EA+size */
+				mi.is_pair = 1;
+				mi.rt2_register = get_rt2(inst);
+			}
+		}
 	}
 
-	if(effective_address) *effective_address = effective_address_computed;
+	return mi;
+}
 
-	return 1;
+/* Fill one mem_access_t: record EA/size/flags and read the cell value (before), computing the
+ * post-write value (after) for stores. store_value is the data register's value (ignored for loads). */
+static void fill_mem_access(mem_access_t* acc, uintptr_t kea, uint64_t elem_sz,
+                            int is_write, int is_atomic, uint64_t store_value) {
+	acc->effective_address = kea;
+	acc->element_size = elem_sz;
+	acc->is_write = is_write;
+	acc->is_atomic = is_atomic;
+	if ((uintptr_t)-1 == kea) { __builtin_trap(); }
+
+	/* The sandbox allocation includes a full page of padding after mem_size (see main.c) so a
+	 * boundary overflow of up to one element is safe. */
+	uint64_t value_64bit = 0;
+	memcpy(&value_64bit, kaddr2uaddr((void*)kea), (size_t)elem_sz);
+	uint64_t write_mask;
+	switch(elem_sz) {
+		case 1: write_mask = 0xFF; break;
+		case 2: write_mask = 0xFFFF; break;
+		case 4: write_mask = 0xFFFFFFFF; break;
+		case 8: write_mask = 0xFFFFFFFFFFFFFFFF; break;
+		default:
+			fprintf(stderr, "[C] fill_mem_access: unexpected element size %llu\n",
+				(unsigned long long)elem_sz);
+			__builtin_unreachable();
+	}
+	acc->before = value_64bit;
+	/* Merge written bytes with unchanged upper bytes so 'after' reflects actual memory state. */
+	acc->after = is_write ? ((value_64bit & ~write_mask) | (store_value & write_mask)) : value_64bit;
 }
 
 static instr_trace_entry_t* log_sim_state(struct simulation_state* sim_state) {
@@ -292,58 +308,18 @@ static instr_trace_entry_t* log_sim_state(struct simulation_state* sim_state) {
 	entry->cpu.extra_data_size = 0;
 	// no need to allocate space for extra data, because it is of size 0 for now
 
-	uint32_t target_register = (uint32_t)-1;
-	uint32_t target_register2 = (uint32_t)-1;
-	int has_mem_access = parse_memory_access_instruction(entry->cpu.encoding, &entry->cpu,
-			&entry->metadata.memory_access.effective_address,
-			&target_register,
-			NULL,
-			NULL,
-			&target_register2,
-			NULL,
-			(bool*)&entry->metadata.memory_access.is_write,
-			&entry->metadata.memory_access.element_size
-	);
+	mem_access_info_t mi = parse_memory_access_instruction(entry->cpu.encoding, &entry->cpu);
+	entry->metadata.has_memory_access = mi.is_mem ? 1 : 0;
+	entry->metadata.is_pair = mi.is_pair ? 1 : 0;
 
-	entry->metadata.has_memory_access = has_mem_access ? 1 : 0;
-
-	if(has_mem_access) {
-		/* effective address must have been set by parse_memory_access_instruction (active check:
-		 * assert() is compiled out under -DNDEBUG from python3-config) */
-		if ((uintptr_t)-1 == entry->metadata.memory_access.effective_address) {
-			__builtin_trap();
-		}
-
-		void* uaddr = kaddr2uaddr((void*)entry->metadata.memory_access.effective_address);
-
-		uint64_t elem_sz = entry->metadata.memory_access.element_size;
-
-		/* Read exactly elem_sz bytes. The sandbox allocation includes a full page of
-		 * padding after mem_size (see main.c) so boundary overflows are safe. */
-		uint64_t value_64bit = 0;
-		memcpy(&value_64bit, uaddr, (size_t)elem_sz);
-		uint64_t write_mask = 0;
-		switch(entry->metadata.memory_access.element_size) {
-			case 1: write_mask = 0xFF; break;
-			case 2: write_mask = 0xFFFF; break;
-			case 4: write_mask = 0xFFFFFFFF; break;
-			case 8: write_mask = 0xFFFFFFFFFFFFFFFF; break;
-			default: {
-
-				fprintf(stderr, "[C] log_instr_hook: got to an unreachable!!!\n");
-					 __builtin_unreachable();
-				 }
-		}
-
-		entry->metadata.memory_access.before = value_64bit;
-
-		entry->metadata.memory_access.after = value_64bit;
-		if(entry->metadata.memory_access.is_write) {
-			/* Merge written bytes with unchanged upper bytes so 'after' reflects actual memory state. */
-			/* TODO: STP writes target_register2 to the adjacent word; only target_register is handled here. */
-			entry->metadata.memory_access.after =
-				(value_64bit & ~write_mask) |
-				(entry->cpu.gpr[target_register] & write_mask);
+	if(mi.is_mem) {
+		fill_mem_access(&entry->metadata.memory_access, mi.effective_address, mi.data_size,
+				mi.is_store, mi.is_atomic, read_reg(&entry->cpu, mi.target_register));
+		if(mi.is_pair) {
+			/* element 1 sits one element above the base EA and carries Rt2 */
+			fill_mem_access(&entry->metadata.memory_access2, mi.effective_address + mi.data_size,
+					mi.data_size, mi.is_store, mi.is_atomic,
+					read_reg(&entry->cpu, mi.rt2_register));
 		}
 	}
 

@@ -23,7 +23,10 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from ..interfaces import OT, OperandSpec, MemorySpec, InstructionSpec
+from .aarch64_target_desc import AArch64MemRole
 from .arm_isa_extractor import pipeline
+from .arm_isa_extractor.models import OperandKind, MemRole, MemAccess
 
 # ---------------------------------------------------------------------------
 # Tagging
@@ -211,9 +214,15 @@ def _reg_names(op: dict) -> list:
 
 
 def _esizes(inst: dict) -> list:
-    """Distinct element sizes an immediate operand varies over (SVE); [0] when none (one spec)."""
+    """Element sizes to fan this instruction's specs out over. Some immediates have a valid range that
+    depends on the element width (SVE tsz-encoded shifts are valid in [0, esize-1]); the extractor tags
+    each `imm_ranges` entry with its esize as `(esize, lo, hi, stride)`, where esize 0 means "applies to
+    any element size" (the ordinary, single-range case). This returns the distinct non-zero esizes that
+    any range-encoded immediate/extend operand varies over, or [0] when there are none. `_expand_instruction`
+    emits one spec per returned esize, and `_imm_values(op, esize)` then selects the matching range — so a
+    plain `ADD #imm` yields one spec while an SVE shift yields one per 8/16/32/64-bit element."""
     sizes = {r[0] for op in inst["operands"]
-             if op["kind"] in ("imm", "extend") and not op["values"]
+             if OperandKind(op["kind"]) in (OperandKind.IMM, OperandKind.EXTEND) and not op["values"]
              for r in op["imm_ranges"] if r[0]}
     return sorted(sizes) or [0]
 
@@ -261,45 +270,162 @@ def _imm_values(op: dict, esize: int) -> list:
     ranges = op["imm_ranges"]
     if not ranges:
         raise ValueError(f"immediate {op['name']!r} has no value set")
-    chosen = [r for r in ranges if r[0] == esize] or [r for r in ranges if r[0] == 0] or ranges
+    chosen = [r for r in ranges if r[0] == esize] or [r for r in ranges if r[0] == 0]
+    if not chosen:                                    # no range for this element size -> invalid form
+        raise ValueError(f"immediate {op['name']!r} has no range for element size {esize}")
     vals = set()
     for _e, lo, hi, stride in chosen:
         vals.update(range(lo, hi + 1, stride))
     return [str(v) for v in sorted(vals)]
 
 
-def _operand(op: dict, esize: int) -> dict:
-    kind = op["kind"]
-    if kind == "reg":
-        type_ = "MEM" if op["mem_role"] in ("base", "index") else "REG"   # address register stays MEM
-        values = _reg_names(op)
-    elif kind in ("imm", "extend"):
-        type_, values = "IMM", _imm_values(op, esize)
-    elif kind == "cond":
-        type_, values = "COND", list(op["values"])
-    elif kind == "label":
-        type_, values = "LABEL", []
-    else:
-        raise ValueError(f"unhandled operand kind {kind!r}")
-    return {"type_": type_, "width": op["width"], "signed": op["signed"],
-            "src": op["read"], "dest": op["write"], "values": values, "name": op["name"]}
+# extractor IR operand kind -> Revizor operand type. An extend/shift modifier materialises as an
+# immediate; whether an operand addresses memory is carried separately, by its MemoryRole.
+_KIND_TO_OT = {OperandKind.REG: OT.REG, OperandKind.IMM: OT.IMM, OperandKind.EXTEND: OT.IMM,
+               OperandKind.COND: OT.COND, OperandKind.LABEL: OT.LABEL}
+
+# arm-specific: read/write direction of the memory *location* for each access kind. A prefetch is a
+# hint touching no architectural state (its base is still address-computed, hence still sandboxed).
+_ACCESS_DIR = {MemAccess.LOAD: (True, False), MemAccess.EX_LOAD: (True, False),
+               MemAccess.STORE: (False, True), MemAccess.EX_STORE: (False, True),
+               MemAccess.RMW: (True, True), MemAccess.PREFETCH: (False, False)}
+
+# extractor address role -> arm MemoryRole subtype; NONE ("not an address component") -> Python None
+_MEM_ROLE = {r: (None if r is MemRole.NONE else AArch64MemRole(r.value)) for r in MemRole}
 
 
-def _flags_operand(written: list, read: list) -> dict:
+def _operand_values(op: dict, kind: OperandKind, esize: int) -> list:
+    if kind is OperandKind.REG:
+        return _reg_names(op)
+    if kind in (OperandKind.IMM, OperandKind.EXTEND):
+        return _imm_values(op, esize)
+    if kind is OperandKind.COND:
+        return list(op["values"])
+    if kind is OperandKind.LABEL:
+        return []
+    raise ValueError(f"unhandled operand kind {kind!r}")
+
+
+def _operand(op: dict, esize: int) -> OperandSpec:
+    """One OperandSpec with its real type (OT) and its own read/write (writeback already folded into
+    write). An address component additionally carries its MemoryRole; ordinary operands carry none."""
+    kind = OperandKind(op["kind"])
+    return OperandSpec(_KIND_TO_OT[kind], op["width"], op["signed"], op["read"], op["write"],
+                       _operand_values(op, kind, esize), op["name"], _MEM_ROLE[MemRole(op["mem_role"])])
+
+
+def _memory_operand(components: list, mem_access: MemAccess) -> MemorySpec:
+    """One memory access (the operands of a single `[...]`) as a MemorySpec wrapping its address
+    components. The MemorySpec's src/dest is the access direction; the components keep their own
+    read/write, so pre/post-index writeback on the base survives."""
+    src, dest = _ACCESS_DIR[mem_access]
+    return MemorySpec(components[0].width, False, src, dest, components, components[0].name)
+
+
+# A register-offset's index width is tied to its extend modifier (the ARM `option` field): UXTW/SXTW
+# take a 32-bit Wm, LSL/UXTX/SXTX take a 64-bit Xm. LSL/UXTX have no zero-shift asm form, so they need
+# an explicit amount. The asm template offers both widths via `(<Wm>|<Xm>)` and the full extend set, so
+# the valid pairing is resolved per expanded form (once the index width is fixed).
+_EXTEND_INDEX_WIDTH = {"uxtw": 32, "sxtw": 32, "uxtx": 64, "sxtx": 64, "lsl": 64}
+_EXTEND_NEEDS_AMOUNT = frozenset({"lsl", "uxtx"})
+
+
+def _resolve_register_offset(mem_op: MemorySpec) -> bool:
+    """Restrict a memory operand's extend values to those valid for its (now fixed) index register
+    width, returning False if the form is invalid and must be dropped: a plain register offset (no
+    extend) needs a 64-bit index, and an extend needs an index of its implied width (and an amount for
+    LSL/UXTX). Leaves non-GP indices (e.g. SVE vector gathers) untouched."""
+    comp = {c.mem_role: c for c in mem_op.inner}
+    index = comp.get(AArch64MemRole.INDEX)
+    if index is None or index.width not in (32, 64):
+        return True
+    extend = comp.get(AArch64MemRole.EXTEND)
+    if extend is None:
+        return index.width == 64
+    has_amount = AArch64MemRole.OFFSET in comp
+    extend.values = [e for e in extend.values if _EXTEND_INDEX_WIDTH[e] == index.width
+                     and (has_amount or e not in _EXTEND_NEEDS_AMOUNT)]
+    return bool(extend.values)
+
+
+# Data-processing extended-register forms (ADD/SUB/...): the extend modifier names the source register
+# width — UXT{B,H,W}/SXT{B,H,W} extend a 32-bit Wm, UXTX/SXTX a 64-bit Xm, and LSL keeps the operation
+# (destination) width. The asm offers the source width via `<R><m>` and the full extend set, so the
+# valid pairing is resolved per expanded form. (Memory address extends are handled above.)
+_TRUE_EXTENDS = frozenset({"uxtb", "uxth", "uxtw", "uxtx", "sxtb", "sxth", "sxtw", "sxtx"})
+_EXTEND_SRC_WIDTH = {"uxtb": 32, "uxth": 32, "uxtw": 32, "sxtb": 32, "sxth": 32, "sxtw": 32,
+                     "uxtx": 64, "sxtx": 64}
+
+
+def _extend_operand(operands: list):
+    """The data-processing extend-modifier operand (its values name true extends), or None. The IR
+    operand kind (extend vs plain shift) is not kept on OperandSpec, so identify it by its values."""
+    for op in operands:
+        if op.type is OT.IMM and set(op.values) & _TRUE_EXTENDS:
+            return op
+    return None
+
+
+def _resolve_extend(operands: list, inst: dict) -> bool:
+    """Correlate a data-processing extended-register form with its source register width, returning
+    False if the form is invalid: an extend must match the source width (LSL matches the destination
+    width), and a sub-width source with the optional extend omitted is not a legal form."""
+    if any(isinstance(op, MemorySpec) for op in operands):
+        return True                                   # address extends: see _resolve_register_offset
+    extend = _extend_operand(operands)
+    regs = [op for op in operands if op.type is OT.REG]
+    if extend is not None:
+        index = operands.index(extend)
+        source = next((op for op in reversed(operands[:index]) if op.type is OT.REG), None)
+        if source is None:
+            raise ValueError(f"extend operand {extend.name!r} has no source register")
+        width, dest_width = source.width, regs[0].width
+        has_amount = any(op.type is OT.IMM for op in operands[index + 1:])
+
+        def matches(v):                               # LSL keeps the operation width; the rest name it
+            if v in _EXTEND_NEEDS_AMOUNT and not has_amount:
+                return False                          # LSL/UXTX have no zero-shift asm form
+            return width == dest_width if v == "lsl" else _EXTEND_SRC_WIDTH[v] == width
+
+        extend.values = [v for v in extend.values if matches(v)]
+        return bool(extend.values)
+    # no extend in this form: if the instruction can extend and a source is narrower than the
+    # operation width, the mandatory extend has been dropped -> not a legal form
+    if regs and any(OperandKind(o["kind"]) is OperandKind.EXTEND and set(o["values"]) & _TRUE_EXTENDS
+                    for o in inst["operands"]):
+        return not any(r.width < regs[0].width for r in regs[1:])
+    return True
+
+
+def _resolve_bit_test(operands: list, control_flow: bool) -> bool:
+    """A bit-test branch (TBZ/TBNZ — the only control-flow form carrying both a register and an
+    immediate) tests bit #imm of a register, so the bit position must be below the register width
+    (0-31 for a 32-bit Wt, 0-63 for Xt). Clamp the immediate to the tested register's width."""
+    if not control_flow:
+        return True
+    reg = next((op for op in operands if op.type is OT.REG), None)
+    imm = next((op for op in operands if op.type is OT.IMM), None)
+    if reg is None or imm is None:
+        return True
+    imm.values = [v for v in imm.values if int(v) < reg.width]
+    return bool(imm.values)
+
+
+def _flags_operand(written: list, read: list) -> OperandSpec:
     """The implicit NZCV operand as Revizor's 9-slot r/w scheme (4 NZCV slots + 5 reserved)."""
     scheme = []
     for f in _FLAG_SLOTS:
         rw = ("r" if f in read else "") + ("w" if f in written else "")
         scheme.append("r/w" if rw == "rw" else rw)
     scheme += [""] * 5
-    return {"type_": "FLAGS", "width": 0, "signed": False,
-            "src": bool(read), "dest": bool(written), "values": scheme, "name": "flags"}
+    return OperandSpec(OT.FLAGS, 0, False, bool(read), bool(written), scheme, "flags")
 
 
 def _parse_template(s: str) -> list:
     """Parse an ARM asm template into a flat node list. Node kinds:
        ('lit', text) | ('op', var) | ('wsel', 'R'|'W'|'X') | ('opt', nodes)
-       | ('alt', [nodes, ...]) | ('list', nodes)  (a literal {…} register list)."""
+       | ('alt', [nodes, ...]) | ('list', nodes)  (a literal {…} register list)
+       | ('mem', nodes)  (a `[...]` memory access; its operands form one MemorySpec)."""
     nodes, lit, i = [], "", 0
 
     def flush():
@@ -334,6 +460,11 @@ def _parse_template(s: str) -> list:
             nodes.append(("alt", [_parse_template(a) for a in alts]) if len(alts) > 1
                          else ("lit", s[i:j + 1]))
             i = j + 1
+        elif c == "[":                                 # [ ... ] group; memory-vs-index decided from roles
+            flush()
+            j = s.index("]", i)
+            nodes.append(("mem", _parse_template(s[i + 1:j])))
+            i = j + 1
         else:
             lit += c
             i += 1
@@ -341,17 +472,20 @@ def _parse_template(s: str) -> list:
     return nodes
 
 
-def _expand_format(template: str, by_name: dict, esize: int) -> list:
-    """Enumerate every concrete asm form of *template* as (revizor_template, [operand]) pairs, by walking
-    the parsed AST: optionals branch present/absent, alternatives branch per choice, a GP width selector
-    (R->W and X; W/X fixed) prefixes the next register variable into a synthesised GP operand."""
+def _expand_format(template: str, by_name: dict, esize: int, mem_access: MemAccess) -> list:
+    """Enumerate every concrete asm form of *template* as (revizor_template, [OperandSpec]) pairs, by
+    walking the parsed AST: optionals branch present/absent, alternatives branch per choice, a GP width
+    selector (R->W and X; W/X fixed) prefixes the next register variable into a synthesised GP operand,
+    and a `[...]` group folds its operands into one MemorySpec."""
 
     def reg_operand(var, prefix):
+        # A width selector (<R>/<V>) only ever applies to a data/SIMD register: ARM writes a memory
+        # index as an explicit (<Wm>|<Xm>) alternative, so a composite is never an address operand.
         width, letter, count = _REG_FILE[prefix]
         base = by_name[var]
-        return prefix + var, {"type_": "REG", "width": width, "signed": False,
-                              "src": base["read"], "dest": base["write"],
-                              "values": [f"{letter}{n}" for n in range(count)], "name": prefix + var}
+        names = [f"{letter}{n}" for n in range(count)]
+        return prefix + var, OperandSpec(OT.REG, width, False, base["read"], base["write"], names,
+                                         prefix + var)
 
     def enum(nodes, prefix):
         if not nodes:
@@ -372,6 +506,17 @@ def _expand_format(template: str, by_name: dict, esize: int) -> list:
             else:                                      # placeholder with no operand -> loud, never silent
                 raise KeyError(f"template placeholder <{var}> has no matching operand")
             return [("{" + name + "}" + t, [op] + ops) for t, ops in enum(rest, None)]
+        if kind == "mem":                              # [ ... ] : a memory access, OR a SIMD/SVE lane index
+            results = []
+            for it, io in enum(payload[0], None):
+                # the extractor assigns an addressing role only to a real memory-bracket component, so a
+                # bracket is a memory access iff any operand in it carries a role; a lane/tile index
+                # (e.g. `Vd.S[3]`, `ZA[Wv, offs]`) carries none -> keep it literal.
+                address = any(o.mem_role is not None for o in io)
+                for t, ops in enum(rest, None):
+                    inner = [_memory_operand(io, mem_access)] if address else io
+                    results.append(("[" + it + "]" + t, inner + ops))
+            return results
         if kind == "opt":
             return enum(payload[0] + rest, prefix) + enum(rest, prefix)
         if kind == "alt":
@@ -384,25 +529,39 @@ def _expand_format(template: str, by_name: dict, esize: int) -> list:
     return enum(_parse_template(template), None)
 
 
-def _instruction(inst: dict, template: str, operands: list) -> dict:
-    impl = ([_flags_operand(inst["flags_written"], inst["flags_read"])]
-            if (inst["flags_written"] or inst["flags_read"]) else [])
-    return {
-        "name": inst["name"], "category": inst["category"], "control_flow": inst["control_flow"],
-        "template": template, "operands": operands, "implicit_operands": impl,
-        "tags": get_tags(inst),
-        "constraints": [list(c) for c in inst.get("constraints", ())],
-    }
+def _instruction(inst: dict, template: str, operands: list) -> InstructionSpec:
+    implicit = ([_flags_operand(inst["flags_written"], inst["flags_read"])]
+                if (inst["flags_written"] or inst["flags_read"]) else [])
+    spec = InstructionSpec(inst["name"], inst["category"], inst["control_flow"], template=template,
+                           operands=operands, implicit_operands=implicit, tags=tuple(get_tags(inst)))
+    spec.constraints = tuple(tuple(c) for c in inst.get("constraints", ()))
+    return spec
 
 
 def _expand_instruction(inst: dict) -> list:
     """One spec per (element size x concrete asm format); duplicates are dropped."""
-    by_name = {op["name"]: op for op in inst["operands"]}
+    by_name = {}
+    for op in inst["operands"]:
+        # the template references operands by name; if one name maps to differing definitions (e.g. SME
+        # `LDR ZA[<Wv>, <offs>], [<Xn|SP>, #<offs>]` reuses <offs> as both a tile index and a memory
+        # offset), the name-keyed format-trick can't represent it -> loud-skip, never a wrong spec.
+        if by_name.get(op["name"], op) != op:
+            raise ValueError(f"operand {op['name']!r} reused with conflicting definitions "
+                             f"(roles {by_name[op['name']]['mem_role']} vs {op['mem_role']})")
+        by_name[op["name"]] = op
+    mem_access = MemAccess(inst["mem_access"])
     specs, seen = [], set()
     for esize in _esizes(inst):
-        for template, operands in _expand_format(inst["asm_template"], by_name, esize):
+        for template, operands in _expand_format(inst["asm_template"], by_name, esize, mem_access):
+            # restrict extends to the (now fixed) register widths; drop invalid pairings
+            if any(isinstance(o, MemorySpec) and not _resolve_register_offset(o) for o in operands):
+                continue
+            if not _resolve_extend(operands, inst):
+                continue
+            if not _resolve_bit_test(operands, inst["control_flow"]):
+                continue
             template = template.rstrip()
-            key = (template, tuple(o["name"] for o in operands))
+            key = (template, tuple(o.name for o in operands))
             if key in seen:
                 continue
             seen.add(key)
@@ -410,19 +569,51 @@ def _expand_instruction(inst: dict) -> list:
     return specs
 
 
+def _serialize_operand(op: OperandSpec) -> dict:
+    """Flatten an operand spec to the base.json shape isa_loader reads (the one place dicts appear)."""
+    if isinstance(op, MemorySpec):
+        return {"type_": op.type.name, "width": op.width, "signed": op.signed, "src": op.src,
+                "dest": op.dest, "name": op.name, "inner": [_serialize_operand(c) for c in op.inner]}
+    out = {"type_": op.type.name, "width": op.width, "signed": op.signed, "src": op.src,
+           "dest": op.dest, "values": list(op.values), "name": op.name}
+    if op.mem_role is not None:
+        out["mem_role"] = op.mem_role.value
+    return out
+
+
+def _serialize(spec: InstructionSpec) -> dict:
+    return {"name": spec.name, "category": spec.category, "control_flow": spec.control_flow,
+            "template": spec.template, "tags": list(spec.tags),
+            "constraints": [list(c) for c in spec.constraints],
+            "operands": [_serialize_operand(o) for o in spec.operands],
+            "implicit_operands": [_serialize_operand(o) for o in spec.implicit_operands]}
+
+
+def _generatable(inst: dict) -> bool:
+    """Whether Revizor can generate this instruction. A PC-relative reference (adr/adrp, literal load,
+    PC-relative PAC) takes a label operand, but only a branch's label has a target the generator can
+    place; such non-branch label forms are not generatable, so they are not emitted (for now)."""
+    if not inst["control_flow"] and any(OperandKind(o["kind"]) is OperandKind.LABEL
+                                        for o in inst["operands"]):
+        return False
+    return True
+
+
 def generate(ir_path: str, out_path: str) -> dict:
     """Turn the extractor IR JSON at *ir_path* into Revizor's base.json at *out_path*. Returns
-    {name: error} for instructions whose template references a placeholder with no operand (a
-    not-yet-modelled construct, e.g. SME ZA tiles / SVE multi-vector lists) — reported, never
-    emitted as a broken spec."""
+    {encoding_name: error} for encodings not yet representable (a template placeholder with no operand,
+    e.g. SME ZA tiles; or an operand name reused with conflicting roles) — reported per encoding (so a
+    skipped encoding doesn't implicate other encodings of the same mnemonic), never a broken spec."""
     ir = json.load(open(ir_path))
     specs, failures = [], {}
     for inst in ir:
+        if not _generatable(inst):
+            continue
         try:
             specs.extend(_expand_instruction(inst))
         except (KeyError, ValueError) as e:
-            failures[inst["name"]] = str(e)
-    json.dump(specs, open(out_path, "w"), indent=1, sort_keys=True)
+            failures[inst["encoding_name"]] = str(e)
+    json.dump([_serialize(s) for s in specs], open(out_path, "w"), indent=1, sort_keys=True)
     return failures
 
 

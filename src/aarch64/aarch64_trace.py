@@ -20,22 +20,25 @@ SIZE_T = struct.Struct("<Q")   # size_t = 8
 _SANDBOX_BASE_GPR = int(Aarch64TargetDesc.reg_normalized[SANDBOX_BASE_REGISTER])
 
 class MemAccess:
-    _STRUCT = struct.Struct("<QQQQQ")
+    _STRUCT = struct.Struct("<QQQQQQ")
 
     def __init__(self, buf: memoryview, offset: int):
         (self.effective_address,
         self.before,
         self.after,
         self.element_size,
-        self.is_write) = self._STRUCT.unpack_from(buf, offset)
+        self.is_write,
+        self.is_atomic) = self._STRUCT.unpack_from(buf, offset)
 
         self.size = self._STRUCT.size
+
+    def _kind(self) -> str:
+        return "RMW" if self.is_atomic else ("WRITE" if self.is_write else "READ")
 
     def __repr__(self):
         return (f"<MemAccess ea=0x{self.effective_address:x} "
                 f"before=0x{self.before:x} after=0x{self.after:x} "
-                f"size={self.element_size} "
-                f"{'WRITE' if self.is_write else 'READ'}>")
+                f"size={self.element_size} {self._kind()}>")
 
     def pretty_print(self, indent=0):
         prefix = " " * indent
@@ -44,7 +47,7 @@ class MemAccess:
         print(f"{prefix}  Before: 0x{self.before:x}")
         print(f"{prefix}  After: 0x{self.after:x}")
         print(f"{prefix}  Size: {self.element_size}")
-        print(f"{prefix}  Type: {'WRITE' if self.is_write else 'READ'}")
+        print(f"{prefix}  Type: {self._kind()}")
 
 
 class CPUState:
@@ -91,23 +94,34 @@ class CPUState:
 
 
 class InstrMetadata:
-    _STRUCT = struct.Struct("<QQQ")
+    _STRUCT = struct.Struct("<QQQQ")
 
     def __init__(self, buf: memoryview, offset: int):
         off = offset
 
-        (self.instr_index, self.has_memory_access, self.speculation_nesting) = self._STRUCT.unpack_from(buf, offset)
+        (self.instr_index, self.has_memory_access,
+         self.speculation_nesting, self.is_pair) = self._STRUCT.unpack_from(buf, offset)
         off += self._STRUCT.size
 
         self.memory_access = MemAccess(buf, off)
         off += self.memory_access.size
 
+        # Second access (pair element 1); always present in the fixed-size entry, valid iff is_pair.
+        self.memory_access2 = MemAccess(buf, off)
+        off += self.memory_access2.size
+
         self.size = off - offset
+
+    def accesses(self):
+        """The memory accesses this instruction performs (0, 1, or 2 for LDP/STP)."""
+        if not self.has_memory_access:
+            return []
+        return [self.memory_access, self.memory_access2] if self.is_pair else [self.memory_access]
 
     def __repr__(self):
         return (f"<InstrMetadata idx={self.instr_index} "
                 f"speculation_nesting={self.speculation_nesting} "
-                f"has_mem={self.has_memory_access} "
+                f"has_mem={self.has_memory_access} pair={self.is_pair} "
                 f"{self.memory_access}>")
 
     def pretty_print(self, indent=0):
@@ -116,7 +130,8 @@ class InstrMetadata:
         print(f"{prefix}  Index: {self.instr_index}")
         print(f"{prefix}  Speculation nesting: {self.speculation_nesting}")
         print(f"{prefix}  Has memory access: {self.has_memory_access}")
-        self.memory_access.pretty_print(indent + 2)
+        for acc in self.accesses():
+            acc.pretty_print(indent + 2)
 
 
 class InstrTraceEntry:
@@ -228,15 +243,18 @@ def compute_taint(cer: ContractExecutionResult) -> InputTaint:
         gpr_tracker.set_depth(depth)
         mem_tracker.set_depth(depth)
 
-        if ite.metadata.has_memory_access:
-            ma = ite.metadata.memory_access
-            for byte_idx in range(ma.element_size):
-                byte_offset = ma.effective_address + byte_idx - ite.cpu.gpr[_SANDBOX_BASE_GPR]
-                if 0 <= byte_offset < mem_size:
-                    if ma.is_write:
-                        mem_tracker.on_write((byte_offset,), depth)
-                    else:
-                        mem_tracker.on_read((byte_offset,), depth)
+        for ma in ite.metadata.accesses():
+            offsets = [o for o in (ma.effective_address + b - ite.cpu.gpr[_SANDBOX_BASE_GPR]
+                                   for b in range(ma.element_size))
+                       if 0 <= o < mem_size]
+            if ma.is_atomic:
+                # read-modify-write: the cell is read (a source) and then written
+                mem_tracker.on_read(offsets, depth)
+                mem_tracker.on_write(offsets, depth)
+            elif ma.is_write:
+                mem_tracker.on_write(offsets, depth)
+            else:
+                mem_tracker.on_read(offsets, depth)
 
         srcs, dests = decode_reg_accesses(ite.cpu.encoding, ite.cpu.pc)
         gpr_tracker.on_read(chain.from_iterable(map(map_register_to_offsets, srcs)), depth)
@@ -256,8 +274,7 @@ def compute_ctrace(cer: ContractExecutionResult) -> CTrace:
     line_size, num_sets = 64, 64
     cache_sets: Set[int] = set()
     for ite in cer:
-        if ite.metadata.has_memory_access:
-            ma = ite.metadata.memory_access
+        for ma in ite.metadata.accesses():
             for byte_idx in range(ma.element_size):
                 addr = ma.effective_address + byte_idx - ite.cpu.gpr[_SANDBOX_BASE_GPR]
                 cache_sets.add((addr // line_size) % num_sets)

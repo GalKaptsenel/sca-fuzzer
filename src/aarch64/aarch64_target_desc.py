@@ -3,11 +3,20 @@ File: aarch64-specific constants and lists
 """
 from typing import List
 
-from ..interfaces import Instruction, TargetDesc, MacroSpec, CPUDesc
+from ..interfaces import Instruction, TargetDesc, MacroSpec, CPUDesc, MemoryRole
 from ..config import CONF
 
 # Parked in this shared constants module — a dedicated sandbox-ABI home would fit better.
 SANDBOX_BASE_REGISTER = "x29"
+
+
+class AArch64MemRole(MemoryRole):
+    """AArch64 addressing roles inside `[...]` (the extractor's MemRole, minus NONE which maps to
+    Python None)."""
+    BASE = "base"      # address base register (the `<Xn|SP>`)
+    INDEX = "index"    # address index register (the `<Xm>`)
+    OFFSET = "offset"  # numeric address immediate (displacement or index shift amount)
+    EXTEND = "extend"  # address index shift/extend type (LSL/ASR/UXTW/SXTW/...)
 
 
 class Aarch64TargetDesc(TargetDesc):
