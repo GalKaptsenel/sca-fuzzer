@@ -28,6 +28,7 @@ int main(void) {
 	snprintf(objpath, sizeof(objpath), "/proc/self/fd/%d", objfd);
 
 	pid_t pid = fork();
+	if (0 > pid) die("fork");
 	if (0 == pid) {
 		char *as_argv[] = {
 			"as",
@@ -57,6 +58,7 @@ int main(void) {
 	snprintf(outpath, sizeof(outpath), "/proc/self/fd/%d", outfd);	
 
 	pid = fork();
+	if (0 > pid) die("fork");
 	if (0 == pid) {
 		char *objcopy_argv[] = {
 			"objcopy",
