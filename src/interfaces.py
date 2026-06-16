@@ -167,8 +167,8 @@ MACRO_STACK_SIZE = 64
 UNDERFLOW_PAD_SIZE = (PAGE_SIZE - MACRO_STACK_SIZE)
 MAIN_AREA_SIZE = PAGE_SIZE
 FAULTY_AREA_SIZE = PAGE_SIZE
-GPR_SUBREGION_SIZE = 64  # 8 64-bit GPRs
-SIMD_SUBREGION_SIZE = 256  # 8 256-bit YMMs
+GPR_SUBREGION_SIZE = 64  # 8 * 64-bit GPR slots
+SIMD_SUBREGION_SIZE = 256  # 8 * 256-bit SIMD-vector slots
 REG_INIT_AREA_SIZE = (GPR_SUBREGION_SIZE + SIMD_SUBREGION_SIZE)
 OVERFLOW_PAD_SIZE = (PAGE_SIZE - REG_INIT_AREA_SIZE)
 SANDBOX_DATA_SIZE = MAIN_AREA_SIZE + FAULTY_AREA_SIZE + 2 * PAGE_SIZE
@@ -246,8 +246,9 @@ class Actor:
 # and 2 sub-arrays representing CPU registers (`gpr` and `simd`).
 # The array is used to initialize sandbox memory and CPU registers.
 #
-# Ordering of GPRs:  RAX, RBX, RCX, RDX, RSI, RDI, FLAGS, (last 8 bytes unused)
-# Ordering of SIMD registers: YMM0, YMM1, ..., YMM7
+# GPR slots: 6 general-purpose registers, then the flags register, then 1 unused slot. The
+# concrete register that each slot seeds is defined per architecture (x86: RAX,RBX,RCX,RDX,RSI,RDI;
+# AArch64: x0..x5). SIMD slots: 8 vector registers (x86 YMM0..7 / AArch64 v0..7).
 InputFragment = np.dtype(
     [
         ('main', np.uint64, MAIN_AREA_SIZE // 8),

@@ -16,7 +16,6 @@ from argparse import ArgumentParser, ArgumentTypeError
 from .factory import get_minimizer, get_fuzzer, get_downloader
 from .config import CONF
 from typing import List
-from .aarch64.aarch64_kernel import print_opcode_summary
 
 # Crash log: $REVIZOR_CRASH_LOG if set, else a portable temp-dir default.
 _CRASH_LOG = os.environ.get("REVIZOR_CRASH_LOG") \
@@ -486,7 +485,10 @@ def main() -> int:
                 f.write(msg)
             raise
         finally:
-            print_opcode_summary()
+            # For identifieng unexpected regressions and for debug - should be removed
+            if "aarch64" in CONF.instruction_set:
+                from .aarch64.aarch64_kernel import print_opcode_summary
+                print_opcode_summary()
         return exit_code
 
     # Reproducing a violation
