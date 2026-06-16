@@ -243,7 +243,7 @@ class Conf:
     # ==============================================================================================
     # Analyser
 
-    analyser: str = 'chi2' #'ansamble' # 'chi2_bitwise_threshold'  #'chi2'#'chi2_bitwise_pvalues'
+    analyser: str = 'chi2'
     """ analyser: type of the analyser """
     analyser_subsets_is_violation: bool = False
     """ analyser_subsets_is_violation: [only for analyser='sets' or analyser='bitmaps']
