@@ -57,7 +57,9 @@ class TestExecutorSysfs(unittest.TestCase):
 
     def setUp(self):
         self._saved = {}
-        for k in (["warmups", "measurement_mode", "enable_pre_run_flush"] + _BOOL_KNOBS):
+        snap = (["warmups", "measurement_mode", "enable_pre_run_flush",
+                 "branch_training_config"] + _BOOL_KNOBS)
+        for k in snap:
             try:
                 self._saved[k] = _read(k).strip()
             except OSError:
@@ -75,6 +77,10 @@ class TestExecutorSysfs(unittest.TestCase):
         restore("enable_phr_flush")
         restore("enable_view_rotation")
         restore("enable_ssbs")
+        # Restore the training config (empty -> "\n" clears it to 0 entries) BEFORE the
+        # enable flag, since writing the config re-enables training as a side effect.
+        if "branch_training_config" in self._saved:
+            _write_raw("branch_training_config", self._saved["branch_training_config"] or "\n")
         restore("enable_branch_training")
 
     # ---- warmups: kstrtol, reject negative / non-numeric --------------------
@@ -175,12 +181,23 @@ class TestExecutorIoctl(unittest.TestCase):
 
     def setUp(self):
         self.fd = os.open(DEVICE, os.O_RDWR)
+        # The lifecycle test writes measurement_mode via sysfs; snapshot it so we
+        # never leak a config change out of the suite.
+        self._saved_mode = None
+        if MODULE_LOADED:
+            mode = _read("measurement_mode")
+            if "F+R" in mode:
+                self._saved_mode = "F+R"
+            elif "P+P" in mode:
+                self._saved_mode = "P+P"
         self._clear()  # start from a known CONFIGURATION state
 
     def tearDown(self):
         try:
             self._ioctl_void(UNLOAD_TEST)
             self._clear()
+            if self._saved_mode is not None:
+                _write_raw("measurement_mode", self._saved_mode)
         finally:
             os.close(self.fd)
 
