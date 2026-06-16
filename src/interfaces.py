@@ -395,11 +395,9 @@ class MemoryOperand(Operand):
     a RegisterOperand/ImmediateOperand carrying its own MemoryRole. src/dest is the access direction (a
     load reads the location, a store writes it). x86 builds a plain access from a combined address
     string and leaves `inner` empty."""
-    mte_memory_tag: Optional[int]
     def __init__(self, address: str, width: int, src: bool, dest: bool,
                  inner: Optional[List["Operand"]] = None):
         self.width = width
-        self.mte_memory_tag = 6
         self.inner = inner if inner is not None else []
         super().__init__(address.lower(), OT.MEM, src, dest)
 
