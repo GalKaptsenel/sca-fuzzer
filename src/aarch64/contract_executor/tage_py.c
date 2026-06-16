@@ -32,11 +32,16 @@ int tagebp_init(const char *module_dir, const char *module_name) {
 	// Add module_dir to sys.path
 	PyObject *sys_path = PySys_GetObject("path"); // Borrowed reference
 	PyObject *py_path = PyUnicode_FromString(module_dir);
-	if (!py_path) {
+	if (!sys_path || !py_path) {
 		PyErr_Print();
+		Py_XDECREF(py_path);
 		return -1;
 	}
-	PyList_Append(sys_path, py_path);
+	if (PyList_Append(sys_path, py_path) != 0) {
+		PyErr_Print();
+		Py_DECREF(py_path);
+		return -1;
+	}
 	Py_DECREF(py_path);
 
 	// Import the module

@@ -242,7 +242,7 @@ static void fill_mem_access(mem_access_t* acc, uintptr_t kea, uint64_t elem_sz,
 		default:
 			fprintf(stderr, "[C] fill_mem_access: unexpected element size %llu\n",
 				(unsigned long long)elem_sz);
-			__builtin_unreachable();
+			__builtin_trap();
 	}
 	acc->before = value_64bit;
 	/* Merge written bytes with unchanged upper bytes so 'after' reflects actual memory state. */

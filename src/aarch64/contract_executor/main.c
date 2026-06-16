@@ -266,14 +266,12 @@ int main() {
 				/* x6 (slot 6) is already in PSTATE format. */
 				"msr nzcv, x6\n"
 				"mov x7, %10\n"
-				"mov x8, %11\n"
 				"blr %1\n"
 				"1:\n"
 				: "=m"(simulation.return_address)
 				: "r"(simulation.sim_code.code), "r"(kernel_sandbox_base),
 				"r"(regs_blob[0]), "r"(regs_blob[1]), "r"(regs_blob[2]), "r"(regs_blob[3]),
-				"r"(regs_blob[4]), "r"(regs_blob[5]), "r"(regs_blob[6]), "r"(regs_blob[7]),
-				"r"(regs_blob[8])
+				"r"(regs_blob[4]), "r"(regs_blob[5]), "r"(regs_blob[6]), "r"(regs_blob[7])
 				: "x9", "x29", "memory", "cc", "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8", "x10", "x30"
 			);
 
