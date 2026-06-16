@@ -10,6 +10,7 @@ import numpy as np
 
 import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
 from src.aarch64.aarch64_trace import _TaintTracker, compute_taint, compute_ctrace
+from src.aarch64.aarch64_disasm import decode_reg_accesses
 from src.aarch64.aarch64_input_layout import map_register_to_offsets
 
 # ===========================================================================
@@ -369,6 +370,18 @@ class TestComputeTaint(unittest.TestCase):
         for b in range(16):
             self.assertTrue(_mem_preserved(t, 0x10 + b), f'byte {b}')
 
+    def test_pair_store_writes_both_elements(self):
+        # STP x0,x1,[base+0x10] writes 16 CONTIGUOUS bytes (element0 at 0x10, element1 at 0x18).
+        # A pure store doesn't taint, so make the writes observable: a later read of the same 16
+        # bytes is fully satisfied by the store → NONE preserved. If the 2nd element's write were
+        # missed, reading 0x18..0x1f would be unsatisfied and those bytes would be preserved.
+        t = _taint(
+            {'depth': 0, 'srcs': ['x0', 'x1'], 'dests': [], 'mem': (0x10, 8, True), 'mem2': (0x18, 8, True)},
+            {'depth': 0, 'srcs': [], 'dests': ['x2'], 'mem': (0x10, 16, False)},
+        )
+        for b in range(16):
+            self.assertFalse(_mem_preserved(t, 0x10 + b), f'byte {b}')
+
     def test_memory_arch_write_then_read_no_taint(self):
         t = _taint(
             {'depth': 0, 'srcs': [], 'dests': [], 'mem': (0x20, 4, True)},   # arch write
@@ -514,6 +527,65 @@ class TestComputeCtrace(unittest.TestCase):
             {'depth': 0, 'srcs': ['x0'], 'dests': ['x2']},
         )
         self.assertEqual(ct.raw, [])
+
+
+class TestMemoryOperandRegisterTaint(unittest.TestCase):
+    """The address registers of a memory operand are READ (so tainted), and pre/post-index WRITEBACK
+    additionally WRITES the base. Encodings assembled with `as` and pinned here."""
+
+    # ldr x0,[x1] / [x1,#8]! / [x1],#8
+    LDR_NOWB, LDR_PRE, LDR_POST = 0xf9400020, 0xf8408c20, 0xf8408420
+    # str x0,[x1] / [x1,#8]! / [x1],#8
+    STR_NOWB, STR_PRE, STR_POST = 0xf9000020, 0xf8008c20, 0xf8008420
+    # ldp x0,x1,[x2] / [x2,#16]! / [x2],#16
+    LDP_NOWB, LDP_PRE, LDP_POST = 0xa9400440, 0xa9c10440, 0xa8c10440
+    # stp x0,x1,[x2] / [x2,#16]! / [x2],#16
+    STP_NOWB, STP_PRE, STP_POST = 0xa9000440, 0xa9810440, 0xa8810440
+
+    _NOWB = {LDR_NOWB: "x1", STR_NOWB: "x1", LDP_NOWB: "x2", STP_NOWB: "x2"}
+    _WB = {LDR_PRE: "x1", LDR_POST: "x1", STR_PRE: "x1", STR_POST: "x1",
+           LDP_PRE: "x2", LDP_POST: "x2", STP_PRE: "x2", STP_POST: "x2"}
+
+    # ---- decode layer ----
+    def test_base_register_always_read(self):
+        for enc, base in {**self._NOWB, **self._WB}.items():
+            src, _ = decode_reg_accesses(enc, 0)
+            self.assertIn(base, src, f"0x{enc:08x}: base must be read")
+
+    def test_no_writeback_base_not_written(self):
+        for enc, base in self._NOWB.items():
+            _, dest = decode_reg_accesses(enc, 0)
+            self.assertNotIn(base, dest, f"0x{enc:08x}: no writeback → base not written")
+
+    def test_writeback_base_read_and_written(self):
+        for enc, base in self._WB.items():
+            src, dest = decode_reg_accesses(enc, 0)
+            self.assertIn(base, src, f"0x{enc:08x}: writeback base is read first")
+            self.assertIn(base, dest, f"0x{enc:08x}: writeback also writes the base")
+
+    def test_load_writes_data_store_reads_data(self):
+        # LDP loads x0,x1 (written); STP stores x0,x1 (read).
+        self.assertEqual(set(decode_reg_accesses(self.LDP_NOWB, 0)[1]), {"x0", "x1"})
+        self.assertTrue({"x0", "x1"} <= set(decode_reg_accesses(self.STP_NOWB, 0)[0]))
+
+    # ---- compute_taint integration: read-first base stays tainted under writeback ----
+    def _trace_one(self, encoding, mem):
+        gprs = [0] * 31
+        gprs[29] = SANDBOX_BASE
+        off, size, is_write = mem
+        ma = _MA(SANDBOX_BASE + off, size, is_write)
+        return [_ITE(_Meta(0, True, ma), _CPU(gprs, encoding=encoding))]
+
+    def test_compute_taint_preserves_writeback_base(self):
+        # ldr x0,[x1],#8 — x1 is read for the address (read-first), so its GPR input bytes are
+        # preserved even though the writeback also writes x1.
+        t = compute_taint(self._trace_one(self.LDR_POST, (0x10, 8, False)))
+        self.assertTrue(_gpr_preserved(t, 1), "writeback base x1 must stay tainted (read-first)")
+
+    def test_compute_taint_preserves_store_writeback_base(self):
+        # str x0, [x1, #8]! (pre-index) — base x1 read-first → preserved.
+        t = compute_taint(self._trace_one(self.STR_PRE, (0x10, 8, True)))
+        self.assertTrue(_gpr_preserved(t, 1), "store writeback base x1 must stay tainted")
 
 
 if __name__ == '__main__':

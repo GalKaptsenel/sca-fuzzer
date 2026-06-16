@@ -66,7 +66,12 @@ def decode_reg_accesses(encoding: int, pc: int) -> Tuple[List[str], List[str]]:
                 src.add(reg)
         elif op.type == ARM64_OP_MEM:
             if op.mem.base != 0:
-                src.add(insn.reg_name(op.mem.base))
+                base_reg = insn.reg_name(op.mem.base)
+                src.add(base_reg)
+                # pre/post-index writeback also UPDATES the base register; Capstone leaves it out of
+                # the operand access flags, so add it explicitly.
+                if getattr(insn, "writeback", False):
+                    dest.add(base_reg)
             if op.mem.index != 0:
                 src.add(insn.reg_name(op.mem.index))
 
