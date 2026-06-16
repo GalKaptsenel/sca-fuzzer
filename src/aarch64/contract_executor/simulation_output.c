@@ -179,7 +179,8 @@ mem_access_info_t parse_memory_access_instruction(uint32_t inst, const trace_cpu
 		} else if(is_pair_post_index(inst)) {
 			mi.effective_address = base;
 		} else {
-			__builtin_unreachable();
+			/* 000 = LDNP/STNP (non-temporal pair) is not modeled; fail loud, not UB. */
+			__builtin_trap();
 		}
 	} else if(is_literal_pc_relative(inst)) {
 		uint64_t sz = literal_pc_relative_access_size(inst);
