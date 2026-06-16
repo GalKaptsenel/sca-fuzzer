@@ -106,7 +106,11 @@ class Conf:
     """ avoid_extended_memory_operands: [AArch64] when True, skip memory-access instruction forms
     whose address has an extended-register index (UXTW/SXTW/SXTX/UXTX), keeping only base /
     base+immediate / plain (LSL) register-offset forms. On by default; set False to also emit
-    extended-register addressing forms. """
+    extended-register addressing forms.
+
+    TEMPORARY / WIP: defaulted True because enabling the extended forms was observed to REDUCE the
+    number of violations found, for a reason not yet understood. Needs investigation; this config
+    parameter should be removed after resolution. """
     instruction_allowlist: List[str] = []
     """ instruction_allowlist: list of instructions to use for generating programs;
     combined with instruction_categories; has priority over instruction_blocklist.
