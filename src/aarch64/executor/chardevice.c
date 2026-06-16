@@ -176,15 +176,15 @@ static void kernel_measurement_to_user_measurement(user_measurement_t* um, const
 	memcpy(um->pfc, km->pfc, sizeof(um->pfc));
 }
 
-static void measure_input_id(void __user* arg) {
+static long measure_input_id(void __user* arg) {
 	if(TRACED_STATE != executor.state) {
 		module_err("Measurements are available only after performing a trace!\n");
-		return;
+		return -EINVAL;
 	}
-	
+
 	if(TEST_REGION == executor.checkout_region) {
 		module_err("Checkout into the desired input!\n");
-		return;
+		return -EINVAL;
 	}
 
 	measurement_t* current_measurement = get_measurement(executor.checkout_region);
@@ -195,7 +195,10 @@ static void measure_input_id(void __user* arg) {
 
 	if (copy_to_user_with_access_check(arg, &umeasurement, sizeof(umeasurement))) {
 		module_err("Failed to copy measurement to userspace!\n");
+		return -EFAULT;
 	}
+
+	return 0;
 }
 
 static void unload_test_and_update_state(void) {
@@ -450,7 +453,7 @@ static long do_revisor_ioctl(struct file* file, unsigned int cmd, unsigned long 
 			break;
 
 		case REVISOR_MEASUREMENT_CONSTANT:
-			measure_input_id((void __user*)arg);
+			result = measure_input_id((void __user*)arg);
 			break;
 
 		case REVISOR_TRACE_CONSTANT:

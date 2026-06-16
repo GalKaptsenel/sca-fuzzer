@@ -276,6 +276,11 @@ class TestExecutorIoctl(unittest.TestCase):
         with self.assertRaises(OSError):
             self._ioctl_void(TRACE)
 
+    def test_measurement_without_trace_fails(self):
+        # not TRACED -> measure returns -EINVAL (must reach userspace, not be swallowed)
+        with self.assertRaises(OSError):
+            fcntl.ioctl(self.fd, MEASUREMENT, bytearray(32), True)
+
     def test_unknown_magic_ioctl_rejected(self):
         bad = (_IOC_NONE << 30) | (ord('Z') << 8) | 1   # valid shape, wrong magic -> -ENOTTY
         with self.assertRaises(OSError):
