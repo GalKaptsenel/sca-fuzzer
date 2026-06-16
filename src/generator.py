@@ -6,12 +6,11 @@ SPDX-License-Identifier: MIT
 """
 from __future__ import annotations
 
-import os
 import random
 import abc
 import re
 from typing import List, Tuple, Optional, Set
-from subprocess import CalledProcessError, run, Popen, PIPE
+from subprocess import CalledProcessError, run
 from copy import deepcopy
 from itertools import chain
 
@@ -198,30 +197,11 @@ class ConfigurableGenerator(Generator, abc.ABC):
         return test_case
 
     @staticmethod
-    def in_memory_assemble(asm: str) -> bytes:
-        if not asm.endswith('\n'):
-            asm += '\n'
-
-        asm_to_bytes = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                    "aarch64", "asm_to_bytes", "asm_to_bytes")
-        p = Popen(
-                [asm_to_bytes],
-                stdin=PIPE,
-                stdout=PIPE,
-                stderr=PIPE,
-                text=False,
-        )
-
-        machine_code, err = p.communicate(asm.encode("ascii"))
-
-        if p.returncode != 0:
-            raise RuntimeError(f"asm_to_bytes failed:\n{err.decode()}")
-
-        return machine_code
-
-    @staticmethod
-    def assemble(asm_file: str, obj_file: str, bin_file: str) -> None:
-        """Assemble the test case into a stripped binary"""
+    def _assemble(asm_file: str, obj_file: str, bin_file: str, as_cmd: str, objcopy_cmd: str,
+                  strip_section: str = "") -> None:
+        """Shared assemble flow; the arch generator supplies the toolchain. Runs the assembler
+        (`as_cmd` asm_file -> obj_file), copies to bin_file, optionally strips a section, then
+        flattens to a raw binary with `objcopy_cmd`."""
 
         def pretty_error_msg(error_msg):
             with open(asm_file, "r") as f:
@@ -239,7 +219,8 @@ class ConfigurableGenerator(Generator, abc.ABC):
             return msg
 
         try:
-            out = run(f"aarch64-linux-gnu-as -march=armv9-a+sve+memtag {asm_file} -o {obj_file}", shell=True, check=True, capture_output=True)
+            out = run(f"{as_cmd} {asm_file} -o {obj_file}", shell=True, check=True,
+                      capture_output=True)
         except CalledProcessError as e:
             error_msg = e.stderr.decode()
             if "Assembler messages:" in error_msg:
@@ -248,13 +229,14 @@ class ConfigurableGenerator(Generator, abc.ABC):
                 print(error_msg)
             raise e
 
-
         output = out.stderr.decode()
         if "Assembler messages:" in output:
             print("WARNING: [generator]" + pretty_error_msg(output))
 
         run(f"cp {obj_file} {bin_file}", shell=True, check=True)
-        run(f"aarch64-linux-gnu-objcopy {bin_file} -O binary {bin_file}", shell=True, check=True)
+        if strip_section:
+            run(f"strip --remove-section={strip_section} {bin_file}", shell=True, check=True)
+        run(f"{objcopy_cmd} {bin_file} -O binary {bin_file}", shell=True, check=True)
 
     @abc.abstractmethod
     def get_elf_data(self, test_case: TestCase, obj_file: str) -> None:

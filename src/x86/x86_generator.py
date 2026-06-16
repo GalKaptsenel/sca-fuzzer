@@ -60,6 +60,12 @@ class X86Generator(ConfigurableGenerator, abc.ABC):
     def get_unconditional_jump_instruction(self) -> Instruction:
         return Instruction("jmp", False, "UNCOND_BR", True)
 
+    @staticmethod
+    def assemble(asm_file: str, obj_file: str, bin_file: str) -> None:
+        """Assemble an x86 test case into a stripped flat binary (native GNU as/objcopy)."""
+        ConfigurableGenerator._assemble(asm_file, obj_file, bin_file, "as", "objcopy",
+                                        strip_section=".note.gnu.property")
+
     def get_elf_data(self, test_case: TestCase, obj_file: str) -> None:
         self.elf_parser.parse(test_case, obj_file)
 

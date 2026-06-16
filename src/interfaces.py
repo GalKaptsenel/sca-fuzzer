@@ -881,12 +881,6 @@ class TestCase:
                 return actor
         raise Exception(f"ERROR: Actor {aid} not found")
 
-    def save(self, path: str) -> None:
-        with open(path, 'w') as f:
-            from .aarch64.aarch64_printer import Aarch64Printer
-            from .aarch64.aarch64_target_desc import Aarch64TargetDesc
-            f.write(Aarch64Printer(Aarch64TargetDesc()).print(self))
-
 
 # ==================================================================================================
 # Traces

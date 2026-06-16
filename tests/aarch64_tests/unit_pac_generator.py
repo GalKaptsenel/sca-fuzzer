@@ -61,7 +61,6 @@ from src.aarch64.aarch64_contract_executor import (
     ContractExecution, ContractExecutionResult, ContractExecutorService, SimArch,
 )
 from src.aarch64.aarch64_input_layout import _reconstruct_pstate
-from src.generator import ConfigurableGenerator
 
 _isa:          Optional[InstructionSet] = None
 _executor      = None    # LocalHWExecutor — pac_sign() + sandbox_base
@@ -280,7 +279,7 @@ def _collect_cases(n: int = 20) -> list:
 def _tc_to_bytes(tc: TestCase) -> bytes:
     layout   = Aarch64ASMLayout(tc)
     assembly = Aarch64Printer(_target_desc).print_layout(layout)
-    return ConfigurableGenerator.in_memory_assemble(assembly)
+    return Aarch64RandomGenerator.in_memory_assemble(assembly)
 
 
 def _slot_offsets(tc: TestCase) -> Set[int]:

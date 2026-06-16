@@ -557,7 +557,7 @@ class FuzzerGeneric(Fuzzer):
         Path(violation_dir).mkdir()
 
         # store violation
-        test_case.save(f"{violation_dir}/{test_case.asm_path}")
+        self.generator.printer.print(test_case, f"{violation_dir}/{test_case.asm_path}")
 
         # Optionally recompute the trace for inputs whose stored trace is stale (borrowed from a
         # class original on the fast path), so the artifact carries each input's own accurate trace.
@@ -585,7 +585,7 @@ class FuzzerGeneric(Fuzzer):
 
         for m in violation.measurements:
             if m.test_case is not None:
-                m.test_case.save(f"{violation_dir}/{m.test_case.asm_path}")
+                self.generator.printer.print(m.test_case, f"{violation_dir}/{m.test_case.asm_path}")
 
         # store the original configuration file
         if CONF._config_path:

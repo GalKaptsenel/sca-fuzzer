@@ -2,10 +2,12 @@
 File: AArch64 test case generator
 """
 import abc
+import os
 import math
 import random
 import copy
 from itertools import chain
+from subprocess import Popen, PIPE
 from typing import Any, List, Tuple, Optional, Set, Dict
 from dataclasses import dataclass, field
 from enum import Enum, auto
@@ -43,6 +45,29 @@ class Aarch64Generator(ConfigurableGenerator, abc.ABC):
 
     def get_unconditional_jump_instruction(self) -> Instruction:
         return Instruction("b", False, "UNCOND_BR", True, template="B {label}")
+
+    @staticmethod
+    def assemble(asm_file: str, obj_file: str, bin_file: str) -> None:
+        """Assemble an AArch64 test case into a stripped flat binary (cross GNU as/objcopy)."""
+        ConfigurableGenerator._assemble(asm_file, obj_file, bin_file,
+                                        "aarch64-linux-gnu-as -march=armv9-a+sve+memtag",
+                                        "aarch64-linux-gnu-objcopy")
+
+    @staticmethod
+    def in_memory_assemble(asm: str) -> bytes:
+        """Assemble AArch64 assembly to raw machine code in memory via the asm_to_bytes helper."""
+        if not asm.endswith('\n'):
+            asm += '\n'
+
+        asm_to_bytes = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                    "asm_to_bytes", "asm_to_bytes")
+        p = Popen([asm_to_bytes], stdin=PIPE, stdout=PIPE, stderr=PIPE, text=False)
+        machine_code, err = p.communicate(asm.encode("ascii"))
+
+        if p.returncode != 0:
+            raise RuntimeError(f"asm_to_bytes failed:\n{err.decode()}")
+
+        return machine_code
 
     def get_elf_data(self, test_case: TestCase, obj_file: str) -> None:
         self.elf_parser.parse(test_case, obj_file)

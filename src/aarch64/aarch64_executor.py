@@ -17,7 +17,6 @@ from pathlib import Path
 
 from .aarch64_generator import Aarch64Generator
 from .aarch64_printer import Aarch64Printer, Aarch64ASMLayout
-from .. import ConfigurableGenerator
 from ..interfaces import HTrace, Input, TestCase, Executor, HardwareTracingError, CTrace, InputTaint
 from ..config import CONF
 from ..util import Logger, STAT, FuzzLogger
@@ -294,7 +293,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
         """Assemble a TestCase to binary; return (bytes, layout)."""
         layout = Aarch64ASMLayout(tc)
         assembly = Aarch64Printer(self.target_desc).print_layout(layout)
-        return ConfigurableGenerator.in_memory_assemble(assembly), layout
+        return Aarch64Generator.in_memory_assemble(assembly), layout
 
     def _make_ce_execution(self, tc_bytes: bytes, inp: Input, sandbox_base: int, nesting: int,
                            max_mispred_instructions: int, ct: ExecutionClause,
