@@ -7,10 +7,8 @@ SPDX-License-Identifier: MIT
 import yaml
 import os
 from copy import deepcopy
-from typing import List, Dict, IO, Any
+from typing import List, Dict, IO, Any, Optional
 from collections import OrderedDict
-from .x86 import x86_config
-from .aarch64 import aarch64_config
 
 
 # ==================================================================================================
@@ -98,7 +96,7 @@ class Conf:
     # Program Generator
     generator: str = "random"
     """ generator: type of the program generator """
-    instruction_set: str = "x86-64"
+    instruction_set: Optional[str] = None
     """ instruction_set: ISA under test """
     instruction_categories: List[str] = []
     """ instruction_categories: list of instruction categories to use for generating programs """
@@ -190,8 +188,8 @@ class Conf:
 
     # ==============================================================================================
     # Executor
-    executor: str = x86_config.try_get_cpu_vendor()
-    """ executor: executor type """
+    executor: str = ""
+    """ executor: executor type (set per-architecture in set_to_arch_defaults) """
     executor_mode: str = 'P+P'
     """ executor_mode: hardware trace collection mode """
     executor_warmups: int = 5
@@ -310,7 +308,7 @@ class Conf:
             "none", "l1d", "pc", "memory", "ct", "loads+stores+pc", "ct-nonspecstore", "ctr",
             "arch", "tct", "tcto"
         ],
-        "executor": ["x86-intel", "x86-amd"],
+        "executor": ["x86-64-intel", "x86-64-amd"],
         "analyser": ["bitmaps", "sets", "mwu", "chi2"],
         "coverage_type": ["none", "model_instructions"],
         "logging_modes": [
@@ -452,6 +450,9 @@ class Conf:
         """
         Check if the configuration values make sense
         """
+        if self.instruction_set is None:
+            raise ConfigException("instruction_set must be set in the configuration "
+                                  "(it selects the architecture)")
         if self.input_gen_entropy_bits > 32:
             raise ConfigException("input_gen_entropy_bits must be less or equal to 32 bits")
         if self.min_successors_per_bb > self.max_successors_per_bb:
@@ -462,10 +463,10 @@ class Conf:
         self._unsupported_options = []
 
         if self.instruction_set == "x86-64":
-            config = x86_config
+            from .x86 import x86_config as config
 
         elif "aarch64" in self.instruction_set:
-            config = aarch64_config
+            from .aarch64 import aarch64_config as config
 
         else:
             raise ConfigException(f"Unknown architecture {self.instruction_set}")
@@ -567,4 +568,3 @@ class Conf:
 
 
 CONF = Conf()
-CONF.set_to_arch_defaults()

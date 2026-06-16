@@ -5,6 +5,7 @@ SPDX-License-Identifier: MIT
 import unittest
 import inspect
 import pathlib
+import copy
 from src.config import CONF
 
 FILE_DIR = pathlib.Path(__file__).parent.resolve()
@@ -16,6 +17,18 @@ class DocumentationTest(unittest.TestCase):
     A class for testing if the documentation is up to date.
     """
     longMessage = False
+
+    def setUp(self):
+        # The common config docs are x86-oriented; apply the arch defaults so CONF carries the
+        # merged _option_values/defaults the doc describes. (CONF no longer self-initializes an
+        # arch at import; arch defaults are applied via set_to_arch_defaults at config load.)
+        self._saved = copy.deepcopy(CONF._borg_shared_state)
+        CONF.instruction_set = "x86-64"
+        CONF.set_to_arch_defaults()
+
+    def tearDown(self):
+        CONF._borg_shared_state.clear()
+        CONF._borg_shared_state.update(self._saved)
 
     def test_conf_docs(self):
         """

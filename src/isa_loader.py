@@ -192,13 +192,11 @@ class InstructionSet(InstructionSetAbstract):
                         break
                     op.values = choices
 
-                    # FIXME: temporary disabled generation of higher reg. bytes for x86
-                    for i, reg in enumerate(op.values):
-                        if reg[-1] == 'h':
-                            op.values[i] = reg.replace(
-                                'h',
-                                'l',
-                            )
+                    # x86-only: temporarily disable generation of higher reg. bytes (ah->al, ...).
+                    if "x86" in CONF.instruction_set:
+                        for i, reg in enumerate(op.values):
+                            if reg[-1] == 'h':
+                                op.values[i] = reg.replace('h', 'l')
 
             if skip_pending:
                 skip_list.append(s)
