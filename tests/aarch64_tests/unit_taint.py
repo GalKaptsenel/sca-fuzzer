@@ -63,6 +63,7 @@ def _make_trace(*steps: dict) -> Tuple[List[_ITE], object]:
       srcs    : List[str]        register source operands
       dests   : List[str]        register destination operands
       mem     : (offset, size, is_write)  memory access relative to sandbox base
+      mem2    : (offset, size, is_write)  second pair element (LDP/STP); marks the entry is_pair
 
     Returns (trace, fake_get_srcs_dests) ready for use with patch().
     """
@@ -81,6 +82,11 @@ def _make_trace(*steps: dict) -> Tuple[List[_ITE], object]:
             ma = None
 
         meta = _Meta(step.get('depth', 0), ma is not None, ma)
+        mem2 = step.get('mem2')
+        if mem2:
+            rel_off2, size2, is_write2 = mem2
+            meta.is_pair = True
+            meta.memory_access2 = _MA(SANDBOX_BASE + rel_off2, size2, is_write2)
         ites.append(_ITE(meta, _CPU(gprs, encoding=enc)))
         patch_map[enc] = (step.get('srcs', []), step.get('dests', []))
 
@@ -355,6 +361,14 @@ class TestComputeTaint(unittest.TestCase):
         for b in range(4):
             self.assertTrue(_mem_preserved(t, 0x10 + b), f'byte {b}')
 
+    def test_pair_load_taints_all_16_bytes(self):
+        # LDP x0,x1,[base+0x10] reads 16 CONTIGUOUS bytes (element0 at 0x10, element1 at 0x18).
+        # compute_taint must process both pair accesses → all 16 bytes preserved.
+        t = _taint({'depth': 0, 'srcs': [], 'dests': ['x0', 'x1'],
+                    'mem': (0x10, 8, False), 'mem2': (0x18, 8, False)})
+        for b in range(16):
+            self.assertTrue(_mem_preserved(t, 0x10 + b), f'byte {b}')
+
     def test_memory_arch_write_then_read_no_taint(self):
         t = _taint(
             {'depth': 0, 'srcs': [], 'dests': [], 'mem': (0x20, 4, True)},   # arch write
@@ -486,6 +500,12 @@ class TestComputeCtrace(unittest.TestCase):
     def test_multi_byte_access_spans_lines_in_order(self):
         # A 128-byte load spanning two lines → both sets, in ascending address order, from ONE access.
         ct = _ctrace({'depth': 0, 'mem': (0, 128, False)})
+        self.assertEqual(ct.raw, [0, 1])
+
+    def test_pair_records_both_elements_in_order(self):
+        # LDP/STP reads two adjacent 8-byte elements (element1 = element0 + 8). Straddling a line
+        # boundary, element0 (0x38 → set 0) and element1 (0x40 → set 1) are BOTH recorded, in order.
+        ct = _ctrace({'depth': 0, 'mem': (0x38, 8, False), 'mem2': (0x40, 8, False)})
         self.assertEqual(ct.raw, [0, 1])
 
     def test_no_memory_access_empty_ctrace(self):
