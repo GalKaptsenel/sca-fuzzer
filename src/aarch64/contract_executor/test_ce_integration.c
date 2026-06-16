@@ -70,7 +70,7 @@ static const char* ce_binary_path(void) {
 }
 #define KBASE      UINT64_C(0xFFFF000080000000)
 #define MEM_SIZE   4096u
-#define REGS_COUNT 9u   /* X0..X5, NZCV(slot6), X7, X8 */
+#define REGS_COUNT 8u   /* the 8 GPR input slots: X0..X5, NZCV(slot6), SP(slot7) */
 #define MAX_ENTRIES 256u
 
 /* ---- instruction helpers ------------------------------------------------ */
@@ -168,7 +168,7 @@ static uint32_t enc_tbnz(int rt, int bit, int offset) {
 /*
  * Build the blob written to CE's stdin:
  *   [struct header (8 B)] [struct input_header (112 B)] [code] [memory] [regs]
- * regs_override: 9-element array of uint64_t for X0..X5,NZCV,X7,X8; NULL = all zero.
+ * regs_override: 8-element array of uint64_t for X0..X5, NZCV(slot6), SP(slot7); NULL = all zero.
  */
 static size_t build_ce_input(
         uint8_t *buf, size_t bufsz,
@@ -267,7 +267,7 @@ static bool parse_ce_output(int fd, ce_result_t *out) {
 
 /*
  * Fork + exec CE, pipe input/output, return parsed trace.
- * regs_override: optional 9-element array (X0..X5, NZCV, X7, X8); NULL = zeros.
+ * regs_override: optional 8-element array (X0..X5, NZCV(slot6), SP(slot7)); NULL = zeros.
  */
 static bool run_ce_full(
         const uint32_t *code, size_t n_words,
@@ -1211,6 +1211,110 @@ static void test_integration_tbz_bit32(void) {
     }
 }
 
+/* ---- GROUP 22b: ALWAYS_MISPREDICT B.cond taken — spec NOT-TAKEN first -- */
+
+static void test_integration_always_mispredict_bcond(void) {
+    /*
+     * Code: B.EQ +8; LDR X1,[X29]; LDR X2,[X29,#8]
+     * NZCV Z=1 → B.EQ arch TAKEN (jump to LDR X2).
+     * ALWAYS_MISPREDICT → spec NOT-TAKEN (fall through to LDR X1 first).
+     *
+     * Expected memory-access entries:
+     *   [0] LDR X1  nesting=1   (spec: not-taken fall-through)
+     *   [1] LDR X2  nesting=1
+     *   [2] LDR X2  nesting=0   (arch taken after checkpoint restore)
+     */
+    uint32_t code[] = {
+        enc_b_cond(0x0, +8),         /* B.EQ +8  (cond 0x0 = EQ, taken iff Z=1) */
+        enc_ldr_reg(1, 29),          /* LDR X1,[X29]      offset 0 */
+        enc_ldr_unsigned(2, 29, 8),  /* LDR X2,[X29,#8]   offset 8 */
+    };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t v0 = UINT64_C(0x5555555555555555);
+    uint64_t v8 = UINT64_C(0x6666666666666666);
+    memcpy(mem,     &v0, 8);
+    memcpy(mem + 8, &v8, 8);
+
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[6] = UINT64_C(1) << 30;     /* NZCV slot (PSTATE format): Z=1 */
+
+    ce_result_t res;
+    if (!run_ce(code, 3, mem, sizeof(mem), KBASE, 1, EXEC_CLAUSE_COND, regs, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    EXPECT_EQ(count_mem_entries(&res), 3);
+    instr_trace_entry_t *ma0 = find_mem_entry(&res, 0);
+    instr_trace_entry_t *ma1 = find_mem_entry(&res, 1);
+    instr_trace_entry_t *ma2 = find_mem_entry(&res, 2);
+    EXPECT(ma0 != NULL); EXPECT(ma1 != NULL); EXPECT(ma2 != NULL);
+    if (!ma0 || !ma1 || !ma2) return;
+
+    /* Spec NOT-TAKEN: LDR X1, LDR X2 */
+    EXPECT_EQ(ma0->metadata.memory_access.effective_address, KBASE);
+    EXPECT_EQ(ma0->metadata.speculation_nesting,             (uint64_t)1);
+    EXPECT_EQ(ma1->metadata.memory_access.effective_address, KBASE + 8);
+    EXPECT_EQ(ma1->metadata.speculation_nesting,             (uint64_t)1);
+    /* Arch TAKEN: LDR X2 */
+    EXPECT_EQ(ma2->metadata.memory_access.effective_address, KBASE + 8);
+    EXPECT_EQ(ma2->metadata.speculation_nesting,             (uint64_t)0);
+}
+
+/* ---- GROUP 22c: ALWAYS_MISPREDICT TBNZ not-taken — spec TAKEN first ---- */
+
+static void test_integration_always_mispredict_tbnz(void) {
+    /*
+     * Code: TBNZ X0, #5, +8; LDR X1,[X29]; LDR X2,[X29,#8]
+     * X0=0 (bit 5 clear) → TBNZ arch NOT-TAKEN (fall through to LDR X1).
+     * ALWAYS_MISPREDICT → spec TAKEN (jump to LDR X2 first).
+     *
+     * Expected memory-access entries:
+     *   [0] LDR X2  nesting=1   (spec: taken path)
+     *   [1] LDR X1  nesting=0   (arch: not-taken fall-through)
+     *   [2] LDR X2  nesting=0
+     */
+    uint32_t code[] = {
+        enc_tbnz(0, 5, +8),          /* TBNZ X0, #5, +8 */
+        enc_ldr_reg(1, 29),          /* LDR X1,[X29]    */
+        enc_ldr_unsigned(2, 29, 8),  /* LDR X2,[X29,#8] */
+    };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t v0 = UINT64_C(0x7777777777777777);
+    uint64_t v8 = UINT64_C(0x8888888888888888);
+    memcpy(mem,     &v0, 8);
+    memcpy(mem + 8, &v8, 8);
+
+    /* X0=0 → bit 5 clear → TBNZ not-taken (all-zero regs) */
+    ce_result_t res;
+    if (!run_ce_simple(code, 3, mem, sizeof(mem), KBASE, 1, EXEC_CLAUSE_COND, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    EXPECT_EQ(count_mem_entries(&res), 3);
+    instr_trace_entry_t *ma0 = find_mem_entry(&res, 0);
+    instr_trace_entry_t *ma1 = find_mem_entry(&res, 1);
+    instr_trace_entry_t *ma2 = find_mem_entry(&res, 2);
+    EXPECT(ma0 != NULL); EXPECT(ma1 != NULL); EXPECT(ma2 != NULL);
+    if (!ma0 || !ma1 || !ma2) return;
+
+    /* Spec TAKEN: LDR X2 */
+    EXPECT_EQ(ma0->metadata.memory_access.effective_address, KBASE + 8);
+    EXPECT_EQ(ma0->metadata.speculation_nesting,             (uint64_t)1);
+    /* Arch NOT-TAKEN: LDR X1, LDR X2 */
+    EXPECT_EQ(ma1->metadata.memory_access.effective_address, KBASE);
+    EXPECT_EQ(ma1->metadata.speculation_nesting,             (uint64_t)0);
+    EXPECT_EQ(ma2->metadata.memory_access.effective_address, KBASE + 8);
+    EXPECT_EQ(ma2->metadata.speculation_nesting,             (uint64_t)0);
+}
+
 /* ---- GROUP 23: ARCH_ONLY vs ALWAYS_MISPREDICT — trace count differs --- */
 
 static void test_integration_contract_type_comparison(void) {
@@ -2101,6 +2205,8 @@ int main(void) {
     test_integration_always_mispredict_cbz();
     test_integration_always_mispredict_cbnz();
     test_integration_tbz_bit32();
+    test_integration_always_mispredict_bcond();
+    test_integration_always_mispredict_tbnz();
     test_integration_contract_type_comparison();
     test_integration_bpas_store_bypass();
     test_integration_bpas_trailing_store();
