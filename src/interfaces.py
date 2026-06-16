@@ -292,8 +292,9 @@ class Input(np.ndarray):
 
     def get_simd128_registers(self, actor_id: int):
         vals = []
-        for i in range(0, InputFragment['simd'].shape[actor_id], 2):
-            vals.append(int(self[0]['simd'][i + 1]) << 64 | int(self[0]['simd'][i]))
+        simd = self[actor_id]['simd']
+        for i in range(0, len(simd), 2):
+            vals.append(int(simd[i + 1]) << 64 | int(simd[i]))
         return vals
 
     def __str__(self):
@@ -494,8 +495,6 @@ class Instruction:
     (branch, call, return, etc.) """
     has_memory_access: bool
     """ has_memory_access: If True, the instruction accesses memory """
-    memory_access_id: Optional[int]
-    """ memory_access_id: The id of a memory access instruction """
     template: str
     """ template: format string representation of the instruction """
 
@@ -523,9 +522,6 @@ class Instruction:
     _inst_brief: str = ""
     """ _inst_brief: A brief representation of the instruction,
     used for hashing and for debug messages """
-    memory_access_instruction_counter: int = 0
-    """ memory_access_instruction_counter: A class variable, counting the number of memory access
-     instructions """
 
     def __init__(self, name: str, is_instrumentation=False, category="", control_flow=False,
                  has_memory_access: bool = False, template=None):
@@ -537,15 +533,6 @@ class Instruction:
         self.control_flow = control_flow
         self.has_memory_access = has_memory_access
         self.template = template
-
-
-        # TODO: Must not be implemented like this! Should derive from Instruction and add those members
-        self.memory_access_id = None
-        if self.has_memory_access:
-            self.memory_access_id = Instruction.memory_access_instruction_counter
-            Instruction.memory_access_instruction_counter += 1
-            Instruction.memory_access_instruction_counter %= 128 # access id must be between 0 to 127
-
 
     @classmethod
     def from_spec(cls, spec: InstructionSpec, is_instrumentation=False):
