@@ -7,6 +7,7 @@ SPDX-License-Identifier: MIT
 
 import os
 import sys
+import atexit
 import random
 import xxhash
 from datetime import datetime
@@ -762,6 +763,7 @@ class FuzzLogger:
         self._channels: Dict[str, Any] = {}   # name → file handle
         self._active = "session"
         self._session_dir: Optional[Path] = None
+        atexit.register(self.close)
 
         if self._VERBOSITY == 0:
             return
@@ -823,3 +825,13 @@ class FuzzLogger:
                 os.fsync(fh.fileno())
             except OSError:
                 pass
+
+    def close(self) -> None:
+        """Flush and close all open channels (registered with atexit). Idempotent."""
+        self.ensure_flushed()
+        for fh in list(self._channels.values()) + [self._null]:
+            try:
+                fh.close()
+            except OSError:
+                pass
+        self._channels.clear()
