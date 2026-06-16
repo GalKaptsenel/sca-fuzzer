@@ -3,6 +3,8 @@
 Show original TC → stage-1 TC → stage-2 {STRIP_ONLY, AUTH_CORRECT, AUTH_WRONG}
 disassemblies for one interesting PAC test case.
 
+DEBUG / DEVELOPMENT ONLY — an inspection aid, not part of the shipped tool; do not deliver.
+
 Run from sca-fuzzer root with venv active:
     python3 show_pac_stages.py [seed]
 """
@@ -22,7 +24,7 @@ from src.isa_loader import InstructionSet
 from src.aarch64.aarch64_generator import (
     Aarch64RandomGenerator, Aarch64Printer, Aarch64ASMLayout,
     PACInstrumentation, FixPoint, PACVariant,
-    SLOT_SIZE, AUTH_SLOT_POS, ConfigurableGenerator,
+    SLOT_SIZE, AUTH_SLOT_POS,
 )
 from src.aarch64.aarch64_target_desc import Aarch64TargetDesc
 
@@ -46,7 +48,7 @@ _target_desc = Aarch64TargetDesc()
 def assemble(tc) -> bytes:
     layout   = Aarch64ASMLayout(tc)
     assembly = Aarch64Printer(_target_desc).print_layout(layout)
-    return ConfigurableGenerator.in_memory_assemble(assembly)
+    return Aarch64RandomGenerator.in_memory_assemble(assembly)
 
 
 def disasm(data: bytes, label: str, slot_pcs: dict = None, base: int = 0):
