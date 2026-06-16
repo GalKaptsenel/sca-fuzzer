@@ -14,6 +14,7 @@ max_bb_per_function: 5
 max_successors_per_bb: 2
 min_successors_per_bb: 1
 fuzzer: non-interference
+noninterference_mode: pac
 input_generator: aarch64-nzcv
 pac_sign_weight: 0.3
 pac_auth_weight: 0.3

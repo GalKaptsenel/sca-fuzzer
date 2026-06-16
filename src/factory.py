@@ -167,7 +167,8 @@ def get_executor(enable_mismatch_check_mode: bool = False) -> interfaces.Executo
 def get_noninterference_executor(generator: interfaces.Generator,
                                   enable_mismatch_check_mode: bool = False) -> interfaces.Executor:
     """
-    Create an Aarch64PacNonInterferenceExecutor with the generator injected at construction.
+    Create the PAC or MTE non-interference executor (per CONF.noninterference_mode) with the
+    generator injected at construction.
 
     This is the only supported way to create a non-interference executor — the generator
     is a required constructor argument and cannot be set after the fact.
@@ -179,7 +180,15 @@ def get_noninterference_executor(generator: interfaces.Generator,
             f"ERROR: non-interference executor requires aarch64 instruction set; "
             f"got '{CONF.instruction_set}'")
     from .aarch64 import aarch64_executor
-    return aarch64_executor.Aarch64PacNonInterferenceExecutor(generator, enable_mismatch_check_mode)
+    if CONF.noninterference_mode == 'pac':
+        return aarch64_executor.Aarch64PacNonInterferenceExecutor(generator,
+                                                                  enable_mismatch_check_mode)
+    if CONF.noninterference_mode == 'mte':
+        return aarch64_executor.Aarch64MteNonInterferenceExecutor(generator,
+                                                                  enable_mismatch_check_mode)
+    raise ConfigException(
+        "ERROR: `noninterference_mode` must be set to 'pac' or 'mte' when fuzzer == "
+        f"'non-interference'; got {CONF.noninterference_mode!r}")
 
 
 def get_analyser() -> interfaces.Analyser:

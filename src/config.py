@@ -403,11 +403,12 @@ class Conf:
         # sanity checks
         if name[0] == "_":
             raise ConfigException(f"Attempting to set an internal configuration variable {name}.")
-        if getattr(self, name, None) is None:
+        if not hasattr(self, name):
             raise ConfigException(f"Unknown configuration variable {name}.\n"
                                   f"It's likely a typo in the configuration file.")
         current = self.__getattribute__(name)
-        if type(current) != type(value):
+        # current is None for an unset Optional option; its value is validated by _check_options
+        if current is not None and type(current) != type(value):
             # Allow an int 0/1 to set a bool option (the yaml/sysfs convention).
             if isinstance(current, bool) and isinstance(value, int) and not isinstance(value, bool):
                 value = bool(value)
@@ -473,7 +474,8 @@ class Conf:
             if c.startswith("__"):
                 continue
             values = getattr(config, c)
-            if type(values) not in [bool, int, float, str, dict, list]:
+            # carry None through (Optional options default to None — "unset")
+            if values is not None and type(values) not in [bool, int, float, str, dict, list]:
                 continue
             config_defaults[c] = values
 

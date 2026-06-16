@@ -1,7 +1,7 @@
 """
 File: AArch64-specific Configuration Options
 """
-from typing import List
+from typing import List, Optional
 
 def try_get_cpu_vendor():
     return "aarch64"
@@ -20,6 +20,11 @@ _option_values = {
         'architectural',
         'archdiff',
         'non-interference',
+    ],
+    # AArch64-only: which non-interference contract the NI fuzzer exercises (PAC or MTE).
+    'noninterference_mode': [
+        'pac',
+        'mte',
     ],
     # AArch64 adds the NZCV-aware input generator to the common set.
     'input_generator': [
@@ -146,6 +151,11 @@ supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "l
                                      "crc32b", "crc32h", "crc32w", "crc32x", "crc32cb", "crc32ch", "crc32cw", "crc32cx",
                                      "rbit", "rev", "rev16", "rev32",
                                      ]
+
+# AArch64-only: which non-interference contract the `non-interference` fuzzer tests:
+# 'pac' (pointer authentication) or 'mte' (memory tagging). No default — must be set
+# explicitly in the config when using the non-interference fuzzer.
+noninterference_mode: Optional[str] = None
 
 # AArch64-only: relative weights for the PAC non-interference instrumentation
 # (stage 1). AUTIA and XPAC strips are inserted with these weights, normalized
