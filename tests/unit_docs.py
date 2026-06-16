@@ -32,22 +32,20 @@ class DocumentationTest(unittest.TestCase):
 
     def test_conf_docs(self):
         """
-        Test if the documentation contains all the config options.
+        Test that every config option is documented. Common options live in the common config
+        reference (docs/user/config.md); architecture-specific options live in their architecture's
+        config reference (docs/<arch>/config.md). We accept the option in any config reference.
         """
-        # get the text of the config documentation
-        with open(DOC_DIR / "user/config.md", "r") as f:
-            doc_text = f.read()
+        docs = "".join(p.read_text() for p in sorted(DOC_DIR.glob("*/config.md")))
 
-        # get a list of config options
         options = [
             k[0]
             for k in inspect.getmembers(CONF, lambda x: not inspect.isroutine(x))
             if not k[0].startswith("_")
         ]
 
-        # check if each option is in the documentation
         for option in options:
-            self.assertTrue(option in doc_text, msg=f"{option} not found in documentation")
+            self.assertTrue(option in docs, msg=f"{option} not found in documentation")
 
     def test_conf_options_docs(self):
         """

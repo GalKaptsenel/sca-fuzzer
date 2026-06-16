@@ -641,8 +641,16 @@ kernel module loaded (`--test aarch64-ko` or a manual insmod).
 | `enable_speculative_store_bypass` | false | set `PSTATE.SSBS=1` (allow store bypass) — required to observe v4 on hardware |
 | `recompute_artifact_traces` | false | on a saved violation, recompute each input's own contract trace instead of the fast-path-propagated original's |
 | `in_memory_assembler` | true (AArch64) | assemble in memory → a fuzzing run writes no per-test-case files (only the violation artifact); x86 leaves it false (executor loads the object from disk) |
+| `avoid_extended_memory_operands` | true | skip extended-register-index memory forms (UXTW/SXTW/...). **Temporary/WIP**: defaulted on because emitting them was seen to reduce violations found, for a not-yet-understood reason; remove once investigated. |
 
 ## 4.3 minimize / reproduce
+
+`revizor.py minimize` reduces a saved violation to a minimal reproducer. The minimizer is
+architecture-agnostic — it sources the NOP, speculation barrier (`DSB SY`) and branch detection
+from the AArch64 target description — so the standard passes (instruction removal, NOP
+replacement, constant/mask simplification, input-sequence and differential-input minimization)
+all run on AArch64. See [Minimization](../user/minimization.md) for the pass list and flags.
+
 ## 4.4 Helper & triage scripts
 
 **Debugging utilities** (`src/aarch64/debugging/`):

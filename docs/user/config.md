@@ -585,6 +585,14 @@ Default: True
 If enabled, the executor will do its best to flush the microarchitectural state before running test cases.
 
 ```yaml
+Name: enable_speculative_store_bypass
+Default: False
+```
+
+If enabled, the executor allows the CPU to speculatively bypass older stores before each measured
+run.
+
+```yaml
 Name: x86_executor_enable_ssbp_patch
 Default: True
 ```
