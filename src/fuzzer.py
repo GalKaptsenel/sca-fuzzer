@@ -114,7 +114,7 @@ class FuzzerGeneric(Fuzzer):
         self.initialize_modules()
         # With an in-memory assembler the test case is consumed without its on-disk artifacts, so
         # skip writing them per test case (they are still produced when a violation is saved).
-        write_files = not CONF.in_memory_assembler
+        write_files = not getattr(CONF, "in_memory_assembler", False)
         self.generation_function = lambda f="": self.generator.create_test_case(f, write_files=write_files)
         return self._start(num_test_cases, num_inputs, timeout, nonstop, save_violations)
 

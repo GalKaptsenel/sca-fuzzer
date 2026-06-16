@@ -30,22 +30,35 @@ class DocumentationTest(unittest.TestCase):
         CONF._borg_shared_state.clear()
         CONF._borg_shared_state.update(self._saved)
 
+    # Supported architectures and the docs subdirectory holding each one's config reference.
+    # (An arch with no dedicated subdir documents its options in the common reference.)
+    ARCHITECTURES = {"x86-64": "x86", "aarch64": "aarch64"}
+
     def test_conf_docs(self):
         """
-        Test that every config option is documented. Common options live in the common config
-        reference (docs/user/config.md); architecture-specific options live in their architecture's
-        config reference (docs/<arch>/config.md). We accept the option in any config reference.
+        Test that every config option is documented, per architecture and without conflation: for
+        each architecture, every option visible under it must appear in the common config reference
+        (docs/user/config.md) OR in that architecture's own reference (docs/<arch>/config.md) — never
+        in a different architecture's reference.
         """
-        docs = "".join(p.read_text() for p in sorted(DOC_DIR.glob("*/config.md")))
+        common = (DOC_DIR / "user/config.md").read_text()
 
-        options = [
-            k[0]
-            for k in inspect.getmembers(CONF, lambda x: not inspect.isroutine(x))
-            if not k[0].startswith("_")
-        ]
+        for isa, arch_dir in self.ARCHITECTURES.items():
+            CONF._borg_shared_state.clear()
+            CONF.__init__()
+            CONF.instruction_set = isa
+            CONF.set_to_arch_defaults()
 
-        for option in options:
-            self.assertTrue(option in docs, msg=f"{option} not found in documentation")
+            arch_md = DOC_DIR / arch_dir / "config.md"
+            docs = common + (arch_md.read_text() if arch_md.exists() else "")
+
+            options = [
+                k[0]
+                for k in inspect.getmembers(CONF, lambda x: not inspect.isroutine(x))
+                if not k[0].startswith("_")
+            ]
+            for option in options:
+                self.assertIn(option, docs, msg=f"[{isa}] config option `{option}` is not documented")
 
     def test_conf_options_docs(self):
         """

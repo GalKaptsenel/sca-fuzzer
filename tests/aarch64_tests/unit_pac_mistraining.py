@@ -114,7 +114,7 @@ class TestMistrainingEntries(unittest.TestCase):
         # TEMPORARY: branch mistraining is gated off by default (CONF.enable_branch_mistraining)
         # as a workaround for the mistraining-suppression bug. These tests exercise the entry
         # computation itself, so enable the gate here. Remove this when the gate is removed.
-        self._saved_mistrain = CONF.enable_branch_mistraining
+        self._saved_mistrain = getattr(CONF, "enable_branch_mistraining", False)
         CONF.enable_branch_mistraining = True
         self.trainer = _Trainer()
 

@@ -137,6 +137,17 @@ in_memory_assembler: bool = True
 """ in_memory_assembler: AArch64 assembles test cases in memory, so skip per-test-case disk writes
 during a fuzzing run (see the base config option of the same name). """
 
+# AArch64-only generation/executor knobs (see docs/aarch64/config.md).
+avoid_extended_memory_operands: bool = True
+""" avoid_extended_memory_operands: skip extended-register-index (UXTW/SXTW/...) memory forms.
+TEMPORARY/WIP: defaulted True because emitting them was seen to reduce violations found, for a
+reason not yet understood; remove this option once investigated. """
+
+enable_branch_mistraining: bool = False
+""" enable_branch_mistraining: saturate each architectural branch in the opposite direction before
+measuring. WIP — KEEP OFF: the current implementation trains toward the architectural direction and
+suppresses the misprediction Spectre-v1 needs. """
+
 instruction_categories: List[str] = ["BASE-ARITH", "BASE-LOGICAL", "BASE-BRANCH-COND"]
 """ instruction_categories: a default list of tested instruction categories """
 

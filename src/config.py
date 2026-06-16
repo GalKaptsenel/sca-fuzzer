@@ -100,15 +100,6 @@ class Conf:
     """ instruction_set: ISA under test """
     instruction_categories: List[str] = []
     """ instruction_categories: list of instruction categories to use for generating programs """
-    avoid_extended_memory_operands: bool = True
-    """ avoid_extended_memory_operands: [AArch64] when True, skip memory-access instruction forms
-    whose address has an extended-register index (UXTW/SXTW/SXTX/UXTX), keeping only base /
-    base+immediate / plain (LSL) register-offset forms. On by default; set False to also emit
-    extended-register addressing forms.
-
-    TEMPORARY / WIP: defaulted True because enabling the extended forms was observed to REDUCE the
-    number of violations found, for a reason not yet understood. Needs investigation; this config
-    parameter should be removed after resolution. """
     instruction_allowlist: List[str] = []
     """ instruction_allowlist: list of instructions to use for generating programs;
     combined with instruction_categories; has priority over instruction_blocklist.
@@ -207,41 +198,15 @@ class Conf:
     enable_pre_run_flush: bool = True
     """ enable_pre_run_flush: when enabled, the executor rotates the per-input view
     and flushes the PHR before each measurement run; when disabled, neither. """
-    in_memory_assembler: bool = False
-    """ in_memory_assembler: when True, the test case is assembled in memory for the model and the
-    executor, so generation does not write the per-test-case asm/object files to disk during a
-    fuzzing run (they are still produced only when a violation artifact is saved). When False, the
-    executor loads the object file from disk, so generation must write it. AArch64 sets this True;
-    x86 leaves it False. """
     recompute_artifact_traces: bool = False
-    """ recompute_artifact_traces: controls the contract trace stored in a violation's artifacts.
-
-    Under the fast path (enable_fast_path_model: True) the boosted inputs do not get their own
-    contract trace; they reuse the one computed for their class's original input (it is copied
-    over). So a saved violation's per-input trace can show the original's trace rather than the
-    input's own, which is misleading when inspecting the artifact.
-
-    When this is enabled, the trace is recomputed individually for each input before the artifact
-    is written, so every saved input carries its own accurate trace. Currently supported only for
-    AArch64. """
+    """ recompute_artifact_traces: when saving a violation, recompute each input's own contract
+    trace instead of reusing the one propagated from its class's original input on the fast path,
+    so every saved input carries its own accurate trace. Currently implemented for AArch64 only;
+    setting it True under x86 raises (see _value_sanity_check). """
     enable_speculative_store_bypass: bool = False
     """ enable_speculative_store_bypass: when True, allow the CPU to speculatively bypass older
     stores before each measured run. Per-arch mechanism: AArch64 sets PSTATE.SSBS=1; the x86
     analog is clearing SSBD in IA32_SPEC_CTRL. """
-    enable_branch_mistraining: bool = False
-    """ enable_branch_mistraining: when enabled, before measuring an input the executor
-    saturates each of its architectural conditional branches (taken directions read from the
-    input's CE arch trace) in the OPPOSITE direction, so the first hardware run is guaranteed
-    to mispredict that branch and open a speculative window — the intended way to reliably
-    trigger Spectre-style leaks instead of relying on natural misprediction.
-
-    WARNING - WORK IN PROGRESS, KEEP DISABLED: in its current state the applied training, for a
-    reason not yet understood, ends up saturating the branch toward its ARCHITECTURAL (taken)
-    direction rather than the opposite. That is the exact inverse of the goal: instead of forcing
-    a misprediction it makes the branch predict correctly, which SUPPRESSES the speculative window
-    and hides Spectre-v1 violations that natural misprediction (enable_pre_run_flush: 0) would
-    otherwise expose. Leave this off until the training direction is fixed and verified on
-    hardware to actually induce (not suppress) misprediction. """
 
     # ==============================================================================================
     # Analyser
@@ -453,6 +418,8 @@ class Conf:
         if self.instruction_set is None:
             raise ConfigException("instruction_set must be set in the configuration "
                                   "(it selects the architecture)")
+        if self.recompute_artifact_traces and self.instruction_set == "x86-64":
+            raise ConfigException("recompute_artifact_traces is not supported on x86-64")
         if self.input_gen_entropy_bits > 32:
             raise ConfigException("input_gen_entropy_bits must be less or equal to 32 bits")
         if self.min_successors_per_bb > self.max_successors_per_bb:

@@ -34,7 +34,7 @@ def _cer_with_branch():
 class TestBranchMistrainingGate(unittest.TestCase):
 
     def setUp(self):
-        self._saved = CONF.enable_branch_mistraining
+        self._saved = getattr(CONF, "enable_branch_mistraining", False)
 
     def tearDown(self):
         CONF.enable_branch_mistraining = self._saved

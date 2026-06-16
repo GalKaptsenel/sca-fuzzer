@@ -593,6 +593,15 @@ If enabled, the executor allows the CPU to speculatively bypass older stores bef
 run.
 
 ```yaml
+Name: recompute_artifact_traces
+Default: False
+```
+
+When saving a violation, recompute each input's own contract trace instead of reusing the one
+propagated from its class's original input on the fast path. Currently implemented for AArch64
+only; setting it under x86-64 raises a configuration error.
+
+```yaml
 Name: x86_executor_enable_ssbp_patch
 Default: True
 ```

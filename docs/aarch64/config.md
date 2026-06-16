@@ -47,15 +47,6 @@ direction so the first hardware run mispredicts and opens a speculative window. 
 the current implementation trains toward the *architectural* direction and *suppresses* the
 misprediction Spectre-v1 needs.
 
-```yaml
-Name: recompute_artifact_traces
-Default: False
-```
-
-When saving a violation, recompute each input's own contract trace instead of reusing the
-fast-path-propagated trace of its class's original input (so every saved input carries its own
-accurate trace).
-
 ## Non-interference
 
 ```yaml
