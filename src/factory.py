@@ -9,7 +9,7 @@ from typing import Tuple, Dict, List, Callable
 
 from . import input_generator, analyser, postprocessor, interfaces
 from .config import CONF, ConfigException
-from .fuzzer import NoninterfearenceFuzzer
+from .fuzzer import NoninterferenceFuzzer
 
 # Arch-specific modules (.x86, .aarch64) and the Unicorn contract model (.model) are imported
 # lazily inside the getters, keyed on the configured ISA.
@@ -46,8 +46,8 @@ def get_fuzzer(instruction_set, working_directory, testcase, inputs):
             from .aarch64 import aarch64_fuzzer
             return aarch64_fuzzer.Aarch64Fuzzer(instruction_set, working_directory, testcase, inputs)
         raise ConfigException("ERROR: unknown value of `instruction_set` configuration option")
-    elif CONF.fuzzer == "non-iterfearence":
-        return NoninterfearenceFuzzer(instruction_set, working_directory, testcase, inputs)
+    elif CONF.fuzzer == "non-interference":
+        return NoninterferenceFuzzer(instruction_set, working_directory, testcase, inputs)
 
     raise ConfigException("ERROR: unknown value of `fuzzer` configuration option")
 
@@ -172,7 +172,7 @@ def get_noninterference_executor(generator: interfaces.Generator,
     This is the only supported way to create a non-interference executor — the generator
     is a required constructor argument and cannot be set after the fact.
 
-    Called by NoninterfearenceFuzzer.initialize_modules() instead of get_executor().
+    Called by NoninterferenceFuzzer.initialize_modules() instead of get_executor().
     """
     if not CONF.instruction_set.startswith('aarch64'):
         raise ConfigException(

@@ -19,7 +19,7 @@ _option_values = {
         'basic',
         'architectural',
         'archdiff',
-        'non-iterfearence',
+        'non-interference',
     ],
     # AArch64 adds the NZCV-aware input generator to the common set.
     'input_generator': [

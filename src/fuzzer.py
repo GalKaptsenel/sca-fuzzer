@@ -845,14 +845,14 @@ class FuzzerGeneric(Fuzzer):
 
         return False
 
-class NoninterfearenceFuzzer(FuzzerGeneric):
+class NoninterferenceFuzzer(FuzzerGeneric):
     def __init__(self,
                  instruction_set_spec: str,
                  work_dir: str,
                  existing_test_case: str = "",
                  inputs: List[str] = None):
         super().__init__(instruction_set_spec, work_dir, existing_test_case, inputs)
-        self.LOG.warning("fuzzer", "Running in noniterfearence mode.")
+        self.LOG.warning("fuzzer", "Running in non-interference mode.")
 
     def initialize_modules(self):
         isa = self.instruction_set
