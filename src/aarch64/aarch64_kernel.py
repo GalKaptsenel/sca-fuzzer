@@ -295,7 +295,7 @@ class LocalHWExecutor(HWExecutor):
         # sysfs parses an int (sscanf %u); emit 1/0 so a bool writes correctly.
         self._write_sysfs("enable_pre_run_flush", str(int(CONF.enable_pre_run_flush)).encode())
         self._write_sysfs("enable_branch_training", str(int(CONF.enable_branch_mistraining)).encode())
-        self._write_sysfs("enable_ssbs", str(int(CONF.enable_ssbs)).encode())
+        self._write_sysfs("enable_ssbs", str(int(CONF.enable_speculative_store_bypass)).encode())
         self._write_sysfs("warmups", str(CONF.executor_warmups).encode())
         self.discard_all_inputs()
         self.checkout_region(TestCaseRegion())
@@ -489,7 +489,7 @@ class RemoteHWExecutor(HWExecutor):
             ("pin_to_core", 0),
             ("enable_pre_run_flush", int(CONF.enable_pre_run_flush)),
             ("enable_branch_training", int(CONF.enable_branch_mistraining)),
-            ("enable_ssbs", int(CONF.enable_ssbs)),
+            ("enable_ssbs", int(CONF.enable_speculative_store_bypass)),
             ("warmups", CONF.executor_warmups),
         ):
             self.connection.shell(f'echo "{value}" > {sysfs}/{name}', privileged=True)

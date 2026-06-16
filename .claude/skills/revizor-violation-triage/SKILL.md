@@ -16,7 +16,7 @@ If all three hold → **genuine Spectre-v1**. If the HW shows no stable divergen
 
 > **v4 (store-bypass) triage:** the same three-step logic applies, but the speculative divergence is
 > not branch-driven — run the CE under the **`bpas`** contract (`contract_execution_clause=['bpas']`,
-> `ExecutionClause.BPAS`) instead of `cond`, and confirm the divergence vanishes with `enable_ssbs=0`.
+> `ExecutionClause.BPAS`) instead of `cond`, and confirm the divergence vanishes with `enable_speculative_store_bypass=0`.
 > See **`reproduce-spectre-v4`** for the full v4 argument and **`reproduce-violation-manual`** /
 > **`executor-userland`** for replaying the pair on hardware.
 

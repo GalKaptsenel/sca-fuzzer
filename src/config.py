@@ -226,9 +226,10 @@ class Conf:
     When this is enabled, the trace is recomputed individually for each input before the artifact
     is written, so every saved input carries its own accurate trace. Currently supported only for
     AArch64. """
-    enable_ssbs: bool = False
-    """ enable_ssbs: [AArch64] set PSTATE.SSBS=1 before each measured run so the CPU may
-    speculatively bypass older stores (required to observe Spectre-v4 on hardware). """
+    enable_speculative_store_bypass: bool = False
+    """ enable_speculative_store_bypass: when True, allow the CPU to speculatively bypass older
+    stores before each measured run. Per-arch mechanism: AArch64 sets PSTATE.SSBS=1; the x86
+    analog is clearing SSBD in IA32_SPEC_CTRL. """
     enable_branch_mistraining: bool = False
     """ enable_branch_mistraining: when enabled, before measuring an input the executor
     saturates each of its architectural conditional branches (taken directions read from the

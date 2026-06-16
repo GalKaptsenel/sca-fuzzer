@@ -611,7 +611,7 @@ value, and uses it to address a later load — leaking the stale value through t
 - **`contract_execution_clause: [cond]`** — branch misprediction is now *in-contract*, so Spectre-v1
   no longer shows as a violation; the only unmodeled speculation left is store bypass, so a violation
   can only be v4.
-- **`enable_ssbs: true`** — sets `PSTATE.SSBS=1` on the core before each measured run so the hardware
+- **`enable_speculative_store_bypass: true`** — sets `PSTATE.SSBS=1` on the core before each measured run so the hardware
   is actually allowed to bypass stores. **Without it the leak cannot occur** and the run finds nothing
   real. (Requires the kernel module built with the `enable_ssbs` sysfs knob.)
 - **`executor_mode: P+P`** — Prime+Probe isolates the single-set store-bypass leak cleanly. **F+R is
@@ -625,7 +625,7 @@ python revizor.py fuzz -s base.json -c configs/spectre_v4_pp.yml -n 1000 -i 50 -
 **Triage a v4 hit** (see the triage skill): confirm the pair is arch+`cond` equivalent, then re-run
 the CE under **`[bpas]`** and check that the store-bypass speculative sets *diverge between the pair*
 and *match the HW-divergent bits*. A genuine v4 also **vanishes when SSBS=0** (re-measure the pair with
-`enable_ssbs` off — the divergence must disappear); that on/off control is the SSB-specific proof (not
+`enable_speculative_store_bypass` off — the divergence must disappear); that on/off control is the SSB-specific proof (not
 v1, not architectural, not noise).
 
 A violation (either class) drops a `violation-*/` artifact in the working dir (the test case, the
@@ -638,7 +638,7 @@ kernel module loaded (`--test aarch64-ko` or a manual insmod).
 |---|---|---|
 | `enable_pre_run_flush` | 1 | flush BPU/PHR before each run; **set 0** so branches mispredict naturally |
 | `enable_branch_mistraining` | false | force-mispredict each branch. **Keep off**: the current implementation trains toward the *architectural* direction and *suppresses* the misprediction v1 needs (WIP). |
-| `enable_ssbs` | false | set `PSTATE.SSBS=1` (allow store bypass) — required to observe v4 on hardware |
+| `enable_speculative_store_bypass` | false | set `PSTATE.SSBS=1` (allow store bypass) — required to observe v4 on hardware |
 | `recompute_artifact_traces` | false | on a saved violation, recompute each input's own contract trace instead of the fast-path-propagated original's |
 | `in_memory_assembler` | true (AArch64) | assemble in memory → a fuzzing run writes no per-test-case files (only the violation artifact); x86 leaves it false (executor loads the object from disk) |
 

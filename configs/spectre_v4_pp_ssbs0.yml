@@ -2,7 +2,7 @@
 #
 # PURPOSE
 #   Campaign-level control for the v4 hunt. The contract, measurement mode, flushing and ctrace
-#   encoding are exactly those of spectre_v4_pp.yml; the ONLY change is enable_ssbs: false, which
+#   encoding are exactly those of spectre_v4_pp.yml; the ONLY change is enable_speculative_store_bypass: false, which
 #   forbids the hardware from speculatively bypassing stores. A genuine Spectre-v4 leak is gated on
 #   PSTATE.SSBS, so with SSBS=0 it cannot occur — this campaign should find ~0 violations.
 #
@@ -39,5 +39,5 @@ contract_execution_clause:
   - cond
 enable_pre_run_flush: 0
 enable_branch_mistraining: false
-enable_ssbs: false
+enable_speculative_store_bypass: false
 recompute_artifact_traces: true

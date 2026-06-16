@@ -10,9 +10,9 @@ A **verified, self-contained PoC already exists at `/home/gal_k_1_1998/spectre_v
 conditions so you can rebuild/adapt it.
 
 > **Update (2026-06-15): the fuzzer now auto-detects v4 — this hand PoC is no longer the only path.**
-> `configs/spectre_v4_pp.yml` (contract `[cond]`, `enable_ssbs: true`, P+P, flush off) finds v4
+> `configs/spectre_v4_pp.yml` (contract `[cond]`, `enable_speculative_store_bypass: true`, P+P, flush off) finds v4
 > automatically; the CE now *has* a store-bypass contract (`ExecutionClause.BPAS` / `bpas`), used to
-> triage hits; and SSBS is exposed as a kernel knob (`enable_ssbs` sysfs + `CONF.enable_ssbs`) so the
+> triage hits; and SSBS is exposed as a kernel knob (`enable_ssbs` sysfs + `CONF.enable_speculative_store_bypass`) so the
 > gadget no longer needs an in-asm `MSR SSBS,#1`. See memory `project_spectrev4_autodetect`. To
 > classify a fuzzer-found v4 hit use **`revizor-violation-triage`** (its v4 branch) and replay it on HW
 > with **`reproduce-violation-manual`** / **`executor-userland`**. NOTE: the `enable_ssbs` kernel knob

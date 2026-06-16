@@ -12,7 +12,7 @@
 #     from Spectre-v4. (compute_ctrace records cache sets in execution order, so architectural and
 #     speculative accesses are distinguished by position — inputs taking opposite branch directions
 #     produce different ordered traces and are not falsely grouped as equivalent.)
-#   * enable_ssbs: true  — sets PSTATE.SSBS=1 on the core before each measured run, so the hardware
+#   * enable_speculative_store_bypass: true  — sets PSTATE.SSBS=1 on the core before each measured run, so the hardware
 #     is actually allowed to speculatively bypass stores. WITHOUT this the leak cannot occur and
 #     the campaign finds nothing real. (Requires the executor module built with the enable_ssbs
 #     sysfs knob.)
@@ -27,7 +27,7 @@
 # TRIAGE each hit with the store-bypass contract:
 #   Confirm the pair is arch+cond equivalent (identical sets under [cond]) and that, under the
 #   [bpas] contract, their speculative sets DIVERGE and match the HW-divergent bits. A genuine v4
-#   also vanishes when SSBS=0 (rerun the pair with enable_ssbs off — the divergence must disappear).
+#   also vanishes when SSBS=0 (rerun the pair with enable_speculative_store_bypass off — the divergence must disappear).
 instruction_set: aarch64
 instruction_categories:
   - BASE-ARITH
@@ -52,5 +52,5 @@ contract_execution_clause:
   - cond
 enable_pre_run_flush: 0
 enable_branch_mistraining: false
-enable_ssbs: true
+enable_speculative_store_bypass: true
 recompute_artifact_traces: true
