@@ -482,8 +482,17 @@ class RemoteHWExecutor(HWExecutor):
                 self.connection.push('revizor-executor.ko', module_path)
             self.connection.shell(f'insmod {module_path}', privileged=True)
 
-        self.connection.shell(f'echo "{CONF.executor_mode}" > /sys/executor/measurement_mode', privileged=True)
-        self.connection.shell(f'echo "0" > /sys/executor/pin_to_core', privileged=True)
+        # Same config knobs as LocalHWExecutor.__init__ (sysfs parses %u, so emit 1/0 for booleans).
+        sysfs = self.executor_sysfs
+        for name, value in (
+            ("measurement_mode", CONF.executor_mode),
+            ("pin_to_core", 0),
+            ("enable_pre_run_flush", int(CONF.enable_pre_run_flush)),
+            ("enable_branch_training", int(CONF.enable_branch_mistraining)),
+            ("enable_ssbs", int(CONF.enable_ssbs)),
+            ("warmups", CONF.executor_warmups),
+        ):
+            self.connection.shell(f'echo "{value}" > {sysfs}/{name}', privileged=True)
 
         if not self.connection.is_file_present(self.userland_application_path):
             self.connection.push('executor_userland', userland_application_path)
@@ -534,7 +543,7 @@ class RemoteHWExecutor(HWExecutor):
         self.connection.pull(remote_filename, filename)
         self.connection.shell(f'rm {remote_filename}')
 
-        with open(filename) as f:
+        with open(filename, "rb") as f:   # executor memory is binary — text mode would corrupt it
             return ExecutorMemory(f.read())
 
     def write_file(self, filename: str) -> None:

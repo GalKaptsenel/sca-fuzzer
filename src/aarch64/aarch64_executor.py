@@ -104,12 +104,13 @@ class Aarch64Executor(Executor):
             self.LOG.warning("executor", "SMT is on! You may experience false positives.")
 
     def _is_smt_enabled(self) -> bool:
-        """
-        Check if SMT is enabled on the current CPU.
-
-        :return: True if SMT is enabled, False otherwise
-        """
-        pass
+        """Whether SMT is enabled on the current CPU (sibling threads share uarch state -> false
+        positives). True if enabled, False otherwise."""
+        smt_file = Path('/sys/devices/system/cpu/smt/control')
+        if smt_file.is_file():
+            result = smt_file.read_text().strip()
+            return 'on' in result or '1' in result
+        return False
 
     def set_vendor_specific_features(self):
         pass  # override in vendor-specific executors
@@ -124,7 +125,7 @@ class Aarch64Executor(Executor):
 
         :param state: True to enable the quick and dirty mode, False to disable it
         """
-        pass
+        pass  # intentional no-op on aarch64: no quick-and-dirty stabilization-skip is implemented
 
     # ==============================================================================================
     # Interface: Ignore List
@@ -201,14 +202,6 @@ class Aarch64LocalExecutor(Aarch64Executor):
         contract_executor_bin = os.path.join(
             os.path.dirname(__file__), "contract_executor", "contract_executor")
         self._contract_executor = ContractExecutorService(contract_executor_bin)
-
-    def _is_smt_enabled(self):
-        smt_file = Path('/sys/devices/system/cpu/smt/control')
-        if smt_file.is_file():
-            result = smt_file.read_text().strip()
-            return 'on' in result or '1' in result
-
-        return False
 
     def read_base_addresses(self):
         """

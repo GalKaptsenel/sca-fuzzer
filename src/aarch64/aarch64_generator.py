@@ -1127,7 +1127,11 @@ class Aarch64SandboxPass(Pass, _SandboxInstrumentationBase):
     def sandbox_memory_access(self, instr: Instruction, parent: BasicBlock) -> None:
         """Force every memory access of *instr* into the sandbox region. For each memory operand, mask
         its base into [x29 .. x29+mask], then cancel the index/offset/extend so the effective address
-        lands at the masked base. Multiple memory operands (e.g. MOPS copy) are each handled."""
+        lands at the masked base. Multiple memory operands (e.g. MOPS copy) are each handled.
+
+        Limitation: the mask bounds the base, not base+access_size, so a multi-byte access (notably a
+        16-byte LDP/STP) whose masked base is within the last few bytes of the region can spill past
+        it. Rare and pre-existing; widen the mask to (region - max_access_size) if it ever matters."""
         if instr.get_implicit_mem_operands():
             raise GeneratorException("Implicit memory accesses are not supported")
         mem_ops = instr.get_mem_operands()
