@@ -454,7 +454,7 @@ static long do_revisor_ioctl(struct file* file, unsigned int cmd, unsigned long 
 			break;
 
 		case REVISOR_TRACE_CONSTANT:
-			trace();
+			result = trace();
 			break;
 
 		case REVISOR_CLEAR_ALL_INPUTS_CONSTANT:
