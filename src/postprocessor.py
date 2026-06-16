@@ -14,7 +14,6 @@ import tempfile
 from math import log2
 
 from copy import deepcopy
-from subprocess import run
 from typing import List, NamedTuple, Dict
 from .interfaces import Input, TestCase, Minimizer, Fuzzer, InstructionSetAbstract, Violation, \
     SANDBOX_CODE_SIZE
@@ -136,6 +135,11 @@ class BaseInstructionMinimizationPass(abc.ABC):
         self.progress = progress
         self.ignore_list = []
 
+    @property
+    def _target_desc(self):
+        """Architecture description of the test cases under minimization (nop/barrier/branch hooks)."""
+        return self.fuzzer.generator.target_desc
+
     # ------------------------------------------------
     # Abstract interface
     @abc.abstractmethod
@@ -177,13 +181,15 @@ class BaseInstructionMinimizationPass(abc.ABC):
         :return List of instruction IDs that passed the verification
         """
 
+        barrier = self._target_desc.speculation_barrier.lower()
+
         def line_is_skipped(line: str) -> bool:
             if not line:
                 return True
             # We skip lines that meet the following criteria:
             is_skipped = (line == "")  # empty line
             is_skipped |= (line[0] == "#")  # comment
-            is_skipped |= ("lfence" in line)  # fences
+            is_skipped |= (bool(barrier) and barrier in line)  # speculation fences
             is_skipped |= ('.' == line[0])  # labels
             is_skipped |= ('noremove' in line)  # explicitly marked as non-removable
             is_skipped |= (skip_instrumentation_lines and 'instrumentation' in line)
@@ -485,18 +491,6 @@ class NopReplacementPass(BaseInstructionMinimizationPass):
     """
     name = "NOP Replacement Pass"
 
-    replacements = {
-        1: "nop  # 1 B",
-        2: ".byte 0x66, 0x90  # 2 B",
-        3: "nop dword ptr [rax]  # 3 B",
-        4: "nop qword ptr [rax]  # 4 B",
-        5: "nop qword ptr [rax + 1]  # 5 B",
-        6: "nop qword ptr [rax + rax + 1]  # 6 B",
-        7: "nop dword ptr [rax + 0xff]  # 7 B",
-        8: "nop qword ptr [rax + 0xff]  # 8 B",
-        9: "nop qword ptr [rax + rax + 0xff]  # 9 B",
-    }
-
     def __init__(self, fuzzer: Fuzzer, instruction_set_spec: InstructionSetAbstract,
                  progress: ProgressPrinter):
         super().__init__(fuzzer, instruction_set_spec, progress)
@@ -534,30 +528,10 @@ class NopReplacementPass(BaseInstructionMinimizationPass):
 
     def modify_instruction(self, instructions: List[str], i: int) -> List[str]:
         tmp = list(instructions)  # make a copy
-
-        line = tmp[i].strip().lower()
-        if "nop" in line:
+        replacement = self._target_desc.nop_replacement(tmp[i])
+        if replacement is None:
             return []
-
-        # skip jumps as replacing them with nops will confuse our assembly parser
-        if line.startswith("j") or line.startswith("loop"):
-            return []
-
-        # determine the instruction size
-        with open("tmp.asm", "w") as f:
-            f.write(".intel_syntax noprefix\n")
-            f.write(line)
-            f.write("\n")
-        run("as tmp.asm -o tmp.o", shell=True, check=True)
-        run("objcopy -O binary --only-section=.text tmp.o tmp.o", shell=True, check=True)
-        size = os.path.getsize("tmp.o")
-        os.remove("tmp.asm")
-        os.remove("tmp.o")
-
-        if size not in self.replacements:
-            return []
-
-        tmp[i] = self.replacements[size] + "\n"
+        tmp[i] = replacement + "\n"
         return tmp
 
     def verify_modification(self, test_case: TestCase, inputs: List[Input]) -> bool:
@@ -625,24 +599,21 @@ class FenceInsertionPass(BaseInstructionMinimizationPass):
     name = "Fence Insertion Pass"
 
     def run(self, test_case: TestCase, inputs: List[Input]) -> TestCase:
-        # x86-only: inserts the x86 `lfence` barrier and uses x86 control-flow detection. An
-        # aarch64 port should reuse the generator's Aarch64DsbSyPass (IR-level DSB SY) instead.
-        if "x86" not in CONF.instruction_set:
-            return test_case
         inst_ids = self.minimization_loop(test_case, inputs)
         self.progress.pass_finish()
 
+        barrier = self._target_desc.speculation_barrier
         with open(test_case.asm_path, "r") as f:
             instructions = f.readlines()
         for i in inst_ids:
-            instructions = instructions[:i] + ["lfence\n"] + instructions[i:]
+            instructions = instructions[:i] + [f"{barrier}\n"] + instructions[i:]
         return get_test_case_from_instructions(self.fuzzer, instructions)
 
     def modify_instruction(self, instructions: List[str], i: int) -> List[str]:
-        curr_instr = instructions[i].lower()
-        if curr_instr[0] == "j" or curr_instr[0:3] == "loop":
+        if self._target_desc.is_branch_line(instructions[i]):
             return []  # skip control-flow instructions - their target is already fenced
-        return instructions[:i] + ["lfence\n"] + instructions[i:]
+        barrier = self._target_desc.speculation_barrier
+        return instructions[:i] + [f"{barrier}\n"] + instructions[i:]
 
     def verify_modification(self, test_case: TestCase, inputs: List[Input]) -> bool:
         return check_for_violation(self.fuzzer, test_case, inputs, self.ignore_list)
@@ -1056,7 +1027,8 @@ class MainMinimizer(Minimizer):
         """
 
         # Check arguments
-        assert CONF.instruction_set == "x86-64", "Postprocessor supports only x86-64 so far"
+        assert CONF.instruction_set == "x86-64" or "aarch64" in CONF.instruction_set, \
+            f"Postprocessor supports only x86-64 and aarch64, got '{CONF.instruction_set}'"
 
         # Reset the ignore list
         self.ignore_list = []

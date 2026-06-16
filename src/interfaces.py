@@ -1063,6 +1063,21 @@ class TargetDesc(ABC):
     epte_bits: Dict[str, Tuple[int, bool]]
     cpu_desc: CPUDesc
 
+    # Minimizer hooks (overridden per architecture).
+    asm_header: str = ""
+    """ asm_header: header line(s) prepended when writing a standalone asm file for assembly """
+    speculation_barrier: str = ""
+    """ speculation_barrier: the speculation-fence mnemonic (e.g. 'lfence', 'dsb sy') """
+
+    def nop_replacement(self, line: str) -> Optional[str]:
+        """Return a NOP mnemonic that can replace the instruction in `line` while preserving code
+        size/offsets, or None if it must not be replaced (e.g. control flow). Per-architecture."""
+        raise NotImplementedError
+
+    def is_branch_line(self, line: str) -> bool:
+        """Whether the asm `line` is a control-flow (branch/jump) instruction. Per-architecture."""
+        raise NotImplementedError
+
     @staticmethod
     @abstractmethod
     def is_unconditional_branch(inst: Instruction) -> bool:

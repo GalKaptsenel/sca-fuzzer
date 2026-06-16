@@ -4,8 +4,10 @@ File: x86-specific constants and lists
 Copyright (C) Microsoft Corporation
 SPDX-License-Identifier: MIT
 """
-from typing import List
+from typing import List, Optional
+import os
 import re
+from subprocess import run
 import unicorn.x86_const as ucc  # type: ignore
 
 from ..interfaces import Instruction, TargetDesc, MacroSpec, CPUDesc
@@ -14,6 +16,44 @@ from ..config import CONF
 
 
 class X86TargetDesc(TargetDesc):
+
+    # Minimizer hooks. x86 asm is emitted in Intel syntax; the speculation fence is LFENCE.
+    asm_header = ".intel_syntax noprefix\n"
+    speculation_barrier = "lfence"
+
+    # NOP encodings of each byte length, used to neutralize an instruction without shifting offsets.
+    _NOP_BY_SIZE = {
+        1: "nop  # 1 B",
+        2: ".byte 0x66, 0x90  # 2 B",
+        3: "nop dword ptr [rax]  # 3 B",
+        4: "nop qword ptr [rax]  # 4 B",
+        5: "nop qword ptr [rax + 1]  # 5 B",
+        6: "nop qword ptr [rax + rax + 1]  # 6 B",
+        7: "nop dword ptr [rax + 0xff]  # 7 B",
+        8: "nop qword ptr [rax + 0xff]  # 8 B",
+        9: "nop qword ptr [rax + rax + 0xff]  # 9 B",
+    }
+
+    def is_branch_line(self, line: str) -> bool:
+        line = line.strip().lower()
+        return line.startswith("j") or line.startswith("loop")
+
+    def nop_replacement(self, line: str) -> Optional[str]:
+        """Pick a NOP of the same byte length as the instruction (so code offsets are preserved).
+        Returns None for jumps/loops (replacing them confuses the parser) and existing NOPs."""
+        if "nop" in line.strip().lower() or self.is_branch_line(line):
+            return None
+        line = line.strip().lower()
+        # assemble the single instruction to measure its encoded size
+        with open("tmp.asm", "w") as f:
+            f.write(self.asm_header)
+            f.write(line + "\n")
+        run("as tmp.asm -o tmp.o", shell=True, check=True)
+        run("objcopy -O binary --only-section=.text tmp.o tmp.o", shell=True, check=True)
+        size = os.path.getsize("tmp.o")
+        os.remove("tmp.asm")
+        os.remove("tmp.o")
+        return self._NOP_BY_SIZE.get(size)
     register_sizes = {
         "xmm0": 128, "xmm1": 128, "xmm2": 128, "xmm3": 128, "xmm4": 128, "xmm5": 128, "xmm6": 128,
         "xmm7": 128, "xmm8": 128, "xmm9": 128, "xmm10": 128, "xmm11": 128, "xmm12": 128,

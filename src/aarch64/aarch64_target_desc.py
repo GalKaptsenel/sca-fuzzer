@@ -1,7 +1,7 @@
 """
 File: aarch64-specific constants and lists
 """
-from typing import List
+from typing import List, Optional
 
 from ..interfaces import Instruction, TargetDesc, MacroSpec, CPUDesc, MemoryRole
 from ..config import CONF
@@ -20,6 +20,27 @@ class AArch64MemRole(MemoryRole):
 
 
 class Aarch64TargetDesc(TargetDesc):
+
+    # Minimizer hooks. AArch64 uses GNU as default syntax (no header); the speculation fence is DSB SY.
+    asm_header = ""
+    speculation_barrier = "dsb sy"
+
+    # Branch mnemonics whose neutralization would change control flow (kept out of NOP replacement).
+    _BRANCH_MNEMONICS = frozenset(("b", "bl", "br", "blr", "ret", "cbz", "cbnz", "tbz", "tbnz"))
+
+    def is_branch_line(self, line: str) -> bool:
+        tokens = line.strip().lower().split()
+        mnemonic = tokens[0] if tokens else ""
+        return mnemonic in self._BRANCH_MNEMONICS or mnemonic.startswith("b.")
+
+    def nop_replacement(self, line: str) -> Optional[str]:
+        """Every AArch64 instruction is 4 bytes, so any non-branch instruction maps to a single NOP
+        (offsets are preserved automatically)."""
+        tokens = line.strip().lower().split()
+        mnemonic = tokens[0] if tokens else ""
+        if mnemonic == "nop" or self.is_branch_line(line):
+            return None
+        return "nop"
 
     branch_conditions = {
     "eq": ["", "", "", "r", "", "", "", "", ""],
