@@ -175,6 +175,25 @@ class PairExclusiveConstraintTest(unittest.TestCase):
         self.assertNotIn(self._n(status.value),
                          {self._n(d0.value), self._n(d1.value), self._n(mem.inner[0].value)})
 
+    # ---- single-register writeback (LDR/STR): transferred reg must differ from base ----
+    def test_single_load_writeback_dest_differs_from_base(self):
+        d = self._reg("x2", dest=True)
+        mem = self._mem_base("x2", writeback=True)
+        self._run("ldr", [d, mem], "LDR {Xt}, [{Xn}], #8")
+        self.assertNotEqual(self._n(d.value), self._n(mem.inner[0].value))
+
+    def test_single_store_writeback_src_differs_from_base(self):
+        s = self._reg("x2", src=True)
+        mem = self._mem_base("x2", writeback=True, store=True)
+        self._run("str", [s, mem], "STR {Xt}, [{Xn}], #8")
+        self.assertNotEqual(self._n(s.value), self._n(mem.inner[0].value))
+
+    def test_single_no_writeback_allows_transferred_equal_base(self):
+        d = self._reg("x2", dest=True)
+        mem = self._mem_base("x2", writeback=False)
+        self._run("ldr", [d, mem], "LDR {Xt}, [{Xn}, #8]")
+        self.assertEqual(self._n(d.value), self._n("x2"))   # not patched (no writeback)
+
 
 if __name__ == "__main__":
     unittest.main()

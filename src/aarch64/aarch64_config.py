@@ -100,8 +100,6 @@ _option_values = {
             "BASE-BITBYTE", "BASE-CONDSEL", "BASE-FLAGOP", "BASE-CRC", "BASE-PAC", "BASE-MTE",
             "BASE-MOVE", "BASE-NOP", "BASE-HINT", "BASE-SYSTEM", "BASE-BARRIER", "BASE-EXCEPTION",
             "BASE-FPSIMD",
-            # legacy v1 tag names (TEMP, bisect: lets current code load an old-tag v1 base.json)
-            "BASE-MEMORY-LOAD", "BASE-MEMORY-STORE", "BASE-COND-BRANCH", "BASE-UNCOND-BRANCH",
             # memory (coarse + direction + kind) and prefetch
             "BASE-MEM", "BASE-MEM-LOAD", "BASE-MEM-STORE", "BASE-MEM-ATOMIC", "BASE-MEM-EXCLUSIVE",
             "BASE-MEM-ACQREL", "BASE-MEM-COPY", "BASE-MEM-SET", "BASE-PREFETCH",

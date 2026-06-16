@@ -434,6 +434,23 @@ covered by `test_ce_integration.c` (`bpas_*`, `cond_*`, `unsupported_clauses_rej
 `bpu_*`).
 
 ## 3.2 Mistraining
+
+Branch mistraining saturates the BPU against a conditional branch's architectural direction before
+the measured run, so the branch mispredicts and a speculative window opens. It is driven by the CE's
+architectural branch directions (`branch_mistraining_entries` → `apply_branch_mistraining`) and
+applied through the `enable_branch_training` + `branch_training_config` sysfs knobs.
+
+**The current implementation has a known bug (WIP) and is gated off by default
+(`CONF.enable_branch_mistraining = False`); it must stay off for Spectre-v1 detection.** Instead of
+saturating against the architectural direction, it empirically trains toward it (the inverse of the
+intent) — so enabling it makes the guarding branch predict *correctly*, closes the speculative
+window, and **suppresses** the very misprediction the fuzzer hunts.
+A controlled experiment (same generator, spec, config, and kernel — mistraining the only variable)
+measured this directly: per 800 test cases, **0** violations with mistraining on vs **13** (F+R) /
+**2** (P+P) with it off. This — not the tag taxonomy — was the cause of the earlier "stopped finding
+Spectre-v1" regression (culprit commit `6dfeb4b`; see memory `project_spectrev1_mistrain_regression`).
+Re-enable only after the training direction/path is fixed on hardware.
+
 ## 3.3 Instruction tagging
 
 `base.json` is produced by the **`arm_isa_extractor`** pipeline (download ARM's A64 XML → extract a
@@ -444,15 +461,29 @@ ISA-prefixed and coarse-to-fine: an ISA prefix (`BASE`/`SVE`/`SME`), a coarse fa
 (`BASE-MEM-LOAD`/`-STORE`/`-ATOMIC`, `BASE-FLAGS-WRITE`, `BASE-BRANCH-COND`, …). Every spec gets
 ≥1 tag — the tagger asserts this, since an untagged spec is ungeneratable.
 
-Generation is gated by three knobs in `isa_loader.reduce`, **all** of which must pass (and for
-AArch64 only `category == "general"` specs are eligible at all):
+**Filtering strategy.** `isa_loader.reduce` → `is_supported` decides the emittable set. The general
+idea is a conjunction of independent gates — a spec is generatable only if it passes **every** one
+(evaluated per spec, in this order):
 
-- `supported_instructions` — an AArch64-only mnemonic allow-list (the curated known-good set); a
-  spec whose name is absent is dropped first.
-- `instruction_categories` (from the config) — a spec is kept if **any** of its tags is listed.
-- `instruction_blocklist` — names dropped outright. It holds the permanent crash/stall/HW-absent
-  hazards: `eretaa`/`eretab`/`udf` (trap or EL change), `wfe`/`wfi`/`wfet`/`wfit` (stall),
-  `cnt`/`ctz` (FEAT_CSSC, absent on the N3 → would SIGILL), plus the MOPS/atomic ordering families.
+1. **Category gate** (AArch64) — only `category == "general"` specs are eligible at all. The FP/SIMD,
+   SVE/SME, float and system categories are excluded outright, because the generator and the CE model
+   only the general-purpose subset.
+2. **`supported_instructions`** — an AArch64 mnemonic allow-list (the curated known-good set): a spec
+   whose name is absent is dropped. This is the primary "what do we trust to emit" gate, so the
+   emittable set is essentially a hand-picked subset of the general category.
+3. **Per-name overrides** — `instruction_allowlist` forces a name in (escape hatch); `instruction_blocklist`
+   drops names outright. The blocklist holds permanent crash/stall/HW-absent hazards: `eretaa`/`eretab`/`udf`
+   (trap or EL change), `wfe`/`wfi`/`wfet`/`wfit` (stall), `cnt`/`ctz` (FEAT_CSSC, absent on the N3 →
+   SIGILL), plus the MOPS/atomic ordering families.
+4. **`instruction_categories`** (from the run config) — the spec is kept only if **at least one** of its
+   tags is an enabled category. This is how a run scopes itself (e.g. arith + logical + branches +
+   memory for the Spectre configs).
+5. **Address-register blocklist** — specs whose memory-operand base/index would use a reserved register
+   are dropped.
+
+So, in short: **emittable ≈ general ∩ supported_instructions ∩ ¬blocklist ∩ (tag ∈ categories)**, with
+the allowlist as a per-name override. (A few debug-only knobs can narrow this further during
+investigation but are not part of the standard flow.)
 
 ## 3.4 Data-structure reference
 
