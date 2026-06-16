@@ -100,7 +100,8 @@ inline uint64_t pair_element_access_size(uint32_t inst) {
 	uint64_t size = ((inst >> 30) & 0x3);
 	if(0 == size) return 4;
 	if(2 == size) return 8;
-	__builtin_unreachable();
+	/* opc=01 (LDPSW) / opc=11 are not modeled; fail loud rather than risk UB. */
+	__builtin_trap();
 }
 inline uint64_t literal_pc_relative_access_size(uint32_t inst) {
 	uint64_t size = ((inst >> 30) & 0x3);
