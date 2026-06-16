@@ -12,7 +12,6 @@ import tempfile
 import traceback
 import signal
 import datetime
-import unicorn
 from argparse import ArgumentParser, ArgumentTypeError
 from .factory import get_minimizer, get_fuzzer, get_downloader
 from .config import CONF
@@ -449,13 +448,15 @@ def main() -> int:
             "require flag --input-outdir to be set.")
         return 1
 
-    # Enforce the Unicorn version: New versions of Unicorn have a bug that causes false positives
-    # in the fuzzer. This is a temporary workaround until the bug is fixed.
-    if unicorn.__version__ != '1.0.3':  # type: ignore
-        print(
-            "[ERROR]", "The fuzzer requires Unicorn version 1.0.3. Please install it using "
-            "`pip install unicorn==1.0.3`.")
-        return 1
+    # Enforce the Unicorn version (x86 only — AArch64 uses the contract executor, not Unicorn).
+    # New versions of Unicorn have a bug that causes false positives; this is a temporary workaround.
+    if CONF.instruction_set == "x86-64":
+        import unicorn
+        if unicorn.__version__ != '1.0.3':  # type: ignore
+            print(
+                "[ERROR]", "The fuzzer requires Unicorn version 1.0.3. Please install it using "
+                "`pip install unicorn==1.0.3`.")
+            return 1
 
     # Fuzzing
     if args.subparser_name == 'fuzz' or args.subparser_name == 'tfuzz':
