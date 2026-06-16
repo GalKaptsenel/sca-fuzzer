@@ -1,0 +1,56 @@
+# Spectre-v4 detection config — Speculative Store Bypass (SSB), Prime+Probe.
+#
+# WHAT IT FINDS
+#   A speculative-store-bypass leak: a load speculatively bypasses an older store to the same
+#   address, reads the STALE (pre-store) value, and uses it to address a later load — leaking the
+#   stale value through the cache.
+#
+# HOW THE DETECTION IS SET UP
+#   * contract_execution_clause: [cond]  — the equivalence contract models architectural execution
+#     AND branch misprediction. So Spectre-v1 (branch-bypass) leaks are IN-contract and are NOT
+#     flagged; the only unmodeled speculation left is store-bypass, so a violation can only come
+#     from Spectre-v4. (compute_ctrace records cache sets in execution order, so architectural and
+#     speculative accesses are distinguished by position — inputs taking opposite branch directions
+#     produce different ordered traces and are not falsely grouped as equivalent.)
+#   * enable_ssbs: true  — sets PSTATE.SSBS=1 on the core before each measured run, so the hardware
+#     is actually allowed to speculatively bypass stores. WITHOUT this the leak cannot occur and
+#     the campaign finds nothing real. (Requires the executor module built with the enable_ssbs
+#     sysfs knob.)
+#   * executor_mode: P+P  — Prime+Probe isolates the single-set store-bypass leak cleanly. F+R is
+#     NOT recommended for v4: store-heavy gadgets fill the Flush+Reload footprint with noise and
+#     bury the one-set signal.
+#   * enable_pre_run_flush: 0, enable_branch_mistraining: false — as for Spectre-v1.
+#
+# Run:
+#   python revizor.py fuzz -s base.json -c configs/spectre_v4_pp.yml -n 1000 -i 50 --save-violations .
+#
+# TRIAGE each hit with the store-bypass contract:
+#   Confirm the pair is arch+cond equivalent (identical sets under [cond]) and that, under the
+#   [bpas] contract, their speculative sets DIVERGE and match the HW-divergent bits. A genuine v4
+#   also vanishes when SSBS=0 (rerun the pair with enable_ssbs off — the divergence must disappear).
+instruction_set: aarch64
+instruction_categories:
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-BITFIELD
+  - BASE-CONDSEL
+  - BASE-BRANCH
+  - BASE-MEM-LOAD
+  - BASE-MEM-STORE
+min_bb_per_function: 2
+max_bb_per_function: 5
+max_successors_per_bb: 2
+min_successors_per_bb: 1
+fuzzer: basic
+input_generator: aarch64-nzcv
+executor_warmups: 5
+input_gen_seed: 0
+
+executor_mode: P+P
+contract_execution_clause:
+  - cond
+enable_pre_run_flush: 0
+enable_branch_mistraining: false
+enable_ssbs: true
+recompute_artifact_traces: true

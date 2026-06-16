@@ -23,11 +23,18 @@ The **distinguishing speculative set** (e.g. P+P #15/#65 → set 50 only for #65
   input in the last slot (iid `LOW`); that slot is the only thing you swap and the only thing you measure.
 - The leaking cache `SET` from the analysis above.
 
+This skill is the **2-input HW replay** of a saved `violation-*`. The tool it drives is documented in
+the **`executor-userland`** skill (full command reference, byte layout, pitfalls); the **general
+V-input** form of this protocol is **`reproduce-violation-manual`**; to classify GENUINE-vs-noise from
+the report alone (no HW), use **`revizor-violation-triage`**.
+
 ## executor_userland command numbers (ioctl NR)
-`EU="src/executor_userland/executor_userland /dev/executor"`
+`EU="src/executor_userland/executor_userland /dev/executor"`  (resolve relative to the repo root; no absolute paths)
 1=CHECKOUT_TEST  2=UNLOAD_TEST  3=GET_NUM_INPUTS  4=CHECKOUT_INPUT(arg)  5=ALLOCATE_INPUT
 6=FREE_INPUT  7=MEASUREMENT  8=TRACE  9=CLEAR_ALL_INPUTS  10=GET_TEST_LENGTH
 Also: `EU w file` (write file to current checkout), `EU r file` (read current checkout to file).
+(The `iid 0..LOW` and `LOW` slot numbers below are illustrative — always read each iid back from
+`ALLOCATE`, never assume `0,1,2,…`.)
 
 ## Step 1 — build the byte artifacts (in a scratch dir; NEVER touch the originals)
 ```

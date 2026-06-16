@@ -45,6 +45,16 @@ static ssize_t enable_phr_flush_show(struct kobject *kobj, struct kobj_attribute
 	return sprintf(buf, "%d\n", executor.config.phr_flush);
 }
 
+static ssize_t enable_ssbs_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
+    unsigned int value = 0;
+    sscanf(buf, "%u", &value);
+    executor.config.enable_ssbs = (0 != value);
+    return count;
+}
+static ssize_t enable_ssbs_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+	return sprintf(buf, "%d\n", executor.config.enable_ssbs);
+}
+
 static ssize_t enable_view_rotation_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
     unsigned int value = 0;
     sscanf(buf, "%u", &value);
@@ -163,6 +173,7 @@ static struct kobj_attribute print_code_base_attribute = __ATTR(print_code_base,
 static struct kobj_attribute enable_pre_run_flush_attribute = __ATTR(enable_pre_run_flush, 0666, enable_pre_run_flush_show, enable_pre_run_flush_store);
 static struct kobj_attribute enable_phr_flush_attribute = __ATTR(enable_phr_flush, 0666, enable_phr_flush_show, enable_phr_flush_store);
 static struct kobj_attribute enable_view_rotation_attribute = __ATTR(enable_view_rotation, 0666, enable_view_rotation_show, enable_view_rotation_store);
+static struct kobj_attribute enable_ssbs_attribute = __ATTR(enable_ssbs, 0666, enable_ssbs_show, enable_ssbs_store);
 static struct kobj_attribute measurement_mode_attribute = __ATTR(measurement_mode, 0666, measurement_mode_show, measurement_mode_store);
 static struct kobj_attribute pin_to_core_attribute = __ATTR(pin_to_core, 0666, pin_to_core_show, pin_to_core_store);
 
@@ -197,6 +208,7 @@ static struct attribute *sysfs_attributes[] = {
 	&enable_pre_run_flush_attribute.attr,
 	&enable_phr_flush_attribute.attr,
 	&enable_view_rotation_attribute.attr,
+	&enable_ssbs_attribute.attr,
 	&measurement_mode_attribute.attr,
 	&pin_to_core_attribute.attr,
 	&branch_training_config_attribute.attr,

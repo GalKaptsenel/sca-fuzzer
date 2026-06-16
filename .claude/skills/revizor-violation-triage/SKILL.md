@@ -14,6 +14,12 @@ A Revizor violation = two inputs that are **architecturally equivalent** (same c
 
 If all three hold → **genuine Spectre-v1**. If the HW shows no stable divergence, or the CE shows no speculative divergence → **noise**.
 
+> **v4 (store-bypass) triage:** the same three-step logic applies, but the speculative divergence is
+> not branch-driven — run the CE under the **`bpas`** contract (`contract_execution_clause=['bpas']`,
+> `ExecutionClause.BPAS`) instead of `cond`, and confirm the divergence vanishes with `enable_ssbs=0`.
+> See **`reproduce-spectre-v4`** for the full v4 argument and **`reproduce-violation-manual`** /
+> **`executor-userland`** for replaying the pair on hardware.
+
 ## CRITICAL anti-pattern (do NOT do this)
 **Do NOT "confirm noise" by re-running the same test on HW many times (high reps/warmups).** Repetition *trains the branch predictor* to predict the branch correctly, which **removes the misprediction that causes the leak** — so a genuine Spectre-v1 will look like clean/identical htraces after training. Repeated-measurement stability is the WRONG tool here. Use the CE's speculative trace + the violation report's *already-captured* htrace distribution instead.
 

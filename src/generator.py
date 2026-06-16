@@ -113,7 +113,8 @@ class ConfigurableGenerator(Generator, abc.ABC):
         random.seed(self._state)
         self._state += 1
 
-    def create_test_case(self, asm_file: str, disable_assembler: bool = False) -> TestCase:
+    def create_test_case(self, asm_file: str, disable_assembler: bool = False,
+                         write_files: bool = True) -> TestCase:
         self.test_case = TestCase(self._state)
         if not asm_file:
             asm_file = 'generated.asm'
@@ -144,8 +145,14 @@ class ConfigurableGenerator(Generator, abc.ABC):
         # add symbols to test case
         self.add_required_symbols(self.test_case)
 
-        self.printer.print(self.test_case, asm_file)
         self.test_case.asm_path = asm_file
+        # During fuzzing the test case is consumed in memory (assembled on demand for the model and
+        # executor), so skip the per-test-case disk writes; they are reproduced only when a
+        # violation artifact is saved (TestCase.save re-prints from the in-memory structure).
+        if not write_files:
+            return self.test_case
+
+        self.printer.print(self.test_case, asm_file)
 
         if disable_assembler:
             return self.test_case

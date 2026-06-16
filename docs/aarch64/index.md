@@ -526,29 +526,90 @@ All `fuzz`/`tfuzz` invocations below consume it via `-s base.json`. Pass
 `--extensions <category> ...` to keep only specific instruction-class categories
 (default: the full set).
 
-### Detecting Spectre-v1 (ready-to-run configs)
+### Detecting speculative-execution leaks (Spectre-v1 and v4)
 
-Two configs in `configs/` detect a Spectre-v1 (conditional-branch-bypass) leak out of the box —
-one per measurement channel. Both set the **arch-only** contract (`contract_execution_clause:
-[seq]`) and turn the **BPU flush off** (`enable_pre_run_flush: 0`) so the guarding branch
-mispredicts naturally; a speculative load then touches a cache set the contract forbids, which
-Revizor reports as a violation.
+Revizor reports a **contract violation**: two inputs that are *equivalent under the contract* (same
+contract trace) yet produce *different hardware traces*. The contract decides which speculation is
+"allowed/expected" — anything the hardware leaks **beyond** the contract is a violation, so the
+contract choice decides *which* leak class you hunt. It is selected with `contract_execution_clause`;
+the AArch64 CE implements these clauses (see §3.1):
+
+| clause | models | use |
+|---|---|---|
+| `seq` | architectural execution only | equivalence = same arch trace → any speculative leak (v1 **or** v4) shows as a violation |
+| `cond` | architectural **+ conditional-branch misprediction** | branch-bypass (Spectre-v1) is *in-contract* (not flagged); only store bypass (v4) remains a violation |
+| `bpas` | architectural **+ speculative store bypass** | used in *triage* to model/confirm v4 |
+
+The contract trace (`compute_ctrace`, `src/aarch64/aarch64_trace.py`) is an **order-preserving
+sequence** of the cache sets touched by the CE run, in execution order — architectural and
+speculative accesses interleaved at their execution point (the same shape as the x86 contract
+tracer). Within one access, consecutive bytes in the same line collapse to a single entry.
+
+Because the trace is ordered, architectural and speculative observations are distinguished by their
+**position** in the sequence — no value offset is needed. Two inputs that take opposite branch
+directions (one touches `X` then `Y`, the other `Y` then `X`) produce different ordered traces and
+are correctly kept in different equivalence classes. Two inputs are equivalent iff their whole
+ordered observation sequence matches (same architectural footprint *and* same speculative footprint,
+in the same order), so under `cond` the only thing that can still separate two equivalent inputs on
+hardware is a leak the contract does not model (speculative store bypass, v4).
+
+#### Spectre-v1 (conditional branch bypass)
+
+Use the **arch-only** contract (`[seq]`) with the **BPU flush off** (`enable_pre_run_flush: 0`) so the
+guarding branch mispredicts naturally; a speculative load then touches a cache set the contract
+forbids → violation.
 
 ```
 # Prime+Probe (preferred - more sensitive):
 python revizor.py fuzz -s base.json -c configs/spectre_v1_pp.yml -n 200 -i 50 --save-violations true -w out_pp
-
 # Flush+Reload:
 python revizor.py fuzz -s base.json -c configs/spectre_v1_fr.yml -n 200 -i 50 --save-violations true -w out_fr
 ```
 
-A violation drops a `violation-*/` artifact in the working dir (the test case, the
-counterexample inputs as `input_NNNN_nzcv_scheme.bin`, traces, and a `reproduce.yaml`). The leak
-is **intermittent** (the branch mispredicts only part of the time), so the fuzzer relies on its
-large-sample slow path — expect a hit within a few dozen test cases. **Prime+Probe is markedly
-more sensitive** than Flush+Reload to the store-based gadgets that turn up here (≈8× more
-positive runs for the same gadget), so use `spectre_v1_pp.yml` for a quick confirmation and give
-F+R more test cases. Requires the kernel module loaded (`--test aarch64-ko` or a manual insmod).
+The leak is **intermittent** (the branch mispredicts only part of the time), so the fuzzer relies on
+its large-sample slow path — expect a hit within a few dozen test cases. **Prime+Probe is markedly
+more sensitive** than Flush+Reload to the store-based gadgets that turn up here (≈8× more positive
+runs), so use `spectre_v1_pp.yml` for a quick confirmation and give F+R more test cases.
+
+#### Spectre-v4 (speculative store bypass / SSB)
+
+A load speculatively bypasses an older store to the same address, reads the **stale** (pre-store)
+value, and uses it to address a later load — leaking the stale value through the cache. Detection
+(`configs/spectre_v4_pp.yml`) needs three things together:
+
+- **`contract_execution_clause: [cond]`** — branch misprediction is now *in-contract*, so Spectre-v1
+  no longer shows as a violation; the only unmodeled speculation left is store bypass, so a violation
+  can only be v4.
+- **`enable_ssbs: true`** — sets `PSTATE.SSBS=1` on the core before each measured run so the hardware
+  is actually allowed to bypass stores. **Without it the leak cannot occur** and the run finds nothing
+  real. (Requires the kernel module built with the `enable_ssbs` sysfs knob.)
+- **`executor_mode: P+P`** — Prime+Probe isolates the single-set store-bypass leak cleanly. **F+R is
+  not recommended for v4**: store-heavy gadgets fill the Flush+Reload footprint with noise and bury
+  the one-set signal (the contract still *finds* the gadget, but F+R cannot confirm it cleanly).
+
+```
+python revizor.py fuzz -s base.json -c configs/spectre_v4_pp.yml -n 1000 -i 50 --save-violations true -w out_v4
+```
+
+**Triage a v4 hit** (see the triage skill): confirm the pair is arch+`cond` equivalent, then re-run
+the CE under **`[bpas]`** and check that the store-bypass speculative sets *diverge between the pair*
+and *match the HW-divergent bits*. A genuine v4 also **vanishes when SSBS=0** (re-measure the pair with
+`enable_ssbs` off — the divergence must disappear); that on/off control is the SSB-specific proof (not
+v1, not architectural, not noise).
+
+A violation (either class) drops a `violation-*/` artifact in the working dir (the test case, the
+counterexample inputs as `input_NNNN_nzcv_scheme.bin`, traces, and a `reproduce.yaml`). Requires the
+kernel module loaded (`--test aarch64-ko` or a manual insmod).
+
+#### Detection-related config flags
+
+| flag | default | effect |
+|---|---|---|
+| `enable_pre_run_flush` | 1 | flush BPU/PHR before each run; **set 0** so branches mispredict naturally |
+| `enable_branch_mistraining` | false | force-mispredict each branch. **Keep off**: the current implementation trains toward the *architectural* direction and *suppresses* the misprediction v1 needs (WIP). |
+| `enable_ssbs` | false | set `PSTATE.SSBS=1` (allow store bypass) — required to observe v4 on hardware |
+| `recompute_artifact_traces` | false | on a saved violation, recompute each input's own contract trace instead of the fast-path-propagated original's |
+| `in_memory_assembler` | true (AArch64) | assemble in memory → a fuzzing run writes no per-test-case files (only the violation artifact); x86 leaves it false (executor loads the object from disk) |
 
 ## 4.3 minimize / reproduce
 ## 4.4 Helper & triage scripts

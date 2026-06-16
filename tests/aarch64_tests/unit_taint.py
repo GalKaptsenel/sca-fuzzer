@@ -429,52 +429,64 @@ class TestComputeCtrace(unittest.TestCase):
 
     def test_single_read_correct_cache_set(self):
         ct = _ctrace({'depth': 0, 'mem': (0, 1, False)})
-        self.assertEqual(ct.raw, [0])  # offset 0 → cache set 0
+        self.assertEqual(ct.raw, [0])
 
-    def test_cache_set_formula(self):
-        # offset = 64 → set 1; offset = 128 → set 2; offset = 64*64 → set 0 (wraps)
+    def test_cache_set_formula_in_execution_order(self):
+        # The trace is the sequence of cache sets in access order: set1, set2, set0 (64*64 wraps).
         ct = _ctrace(
             {'depth': 0, 'mem': (64,       1, False)},
             {'depth': 0, 'mem': (128,      1, False)},
             {'depth': 0, 'mem': (64 * 64,  1, False)},
         )
-        self.assertIn(1, ct.raw)
-        self.assertIn(2, ct.raw)
-        self.assertIn(0, ct.raw)
+        self.assertEqual(ct.raw, [1, 2, 0])
 
-    def test_multiple_accesses_same_set_deduplicated(self):
-        # All offsets within the same 64-byte cache line → single set entry.
+    def test_repeated_same_set_accesses_each_recorded(self):
+        # Separate accesses to the same line are each recorded (order-preserving, not set-folded).
         ct = _ctrace(
             {'depth': 0, 'mem': (0,  1, False)},
             {'depth': 0, 'mem': (16, 1, False)},
             {'depth': 0, 'mem': (32, 1, False)},
-            {'depth': 0, 'mem': (63, 1, False)},
         )
-        self.assertEqual(ct.raw, [0])
+        self.assertEqual(ct.raw, [0, 0, 0])
 
-    def test_result_is_sorted(self):
+    def test_order_is_preserved_not_sorted(self):
         ct = _ctrace(
             {'depth': 0, 'mem': (128, 1, False)},  # set 2
             {'depth': 0, 'mem': (64,  1, False)},  # set 1
             {'depth': 0, 'mem': (0,   1, False)},  # set 0
         )
-        self.assertEqual(ct.raw, sorted(ct.raw))
+        self.assertEqual(ct.raw, [2, 1, 0])        # execution order, NOT sorted
 
     def test_write_accesses_appear_in_ctrace(self):
         # Stores also leak via cache → must appear in ctrace.
         ct = _ctrace({'depth': 0, 'mem': (64, 1, True)})
-        self.assertIn(1, ct.raw)
+        self.assertEqual(ct.raw, [1])
 
-    def test_speculative_accesses_appear_in_ctrace(self):
-        # Speculative loads cause cache side-channel effects.
-        ct = _ctrace({'depth': 1, 'mem': (192, 1, False)})  # set 3
-        self.assertIn(3, ct.raw)
+    def test_speculative_access_recorded_at_its_position(self):
+        # Speculation depth no longer shifts the value — the access is recorded as its plain set,
+        # distinguished from architectural accesses only by its position in the sequence.
+        ct = _ctrace(
+            {'depth': 0, 'mem': (5 * 64, 8, False)},    # arch set 5
+            {'depth': 1, 'mem': (3 * 64, 8, False)},    # spec set 3 (recorded after, in order)
+        )
+        self.assertEqual(ct.raw, [5, 3])
 
-    def test_multi_byte_access_all_sets_covered(self):
-        # A 128-byte load spanning two cache lines should produce two cache sets.
+    def test_opposite_branch_directions_separated_by_order(self):
+        # A: arch X then spec Y → [X, Y];  B: arch Y then spec X → [Y, X].  Order keeps them distinct
+        # (no +offset needed), exactly like the x86 ordered contract tracer.
+        X, Y = 5, 10
+        a = _ctrace({'depth': 0, 'mem': (X * 64, 8, False)},
+                    {'depth': 1, 'mem': (Y * 64, 8, False)})
+        b = _ctrace({'depth': 0, 'mem': (Y * 64, 8, False)},
+                    {'depth': 1, 'mem': (X * 64, 8, False)})
+        self.assertEqual(a.raw, [X, Y])
+        self.assertEqual(b.raw, [Y, X])
+        self.assertNotEqual(a.raw, b.raw)
+
+    def test_multi_byte_access_spans_lines_in_order(self):
+        # A 128-byte load spanning two lines → both sets, in ascending address order, from ONE access.
         ct = _ctrace({'depth': 0, 'mem': (0, 128, False)})
-        self.assertIn(0, ct.raw)
-        self.assertIn(1, ct.raw)
+        self.assertEqual(ct.raw, [0, 1])
 
     def test_no_memory_access_empty_ctrace(self):
         ct = _ctrace(

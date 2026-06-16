@@ -179,6 +179,10 @@ static void __nocfi run_experiments(void) {
 	cpumask_set_cpu(smp_processor_id(), &mask);
 	set_cpus_allowed_ptr(current, &mask);
 
+	if (executor.config.enable_ssbs) {
+		asm volatile(".inst 0xd503413f\n isb\n" ::: "memory");  /* MSR SSBS, #1 */
+	}
+
 	for (int64_t i = -executor.config.uarch_reset_rounds; i < rounds; ++i) {
 		struct input_node* current_input = NULL;
 

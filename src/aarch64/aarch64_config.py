@@ -130,6 +130,10 @@ _unsupported_options: List[str] = [
 executor: str = try_get_cpu_vendor()
 """ executor: the default executor depending on the current platform """
 
+in_memory_assembler: bool = True
+""" in_memory_assembler: AArch64 assembles test cases in memory, so skip per-test-case disk writes
+during a fuzzing run (see the base config option of the same name). """
+
 instruction_categories: List[str] = ["BASE-ARITH", "BASE-LOGICAL", "BASE-BRANCH-COND"]
 """ instruction_categories: a default list of tested instruction categories """
 

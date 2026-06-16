@@ -9,6 +9,15 @@ A **verified, self-contained PoC already exists at `/home/gal_k_1_1998/spectre_v
 `README.md`). Prefer it. This skill explains the mechanism, the recipe, and the non-obvious
 conditions so you can rebuild/adapt it.
 
+> **Update (2026-06-15): the fuzzer now auto-detects v4 — this hand PoC is no longer the only path.**
+> `configs/spectre_v4_pp.yml` (contract `[cond]`, `enable_ssbs: true`, P+P, flush off) finds v4
+> automatically; the CE now *has* a store-bypass contract (`ExecutionClause.BPAS` / `bpas`), used to
+> triage hits; and SSBS is exposed as a kernel knob (`enable_ssbs` sysfs + `CONF.enable_ssbs`) so the
+> gadget no longer needs an in-asm `MSR SSBS,#1`. See memory `project_spectrev4_autodetect`. To
+> classify a fuzzer-found v4 hit use **`revizor-violation-triage`** (its v4 branch) and replay it on HW
+> with **`reproduce-violation-manual`** / **`executor-userland`**. NOTE: the `enable_ssbs` kernel knob
+> is currently a **test-only** addition and may be reverted — check before relying on it.
+
 ## What v4 is (and how it differs from v1)
 Store `STR v,[x]` then load `LDR y,[x]` to the **same address** must architecturally forward `v`.
 If the store's **address** resolves slowly, the memory-disambiguation predictor may guess "no
@@ -77,7 +86,8 @@ cd /home/gal_k_1_1998/spectre_v4_poc
 ## Environment gotchas
 - `source /home/gal_k_1_1998/revizor/revizor-venv/bin/activate`; `chmod 777 /dev/executor` after insmod.
 - Module build: `KDIR=/usr/src/linux-headers-6.12.90+deb13-cloud-arm64`.
-- The AArch64 **CE has no store-bypass contract model** yet (only ARCH_ONLY / ALWAYS_MISPREDICT /
-  BPU_NEOVERSE_N3); confirming v4 in the CE requires adding a `CONTRACT_STORE_BYPASS` (fork at
-  stores: checkpoint → skip store → run window → rollback + replay). Until then, confirm v4 by the
-  manual argument above + the SSBS=0 control.
+- The AArch64 CE **now has a store-bypass contract** (`ExecutionClause.BPAS` / `bpas` in
+  `aarch64_contract_executor.py`), in addition to SEQ / ALWAYS_MISPREDICT(COND) / BPU_NEOVERSE_N3. Triage
+  a v4 pair under `bpas` (its speculative sets should diverge between A/B and match the HW-divergent
+  bits). The independent SSBS=0 control below remains the decisive proof that the divergence is
+  store-bypass (gated on the SSB-safe bit), not v1/arch/noise.

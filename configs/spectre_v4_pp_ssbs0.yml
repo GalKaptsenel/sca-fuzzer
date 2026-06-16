@@ -1,0 +1,43 @@
+# Spectre-v4 NEGATIVE CONTROL — identical to spectre_v4_pp.yml but with SSBS DISABLED.
+#
+# PURPOSE
+#   Campaign-level control for the v4 hunt. The contract, measurement mode, flushing and ctrace
+#   encoding are exactly those of spectre_v4_pp.yml; the ONLY change is enable_ssbs: false, which
+#   forbids the hardware from speculatively bypassing stores. A genuine Spectre-v4 leak is gated on
+#   PSTATE.SSBS, so with SSBS=0 it cannot occur — this campaign should find ~0 violations.
+#
+#   Interpretation: run this for the same wall-clock as spectre_v4_pp.yml. If that run finds N v4
+#   violations and this one finds ~0, the divergence is SSB-gated (genuine v4), not measurement noise.
+#   Any violation that DOES appear here is, by construction, not store-bypass — triage it as noise or
+#   an unmodeled effect.
+#
+# Run:
+#   python revizor.py fuzz -s base.json -c configs/spectre_v4_pp_ssbs0.yml -n 99999999999 -i 50 \
+#       -w out_v4_campaign_ssbs0 --nonstop
+
+instruction_set: aarch64
+instruction_categories:
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-BITFIELD
+  - BASE-CONDSEL
+  - BASE-BRANCH
+  - BASE-MEM-LOAD
+  - BASE-MEM-STORE
+min_bb_per_function: 2
+max_bb_per_function: 5
+max_successors_per_bb: 2
+min_successors_per_bb: 1
+fuzzer: basic
+input_generator: aarch64-nzcv
+executor_warmups: 5
+input_gen_seed: 0
+
+executor_mode: P+P
+contract_execution_clause:
+  - cond
+enable_pre_run_flush: 0
+enable_branch_mistraining: false
+enable_ssbs: false
+recompute_artifact_traces: true

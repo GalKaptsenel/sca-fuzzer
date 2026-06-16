@@ -40,6 +40,7 @@ typedef struct executor_config {
 	struct pac_keys pac_keys;
 	bool pac_keys_set;
 	bool enable_branch_training;
+	char enable_ssbs;
 } executor_config_t;
 
 typedef struct device_managment {

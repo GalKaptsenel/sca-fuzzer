@@ -205,6 +205,26 @@ class Conf:
     enable_pre_run_flush: bool = True
     """ enable_pre_run_flush: when enabled, the executor rotates the per-input view
     and flushes the PHR before each measurement run; when disabled, neither. """
+    in_memory_assembler: bool = False
+    """ in_memory_assembler: when True, the test case is assembled in memory for the model and the
+    executor, so generation does not write the per-test-case asm/object files to disk during a
+    fuzzing run (they are still produced only when a violation artifact is saved). When False, the
+    executor loads the object file from disk, so generation must write it. AArch64 sets this True;
+    x86 leaves it False. """
+    recompute_artifact_traces: bool = False
+    """ recompute_artifact_traces: controls the contract trace stored in a violation's artifacts.
+
+    Under the fast path (enable_fast_path_model: True) the boosted inputs do not get their own
+    contract trace; they reuse the one computed for their class's original input (it is copied
+    over). So a saved violation's per-input trace can show the original's trace rather than the
+    input's own, which is misleading when inspecting the artifact.
+
+    When this is enabled, the trace is recomputed individually for each input before the artifact
+    is written, so every saved input carries its own accurate trace. Currently supported only for
+    AArch64. """
+    enable_ssbs: bool = False
+    """ enable_ssbs: [AArch64] set PSTATE.SSBS=1 before each measured run so the CPU may
+    speculatively bypass older stores (required to observe Spectre-v4 on hardware). """
     enable_branch_mistraining: bool = False
     """ enable_branch_mistraining: when enabled, before measuring an input the executor
     saturates each of its architectural conditional branches (taken directions read from the

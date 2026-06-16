@@ -112,7 +112,10 @@ class FuzzerGeneric(Fuzzer):
     def start_random(self, num_test_cases: int, num_inputs: int, timeout: int, nonstop: bool,
                      save_violations: bool) -> bool:
         self.initialize_modules()
-        self.generation_function = self.generator.create_test_case
+        # With an in-memory assembler the test case is consumed without its on-disk artifacts, so
+        # skip writing them per test case (they are still produced when a violation is saved).
+        write_files = not CONF.in_memory_assembler
+        self.generation_function = lambda f="": self.generator.create_test_case(f, write_files=write_files)
         return self._start(num_test_cases, num_inputs, timeout, nonstop, save_violations)
 
     def start_from_template(self, num_test_cases: int, num_inputs: int, timeout: int, nonstop: bool,
@@ -279,10 +282,13 @@ class FuzzerGeneric(Fuzzer):
 
         # 1. Fast path: Collect traces with minimal nesting and repetitions
         args.inputs, args.ctraces = self._boost_inputs(inputs, start_nesting)
-        # Propagate _arch_trace from originals to boosted inputs (same ctrace class → same arch path)
+        # Boosted inputs share their class original's arch path but are not the same input. Borrow
+        # the original's trace for the run, but flag it stale (it was not generated for this input)
+        # so recompute_artifact_traces can replace it with the boosted input's own trace on store.
         n_orig = len(inputs)
         for i in range(n_orig, len(args.inputs)):
             args.inputs[i]._arch_trace = inputs[(i - n_orig) % n_orig]._arch_trace
+            args.inputs[i]._arch_trace_stale = True
 
         violations, args.ctraces, htraces = self._collect_traces(args)
         if not violations:
@@ -552,6 +558,19 @@ class FuzzerGeneric(Fuzzer):
 
         # store violation
         test_case.save(f"{violation_dir}/{test_case.asm_path}")
+
+        # Optionally recompute the trace for inputs whose stored trace is stale (borrowed from a
+        # class original on the fast path), so the artifact carries each input's own accurate trace.
+        if CONF.recompute_artifact_traces:
+            stale = [inp for inp in violation.input_sequence
+                     if getattr(inp, "_arch_trace_stale", False)]
+            if stale:
+                self.executor.load_test_case(test_case)
+                _, _, traces, _ = self.executor.trace_test_case_with_taints(stale, CONF.model_max_nesting)
+                for inp, tr in zip(stale, traces):
+                    inp._arch_trace = tr
+                    inp._arch_trace_stale = False
+
         for i, input_ in enumerate(violation.input_sequence):
             input_.save(f"{violation_dir}/input_{i:04}{self.input_artifact_tag}.bin")
             arch_trace = getattr(input_, "_arch_trace", None)

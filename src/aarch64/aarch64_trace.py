@@ -269,16 +269,22 @@ def compute_taint(cer: ContractExecutionResult) -> InputTaint:
 
 
 def compute_ctrace(cer: ContractExecutionResult) -> CTrace:
-    """Derive CTrace (cache-set footprint) from a single CE execution result."""
-    # num_sets is the 64-bit htrace width (accesses folded into the bitmap), not the L1D set count.
+    # Ordered sequence of cache sets, in execution order (architectural and speculative accesses
+    # interleaved at their execution point). Order distinguishes architectural from speculative
+    # observations by position — like the x86 contract tracer — so no arch/spec value offset is
+    # needed. Within one access, consecutive bytes in the same line collapse to a single entry.
     line_size, num_sets = 64, 64
-    cache_sets: Set[int] = set()
+    trace: List[int] = []
     for ite in cer:
+        base = ite.cpu.gpr[_SANDBOX_BASE_GPR]
         for ma in ite.metadata.accesses():
+            prev = None
             for byte_idx in range(ma.element_size):
-                addr = ma.effective_address + byte_idx - ite.cpu.gpr[_SANDBOX_BASE_GPR]
-                cache_sets.add((addr // line_size) % num_sets)
-    return CTrace(raw_trace=sorted(cache_sets))
+                cache_set = ((ma.effective_address + byte_idx - base) // line_size) % num_sets
+                if cache_set != prev:
+                    trace.append(cache_set)
+                    prev = cache_set
+    return CTrace(raw_trace=trace)
 
 
 def show_context(trace, idx, window=-1):

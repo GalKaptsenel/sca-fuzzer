@@ -34,3 +34,7 @@ executor_mode: F+R
 contract_execution_clause:
   - seq
 enable_pre_run_flush: 0
+
+# Branch mistraining must stay OFF: it currently trains toward the architectural direction
+# and would suppress the natural misprediction this relies on (see CONF.enable_branch_mistraining).
+enable_branch_mistraining: false
