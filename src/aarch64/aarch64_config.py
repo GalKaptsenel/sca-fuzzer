@@ -140,7 +140,7 @@ instruction_categories: List[str] = ["BASE-ARITH", "BASE-LOGICAL", "BASE-BRANCH-
 # Instructions known to misbehave under the executor; none identified for AArch64 yet.
 _buggy_instructions: List[str] = []
 
-supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "ldr", "orr", "ands", "and", "eor", "cbnz", "tbz", "tbnz",
+supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "ldr", "ldp", "stp", "orr", "ands", "and", "eor", "cbnz", "tbz", "tbnz",
                                      "csel", "csinc", "csinv", "csneg", "ccmn", "ccmp",
                                      "sdiv", "udiv", "xpacd", "xpaci", "autda", "autdza", "autdb", "autdzb", "pacda", "pacdza", "pacdb", "pacdzb", "pacga",
                                      "bics", "rmif", "setf8", "setf16",
