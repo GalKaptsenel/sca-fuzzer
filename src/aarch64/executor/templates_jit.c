@@ -610,8 +610,8 @@ void refresh_tc_insert_offsets(void) {
 
 int load_jit_template(size_t tc_size) {
 	if(UNSET_TEMPLATE == executor.config.measurement_template) {
-		module_err("Template is not set!");
-		return -5;
+		module_err("Template is not set!\n");
+		return -EINVAL;
 	}
 
 	const uint64_t max_size_after_expantion = MAX_MEASUREMENT_CODE_SIZE;

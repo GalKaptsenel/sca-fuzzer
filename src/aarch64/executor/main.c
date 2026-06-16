@@ -82,7 +82,7 @@ static int  __init executor_init(void) {
 		goto init_cleanup_sysfs;
 	}
 	
-	module_err("Loaded Successfully\n");
+	module_info("Loaded Successfully\n");
 
 	return 0;
 
