@@ -102,11 +102,11 @@ class Conf:
     """ instruction_set: ISA under test """
     instruction_categories: List[str] = []
     """ instruction_categories: list of instruction categories to use for generating programs """
-    avoid_extended_memory_operands: bool = False
+    avoid_extended_memory_operands: bool = True
     """ avoid_extended_memory_operands: [AArch64] when True, skip memory-access instruction forms
     whose address has an extended-register index (UXTW/SXTW/SXTX/UXTX), keeping only base /
-    base+immediate / plain (LSL) register-offset forms. Experimental knob for isolating whether
-    extended-register addressing affects Spectre-v1 gadget detectability. """
+    base+immediate / plain (LSL) register-offset forms. On by default; set False to also emit
+    extended-register addressing forms. """
     instruction_allowlist: List[str] = []
     """ instruction_allowlist: list of instructions to use for generating programs;
     combined with instruction_categories; has priority over instruction_blocklist.

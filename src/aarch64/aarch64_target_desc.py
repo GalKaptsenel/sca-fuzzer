@@ -106,7 +106,7 @@ class Aarch64TargetDesc(TargetDesc):
         "PC": {64: "pc", 32: "pc", 16: "pc", 8: "pc"},
         "FLAGS": {4: "nzcv"},
     }  # yapf: disable
-    # TODO: wzr/xzr omitted for now — including them complicates memory-access instrumentation.
+    # wzr/xzr are intentionally excluded: as a memory base/index they break the sandbox masking.
     registers = {
             32:     [*[f"w{i}" for i in range(31)]],
             64:     [*[f"x{i}" for i in range(31)]],
@@ -121,7 +121,9 @@ class Aarch64TargetDesc(TargetDesc):
     }  # yapf: disable
 
     sve_scalable_vector_registers = [f"z{i}" for i in range(32)]
-    sve_predicate_registers = [f"p{i}" for i in range(8)] # There are actually 16 of them, but some instruction only accept the lower half, for now I left it like this
+    # Only p0–p7: many predicate operands accept just the lower half, and SVE is not currently
+    # generated, so the lower 8 suffice (the architecture defines p0–p15).
+    sve_predicate_registers = [f"p{i}" for i in range(8)]
 
     pte_bits = {
         # NAME: (position, default value)
@@ -173,12 +175,23 @@ class Aarch64TargetDesc(TargetDesc):
                     filtered_decoding[size].append(register)
         self.registers = filtered_decoding
 
-        vendor = "aarch64"
-        model = "0xd46" # TODO: manually added for now
-        family = "0x1"
-        stepping = "1"
+        self.cpu_desc = self._read_cpu_desc()
 
-        self.cpu_desc = CPUDesc(vendor, model, family, stepping)
+    @staticmethod
+    def _read_cpu_desc() -> CPUDesc:
+        """Build the CPU descriptor from the MIDR fields Linux exposes per-core in /proc/cpuinfo.
+        Only `vendor` is consulted by the aarch64 paths; model/family/stepping are descriptive.
+        Loud-fail (no fallback) if the fields are absent — this is not an aarch64 host."""
+        fields = {}
+        with open("/proc/cpuinfo") as f:
+            for line in f:
+                key, sep, value = line.partition(":")
+                if sep:
+                    fields.setdefault(key.strip(), value.strip())  # first core; all cores are homogeneous
+        try:
+            return CPUDesc("aarch64", fields["CPU part"], fields["CPU variant"], fields["CPU revision"])
+        except KeyError as missing:
+            raise RuntimeError(f"/proc/cpuinfo missing MIDR field {missing} — not an aarch64 host?")
 
     @staticmethod
     def is_unconditional_branch(inst: Instruction) -> bool:

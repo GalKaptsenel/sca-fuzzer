@@ -170,7 +170,7 @@ instruction_blocklist: List[str] = [
     "setptn", "setmtn", "setetn",
     *["cpy" + first + second + third for first in ["f", ""] for second in ["p", "m", "e"] for third in ["", "n", "rn", "rt", "rtn", "rtrn", "rtwn", "t", "tn", "trn", "twn", "wn", "wt", "wtn", "wtrn", "wtwn"]],
     "caspa", "caspal", "casp", "caspl",
-    # For some reason it is not recognized by our assembler
+    # Rejected by the system assembler (newer atomic/RCW encodings it does not recognize)
     "ldtaddal",
     "rcwcas",
     "rcwsclrpl",

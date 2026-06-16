@@ -53,7 +53,7 @@ _FLAGOP = frozenset("rmif setf8 setf16 cfinv axflag xaflag".split())    # purpos
 _EXCEPTION = frozenset("brk hlt svc hvc smc dcps1 dcps2 dcps3 drps udf eret eretaa eretab".split())
 _BARRIER = frozenset("dmb dsb isb sb tsb psb csdb dgh esb gcsb clrex ssbb pssbb".split())
 _HINT = frozenset("hint yield wfe wfi wfet wfit sev sevl bti chkfeat clrbhb".split())  # NOP-space hints
-# acquire/release ordering is not yet carried in the IR, so this stays name-based for now.
+# acquire/release ordering is not carried in the IR, so this mapping is name-based.
 _ACQREL = frozenset(
     "ldar ldarb ldarh ldapr ldaprb ldaprh ldlar ldlarb ldlarh"
     " stlr stlrb stlrh stllr stllrb stllrh ldiapp stilp".split())
@@ -592,7 +592,7 @@ def _serialize(spec: InstructionSpec) -> dict:
 def _generatable(inst: dict) -> bool:
     """Whether Revizor can generate this instruction. A PC-relative reference (adr/adrp, literal load,
     PC-relative PAC) takes a label operand, but only a branch's label has a target the generator can
-    place; such non-branch label forms are not generatable, so they are not emitted (for now)."""
+    place; such non-branch label forms are not generatable, so they are not emitted."""
     if not inst["control_flow"] and any(OperandKind(o["kind"]) is OperandKind.LABEL
                                         for o in inst["operands"]):
         return False

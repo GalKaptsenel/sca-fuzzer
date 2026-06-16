@@ -23,6 +23,7 @@ import unittest
 
 import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
 from src.aarch64.aarch64_executor import Aarch64LocalExecutor, is_conditional_branch
+from src.config import CONF
 
 _CODE_BASE_SYSFS = "/sys/executor/print_code_base"
 _MODULE_LOADED = os.path.exists(_CODE_BASE_SYSFS)
@@ -110,7 +111,15 @@ class TestMistrainingEncoding(unittest.TestCase):
 class TestMistrainingEntries(unittest.TestCase):
 
     def setUp(self):
+        # TEMPORARY: branch mistraining is gated off by default (CONF.enable_branch_mistraining)
+        # as a workaround for the mistraining-suppression bug. These tests exercise the entry
+        # computation itself, so enable the gate here. Remove this when the gate is removed.
+        self._saved_mistrain = CONF.enable_branch_mistraining
+        CONF.enable_branch_mistraining = True
         self.trainer = _Trainer()
+
+    def tearDown(self):
+        CONF.enable_branch_mistraining = self._saved_mistrain
 
     def _run(self, cer):
         entries = self.trainer.branch_mistraining_entries(cer)
