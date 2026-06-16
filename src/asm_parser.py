@@ -183,34 +183,18 @@ class AsmParserGeneric(AsmParser):
             else:
                 instruction_map[spec.name] = [spec]
 
-            # add an entry for direct opcodes
-            opcode_spec = InstructionSpec(
-                    name = "opcode",
-                    category = "opcode",
-                    control_flow = False,
-                    datatype = "",
-                    template = "",
-                    operands = (),
-                    implicit_operands = (),
-                    tags = (),
-                    )
-            instruction_map["opcode"] = [opcode_spec]
+        # entry for direct opcodes (.byte/.long/...)
+        instruction_map["opcode"] = [InstructionSpec(
+            name="opcode", category="opcode", control_flow=False, datatype="", template="",
+            operands=(), implicit_operands=(), tags=())]
 
-            # entry for macros
-            macro_spec = InstructionSpec(
-                    name = "macro",
-                    category = "macro",
-                    control_flow = False,
-                    datatype = "",
-                    template = "macro{L1}{L2}",
-                    operands = (
-                        OperandSpec(OT.LABEL, 0, False, False, False, [], "L1"),
-                        OperandSpec(OT.LABEL, 0, False, False, False, [], "L2")
-                    ),
-                    implicit_operands = (),
-                    tags = ()
-                )
-            instruction_map["macro"] = [macro_spec]
+        # entry for macros
+        instruction_map["macro"] = [InstructionSpec(
+            name="macro", category="macro", control_flow=False, datatype="",
+            template="macro{L1}{L2}",
+            operands=(OperandSpec(OT.LABEL, 0, False, False, False, [], "L1"),
+                      OperandSpec(OT.LABEL, 0, False, False, False, [], "L2")),
+            implicit_operands=(), tags=())]
         return instruction_map
 
     def _get_clean_lines(self) -> List[ASMLine]:
