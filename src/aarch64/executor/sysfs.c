@@ -5,7 +5,12 @@ static ssize_t warmups_show(struct kobject *kobj, struct kobj_attribute *attr, c
 }
 
 static ssize_t warmups_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
-    sscanf(buf, "%lu", &executor.config.uarch_reset_rounds);
+    long value = 0;
+    if (kstrtol(buf, 10, &value) || value < 0) {
+        module_err("Invalid warmups value (expected a non-negative integer)\n");
+        return -EINVAL;
+    }
+    executor.config.uarch_reset_rounds = value;
     return count;
 }
 
@@ -22,12 +27,14 @@ static ssize_t print_code_base_show(struct kobject *kobj, struct kobj_attribute 
 }
 
 static ssize_t enable_pre_run_flush_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
-    unsigned int value = 0;
-    sscanf(buf, "%u", &value);
+    bool value = false;
+    if (kstrtobool(buf, &value)) {
+        return -EINVAL;
+    }
     /* legacy combined knob: drives BOTH independent knobs for back-compat */
-    executor.config.pre_run_flush = (0 != value);
-    executor.config.phr_flush = (0 != value);
-    executor.config.view_rotation = (0 != value);
+    executor.config.pre_run_flush = value;
+    executor.config.phr_flush = value;
+    executor.config.view_rotation = value;
     return count;
 }
 
@@ -36,9 +43,11 @@ static ssize_t enable_pre_run_flush_show(struct kobject *kobj, struct kobj_attri
 }
 
 static ssize_t enable_phr_flush_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
-    unsigned int value = 0;
-    sscanf(buf, "%u", &value);
-    executor.config.phr_flush = (0 != value);
+    bool value = false;
+    if (kstrtobool(buf, &value)) {
+        return -EINVAL;
+    }
+    executor.config.phr_flush = value;
     return count;
 }
 static ssize_t enable_phr_flush_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
@@ -46,9 +55,11 @@ static ssize_t enable_phr_flush_show(struct kobject *kobj, struct kobj_attribute
 }
 
 static ssize_t enable_ssbs_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
-    unsigned int value = 0;
-    sscanf(buf, "%u", &value);
-    executor.config.enable_ssbs = (0 != value);
+    bool value = false;
+    if (kstrtobool(buf, &value)) {
+        return -EINVAL;
+    }
+    executor.config.enable_ssbs = value;
     return count;
 }
 static ssize_t enable_ssbs_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
@@ -56,9 +67,11 @@ static ssize_t enable_ssbs_show(struct kobject *kobj, struct kobj_attribute *att
 }
 
 static ssize_t enable_view_rotation_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
-    unsigned int value = 0;
-    sscanf(buf, "%u", &value);
-    executor.config.view_rotation = (0 != value);
+    bool value = false;
+    if (kstrtobool(buf, &value)) {
+        return -EINVAL;
+    }
+    executor.config.view_rotation = value;
     return count;
 }
 static ssize_t enable_view_rotation_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
@@ -188,9 +201,11 @@ static ssize_t branch_training_config_show(struct kobject *kobj, struct kobj_att
 }
 
 static ssize_t enable_branch_training_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
-    unsigned int value = 0;
-    sscanf(buf, "%u", &value);
-    executor.config.enable_branch_training = (0 != value);
+    bool value = false;
+    if (kstrtobool(buf, &value)) {
+        return -EINVAL;
+    }
+    executor.config.enable_branch_training = value;
     return count;
 }
 
