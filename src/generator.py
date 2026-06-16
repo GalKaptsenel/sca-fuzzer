@@ -102,9 +102,6 @@ class ConfigurableGenerator(Generator, abc.ABC):
             self.load_instruction = []
             self.store_instructions = []
 
-    def set_seed(self, seed: int) -> None: # TODO: Identical to parent class implementation!
-        self._state = seed
-
     def update_seed(self) -> None:
         if self._state == 0:
             self._state = random.randint(1, 1000000)

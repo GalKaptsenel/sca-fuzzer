@@ -531,9 +531,6 @@ class Logger:
                 counters[input_id][all_traces[input_id][m_id]] += 1
         print("Collected raw traces:")
         for input_id in range(len(all_traces)):
-            for m_id in range(len(all_traces[0])):
-                t = all_traces[input_id][m_id]
-                c = counters[input_id][t]
             for t, c in sorted(counters[input_id].items()):
                 print(f"{input_id:03}, {pretty_trace(t)}, {t:20}, {c:5}")
 

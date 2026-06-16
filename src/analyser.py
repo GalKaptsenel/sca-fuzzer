@@ -383,7 +383,7 @@ class ChiSquaredBitwisePValueAnalyser(EquivalenceAnalyserCommon):
         fig, axs = plt.subplots(2, 1, figsize=(12, 10))
 
         axs[0].bar(range(64), p_values, color='blue', alpha=0.7)
-        axs[0].axhline(0.05, color='red', linestyle='--', label=f'Significance threshold ({cls._alpha})')
+        axs[0].axhline(0.05, color='red', linestyle='--', label='Significance threshold (0.05)')
         axs[0].set_title("Bitwise Chi-Squared Test p-values per Bit")
         axs[0].set_xlabel("Bit Position")
         axs[0].set_ylabel("p-value")
@@ -542,7 +542,7 @@ class ChiSquaredBitwiseThresholdAnalyser(EquivalenceAnalyserCommon):
         fig, axs = plt.subplots(2, 1, figsize=(12, 10))
 
         axs[0].bar(range(64), p_values, color='blue', alpha=0.7)
-        axs[0].axhline(0.05, color='red', linestyle='--', label=f'Significance threshold ({cls._threshold})') # TODO: This is incorrect labels!
+        axs[0].axhline(0.05, color='red', linestyle='--', label='Significance threshold (0.05)')
         axs[0].set_title("Bitwise Chi-Squared Test p-values per Bit")
         axs[0].set_xlabel("Bit Position")
         axs[0].set_ylabel("p-value")

@@ -66,15 +66,6 @@ class InstructionSet(InstructionSetAbstract):
                 inner = [self.parse_operand(c, parent) for c in op["inner"]]
                 spec = MemorySpec(op["width"], op.get("signed", True), op["src"], op["dest"], inner,
                                   op_name)
-            elif "aarch64" in CONF.instruction_set:
-                # SHIM (bisect only): legacy v1 base.json has no inner decomposition — the MEM
-                # operand is the bare base register. Wrap it into a base-only inner so the current
-                # decomposed-addressing generator can consume the old json.
-                base = OperandSpec(OT.REG, op["width"], op.get("signed", True), op["src"], op["dest"],
-                                   op.get("values", []), op_name)
-                base.mem_role = self._mem_role("base")
-                spec = MemorySpec(op["width"], op.get("signed", True), op["src"], op["dest"], [base],
-                                  op_name)
             else:                                     # combined address string (x86)
                 spec = OperandSpec(op_type, op["width"], op.get("signed", True), op["src"], op["dest"],
                                    op.get("values", []), op_name)
