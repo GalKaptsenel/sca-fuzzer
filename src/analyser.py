@@ -179,8 +179,10 @@ class SetAnalyser(EquivalenceAnalyserCommon):
         sample_size = len(htrace1.raw)
         assert sample_size == len(htrace2.raw), "htraces have different sizes"
         threshold = CONF.analyser_outliers_threshold * sample_size
-        filtered1 = [x for x in htrace1.raw if x >= threshold]
-        filtered2 = [x for x in htrace2.raw if x >= threshold]
+        counter1 = Counter(htrace1.raw)
+        counter2 = Counter(htrace2.raw)
+        filtered1 = [x for x in htrace1.raw if counter1[x] >= threshold]
+        filtered2 = [x for x in htrace2.raw if counter2[x] >= threshold]
 
         trace_set1 = set(filtered1)
         trace_set2 = set(filtered2)
