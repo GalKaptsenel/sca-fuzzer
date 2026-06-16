@@ -94,16 +94,15 @@ void remove_input(int64_t id) {
 
 void destroy_inputs_db(void) {
 	struct input_node* node = NULL;
-	struct rb_node* rb_node = rb_first(&(executor.inputs_root));
+	struct input_node* tmp = NULL;
 
-	while (NULL != rb_node) {
-		node = rb_entry(rb_node, struct input_node, node);
-		rb_node = rb_next(rb_node);
+	/* Postorder teardown: never dereferences an already-freed or rebalanced
+	 * node, so we must not rb_erase/rb_next while walking. */
+	rbtree_postorder_for_each_entry_safe(node, tmp, &executor.inputs_root, node) {
 		free_measurement(&node->measurement);
-		rb_erase(&node->node, &executor.inputs_root);
 		vfree(node);
 	}
 
-	executor.inputs_root.rb_node = NULL;
+	executor.inputs_root = RB_ROOT;
 	executor.number_of_inputs = 0;
 }
