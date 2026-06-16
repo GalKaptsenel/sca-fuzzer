@@ -195,9 +195,11 @@ test_python() {
     echo "[*] Running all Python unit tests (common + aarch64)..."
     # discover does not recurse into the test subdirs, so run them separately
     # (this also keeps the x86 suite, which needs a separate env, out of scope).
+    # -s and -t point at the same dir: the test dirs are namespace packages
+    # (no __init__.py), which unittest discovery only handles when top == start.
     ( cd "$DEST_DIR" \
-      && python3 -m unittest discover -s tests -p 'unit_*.py' \
-      && python3 -m unittest discover -s tests/aarch64_tests -p 'unit_*.py' -t . )
+      && python3 -m unittest discover -s tests -p 'unit_*.py' -t tests \
+      && python3 -m unittest discover -s tests/aarch64_tests -p 'unit_*.py' -t tests/aarch64_tests )
 }
 
 # Kernel-log patterns that mean the module faulted while a test ran.

@@ -28,10 +28,12 @@ cd - >/dev/null || exit
 
 echo ""
 echo "===== AArch64 Unit Tests ====="
-# discover does not recurse into the test subdir, so run it explicitly.
+# discover does not recurse into the test subdir, so run it explicitly. Use the
+# subdir as both -s and -t: the test dirs are namespace packages (no __init__.py),
+# which unittest discovery only handles when top-level-dir == start-dir.
 # HW-gated tests skip themselves when /dev/executor is absent.
 cd $SCRIPT_DIR/.. || exit
-python3 -m unittest discover -s tests/aarch64_tests -p "unit_*.py" -t . -v
+python3 -m unittest discover -s tests/aarch64_tests -p "unit_*.py" -t tests/aarch64_tests -v
 cd - >/dev/null || exit
 
 echo ""
