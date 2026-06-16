@@ -659,8 +659,8 @@ int initialize_device_interface(void) {
 		goto initialize_cleanup_cdev_del;
 	}
 
-	if (!device_create(executor.device_mgmt.device_class, NULL, executor.device_mgmt.device_number,
-	 NULL, REVISOR_DEVICE_NODE_NAME)) {
+	if (IS_ERR(device_create(executor.device_mgmt.device_class, NULL,
+	 executor.device_mgmt.device_number, NULL, REVISOR_DEVICE_NODE_NAME))) {
 		module_err("Unable to create device node\n");
 		status = -EINVAL;
 		goto initialize_cleanup_class_destroy;
