@@ -238,6 +238,13 @@ int main() {
 
 		simulation.n_hooks = install_hooks(&simulation, MAX_HOOKS, hooks_to_install, (sizeof(hooks_to_install)/sizeof(hooks_to_install[0])));
 
+		if (!(RVZR_FLAG_HAS_REGS & simulation.sim_input.hdr.flags) ||
+		    simulation.sim_input.hdr.regs_size < 8 * sizeof(uint64_t)) {   /* asm reads slots [0..7] */
+			alarm(0);
+			fprintf(stderr, "[ERR] regs blob missing or smaller than 8 x u64\n");
+			ret = -1;
+			goto main_simulation_memory_free;
+		}
 		uint64_t* regs_blob = (uint64_t*)simulation.sim_input.regs;
 
 		void* kernel_sandbox_base = 0;
@@ -246,7 +253,8 @@ int main() {
 		} else {
 			alarm(0);
 			fprintf(stderr, "[ERR] Expected memory base for the sandbox!\n");
-			exit(1);
+			ret = -1;
+			goto main_simulation_memory_free;
 		}
 
 		g_iter_phase = 2; /* simulation */

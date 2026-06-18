@@ -43,7 +43,13 @@ int simulation_input_validate_header(const struct input_header* hdr) {
 	if ((hdr->flags & RVZR_FLAG_HAS_REGS) && hdr->regs_size == 0) {
 		return -1;
 	}
-	
+
+	if (hdr->code_size > MAX_PAYLOAD_SIZE ||
+	    hdr->mem_size  > MAX_PAYLOAD_SIZE ||
+	    hdr->regs_size > MAX_PAYLOAD_SIZE) {
+		return -1;
+	}
+
 	return 0;
 }
 
