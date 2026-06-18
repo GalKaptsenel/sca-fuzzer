@@ -49,6 +49,13 @@ ActorMap = Dict[str, str]
 
 class AsmParserGeneric(AsmParser):
 
+    # GAS data directives that embed raw bytes; a line beginning with one is parsed as an opcode.
+    _DATA_DIRECTIVES = (".bcd", ".byte", ".long", ".quad", ".value", ".2byte", ".4byte", ".8byte")
+
+    @staticmethod
+    def _is_data_directive(line: str) -> bool:
+        return line.startswith(AsmParserGeneric._DATA_DIRECTIVES)
+
     def __init__(self, generator: Generator) -> None:
         self.generator = generator
         self.generator.asm_parser = self
@@ -283,8 +290,7 @@ class AsmParserGeneric(AsmParser):
             parser_assert(current_function != "", line_num, "Missing function declaration")
 
             # opcode
-            if line[:4] == ".bcd " or line[:5] in [".byte", ".long", ".quad"] \
-               or line[6:] in [".value", ".2byte", ".4byte", ".8byte"]:
+            if self._is_data_directive(line):
                 assert current_bb
                 test_case_map[current_function][current_bb].append(ASMLine("opcode", line_num))
                 continue
