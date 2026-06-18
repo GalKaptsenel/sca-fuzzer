@@ -468,7 +468,7 @@ def retry(max_times: int = 1,
 
 
 class RemoteHWExecutor(HWExecutor):
-    _RETRIES = 100
+    _RETRIES = 5
 
     def __init__(self, connection: Connection, userland_application_path: str,
               device_path: str, sys_executor_path: str, module_path: str
@@ -517,7 +517,7 @@ class RemoteHWExecutor(HWExecutor):
         else:
             raise ValueError(f'Unsupported region type: {type(region)}')
 
-    @retry(max_times=_RETRIES, retry_on=RuntimeError, backoff=0.5)
+    @retry(max_times=_RETRIES, retry_on=IOError, backoff=0.5)
     def hardware_measurement(self) -> HWMeasurement:
         result = self._query_executor(7)
         htrace_match = re.search(r"htrace .: ([01]+)", result)
@@ -567,7 +567,7 @@ class RemoteHWExecutor(HWExecutor):
         else:
             raise ValueError(f'Unsupported region type: {type(self.current_region)}')
 
-    @retry(max_times=_RETRIES, retry_on=RuntimeError, backoff=0.5)
+    @retry(max_times=_RETRIES, retry_on=IOError, backoff=0.5)
     def number_of_inputs(self) -> int:
         result = self._query_executor(3)
         number_of_inputs_match = re.search(r"Number Of Inputs: (\d+)", result)
@@ -579,7 +579,7 @@ class RemoteHWExecutor(HWExecutor):
         self._query_executor(9)
 
     @property
-    @retry(max_times=_RETRIES, retry_on=RuntimeError, backoff=0.5)
+    @retry(max_times=_RETRIES, retry_on=IOError, backoff=0.5)
     def test_length(self) -> int:
         result = self._query_executor(10)
         test_length_match = re.search(r"Test Length: (\d+)", result)
@@ -587,7 +587,7 @@ class RemoteHWExecutor(HWExecutor):
             raise RuntimeError("Could not find test length")
         return int(test_length_match.group(1))
 
-    @retry(max_times=_RETRIES, retry_on=RuntimeError, backoff=0.5)
+    @retry(max_times=_RETRIES, retry_on=IOError, backoff=0.5)
     def allocate_iid(self) -> int:
         result = self._query_executor(5)
         iid_matching = re.search(r"Allocated Input ID: (\d+)", result)
