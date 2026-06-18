@@ -170,6 +170,10 @@ MEASUREMENT = _IOC(_IOC_READ, 7, 32)
 TRACE = _IOC(_IOC_NONE, 8, 0)
 CLEAR_ALL_INPUTS = _IOC(_IOC_NONE, 9, 0)
 GET_TEST_LENGTH = _IOC(_IOC_READ, 10, 8)
+# struct mte_tag_region_req { u64 sandbox_offset; u64 length; u8 tag; } -> 24 bytes (padded).
+MTE_TAG_REGION = _IOC(_IOC_WRITE, 16, 24)
+# Taggable span = lower_overflow|main|faulty|upper_overflow = 4 * sandbox PAGESIZE (4096 each).
+MTE_TAGGABLE_SPAN = 4 * 4096
 
 # main(4096) + faulty(4096) + 8 register slots * 8 bytes
 USER_CONTROLLED_INPUT_LENGTH = 4096 + 4096 + 8 * 8
@@ -218,6 +222,22 @@ class TestExecutorIoctl(unittest.TestCase):
 
     def _num_inputs(self):
         return self._ioctl_get_u64(GET_NUM_INPUTS)
+
+    def _tag_region(self, offset, length, tag=6):
+        req = struct.pack("<QQB", offset, length, tag).ljust(24, b"\x00")
+        return fcntl.ioctl(self.fd, MTE_TAG_REGION, req, False)
+
+    # ---- MTE tag-region ioctl bounds (span = lower_overflow|main|faulty|upper_overflow) ------
+    def test_mte_tag_region_accepts_full_span(self):
+        self.assertEqual(self._tag_region(0, MTE_TAGGABLE_SPAN), 0)
+        self.assertEqual(self._tag_region(3 * 4096, 4096), 0)   # the upper_overflow region
+
+    def test_mte_tag_region_rejects_out_of_range(self):
+        for offset, length in ((0, MTE_TAGGABLE_SPAN + 1),
+                               (MTE_TAGGABLE_SPAN, 1),
+                               (MTE_TAGGABLE_SPAN - 1, 2)):
+            with self.assertRaises(OSError):
+                self._tag_region(offset, length)
 
     # ---- input bookkeeping automata -----------------------------------------
     def test_clear_gives_zero_inputs(self):
