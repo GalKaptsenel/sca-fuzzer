@@ -26,16 +26,11 @@
  */
 
 /* -------------------------------------------------------------------------
- * Register helpers — identical layout to pac_sign_plugin.c.
- * cpu_state.gpr[29-N] == XN;  X30 == lr;  X31 == XZR (read 0, writes ignored).
+ * GPR write helper for instructions whose Rd is a true GPR (reg 31 == XZR,
+ * write ignored): GMI, SUBP/SUBPS, LDG/LDGM. SP-capable operands (IRG/ADDG/
+ * SUBG Xd, and every Xn/Xm) use cpu_state_*_base_reg (reg 31 == SP) instead.
+ * cpu_state.gpr[29-N] == XN;  X30 == lr.
  * ------------------------------------------------------------------------- */
-
-static inline uint64_t read_xreg(const struct cpu_state *s, uint32_t n)
-{
-	if (n == 31) { return 0; }
-	if (n == 30) { return (uint64_t)s->lr; }
-	return (uint64_t)s->gpr[29 - n];
-}
 
 static inline void write_xreg(struct cpu_state *s, uint32_t n, uint64_t v)
 {
@@ -153,9 +148,9 @@ void* mte_emulator_hook(struct simulation_state* sim_state)
 			 * CE uses tag=0 (deterministic).  Address bits[55:0] and attribute
 			 * bits[63:60] are copied from Xn unchanged.
 			 */
-			uint64_t xn = read_xreg(state, rn);
+			uint64_t xn = cpu_state_read_base_reg(state, rn);
 			/* clear bits[59:56]; preserve bits[63:60] and bits[55:0] */
-			write_xreg(state, rd, xn & 0xF0FFFFFFFFFFFFFFu);
+			cpu_state_write_base_reg(state, rd, xn & 0xF0FFFFFFFFFFFFFFu);
 			break;
 		}
 		case MTE_GMI: {
@@ -180,8 +175,8 @@ void* mte_emulator_hook(struct simulation_state* sim_state)
 			 *   << 8 moves bit 55 to bit 63, then arithmetic >> 8 fills
 			 *   bits[63:56] with the sign.
 			 */
-			uint64_t xn56 = read_xreg(state, rn) & 0x00FFFFFFFFFFFFFFu;
-			uint64_t xm56 = read_xreg(state, rm) & 0x00FFFFFFFFFFFFFFu;
+			uint64_t xn56 = cpu_state_read_base_reg(state, rn) & 0x00FFFFFFFFFFFFFFu;
+			uint64_t xm56 = cpu_state_read_base_reg(state, rm) & 0x00FFFFFFFFFFFFFFu;
 			uint64_t diff56 = (xn56 - xm56) & 0x00FFFFFFFFFFFFFFu;
 			uint64_t shifted = diff56 << 8;   /* bit55 → bit63 */
 			uint64_t result  = (uint64_t)((int64_t)shifted >> 8);  /* arith sign-fill */
@@ -198,14 +193,14 @@ void* mte_emulator_hook(struct simulation_state* sim_state)
 			 * uimm6 at bits[21:16] (6-bit unsigned, 0..63, unit = 16 bytes).
 			 * uimm4 at bits[13:10] (4-bit unsigned, 0..15).
 			 */
-			uint64_t xn    = read_xreg(state, rn);
+			uint64_t xn    = cpu_state_read_base_reg(state, rn);
 			uint64_t uimm6 = (enc >> 16) & 0x3Fu;
 			uint64_t uimm4 = (enc >> 10) & 0xFu;
 			uint64_t addr56   = ((xn & 0x00FFFFFFFFFFFFFFu) + (uimm6 << 4))
 			                    & 0x00FFFFFFFFFFFFFFu;
 			uint64_t new_tag  = ((xn >> 56) + uimm4) & 0xFu;
 			uint64_t result   = (xn & 0xF000000000000000u) | (new_tag << 56) | addr56;
-			write_xreg(state, rd, result);
+			cpu_state_write_base_reg(state, rd, result);
 			break;
 		}
 		case MTE_SUBG: {
@@ -213,14 +208,14 @@ void* mte_emulator_hook(struct simulation_state* sim_state)
 			 * SUBG Xd, Xn, #uimm6, #uimm4: symmetric to ADDG but subtracts.
 			 * Tag wraps mod 16 via & 0xF (unsigned underflow is well-defined).
 			 */
-			uint64_t xn    = read_xreg(state, rn);
+			uint64_t xn    = cpu_state_read_base_reg(state, rn);
 			uint64_t uimm6 = (enc >> 16) & 0x3Fu;
 			uint64_t uimm4 = (enc >> 10) & 0xFu;
 			uint64_t addr56   = ((xn & 0x00FFFFFFFFFFFFFFu) - (uimm6 << 4))
 			                    & 0x00FFFFFFFFFFFFFFu;
 			uint64_t new_tag  = ((xn >> 56) - uimm4) & 0xFu;
 			uint64_t result   = (xn & 0xF000000000000000u) | (new_tag << 56) | addr56;
-			write_xreg(state, rd, result);
+			cpu_state_write_base_reg(state, rd, result);
 			break;
 		}
 		case MTE_LDG: {
