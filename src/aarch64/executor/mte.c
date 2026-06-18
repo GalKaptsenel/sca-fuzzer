@@ -75,20 +75,17 @@ static inline void mte_set_sync(void) {
 }
 static inline void mte_set_sync_callback(void* a) {
 	(void)a;
+	disable_TCO_bit();
 	mte_set_sync();
 }
 
 void enable_mte_tag_checking(void) {
-	disable_TCO_bit();
-	unsigned long sctlr = read_sysreg(sctlr_el1);
-
-	if (!(sctlr & SCTLR_EL1_TCF_SYNC)) {
-		sysreg_clear_set(sctlr_el1, SCTLR_EL1_TCF_MASK, SCTLR_EL1_TCF_SYNC);
-		isb();
-	}
-
-	for (int i = 0; i < nr_cpu_ids; ++i) {
-		execute_on_pinned_cpu(i, mte_set_sync_callback, NULL);
+	int cpu;
+	for_each_online_cpu(cpu) {
+		int err = execute_on_pinned_cpu(cpu, mte_set_sync_callback, NULL);
+		if (0 != err) {
+			module_err("MTE: failed to program tag checking on CPU %d (err=%d)\n", cpu, err);
+		}
 	}
 }
 

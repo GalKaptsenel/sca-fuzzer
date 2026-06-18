@@ -100,7 +100,8 @@ static void __nocfi __exit executor_exit(void) {
 	if (0 != executor.tracing_error) {
 		module_err("Failed to unload the module due to corrupted state (tracing_error=%d)\n",
 			   executor.tracing_error);
-		return;
+		/* __exit cannot abort unload; fall through and free or we leak the
+		 * cdev/class/sysfs/test_case and the RWX vmap view region. */
 	}
 
 	free_device_interface();

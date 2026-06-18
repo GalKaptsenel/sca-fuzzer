@@ -147,7 +147,7 @@ static void measure(measurement_t* measurement) {
 	}
 }
 
-static void __nocfi run_experiments(void) {
+static int __nocfi run_experiments(void) {
 	int64_t rounds = (int64_t)executor.number_of_inputs;
 	unsigned long flags = 0;
 	struct rb_node* current_input_node = NULL;
@@ -155,7 +155,7 @@ static void __nocfi run_experiments(void) {
 	if(0 >= executor.number_of_inputs){
 		BUG_ON(0 > executor.number_of_inputs);
 		module_err("No inputs were set!\n");
-		return;
+		return -EINVAL;
 	}
 
 	current_input_node = rb_first(&executor.inputs_root);
@@ -239,6 +239,7 @@ static void __nocfi run_experiments(void) {
 	set_cpus_allowed_ptr(current, &saved_mask);
 	current->policy = saved_policy;
 	current->rt_priority = saved_rt_priority;
+	return 0;
 }
 
 int execute(void) {
@@ -247,7 +248,6 @@ int execute(void) {
         return -1;
     }
 
-    run_experiments();
-    return 0;
+    return run_experiments();
 }
 
