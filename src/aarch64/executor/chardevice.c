@@ -499,13 +499,14 @@ static long do_revisor_ioctl(struct file* file, unsigned int cmd, unsigned long 
 			if (copy_from_user_with_access_check(&req, (void __user *)arg, sizeof(req))) {
 				return -EFAULT;
 			}
-			/* Overflow-safe bounds check: sandbox_offset + length is u64 and
-			 * could wrap, so compare against the limit without adding them. */
-			if (req.length > MAIN_REGION_SIZE + FAULTY_REGION_SIZE ||
-			    req.sandbox_offset > (MAIN_REGION_SIZE + FAULTY_REGION_SIZE) - req.length) {
+			/* sandbox_offset is relative to lower_overflow; the taggable span is the contiguous
+			 * block lower_overflow|main|faulty|upper_overflow (eviction is the P+P region and is
+			 * left untagged). Overflow-safe bounds check (u64 sums could wrap). */
+			const u64 taggable = 2 * OVERFLOW_REGION_SIZE + MAIN_REGION_SIZE + FAULTY_REGION_SIZE;
+			if (req.length > taggable || req.sandbox_offset > taggable - req.length) {
 				return -EINVAL;
 			}
-			mte_init_sandbox_tags(executor.sandbox->main_region + req.sandbox_offset,
+			mte_init_sandbox_tags(executor.sandbox->lower_overflow + req.sandbox_offset,
 			                      req.length, req.tag & 0xF);
 			return 0;
 		}

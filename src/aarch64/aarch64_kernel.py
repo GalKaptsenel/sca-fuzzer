@@ -412,6 +412,8 @@ class LocalHWExecutor(HWExecutor):
             self._ioctl(REVISOR_SET_PAC_KEYS, keys)
 
     def mte_tag_sandbox_region(self, sandbox_offset: int, length: int, tag: int) -> None:
+        """Tag `length` bytes (granule multiples) with `tag` (0-15). `sandbox_offset` is relative
+        to the start of the tagged span: lower_overflow | main | faulty | upper_overflow."""
         req = MteTagRegionReq()
         req.sandbox_offset = sandbox_offset
         req.length = length
