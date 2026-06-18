@@ -535,6 +535,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                                                      ExecutionClause.COND)
                 return list(self._contract_executor.run(execution))
             except RuntimeError as exc:
+                FuzzLogger.get().w(f"  [CE ERROR] {exc}")
                 return None
 
         def _fmt_regs(ite) -> str:

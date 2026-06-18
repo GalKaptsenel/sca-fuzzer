@@ -69,7 +69,9 @@ class Aarch64Fuzzer(FuzzerGeneric):
             try:
                 self.executor.load_test_case(test_case)
                 org_htraces, _ = self.executor.trace_test_case(inputs, reps)
-            except HardwareTracingError:
+            except HardwareTracingError as e:
+                STAT.hw_tracing_errors += 1
+                self.LOG.warning("fuzzer", f"hardware tracing failed, filtering test case: {e}")
                 return True
 
             # 1. Speculation filter:

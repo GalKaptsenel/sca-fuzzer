@@ -12,12 +12,15 @@ import uuid
 import functools
 import ctypes
 import time
-from typing import List, Literal, Union, Optional, Type, Callable, Tuple
+from typing import List, Literal, Union, Optional, Type, Callable, Tuple, TYPE_CHECKING
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from contextlib import contextmanager
 from functools import wraps
 from ..config import CONF
+
+if TYPE_CHECKING:
+    from .aarch64_connection import Connection
 
 op_timings = defaultdict(list)
 def profile_by_opcode(func):

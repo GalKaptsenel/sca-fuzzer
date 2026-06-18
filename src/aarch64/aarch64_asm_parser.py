@@ -233,7 +233,8 @@ class Aarch64AsmParser(AsmParserGeneric):
                         if "nop" not in line:
                             patched.write(line[:-1] + macro_placeholder + "\n")
                         else:
-                            assert macro_placeholder in line, "Unexpected NOP placeholder: " + line
+                            if macro_placeholder not in line:
+                                raise RuntimeError("Unexpected NOP placeholder: " + line)
                             patched.write(line)
                     else:
                         patched.write(line)
