@@ -388,9 +388,11 @@ class Conf:
             return
         options = self._option_values[name]
 
+        found_invalid = False
         invalid_value = None
         if isinstance(value, str):
-            invalid_value = value if value not in options else None
+            if value not in options:
+                found_invalid, invalid_value = True, value
         elif isinstance(value, List):
             for v in value:
                 if v in options:
@@ -401,12 +403,12 @@ class Conf:
                             break
                     else:
                         continue
-                invalid_value = v
+                found_invalid, invalid_value = True, v
                 break
         else:
             raise ConfigException(f"Unexpected type of config variable {name}")
 
-        if invalid_value:
+        if found_invalid:
             raise ConfigException(f"Unknown value '{invalid_value}' of config variable '{name}'\n"
                                   f"Possible options: {options}")
         return
