@@ -509,20 +509,20 @@ class RemoteHWExecutor(HWExecutor):
         del self.contents
 
     def trace(self) -> None:
-        self._query_executor(8)
+        self._query_executor(REVISOR_TRACE_CONSTANT)
 
     def checkout_region(self, region: ExecutorRegion):
         self.current_region = region
         if isinstance(region, TestCaseRegion):
-            self._query_executor(1)
+            self._query_executor(REVISOR_CHECKOUT_TEST_CONSTANT)
         elif isinstance(region, InputRegion):
-            self._query_executor(4, region.iid)
+            self._query_executor(REVISOR_CHECKOUT_INPUT_CONSTANT, region.iid)
         else:
             raise ValueError(f'Unsupported region type: {type(region)}')
 
     @retry(max_times=_RETRIES, retry_on=IOError, backoff=0.5)
     def hardware_measurement(self) -> HWMeasurement:
-        result = self._query_executor(7)
+        result = self._query_executor(REVISOR_MEASUREMENT_CONSTANT)
         htrace_match = re.search(r"htrace .: ([01]+)", result)
         pfc_matches = re.findall(r"pfc (\d+): (\d+)", result)
 
@@ -564,27 +564,27 @@ class RemoteHWExecutor(HWExecutor):
     @contents.deleter
     def contents(self) -> None:
         if isinstance(self.current_region, TestCaseRegion):
-            self._query_executor(2)
+            self._query_executor(REVISOR_UNLOAD_TEST_CONSTANT)
         elif isinstance(self.current_region, InputRegion):
-            self._query_executor(6)
+            self._query_executor(REVISOR_FREE_INPUT_CONSTANT)
         else:
             raise ValueError(f'Unsupported region type: {type(self.current_region)}')
 
     @retry(max_times=_RETRIES, retry_on=IOError, backoff=0.5)
     def number_of_inputs(self) -> int:
-        result = self._query_executor(3)
+        result = self._query_executor(REVISOR_GET_NUMBER_OF_INPUTS_CONSTANT)
         number_of_inputs_match = re.search(r"Number Of Inputs: (\d+)", result)
         if number_of_inputs_match is None:
             raise RuntimeError("Could not find number of inputs")
         return int(number_of_inputs_match.group(1))
 
     def discard_all_inputs(self) -> None:
-        self._query_executor(9)
+        self._query_executor(REVISOR_CLEAR_ALL_INPUTS_CONSTANT)
 
     @property
     @retry(max_times=_RETRIES, retry_on=IOError, backoff=0.5)
     def test_length(self) -> int:
-        result = self._query_executor(10)
+        result = self._query_executor(REVISOR_GET_TEST_LENGTH_CONSTANT)
         test_length_match = re.search(r"Test Length: (\d+)", result)
         if test_length_match is None:
             raise RuntimeError("Could not find test length")
@@ -592,7 +592,7 @@ class RemoteHWExecutor(HWExecutor):
 
     @retry(max_times=_RETRIES, retry_on=IOError, backoff=0.5)
     def allocate_iid(self) -> int:
-        result = self._query_executor(5)
+        result = self._query_executor(REVISOR_ALLOCATE_INPUT_CONSTANT)
         iid_matching = re.search(r"Allocated Input ID: (\d+)", result)
         if iid_matching is None:
             raise RuntimeError("Could not find allocated input ID")

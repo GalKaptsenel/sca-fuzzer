@@ -48,11 +48,10 @@ _option_values = {
         'instruction_blocklist',
         'fault_blocklist',
     ],
-    # UNUSED by AArch64 Revizor: only a single 'host'/'kernel' actor is supported;
-    # 'guest' and 'user' are accepted by the schema but never exercised.
+    # AArch64 Revizor supports only a single 'host'/'kernel' actor, so 'guest' is rejected at
+    # config validation rather than accepted and silently ignored.
     "actor_mode": [
         'host',
-        'guest',
     ],
     "actor_privilege_level": [
         'kernel',

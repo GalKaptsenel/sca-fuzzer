@@ -1,6 +1,8 @@
 """
 File: AArch64 remote-execution transports (SSH/ADB) for driving the executor on a remote device.
 """
+import shlex
+
 from ppadb.client import Client as AdbClient
 import paramiko
 
@@ -52,7 +54,7 @@ class SSHConnection(Connection):
             raise IOError(f'Could not open SFTP session: {e}')
 
     def shell(self, cmd: str, privileged = False) -> str:
-        cmd = f'sudo -S bash -c "{cmd}"' if privileged else cmd
+        cmd = f'sudo -S bash -c {shlex.quote(cmd)}' if privileged else cmd
         stdin, stdout, stderr = self.client.exec_command(cmd)
 
         if privileged and stdin is not None:

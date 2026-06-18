@@ -211,7 +211,10 @@ class ContractExecutorService:
         try:
             msg_type, reply = self._stream_ipc.recv_resp()
         except EOFError:
-            self._proc.wait(timeout=2)
+            try:
+                self._proc.wait(timeout=2)
+            except Exception:
+                self._proc.kill()
             stderr = self._drain_stderr()
             rc = self._proc.returncode
             self._proc = self._spawn()
