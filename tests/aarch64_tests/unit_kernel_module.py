@@ -239,6 +239,15 @@ class TestExecutorIoctl(unittest.TestCase):
             with self.assertRaises(OSError):
                 self._tag_region(offset, length)
 
+    def test_short_input_write_is_rejected(self):
+        a = self._ioctl_get_u64(ALLOCATE_INPUT)
+        self._ioctl_put_u64(CHECKOUT_INPUT, a)
+        try:
+            with self.assertRaises(OSError):                          # -EINVAL, not silent success
+                os.write(self.fd, b"\x00" * (USER_CONTROLLED_INPUT_LENGTH - 1))
+        finally:
+            self._ioctl_put_u64(FREE_INPUT, a)
+
     # ---- input bookkeeping automata -----------------------------------------
     def test_clear_gives_zero_inputs(self):
         self.assertEqual(self._num_inputs(), 0)
