@@ -27,6 +27,9 @@ extern int (*set_memory_nx_fn)(unsigned long, int);
 static inline void emit(jit_t* jit, uint32_t insn) {
 	JIT_ASSERT(((size_t)jit->cur & 3) == 0);
 	JIT_ASSERT(jit->cur + 4 <= jit->base + jit->size);
+	if (jit->cur + 4 > jit->base + jit->size) {
+		return;
+	}
 	*(uint32_t*)jit->cur = insn;
 	jit->cur += 4;
 }
@@ -127,8 +130,9 @@ uint8_t* jit_next_with_mask(jit_t* jit,
 
 		uint32_t* p = (uint32_t*)jit->cur;
 		uint32_t* end = (uint32_t*)candidate;
+		JIT_ASSERT((uint8_t*)end >= jit->base);
 
-		while (p > end) {
+		while (p > end && (uint8_t*)p >= jit->base) {
 			*(p--) = 0xd503201f;
 		}
 	
@@ -591,6 +595,7 @@ void jit_and32(jit_t* jit, int rd, int rn, int imm) {
 	insn |= rn << 5;
 	encode_result_t res = EncodeBitMask(imm);
 	JIT_ASSERT(res.valid);
+	JIT_ASSERT(0 == res.immN);
 	insn |= res.imms << 10;
 	insn |= res.immr << 16;
 	emit(jit, insn);
