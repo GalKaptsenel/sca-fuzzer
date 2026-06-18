@@ -277,6 +277,7 @@ static int trace(void) {
 	int err = execute_on_pinned_cpu(executor.config.pinned_cpu_id, execute_on_target, NULL);
 	if(0 != err) {
 		module_err("Failed to execute on CPU %d (err: %d)\n", executor.config.pinned_cpu_id, err);
+		return err;
 	}
 
 	executor.state = TRACED_STATE;
@@ -445,7 +446,9 @@ static long do_revisor_ioctl(struct file* file, unsigned int cmd, unsigned long 
 
 		case REVISOR_ALLOCATE_INPUT_CONSTANT:
 			result = allocate_input();
-			result = copy_to_user_with_access_check((void __user*)arg, &result, sizeof(result));
+			if (0 <= result) {
+				result = copy_to_user_with_access_check((void __user*)arg, &result, sizeof(result));
+			}
 			break;
 
 		case REVISOR_FREE_INPUT_CONSTANT:
