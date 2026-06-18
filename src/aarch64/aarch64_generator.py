@@ -318,13 +318,19 @@ class Aarch64PatchUndefinedLoadsStoresPass(Pass):
         (the offset/extend components are immediates, not registers)."""
         return {self._norm(op.value) for op in mem_op.inner if op.type == OT.REG}
 
+    def _is_simd_reg(self, name: str) -> bool:
+        """Whether a register name belongs to the SIMD/FP file rather than the GPR file."""
+        return any(name in regs for regs in self.target_desc.simd_registers.values())
+
     def _replace_reg(self, operand: RegisterOperand, forbidden: Set[str]) -> None:
         """
-        Replace operand.value with a randomly chosen register of the same
-        width that is not in *forbidden* (compared after normalisation).
+        Replace operand.value with a randomly chosen register of the same width and register
+        class (a SIMD operand must not be replaced by a GPR) that is not in *forbidden*.
         """
+        pool = self.target_desc.simd_registers if self._is_simd_reg(operand.value) \
+            else self.target_desc.registers
         candidates = [
-            r for r in self.target_desc.registers[operand.width]
+            r for r in pool.get(operand.width, [])
             if self._norm(r) not in forbidden
         ]
         if not candidates:
