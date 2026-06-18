@@ -1066,7 +1066,7 @@ class MainMinimizer(Minimizer):
 
             # Check if the violation can be reproduced with the new inputs
             org_ipc = CONF.inputs_per_class
-            new_violation = self.fuzzer.fuzzing_round(test_case, inputs)
+            new_violation = self.fuzzer.fuzzing_round(test_case, new_inputs)
             if new_violation:
                 # Use new inputs in future passes
                 inputs = new_inputs
