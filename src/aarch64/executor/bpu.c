@@ -200,21 +200,28 @@ static void __nocfi apply_branch_training(void *active_view,
         int64_t doff = 1;                       /* fallback: +4 (next word) */
         bool matched = branch_word_offset(saved[1], &doff);
 
+        /* An exact-offset TAKEN stub jumps to k+doff and needs a RET planted there; if that
+         * target is backward/out-of-range/aliasing, use the +4 direction stub (lands on the
+         * in-stub RET at k+1). Base-PHT is PC-indexed, so +4 trains the same entry. NOT-taken
+         * stubs fall through to k+1, so the exact form is always safe for them. */
+        int64_t tgt_s = (int64_t)k + doff;
+        bool target_safe = matched && 1 != doff &&
+                           0 <= tgt_s && (size_t)tgt_s < view_words &&
+                           (size_t)tgt_s != k - 1 && (size_t)tgt_s != k && (size_t)tgt_s != k + 1;
+        bool use_exact = matched && (!e->train_taken || target_safe);
+
         /* write the stub (aliased -> visible at every view, flush all) */
         view[k-1] = INSN_BTI_C;
-        view[k]   = matched ? make_x0_branch(e->train_taken, doff)
-                            : (e->train_taken ? INSN_CBNZ_X0 : INSN_CBZ_X0);
+        view[k]   = use_exact ? make_x0_branch(e->train_taken, doff)
+                              : (e->train_taken ? INSN_CBNZ_X0 : INSN_CBZ_X0);
         view[k+1] = INSN_RET;
         flush_all_views_at(k-1, k+2);
 
-        /* TAKEN stub jumps to k+doff; drop a temp RET there so it returns */
-        int64_t tgt_s = (int64_t)k + doff;
+        /* exact TAKEN stub jumps to k+doff; drop a temp RET there so it returns */
         bool tgt_placed = false;
         size_t tgt = 0;
         uint32_t saved_tgt = 0;
-        if (e->train_taken && matched && 1 != doff &&
-            0 <= tgt_s && (size_t)tgt_s < view_words &&
-            (size_t)tgt_s != k - 1 && (size_t)tgt_s != k && (size_t)tgt_s != k + 1) {
+        if (use_exact && e->train_taken) {
             tgt = (size_t)tgt_s;
             saved_tgt = view[tgt];
             view[tgt] = INSN_RET;
