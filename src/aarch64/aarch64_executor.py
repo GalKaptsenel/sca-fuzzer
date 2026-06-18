@@ -1053,10 +1053,7 @@ class Aarch64MteNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
             sandboxed_execution = self._make_ce_execution(sandboxed_tc_bytes, inp, sandbox_base,
                                                           nesting, CONF.model_max_spec_window,
                                                           ExecutionClause.COND)
-            try:
-                sandboxed_cer = self._contract_executor.run(sandboxed_execution)
-            except RuntimeError:
-                sandboxed_cer = cer  # fall back to stage-1 trace if sandboxed CE crashes
+            sandboxed_cer = self._contract_executor.run(sandboxed_execution)
             sandboxed_traces.append(sandboxed_cer)
 
             self._classify_mte_slots(cer, offset_to_fp)

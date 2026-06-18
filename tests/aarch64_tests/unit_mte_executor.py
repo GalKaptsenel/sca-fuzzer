@@ -1,0 +1,38 @@
+"""A sandboxed-CE crash during MTE variant tracing must propagate, not fall back to the stage-1
+trace (whose branch offsets don't match the sandboxed TC). Dependencies are mocked."""
+import unittest
+from unittest import mock
+
+import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
+import src.aarch64.aarch64_executor as ex_mod
+from src.aarch64.aarch64_executor import Aarch64MteNonInterferenceExecutor
+
+
+class SandboxedCeCrashTest(unittest.TestCase):
+    def _executor(self):
+        ex = Aarch64MteNonInterferenceExecutor.__new__(Aarch64MteNonInterferenceExecutor)
+        ex.test_case = mock.Mock()
+        ex._stage1_tc = mock.Mock()
+        ex._stage1_fix_points = []
+        ex._stage1_tc_bytes = b""
+        ex._stage1_mem_access_offset_to_fp = {}
+        ex.read_base_addresses = mock.Mock(return_value=(0x1000, 0x2000))
+        ex._assemble_tc = mock.Mock(return_value=(b"", None))
+        ex._make_ce_execution = mock.Mock()
+        ex._contract_executor = mock.Mock()
+        # first run (un-sandboxed) succeeds; the sandboxed run crashes
+        ex._contract_executor.run.side_effect = [mock.Mock(), RuntimeError("CE crashed")]
+        return ex
+
+    def test_sandboxed_ce_crash_propagates(self):
+        ex = self._executor()
+        with mock.patch.object(ex_mod, "pass_on_test_case"), \
+             mock.patch.object(ex_mod, "Aarch64SandboxPass"), \
+             mock.patch.object(ex_mod, "log_input"), \
+             mock.patch.object(ex_mod.copy, "deepcopy", return_value=mock.Mock()):
+            with self.assertRaises(RuntimeError):
+                ex.trace_test_case_with_taints([mock.Mock()], 0)
+
+
+if __name__ == "__main__":
+    unittest.main()
