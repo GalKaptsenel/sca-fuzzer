@@ -254,6 +254,10 @@ static instr_trace_entry_t* log_sim_state(struct simulation_state* sim_state) {
 	if(out_of_simulation(&sim_state->cpu_state)) return NULL;
 
 	if(NULL == trace_log) init_trace_log(simulation.sim_input.hdr.code_size);
+	if(NULL == trace_log) {
+		fprintf(stderr, "[ERR] contract trace log allocation failed\n");
+		return NULL;
+	}
 
 	size_t current_index = current_log_index;
 	if(max_log_index <= current_index) {
@@ -344,6 +348,9 @@ void init_trace_log(size_t test_size) {
 	current_log_index = 0;
 	max_log_index = (test_size / 4) * 128;  // In aarch64, each instruction is 4 bytes. The 128 is done for taking into considiration speculative contracts which may execute an instruction more then once for different flows
 	trace_log = alloc_contract_trace(max_log_index);
+	if (NULL == trace_log) {
+		max_log_index = 0;
+	}
 }
 
 static bool safe_file_write(FILE* f, const void* buff, size_t size) {
@@ -384,7 +391,11 @@ static int transmit_payload_to_file(FILE* f, const void* payload, size_t payload
 
 void destroy_trace_log() {
 	if(NULL == trace_log) return;
-	transmit_payload_to_file(stdout, trace_log, current_log_index * sizeof(instr_trace_entry_t) + sizeof(contract_trace_t));
+	int sent = transmit_payload_to_file(stdout, trace_log,
+		current_log_index * sizeof(instr_trace_entry_t) + sizeof(contract_trace_t));
+	if(0 > sent) {
+		fprintf(stderr, "[ERR] failed to transmit contract trace (err=%d)\n", sent);
+	}
 	free_contract_trace(trace_log);
 	trace_log = NULL;
 	current_log_index = 0;

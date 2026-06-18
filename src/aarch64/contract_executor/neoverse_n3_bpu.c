@@ -1,5 +1,6 @@
 #include "neoverse_n3_bpu.h"
 #include "tage_py.h"
+#include <stdio.h>
 #include <unistd.h>
 #include <libgen.h>
 #include <limits.h>
@@ -32,7 +33,12 @@ static void neoverse_n3_reset(void) {
 }
 
 static int neoverse_n3_predict(uintptr_t pc) {
-	return tagebp_predict(pc) ? 1 : 0;
+	int prediction = tagebp_predict(pc);
+	if (prediction < 0) {
+		fprintf(stderr, "[ERR] TAGE predict failed for pc=%#lx\n", (unsigned long)pc);
+		__builtin_trap();
+	}
+	return prediction;
 }
 
 static void neoverse_n3_update(uintptr_t pc, int taken, uintptr_t target) {
