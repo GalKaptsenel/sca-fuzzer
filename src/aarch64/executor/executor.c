@@ -118,6 +118,11 @@ int __nocfi initialize_executor(set_memory_t set_memory_x) {
 		err = -ENOMEM;
 		goto executor_init_cleanup_free_test_case;
 	}
+	if (!mte_region_is_tagged(executor.sandbox, sizeof(sandbox_t))) {
+		module_err("Sandbox memory is not MTE-tagged (linear map not Normal-Tagged?)\n");
+		err = -EINVAL;
+		goto executor_init_cleanup_free_sandbox;
+	}
 
 	memset(executor.measurement_code_views, 0, sizeof(executor.measurement_code_views));
 	err = create_view_mappings(executor.measurement_code_views, MAX_MEASUREMENT_VIEWS, set_memory_x);

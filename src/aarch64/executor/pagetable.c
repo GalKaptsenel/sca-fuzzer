@@ -277,3 +277,21 @@ void disable_mte_for_region(void* start, size_t size) {
 	}
 }
 
+// Whether every page in [start, start+size) is mapped with MAIR attribute index `attrindx`.
+bool pte_region_attr_is(void* start, size_t size, unsigned int attrindx) {
+	size_t addr = (size_t)start;
+	size_t end = (size_t)start + size;
+
+	if (NULL == init_mm_ptr) {
+		load_init_mm();
+	}
+
+	for (; addr < end; addr += PAGE_SIZE) {
+		pte_t *pte = get_pte((void*)addr);
+		if (NULL == pte || (pte_val(*pte) & PTE_ATTRINDX_MASK) != PTE_ATTRINDX(attrindx)) {
+			return false;
+		}
+	}
+	return true;
+}
+

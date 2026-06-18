@@ -92,6 +92,10 @@ void enable_mte_tag_checking(void) {
 	}
 }
 
+bool mte_region_is_tagged(const void *ptr, size_t size) {
+	return pte_region_attr_is((void *)ptr, size, MT_NORMAL_TAGGED);
+}
+
 #else	// Non-MTE hardware: all stubs
 
 static inline void stg(const void* ptr)				{ (void)ptr; }
@@ -109,6 +113,8 @@ uint8_t enable_TCO_bit(void)					{ return 0; }
 uint8_t disable_TCO_bit(void)					{ return 0; }
 
 void enable_mte_tag_checking(void)				{ }
+
+bool mte_region_is_tagged(const void *ptr, size_t size)		{ (void)ptr; (void)size; return true; }
 
 #endif
 
