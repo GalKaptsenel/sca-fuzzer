@@ -277,8 +277,9 @@ class Logger:
         try:
             from .dashboard import Dashboard
             self.dashboard = Dashboard(meta)
-        except Exception:
+        except Exception as e:
             self.dashboard = None
+            self.warning("dashboard", f"disabled (init failed): {e}")
 
     def fuzzer_should_stop(self) -> bool:
         return self.dashboard is not None and self.dashboard.should_stop

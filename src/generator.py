@@ -261,7 +261,7 @@ class ConfigurableGenerator(Generator, abc.ABC):
                 for bit_name in bits:
                     if bits[bit_name][1] != properties[bit_name]:
                         count_non_default += 1
-                probability_of_default = count_non_default / len(properties) # TODO: what is the reasoning between this probability computation?
+                probability_of_default = count_non_default / len(bits)
 
             # create the mask
             mask = 0

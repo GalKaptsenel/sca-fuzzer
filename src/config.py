@@ -354,7 +354,7 @@ class Conf:
                 self.safe_set(var, value)
                 continue
             if var == "instruction_blocklist_append":
-                self.instruction_blocklist.extend(value)
+                self.instruction_blocklist = self.instruction_blocklist + list(value)
                 continue
             if var == "actors":
                 self.set_actor_properties(value)

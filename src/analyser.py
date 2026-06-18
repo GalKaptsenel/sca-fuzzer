@@ -221,7 +221,7 @@ class ChiSquaredAnalyser(EquivalenceAnalyserCommon):
         if CONF.analyser_stat_threshold > stat:
             self.LOG.error("analyser_stat_threshold is too low for the given sample size")
 
-    def homogeneity_test(self, x: List[int], y: List[int]) -> bool:
+    def homogeneity_test(self, x: List[int], y: List[int]) -> float:
         """ Use the chi-squared test to compare htraces """
         assert len(x) == len(y)
         counter1 = Counter(x)

@@ -227,7 +227,8 @@ class FuzzerGeneric(Fuzzer):
             if timeout:
                 cmd += f" --timeout {timeout}"
             return cmd + f" --nonstop -w {self.work_dir}"
-        except Exception:
+        except Exception as e:
+            self.LOG.warning("fuzzer", f"could not build rerun config, falling back to argv: {e}")
             return " ".join(sys.argv)
 
     def filter(self, test_case, inputs) -> bool:
