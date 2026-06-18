@@ -17,11 +17,13 @@ static void neoverse_n3_init(void) {
 	char exe[PATH_MAX];
 	ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
 	if (n <= 0) {
+		fprintf(stderr, "[ERR] neoverse_n3 init: readlink(/proc/self/exe) failed\n");
 		__builtin_trap();
 	}
 	exe[n] = '\0';
 	if (0 != tagebp_init(dirname(exe), "bootstrap_director")) {
-		__builtin_trap(); // sanity check
+		fprintf(stderr, "[ERR] neoverse_n3 init: tagebp_init(bootstrap_director) failed\n");
+		__builtin_trap();
 	}
 	n3_initialized = 1;
 }

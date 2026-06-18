@@ -114,10 +114,11 @@ void tagebp_reset(void) {
 	if (!tage_instance) return;
 	PyObject *result = PyObject_CallMethod(tage_instance, "reset", NULL);
 	if (!result) {
+		fprintf(stderr, "[ERR] TAGE reset failed\n");
 		PyErr_Print();
-	} else {
-		Py_DECREF(result);
+		__builtin_trap();
 	}
+	Py_DECREF(result);
 }
 
 void tagebp_destroy_instance() {
