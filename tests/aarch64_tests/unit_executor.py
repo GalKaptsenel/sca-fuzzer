@@ -4,6 +4,7 @@ SPDX-License-Identifier: MIT
 """
 import unittest
 
+import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
 from src.aarch64.aarch64_executor import Aarch64LocalExecutor
 
 

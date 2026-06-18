@@ -3,6 +3,7 @@ evicted once the spec is collected -- no stale regex if its id() is later reused
 import gc
 import unittest
 
+import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
 from src.interfaces import InstructionSpec
 import src.aarch64.aarch64_asm_parser as ap
 

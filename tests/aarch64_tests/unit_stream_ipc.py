@@ -4,9 +4,11 @@ cannot hide already-received data behind a spurious hang/EOF.
 On Linux the over-read scenario is exercised over a real non-blocking pipe; on Windows (no
 non-blocking pipe / os.set_blocking) the read1/select logic is checked with mocks instead."""
 import os
+import sys
 import unittest
 from unittest import mock
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
 import src.aarch64.contract_executor.stream_ipc as sipc
 from src.aarch64.contract_executor.stream_ipc import StreamIPC, HEADER_STRUCT
 

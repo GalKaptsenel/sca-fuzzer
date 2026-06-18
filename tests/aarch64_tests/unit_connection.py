@@ -3,6 +3,7 @@ absent serial. The transports are mocked."""
 import unittest
 from unittest import mock
 
+import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
 from src.aarch64.aarch64_connection import SSHConnection, ADBConnection
 
 
