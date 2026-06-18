@@ -381,16 +381,20 @@ class Aarch64LocalExecutor(Aarch64Executor):
             log.w(f"  input={idx} spec: retired={ret:.0f} inst_spec={spec:.0f} "
                   f"wrongpath={spec - ret:.1f}", ch="basic_hw")
 
+        results = self._aggregate_htraces(len(inputs), n_reps, input_to_trace_list, pfc_log)
+        return results, len(inputs) * [sandboxed_test_case]
+
+    def _aggregate_htraces(self, n_inputs: int, n_reps: int,
+                           input_to_trace_list: Dict[int, List[int]],
+                           pfc_log: Dict[int, List]) -> List[HTrace]:
         results = []
-        for idx in range(len(inputs)):
-            htrace = HTrace(trace_list=input_to_trace_list[idx],
-                            perf_counters=np.array(pfc_log[idx]))
+        for idx in range(n_inputs):
             assert len(input_to_trace_list[idx]) == n_reps, \
                 f"input {idx}: collected {len(input_to_trace_list[idx])} traces, expected {n_reps}"
-            results.append(htrace)
-
-        assert len(inputs) == len(results), f"{len(inputs)} inputs but {len(results)} htraces"
-        return results, len(inputs) * [sandboxed_test_case]
+            # ignored (priming) inputs run but are excluded from analysis: report a zero htrace
+            trace_list = [0] * n_reps if idx in self.ignore_list else input_to_trace_list[idx]
+            results.append(HTrace(trace_list=trace_list, perf_counters=np.array(pfc_log[idx])))
+        return results
 
     def trace_test_case_with_taints(self, inputs: List[Input], nesting: int) -> Tuple[List[CTrace], List[InputTaint], List[ContractExecutionResult], List]:
         """
