@@ -256,6 +256,8 @@ class TruncatedCTWithOverflowsTracer(UnicornTracer):
 
     def observe_mem_access(self, access, address, size, value, model) -> None:
         self.add_mem_address_to_trace((address >> 6) << 6, model)
+        # FIXME: crossing test should use //64 (line number) not %64 (offset); %64 over-reports
+        # overflows for non-64-multiple sizes (cf. observe_instruction below).
         if (address + size) % 64 != (address % 64):  # add overflows to the trace
             self.add_mem_address_to_trace(((address + size) >> 6) << 6, model)
         return super().observe_mem_access(access, address, size, value, model)
