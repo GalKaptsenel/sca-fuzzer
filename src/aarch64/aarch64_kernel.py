@@ -365,7 +365,7 @@ class LocalHWExecutor(HWExecutor):
         if isinstance(self.current_region, TestCaseRegion):
             self._ioctl(REVISOR_UNLOAD_TEST)
         elif isinstance(self.current_region, InputRegion):
-            self._ioctl(REVISOR_FREE_INPUT)
+            self._ioctl(REVISOR_FREE_INPUT, self.current_region.iid)
         else:
             raise ValueError(f'Unsupported region type: {type(self.current_region)}')
 

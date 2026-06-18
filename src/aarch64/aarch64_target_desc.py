@@ -216,8 +216,8 @@ class Aarch64TargetDesc(TargetDesc):
 
     @staticmethod
     def is_unconditional_branch(inst: Instruction) -> bool:
-        return inst.name.lower() in ["b"]
+        return inst.name.lower() in ["b", "br", "ret"]
 
     @staticmethod
     def is_call(inst: Instruction) -> bool:
-        return inst.name.lower() in ["bl"]
+        return inst.name.lower() in ["bl", "blr"]
