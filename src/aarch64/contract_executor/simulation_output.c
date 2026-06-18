@@ -24,8 +24,13 @@ static inline void free_contract_trace(contract_trace_t* trace) {
 	free(trace);
 }
 
-static inline uint64_t read_reg(const trace_cpu_state_t *s, unsigned r) {
+static inline uint64_t read_reg(const trace_cpu_state_t *s, unsigned r) {  /* base register: 31 == SP */
 	if (r == 31) return s->sp;
+	return s->gpr[r];
+}
+
+static inline uint64_t read_reg_or_zr(const trace_cpu_state_t *s, unsigned r) {  /* data/index: 31 == XZR */
+	if (r == 31) return 0;
 	return s->gpr[r];
 }
 
@@ -129,7 +134,7 @@ mem_access_info_t parse_memory_access_instruction(uint32_t inst, const trace_cpu
 				case EXT_SXTX: src_len = 64; is_signed = true;  break;
 				default: __builtin_unreachable();
 			}
-			uint64_t rm_val = read_reg(state, mi.index_register);
+			uint64_t rm_val = read_reg_or_zr(state, mi.index_register);
 			if(is_32bit_rm(inst)) {
 				rm_val &= ((1ull << 32) - 1);
 			}
@@ -319,12 +324,12 @@ static instr_trace_entry_t* log_sim_state(struct simulation_state* sim_state) {
 
 	if(mi.is_mem) {
 		fill_mem_access(&entry->metadata.memory_access, mi.effective_address, mi.data_size,
-				mi.is_store, mi.is_atomic, read_reg(&entry->cpu, mi.target_register));
+				mi.is_store, mi.is_atomic, read_reg_or_zr(&entry->cpu, mi.target_register));
 		if(mi.is_pair) {
 			/* element 1 sits one element above the base EA and carries Rt2 */
 			fill_mem_access(&entry->metadata.memory_access2, mi.effective_address + mi.data_size,
 					mi.data_size, mi.is_store, mi.is_atomic,
-					read_reg(&entry->cpu, mi.rt2_register));
+					read_reg_or_zr(&entry->cpu, mi.rt2_register));
 		}
 	}
 
