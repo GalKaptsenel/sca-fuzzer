@@ -575,15 +575,15 @@ static struct measurement_method methods[] = {
 	{FLUSH_AND_RELOAD_TEMPLATE,	flush_reload_method, 	"flush and reload"},
 };
 
-static size_t build_measurement_code(jit_t* jit, enum Templates t, uint32_t* tc, size_t tc_size) {
+static ssize_t build_measurement_code(jit_t* jit, enum Templates t, uint32_t* tc, size_t tc_size) {
 	for (int i = 0; i < (sizeof(methods) / sizeof(methods[0])); ++i) {
 		if (methods[i].type == t) {
-			size_t* store_offset = tc_insert_offset_bytes_by_template[t] ? NULL : 
+			size_t* store_offset = tc_insert_offset_bytes_by_template[t] ? NULL :
 				tc_insert_offset_bytes_by_template + t;
-			return methods[i].builder(jit, tc, tc_size, store_offset);
+			return (ssize_t)methods[i].builder(jit, tc, tc_size, store_offset);
 		}
 	}
-	return 0;
+	return -EINVAL;
 }
 
 
@@ -618,13 +618,19 @@ int load_jit_template(size_t tc_size) {
 	uint32_t* destination = (uint32_t*)executor.measurement_code_views[0];
 	jit_t* jit = jit_init(max_size_after_expantion, destination);
 
-	size_t expanded_size = build_measurement_code(jit, executor.config.measurement_template,
-	                                              (uint32_t*)executor.test_case, tc_size);
+	ssize_t expanded_size = build_measurement_code(jit, executor.config.measurement_template,
+	                                               (uint32_t*)executor.test_case, tc_size);
 
 	jit_free(jit);
 
 	set_memory_rw_fn((unsigned long)executor.measurement_code_views[0],
 	                 MAX_MEASUREMENT_CODE_SIZE >> PAGE_SHIFT);
+
+	if (0 > expanded_size) {
+		module_err("Failed to build measurement code (template %d)\n",
+		           executor.config.measurement_template);
+		return (int)expanded_size;
+	}
 
 	/* All views alias the same physical pages, so the JIT writes (via view[0])
 	 * already populate every view; jit_perm_rx() flushed view[0]'s icache.  The
