@@ -22,98 +22,98 @@ DEFINE_KEY_INIT_FUNC(APDA)
 DEFINE_KEY_INIT_FUNC(APDB)
 DEFINE_KEY_INIT_FUNC(APGA)
 
-inline uint64_t pacia(uint64_t ptr, uint64_t mod) {
+uint64_t pacia(uint64_t ptr, uint64_t mod) {
 	asm volatile("pacia %0, %1" : "+r"(ptr) : "r"(mod));
 	return ptr;
 }
 
-inline uint64_t pacib(uint64_t ptr, uint64_t mod) {
+uint64_t pacib(uint64_t ptr, uint64_t mod) {
 	asm volatile("pacib %0, %1" : "+r"(ptr) : "r"(mod));
 	return ptr;
 }
 
-inline uint64_t pacda(uint64_t ptr, uint64_t mod) {
+uint64_t pacda(uint64_t ptr, uint64_t mod) {
 	asm volatile("pacda %0, %1" : "+r"(ptr) : "r"(mod));
 	return ptr;
 }
 
-inline uint64_t pacdb(uint64_t ptr, uint64_t mod) {
+uint64_t pacdb(uint64_t ptr, uint64_t mod) {
 	asm volatile("pacdb %0, %1" : "+r"(ptr) : "r"(mod));
 	return ptr;
 }
 
-inline uint64_t pacga(uint64_t x, uint64_t y) {
+uint64_t pacga(uint64_t x, uint64_t y) {
 	uint64_t out = 0;
 	asm volatile("pacga %0, %1, %2" : "=r"(out) : "r"(x), "r"(y));
 	return out;
 }
 
-inline uint64_t autia(uint64_t ptr, uint64_t mod) {
+uint64_t autia(uint64_t ptr, uint64_t mod) {
 	asm volatile("autia %0, %1" : "+r"(ptr) : "r"(mod));
 	return ptr;
 }
 
-inline uint64_t autib(uint64_t ptr, uint64_t mod) {
+uint64_t autib(uint64_t ptr, uint64_t mod) {
 	asm volatile("autib %0, %1" : "+r"(ptr) : "r"(mod));
 	return ptr;
 }
 
-inline uint64_t autda(uint64_t ptr, uint64_t mod) {
+uint64_t autda(uint64_t ptr, uint64_t mod) {
 	asm volatile("autda %0, %1" : "+r"(ptr) : "r"(mod));
 	return ptr;
 }
 
-inline uint64_t autdb(uint64_t ptr, uint64_t mod) {
+uint64_t autdb(uint64_t ptr, uint64_t mod) {
 	asm volatile("autdb %0, %1" : "+r"(ptr) : "r"(mod));
 	return ptr;
 }
 
-inline uint64_t autiza(uint64_t ptr) {
+uint64_t autiza(uint64_t ptr) {
 	asm volatile("autiza %0" : "+r"(ptr));
 	return ptr;
 }
 
-inline uint64_t autizb(uint64_t ptr) {
+uint64_t autizb(uint64_t ptr) {
 	asm volatile("autizb %0" : "+r"(ptr));
 	return ptr;
 }
 
-inline uint64_t autdza(uint64_t ptr) {
+uint64_t autdza(uint64_t ptr) {
 	asm volatile("autdza %0" : "+r"(ptr));
 	return ptr;
 }
 
-inline uint64_t autdzb(uint64_t ptr) {
+uint64_t autdzb(uint64_t ptr) {
 	asm volatile("autdzb %0" : "+r"(ptr));
 	return ptr;
 }
 
-inline uint64_t paciza(uint64_t ptr) {
+uint64_t paciza(uint64_t ptr) {
 	asm volatile("paciza %0" : "+r"(ptr));
 	return ptr;
 }
 
-inline uint64_t pacizb(uint64_t ptr) {
+uint64_t pacizb(uint64_t ptr) {
 	asm volatile("pacizb %0" : "+r"(ptr));
 	return ptr;
 }
 
-inline uint64_t pacdza(uint64_t ptr) {
+uint64_t pacdza(uint64_t ptr) {
 	asm volatile("pacdza %0" : "+r"(ptr));
 	return ptr;
 }
 
-inline uint64_t pacdzb(uint64_t ptr) {
+uint64_t pacdzb(uint64_t ptr) {
 	asm volatile("pacdzb %0" : "+r"(ptr));
 	return ptr;
 }
 
-inline uint64_t xpaci(uint64_t ptr) {
+uint64_t xpaci(uint64_t ptr) {
 	asm volatile("xpaci %0" : "+r"(ptr));
 	return ptr;
 }
 
-inline uint64_t xpacd(uint64_t ptr) {
+uint64_t xpacd(uint64_t ptr) {
 	asm volatile("xpacd %0" : "+r"(ptr));
 	return ptr;
 }

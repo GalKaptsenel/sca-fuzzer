@@ -14,10 +14,11 @@ int (*set_memory_rw_fn)(unsigned long, int)		=	NULL;
 int (*set_memory_ro_fn)(unsigned long, int)		=	NULL;
 
 static size_t __nocfi kprobe_trick(char* function_symbol) {
-	size_t address = 0;
 	struct kprobe kp = {.symbol_name = function_symbol};
-	register_kprobe(&kp);
-	address = (size_t)kp.addr;
+	if (0 != register_kprobe(&kp)) {
+		return 0;
+	}
+	size_t address = (size_t)kp.addr;
 	unregister_kprobe(&kp);
 	return address;
 }
