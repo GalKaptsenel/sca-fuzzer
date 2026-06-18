@@ -279,6 +279,7 @@ class Input(np.ndarray):
 
     def __new__(cls, n_actors: int = 1):
         obj = super().__new__(cls, (n_actors,), InputFragment, None, 0, None, None)  # type: ignore
+        obj.view(np.uint64)[:] = 0  # zero incl. padding so tobytes()/__hash__ are deterministic
         obj.data_size = (MAIN_AREA_SIZE + FAULTY_AREA_SIZE + REG_INIT_AREA_SIZE) // 8
         return obj
 
