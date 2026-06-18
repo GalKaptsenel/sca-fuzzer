@@ -64,41 +64,41 @@ static inline int setup_environment(void) {
 static void load_memory_from_input(input_t* input) {
 
 	// - sandbox: main and faulty regions
-	for (int j = 0; j < (sizeof(executor.sandbox.main_region) / sizeof(uint64_t)); ++j) {
-	        ((uint64_t*)executor.sandbox.main_region)[j] = ((uint64_t*)(input->main_region))[j];
+	for (int j = 0; j < (sizeof(executor.sandbox->main_region) / sizeof(uint64_t)); ++j) {
+	        ((uint64_t*)executor.sandbox->main_region)[j] = ((uint64_t*)(input->main_region))[j];
 	}
 
-	for (int j = 0; j < (sizeof(executor.sandbox.faulty_region) / sizeof(uint64_t)); ++j) {
-	        ((uint64_t*)executor.sandbox.faulty_region)[j] = ((uint64_t*)(input->faulty_region))[j];
+	for (int j = 0; j < (sizeof(executor.sandbox->faulty_region) / sizeof(uint64_t)); ++j) {
+	        ((uint64_t*)executor.sandbox->faulty_region)[j] = ((uint64_t*)(input->faulty_region))[j];
 	}
 }
 
 // RSP must be aligned to 16 bytes boundary, according to documentation of AARCH64
 static size_t get_stack_base_address(void) {
-	size_t address = ((size_t)executor.sandbox.main_region + sizeof(executor.sandbox.main_region));
+	size_t address = ((size_t)executor.sandbox->main_region + sizeof(executor.sandbox->main_region));
 	return PTR_ALIGN(address, 16); // Technically, kernel stack should be aligned to THREAD_SIZE, for example it allows access the thread_indo structure. But it is fine to just align to 16 bytes, due to hardware only checks this constraint.
 }
 
 static void load_registers_from_input(input_t* input) {
 
 	// Initial register values
-	*((registers_t*)executor.sandbox.lower_overflow) = input->regs;
+	*((registers_t*)executor.sandbox->lower_overflow) = input->regs;
 
 	// flags is already in ARM PSTATE format (N=bit31 Z=bit30 C=bit29 V=bit28)
 	// from _reconstruct_pstate() in Python; msr nzcv reads bits [31:28] directly.
 
 	// - RSP and RBP
-	((registers_t*)executor.sandbox.lower_overflow)->sp = get_stack_base_address();
+	((registers_t*)executor.sandbox->lower_overflow)->sp = get_stack_base_address();
 
 //	module_debug("Input regs: x0:%llx, x1:%llx, x2:%llx x3:%llx, x4:%llx, x5:%llx, flags:%llx, sp:%llx\n",
-//			*(uint64_t*)executor.sandbox.lower_overflow,
-//			*((uint64_t*)executor.sandbox.lower_overflow+1),
-//			*((uint64_t*)executor.sandbox.lower_overflow+2),
-//			*((uint64_t*)executor.sandbox.lower_overflow+3),
-//			*((uint64_t*)executor.sandbox.lower_overflow+4),
-//			*((uint64_t*)executor.sandbox.lower_overflow+5),
-//			*((uint64_t*)executor.sandbox.lower_overflow+6),
-//			*((uint64_t*)executor.sandbox.lower_overflow+7));
+//			*(uint64_t*)executor.sandbox->lower_overflow,
+//			*((uint64_t*)executor.sandbox->lower_overflow+1),
+//			*((uint64_t*)executor.sandbox->lower_overflow+2),
+//			*((uint64_t*)executor.sandbox->lower_overflow+3),
+//			*((uint64_t*)executor.sandbox->lower_overflow+4),
+//			*((uint64_t*)executor.sandbox->lower_overflow+5),
+//			*((uint64_t*)executor.sandbox->lower_overflow+6),
+//			*((uint64_t*)executor.sandbox->lower_overflow+7));
 }
 
 static void load_input_to_sandbox(input_t* input) {
@@ -111,10 +111,10 @@ static void initialize_overflow_pages(void) {
 	// Initialize memory:
 	// NOTE: memset is not used intentionally! somehow, it messes up with P+P measurements
 	// - overflows are initialized with zeroes
-	memset(executor.sandbox.lower_overflow, 0, sizeof(executor.sandbox.lower_overflow));
-	memset(executor.sandbox.upper_overflow, 0, sizeof(executor.sandbox.upper_overflow));
-//	for (int j = 0; j < (sizeof(executor.sandbox.upper_overflow) / sizeof(uint64_t)); ++j) {
-//	    ((uint64_t *)executor.sandbox.upper_overflow)[j] = 0;
+	memset(executor.sandbox->lower_overflow, 0, sizeof(executor.sandbox->lower_overflow));
+	memset(executor.sandbox->upper_overflow, 0, sizeof(executor.sandbox->upper_overflow));
+//	for (int j = 0; j < (sizeof(executor.sandbox->upper_overflow) / sizeof(uint64_t)); ++j) {
+//	    ((uint64_t *)executor.sandbox->upper_overflow)[j] = 0;
 //	}
 }
 
@@ -139,11 +139,11 @@ static void measure(measurement_t* measurement) {
 	}
 
 	for(size_t i = 0; i < HTRACE_WIDTH; ++i) {
-		measurement->htrace[i] = executor.sandbox.latest_measurement.htrace[i];
+		measurement->htrace[i] = executor.sandbox->latest_measurement.htrace[i];
 	}
 	
 	for(size_t i = 0; i < NUM_PFC; ++i) {
-		measurement->pfc[i] = executor.sandbox.latest_measurement.pfc[i];
+		measurement->pfc[i] = executor.sandbox->latest_measurement.pfc[i];
 	}
 }
 
@@ -162,7 +162,7 @@ static void __nocfi run_experiments(void) {
 	BUG_ON(NULL == current_input_node);
 
 	// Zero-initialize the region of memory used by Prime+Probe
-	memset(executor.sandbox.eviction_region, 0, sizeof(executor.sandbox.eviction_region));
+	memset(executor.sandbox->eviction_region, 0, sizeof(executor.sandbox->eviction_region));
 
 	/* Run the measurement at RT priority pinned to this CPU; the previous
 	 * policy/priority/affinity are restored after the loop so we don't leave the
@@ -224,7 +224,7 @@ static void __nocfi run_experiments(void) {
 		}
 
 		// execute
-		((void(*)(void*))measurement_code)(&executor.sandbox);
+		((void(*)(void*))measurement_code)(executor.sandbox);
 
 		if (executor.config.pac_keys_set) {
 			pac_restore_sctlr(saved_sctlr);

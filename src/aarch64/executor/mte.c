@@ -1,4 +1,19 @@
 #include "main.h"
+
+/* Allocate a physically-contiguous region from the linear map (Normal-Tagged on
+ * CONFIG_ARM64_MTE), so STG tagging and tag checks apply to it. get_order returns a 2^order
+ * block aligned to its own size, so a caller whose size >= its alignment need (e.g. the sandbox
+ * vs L1D_SIZE) is correctly aligned. Generic (page allocation), so defined for MTE and non-MTE. */
+void *mte_alloc_tagged_region(size_t size) {
+	return (void *)__get_free_pages(GFP_KERNEL | __GFP_ZERO, get_order(size));
+}
+
+void mte_free_tagged_region(void *ptr, size_t size) {
+	if (NULL != ptr) {
+		free_pages((unsigned long)ptr, get_order(size));
+	}
+}
+
 #if CONFIG_ARM64_MTE_HW	// Real MTE hardware implementation
 
 static inline void stg(const void* ptr) {

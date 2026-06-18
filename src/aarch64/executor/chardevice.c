@@ -505,7 +505,7 @@ static long do_revisor_ioctl(struct file* file, unsigned int cmd, unsigned long 
 			    req.sandbox_offset > (MAIN_REGION_SIZE + FAULTY_REGION_SIZE) - req.length) {
 				return -EINVAL;
 			}
-			mte_init_sandbox_tags(executor.sandbox.main_region + req.sandbox_offset,
+			mte_init_sandbox_tags(executor.sandbox->main_region + req.sandbox_offset,
 			                      req.length, req.tag & 0xF);
 			return 0;
 		}

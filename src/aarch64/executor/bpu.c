@@ -239,7 +239,7 @@ static void __nocfi apply_branch_training(void *active_view,
                 continue;
             }
             flush_bpu_phr();
-            ((void (*)(void *))&vv[k-1])(&executor.sandbox);
+            ((void (*)(void *))&vv[k-1])(executor.sandbox);
             asm volatile("isb" ::: "memory");
         }
         asm volatile("dsb sy\n isb\n" ::: "memory");

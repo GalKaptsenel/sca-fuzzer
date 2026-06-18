@@ -112,11 +112,18 @@ int __nocfi initialize_executor(set_memory_t set_memory_x) {
 	}
 	executor.test_case_length = 0;
 
+	executor.sandbox = (sandbox_t *)mte_alloc_tagged_region(sizeof(sandbox_t));
+	if (NULL == executor.sandbox) {
+		module_err("Could not allocate tagged sandbox\n");
+		err = -ENOMEM;
+		goto executor_init_cleanup_free_test_case;
+	}
+
 	memset(executor.measurement_code_views, 0, sizeof(executor.measurement_code_views));
 	err = create_view_mappings(executor.measurement_code_views, MAX_MEASUREMENT_VIEWS, set_memory_x);
 	if (0 != err) {
 		module_err("Failed to create view mappings (errcode: %d)\n", err);
-		goto executor_init_cleanup_free_test_case;
+		goto executor_init_cleanup_free_sandbox;
 	}
 
 	refresh_tc_insert_offsets();
@@ -127,10 +134,13 @@ int __nocfi initialize_executor(set_memory_t set_memory_x) {
 	executor.state = CONFIGURATION_STATE;
 	executor.checkout_region = REGION_DEFAULT;
 
-	initialize_sandbox(&executor.sandbox);
+	initialize_sandbox(executor.sandbox);
 
 	return 0;
 
+executor_init_cleanup_free_sandbox:
+	mte_free_tagged_region(executor.sandbox, sizeof(sandbox_t));
+	executor.sandbox = NULL;
 executor_init_cleanup_free_test_case:
 	kfree(executor.test_case);
 	executor.test_case = NULL;
@@ -149,4 +159,7 @@ void __nocfi free_executor(set_memory_t set_memory_nx) {
 	}
 
 	destroy_view_mappings(executor.measurement_code_views, MAX_MEASUREMENT_VIEWS, set_memory_nx);
+
+	mte_free_tagged_region(executor.sandbox, sizeof(sandbox_t));
+	executor.sandbox = NULL;
 }

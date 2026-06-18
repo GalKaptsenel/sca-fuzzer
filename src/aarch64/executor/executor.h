@@ -50,7 +50,7 @@ typedef struct device_managment {
 } device_management_t;
 
 typedef struct executor {
-	sandbox_t sandbox;
+	sandbox_t *sandbox;
 	executor_config_t config;
 	volatile uint64_t number_of_inputs;
 	char* test_case; // The member test_case is NOT embedded inside the struct because we require that it wll be continuous within physical memory, and therefore it should be acquired by kmalloc

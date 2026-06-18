@@ -3,6 +3,8 @@
 
 #include "main.h"
 
+void *mte_alloc_tagged_region(size_t size);
+void mte_free_tagged_region(void *ptr, size_t size);
 void mte_randomly_tag_region(const void* ptr, uint64_t length);
 void mte_init_sandbox_tags(const void* base, uint64_t length, uint8_t tag);
 uint8_t enable_TCMA1_bit(void);
