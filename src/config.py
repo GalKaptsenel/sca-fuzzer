@@ -18,19 +18,15 @@ class IncludeLoader(yaml.SafeLoader):
     """
     Helper class to enable `!include` statements in configuration files
     """
-    visited: List[str] = []
     file_id_counter: int = 0
 
     def __init__(self, stream: IO, include_dir: str = "") -> None:
         self._search_paths = [os.path.split(stream.name)[0]]
         if include_dir:
             self._search_paths.append(include_dir)
-        self.visited.append(os.path.abspath(stream.name))
+        # per-load include chain; nested loads inherit it explicitly in include()
+        self._visited = [os.path.abspath(stream.name)]
         super(IncludeLoader, self).__init__(stream)
-
-    def __del__(self) -> None:
-        if self.visited:
-            self.visited.pop()
 
     def include(self, node: yaml.Node) -> Any:
         """
@@ -44,12 +40,17 @@ class IncludeLoader(yaml.SafeLoader):
         else:
             raise ConfigException(f"Included file {filename} does not exist")
 
-        # check for cycles
-        if os.path.abspath(filename) in self.visited:
+        abs_filename = os.path.abspath(filename)
+        if abs_filename in self._visited:        # cycle check against the live include chain
             raise ConfigException(f"Circular include detected in {filename}")
 
         with open(filename, 'r') as f:
-            return yaml.load(f, IncludeLoader)
+            child = IncludeLoader(f)
+            child._visited = self._visited + [abs_filename]
+            try:
+                return child.get_single_data()
+            finally:
+                child.dispose()
 
     def construct_yaml_map(self, node):
         """
