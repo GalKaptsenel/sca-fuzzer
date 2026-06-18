@@ -562,10 +562,11 @@ static ssize_t do_revisor_read(struct file* File, char __user* user_buffer,
 	return number_of_bytes_to_copy - not_copied;
 }
 
-static void copy_input_from_user_and_update_state(const char __user* user_buffer, size_t count) {
+static ssize_t copy_input_from_user_and_update_state(const char __user* user_buffer, size_t count) {
 	if(USER_CONTROLLED_INPUT_LENGTH > count) {
 	    module_err("Input must be exactly of length USER_CONTROLLED_INPUT_LENGTH(=%lu)!\n",
 	    USER_CONTROLLED_INPUT_LENGTH);
+	    return -EINVAL;
 	}
 
 	void* to_buffer = get_input(executor.checkout_region);
@@ -573,9 +574,11 @@ static void copy_input_from_user_and_update_state(const char __user* user_buffer
 
 	if(copy_from_user_with_access_check(to_buffer, user_buffer, USER_CONTROLLED_INPUT_LENGTH)) {
 		module_err("Was unable to read entire input from user\n");
-	} else {
-		update_state_after_writing_input();
+		return -EFAULT;
 	}
+
+	update_state_after_writing_input();
+	return USER_CONTROLLED_INPUT_LENGTH;
 }
 
 static ssize_t do_revisor_write(struct file* File, const char __user* user_buffer,
@@ -591,9 +594,7 @@ static ssize_t do_revisor_write(struct file* File, const char __user* user_buffe
 	}
 
 	BUG_ON(0 > executor.checkout_region);
-	copy_input_from_user_and_update_state(user_buffer, count);
-
-	return count;
+	return copy_input_from_user_and_update_state(user_buffer, count);
 }
 
 static long revisor_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {

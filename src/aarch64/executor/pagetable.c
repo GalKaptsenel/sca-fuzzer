@@ -6,6 +6,13 @@ static void __nocfi load_init_mm(void) {
 	load_global_symbol(kallsyms_lookup_name_fn, struct mm_struct *, init_mm_ptr, init_mm);
 }
 
+static bool ensure_init_mm(void) {
+	if (NULL == init_mm_ptr) {
+		load_init_mm();
+	}
+	return NULL != init_mm_ptr;
+}
+
 static void decode_entry(uint64_t entry, const char *level) {
 	uint64_t present_bit = 0;
 	uint64_t entry_type = 0;
@@ -151,8 +158,9 @@ void page_walk_explorer(void *addr) {
 	pte_t *pte = NULL;
 	size_t vaddr = (size_t)addr;
 
-	if(NULL == init_mm_ptr) {
-		load_init_mm();
+	if (!ensure_init_mm()) {
+		module_err("init_mm unavailable (kallsyms lookup failed)\n");
+		return;
 	}
 
 	pgd = pgd_offset(init_mm_ptr, vaddr);
@@ -255,8 +263,9 @@ void disable_mte_for_region(void* start, size_t size) {
 	size_t addr = (size_t)start;
 	pte_t *pte = NULL;
 
-	if(NULL == init_mm_ptr) {
-		load_init_mm();
+	if (!ensure_init_mm()) {
+		module_err("init_mm unavailable (kallsyms lookup failed)\n");
+		return;
 	}
 	
 	for (; addr < end; addr += PAGE_SIZE) {
@@ -282,8 +291,9 @@ bool pte_region_attr_is(void* start, size_t size, unsigned int attrindx) {
 	size_t addr = (size_t)start;
 	size_t end = (size_t)start + size;
 
-	if (NULL == init_mm_ptr) {
-		load_init_mm();
+	if (!ensure_init_mm()) {
+		module_err("init_mm unavailable (kallsyms lookup failed)\n");
+		return false;
 	}
 
 	for (; addr < end; addr += PAGE_SIZE) {
