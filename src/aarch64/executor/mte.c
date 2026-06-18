@@ -54,16 +54,9 @@ uint8_t disable_TCO_bit(void) {
 }
 
 static inline void mte_set_sync(void) {
-    u64 sctlr;
-
-    asm volatile("mrs %0, SCTLR_EL1" : "=r"(sctlr));
-
-    sctlr |= (1ULL << 18);        // ATA = 1
-    sctlr &= ~(3ULL << 19);       // clear TCF
-    sctlr |= (1ULL << 19);        // TCF = 01 (sync)
-
-    asm volatile("msr SCTLR_EL1, %0" :: "r"(sctlr));
-    asm volatile("isb");
+    // ATA (bit 43) enables allocation-tag access; TCF (bits [41:40]) = 0b01 = synchronous faults.
+    sysreg_clear_set(sctlr_el1, SCTLR_EL1_TCF_MASK, SCTLR_EL1_ATA | SCTLR_EL1_TCF_SYNC);
+    isb();
 }
 static inline void mte_set_sync_callback(void* a) {
 	(void)a;
