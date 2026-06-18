@@ -59,6 +59,7 @@ class StatisticsCls:
     fp_early_priming: int = 0
     fp_large_sample: int = 0
     fp_priming: int = 0
+    hw_tracing_errors: int = 0
 
     # Implementation of Borg pattern
     def __init__(self) -> None:
@@ -88,6 +89,7 @@ class StatisticsCls:
         s += f"  Early Priming Check: {self.fp_early_priming}\n"
         s += f"  Large Sample Check: {self.fp_large_sample}\n"
         s += f"  Priming Check: {self.fp_priming}\n"
+        s += f"Hardware Tracing Errors: {self.hw_tracing_errors}\n"
         return s
 
     def get_brief(self, elapsed: float = 0.0):

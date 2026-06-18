@@ -388,7 +388,9 @@ class FuzzerGeneric(Fuzzer):
         # Collect hardware traces
         try:
             htraces, test_cases = self.executor.trace_test_case(args.inputs, args.n_reps)
-        except HardwareTracingError:
+        except HardwareTracingError as e:
+            STAT.hw_tracing_errors += 1
+            self.LOG.warning("fuzzer", f"hardware tracing failed, skipping test case: {e}")
             return [], [], []
         assert len(htraces) == len(args.inputs)
 
