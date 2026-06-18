@@ -50,6 +50,11 @@ uint64_t spec_max_nesting(void) { return mgmt.max_nesting; }
 uint64_t spec_memory_size(void) { return mgmt.memory_size; }
 
 void spec_push_frame(struct simulation_state* sim_state, uintptr_t return_addr, uint64_t owner) {
+	if(mgmt.stack_top >= sizeof(mgmt.stack)/sizeof(mgmt.stack[0]) ||
+	   mgmt.current_checkpoint_id >= mgmt.max_checkpoints) {
+		fprintf(stderr, "[ERR] speculation stack/checkpoint overflow\n");
+		__builtin_trap();
+	}
 	mgmt.stack[mgmt.stack_top].nesting       = mgmt.current_nesting;
 	mgmt.stack[mgmt.stack_top].return_addr   = return_addr;
 	mgmt.stack[mgmt.stack_top].checkpoint_id = take_checkpoint(sim_state);
@@ -75,11 +80,20 @@ static void ensure_initialized(void) {
 	mgmt.stack_top = 0;
 	memset(mgmt.stack, 0, sizeof(mgmt.stack));
 	mgmt.max_checkpoints = 1024;
+	if(mgmt.max_nesting >= mgmt.max_checkpoints ||
+	   mgmt.max_nesting >= sizeof(mgmt.stack)/sizeof(mgmt.stack[0])) {
+		fprintf(stderr, "[ERR] max_misspred_branch_nesting %lu exceeds capacity\n",
+			(unsigned long)mgmt.max_nesting);
+		__builtin_trap();
+	}
 	mgmt.current_checkpoint_id = 0;
 	mgmt.memory_size = simulation.sim_input.hdr.mem_size + 0x1000; // + overflow page
 	size_t checkpoints_array_size = mgmt.max_checkpoints * sizeof(struct execution_checkpoint);
 	mgmt.checkpoints_array = malloc(checkpoints_array_size);
-	if(NULL == mgmt.checkpoints_array) return;
+	if(NULL == mgmt.checkpoints_array) {
+		fprintf(stderr, "[ERR] failed to allocate speculation checkpoint array\n");
+		__builtin_trap();
+	}
 	memset(mgmt.checkpoints_array, 0, checkpoints_array_size);
 
 	uint64_t clauses = simulation.sim_input.hdr.config.execution_clauses;
