@@ -4,6 +4,7 @@ File: Parsing of assembly files into our internal representation (TestCase).
 """
 import re
 import os
+import weakref
 from typing import List, Dict
 
 from .aarch64_generator import Aarch64Generator
@@ -12,7 +13,7 @@ from ..interfaces import OT, Instruction, InstructionSpec, LabelOperand, Registe
     MemoryOperand, MemorySpec, ImmediateOperand, CondOperand
 
 
-_TEMPLATE_REGEX_CACHE = {}
+_TEMPLATE_REGEX_CACHE = weakref.WeakKeyDictionary()
 
 
 def _flatten_specs(spec):
@@ -42,7 +43,7 @@ def _template_regex(spec):
     brackets, '#', ',', '!') is matched verbatim, each {placeholder} becomes a capture group
     built from the matching operand, in template/operand order. Returns None if the template's
     placeholder count does not line up with the operand count (so it is simply never matched)."""
-    rx = _TEMPLATE_REGEX_CACHE.get(id(spec), False)
+    rx = _TEMPLATE_REGEX_CACHE.get(spec, False)
     if rx is not False:
         return rx
     flat = _flatten_specs(spec)            # one placeholder per flattened operand (memory -> its parts)
@@ -64,7 +65,7 @@ def _template_regex(spec):
     if op_idx == len(flat) and spec.template:
         parts.append("$")
         rx = re.compile("".join(parts), re.IGNORECASE)
-    _TEMPLATE_REGEX_CACHE[id(spec)] = rx
+    _TEMPLATE_REGEX_CACHE[spec] = rx
     return rx
 
 
