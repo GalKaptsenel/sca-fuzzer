@@ -1,7 +1,7 @@
 #include "main.h"
 
 static ssize_t warmups_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
-    return sprintf(buf, "%lu\n", executor.config.uarch_reset_rounds);
+    return scnprintf(buf, PAGE_SIZE,"%lu\n", executor.config.uarch_reset_rounds);
 }
 
 static ssize_t warmups_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
@@ -15,7 +15,7 @@ static ssize_t warmups_store(struct kobject *kobj, struct kobj_attribute *attr, 
 }
 
 static ssize_t print_sandbox_base_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
-    return sprintf(buf, "%px\n", executor.sandbox->main_region);
+    return scnprintf(buf, PAGE_SIZE,"%px\n", executor.sandbox->main_region);
 }
 
 static ssize_t print_code_base_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
@@ -23,7 +23,7 @@ static ssize_t print_code_base_show(struct kobject *kobj, struct kobj_attribute 
      * the view base plus the (constant per template) offset of the test case. */
     char* base = (char*)executor.measurement_code_views[0]
                + current_tc_insert_offset_bytes();
-    return sprintf(buf, "%px\n", base);
+    return scnprintf(buf, PAGE_SIZE,"%px\n", base);
 }
 
 static ssize_t enable_pre_run_flush_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
@@ -39,7 +39,7 @@ static ssize_t enable_pre_run_flush_store(struct kobject *kobj, struct kobj_attr
 }
 
 static ssize_t enable_pre_run_flush_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
-	return sprintf(buf, "%d\n", executor.config.pre_run_flush);
+	return scnprintf(buf, PAGE_SIZE,"%d\n", executor.config.pre_run_flush);
 }
 
 static ssize_t enable_phr_flush_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
@@ -51,7 +51,7 @@ static ssize_t enable_phr_flush_store(struct kobject *kobj, struct kobj_attribut
     return count;
 }
 static ssize_t enable_phr_flush_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
-	return sprintf(buf, "%d\n", executor.config.phr_flush);
+	return scnprintf(buf, PAGE_SIZE,"%d\n", executor.config.phr_flush);
 }
 
 static ssize_t enable_ssbs_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
@@ -63,7 +63,7 @@ static ssize_t enable_ssbs_store(struct kobject *kobj, struct kobj_attribute *at
     return count;
 }
 static ssize_t enable_ssbs_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
-	return sprintf(buf, "%d\n", executor.config.enable_ssbs);
+	return scnprintf(buf, PAGE_SIZE,"%d\n", executor.config.enable_ssbs);
 }
 
 static ssize_t enable_view_rotation_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
@@ -75,7 +75,7 @@ static ssize_t enable_view_rotation_store(struct kobject *kobj, struct kobj_attr
     return count;
 }
 static ssize_t enable_view_rotation_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
-	return sprintf(buf, "%d\n", executor.config.view_rotation);
+	return scnprintf(buf, PAGE_SIZE,"%d\n", executor.config.view_rotation);
 }
 
 static ssize_t measurement_mode_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
@@ -96,13 +96,13 @@ static ssize_t measurement_mode_show(struct kobject *kobj, struct kobj_attribute
 
 	switch(executor.config.measurement_template) {
 		case FLUSH_AND_RELOAD_TEMPLATE:
-			result = sprintf(buf, "Flush and Reload (F+R)\n");
+			result = scnprintf(buf, PAGE_SIZE,"Flush and Reload (F+R)\n");
 			break;
 		case PRIME_AND_PROBE_TEMPLATE:
-			result = sprintf(buf, "Prime and Probe (P+P)\n");
+			result = scnprintf(buf, PAGE_SIZE,"Prime and Probe (P+P)\n");
 			break;
 		default:
-			result = sprintf(buf, "Measurement mode is unset!\n");
+			result = scnprintf(buf, PAGE_SIZE,"Measurement mode is unset!\n");
 	}
 
 	return result;
@@ -113,7 +113,7 @@ static ssize_t pin_to_core_show(struct kobject *kobj, struct kobj_attribute *att
 	int result = 0;
 
 	if(CPU_ID_DEFAULT == executor.config.pinned_cpu_id) {
-		result = sprintf(buf, "Not Pinned\n");
+		result = scnprintf(buf, PAGE_SIZE,"Not Pinned\n");
 		goto pin_to_core_show_out;
 	}
 
@@ -180,15 +180,15 @@ static ssize_t pin_to_core_store(struct kobject *kobj, struct kobj_attribute *at
 	return count;
 }
 
-static struct kobj_attribute warmups_attribute = __ATTR(warmups, 0666, warmups_show, warmups_store);
+static struct kobj_attribute warmups_attribute = __ATTR(warmups, 0644,warmups_show, warmups_store);
 static struct kobj_attribute print_sandbox_base_attribute = __ATTR(print_sandbox_base, 0444, print_sandbox_base_show, NULL);
 static struct kobj_attribute print_code_base_attribute = __ATTR(print_code_base, 0444, print_code_base_show, NULL);
-static struct kobj_attribute enable_pre_run_flush_attribute = __ATTR(enable_pre_run_flush, 0666, enable_pre_run_flush_show, enable_pre_run_flush_store);
-static struct kobj_attribute enable_phr_flush_attribute = __ATTR(enable_phr_flush, 0666, enable_phr_flush_show, enable_phr_flush_store);
-static struct kobj_attribute enable_view_rotation_attribute = __ATTR(enable_view_rotation, 0666, enable_view_rotation_show, enable_view_rotation_store);
-static struct kobj_attribute enable_ssbs_attribute = __ATTR(enable_ssbs, 0666, enable_ssbs_show, enable_ssbs_store);
-static struct kobj_attribute measurement_mode_attribute = __ATTR(measurement_mode, 0666, measurement_mode_show, measurement_mode_store);
-static struct kobj_attribute pin_to_core_attribute = __ATTR(pin_to_core, 0666, pin_to_core_show, pin_to_core_store);
+static struct kobj_attribute enable_pre_run_flush_attribute = __ATTR(enable_pre_run_flush, 0644,enable_pre_run_flush_show, enable_pre_run_flush_store);
+static struct kobj_attribute enable_phr_flush_attribute = __ATTR(enable_phr_flush, 0644,enable_phr_flush_show, enable_phr_flush_store);
+static struct kobj_attribute enable_view_rotation_attribute = __ATTR(enable_view_rotation, 0644,enable_view_rotation_show, enable_view_rotation_store);
+static struct kobj_attribute enable_ssbs_attribute = __ATTR(enable_ssbs, 0644,enable_ssbs_show, enable_ssbs_store);
+static struct kobj_attribute measurement_mode_attribute = __ATTR(measurement_mode, 0644,measurement_mode_show, measurement_mode_store);
+static struct kobj_attribute pin_to_core_attribute = __ATTR(pin_to_core, 0644,pin_to_core_show, pin_to_core_store);
 
 static ssize_t branch_training_config_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
     set_branch_training_config(buf, count);
@@ -210,11 +210,11 @@ static ssize_t enable_branch_training_store(struct kobject *kobj, struct kobj_at
 }
 
 static ssize_t enable_branch_training_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
-    return sprintf(buf, "%d\n", executor.config.enable_branch_training ? 1 : 0);
+    return scnprintf(buf, PAGE_SIZE,"%d\n", executor.config.enable_branch_training ? 1 : 0);
 }
 
-static struct kobj_attribute branch_training_config_attribute = __ATTR(branch_training_config, 0666, branch_training_config_show, branch_training_config_store);
-static struct kobj_attribute enable_branch_training_attribute = __ATTR(enable_branch_training, 0666, enable_branch_training_show, enable_branch_training_store);
+static struct kobj_attribute branch_training_config_attribute = __ATTR(branch_training_config, 0644,branch_training_config_show, branch_training_config_store);
+static struct kobj_attribute enable_branch_training_attribute = __ATTR(enable_branch_training, 0644,enable_branch_training_show, enable_branch_training_store);
 
 static struct attribute *sysfs_attributes[] = {
 	&warmups_attribute.attr,
