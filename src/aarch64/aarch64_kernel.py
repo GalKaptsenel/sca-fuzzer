@@ -11,7 +11,6 @@ import re
 import uuid
 import functools
 import ctypes
-import fcntl
 import time
 from typing import List, Literal, Union, Optional, Type, Callable, Tuple
 from abc import ABC, abstractmethod
@@ -286,6 +285,8 @@ REVISOR_MTE_TAG_REGION = _IOW(REVISOR_IOC_MAGIC, REVISOR_MTE_TAG_REGION_CONSTANT
 class LocalHWExecutor(HWExecutor):
 
     def __init__(self, device_path: str, sys_executor_path: str):
+        import fcntl  # Linux-only; imported lazily so the module stays importable off-Linux
+        self._fcntl = fcntl
         self.executor_device_path: str = device_path
         self.executor_sysfs: str = sys_executor_path
         self.current_region: ExecutorRegion = TestCaseRegion()
@@ -317,10 +318,10 @@ class LocalHWExecutor(HWExecutor):
                 arg = 0
             if isinstance(arg, int):
                 buf = ctypes.c_uint64(arg)
-                ret = fcntl.ioctl(self.fd, cmd, buf)
+                ret = self._fcntl.ioctl(self.fd, cmd, buf)
                 return buf.value
             else:
-                return fcntl.ioctl(self.fd, cmd, arg)
+                return self._fcntl.ioctl(self.fd, cmd, arg)
 
     def trace(self):
         self._ioctl(REVISOR_TRACE)
@@ -406,7 +407,7 @@ class LocalHWExecutor(HWExecutor):
         # keys=None clears the configured keys: the executor reverts to the
         # live hardware keys (signalled to the kernel with a NULL argument).
         if keys is None:
-            fcntl.ioctl(self.fd, REVISOR_SET_PAC_KEYS, 0)
+            self._fcntl.ioctl(self.fd, REVISOR_SET_PAC_KEYS, 0)
         else:
             self._ioctl(REVISOR_SET_PAC_KEYS, keys)
 
