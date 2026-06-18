@@ -62,7 +62,10 @@ class SSHConnection(Connection):
 
         out = stdout.read().decode().strip()
         err = stderr.read().decode().strip()
-        return out if out else err
+        rc = stdout.channel.recv_exit_status()
+        if 0 != rc:
+            raise IOError(f'remote command failed (rc={rc}): {cmd}\n{err}')
+        return out
 
     def push(self, src, dst):
         with profile_op('push'):
@@ -100,9 +103,9 @@ class ADBConnection(Connection):
             raise IOError('Could not find devices for ADB')
 
         if serial is not None:
-            for device in self.client.devices():
-                if device.serial == serial:
-                    self.device = device
+            self.device = next((d for d in self.client.devices() if d.serial == serial), None)
+            if self.device is None:
+                raise IOError(f'No ADB device with serial {serial!r}')
         else:
             self.device = self.client.devices()[0]
 
