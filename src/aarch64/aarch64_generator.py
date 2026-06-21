@@ -477,12 +477,17 @@ class _SandboxInstrumentationBase:
                 predecessors.setdefault(succ, []).append(bb)
         topo: List[BasicBlock] = []
         seen: Set[BasicBlock] = set()
+        on_stack: Set[BasicBlock] = set()
         def _dfs(bb: BasicBlock) -> None:
             if bb in seen:
                 return
-            seen.add(bb)
+            if bb in on_stack:
+                raise GeneratorException("CFG contains a cycle; MTE taint dataflow assumes a DAG")
+            on_stack.add(bb)
             for succ in bb.successors:
                 _dfs(succ)
+            on_stack.discard(bb)
+            seen.add(bb)
             topo.append(bb)
         _dfs(func.get_first_bb())
         topo.reverse()
