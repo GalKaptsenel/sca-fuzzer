@@ -113,8 +113,18 @@ class ADBConnection(Connection):
 
 
     def shell(self, cmd: str, privileged = False) -> str:
-        cmd = f'su -c "{cmd}"' if privileged else cmd
-        return self.device.shell(cmd)
+        # adb shell does not surface the remote exit status, so append it and check it
+        inner = f'su -c "{cmd}"' if privileged else cmd
+        marker = "__RVZR_RC__"
+        out = self.device.shell(f'{inner}; echo {marker}$?')
+        idx = out.rfind(marker)
+        tail = out[idx + len(marker):].split() if 0 <= idx else []
+        if not tail:
+            raise IOError(f'ADB shell: missing exit status for command {cmd!r}\n{out}')
+        rc = int(tail[0])
+        if 0 != rc:
+            raise IOError(f'ADB shell command failed (rc={rc}): {cmd!r}\n{out[:idx]}')
+        return out[:idx]
 
     def push(self, src, dst):
         return self.device.push(src, dst)
