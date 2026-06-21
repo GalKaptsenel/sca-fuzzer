@@ -4,6 +4,7 @@
 #include "instruction_encodings.h"   /* evaluate_cond_target */
 #include "simulation_input.h"        /* EXEC_CLAUSE_BPU */
 #include "simulation.h"              /* simulation.sim_input.hdr.config */
+#include "simulation_execution_clause_hook.h"  /* spec_nesting */
 
 /* Mispredict branches per the predictor selected by the input (config.branch_predictor).
  * No default — an unknown/none selection on a BPU run traps. */
@@ -27,7 +28,11 @@ static void* bpu_on_instruction(struct simulation_state* sim_state) {
 	uintptr_t target    = evaluate_cond_target(sim_state->cpu_state.pc, insn);
 	int arch_taken = (target == arch_next);
 	int predicted  = g_predictor->predict(sim_state->cpu_state.pc);
-	g_predictor->update(sim_state->cpu_state.pc, arch_taken, arch_next);
+
+	/* Train only on the architectural path: wrong-path (speculated) branches never retire. */
+	if (0 == spec_nesting()) {
+		g_predictor->update(sim_state->cpu_state.pc, arch_taken, arch_next);
+	}
 
 	/* Mispredict iff the predictor disagrees with the architectural direction. */
 	int mispredict = !((arch_taken && predicted) || (!arch_taken && !predicted));
