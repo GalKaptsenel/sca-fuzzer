@@ -318,21 +318,16 @@ class Aarch64PatchUndefinedLoadsStoresPass(Pass):
         (the offset/extend components are immediates, not registers)."""
         return {self._norm(op.value) for op in mem_op.inner if op.type == OT.REG}
 
-    def _is_simd_reg(self, name: str) -> bool:
-        """Whether a register name belongs to the SIMD/FP file rather than the GPR file."""
-        return any(name in regs for regs in self.target_desc.simd_registers.values())
-
     def _replace_reg(self, operand: RegisterOperand, forbidden: Set[str]) -> None:
-        """
-        Replace operand.value with a randomly chosen register of the same width and register
-        class (a SIMD operand must not be replaced by a GPR) that is not in *forbidden*.
-        """
-        pool = self.target_desc.simd_registers if self._is_simd_reg(operand.value) \
-            else self.target_desc.registers
-        candidates = [
-            r for r in pool.get(operand.width, [])
-            if self._norm(r) not in forbidden
-        ]
+        """Replace operand.value with a register of the same file and width that is not in
+        *forbidden*. The letter prefix fixes the file+width, so candidates keep it (q stays q,
+        d stays d, x stays x) -- a SIMD operand is never replaced by a GPR or re-named v<->q."""
+        prefix = operand.value.rstrip("0123456789")
+        if prefix[0] in ("x", "w") or prefix == "sp":
+            pool = self.target_desc.registers.get(operand.width, [])
+        else:
+            pool = [f"{prefix}{i}" for i in range(32)]
+        candidates = [r for r in pool if self._norm(r) not in forbidden]
         if not candidates:
             # Should not happen in a correctly configured target descriptor,
             # but guard against it rather than crashing the fuzzer.

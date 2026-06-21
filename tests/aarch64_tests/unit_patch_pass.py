@@ -39,6 +39,13 @@ class ReplaceRegClassTest(unittest.TestCase):
         p._replace_reg(op, forbidden={p.target_desc.reg_normalized["v0"]})
         self.assertIn(op.value, p.target_desc.simd_registers[128])
 
+    def test_q_register_replaced_by_q(self):
+        p = _pass()
+        op = RegisterOperand("q0", 128, True, False)
+        p._replace_reg(op, forbidden={p.target_desc.reg_normalized["q0"]})
+        self.assertTrue(op.value.startswith("q"))
+        self.assertNotEqual(op.value, "q0")
+
 
 if __name__ == "__main__":
     unittest.main()
