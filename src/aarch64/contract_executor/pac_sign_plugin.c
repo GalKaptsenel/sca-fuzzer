@@ -13,7 +13,7 @@
 #define EXECUTOR_DEV "/dev/executor"
 
 #define PACGA_MASK   0xFFE0FC00U
-#define PACGA_BASE   0xDAC03000U
+#define PACGA_BASE   0x9AC03000U
 
 #define PAC2_MASK    0xFFFFFC00U
 #define PACIA_BASE   0xDAC10000U
