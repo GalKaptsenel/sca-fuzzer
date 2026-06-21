@@ -164,21 +164,6 @@ static int __nocfi run_experiments(void) {
 	// Zero-initialize the region of memory used by Prime+Probe
 	memset(executor.sandbox->eviction_region, 0, sizeof(executor.sandbox->eviction_region));
 
-	/* Run the measurement at RT priority pinned to this CPU; the previous
-	 * policy/priority/affinity are restored after the loop so we don't leave the
-	 * calling thread permanently RT-pinned. */
-	int saved_policy = current->policy;
-	int saved_rt_priority = current->rt_priority;
-	cpumask_t saved_mask;
-	cpumask_copy(&saved_mask, &current->cpus_mask);
-
-	current->policy = SCHED_FIFO;
-	current->rt_priority = MAX_RT_PRIO - 1;
-	cpumask_t mask;
-	cpumask_clear(&mask);
-	cpumask_set_cpu(smp_processor_id(), &mask);
-	set_cpus_allowed_ptr(current, &mask);
-
 	if (executor.config.enable_ssbs) {
 		asm volatile(".inst 0xd503413f\n isb\n" ::: "memory");  /* MSR SSBS, #1 */
 	}
@@ -236,9 +221,6 @@ static int __nocfi run_experiments(void) {
 		measure(&current_input->measurement);
 	}
 
-	set_cpus_allowed_ptr(current, &saved_mask);
-	current->policy = saved_policy;
-	current->rt_priority = saved_rt_priority;
 	return 0;
 }
 
