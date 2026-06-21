@@ -191,7 +191,8 @@ def get_tags(inst: dict) -> list:
         if name in _INDIRECT_BRANCH:
             tags.add("BASE-BRANCH-INDIRECT")
 
-    assert tags, f"instruction {name!r} (category {cat!r}) got no tags — classification gap"
+    if not tags:
+        raise ValueError(f"instruction {name!r} (category {cat!r}) got no tags — classification gap")
     return sorted(tags)
 
 
