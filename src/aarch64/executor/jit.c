@@ -28,6 +28,7 @@ static inline void emit(jit_t* jit, uint32_t insn) {
 	JIT_ASSERT(((size_t)jit->cur & 3) == 0);
 	JIT_ASSERT(jit->cur + 4 <= jit->base + jit->size);
 	if (jit->cur + 4 > jit->base + jit->size) {
+		jit->overflow = true;
 		return;
 	}
 	*(uint32_t*)jit->cur = insn;
@@ -47,6 +48,7 @@ jit_t* jit_init(size_t size, uint32_t* buffer) {
 	instance.base = (uint8_t*)buffer;
 	instance.cur  = instance.base;
 	instance.size = size;
+	instance.overflow = false;
 	return &instance;
 }
 

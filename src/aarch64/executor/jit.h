@@ -8,6 +8,7 @@ typedef struct {
     uint8_t* base;   /* base of the allocated memory */
     uint8_t* cur;    /* current write position */
     size_t size;     /* total allocated size */
+    bool overflow;   /* set if a write was dropped because the buffer was full */
 } jit_t;
 
 /* Branch condition codes */

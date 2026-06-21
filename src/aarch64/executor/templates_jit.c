@@ -621,10 +621,16 @@ int load_jit_template(size_t tc_size) {
 	ssize_t expanded_size = build_measurement_code(jit, executor.config.measurement_template,
 	                                               (uint32_t*)executor.test_case, tc_size);
 
+	bool overflowed = jit->overflow;
 	jit_free(jit);
 
 	set_memory_rw_fn((unsigned long)executor.measurement_code_views[0],
 	                 MAX_MEASUREMENT_CODE_SIZE >> PAGE_SHIFT);
+
+	if (overflowed) {
+		module_err("Measurement harness overflowed the JIT buffer; refusing to run a truncated harness\n");
+		return -ENOSPC;
+	}
 
 	if (0 > expanded_size) {
 		module_err("Failed to build measurement code (template %d)\n",
