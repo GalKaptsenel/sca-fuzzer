@@ -100,29 +100,34 @@ static int load_input_id(int64_t* p_input_id, void __user* arg) {
 	BUG_ON(NULL == p_input_id);
 
 	not_read = copy_from_user_with_access_check(p_input_id, arg, sizeof(int64_t));
+	if(0 != not_read) {
+		module_err("Failed to read input id from user buffer\n");
+		return -EFAULT;
+	}
 
 	if(0 > *p_input_id) {
 		module_err("Invalid input id! (got input id: %lld)\n", *p_input_id);
+		return -EINVAL;
 	}
 
-	return sizeof(int64_t) - not_read;
+	return 0;
 }
 
-static void checkout_into_input_id(void __user* arg) {
+static int checkout_into_input_id(void __user* arg) {
 	int64_t input_id = -1;
-
-	load_input_id(&input_id, arg);
-
-	if(0 <= input_id) {
-		input_t* current_input = get_input(input_id);
-
-		if(NULL != current_input) {
-			executor.checkout_region = input_id;
-		} else {
-			module_err("Checkedout an input id that does not exist! (requested input id: %lld)\n",
-			 input_id);
-		}
+	int err = load_input_id(&input_id, arg);
+	if(0 != err) {
+		return err;
 	}
+
+	if(NULL == get_input(input_id)) {
+		module_err("Checkedout an input id that does not exist! (requested input id: %lld)\n",
+		 input_id);
+		return -EINVAL;
+	}
+
+	executor.checkout_region = input_id;
+	return 0;
 }
 
 static void measurements_became_unavailable(void) {
@@ -146,22 +151,24 @@ static void reset_state_and_region_after_unloading_all_inputs(void) {
 	}
 }
 
-static void free_input_id(void __user* arg) {
+static int free_input_id(void __user* arg) {
 	int64_t input_id = -1;
-
-	load_input_id(&input_id, arg);
-
-	if(0 <= input_id) {
-		if(input_id == executor.checkout_region) {
-			executor.checkout_region = REGION_DEFAULT;
-		}
-
-		remove_input(input_id);
-
-		if(0 == executor.number_of_inputs) {
-			reset_state_and_region_after_unloading_all_inputs();
-		}
+	int err = load_input_id(&input_id, arg);
+	if(0 != err) {
+		return err;
 	}
+
+	if(input_id == executor.checkout_region) {
+		executor.checkout_region = REGION_DEFAULT;
+	}
+
+	remove_input(input_id);
+
+	if(0 == executor.number_of_inputs) {
+		reset_state_and_region_after_unloading_all_inputs();
+	}
+
+	return 0;
 }
 
 static void clear_all_inputs(void) {
@@ -441,7 +448,7 @@ static long do_revisor_ioctl(struct file* file, unsigned int cmd, unsigned long 
 			break;
 
 		case REVISOR_CHECKOUT_INPUT_CONSTANT:
-			checkout_into_input_id((void __user*)arg);
+			result = checkout_into_input_id((void __user*)arg);
 			break;
 
 		case REVISOR_ALLOCATE_INPUT_CONSTANT:
@@ -452,7 +459,7 @@ static long do_revisor_ioctl(struct file* file, unsigned int cmd, unsigned long 
 			break;
 
 		case REVISOR_FREE_INPUT_CONSTANT:
-			free_input_id((void __user*)arg);
+			result = free_input_id((void __user*)arg);
 			break;
 
 		case REVISOR_MEASUREMENT_CONSTANT:
