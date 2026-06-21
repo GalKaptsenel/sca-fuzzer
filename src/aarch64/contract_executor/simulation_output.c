@@ -375,10 +375,16 @@ static bool safe_file_write(FILE* f, const void* buff, size_t size) {
 }
 
 static int transmit_payload_to_file(FILE* f, const void* payload, size_t payload_length) {
-	if(NULL == f || NULL == payload) return -1;
+	if(NULL == f) return -1;
+	if(NULL == payload && 0 != payload_length) return -1;
+	if(payload_length > UINT32_MAX) {
+		fprintf(stderr, "[ERR] contract-trace payload too large for wire header (%zu bytes)\n",
+			payload_length);
+		return -1;
+	}
 
 	struct header hdr = { 0 };
-	hdr.length = payload_length;
+	hdr.length = (uint32_t)payload_length;
 	hdr.type = 2;
 
 	if(!safe_file_write(f, &hdr, sizeof(hdr))) {
@@ -395,14 +401,19 @@ static int transmit_payload_to_file(FILE* f, const void* payload, size_t payload
 }
 
 void destroy_trace_log() {
-	if(NULL == trace_log) return;
-	int sent = transmit_payload_to_file(stdout, trace_log,
-		current_log_index * sizeof(instr_trace_entry_t) + sizeof(contract_trace_t));
+	// always emit a framed response so the reader never blocks waiting for one, even when the
+	// trace log was never allocated (e.g. an earlier allocation failure)
+	int sent = (NULL == trace_log)
+		? transmit_payload_to_file(stdout, NULL, 0)
+		: transmit_payload_to_file(stdout, trace_log,
+			current_log_index * sizeof(instr_trace_entry_t) + sizeof(contract_trace_t));
 	if(0 > sent) {
 		fprintf(stderr, "[ERR] failed to transmit contract trace (err=%d)\n", sent);
 	}
-	free_contract_trace(trace_log);
-	trace_log = NULL;
+	if(NULL != trace_log) {
+		free_contract_trace(trace_log);
+		trace_log = NULL;
+	}
 	current_log_index = 0;
 	max_log_index  = 0;
 }

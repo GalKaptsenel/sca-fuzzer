@@ -168,6 +168,11 @@ int simulation_input_from_file(FILE* f, struct simulation_input* sim_input) {
 	if(ret <= 0) return ret;
 	size_t payload_len = (size_t)ret;
 
+	if (payload_len < sizeof(sim_input->hdr)) {
+		fprintf(stderr, "Payload smaller than header!\n");
+		return -1;
+	}
+
 	const uint8_t* current_ptr = tmp_buffer;
 	memset(sim_input, 0, sizeof(*sim_input));
 	memcpy(&sim_input->hdr, current_ptr, sizeof(sim_input->hdr));
