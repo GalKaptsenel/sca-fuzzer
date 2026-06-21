@@ -980,20 +980,23 @@ class MTEInstrumentation(_SandboxInstrumentationBase):
                                          reg=mem_reg, slot_insts=[nop])
                         fix_points.append(fp)
 
+                        # offset_subs permanently rewrites the base to (sandboxed - offset), so the
+                        # base is no longer at its sandboxed value and must not stay tainted.
+                        modifies_base = bool(offset_subs)
                         if norm_mem in curr:
                             insertions.append((inst, bb, [], offset_subs, [nop]))
-                            taint_log.append(
-                                f"  MEM-ACCESS   inst={inst.name:12s}  base={mem_reg}"
-                                f"  decision=NOP-ONLY"
-                                f"  taint={sorted(curr)}")
+                            decision = "NOP-ONLY"
+                            if modifies_base:
+                                curr = curr - frozenset([norm_mem])
                         else:
                             sandbox_insts = self._make_sandbox_insts(mem_reg)
                             insertions.append((inst, bb, sandbox_insts, offset_subs, [nop]))
-                            curr = curr | frozenset([norm_mem])
-                            taint_log.append(
-                                f"  MEM-ACCESS   inst={inst.name:12s}  base={mem_reg}"
-                                f"  decision=SANDBOX+NOP"
-                                f"  taint={sorted(curr)}")
+                            decision = "SANDBOX+NOP"
+                            if not modifies_base:
+                                curr = curr | frozenset([norm_mem])
+                        taint_log.append(
+                            f"  MEM-ACCESS   inst={inst.name:12s}  base={mem_reg}"
+                            f"  decision={decision}  taint={sorted(curr)}")
                     else:
                         taint_log.append(
                             f"  MEM-ACCESS   inst={inst.name:12s}  base=None(implicit?)"
