@@ -31,7 +31,7 @@ int main(void) {
 	if (0 > pid) die("fork");
 	if (0 == pid) {
 		char *as_argv[] = {
-			"as",
+			"aarch64-linux-gnu-as",
 			"-march=armv9-a+sve+memtag",
 			"-o", objpath,
 			"-",                 /* read assembly from stdin */
@@ -61,7 +61,7 @@ int main(void) {
 	if (0 > pid) die("fork");
 	if (0 == pid) {
 		char *objcopy_argv[] = {
-			"objcopy",
+			"aarch64-linux-gnu-objcopy",
 			"-O", "binary",
 			objpath,
 			outpath,
@@ -80,10 +80,16 @@ int main(void) {
 
 	char buf[4096];
 	ssize_t n;
+	ssize_t total = 0;
 	while ((n = read(outfd, buf, sizeof(buf))) > 0) {
 		if (write(1, buf, n) != n) die("write stdout");
+		total += n;
 	}
 	if (n < 0) die("read outfd");
+	if (0 == total) {
+		fprintf(stderr, "no machine code produced (empty objcopy output)\n");
+		return 1;
+	}
 
 	return 0;
 }
