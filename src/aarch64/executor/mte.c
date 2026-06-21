@@ -76,6 +76,7 @@ static inline void mte_set_sync(void) {
 static inline void mte_set_sync_callback(void* a) {
 	(void)a;
 	disable_TCO_bit();
+	enable_TCMA1_bit();   // tag-0 exemption must hold on every CPU that runs test cases, not just init
 	mte_set_sync();
 }
 
