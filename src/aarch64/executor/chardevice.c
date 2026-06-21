@@ -541,7 +541,7 @@ static long do_revisor_ioctl(struct file* file, unsigned int cmd, unsigned long 
 static ssize_t do_revisor_read(struct file* File, char __user* user_buffer,
  size_t count, loff_t* off) {
 	int number_of_bytes_to_copy  = 0;
-	int not_copied = 0;
+	unsigned long not_copied = 0;
 	uint64_t total_size = 0;
 	void* from_buffer = NULL;
 
@@ -566,6 +566,9 @@ static ssize_t do_revisor_read(struct file* File, char __user* user_buffer,
 
 	not_copied = copy_to_user_with_access_check(user_buffer, from_buffer + *off,
 	 number_of_bytes_to_copy);
+	if(not_copied > (unsigned long)number_of_bytes_to_copy) {
+		return -EFAULT;   // access check failed (sentinel return), not a partial copy
+	}
 
 	*off += (number_of_bytes_to_copy - not_copied);
 
