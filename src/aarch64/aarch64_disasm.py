@@ -75,6 +75,16 @@ def decode_reg_accesses(encoding: int, pc: int) -> Tuple[List[str], List[str]]:
             if op.mem.index != 0:
                 src.add(insn.reg_name(op.mem.index))
 
+    # Capstone 5.0.x under-reports these: rmif/setf8/setf16 expose neither the source read nor the
+    # NZCV write, and pacga omits its second source (Xm).
+    mnemonic = insn.mnemonic.lower()
+    if mnemonic in ("rmif", "setf8", "setf16"):
+        dest |= FLAG_BITS
+        src.update(insn.reg_name(op.reg) for op in insn.operands if op.type == ARM64_OP_REG)
+    elif mnemonic == "pacga":
+        src.update(insn.reg_name(op.reg) for op in insn.operands
+                   if op.type == ARM64_OP_REG and not (op.access & CS_AC_WRITE))
+
     return sorted(src), sorted(dest)
 
 
