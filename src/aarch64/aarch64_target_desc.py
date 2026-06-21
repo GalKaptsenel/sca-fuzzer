@@ -24,6 +24,7 @@ class Aarch64TargetDesc(TargetDesc):
     # Minimizer hooks. AArch64 uses GNU as default syntax (no header); the speculation fence is DSB SY.
     asm_header = ""
     speculation_barrier = "dsb sy"
+    comment_symbol = "//"
 
     # Branch mnemonics whose neutralization would change control flow (kept out of NOP replacement).
     _BRANCH_MNEMONICS = frozenset(("b", "bl", "br", "blr", "ret", "cbz", "cbnz", "tbz", "tbnz"))

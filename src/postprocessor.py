@@ -635,12 +635,13 @@ class FindSpecSourcePass(BaseInstructionMinimizationPass):
         if not inst_ids:
             self.progress.pass_msg("No speculation source found")
 
+        cs = self._target_desc.comment_symbol
         for i in inst_ids:
-            if "# " in instructions[i]:
+            if f"{cs} " in instructions[i]:
                 if "speculation source" not in instructions[i]:
                     instructions[i] = instructions[i][:-1] + ", speculation source ?\n"
             else:
-                instructions[i] = instructions[i][:-1] + "  # speculation source ?\n"
+                instructions[i] = instructions[i][:-1] + f"  {cs} speculation source ?\n"
         return get_test_case_from_instructions(self.fuzzer, instructions)
 
     def modify_instruction(self, instructions: List[str], i: int) -> List[str]:

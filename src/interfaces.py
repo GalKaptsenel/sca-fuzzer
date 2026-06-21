@@ -1069,6 +1069,8 @@ class TargetDesc(ABC):
     """ asm_header: header line(s) prepended when writing a standalone asm file for assembly """
     speculation_barrier: str = ""
     """ speculation_barrier: the speculation-fence mnemonic (e.g. 'lfence', 'dsb sy') """
+    comment_symbol: str = ""
+    """ comment_symbol: the assembly line-comment introducer ('#' for x86, '//' for AArch64) """
 
     def nop_replacement(self, line: str) -> Optional[str]:
         """Return a NOP mnemonic that can replace the instruction in `line` while preserving code

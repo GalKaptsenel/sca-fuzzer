@@ -20,6 +20,7 @@ class X86TargetDesc(TargetDesc):
     # Minimizer hooks. x86 asm is emitted in Intel syntax; the speculation fence is LFENCE.
     asm_header = ".intel_syntax noprefix\n"
     speculation_barrier = "lfence"
+    comment_symbol = "#"
 
     # NOP encodings of each byte length, used to neutralize an instruction without shifting offsets.
     _NOP_BY_SIZE = {
