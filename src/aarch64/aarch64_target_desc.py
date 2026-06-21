@@ -3,7 +3,7 @@ File: aarch64-specific constants and lists
 """
 from typing import List, Optional
 
-from ..interfaces import Instruction, TargetDesc, MacroSpec, CPUDesc, MemoryRole
+from ..interfaces import Instruction, TargetDesc, MacroSpec, CPUDesc, MemoryRole, CondOperand
 from ..config import CONF
 
 # Parked in this shared constants module — a dedicated sandbox-ABI home would fit better.
@@ -217,7 +217,11 @@ class Aarch64TargetDesc(TargetDesc):
 
     @staticmethod
     def is_unconditional_branch(inst: Instruction) -> bool:
-        return inst.name.lower() in ["b", "br", "ret"]
+        if inst.name.lower() in ["b", "b.al", "b.nv", "br", "ret"]:
+            return True
+        # a B.cond whose condition is al/nv (always/never) is effectively unconditional
+        return any(isinstance(op, CondOperand) and op.value.lower() in ("al", "nv")
+                   for op in inst.operands)
 
     @staticmethod
     def is_call(inst: Instruction) -> bool:

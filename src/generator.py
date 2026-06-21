@@ -568,7 +568,9 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
         return FlagsOperand(merged_flags)
 
     def generate_cond_operand(self, spec: OperandSpec, _: Instruction) -> Operand:
-        cond = random.choice(list(self.target_desc.branch_conditions))
+        # al/nv are always/never, so a terminator using them is not actually conditional
+        cond = random.choice([c for c in self.target_desc.branch_conditions
+                              if c not in ("al", "nv")])
         return CondOperand(cond)
 
     def expand_template(self, test_case: TestCase):
