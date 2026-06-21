@@ -44,7 +44,13 @@ class Aarch64Generator(ConfigurableGenerator, abc.ABC):
         return Instruction("ret", False, "", True, template="RET")
 
     def get_unconditional_jump_instruction(self) -> Instruction:
-        return Instruction("b", False, "UNCOND_BR", True, template="B {label}")
+        # B.AL / B.NV both branch "always" on A64, so they are additional unconditional forms
+        template, name = random.choice((
+            ("B {label}", "b"),
+            ("B.al {label}", "b.al"),
+            ("B.nv {label}", "b.nv"),
+        ))
+        return Instruction(name, False, "UNCOND_BR", True, template=template)
 
     @staticmethod
     def assemble(asm_file: str, obj_file: str, bin_file: str) -> None:
