@@ -235,6 +235,9 @@ static void update_state_after_writing_test(void) {
 		case CONFIGURATION_STATE:
 			executor.state = LOADED_TEST_STATE;
 			break;
+		case TRACED_STATE:           // re-writing the test invalidates the prior measurements
+			measurements_became_unavailable();
+			fallthrough;
 		case LOADED_INPUTS_STATE:
 			executor.state = READY_STATE;
 			break;
@@ -312,6 +315,9 @@ static void update_state_after_writing_input(void) {
 		case CONFIGURATION_STATE:
 			executor.state = LOADED_INPUTS_STATE;
 			break;
+		case TRACED_STATE:           // re-writing an input invalidates the prior measurements
+			measurements_became_unavailable();
+			fallthrough;
 		case LOADED_TEST_STATE:
 			executor.state = READY_STATE;
 			break;
