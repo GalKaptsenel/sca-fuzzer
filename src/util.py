@@ -752,7 +752,7 @@ class FuzzLogger:
       2 — level 1 + verbose CE trace comparison tables
     """
     _instance: Optional['FuzzLogger'] = None
-    _VERBOSITY: int = 2
+    _VERBOSITY: int = 0
 
     @classmethod
     def get(cls) -> 'FuzzLogger':

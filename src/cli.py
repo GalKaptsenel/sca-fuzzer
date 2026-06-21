@@ -432,6 +432,11 @@ def main() -> int:
     if getattr(args, 'testcase', None):
         CONF._no_generation = True
 
+    if not getattr(CONF, 'instruction_set', None) \
+            and args.subparser_name in ('fuzz', 'tfuzz', 'reproduce', 'generate', 'minimize'):
+        print("[ERROR]", "instruction_set is not set; pass --config with an instruction_set")
+        return 1
+
     # Check if the file and directory arguments are valid
     if getattr(args, 'testcase', None) and not os.path.isfile(args.testcase):
         print("[ERROR]", f"The test case file `{args.testcase}` does not exist")
