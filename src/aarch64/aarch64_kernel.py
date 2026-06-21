@@ -566,7 +566,7 @@ class RemoteHWExecutor(HWExecutor):
         if isinstance(self.current_region, TestCaseRegion):
             self._query_executor(REVISOR_UNLOAD_TEST_CONSTANT)
         elif isinstance(self.current_region, InputRegion):
-            self._query_executor(REVISOR_FREE_INPUT_CONSTANT)
+            self._query_executor(REVISOR_FREE_INPUT_CONSTANT, self.current_region.iid)
         else:
             raise ValueError(f'Unsupported region type: {type(self.current_region)}')
 
