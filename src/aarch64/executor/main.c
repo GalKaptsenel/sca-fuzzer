@@ -48,10 +48,11 @@ static bool load_kallsyms_lookup_name(void) {
 }
 
 static bool __nocfi load_globals(void) {
-	bool success_kallsyms = load_kallsyms_lookup_name(); // must be the first initialization, as all other loads depend on this
-	bool success_permisstion_handling = load_set_memory_permissions_handling();
-
-	return success_kallsyms && success_permisstion_handling;
+	// every other load resolves symbols via kallsyms_lookup_name; don't run them with a NULL resolver
+	if (!load_kallsyms_lookup_name()) {
+		return false;
+	}
+	return load_set_memory_permissions_handling();
 }
 
 static int  __init executor_init(void) {

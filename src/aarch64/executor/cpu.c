@@ -9,23 +9,19 @@ void get_cpu_info(void *info) {
 }
 
 int execute_on_pinned_cpu(int target_cpu, void (*fn)(void *), void *arg) {
-	int result = 0;
+	int this_cpu = get_cpu();   // preempt-disable so the CPU read is stable (no DEBUG_PREEMPT / TOCTOU)
 
-	if(smp_processor_id() == target_cpu || CPU_ID_DEFAULT == target_cpu) {
-		get_cpu();
+	if (this_cpu == target_cpu || CPU_ID_DEFAULT == target_cpu) {
 		fn(arg);
 		put_cpu();
 		return 0;
 	}
+	put_cpu();
 
 	if (0 > target_cpu || target_cpu >= nr_cpu_ids || !cpu_online(target_cpu)) {
 		module_err("Target CPU %d is invalid or offline\n", target_cpu);
-		result = -EINVAL;
-		goto execute_on_pinned_cpu_out;
+		return -EINVAL;
 	}
-	
-	result = smp_call_function_single(target_cpu, fn, arg, 1);
-	
-execute_on_pinned_cpu_out:
-	return result;
+
+	return smp_call_function_single(target_cpu, fn, arg, 1);
 }
