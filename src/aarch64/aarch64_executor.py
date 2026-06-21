@@ -423,13 +423,13 @@ class Aarch64LocalExecutor(Aarch64Executor):
             raise ValueError(f"unsupported execution-clause combination {ct!r} "
                              f"from {list(CONF.contract_execution_clause)}; "
                              f"supported: {sorted(SUPPORTED_EXECUTION_CLAUSES)}")
-        nesting_depth = 0 if ct == ExecutionClause.SEQ else CONF.model_max_nesting
+        nesting_depth = 0 if ct == ExecutionClause.SEQ else nesting
 
         traces: List[ContractExecutionResult] = []
 
         for inp in inputs:
             execution = self._make_ce_execution(tc_bytes, inp, sandbox_base, nesting_depth,
-                                                 CONF.model_max_spec_window, ct)
+                                                 CONF.model_max_spec_window, ct, bp=bp)
             cer = self._contract_executor.run(execution)
             traces.append(cer)
 
