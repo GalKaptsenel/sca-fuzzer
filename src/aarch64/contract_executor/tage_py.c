@@ -1,6 +1,7 @@
 #include <Python.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 static PyObject *tage_instance = NULL;
 static int python_initialized = 0;
@@ -105,9 +106,10 @@ void tagebp_update(uintptr_t address, int taken, uintptr_t target) {
 
 	if (!result) {
 		PyErr_Print();
-	} else {
-		Py_DECREF(result); // update returns None
+		fprintf(stderr, "[CE FATAL] tagebp_update: TAGE update() raised\n");
+		abort();
 	}
+	Py_DECREF(result); // update returns None
 }
 
 void tagebp_reset(void) {
