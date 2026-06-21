@@ -96,8 +96,8 @@ static mte_type_t classify_mte(uint32_t enc)
 		}
 	}
 
-	/* STGP: bits[31:24] = 0x69 */
-	if ((enc >> 24) == 0x69u) {
+	/* STGP: bits[31:24] = 0x68 (post-index) or 0x69 (signed-offset / pre-index) */
+	if ((enc >> 24) == 0x68u || (enc >> 24) == 0x69u) {
 		return MTE_STGP;
 	}
 
@@ -164,23 +164,25 @@ void* mte_emulator_hook(struct simulation_state* sim_state)
 		case MTE_SUBP:
 		case MTE_SUBPS: {
 			/*
-			 * SUBP[S] Xd, Xn, Xm: signed 56-bit pointer subtraction.
-			 *
-			 * ARM spec: result = Xn[55:0] - Xm[55:0], computed as 56-bit
-			 * unsigned (wrapping), then sign-extended to 64 bits from bit 55.
-			 * SUBPS additionally sets NZCV; we omit the flag update here since
-			 * CE does not currently model MTE-specific flag writes.
-			 *
-			 * Sign extension from bit 55 uses the shift trick to avoid UB:
-			 *   << 8 moves bit 55 to bit 63, then arithmetic >> 8 fills
-			 *   bits[63:56] with the sign.
+			 * SUBP[S] Xd, Xn, Xm: result = SignExtend(Xn[55:0]) - SignExtend(Xm[55:0]).
+			 * The shift trick (<<8 then arithmetic >>8) moves bit 55 to bit 63 and fills
+			 * bits[63:56] with the sign, avoiding UB.
 			 */
 			uint64_t xn56 = cpu_state_read_base_reg(state, rn) & 0x00FFFFFFFFFFFFFFu;
 			uint64_t xm56 = cpu_state_read_base_reg(state, rm) & 0x00FFFFFFFFFFFFFFu;
-			uint64_t diff56 = (xn56 - xm56) & 0x00FFFFFFFFFFFFFFu;
-			uint64_t shifted = diff56 << 8;   /* bit55 → bit63 */
-			uint64_t result  = (uint64_t)((int64_t)shifted >> 8);  /* arith sign-fill */
+			uint64_t op1 = (uint64_t)((int64_t)(xn56 << 8) >> 8);
+			uint64_t op2 = (uint64_t)((int64_t)(xm56 << 8) >> 8);
+			uint64_t result = op1 - op2;
 			write_xreg(state, rd, result);
+			if (mtype == MTE_SUBPS) {
+				/* NZCV from AddWithCarry(op1, NOT op2, 1): C = no borrow, V = signed overflow. */
+				uint32_t N = (uint32_t)(result >> 63);
+				uint32_t Z = (result == 0);
+				uint32_t C = (op1 >= op2);
+				uint32_t V = (uint32_t)(((op1 ^ op2) & (op1 ^ result)) >> 63);
+				state->nzcv = ((uint64_t)N << 31) | ((uint64_t)Z << 30)
+				            | ((uint64_t)C << 29) | ((uint64_t)V << 28);
+			}
 			break;
 		}
 		case MTE_ADDG: {
