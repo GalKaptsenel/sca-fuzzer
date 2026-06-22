@@ -47,10 +47,22 @@ static void neoverse_n3_update(uintptr_t pc, int taken, uintptr_t target) {
 	tagebp_update(pc, taken, target);
 }
 
+static void neoverse_n3_advance(uintptr_t pc, int taken, uintptr_t target) {
+	tagebp_advance(pc, taken, target);
+}
+
+static void neoverse_n3_checkpoint(void) { tagebp_checkpoint(); }
+static void neoverse_n3_rollback(void)   { tagebp_rollback(); }
+static void neoverse_n3_commit(void)     { tagebp_commit(); }
+
 const struct branch_predictor neoverse_n3_bpu = {
-	.name    = "neoverse-n3-tage",
-	.init    = neoverse_n3_init,
-	.reset   = neoverse_n3_reset,
-	.predict = neoverse_n3_predict,
-	.update  = neoverse_n3_update,
+	.name       = "neoverse-n3-tage",
+	.init       = neoverse_n3_init,
+	.reset      = neoverse_n3_reset,
+	.predict    = neoverse_n3_predict,
+	.update     = neoverse_n3_update,
+	.advance    = neoverse_n3_advance,
+	.checkpoint = neoverse_n3_checkpoint,
+	.rollback   = neoverse_n3_rollback,
+	.commit     = neoverse_n3_commit,
 };

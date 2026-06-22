@@ -33,6 +33,10 @@ static void reload_checkpoint(struct simulation_state* sim_state, uint64_t check
 	memcpy(sim_state->memory, mgmt.checkpoints_array[checkpoint_id].memory, mgmt.memory_size);
 }
 
+void spec_reload_checkpoint(struct simulation_state* sim_state, const struct execution_checkpoint_desc* frame) {
+	reload_checkpoint(sim_state, frame->checkpoint_id);
+}
+
 static void destroy_execution_clause(void) {
 	if(initialized) {
 		for(size_t i = 0; i < mgmt.current_checkpoint_id; ++i) {

@@ -48,7 +48,7 @@ test: test_ce test_ce_integration contract_executor
 contract_executor: $(SRCS) $(HDRS)
 	$(CC) $(CFLAGS) $(PYTHON_CFLAGS) $(SRCS) -o $@ $(PYTHON_LDFLAGS)
 
-TEST_SRCS = instruction_encodings.c simulation_input.c test_ce.c
+TEST_SRCS = instruction_encodings.c simulation_input.c branch_speculation.c utils.c test_ce.c
 test_ce: $(TEST_SRCS) $(HDRS)
 	$(CC) $(CFLAGS) -I. $(TEST_SRCS) -o $@
 

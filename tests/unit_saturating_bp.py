@@ -12,17 +12,21 @@ the claim — not that the arithmetic produces a particular internal value.
 Run with:  python tests/unit_saturating_bp.py
 """
 
+import os
 import sys
 import random
 import unittest
 
-sys.path.insert(0, ".")
+# Import the BPU model exactly as the contract executor loads it — as a top-level sibling module
+# from its own directory — rather than through the `src` package (whose __init__ pulls in the heavy
+# revizor stack, scipy included). Keeps this unit test fast and dependency-light.
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "aarch64", "contract_executor"))
 
-from src.aarch64.contract_executor.saturating_bp import (
+from saturating_bp import (
     SaturatingCounterBP,
     SaturatingCounterBPCommon,
     TAGEPHT,
-    TAGEBase,
+    BimodalBP,
     PHR,
     Aarch64NeoverseN3BPU,
 )
@@ -34,7 +38,14 @@ from src.aarch64.contract_executor.saturating_bp import (
 
 def fresh_bpu():
     # Explicit fold width: the model has no default; the tests pin the 11-bit fold they assert on.
-    return Aarch64NeoverseN3BPU(fold_group_width=11)
+    return Aarch64NeoverseN3BPU(fold_group_width=11, tag_width=8)
+
+def step(predictor, address, taken, target):
+    """A full non-speculative branch step: update the prediction tables, then advance the history.
+    The model has no all-in-one method by design (the driver/engine composes the two), so the tests
+    compose them here."""
+    predictor.update(address, taken, target)
+    predictor.advance(address, taken, target)
 
 def make_pht(n_bits=3):
     """Minimal TAGEPHT with identity index/tag functions for isolation."""
@@ -51,7 +62,7 @@ def flush_phr(bpu, n_taken_branches):
     for i in range(n_taken_branches):
         addr   = FLUSH_A if i % 2 == 0 else FLUSH_B
         target = FLUSH_B if i % 2 == 0 else FLUSH_A
-        bpu.update(addr, taken=True, target=target)
+        step(bpu,addr, taken=True, target=target)
 
 
 # ---------------------------------------------------------------------------
@@ -179,7 +190,7 @@ class TestPHRBehaviour(unittest.TestCase):
         phr_start = bpu._phr.read()
 
         for _ in range(100):
-            bpu.update(0x1000, taken=False, target=0x1100)
+            step(bpu,0x1000, taken=False, target=0x1100)
 
         self.assertEqual(bpu._phr.read(), phr_start,
             "PHR must not change on not-taken branches")
@@ -193,7 +204,7 @@ class TestPHRBehaviour(unittest.TestCase):
         """
         bpu = fresh_bpu()
         phr_before = bpu._phr.read()
-        bpu.update(0x4, taken=True, target=0x0)  # footprint(0x4, 0x0) = pc[2]=1 → fp=1
+        step(bpu,0x4, taken=True, target=0x0)  # footprint(0x4, 0x0) = pc[2]=1 → fp=1
         self.assertNotEqual(bpu._phr.read(), phr_before)
 
     def test_phr_footprint_target_bits_matter(self):
@@ -208,8 +219,8 @@ class TestPHRBehaviour(unittest.TestCase):
         target_a = 0b0000_0000_0000  # bit 3 = 0
         target_b = 0b0000_0000_1000  # bit 3 = 1
 
-        bpu_a.update(pc, taken=True, target=target_a)
-        bpu_b.update(pc, taken=True, target=target_b)
+        step(bpu_a,pc, taken=True, target=target_a)
+        step(bpu_b,pc, taken=True, target=target_b)
 
         self.assertNotEqual(bpu_a._phr.read(), bpu_b._phr.read(),
             "target bit 3 is in the footprint formula — different targets must produce different PHR")
@@ -227,8 +238,8 @@ class TestPHRBehaviour(unittest.TestCase):
         target_a = target_base | 0b000   # bits [0:2] = 0
         target_b = target_base | 0b111   # bits [0:2] = 1
 
-        bpu_a.update(pc, taken=True, target=target_a)
-        bpu_b.update(pc, taken=True, target=target_b)
+        step(bpu_a,pc, taken=True, target=target_a)
+        step(bpu_b,pc, taken=True, target=target_b)
 
         self.assertEqual(bpu_a._phr.read(), bpu_b._phr.read(),
             "target bits [0:2] are not in the footprint — PHR must be identical")
@@ -245,8 +256,8 @@ class TestPHRBehaviour(unittest.TestCase):
         pc_a = 0x1000  # bit 2 = 0
         pc_b = 0x1004  # bit 2 = 1
 
-        bpu_a.update(pc_a, taken=True, target=target)
-        bpu_b.update(pc_b, taken=True, target=target)
+        step(bpu_a,pc_a, taken=True, target=target)
+        step(bpu_b,pc_b, taken=True, target=target)
 
         self.assertNotEqual(bpu_a._phr.read(), bpu_b._phr.read(),
             "PC bit 2 is in the footprint formula — different PCs must produce different PHR")
@@ -263,13 +274,13 @@ class TestPHRBehaviour(unittest.TestCase):
         """
         bpu = fresh_bpu()
         # One branch: footprint(0x4, 0x0) = pc[2]=1 → PHR = 1, in bits [0:3]
-        bpu.update(0x4, taken=True, target=0x0)
+        step(bpu,0x4, taken=True, target=0x0)
         footprint_0 = bpu._phr.read() & 0xF   # = 1
 
         # 74 more taken branches — all have footprint=0 (verified: 0x100*(i%8)
         # have bits [2:9] = 0 so the formula produces 0 for all 8 cycling addresses)
         for i in range(74):
-            bpu.update(0x100 * (i % 8), taken=True, target=0x200 * (i % 8))
+            step(bpu,0x100 * (i % 8), taken=True, target=0x200 * (i % 8))
 
         # After 75 total: footprint_0 has been shifted left by 74×4=296 bits
         # and sits exactly in bits [296:299].  The 74 flush branches contribute
@@ -282,7 +293,7 @@ class TestPHRBehaviour(unittest.TestCase):
         # This shifts footprint_0 to bit 300 — outside the 300-bit mask, so it
         # disappears.  Bits [296:299] now contain the first flush branch's footprint
         # shifted up to position 4×74=296, which ≠ footprint_0.
-        bpu.update(0xABC, taken=True, target=0xDEF)   # footprint = 7
+        step(bpu,0xABC, taken=True, target=0xDEF)   # footprint = 7
         self.assertNotEqual((bpu._phr.read() >> 296) & 0xF, footprint_0,
             "after 76 taken branches, the original footprint must have been shifted out")
 
@@ -299,7 +310,7 @@ class TestPHRBehaviour(unittest.TestCase):
         # Contaminate bpu_dirty with 60 random taken branches
         rng = random.Random(0xDEADBEEF)
         for _ in range(60):
-            bpu_dirty.update(rng.randint(0, 0xFFFF) & ~3, taken=True,
+            step(bpu_dirty,rng.randint(0, 0xFFFF) & ~3, taken=True,
                              target=rng.randint(0, 0xFFFF) & ~3)
 
         self.assertNotEqual(bpu_cold._phr.read(), bpu_dirty._phr.read(),
@@ -437,7 +448,7 @@ class TestTAGEAllocationPolicy(unittest.TestCase):
 
         # Default prediction is not-taken, so all not-taken updates are correct
         for _ in range(20):
-            bpu.update(0x1000, taken=False, target=0x1100)
+            step(bpu,0x1000, taken=False, target=0x1100)
 
         self.assertEqual(bpu._phts[1].snapshot(), snap_t1_before,
             "no misprediction → table 1 must stay empty")
@@ -457,12 +468,12 @@ class TestTAGEAllocationPolicy(unittest.TestCase):
 
         # Drive base to strongly taken (correct predictions, PHR grows each time)
         for _ in range(8):
-            bpu.update(addr, taken=True, target=target)
+            step(bpu,addr, taken=True, target=target)
         self.assertTrue(bpu.predict(addr), "base must be strongly taken after 8 updates")
 
         # One not-taken: misprediction → allocation in table 1 or 2 (weakly not-taken)
         # PHR does NOT change on not-taken, so the subsequent predict uses the same index
-        bpu.update(addr, taken=False, target=target)
+        step(bpu,addr, taken=False, target=target)
         self.assertFalse(bpu.predict(addr),
             "longer-table entry (weakly not-taken) must override strongly-taken base")
 
@@ -478,9 +489,9 @@ class TestTAGEAllocationPolicy(unittest.TestCase):
         addr, target = 0x3000, 0x3100
 
         for _ in range(8):
-            bpu.update(addr, taken=True, target=target)
-        bpu.update(addr, taken=False, target=target)   # misprediction + allocation
-        bpu.update(addr, taken=False, target=target)   # correct not-taken in longer table
+            step(bpu,addr, taken=True, target=target)
+        step(bpu,addr, taken=False, target=target)   # misprediction + allocation
+        step(bpu,addr, taken=False, target=target)   # correct not-taken in longer table
         self.assertFalse(bpu.predict(addr),
             "longer-table entry must still dominate after a correct training update")
 
@@ -504,8 +515,8 @@ class TestTAGEAllocationPolicy(unittest.TestCase):
 
         # First misprediction: table 1 miss → allocate in table 1
         for _ in range(8):
-            bpu.update(addr, taken=True, target=target)
-        bpu.update(addr, taken=False, target=target)
+            step(bpu,addr, taken=True, target=target)
+        step(bpu,addr, taken=False, target=target)
 
         snap_t1_after  = bpu._phts[1].snapshot()
         snap_t2_after  = bpu._phts[2].snapshot()
@@ -549,7 +560,7 @@ class TestTAGEAllocationPolicy(unittest.TestCase):
         for _ in range(1000):
             i     = rng.randrange(len(addrs))
             taken = rng.choice([True, False])
-            bpu.update(addrs[i], taken=taken, target=targets[i])
+            step(bpu,addrs[i], taken=taken, target=targets[i])
             # AssertionError inside update() would propagate here
 
 
@@ -568,7 +579,7 @@ class TestBPUResetBehaviour(unittest.TestCase):
         addr, target = 0xA000, 0xA100
 
         for _ in range(10):
-            bpu_trained.update(addr, taken=True, target=target)
+            step(bpu_trained,addr, taken=True, target=target)
         self.assertTrue(bpu_trained.predict(addr))
 
         bpu_trained.reset()
@@ -581,7 +592,7 @@ class TestBPUResetBehaviour(unittest.TestCase):
         """(RE) reset() must zero the PHR.  Any taken history is discarded."""
         bpu = fresh_bpu()
         for _ in range(20):
-            bpu.update(0xB000, taken=True, target=0xB100)
+            step(bpu,0xB000, taken=True, target=0xB100)
         self.assertNotEqual(bpu._phr.read(), 0, "sanity: PHR must be nonzero before reset")
 
         bpu.reset()
@@ -591,7 +602,7 @@ class TestBPUResetBehaviour(unittest.TestCase):
         """(TAGE) After reset(), every PHT set must be empty — no entries survive."""
         bpu = fresh_bpu()
         for _ in range(30):
-            bpu.update(0xC000, taken=True, target=0xC100)
+            step(bpu,0xC000, taken=True, target=0xC100)
         bpu.reset()
 
         for set_snap in bpu.snapshot():
@@ -757,42 +768,42 @@ class TestMispredictionDriveSequence(unittest.TestCase):
 
 
 class TestBPUSpeculationDelegation(unittest.TestCase):
-    """The BPU exposes the speculation mechanism as thin pass-throughs to its PHR, and separates
-    retire-time counter training (train) from history advance."""
+    """The BPU separates table update (counters) from history advance, and exposes the speculation
+    mechanism as thin pass-throughs to its PHR."""
 
-    def test_train_does_not_advance_phr(self):
-        bpu = fresh_bpu()
-        before = bpu._phr.read()
-        bpu.train(0x4, taken=True, target=0x0)
-        self.assertEqual(bpu._phr.read(), before, "train() trains counters only; PHR must not move")
+    def test_update_is_counters_only(self):
+        p = fresh_bpu()
+        before = p._phr.read()
+        p.update(0x4, taken=True, target=0x0)
+        self.assertEqual(p._phr.read(), before, "update() touches counters only; the PHR must not move")
 
-    def test_update_advances_phr_on_taken(self):
-        bpu = fresh_bpu()
-        before = bpu._phr.read()
-        bpu.update(0x4, taken=True, target=0x0)
-        self.assertNotEqual(bpu._phr.read(), before, "update() advances the PHR on a taken branch")
+    def test_advance_moves_history_on_taken(self):
+        p = fresh_bpu()
+        before = p._phr.read()
+        p.advance(0x4, taken=True, target=0x0)
+        self.assertNotEqual(p._phr.read(), before, "advance() advances the PHR on a taken branch")
 
-    def test_update_not_taken_does_not_advance_phr(self):
-        bpu = fresh_bpu()
-        before = bpu._phr.read()
-        bpu.update(0x4, taken=False, target=0x0)
-        self.assertEqual(bpu._phr.read(), before, "update() must not advance the PHR on not-taken")
+    def test_advance_not_taken_is_noop(self):
+        p = fresh_bpu()
+        before = p._phr.read()
+        p.advance(0x4, taken=False, target=0x0)
+        self.assertEqual(p._phr.read(), before, "advance() must not move the PHR on a not-taken branch")
 
-    def test_train_still_trains_counters(self):
-        bpu = fresh_bpu()
-        addr, target = 0x2000, 0x2100
+    def test_update_trains_the_tables(self):
+        p = fresh_bpu()
+        addr = 0x2000
         for _ in range(8):
-            bpu.train(addr, taken=True, target=target)
-        self.assertTrue(bpu.predict(addr), "counters trained taken via train() must predict taken")
+            p.update(addr, taken=True)          # target omitted: optional, ignored by the direction model
+        self.assertTrue(p.predict(addr), "counters trained taken via update() must predict taken")
 
-    def test_bpu_checkpoint_advance_rollback_delegate_to_phr(self):
-        bpu = fresh_bpu()
-        bpu._phr._value = 0x123
-        bpu.checkpoint()
-        bpu.advance(0x40, True, 0x80)
-        self.assertNotEqual(bpu._phr.read(), 0x123)
-        bpu.rollback()
-        self.assertEqual(bpu._phr.read(), 0x123, "BPU.rollback must delegate to the PHR")
+    def test_checkpoint_advance_rollback_delegate_to_phr(self):
+        p = fresh_bpu()
+        p._phr._value = 0x123
+        p.checkpoint()
+        p.advance(0x40, True, 0x80)
+        self.assertNotEqual(p._phr.read(), 0x123)
+        p.rollback()
+        self.assertEqual(p._phr.read(), 0x123, "BPU.rollback must delegate to the PHR")
 
 
 # ===========================================================================
@@ -803,13 +814,15 @@ class TestBPUSpeculationDelegation(unittest.TestCase):
 
 class TestTAGEMechanics(unittest.TestCase):
 
-    def test_base_predictor_never_returns_none(self):
-        """The base table is the default provider: it must always yield a prediction
-        (allocate-on-miss), so predict() can never fall through."""
-        base = TAGEBase(counter_bit_width=3, num_sets=64)
+    def test_base_predictor_always_predicts_purely(self):
+        """The base is the always-available provider: predict() returns a concrete direction for any
+        PC (weakly-not-taken default on a cold index), so the provider scan never falls through — and
+        predict() is a PURE read that must not allocate/mutate."""
+        base = BimodalBP(counter_bit_width=3, num_sets=64)
         for addr in (0x0, 0x40, 0x4000, 0xDEAD0):
             self.assertIn(base.predict(addr), (True, False),
                 "base predictor must always return a concrete prediction")
+        self.assertEqual(base.snapshot(), (), "predict() must not allocate base entries (pure read)")
 
     def test_tagged_table_allocation_is_weakly_correct(self):
         """A freshly allocated tagged entry predicts its allocation direction, and a single
@@ -827,13 +840,13 @@ class TestTAGEMechanics(unittest.TestCase):
         bp.reset()
         self.assertIsNone(bp.predict(0x1000, allocate_on_miss=False), "reset() must evict all entries")
 
-    def test_tage_wrappers_reset_delegate(self):
-        """TAGEBase / TAGEPHT reset() must delegate down and clear their tables."""
-        base = TAGEBase(counter_bit_width=3, num_sets=8)
+    def test_table_reset_clears_entries(self):
+        """BimodalBP / TAGEPHT reset() must clear their tables."""
+        base = BimodalBP(counter_bit_width=3, num_sets=8)
         base.update(0x40, taken=True)
+        self.assertNotEqual(base.snapshot(), (), "a trained base has an entry")
         base.reset()
-        for set_snap in base.snapshot():
-            self.assertEqual(set_snap, (), "TAGEBase.reset() must evict all entries")
+        self.assertEqual(base.snapshot(), (), "BimodalBP.reset() must clear all entries")
 
         pht = make_pht()
         pht.allocate(0x1000, taken=True)
@@ -846,18 +859,41 @@ class TestTAGEMechanics(unittest.TestCase):
         bpu = fresh_bpu()
         addr, target = 0x5000, 0x5100
         for _ in range(8):                       # base -> strongly taken
-            bpu.update(addr, taken=True, target=target)
+            step(bpu,addr, taken=True, target=target)
         self.assertTrue(bpu.predict(addr))
-        bpu.update(addr, taken=False, target=target)   # mispredict -> allocate weakly-not-taken longer
+        step(bpu,addr, taken=False, target=target)   # mispredict -> allocate weakly-not-taken longer
         self.assertFalse(bpu.predict(addr), "longer-history provider must override the base")
+
+    def test_predict_is_side_effect_free(self):
+        """Regression: predict() must not mutate predictor state, so wrong-path (speculative)
+        predicts cannot pollute the tables — only the PHR is speculative. Cold predicts allocate
+        nothing."""
+        bpu = fresh_bpu()
+        snap_before = bpu.snapshot()
+        for pc in (0x4, 0x40, 0x4000, 0xDEAD0, 0x1234):
+            bpu.predict(pc)
+        self.assertEqual(bpu.snapshot(), snap_before, "predict() must not allocate/mutate any table")
 
 
 # ===========================================================================
-# (Neoverse N3 specifics) The reverse-engineered configuration: history
-# lengths, table geometry, and the exact PHR footprint formula.
+# (Neoverse N3 specifics) The reverse-engineered configuration — NOT generic
+# TAGE. Source: our Neoverse-N3 reverse-engineering efforts (kb-bpu-re).
 # ===========================================================================
 
 class TestNeoverseN3Specifics(unittest.TestCase):
+    """Pins facts particular to the Arm Neoverse-N3 model, per our reverse-engineering efforts
+    (see kb-bpu-re) — NOT generic TAGE/counter properties (those live in
+    TestSaturatingCounterBehaviour / TestTAGEMechanics / TestTAGEAllocationPolicy).
+
+    Two deliberately distinct kinds of assertion live here:
+      * RE'd ground truth — history lengths [0, 172, 300]; the 300-bit PHR advanced by a 4-bit
+        record per taken branch; the exact PHR footprint bit-formula. These change only if the RE
+        is revised.
+      * NOT-yet-RE'd placeholders, configured at the construction seam (bootstrap_director): the PHR
+        fold (algorithm + group width, 11) and the tag width (8) are NOT based on any RE result and
+        must still be fully reverse-engineered. Their tests pin ONLY the wiring and the fold/mask
+        mechanism at the current placeholder value — they must never be read as hardware facts.
+    """
 
     def setUp(self):
         self.bpu = fresh_bpu()
@@ -868,18 +904,19 @@ class TestNeoverseN3Specifics(unittest.TestCase):
 
     def test_three_tables_base_plus_two_tagged(self):
         self.assertEqual(len(self.bpu._phts), 3, "one base + two tagged tables")
-        self.assertIsInstance(self.bpu._phts[0], TAGEBase)
+        self.assertIsInstance(self.bpu._phts[0], BimodalBP)
         self.assertIsInstance(self.bpu._phts[1], TAGEPHT)
         self.assertIsInstance(self.bpu._phts[2], TAGEPHT)
 
     def test_table_geometry(self):
-        self.assertEqual(len(self.bpu._phts[0]._bp._table), 1 << 12, "base has 4096 sets")
-        self.assertEqual(len(self.bpu._phts[1]._bp._table), 1 << 11, "tagged tables have 2048 sets")
-        self.assertEqual(len(self.bpu._phts[2]._bp._table), 1 << 11)
+        base = self.bpu._phts[0]
+        self.assertEqual(base._num_sets, 1 << 12, "base bimodal has 4096 indexes")
+        self.assertEqual(base._counter_bit_width, 3)
+        for pht in self.bpu._phts[1:]:               # the two tagged tables
+            self.assertEqual(len(pht._bp._table), 1 << 11, "tagged tables have 2048 sets")
+            self.assertEqual(pht._bp._counter_bit_width, 3, "3-bit saturating counters")
         self.assertEqual(self.bpu._phts[1]._bp._table[0]._lru_cache.capacity, 4, "table 1 is 4-way")
         self.assertEqual(self.bpu._phts[2]._bp._table[0]._lru_cache.capacity, 2, "table 2 is 2-way")
-        for pht in self.bpu._phts:
-            self.assertEqual(pht._bp._counter_bit_width, 3, "3-bit saturating counters")
 
     def test_phr_is_300_bits(self):
         self.assertEqual(self.bpu._phr._n_bits, 300)
@@ -887,26 +924,26 @@ class TestNeoverseN3Specifics(unittest.TestCase):
 
     def test_footprint_exact_value_from_pc_bits(self):
         """footprint b0..b3 = (pc[2..5]^pc[6..9]^target[3..6]^target[7..10]); pc=0xC sets b0,b1."""
-        self.bpu.update(0xC, taken=True, target=0x0)   # pc bits 2,3 set -> b0=b1=1 -> fp=0b0011
+        step(self.bpu,0xC, taken=True, target=0x0)   # pc bits 2,3 set -> b0=b1=1 -> fp=0b0011
         self.assertEqual(self.bpu._phr.read(), 0b0011)
 
     def test_footprint_exact_value_from_target_bit(self):
-        self.bpu.update(0x0, taken=True, target=0x8)   # target bit 3 -> b0=1 -> fp=0b0001
+        step(self.bpu,0x0, taken=True, target=0x8)   # target bit 3 -> b0=1 -> fp=0b0001
         self.assertEqual(self.bpu._phr.read(), 0b0001)
 
     def test_phr_shifts_left_by_four_per_taken_branch(self):
         """Each taken branch shifts the PHR left by 4 and XORs in the new 4-bit footprint."""
-        self.bpu.update(0xC, taken=True, target=0x0)   # PHR = 0x3
-        self.bpu.update(0x0, taken=True, target=0x8)   # PHR = (0x3 << 4) ^ 0x1
+        step(self.bpu,0xC, taken=True, target=0x0)   # PHR = 0x3
+        step(self.bpu,0x0, taken=True, target=0x8)   # PHR = (0x3 << 4) ^ 0x1
         self.assertEqual(self.bpu._phr.read(), (0x3 << 4) ^ 0x1)
 
-    def test_fold_group_width_default_is_11(self):
+    def test_fold_group_width(self):
         self.assertEqual(self.bpu._fold_group_width, 11,
-            "default fold width = 11 (matches jit.c's 11-bit PHR mask)")
+            "the test fixture constructs the model with fold width 11 (the working hypothesis)")
 
     def test_fold_group_width_configurable(self):
         """The fold width is a constructor knob so the pending microbench can settle 10 vs 11."""
-        bpu10 = Aarch64NeoverseN3BPU(fold_group_width=10)
+        bpu10 = Aarch64NeoverseN3BPU(fold_group_width=10, tag_width=8)
         self.assertEqual(bpu10._fold_group_width, 10)
         index_fn = bpu10._phts[1]._bp._index_fn
         bpu10._phr._value = 1 << 0
@@ -914,6 +951,18 @@ class TestNeoverseN3Specifics(unittest.TestCase):
         bpu10._phr._value = 1 << 10          # one group up at width 10 -> folds onto bit 0
         self.assertEqual(index_fn(0x12300), idx0,
             "with fold width 10, PHR bit 10 folds onto the same index bit as bit 0")
+
+    def test_tag_is_masked_to_tag_width(self):
+        self.assertEqual(self.bpu._tag_width, 8)
+        tag_fn = self.bpu._phts[1]._bp._table[0]._tag_fn
+        for addr in (0x0, 0x1234, 0xFFFFFFFF, 0xDEADBEEF):
+            self.assertLess(tag_fn(addr), 1 << 8, "tag must fit in tag_width (8) bits")
+
+    def test_tag_width_configurable(self):
+        """Tag width is a constructor knob (RE-pending); masking lets distinct branches tag-alias."""
+        bpu4 = Aarch64NeoverseN3BPU(fold_group_width=11, tag_width=4)
+        tag_fn = bpu4._phts[1]._bp._table[0]._tag_fn
+        self.assertLess(tag_fn(0xFFFFFFFF), 1 << 4, "tag must fit in the configured 4 bits")
 
 
 if __name__ == "__main__":

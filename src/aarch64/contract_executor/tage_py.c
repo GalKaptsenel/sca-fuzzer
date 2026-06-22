@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include "tage_py.h"   /* keep these definitions in sync with the declarations */
 
 static PyObject *tage_instance = NULL;
 static int python_initialized = 0;
@@ -70,30 +71,34 @@ int tagebp_init(const char *module_dir, const char *module_name) {
 int tagebp_predict(uintptr_t address) {
 	if (!tage_instance) return -1;
 
-	PyObject *py_addr = PyLong_FromUnsignedLong(address);
+	PyObject *py_addr = PyLong_FromUnsignedLongLong(address);
 	PyObject *result = PyObject_CallMethod(tage_instance, "predict", "O", py_addr);
-	Py_DECREF(py_addr);
+	Py_XDECREF(py_addr);
 
 	if (!result) {
 		PyErr_Print();
 		return -1;
 	}
 
-	int prediction = PyObject_IsTrue(result);
+	int prediction = PyObject_IsTrue(result);   /* -1 on error */
 	Py_DECREF(result);
+	if (prediction < 0) {
+		PyErr_Print();
+		return -1;
+	}
 	return prediction;
 }
 
 void tagebp_update(uintptr_t address, int taken, uintptr_t target) {
 	if (!tage_instance) return;
 
-	PyObject *py_addr = PyLong_FromUnsignedLong(address);
+	PyObject *py_addr = PyLong_FromUnsignedLongLong(address);
 	PyObject *py_taken = PyBool_FromLong(taken);
-	PyObject *py_target = PyLong_FromUnsignedLong(target);
+	PyObject *py_target = PyLong_FromUnsignedLongLong(target);
 	PyObject *result = PyObject_CallMethod(tage_instance, "update", "OOO", py_addr, py_taken, py_target);
-	Py_DECREF(py_addr);
-	Py_DECREF(py_taken);
-	Py_DECREF(py_target);
+	Py_XDECREF(py_addr);
+	Py_XDECREF(py_taken);
+	Py_XDECREF(py_target);
 
 	if (!result) {
 		PyErr_Print();
@@ -102,6 +107,42 @@ void tagebp_update(uintptr_t address, int taken, uintptr_t target) {
 	}
 	Py_DECREF(result); // update returns None
 }
+
+void tagebp_advance(uintptr_t address, int taken, uintptr_t target) {
+	if (!tage_instance) return;
+
+	PyObject *py_addr = PyLong_FromUnsignedLongLong(address);
+	PyObject *py_taken = PyBool_FromLong(taken);
+	PyObject *py_target = PyLong_FromUnsignedLongLong(target);
+	PyObject *result = PyObject_CallMethod(tage_instance, "advance", "OOO", py_addr, py_taken, py_target);
+	Py_XDECREF(py_addr);
+	Py_XDECREF(py_taken);
+	Py_XDECREF(py_target);
+
+	if (!result) {
+		PyErr_Print();
+		fprintf(stderr, "[CE FATAL] tagebp_advance: TAGE advance() raised\n");
+		abort();
+	}
+	Py_DECREF(result); // advance returns None
+}
+
+/* checkpoint / rollback / commit take no args and return None. A raised exception here is a fatal
+ * engine bug (e.g. an unbalanced rollback popping an empty stack), so abort like tagebp_update. */
+static void tagebp_call_void(const char *method) {
+	if (!tage_instance) return;
+	PyObject *result = PyObject_CallMethod(tage_instance, method, NULL);
+	if (!result) {
+		PyErr_Print();
+		fprintf(stderr, "[CE FATAL] tagebp: TAGE %s() raised\n", method);
+		abort();
+	}
+	Py_DECREF(result);
+}
+
+void tagebp_checkpoint(void) { tagebp_call_void("checkpoint"); }
+void tagebp_rollback(void)   { tagebp_call_void("rollback"); }
+void tagebp_commit(void)     { tagebp_call_void("commit"); }
 
 void tagebp_reset(void) {
 	if (!tage_instance) return;

@@ -35,15 +35,23 @@ except ImportError:
     # Top-level context: this directory is on sys.path, no parent package (CE runtime).
     from saturating_bp import Aarch64NeoverseN3BPU
 
-# PHR fold-group width for the N3 index/tag. The RE narrows this to ~10-11 bits but the exact
-# value awaits a shift/fold microbenchmark; 11 matches jit.c's 11-bit PHR mask. This is the single,
-# explicit place that (currently unverified) choice is made — the model class has no default.
+# Predictor geometry that is NOT reverse-engineered — placeholders that MUST be fully RE-ed before
+# the model is trusted; they are NOT confirmed N3 facts:
+#   * PHR_FOLD_GROUP_WIDTH — the index/tag fold (its algorithm AND its group width) is a plausible
+#     model, not an RE result. (jit.c's 11-bit mask is a different quantity — branch-address
+#     placement — not evidence for this width.)
+#   * TAG_WIDTH — the tagged-table tag width has no RE basis at all; 8 is arbitrary. (A finite tag
+#     does make distinct branches alias, as real TAGE does.)
+# Chosen explicitly here, with no default on the model class, so these guesses are visible in one
+# place and obviously pending reverse-engineering.
 PHR_FOLD_GROUP_WIDTH = 11
+TAG_WIDTH = 8
 
-# Logical predictor name -> zero-arg factory. Add microarchitecture models here; the C side selects
-# by name via create_predictor() and never needs to know the concrete class or its config.
+# Logical predictor name -> zero-arg factory. Add microarchitecture models here; the factory owns
+# the concrete class and its config, so the C side never needs to know them.
 _PREDICTORS = {
-    "neoverse-n3": lambda: Aarch64NeoverseN3BPU(fold_group_width=PHR_FOLD_GROUP_WIDTH),
+    "neoverse-n3": lambda: Aarch64NeoverseN3BPU(
+        fold_group_width=PHR_FOLD_GROUP_WIDTH, tag_width=TAG_WIDTH),
 }
 
 DEFAULT_PREDICTOR = "neoverse-n3"
@@ -53,8 +61,9 @@ def create_predictor(name: str = DEFAULT_PREDICTOR):
     """Construct and return a fresh predictor instance for ``name``.
 
     Stable entry point for the CE: construction (predictor selection AND its config, e.g. the PHR
-    fold width) lives here, so the C side stays model-agnostic — it passes a logical name, not a
-    class. Raises ValueError on an unknown name so a misconfiguration fails loudly.
+    fold/tag widths) lives here, so the C side stays model-agnostic. The CE currently calls this with
+    the default; `name` is the seam for selecting among future Python models (not yet plumbed from
+    the C-side config). Raises ValueError on an unknown name so a misconfiguration fails loudly.
     """
     try:
         factory = _PREDICTORS[name]

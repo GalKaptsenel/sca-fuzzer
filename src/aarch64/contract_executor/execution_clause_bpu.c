@@ -21,22 +21,53 @@ static void bpu_on_reset(void) {
 }
 
 static void* bpu_on_instruction(struct simulation_state* sim_state) {
-	uint32_t insn = *(uint32_t*)sim_state->cpu_state.pc;
+	uintptr_t pc = sim_state->cpu_state.pc;
+	uint32_t insn = *(uint32_t*)pc;
 	if (!is_conditional_branch(insn)) return NULL;
 
-	uintptr_t arch_next = cond_branch_architectural_next(&sim_state->cpu_state);
-	uintptr_t target    = evaluate_cond_target(sim_state->cpu_state.pc, insn);
-	int arch_taken = (target == arch_next);
-	int predicted  = g_predictor->predict(sim_state->cpu_state.pc);
+	uintptr_t target = evaluate_cond_target(pc, insn);
+	int arch_taken = cond_branch_is_taken(&sim_state->cpu_state);
+	int predicted  = g_predictor->predict(pc);
+	int mispredict = (0 != predicted) != (0 != arch_taken);
 
-	/* Train only on the architectural path: wrong-path (speculated) branches never retire. */
+	/* Train the tables on the architectural path only: wrong-path (speculated) branches never
+	 * retire, so they must not train. */
 	if (0 == spec_nesting()) {
-		g_predictor->update(sim_state->cpu_state.pc, arch_taken, arch_next);
+		g_predictor->update(pc, arch_taken, target);
 	}
 
-	/* Mispredict iff the predictor disagrees with the architectural direction. */
-	int mispredict = !((arch_taken && predicted) || (!arch_taken && !predicted));
+	/* Speculative global history. If this misprediction opens a window we dive down the predicted
+	 * (wrong) path, so checkpoint the pre-branch history and advance it with the PREDICTED
+	 * direction; bpu_on_rollback() then restores it and re-advances with the resolved direction.
+	 * Otherwise we continue on the architectural path, so advance with the architectural direction.
+	 * The guard mirrors branch_speculate()'s push condition exactly, keeping the history checkpoint
+	 * 1:1 with the engine's speculation frames. */
+	if (mispredict && spec_nesting() < spec_max_nesting()) {
+		g_predictor->checkpoint();
+		g_predictor->advance(pc, predicted, target);
+	} else {
+		g_predictor->advance(pc, arch_taken, target);
+	}
+
 	return branch_speculate(sim_state, mispredict, bpu_index);
+}
+
+/* Recover the speculative history when a misprediction window unwinds. on_rollback replaces the
+ * engine's default checkpoint reload, so reload the architectural checkpoint here, then — with the
+ * CPU state restored to the branch (pc + registers) — recompute the resolved direction and
+ * restore + re-advance the history: rollback() undoes the wrong-path advance and advance(arch_taken)
+ * reapplies the correct one, leaving exactly the history a correct prediction would have produced. */
+static void bpu_on_rollback(struct simulation_state* sim_state,
+                            const struct execution_checkpoint_desc* frame) {
+	spec_reload_checkpoint(sim_state, frame);
+
+	uintptr_t pc = sim_state->cpu_state.pc;
+	uint32_t insn = *(uint32_t*)pc;
+	uintptr_t target = evaluate_cond_target(pc, insn);
+	int arch_taken = cond_branch_is_taken(&sim_state->cpu_state);
+
+	g_predictor->rollback();
+	g_predictor->advance(pc, arch_taken, target);
 }
 
 const struct execution_clause_descriptor bpu_execution_clause = {
@@ -45,5 +76,5 @@ const struct execution_clause_descriptor bpu_execution_clause = {
 	.on_init        = bpu_on_init,
 	.on_reset       = bpu_on_reset,
 	.on_instruction = bpu_on_instruction,
-	.on_rollback    = NULL,
+	.on_rollback    = bpu_on_rollback,
 };

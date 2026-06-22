@@ -53,4 +53,9 @@ uint64_t spec_memory_size(void);  /* size of the simulated memory image (bytes) 
  * At rollback the return address is loaded into LR (the harness continues from there). */
 void spec_push_frame(struct simulation_state* sim_state, uintptr_t return_addr, uint64_t owner);
 
+/* Reload the architectural checkpoint a frame captured (cpu_state + memory), restoring state to the
+ * branch that pushed it. Exposed so a clause's on_rollback can restore the base state before applying
+ * its own recovery (e.g. the BPU restoring its speculative history from the reloaded branch state). */
+void spec_reload_checkpoint(struct simulation_state* sim_state, const struct execution_checkpoint_desc* frame);
+
 #endif // SIMULATION_EXECUTION_CLAUSE_H

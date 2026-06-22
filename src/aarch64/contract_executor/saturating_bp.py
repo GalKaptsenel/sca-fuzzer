@@ -13,7 +13,10 @@ class BP(ABC):
     remote-fuzzing bundle needs only this single file — not the wider package tree.
     """
     @abstractmethod
-    def update(self, address: int, taken: bool, target: Optional[int]) -> None:
+    def update(self, address: int, taken: bool, target: Optional[int] = None) -> None:
+        """Update the prediction tables with the resolved outcome (no history advance). `target` is
+        accepted for predictors that train on it (e.g. indirect-branch targets); a direction model
+        ignores it."""
         ...
 
     @abstractmethod
@@ -214,27 +217,6 @@ class SaturatingCounterBPCommon(BP):
         self._bp.print_table(max_sets)
 
 
-class ShiftRegister:
-    def __init__(self, n_bits: int):
-        self._n_bits = n_bits
-        self._mask = (1 << n_bits) - 1
-        self._value = 0
-
-    def update(self, bit: int):
-        self._value = ((self._value << 1) | (bit & 1)) & self._mask
-
-    def read(self) -> int:
-        return self._value
-
-    def __repr__(self):
-        return f"{self._value:0{self._n_bits}b}"
-
-
-class GHR(ShiftRegister):
-    def update(self, taken: bool):
-        super().update(1 if taken else 0)
-
-
 class PHR:
     """Path-history register: the speculative global history that indexes/tags the TAGE tables.
 
@@ -295,31 +277,42 @@ class PHR:
         return f"{self._value:0{self._n_bits}b}"
 
 
-class TAGEBase(BP):
-    def __init__(self, counter_bit_width: int,  num_sets: int, assoc: int = 1):
-        index_bits = (num_sets - 1).bit_length()
-        pc_shift = 2
-        index_fn = lambda pc: (pc >> pc_shift) & (num_sets - 1)
-        tag_fn = lambda pc: pc >> (pc_shift + index_bits)
-        self._bp = SaturatingCounterBP(counter_bit_width, num_sets, assoc, index_fn, tag_fn)
+class BimodalBP(BP):
+    """Bimodal base predictor (TAGE T0): PC-indexed saturating counters, untagged, always predicts.
 
-    def update(self, address: int, taken: bool, target: int = None, touch_lru: bool = True) -> None:
-        self._bp.update(address, taken, touch_lru)
+    A cold index returns the weakly-not-taken default. predict() is a PURE read — no allocation and
+    no eviction — so a lookup (including a wrong-path speculative one) never mutates state; counters
+    are created and trained only by update() at retire. Untagged like a real bimodal, so there are
+    no read-time fills and no tag thrashing (unlike a tagged LRU cache used as the base)."""
+    def __init__(self, counter_bit_width: int, num_sets: int):
+        self._counter_bit_width = counter_bit_width
+        self._num_sets = num_sets
+        pc_shift = 2
+        self._index_fn = lambda pc: (pc >> pc_shift) & (num_sets - 1)
+        self._counters = {}   # index -> NBitCounterEntry (sparse; an absent index is the cold default)
 
     def predict(self, address: int, touch_lru: bool = False) -> bool:
-        return self._bp.predict(address, touch_lru, True)
+        entry = self._counters.get(self._index_fn(address))
+        return entry.predict() if entry is not None else False   # cold => weakly not taken
+
+    def update(self, address: int, taken: bool, target: int = None, touch_lru: bool = True) -> None:
+        idx = self._index_fn(address)
+        entry = self._counters.get(idx)
+        if entry is None:
+            entry = SaturatingCounterBP.NBitCounterEntry(self._counter_bit_width)
+            self._counters[idx] = entry
+        entry.update(taken)
 
     def reset(self) -> None:
-        self._bp.reset()
+        self._counters.clear()
 
-    def snapshot(self) -> Tuple[Tuple[Tuple[int, int], ...], ...]:
-        return self._bp.snapshot()
-
-    def __repr__(self):
-        return repr(self._bp)
+    def snapshot(self) -> Tuple[Tuple[int, int], ...]:
+        return tuple(sorted((idx, e.snapshot()) for idx, e in self._counters.items()))
 
     def print_table(self, max_sets: Optional[int] = None):
-        self._bp.print_table(max_sets)
+        items = sorted(self._counters.items())
+        for idx, e in (items[:max_sets] if max_sets else items):
+            print(f"Index {idx:04}: {e}")
 
 
 # It can not implement BP as it does not guarantee a prediction
@@ -352,12 +345,47 @@ class TAGEPHT:
 
 
 class Aarch64NeoverseN3BPU(BP):
-    def __init__(self, fold_group_width: int):
-        # PHR fold width for index/tag (RE: ~10-11-bit groups; exact width awaits a microbench).
-        # Required, no default: the unverified choice is made explicitly at the construction seam
-        # (bootstrap_director.create_predictor), not silently baked in here.
-        self._fold_group_width = fold_group_width
+    """TAGE direction predictor modelling the Arm Neoverse-N3 BPU.
 
+    Structure: a base table plus tagged tables, indexed and tagged by the branch PC folded with
+    progressively longer slices of a path-history register (PHR). A prediction is the counter of the
+    LONGEST table whose tag matches; the base is the always-available fallback. On a provider
+    misprediction the provider is trained and one weakly-correct entry is allocated in the first
+    longer table that has a tag miss.
+
+    Speculation — textbook TAGE + speculative global history (Seznec & Michaud 2006):
+      * predict() only reads; it never mutates predictor state.
+      * The PHR (global history) is advanced SPECULATIVELY at fetch with the predicted direction
+        (advance()), snapshotted when a misprediction opens a window (checkpoint()), and restored on
+        recovery (rollback()). The PHR is the ONLY speculative state, so checkpointing it is a
+        COMPLETE checkpoint of everything a squash must undo.
+      * The prediction tables (counters) train at RETIRE only, on the architectural path (update(),
+        which the driver gates to spec_nesting()==0). Wrong-path branches never retire, so they
+        never train the tables and the tables need no speculative rollback.
+
+    NOT modelled (deliberate — only known / reverse-engineered behaviour is simulated; see kb-bpu-re):
+      * the useful ("u") bit and everything it drives: u-gated victim choice and periodic u aging on
+        allocation. Replacement here is plain LRU within a set. (The N3 u-bit mechanics are a known
+        not-yet-RE'd gap.)
+      * altpred / USE_ALT_ON_NA — the fall-back to the next-shorter table for a freshly allocated,
+        low-confidence provider.
+      * canonical geometric history lengths — the RE'd N3 lengths (172, 300) are used instead.
+      * outcome history — canonical TAGE shifts one direction bit per branch; this folds (pc, target)
+        on TAKEN branches only, i.e. it is *path* history (matching the RE'd N3 PHR), not per-branch
+        outcome history.
+    """
+    def __init__(self, fold_group_width: int, tag_width: int):
+        # NOT-yet-RE'd geometry — these are placeholders that MUST be fully reverse-engineered, not
+        # confirmed N3 facts: the PHR fold-group width for the index/tag (the fold algorithm AND its
+        # width are a model, not an RE result) and the tagged-table tag width (no RE basis at all).
+        # Both are required with no default, so the unverified choice is made explicitly at the
+        # construction seam (bootstrap_director.create_predictor), never silently baked in here.
+        # Masking the tag to a finite width lets distinct branches tag-alias, as in real TAGE.
+        self._fold_group_width = fold_group_width
+        self._tag_width = tag_width
+
+        # The footprint bit positions and the <<4 stride (4-bit record per taken branch) below are
+        # reverse-engineered N3 constants; see kb-bpu-re.
         def phr_footprint(pc: int, target: int) -> int:
             def get_bit(x: int, k: int) -> int:
                 return (x >> k) & 1
@@ -375,10 +403,12 @@ class Aarch64NeoverseN3BPU(BP):
         counter_bit_width: int = 3
         self._phr: PHR = PHR(self._histlen[-1], lambda phr, pc, target: (phr << 4) ^ phr_footprint(pc, target))
 
-        # Index/tag use the TAGE folded history: the table's `phr_len` history bits XOR-folded into
+        # Index/tag use a TAGE folded history: the table's `phr_len` history bits XOR-folded into
         # `fold_group_width`-bit groups, so the whole history (not just its low bits) selects the
-        # entry. The two tagged tables fold different history lengths (172 vs 300) -> distinct
-        # index/tag, which is what separates them.
+        # entry, and the tag is masked to `tag_width` bits. The two tagged tables fold different
+        # history lengths (172 vs 300) -> distinct index/tag, which is what separates them.
+        # WARNING: this fold (algorithm + width) and the tag width are NOT reverse-engineered — they
+        # are a plausible model and must be RE-ed before the predictor is trusted (see kb-bpu-re).
         def generate_index_fn(phr_len: int) -> Callable[[int], int]:
             def index_fn(address: int):
                 return ((address >> 8) ^ self._phr.fold(phr_len, self._fold_group_width)) & (num_sets_phts - 1)
@@ -386,19 +416,19 @@ class Aarch64NeoverseN3BPU(BP):
 
         def generate_tag_fn(phr_len: int) -> Callable[[int], int]:
             def tag_fn(address: int):
-                return address ^ self._phr.fold(phr_len, self._fold_group_width)
+                return (address ^ self._phr.fold(phr_len, self._fold_group_width)) & ((1 << self._tag_width) - 1)
             return tag_fn
 
         self._phts = [
-                TAGEBase(counter_bit_width, num_sets_base),
+                BimodalBP(counter_bit_width, num_sets_base),
                 TAGEPHT(counter_bit_width, num_sets_phts, 4, generate_index_fn(self._histlen[1]), generate_tag_fn(self._histlen[1])),
                 TAGEPHT(counter_bit_width, num_sets_phts, 2, generate_index_fn(self._histlen[2]), generate_tag_fn(self._histlen[2]))
         ]
 
-    def _train_counters(self, address: int, taken: bool, touch_lru: bool = True) -> None:
-        """TAGE counter training: update the single provider (longest hitting table) with the
-        resolved outcome and, on a provider misprediction, allocate one weakly-correct entry in
-        the first longer-history table that has a tag miss. Does NOT touch the PHR."""
+    def _update_counters(self, address: int, taken: bool, touch_lru: bool = True) -> None:
+        """Update the single provider (longest hitting table) with the resolved outcome and, on a
+        provider misprediction, allocate one weakly-correct entry in the first longer-history table
+        that has a tag miss. Does NOT touch the history (PHR)."""
         flag = 0
         for idx, pht in reversed(list(enumerate(self._phts))):
             prediction = pht.predict(address, touch_lru)
@@ -414,17 +444,13 @@ class Aarch64NeoverseN3BPU(BP):
 
         assert flag == 1, "Should update exactly once"
 
-    def update(self, address: int, taken: bool, target: int, touch_lru: bool = True) -> None:
-        """All-in-one update for the no-speculation path: train counters AND advance the PHR.
-        Equivalent to train() then advance() on the resolved direction; the simple sequential API
-        exercised by the unit tests."""
-        self._train_counters(address, taken, touch_lru)
-        self._phr.advance(address, taken, target)
-
-    def train(self, address: int, taken: bool, target: int = None, touch_lru: bool = True) -> None:
-        """Retire-time training: counters only, no history advance (the PHR is advanced at predict
-        time by the driver). `target` is accepted for call-site symmetry and ignored."""
-        self._train_counters(address, taken, touch_lru)
+    def update(self, address: int, taken: bool, target: Optional[int] = None,
+               touch_lru: bool = True) -> None:
+        """Update the prediction tables with the resolved outcome (counters only). The speculative
+        history is advanced separately by advance(); a full non-speculative step is update() then
+        advance(). `target` is accepted for forward compatibility (e.g. indirect-branch target
+        training) but ignored by this direction predictor. The driver gates this to retire."""
+        self._update_counters(address, taken, touch_lru)
 
     # Speculative-history machinery: thin pass-throughs to the PHR. The predictor only exposes the
     # mechanism; the *driver* (the execution clause) composes it into misprediction handling, the

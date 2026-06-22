@@ -23,6 +23,7 @@
 #include "simulation_input.h"
 #include "simulation_state.h"
 #include "common_msg_constants.h"
+#include "branch_speculation.h"   /* cond_branch_is_taken / cond_branch_architectural_next */
 
 /* ---- test infrastructure ------------------------------------------------ */
 
@@ -47,6 +48,14 @@ static int g_tests_failed = 0;
         ++g_tests_failed; \
     } \
 } while (0)
+
+/* branch_speculation.c is linked in for the real branch resolvers (cond_branch_is_taken etc.). Its
+ * branch_speculate() also references the speculation engine, which this unit test does not link, so
+ * stub those entry points (we never call branch_speculate here). */
+struct simulation_state;
+void     spec_push_frame(struct simulation_state* s, uintptr_t r, uint64_t o) { (void)s; (void)r; (void)o; }
+uint64_t spec_nesting(void)     { return 0; }
+uint64_t spec_max_nesting(void) { return 0; }
 
 /* ---- instruction encoding constants ------------------------------------- */
 
@@ -1621,6 +1630,41 @@ static void test_fixup_chain_with_arithmetic(void) {
 /* ---- main -------------------------------------------------------------- */
 /* ======================================================================== */
 
+/* ---- GROUP 42: cond_branch_is_taken — resolved direction (real resolver) ----------------- */
+
+/* Regression: a conditional branch whose taken-target is pc+4 (e.g. B.cond .+4). The resolved
+ * direction must come from the condition itself, NOT be inferred from (target == architectural
+ * next) — that comparison is true for BOTH directions when target == pc+4, so the old derivation
+ * misread a not-taken branch as taken (corrupting table training and the PHR fold). */
+static void test_cond_branch_is_taken_target_is_next_insn(void) {
+    uint32_t insn = 0x54000020u;        /* B.EQ .+4  (imm19=1, cond=EQ) */
+    struct cpu_state s;
+    memset(&s, 0, sizeof(s));
+    s.pc = (uintptr_t)&insn;
+
+    EXPECT_EQ(classify_branch(insn), BRANCH_B_COND);
+    EXPECT_EQ(evaluate_cond_target(s.pc, insn), (uintptr_t)(s.pc + 4));   /* target == pc+4 */
+
+    /* Not taken (Z=0 -> EQ fails): the real resolver must say NOT taken ... */
+    s.nzcv = 0;
+    EXPECT(!cond_branch_is_taken(&s));
+    /* ... even though (target == architectural_next) reads as TAKEN here — the old bug. */
+    EXPECT_EQ(evaluate_cond_target(s.pc, insn), cond_branch_architectural_next(&s));
+
+    /* Taken (Z=1 -> EQ holds): architectural next is the target (which is pc+4). */
+    s.nzcv = 0x40000000u;
+    EXPECT(cond_branch_is_taken(&s));
+    EXPECT_EQ(cond_branch_architectural_next(&s), (uintptr_t)(s.pc + 4));
+
+    /* Sanity, normal branch (target != pc+4): B.EQ .+8 not-taken -> target != architectural next. */
+    uint32_t insn8 = ENC_BEQ_PLUS8;
+    s.pc = (uintptr_t)&insn8;
+    s.nzcv = 0;
+    EXPECT(!cond_branch_is_taken(&s));
+    EXPECT_EQ(cond_branch_architectural_next(&s), (uintptr_t)(s.pc + 4));
+    EXPECT(evaluate_cond_target(s.pc, insn8) != cond_branch_architectural_next(&s));
+}
+
 int main(void) {
     printf("Running CE unit tests...\n");
 
@@ -1671,6 +1715,9 @@ int main(void) {
     test_compare_branch_taken();
     test_bcond_integration();
     test_fixup_chain_with_arithmetic();
+
+    /* Group 42: real branch resolver (regression for the target==pc+4 direction bug) */
+    test_cond_branch_is_taken_target_is_next_insn();
 
     printf("\n%d tests, %d failed\n", g_tests_run, g_tests_failed);
     return g_tests_failed ? 1 : 0;

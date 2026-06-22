@@ -11,7 +11,18 @@ struct branch_predictor {
 	void (*init)(void);                                        /* one-time setup (idempotent, optional) */
 	void (*reset)(void);                                       /* clear per-simulation state (optional) */
 	int  (*predict)(uintptr_t pc);                             /* nonzero => predicted taken            */
-	void (*update)(uintptr_t pc, int taken, uintptr_t target); /* train with the resolved outcome       */
+	/* update() updates the prediction tables with the resolved outcome at retire only (counters; no
+	 * history advance). `target` is for predictors that train on it (indirect branches); a direction
+	 * model ignores it. The speculative global history is driven separately by the clause: at each
+	 * branch advance() with the direction taken on the current path; when a misprediction opens a
+	 * window checkpoint() first, and on recovery rollback() then advance() with the resolved
+	 * direction. commit() drops a snapshot without restoring (unused by the always-rollback engine;
+	 * present for completeness). */
+	void (*update)(uintptr_t pc, int taken, uintptr_t target); /* retire: update tables (counters)       */
+	void (*advance)(uintptr_t pc, int taken, uintptr_t target);/* advance speculative global history     */
+	void (*checkpoint)(void);                                  /* snapshot history (window opens)        */
+	void (*rollback)(void);                                    /* restore history (misprediction)        */
+	void (*commit)(void);                                      /* drop the latest history snapshot       */
 };
 
 #endif // BRANCH_PREDICTOR_H
