@@ -1,9 +1,7 @@
 from __future__ import annotations
-from typing import Optional, Tuple, Callable, List
+from typing import Any, Callable, List, Optional, Tuple
 from collections import OrderedDict
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Optional, List, Any, Tuple
 from functools import reduce
 
 
@@ -46,12 +44,16 @@ class LRUCache:
         self.d[key] = value
         if len(self.d) > self.capacity:
             self.d.popitem(last=False)
+
+    def clear(self) -> None:
+        self.d.clear()
+
     def __repr__(self):
         items = ", ".join(f"{k:#X}: {v}" for k, v in self.d.items())
         return f"LRUCache(capacity={self.capacity}, [{items}])"
 
 
-# It can not implement BP as it does not garantee a prediction
+# It can not implement BP as it does not guarantee a prediction
 class SaturatingCounterBP:
     class NBitCounterEntry:
 
@@ -84,10 +86,10 @@ class SaturatingCounterBP:
                 raise ValueError("assoc must be a power of 2")
 
             if associativity > 1 and tag_fn is None:
-                raise ValueError("associativity is bigger then 1. tag_fn must be supplied!")
+                raise ValueError("associativity is bigger than 1. tag_fn must be supplied!")
 
             self._entry_factory = entry_factory
-            self._tag_fn: Callable[int, int] = tag_fn or (lambda x: 0)
+            self._tag_fn: Callable[[int], int] = tag_fn or (lambda x: 0)
             self._lru_cache: LRUCache = LRUCache(associativity)
 
         def lookup(self, address: int, update_cache: bool = True) -> Optional[SaturatingCounterBP.NBitCounterEntry]:
@@ -99,6 +101,9 @@ class SaturatingCounterBP:
                 entry._state = initial_state
             self._lru_cache.put(self._tag_fn(address), entry)
             return entry
+
+        def clear(self) -> None:
+            self._lru_cache.clear()
 
         def __repr__(self):
             return f"<NSetEntry lru_cache={self._lru_cache}>"
@@ -113,10 +118,10 @@ class SaturatingCounterBP:
             raise ValueError("num_sets must be a power of 2")
 
         if num_sets > 1 and index_fn is None:
-            raise ValueError("number of sets is bigger then 1. index_fn must be supplied!")
+            raise ValueError("number of sets is bigger than 1. index_fn must be supplied!")
 
         self._counter_bit_width = counter_bit_width
-        self._index_fn: Callable[int, int] = index_fn or (lambda x: 0)
+        self._index_fn: Callable[[int], int] = index_fn or (lambda x: 0)
 
         self._table: List[SaturatingCounterBP.SetEntry] = [SaturatingCounterBP.SetEntry(assoc, lambda: SaturatingCounterBP.NBitCounterEntry(counter_bit_width), tag_fn) for _ in range(num_sets)]
 
@@ -145,6 +150,11 @@ class SaturatingCounterBP:
         if entry is None:
             return None
         return entry.predict()
+
+    def reset(self) -> None:
+        """Evict every entry in every set (cold state)."""
+        for set_entry in self._table:
+            set_entry.clear()
 
     def snapshot(self) -> Tuple[Tuple[Tuple[int, int], ...], ...]:
         return tuple(
@@ -191,6 +201,9 @@ class SaturatingCounterBPCommon(BP):
     def predict(self, address: int, touch_lru: bool = False) -> bool:
         return self._bp.predict(address, touch_lru, True)
 
+    def reset(self) -> None:
+        self._bp.reset()
+
     def snapshot(self) -> Tuple[Tuple[Tuple[int, int], ...], ...]:
         return self._bp.snapshot()
 
@@ -223,19 +236,45 @@ class GHR(ShiftRegister):
 
 
 class PHR:
+    """Path-history register: the speculative global history that indexes/tags the TAGE tables.
+
+    Owns its own recovery, like a real history register: advanced speculatively at predict time,
+    checkpointed when a misprediction opens a window, restored on unwind. Folds in (pc, target)
+    on TAKEN branches only, so "advance" means fold iff taken.
+    """
     def __init__(self, n_bits: int, update_fn: Callable[[int, int, int], int]):
         self._n_bits = n_bits
         self._mask = (1 << n_bits) - 1
         self._value = 0
         self._update_fn = update_fn
+        self._stack: List[int] = []  # LIFO of checkpointed values, one per open window
 
     def advance_value(self, value: int, pc: int, target: int) -> int:
-        """Pure folding step: the PHR value that `value` becomes after one taken branch.
-        Used to compute speculative vs architectural history without mutating live state."""
+        """Pure fold: the value `value` becomes after one taken branch (no mutation)."""
         return self._update_fn(value, pc, target) & self._mask
 
-    def update(self, pc: int, target: int):
-        self._value = self.advance_value(self._value, pc, target)
+    def advance(self, pc: int, taken: bool, target: int) -> None:
+        """Advance the live history with a direction: fold iff taken."""
+        if taken:
+            self._value = self.advance_value(self._value, pc, target)
+
+    # Transactional checkpoints (LIFO): checkpoint() snapshots, then exactly one of rollback()
+    # (mispredict) or commit() (confirmed correct) closes it.
+    def checkpoint(self) -> None:
+        self._stack.append(self._value)
+
+    def rollback(self) -> None:
+        """Restore the live history to the latest checkpoint (misprediction recovery)."""
+        self._value = self._stack.pop()
+
+    def commit(self) -> None:
+        """Drop the latest checkpoint, keeping the live value. Unused by the current
+        always-rollback engine; kept so the primitive set is complete for OoO resolution."""
+        self._stack.pop()
+
+    def reset(self) -> None:
+        self._value = 0
+        self._stack.clear()
 
     def read(self) -> int:
         return self._value
@@ -258,6 +297,9 @@ class TAGEBase(BP):
     def predict(self, address: int, touch_lru: bool = False) -> bool:
         return self._bp.predict(address, touch_lru, True)
 
+    def reset(self) -> None:
+        self._bp.reset()
+
     def snapshot(self) -> Tuple[Tuple[Tuple[int, int], ...], ...]:
         return self._bp.snapshot()
 
@@ -268,7 +310,7 @@ class TAGEBase(BP):
         self._bp.print_table(max_sets)
 
 
-# It can not implement BP as it does not garantee a prediction
+# It can not implement BP as it does not guarantee a prediction
 class TAGEPHT:
     def __init__(self, counter_bit_width: int,  num_sets: int, assoc: int, index_fn: Callable[[int], int], tag_fn: Callable[[int], int]):
         self._bp = SaturatingCounterBP(counter_bit_width, num_sets, assoc, index_fn, tag_fn)
@@ -283,6 +325,9 @@ class TAGEPHT:
 
     def predict(self, address: int, touch_lru: bool = False) -> Optional[bool]:
         return self._bp.predict(address, touch_lru, False)
+
+    def reset(self) -> None:
+        self._bp.reset()
 
     def snapshot(self) -> Tuple[Tuple[Tuple[int, int], ...], ...]:
         return self._bp.snapshot()
@@ -313,26 +358,16 @@ class Aarch64NeoverseN3BPU(BP):
         counter_bit_width: int = 3
         self._phr: PHR = PHR(self._histlen[-1], lambda phr, pc, target: (phr << 4) ^ phr_footprint(pc, target))
 
-        def generate_index_fn(phr_len: int) -> int:
+        # NOTE: index/tag mix in the low `phr_len` bits of the PHR directly. Canonical TAGE folds
+        # the full L-bit history into the index/tag width via a cyclic shift register (CSR); that
+        # folded hash is a known simplification not modelled here.
+        def generate_index_fn(phr_len: int) -> Callable[[int], int]:
             def index_fn(address: int):
                 return ((address >> 8) ^ (self._phr.read() & ((1 << phr_len) - 1))) & (num_sets_phts - 1)
             return index_fn
 
-        def generate_tag_fn(phr_len: int) -> int:
+        def generate_tag_fn(phr_len: int) -> Callable[[int], int]:
             def tag_fn(address: int):
-#                value = self._phr.read()
-#                result = 0
-#                phr_fold_length = 11
-#                phr_mask = (1 << fold_length) - 1
-#                for i in range(phr_len, fold_length - 1, -1 * fold_length):
-#                    result ^= (value >> (i - fold_length)) & mask
-#                phr_b0 = (result >> (phr_fold_length - 1)) & 1
-#                phr_b1 = (result >> (phr_fold_length - 2)) & 1
-#
-#                address_bit_mask = (1 << 8) - 1
-#
-#                return (address & address_bit_masj) ^ ()
-
                 return address ^ (self._phr.read() & ((1 << phr_len) - 1))
             return tag_fn
 
@@ -342,11 +377,10 @@ class Aarch64NeoverseN3BPU(BP):
                 TAGEPHT(counter_bit_width, num_sets_phts, 2, generate_index_fn(self._histlen[2]), generate_tag_fn(self._histlen[2]))
         ]
 
-        # LIFO of saved (architectural) PHR values, one per outstanding speculation frame.
-        # Pushed when a misprediction opens a window; popped/restored when the window unwinds.
-        self._phr_stack: List[int] = []
-
-    def update(self, address: int, taken: bool, target: int, touch_lru: bool = True) -> None:
+    def _train_counters(self, address: int, taken: bool, touch_lru: bool = True) -> None:
+        """TAGE counter training: update the single provider (longest hitting table) with the
+        resolved outcome and, on a provider misprediction, allocate one weakly-correct entry in
+        the first longer-history table that has a tag miss. Does NOT touch the PHR."""
         flag = 0
         for idx, pht in reversed(list(enumerate(self._phts))):
             prediction = pht.predict(address, touch_lru)
@@ -362,8 +396,33 @@ class Aarch64NeoverseN3BPU(BP):
 
         assert flag == 1, "Should update exactly once"
 
-        if taken:
-            self._phr.update(address, target)
+    def update(self, address: int, taken: bool, target: int, touch_lru: bool = True) -> None:
+        """All-in-one update for the no-speculation path: train counters AND advance the PHR.
+        Equivalent to train() then advance() on the resolved direction; the simple sequential API
+        exercised by the unit tests."""
+        self._train_counters(address, taken, touch_lru)
+        self._phr.advance(address, taken, target)
+
+    def train(self, address: int, taken: bool, target: int = None, touch_lru: bool = True) -> None:
+        """Retire-time training: counters only, no history advance (the PHR is advanced at predict
+        time by the driver). `target` is accepted for call-site symmetry and ignored."""
+        self._train_counters(address, taken, touch_lru)
+
+    # Speculative-history machinery: thin pass-throughs to the PHR. The predictor only exposes the
+    # mechanism; the *driver* (the execution clause) composes it into misprediction handling, the
+    # textbook way: forward -> advance(predicted) under a checkpoint(); recovery -> rollback() then
+    # advance(arch_taken).
+    def advance(self, address: int, taken: bool, target: int) -> None:
+        self._phr.advance(address, taken, target)
+
+    def checkpoint(self) -> None:
+        self._phr.checkpoint()
+
+    def rollback(self) -> None:
+        self._phr.rollback()
+
+    def commit(self) -> None:
+        self._phr.commit()
 
     def predict(self, address: int, touch_lru: bool = False) -> bool:
         for pht in reversed(self._phts):
@@ -374,10 +433,9 @@ class Aarch64NeoverseN3BPU(BP):
 
     def reset(self) -> None:
         """Clear all predictor state in-place (no object recreation, no GC pause)."""
-        self._phr._value = 0
+        self._phr.reset()
         for pht in self._phts:
-            for set_entry in pht._bp._table:
-                set_entry._lru_cache.d.clear()
+            pht.reset()
 
     def snapshot(self) -> Tuple[Tuple[Tuple[int, int], ...], ...]:
         return reduce(lambda acc, pht: acc + pht.snapshot(), self._phts, ())
@@ -389,18 +447,3 @@ class Aarch64NeoverseN3BPU(BP):
         for idx, pht in enumerate(self._phts):
             print(f"Table at index {idx} ({'Base Predictor' if idx == 0 else f'Tagged Table {idx} out of {len(self._phts) - 1} with history of length {self._histlen[idx]}'})")
             pht.print_table(max_sets)
-
-def main():
-    bpu = Aarch64NeoverseN3BPU()
-    bpu.update(0x1234, True, 0x1234)
-    bpu.update(0x1234, True, 0x1234)
-    bpu.update(0x1234, False, 0x1234)
-    for _ in range(300):
-        bpu.update(0x4444, True, 0x8888)
-
-    bpu.update(0x1234, True, 0x1234)
-    bpu.update(0x1234, True, 0x1234)
-    bpu.update(0x1234, True, 0x1234)
-
-if __name__ == "__main__":
-    main()

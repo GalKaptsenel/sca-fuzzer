@@ -23,6 +23,7 @@ from src.aarch64.contract_executor.saturating_bp import (
     SaturatingCounterBPCommon,
     TAGEPHT,
     TAGEBase,
+    PHR,
     Aarch64NeoverseN3BPU,
 )
 
@@ -590,6 +591,302 @@ class TestBPUResetBehaviour(unittest.TestCase):
 
         for set_snap in bpu.snapshot():
             self.assertEqual(set_snap, (), "all PHT entries must be evicted by reset()")
+
+
+# ===========================================================================
+# (BPU machinery) Speculative PHR: checkpoint / rollback / commit / advance,
+# and the misprediction drive sequence. These exercise the speculation
+# mechanism in isolation from the TAGE tables and from the N3 specifics.
+# ===========================================================================
+
+def make_phr(n_bits=300):
+    """PHR with a simple deterministic, always-nonzero fold, to test the mechanism
+    independently of the real N3 footprint."""
+    return PHR(n_bits, lambda v, pc, target: (v << 4) ^ (((pc ^ target) & 0xF) | 1))
+
+
+class TestPHRSpeculationPrimitives(unittest.TestCase):
+    """The PHR is pure mechanism: advance + a LIFO checkpoint stack."""
+
+    def setUp(self):
+        self.phr = make_phr()
+
+    def test_advance_value_is_pure(self):
+        self.phr._value = 0x123
+        out = self.phr.advance_value(0x123, 0x40, 0x80)
+        self.assertEqual(self.phr._value, 0x123, "advance_value must not mutate live state")
+        self.assertNotEqual(out, 0x123, "advance_value must fold to a new value")
+
+    def test_advance_not_taken_is_noop(self):
+        self.phr._value = 0xABC
+        self.phr.advance(0x40, False, 0x80)
+        self.assertEqual(self.phr._value, 0xABC, "a not-taken branch must not change the PHR")
+
+    def test_advance_taken_folds(self):
+        self.phr._value = 0xABC
+        expected = self.phr.advance_value(0xABC, 0x40, 0x80)
+        self.phr.advance(0x40, True, 0x80)
+        self.assertEqual(self.phr._value, expected, "a taken branch must fold (pc,target) in")
+
+    def test_checkpoint_rollback_round_trip(self):
+        self.phr._value = 0x111
+        self.phr.checkpoint()
+        self.phr.advance(0x40, True, 0x80)
+        self.assertNotEqual(self.phr._value, 0x111)
+        self.phr.rollback()
+        self.assertEqual(self.phr._value, 0x111, "rollback must restore the checkpointed value")
+
+    def test_commit_keeps_live_value_and_drops_snapshot(self):
+        self.phr._value = 0x111
+        self.phr.checkpoint()
+        self.phr.advance(0x40, True, 0x80)
+        live = self.phr._value
+        self.phr.commit()
+        self.assertEqual(self.phr._value, live, "commit must keep the live (advanced) value")
+        self.assertEqual(self.phr._stack, [], "commit must discard the snapshot")
+
+    def test_nested_checkpoints_rollback_lifo(self):
+        self.phr._value = 1
+        self.phr.checkpoint()           # [1]
+        self.phr._value = 2
+        self.phr.checkpoint()           # [1, 2]
+        self.phr._value = 3
+        self.phr.rollback()             # -> 2
+        self.assertEqual(self.phr._value, 2)
+        self.phr.rollback()             # -> 1
+        self.assertEqual(self.phr._value, 1)
+
+    def test_commit_inner_then_rollback_targets_outer(self):
+        self.phr._value = 1
+        self.phr.checkpoint()           # [1]
+        self.phr._value = 2
+        self.phr.checkpoint()           # [1, 2]
+        self.phr._value = 3
+        self.phr.commit()               # drop inner (2); live stays 3 -> [1]
+        self.assertEqual(self.phr._value, 3)
+        self.phr.rollback()             # -> outer (1)
+        self.assertEqual(self.phr._value, 1)
+
+    def test_checkpoint_preserves_full_300_bit_value(self):
+        big = (1 << 300) - 1            # full-width history value
+        self.phr._value = big
+        self.phr.checkpoint()
+        self.phr.advance(0x40, True, 0x80)
+        self.phr.rollback()
+        self.assertEqual(self.phr._value, big,
+            "a 300-bit value must survive checkpoint/rollback losslessly (kept as a Python int)")
+
+    def test_reset_clears_value_and_stack(self):
+        self.phr._value = 0x555
+        self.phr.checkpoint()
+        self.phr.checkpoint()
+        self.phr.reset()
+        self.assertEqual(self.phr._value, 0)
+        self.assertEqual(self.phr._stack, [], "reset must drop outstanding checkpoints")
+
+    def test_rollback_without_checkpoint_raises(self):
+        """checkpoint/rollback must be balanced; an unmatched rollback is a programming error."""
+        with self.assertRaises(IndexError):
+            self.phr.rollback()
+
+
+class TestMispredictionDriveSequence(unittest.TestCase):
+    """The driver (execution clause) composes the PHR primitives into the textbook recovery.
+    These tests pin the exact sequence the C driver must mirror:
+        forward at a mispredict -> checkpoint(); advance(predicted)
+        misprediction recovery  -> rollback();   advance(arch_taken)
+    """
+
+    def setUp(self):
+        self.phr = make_phr()
+
+    def _open_window(self, pc, predicted, target):
+        self.phr.checkpoint()
+        self.phr.advance(pc, predicted, target)
+
+    def _recover(self, pc, arch_taken, target):
+        self.phr.rollback()
+        self.phr.advance(pc, arch_taken, target)
+
+    def test_predicted_taken_arch_not_taken(self):
+        pc, target = 0x40, 0x80
+        before = self.phr._value = 0x100
+        self._open_window(pc, predicted=True, target=target)
+        self.assertEqual(self.phr._value, self.phr.advance_value(before, pc, target),
+            "during the window the wrong path sees history advanced with the prediction (taken)")
+        self._recover(pc, arch_taken=False, target=target)
+        self.assertEqual(self.phr._value, before,
+            "after recovery the correct path sees history NOT advanced (arch not-taken)")
+
+    def test_predicted_not_taken_arch_taken(self):
+        pc, target = 0x44, 0x88
+        before = self.phr._value = 0x100
+        self._open_window(pc, predicted=False, target=target)
+        self.assertEqual(self.phr._value, before,
+            "during the window the wrong path sees history NOT advanced (predicted not-taken)")
+        self._recover(pc, arch_taken=True, target=target)
+        self.assertEqual(self.phr._value, self.phr.advance_value(before, pc, target),
+            "after recovery the correct path sees history advanced (arch taken)")
+
+    def test_nested_misprediction_recovers_each_level(self):
+        pcB, tgtB = 0x40, 0x80
+        pcC, tgtC = 0x60, 0xC0
+        before_B = self.phr._value = 0x10
+        self._open_window(pcB, predicted=True, target=tgtB)     # B mispredicts
+        wrong_B = self.phr._value
+        self.assertEqual(wrong_B, self.phr.advance_value(before_B, pcB, tgtB))
+        self._open_window(pcC, predicted=True, target=tgtC)     # nested C on B's wrong path
+        self.assertEqual(self.phr._value, self.phr.advance_value(wrong_B, pcC, tgtC))
+        self._recover(pcC, arch_taken=False, target=tgtC)       # C recovers first (LIFO)
+        self.assertEqual(self.phr._value, wrong_B, "C recovery returns to B's wrong-path history")
+        self._recover(pcB, arch_taken=False, target=tgtB)       # then B recovers
+        self.assertEqual(self.phr._value, before_B, "B recovery returns to pre-B history")
+        self.assertEqual(self.phr._stack, [], "all windows closed -> empty checkpoint stack")
+
+
+class TestBPUSpeculationDelegation(unittest.TestCase):
+    """The BPU exposes the speculation mechanism as thin pass-throughs to its PHR, and separates
+    retire-time counter training (train) from history advance."""
+
+    def test_train_does_not_advance_phr(self):
+        bpu = fresh_bpu()
+        before = bpu._phr.read()
+        bpu.train(0x4, taken=True, target=0x0)
+        self.assertEqual(bpu._phr.read(), before, "train() trains counters only; PHR must not move")
+
+    def test_update_advances_phr_on_taken(self):
+        bpu = fresh_bpu()
+        before = bpu._phr.read()
+        bpu.update(0x4, taken=True, target=0x0)
+        self.assertNotEqual(bpu._phr.read(), before, "update() advances the PHR on a taken branch")
+
+    def test_update_not_taken_does_not_advance_phr(self):
+        bpu = fresh_bpu()
+        before = bpu._phr.read()
+        bpu.update(0x4, taken=False, target=0x0)
+        self.assertEqual(bpu._phr.read(), before, "update() must not advance the PHR on not-taken")
+
+    def test_train_still_trains_counters(self):
+        bpu = fresh_bpu()
+        addr, target = 0x2000, 0x2100
+        for _ in range(8):
+            bpu.train(addr, taken=True, target=target)
+        self.assertTrue(bpu.predict(addr), "counters trained taken via train() must predict taken")
+
+    def test_bpu_checkpoint_advance_rollback_delegate_to_phr(self):
+        bpu = fresh_bpu()
+        bpu._phr._value = 0x123
+        bpu.checkpoint()
+        bpu.advance(0x40, True, 0x80)
+        self.assertNotEqual(bpu._phr.read(), 0x123)
+        bpu.rollback()
+        self.assertEqual(bpu._phr.read(), 0x123, "BPU.rollback must delegate to the PHR")
+
+
+# ===========================================================================
+# (TAGE mechanics) Generic predictor behaviour — provider selection, the base
+# predictor, weakly-correct allocation, and the layered reset delegation.
+# Independent of the N3 footprint / geometry.
+# ===========================================================================
+
+class TestTAGEMechanics(unittest.TestCase):
+
+    def test_base_predictor_never_returns_none(self):
+        """The base table is the default provider: it must always yield a prediction
+        (allocate-on-miss), so predict() can never fall through."""
+        base = TAGEBase(counter_bit_width=3, num_sets=64)
+        for addr in (0x0, 0x40, 0x4000, 0xDEAD0):
+            self.assertIn(base.predict(addr), (True, False),
+                "base predictor must always return a concrete prediction")
+
+    def test_tagged_table_allocation_is_weakly_correct(self):
+        """A freshly allocated tagged entry predicts its allocation direction, and a single
+        opposite update flips it (weakly correct)."""
+        pht = make_pht()
+        pht.allocate(0x1000, taken=True)
+        self.assertTrue(pht.predict(0x1000), "just-allocated taken entry predicts taken")
+        pht.update(0x1000, taken=False)
+        self.assertFalse(pht.predict(0x1000), "one not-taken flips a weakly-taken entry")
+
+    def test_saturating_counter_bp_reset_evicts(self):
+        bp = SaturatingCounterBP(counter_bit_width=3, num_sets=1, assoc=1)
+        bp.update(0x1000, taken=True)
+        self.assertIsNotNone(bp.predict(0x1000, allocate_on_miss=False), "entry present before reset")
+        bp.reset()
+        self.assertIsNone(bp.predict(0x1000, allocate_on_miss=False), "reset() must evict all entries")
+
+    def test_tage_wrappers_reset_delegate(self):
+        """TAGEBase / TAGEPHT reset() must delegate down and clear their tables."""
+        base = TAGEBase(counter_bit_width=3, num_sets=8)
+        base.update(0x40, taken=True)
+        base.reset()
+        for set_snap in base.snapshot():
+            self.assertEqual(set_snap, (), "TAGEBase.reset() must evict all entries")
+
+        pht = make_pht()
+        pht.allocate(0x1000, taken=True)
+        pht.reset()
+        for set_snap in pht.snapshot():
+            self.assertEqual(set_snap, (), "TAGEPHT.reset() must evict all entries")
+
+    def test_longer_table_overrides_base_after_allocation(self):
+        """When a tagged (longer-history) entry exists, it is the provider over the base."""
+        bpu = fresh_bpu()
+        addr, target = 0x5000, 0x5100
+        for _ in range(8):                       # base -> strongly taken
+            bpu.update(addr, taken=True, target=target)
+        self.assertTrue(bpu.predict(addr))
+        bpu.update(addr, taken=False, target=target)   # mispredict -> allocate weakly-not-taken longer
+        self.assertFalse(bpu.predict(addr), "longer-history provider must override the base")
+
+
+# ===========================================================================
+# (Neoverse N3 specifics) The reverse-engineered configuration: history
+# lengths, table geometry, and the exact PHR footprint formula.
+# ===========================================================================
+
+class TestNeoverseN3Specifics(unittest.TestCase):
+
+    def setUp(self):
+        self.bpu = fresh_bpu()
+
+    def test_history_lengths(self):
+        self.assertEqual(self.bpu._histlen, [0, 172, 300],
+            "N3 model uses history lengths 0 (base), 172, 300")
+
+    def test_three_tables_base_plus_two_tagged(self):
+        self.assertEqual(len(self.bpu._phts), 3, "one base + two tagged tables")
+        self.assertIsInstance(self.bpu._phts[0], TAGEBase)
+        self.assertIsInstance(self.bpu._phts[1], TAGEPHT)
+        self.assertIsInstance(self.bpu._phts[2], TAGEPHT)
+
+    def test_table_geometry(self):
+        self.assertEqual(len(self.bpu._phts[0]._bp._table), 1 << 12, "base has 4096 sets")
+        self.assertEqual(len(self.bpu._phts[1]._bp._table), 1 << 11, "tagged tables have 2048 sets")
+        self.assertEqual(len(self.bpu._phts[2]._bp._table), 1 << 11)
+        self.assertEqual(self.bpu._phts[1]._bp._table[0]._lru_cache.capacity, 4, "table 1 is 4-way")
+        self.assertEqual(self.bpu._phts[2]._bp._table[0]._lru_cache.capacity, 2, "table 2 is 2-way")
+        for pht in self.bpu._phts:
+            self.assertEqual(pht._bp._counter_bit_width, 3, "3-bit saturating counters")
+
+    def test_phr_is_300_bits(self):
+        self.assertEqual(self.bpu._phr._n_bits, 300)
+        self.assertEqual(self.bpu._phr._mask, (1 << 300) - 1)
+
+    def test_footprint_exact_value_from_pc_bits(self):
+        """footprint b0..b3 = (pc[2..5]^pc[6..9]^target[3..6]^target[7..10]); pc=0xC sets b0,b1."""
+        self.bpu.update(0xC, taken=True, target=0x0)   # pc bits 2,3 set -> b0=b1=1 -> fp=0b0011
+        self.assertEqual(self.bpu._phr.read(), 0b0011)
+
+    def test_footprint_exact_value_from_target_bit(self):
+        self.bpu.update(0x0, taken=True, target=0x8)   # target bit 3 -> b0=1 -> fp=0b0001
+        self.assertEqual(self.bpu._phr.read(), 0b0001)
+
+    def test_phr_shifts_left_by_four_per_taken_branch(self):
+        """Each taken branch shifts the PHR left by 4 and XORs in the new 4-bit footprint."""
+        self.bpu.update(0xC, taken=True, target=0x0)   # PHR = 0x3
+        self.bpu.update(0x0, taken=True, target=0x8)   # PHR = (0x3 << 4) ^ 0x1
+        self.assertEqual(self.bpu._phr.read(), (0x3 << 4) ^ 0x1)
 
 
 if __name__ == "__main__":
