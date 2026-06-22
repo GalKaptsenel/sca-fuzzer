@@ -54,19 +54,10 @@ int tagebp_init(const char *module_dir, const char *module_name) {
 		return -1;
 	}
 
-	// Get the TageBP class
-	PyObject *tage_class = PyObject_GetAttrString(module, "Aarch64NeoverseN3BPU");
+	// Construct the predictor via the module factory, which owns predictor selection and config
+	// (e.g. the PHR fold width) — keeping this C layer model-agnostic.
+	tage_instance = PyObject_CallMethod(module, "create_predictor", NULL);
 	Py_DECREF(module);
-	if (!tage_class) {
-		PyErr_Print();
-		return -1;
-	}
-
-	// Build constructor arguments and create instance
-	PyObject *args = Py_BuildValue("()");
-	tage_instance = PyObject_CallObject(tage_class, args);
-	Py_DECREF(args);
-	Py_DECREF(tage_class);
 
 	if (!tage_instance) {
 		PyErr_Print();

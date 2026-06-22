@@ -352,9 +352,10 @@ class TAGEPHT:
 
 
 class Aarch64NeoverseN3BPU(BP):
-    def __init__(self, fold_group_width: int = 11):
-        # PHR fold width for index/tag (RE: ~10-11-bit groups; jit.c uses an 11-bit mask). Kept a
-        # parameter so the pending shift/fold microbench can settle 10 vs 11 without code changes.
+    def __init__(self, fold_group_width: int):
+        # PHR fold width for index/tag (RE: ~10-11-bit groups; exact width awaits a microbench).
+        # Required, no default: the unverified choice is made explicitly at the construction seam
+        # (bootstrap_director.create_predictor), not silently baked in here.
         self._fold_group_width = fold_group_width
 
         def phr_footprint(pc: int, target: int) -> int:

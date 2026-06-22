@@ -35,10 +35,15 @@ except ImportError:
     # Top-level context: this directory is on sys.path, no parent package (CE runtime).
     from saturating_bp import Aarch64NeoverseN3BPU
 
-# Logical predictor name -> class. Add microarchitecture models here; the C side selects
-# by name via create_predictor() and never needs to know the concrete class.
+# PHR fold-group width for the N3 index/tag. The RE narrows this to ~10-11 bits but the exact
+# value awaits a shift/fold microbenchmark; 11 matches jit.c's 11-bit PHR mask. This is the single,
+# explicit place that (currently unverified) choice is made — the model class has no default.
+PHR_FOLD_GROUP_WIDTH = 11
+
+# Logical predictor name -> zero-arg factory. Add microarchitecture models here; the C side selects
+# by name via create_predictor() and never needs to know the concrete class or its config.
 _PREDICTORS = {
-    "neoverse-n3": Aarch64NeoverseN3BPU,
+    "neoverse-n3": lambda: Aarch64NeoverseN3BPU(fold_group_width=PHR_FOLD_GROUP_WIDTH),
 }
 
 DEFAULT_PREDICTOR = "neoverse-n3"
@@ -47,14 +52,14 @@ DEFAULT_PREDICTOR = "neoverse-n3"
 def create_predictor(name: str = DEFAULT_PREDICTOR):
     """Construct and return a fresh predictor instance for ``name``.
 
-    Stable entry point for the CE: keeping construction here lets the C side stay
-    model-agnostic (it passes a logical name, not a class). Raises ValueError on an
-    unknown name so a misconfiguration fails loudly rather than silently.
+    Stable entry point for the CE: construction (predictor selection AND its config, e.g. the PHR
+    fold width) lives here, so the C side stays model-agnostic — it passes a logical name, not a
+    class. Raises ValueError on an unknown name so a misconfiguration fails loudly.
     """
     try:
-        cls = _PREDICTORS[name]
+        factory = _PREDICTORS[name]
     except KeyError:
         raise ValueError(
             f"unknown predictor {name!r}; known predictors: {sorted(_PREDICTORS)}"
         )
-    return cls()
+    return factory()

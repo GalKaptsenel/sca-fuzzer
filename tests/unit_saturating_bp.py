@@ -33,7 +33,8 @@ from src.aarch64.contract_executor.saturating_bp import (
 # ---------------------------------------------------------------------------
 
 def fresh_bpu():
-    return Aarch64NeoverseN3BPU()
+    # Explicit fold width: the model has no default; the tests pin the 11-bit fold they assert on.
+    return Aarch64NeoverseN3BPU(fold_group_width=11)
 
 def make_pht(n_bits=3):
     """Minimal TAGEPHT with identity index/tag functions for isolation."""
