@@ -285,7 +285,9 @@ int main() {
 
 		g_iter_phase = 3; /* write-output */
 
-		reset_execution_clause_state(); /* free checkpoint memory + reset TAGE between TCs */
+		reset_execution_clause_state(); /* free this TC's checkpoint memory; the predictor resets
+		                                   lazily at the next BPU test case (ensure_initialized ->
+		                                   on_reset -> reset()) */
 		destroy_trace_log();
 		free(simulation.simulation_memory);
 		simulation_code_free(&simulation.sim_code, 4 + base_hook_size);
