@@ -388,24 +388,28 @@ class TestIndexFunctionFromRE(unittest.TestCase):
             self.assertEqual(fn(base), fn(addr_with_low_bits),
                 f"PC[0:7] must not affect {name} index")
 
-    def test_only_phr_bits_0_to_10_affect_index(self):
-        """(RE+math) Index = (PC>>8 XOR PHR) & 0x7FF.
-        Only PHR bits [0:10] survive the final 11-bit mask — bits [11+] are lost.
-        Verify: setting PHR bit 10 changes the index; setting PHR bit 11 does not.
+    def test_index_uses_folded_history_not_just_low_bits(self):
+        """(RE) Index = (PC>>8) XOR fold(PHR). The history is XOR-folded in group_width(=11)-bit
+        chunks, so high PHR bits are NOT lost: PHR bit 11 folds onto the same index bit as PHR
+        bit 0, and the two XOR-cancel. This is the folded-history behaviour, not a low-bits mask.
         """
         addr = 0x12300
         bpu = fresh_bpu()
         index_fn = bpu._phts[1]._bp._index_fn
 
-        baseline = index_fn(addr)   # PHR=0
+        baseline = index_fn(addr)             # PHR = 0
 
-        bpu._phr._value = 1 << 10   # bit 10 — inside the 11-bit window
-        self.assertNotEqual(index_fn(addr), baseline,
-            "PHR bit 10 is within the 11-bit index mask — must affect index")
+        bpu._phr._value = 1 << 0
+        idx_bit0 = index_fn(addr)
+        self.assertNotEqual(idx_bit0, baseline, "PHR bit 0 must affect the index")
 
-        bpu._phr._value = 1 << 11   # bit 11 — just outside the mask
+        bpu._phr._value = 1 << 11             # one group up -> folds onto bit 0
+        self.assertEqual(index_fn(addr), idx_bit0,
+            "PHR bit 11 folds onto the same index bit as PHR bit 0 (11-bit fold)")
+
+        bpu._phr._value = (1 << 0) | (1 << 11)   # both set -> XOR-cancel in the fold
         self.assertEqual(index_fn(addr), baseline,
-            "PHR bit 11 is outside the 11-bit index mask — must NOT affect index")
+            "PHR bits 0 and 11 must XOR-cancel under the fold")
 
 
 # ---------------------------------------------------------------------------
@@ -627,6 +631,13 @@ class TestPHRSpeculationPrimitives(unittest.TestCase):
         expected = self.phr.advance_value(0xABC, 0x40, 0x80)
         self.phr.advance(0x40, True, 0x80)
         self.assertEqual(self.phr._value, expected, "a taken branch must fold (pc,target) in")
+
+    def test_fold_is_xor_of_group_width_chunks(self):
+        A, B, C = 0x123, 0x456, 0x7        # 11-bit chunks (C is the partial top chunk)
+        self.phr._value = (C << 22) | (B << 11) | A
+        self.assertEqual(self.phr.fold(33, 11), A ^ B ^ C, "fold = XOR of 11-bit chunks")
+        self.assertEqual(self.phr.fold(11, 11), A, "folding only the low group keeps chunk 0")
+        self.assertEqual(self.phr.fold(300, 11), A ^ B ^ C, "zero high chunks do not change the fold")
 
     def test_checkpoint_rollback_round_trip(self):
         self.phr._value = 0x111
@@ -887,6 +898,21 @@ class TestNeoverseN3Specifics(unittest.TestCase):
         self.bpu.update(0xC, taken=True, target=0x0)   # PHR = 0x3
         self.bpu.update(0x0, taken=True, target=0x8)   # PHR = (0x3 << 4) ^ 0x1
         self.assertEqual(self.bpu._phr.read(), (0x3 << 4) ^ 0x1)
+
+    def test_fold_group_width_default_is_11(self):
+        self.assertEqual(self.bpu._fold_group_width, 11,
+            "default fold width = 11 (matches jit.c's 11-bit PHR mask)")
+
+    def test_fold_group_width_configurable(self):
+        """The fold width is a constructor knob so the pending microbench can settle 10 vs 11."""
+        bpu10 = Aarch64NeoverseN3BPU(fold_group_width=10)
+        self.assertEqual(bpu10._fold_group_width, 10)
+        index_fn = bpu10._phts[1]._bp._index_fn
+        bpu10._phr._value = 1 << 0
+        idx0 = index_fn(0x12300)
+        bpu10._phr._value = 1 << 10          # one group up at width 10 -> folds onto bit 0
+        self.assertEqual(index_fn(0x12300), idx0,
+            "with fold width 10, PHR bit 10 folds onto the same index bit as bit 0")
 
 
 if __name__ == "__main__":

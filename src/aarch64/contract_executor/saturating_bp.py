@@ -253,6 +253,18 @@ class PHR:
         """Pure fold: the value `value` becomes after one taken branch (no mutation)."""
         return self._update_fn(value, pc, target) & self._mask
 
+    def fold(self, n_bits: int, group_width: int) -> int:
+        """TAGE folded history: XOR the low `n_bits` of the live history together in
+        `group_width`-bit chunks, yielding a `group_width`-bit hash. Used to index/tag the tagged
+        tables so the full history (not just its low bits) influences the lookup."""
+        value = self._value & ((1 << n_bits) - 1)
+        mask = (1 << group_width) - 1
+        result = 0
+        while value:
+            result ^= value & mask
+            value >>= group_width
+        return result
+
     def advance(self, pc: int, taken: bool, target: int) -> None:
         """Advance the live history with a direction: fold iff taken."""
         if taken:
@@ -340,7 +352,11 @@ class TAGEPHT:
 
 
 class Aarch64NeoverseN3BPU(BP):
-    def __init__(self):
+    def __init__(self, fold_group_width: int = 11):
+        # PHR fold width for index/tag (RE: ~10-11-bit groups; jit.c uses an 11-bit mask). Kept a
+        # parameter so the pending shift/fold microbench can settle 10 vs 11 without code changes.
+        self._fold_group_width = fold_group_width
+
         def phr_footprint(pc: int, target: int) -> int:
             def get_bit(x: int, k: int) -> int:
                 return (x >> k) & 1
@@ -358,17 +374,18 @@ class Aarch64NeoverseN3BPU(BP):
         counter_bit_width: int = 3
         self._phr: PHR = PHR(self._histlen[-1], lambda phr, pc, target: (phr << 4) ^ phr_footprint(pc, target))
 
-        # NOTE: index/tag mix in the low `phr_len` bits of the PHR directly. Canonical TAGE folds
-        # the full L-bit history into the index/tag width via a cyclic shift register (CSR); that
-        # folded hash is a known simplification not modelled here.
+        # Index/tag use the TAGE folded history: the table's `phr_len` history bits XOR-folded into
+        # `fold_group_width`-bit groups, so the whole history (not just its low bits) selects the
+        # entry. The two tagged tables fold different history lengths (172 vs 300) -> distinct
+        # index/tag, which is what separates them.
         def generate_index_fn(phr_len: int) -> Callable[[int], int]:
             def index_fn(address: int):
-                return ((address >> 8) ^ (self._phr.read() & ((1 << phr_len) - 1))) & (num_sets_phts - 1)
+                return ((address >> 8) ^ self._phr.fold(phr_len, self._fold_group_width)) & (num_sets_phts - 1)
             return index_fn
 
         def generate_tag_fn(phr_len: int) -> Callable[[int], int]:
             def tag_fn(address: int):
-                return address ^ (self._phr.read() & ((1 << phr_len) - 1))
+                return address ^ self._phr.fold(phr_len, self._fold_group_width)
             return tag_fn
 
         self._phts = [
