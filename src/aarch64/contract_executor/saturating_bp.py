@@ -5,24 +5,27 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional, List, Any, Tuple
 from functools import reduce
-from .bp import BP
 
-#class BP(ABC):
-#    @abstractmethod
-#    def update(self, address: int, taken: bool, target: Optional[int] = None) -> None:
-#        pass
-#
-#    @abstractmethod
-#    def predict(self, address: int) -> bool:
-#        pass
-#
-#    @abstractmethod
-#    def snapshot(self) -> Any:
-#        """
-#        Return an immutable representation of the BP (all sets and entries)
-#        suitable for hashing or scoring.
-#        """
-#        pass
+
+class BP(ABC):
+    """Minimal branch-predictor interface.
+
+    Inlined here (rather than imported from directed_fuzzing) so this module is fully
+    self-contained: the contract executor loads it directly, and the relocatable
+    remote-fuzzing bundle needs only this single file — not the wider package tree.
+    """
+    @abstractmethod
+    def update(self, address: int, taken: bool, target: Optional[int]) -> None:
+        ...
+
+    @abstractmethod
+    def predict(self, address: int) -> bool:
+        ...
+
+    @abstractmethod
+    def snapshot(self) -> Any:
+        """Immutable representation of the BP (all sets and entries) for hashing/scoring."""
+        ...
 
 
 class LRUCache:
@@ -226,8 +229,13 @@ class PHR:
         self._value = 0
         self._update_fn = update_fn
 
+    def advance_value(self, value: int, pc: int, target: int) -> int:
+        """Pure folding step: the PHR value that `value` becomes after one taken branch.
+        Used to compute speculative vs architectural history without mutating live state."""
+        return self._update_fn(value, pc, target) & self._mask
+
     def update(self, pc: int, target: int):
-        self._value = self._update_fn(self._value, pc, target) & self._mask
+        self._value = self.advance_value(self._value, pc, target)
 
     def read(self) -> int:
         return self._value
@@ -333,6 +341,10 @@ class Aarch64NeoverseN3BPU(BP):
                 TAGEPHT(counter_bit_width, num_sets_phts, 4, generate_index_fn(self._histlen[1]), generate_tag_fn(self._histlen[1])),
                 TAGEPHT(counter_bit_width, num_sets_phts, 2, generate_index_fn(self._histlen[2]), generate_tag_fn(self._histlen[2]))
         ]
+
+        # LIFO of saved (architectural) PHR values, one per outstanding speculation frame.
+        # Pushed when a misprediction opens a window; popped/restored when the window unwinds.
+        self._phr_stack: List[int] = []
 
     def update(self, address: int, taken: bool, target: int, touch_lru: bool = True) -> None:
         flag = 0

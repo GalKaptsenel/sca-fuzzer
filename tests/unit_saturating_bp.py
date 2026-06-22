@@ -18,7 +18,7 @@ import unittest
 
 sys.path.insert(0, ".")
 
-from src.directed_fuzzing.saturating_bp import (
+from src.aarch64.contract_executor.saturating_bp import (
     SaturatingCounterBP,
     SaturatingCounterBPCommon,
     TAGEPHT,

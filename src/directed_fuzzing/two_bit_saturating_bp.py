@@ -1,4 +1,4 @@
-from .saturating_bp import SaturatingCounterBPCommon
+from aarch64.contract_executor.saturating_bp import SaturatingCounterBPCommon
 
 
 class TwoBitBP(SaturatingCounterBPCommon):

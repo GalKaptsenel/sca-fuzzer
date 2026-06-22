@@ -7,7 +7,7 @@ from .aarch64_simulator import UnicornArchSimulator
 from .microarch_simulators import MuSimulator
 from .value_selector import DefaultValueSelectionStrategy
 from .microarch_state import MicroarchState
-from .saturating_bp import SaturatingCounterBPCommon
+from aarch64.contract_executor.saturating_bp import SaturatingCounterBPCommon
 from .scorer import NoveltyScorer
 from .generation_policy import MaxInstRandomBranchGenerationPolicy
 from .common import BranchType
