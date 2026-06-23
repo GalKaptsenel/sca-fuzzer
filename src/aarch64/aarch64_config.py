@@ -155,7 +155,9 @@ _buggy_instructions: List[str] = []
 
 supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "ldr", "ldp", "stp", "orr", "ands", "and", "eor", "cbnz", "tbz", "tbnz",
                                      "csel", "csinc", "csinv", "csneg", "ccmn", "ccmp",
-                                     "sdiv", "udiv", "xpacd", "xpaci", "autda", "autdza", "autdb", "autdzb", "pacda", "pacdza", "pacdb", "pacdzb", "pacga",
+                                     "sdiv", "udiv", "xpacd", "xpaci",
+                                     "autia", "autiza", "autib", "autizb", "autda", "autdza", "autdb", "autdzb",
+                                     "pacia", "paciza", "pacib", "pacizb", "pacda", "pacdza", "pacdb", "pacdzb", "pacga",
                                      "bics", "rmif", "setf8", "setf16",
                                      "cls", "clz",
                                      "crc32b", "crc32h", "crc32w", "crc32x", "crc32cb", "crc32ch", "crc32cw", "crc32cx",
@@ -168,7 +170,7 @@ supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "l
 noninterference_mode: Optional[str] = None
 
 # AArch64-only: relative weights for the PAC non-interference instrumentation
-# (stage 1). AUTIA and XPAC strips are inserted with these weights, normalized
+# (stage 1). AUT* and XPAC* strips are inserted with these weights, normalized
 # against each other; signing is the unweighted baseline.
 pac_auth_weight: float = 0.2
 pac_xpac_weight: float = 0.2
