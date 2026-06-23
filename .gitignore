@@ -51,3 +51,6 @@ docs/aarch64/__pycache__/
 
 # BPU RE visualization (regenerable via src/directed_fuzzing/tage_predictor.py)
 bpu_interactive.html
+
+# host-compiled PMU logic unit test (src/aarch64/executor)
+test_pmu

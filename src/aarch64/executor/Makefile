@@ -31,6 +31,7 @@ revizor-executor-y := \
 	measurement.o \
 	mte.o \
 	pac.o \
+	pmu.o \
 	pagetable.o \
 	sandbox.o \
 	sysfs.o \
@@ -47,7 +48,16 @@ all:
 	@echo "Building Revizor executor (MTE HW: $(HW_SUPPORTS_MTE))..."
 	$(MAKE) -C $(KERNEL_DIR) M=$(CURDIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) CC=$(CC)
 
+# Host-compiled unit test for the kernel-free PMU logic (no hardware, no module).
+HOSTCC ?= cc
+test_pmu: test_pmu.c pmu_logic.h
+	$(HOSTCC) -Wall -Wextra -O2 -o $@ test_pmu.c
+
+test: test_pmu
+	./test_pmu
+
 # Cleanup
 clean:
 	$(MAKE) -C $(KERNEL_DIR) M=$(CURDIR) clean
+	rm -f test_pmu
 

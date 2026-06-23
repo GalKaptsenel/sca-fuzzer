@@ -1,55 +1,5 @@
 #include "main.h"
-
-/* Clears and reconfigures the programmable performance counters. */
-static int config_pfc(void) {
-
-    // disable PMU user-mode access (not necessary?)
-    uint64_t val = 0;
-    uint64_t filter_events = (1 << 30) | (1 << 27) | (1 << 26);
-
-    asm volatile("msr pmuserenr_el0, %0" :: "r" (0x1));
-    asm volatile("isb\n");
-
-    // disable PMU counters before selecting the event we want
-    val = 0;
-    asm volatile("mrs %0, pmcr_el0" : "=r" (val));
-    asm volatile("msr pmcr_el0, %0" :: "r" ((uint64_t)0x0));
-    asm volatile("isb\n");
-    asm volatile("msr pmcntenclr_el0, %0" :: "r" ((uint64_t)0b1111));
-    asm volatile("isb\n");
-
-
-    // select events:
-    // 1. L1D cache refills (0x3)
-    asm volatile("msr pmevtyper0_el0, %0" :: "r" ((uint64_t)(filter_events | 0x03)));
-    asm volatile("isb\n");
-
-    // 2. Instructions retired (0x08)
-    asm volatile("msr pmevtyper1_el0, %0" :: "r" ((uint64_t)(filter_events | 0x08)));
-    asm volatile("isb\n");
-
-    // 3. Instruction speculatively executed (0x1b)
-    asm volatile("msr pmevtyper2_el0, %0" :: "r" ((uint64_t)(filter_events | 0x1b)));
-    asm volatile("isb\n");
-
-    // 4. Branch instruction architecturally executed, mispredicted immediate (0x8111)
-    asm volatile("msr pmevtyper3_el0, %0" :: "r" ((uint64_t)(filter_events | 0x8111)));
-    asm volatile("isb\n");
-
-    // enable counting
-    val = 0;
-    asm volatile("msr pmcntenset_el0, %0" :: "r" (((uint64_t)0b1111) | (1ULL << 31)));
-    asm volatile("isb\n");
-
-    // enable PMU counters and reset the counters (using 3 bits)
-    val = 0;
-    asm volatile("mrs %0, pmcr_el0" : "=r" (val));
-    asm volatile("msr pmcr_el0, %0" :: "r" (val | 0b111));
-    asm volatile("isb\n");
-    
-    return 0;
-}
-
+#include "pmu.h"
 
 static inline int setup_environment(void) {
     int err = config_pfc();
@@ -226,8 +176,9 @@ static int __nocfi run_experiments(void) {
 
 int execute(void) {
 
-    if (setup_environment()) {
-        return -1;
+    int err = setup_environment();
+    if (0 != err) {
+        return err;
     }
 
     return run_experiments();
