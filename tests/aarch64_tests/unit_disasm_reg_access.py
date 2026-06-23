@@ -36,6 +36,7 @@ CASES = [
     ("csinv",  0x5a820020, {"w1", "w2", "Z"}, {"w0"}),
     ("csneg",  0x5a820420, {"w1", "w2", "Z"}, {"w0"}),
     # explicit-operand-only controls (one per family) -------------------------------
+    ("pacia",  0xdac10020, {"x0", "x1"},    {"x0"}),
     ("pacda",  0xdac10820, {"x0", "x1"},    {"x0"}),
     ("xpacd",  0xdac147e0, {"x0"},          {"x0"}),
     ("and",    0x8a020020, {"x1", "x2"},    {"x0"}),
@@ -49,9 +50,11 @@ CASES = [
 # Remaining supported instructions whose explicit operands are reported correctly by Capstone's
 # op.access (verified per family: PAC 1-source, ALU, mem, branches) -- no implicit reg/flag access.
 EXPLICIT_OPERAND_ONLY = {
-    "autda", "autdb", "autdza", "autdzb", "b", "cbnz", "cls", "clz",
+    "autia", "autib", "autiza", "autizb", "autda", "autdb", "autdza", "autdzb",
+    "b", "cbnz", "cls", "clz",
     "crc32b", "crc32cb", "crc32ch", "crc32cw", "crc32cx", "crc32h", "crc32w", "crc32x",
-    "eor", "orr", "pacdb", "pacdza", "pacdzb", "rbit", "rev", "rev16", "rev32",
+    "eor", "orr", "pacib", "paciza", "pacizb", "pacdb", "pacdza", "pacdzb",
+    "rbit", "rev", "rev16", "rev32",
     "sdiv", "stp", "tbnz", "tbz", "udiv", "xpaci",
 }
 
