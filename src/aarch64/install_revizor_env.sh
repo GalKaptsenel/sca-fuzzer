@@ -13,7 +13,7 @@ set -e
 #   ./install_revizor_env.sh                 deps + toolchain + Python venv
 #   ./install_revizor_env.sh --build         + compile the utilities
 #   ./install_revizor_env.sh --dev-environment [--git-name N --git-email E [--git-token T]]
-#                                            + git (developer setup)
+#                                            + git + gh (developer setup)
 #   ./install_revizor_env.sh --test <group>  run tests, then exit. <group> is one of:
 #                                              aarch64-ce      CE C unit tests
 #                                              aarch64-ko      build+load module, run /dev/executor tests
@@ -75,6 +75,25 @@ install_if_missing() {
         echo "[+] Installing $1 ..."
         sudo apt-get install -y "$1"
     fi
+}
+
+# GitHub CLI ships from its own apt repo. Used for git auth so the token lives in
+# gh's config (0600) and a credential helper, never in the remote URL / .git/config.
+install_gh() {
+    if command -v gh &>/dev/null; then
+        echo "[*] gh already installed"
+        return
+    fi
+    echo "[+] Installing gh (GitHub CLI) ..."
+    install_if_missing wget
+    sudo mkdir -p -m 755 /etc/apt/keyrings
+    wget -nv -O- https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg >/dev/null
+    sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
+    sudo apt-get update
+    sudo apt-get install -y gh
 }
 
 # -------------------------
@@ -257,8 +276,9 @@ build_docs_html() {
 # Developer setup (git)
 # -------------------------
 setup_dev() {
-    echo "[*] Developer environment: installing git..."
+    echo "[*] Developer environment: installing git + gh..."
     for pkg in "${APT_DEV[@]}"; do install_if_missing "$pkg"; done
+    install_gh
 
     if [ -n "$GIT_NAME" ]; then
         git -C "$DEST_DIR" config --local user.name "$GIT_NAME"
@@ -266,10 +286,23 @@ setup_dev() {
     if [ -n "$GIT_EMAIL" ]; then
         git -C "$DEST_DIR" config --local user.email "$GIT_EMAIL"
     fi
+
+    # Strip any credentials a previous run embedded in the origin URL; gh supplies them.
+    local origin_url; origin_url=$(git -C "$DEST_DIR" remote get-url origin 2>/dev/null || true)
+    if [[ "$origin_url" == *"@github.com"* ]]; then
+        git -C "$DEST_DIR" remote set-url origin "https://github.com/${origin_url#*@github.com/}"
+        echo "[*] Removed embedded credentials from origin URL."
+    fi
+
+    # --git-token feeds gh over stdin (never argv); prefer 'gh auth login' or $GH_TOKEN.
     if [ -n "$GIT_TOKEN" ]; then
-        echo "[!] Embedding token in origin URL (stored in plaintext in .git/config)."
-        git -C "$DEST_DIR" remote set-url origin \
-            "https://$GIT_TOKEN@github.com/GalKaptsenel/sca-fuzzer.git" || true
+        printf '%s' "$GIT_TOKEN" | gh auth login --hostname github.com --with-token
+    fi
+    if gh auth status --hostname github.com &>/dev/null; then
+        gh auth setup-git --hostname github.com
+        echo "[*] git authenticated via the gh credential helper."
+    else
+        echo "[!] Not logged in to GitHub. Run 'gh auth login' (or export GH_TOKEN) to enable push."
     fi
 }
 
