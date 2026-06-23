@@ -196,5 +196,42 @@ class TestPacAuth(unittest.TestCase):
                             "wrong context must not authenticate (detected, not faulted)")
 
 
+class TestInstructionKeyModes(unittest.TestCase):
+    """Instruction-key (APIA) sign/auth in both key modes. A swapped APIA that differs
+    from the live key used to FPAC-fault the kernel's own pac-ret return and reset the VM."""
+
+    PTR = 0x0000556677889990
+    CTX = 0x1234
+
+    def tearDown(self):
+        _executor.set_pac_keys(None)
+        _executor.set_pac_keys(_executor.get_pac_keys())
+
+    def test_live_keys_roundtrip(self):
+        _executor.set_pac_keys(None)
+        signed = _executor.pac_sign(self.PTR, self.CTX, "pacia")
+        self.assertNotEqual(signed, self.PTR)
+        self.assertEqual(_executor.pac_auth(signed, self.CTX, "autia"), self.PTR)
+
+    def test_swapped_keys_equal_live_match(self):
+        _executor.set_pac_keys(None)
+        live = _executor.pac_sign(self.PTR, self.CTX, "pacia")
+        _executor.set_pac_keys(_executor.get_pac_keys())
+        self.assertEqual(_executor.pac_sign(self.PTR, self.CTX, "pacia"), live)
+
+    def test_swapped_different_instruction_key(self):
+        # regression: a different APIA used to fault the kernel pac-ret RETAA and reset the VM
+        _executor.set_pac_keys(None)
+        live = _executor.pac_sign(self.PTR, self.CTX, "pacia")
+        keys = _executor.get_pac_keys()
+        keys.apia_lo ^= 0xA5A5A5A5A5A5A5A5
+        keys.apia_hi ^= 0x5A5A5A5A5A5A5A5A
+        _executor.set_pac_keys(keys)
+        signed = _executor.pac_sign(self.PTR, self.CTX, "pacia")
+        self.assertNotEqual(signed, live, "a different APIA must change the signature")
+        self.assertEqual(_executor.pac_auth(signed, self.CTX, "autia"), self.PTR,
+                         "AUTIA under the same swapped key recovers the pointer")
+
+
 if __name__ == '__main__':
     unittest.main()
