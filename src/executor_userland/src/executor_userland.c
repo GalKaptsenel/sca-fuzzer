@@ -1,4 +1,5 @@
 #include <executor_ioctl.h>
+#include <executor_pac_api.h>
 #include <executor_user_api.h>
 #include <executor_utils.h>
 
@@ -13,7 +14,12 @@ static unsigned long int_to_cmd[] = {
 	REVISOR_MEASUREMENT,
 	REVISOR_TRACE,
 	REVISOR_CLEAR_ALL_INPUTS,
-	REVISOR_GET_TEST_LENGTH
+	REVISOR_GET_TEST_LENGTH,
+	REVISOR_SET_PAC_KEYS,
+	REVISOR_GET_PAC_KEYS,
+	REVISOR_PAC_SIGN,
+	REVISOR_PAC_AUTH,
+	REVISOR_PAC_XPAC
 };
 
 #define MAX_COMMAND_NUMBER ((int)(sizeof(int_to_cmd) / sizeof(int_to_cmd[0])) - 1)
@@ -24,7 +30,11 @@ static void print_usage(const char* prog_name) {
 	printf("\t<command> [argument]: ioctl command number (1-%d), optional integer/hex argument\n", MAX_COMMAND_NUMBER);
 	printf("\tw file              : write the file's contents to the device\n");
 	printf("\tr file              : read the device's contents into the file\n");
+	printf("\tPAC: 11 [10 hex keys|none], 12, 13|14 <mnemonic> <ptr> <ctx>, 15 <mnemonic> <ptr>\n");
 	printf("\tExample: %s /dev/executor 4 0x3\n", prog_name);
+	printf("\tExample: %s /dev/executor 11 0x1 0x0 0x2 0x0 0x3 0x0 0x4 0x0 0x5 0x0\n", prog_name);
+	printf("\tExample: %s /dev/executor 11        (revert to live kernel keys)\n", prog_name);
+	printf("\tExample: %s /dev/executor 13 pacia 0xffff000080000000 0x0\n", prog_name);
 	printf("\tExample: %s /dev/executor w input.bin\n", prog_name);
 	printf("\tExample: %s /dev/executor r dump.bin\n", prog_name);
 }
@@ -262,6 +272,106 @@ static int serve_numerical_command_with_argument(int fd, int command, uint64_t a
 	return result;
 }
 
+static void print_pac_keys(const struct ce_pac_keys* k) {
+	printf("\tAPIA %016lx:%016lx\n", k->apia_hi, k->apia_lo);
+	printf("\tAPIB %016lx:%016lx\n", k->apib_hi, k->apib_lo);
+	printf("\tAPDA %016lx:%016lx\n", k->apda_hi, k->apda_lo);
+	printf("\tAPDB %016lx:%016lx\n", k->apdb_hi, k->apdb_lo);
+	printf("\tAPGA %016lx:%016lx\n", k->apga_hi, k->apga_lo);
+}
+
+static bool is_pac_command(int command) {
+	switch (_IOC_NR(command)) {
+		case REVISOR_SET_PAC_KEYS_CONSTANT:
+		case REVISOR_GET_PAC_KEYS_CONSTANT:
+		case REVISOR_PAC_SIGN_CONSTANT:
+		case REVISOR_PAC_AUTH_CONSTANT:
+		case REVISOR_PAC_XPAC_CONSTANT:
+			return true;
+		default:
+			return false;
+	}
+}
+
+/*
+ * PAC ioctls carry structs, so they take their own arguments:
+ *   11 SET_PAC_KEYS  <10 hex words> | (none) to revert to live keys
+ *   12 GET_PAC_KEYS
+ *   13 PAC_SIGN      <mnemonic> <ptr> <ctx>
+ *   14 PAC_AUTH      <mnemonic> <ptr> <ctx>   (ptr must be correctly signed; a
+ *                                             failed AUTH faults FEAT-FPAC silicon)
+ *   15 PAC_XPAC      <mnemonic> <ptr>
+ */
+static int serve_pac_command(int fd, int command, int argc, char** argv) {
+	switch (_IOC_NR(command)) {
+		case REVISOR_GET_PAC_KEYS_CONSTANT: {
+			struct ce_pac_keys keys = { 0 };
+			int result = ioctl(fd, command, &keys);
+			if (0 <= result) {
+				printf("PAC keys (hi:lo):\n");
+				print_pac_keys(&keys);
+			}
+			return result;
+		}
+
+		case REVISOR_SET_PAC_KEYS_CONSTANT: {
+			if (3 == argc) {
+				printf("Reverting to the live kernel PAC keys\n");
+				return ioctl(fd, command, NULL);
+			}
+			if (13 != argc) {
+				printf("SET_PAC_KEYS needs 0 args (revert) or 10 hex words: "
+				       "apia_lo apia_hi apib_lo apib_hi apda_lo apda_hi apdb_lo apdb_hi apga_lo apga_hi\n");
+				return -2;
+			}
+			struct ce_pac_keys keys = {
+				.apia_lo = strtoull(argv[3],  NULL, 0), .apia_hi = strtoull(argv[4],  NULL, 0),
+				.apib_lo = strtoull(argv[5],  NULL, 0), .apib_hi = strtoull(argv[6],  NULL, 0),
+				.apda_lo = strtoull(argv[7],  NULL, 0), .apda_hi = strtoull(argv[8],  NULL, 0),
+				.apdb_lo = strtoull(argv[9],  NULL, 0), .apdb_hi = strtoull(argv[10], NULL, 0),
+				.apga_lo = strtoull(argv[11], NULL, 0), .apga_hi = strtoull(argv[12], NULL, 0),
+			};
+			return ioctl(fd, command, &keys);
+		}
+
+		case REVISOR_PAC_SIGN_CONSTANT:
+		case REVISOR_PAC_AUTH_CONSTANT: {
+			if (6 != argc) {
+				printf("Usage: <command> <mnemonic> <ptr> <ctx>\n");
+				return -2;
+			}
+			struct pac_sign_req req = { 0 };
+			strncpy(req.mnemonic, argv[3], sizeof(req.mnemonic) - 1);
+			req.ptr = strtoull(argv[4], NULL, 0);
+			req.ctx = strtoull(argv[5], NULL, 0);
+			int result = ioctl(fd, command, &req);
+			if (0 <= result) {
+				printf("%s(0x%016lx, ctx=0x%016lx) = 0x%016lx\n",
+				       req.mnemonic, req.ptr, req.ctx, req.result);
+			}
+			return result;
+		}
+
+		case REVISOR_PAC_XPAC_CONSTANT: {
+			if (5 != argc) {
+				printf("Usage: <command> <mnemonic> <ptr>\n");
+				return -2;
+			}
+			struct pac_sign_req req = { 0 };
+			strncpy(req.mnemonic, argv[3], sizeof(req.mnemonic) - 1);
+			req.ptr = strtoull(argv[4], NULL, 0);
+			int result = ioctl(fd, command, &req);
+			if (0 <= result) {
+				printf("%s(0x%016lx) = 0x%016lx\n", req.mnemonic, req.ptr, req.result);
+			}
+			return result;
+		}
+
+		default:
+			return -2;
+	}
+}
+
 static int serve_numerical_operation(int fd, int argc, char** argv) {
 	int command_number = atoi(argv[2]);
 
@@ -278,7 +388,9 @@ static int serve_numerical_operation(int fd, int argc, char** argv) {
 	printf("Command magic: %d\n", _IOC_TYPE(command));
 	printf("Command number: %d\n", _IOC_NR(command));
 
-	if (3 < argc) {
+	if (is_pac_command(command)) {
+		result = serve_pac_command(fd, command, argc, argv);
+	} else if (3 < argc) {
 		result = serve_numerical_command_with_argument(fd, command, strtoull(argv[3], NULL, 0));
 	} else {
 		result = serve_numerical_command_without_argument(fd, command);

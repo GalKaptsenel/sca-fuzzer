@@ -7,8 +7,8 @@
 #include <executor_ioctl_nr.h>
 
 /*
- * Request macros for the ioctls this tool dispatches. The PAC/MTE ioctls
- * (numbers 11-18) are handled by the kernel module but not driven from here.
+ * Request macros for the base ioctls (1-10). The PAC ioctls (11-15) are driven
+ * via executor_pac_api.h; the MTE ioctl (16) is not driven from here.
  */
 #define REVISOR_CHECKOUT_TEST      	    _IO(REVISOR_IOC_MAGIC, REVISOR_CHECKOUT_TEST_CONSTANT)                   // Can read test case and write test case
 #define REVISOR_UNLOAD_TEST    		    _IO(REVISOR_IOC_MAGIC, REVISOR_UNLOAD_TEST_CONSTANT)

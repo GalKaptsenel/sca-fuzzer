@@ -32,6 +32,8 @@ struct ce_pac_keys {
     uint64_t apga_lo, apga_hi;
 };
 #define REVISOR_GET_PAC_KEYS _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_PAC_KEYS_CONSTANT, struct ce_pac_keys)
+/* Pass a struct ce_pac_keys to pin the exec keys; pass NULL to revert to the live kernel keys. */
+#define REVISOR_SET_PAC_KEYS _IOW(REVISOR_IOC_MAGIC, REVISOR_SET_PAC_KEYS_CONSTANT, struct ce_pac_keys)
 #endif
 
 /*
