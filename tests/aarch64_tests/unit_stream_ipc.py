@@ -42,11 +42,19 @@ class SafeReadLogicTest(unittest.TestCase):
             self.assertTrue(sel.select.called)
 
     def test_eof_when_ce_exited_and_nothing_available(self):
-        ipc = _mock_ipc([None], poll_return=0)
+        # exited, and the drain read1 also yields nothing -> EOF
+        ipc = _mock_ipc([b"", b""], poll_return=0)
         with mock.patch.object(sipc, "_select") as sel:
             sel.select.return_value = ([], [], [])
             with self.assertRaises(EOFError):
                 ipc._safe_read(8)
+
+    def test_drains_bytes_flushed_just_before_exit(self):
+        # regression: bytes flushed right before exit must be returned, not dropped as EOF
+        ipc = _mock_ipc([b"", b"LASTDATA"], poll_return=0)
+        with mock.patch.object(sipc, "_select") as sel:
+            sel.select.return_value = ([], [], [])
+            self.assertEqual(ipc._safe_read(8), b"LASTDATA")
 
 
 @unittest.skipUnless(_NONBLOCKING_PIPE, "real non-blocking pipe path is Unix-only")
@@ -62,6 +70,31 @@ class SafeReadRealPipeTest(unittest.TestCase):
         try:
             self.assertEqual(ipc.recv_resp(), (5, payload))
         finally:
+            read_stream.close()
+            os.close(w)
+
+    def test_empty_pipe_is_not_eof_while_ce_alive(self):
+        # regression: read1() returns b'' (not None) on an empty non-blocking pipe; an empty
+        # read while the CE is alive is would-block, not EOF, so a late response must be read.
+        import threading
+        import time
+        r, w = os.pipe()
+        payload = b"R" * 40
+        read_stream = os.fdopen(r, "rb", buffering=1 << 20)
+        proc = mock.Mock()
+        proc.poll.return_value = None          # CE alive: the empty first read must not be EOF
+        ipc = StreamIPC(None, read_stream, proc)
+
+        def respond_later():
+            time.sleep(0.2)                    # arrives only after recv_resp's first read1 sees b''
+            os.write(w, HEADER_STRUCT.pack(len(payload), 7) + payload)
+
+        writer = threading.Thread(target=respond_later)
+        writer.start()
+        try:
+            self.assertEqual(ipc.recv_resp(), (7, payload))
+        finally:
+            writer.join()
             read_stream.close()
             os.close(w)
 

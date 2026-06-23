@@ -15,8 +15,9 @@ class StreamIPC:
         self._write_stream: subprocess.PIPE = write_stream
         self._read_stream: subprocess.PIPE = read_stream
         self._proc: subprocess.Popen = proc
-        # Non-blocking read fd: read1() then returns None (instead of blocking) when buffer and
-        # fd are both empty, so _safe_read can drain buffered bytes before consulting select().
+        # Non-blocking read fd: read1() then returns an empty result (b'' or None) instead of
+        # blocking when buffer and fd are both empty, so _safe_read can drain buffered bytes
+        # before consulting select() and tell EOF from would-block via the CE's exit status.
         if read_stream is not None and hasattr(os, "set_blocking"):
             os.set_blocking(read_stream.fileno(), False)
 
@@ -40,47 +41,50 @@ class StreamIPC:
     def _safe_read(self, amount: int) -> bytes:
         buff: bytes = bytes()
         while amount > len(buff):
-            # read1 first so buffered bytes are served immediately; it returns None only when the
-            # buffer is empty and the non-blocking fd would block -- only then do we consult
-            # select(), so already-received data is never hidden behind a spurious hang/EOF.
+            # read1() serves buffered bytes immediately; on the non-blocking fd it returns an empty
+            # result when buffer and fd are both empty -- b'' or None, depending on the Python build.
+            # An empty result is EOF only once the CE has exited: while it is alive its write end is
+            # open, so an empty read just means "no data yet" -- wait on select() and retry.
             chunk = self._read_stream.read1(amount - len(buff))
-            if chunk is None:
-                ready, _, _ = _select.select([self._read_stream], [], [], 0)
-                if not ready and self._proc is not None and self._proc.poll() is not None:
-                    raise EOFError(
-                        f"CE exited (code {self._proc.returncode}) while reading {amount} bytes; "
-                        f"got {len(buff)}.")
-                if not ready:
-                    ready, _, _ = _select.select([self._read_stream], [], [], CE_READ_TIMEOUT)
-                if not ready:
-                    pid = self._proc.pid if self._proc is not None else "?"
-                    alive = (self._proc is not None and self._proc.poll() is None)
-
-                    wchan = ""
-                    try:
-                        with open(f"/proc/{pid}/wchan") as f:
-                            wchan = f.read().strip()
-                    except Exception:
-                        pass
-
-                    status = ""
-                    try:
-                        with open(f"/proc/{pid}/status") as f:
-                            status = f.read()
-                    except Exception:
-                        pass
-
-                    raise RuntimeError(
-                        f"CE hung: no response after {CE_READ_TIMEOUT}s "
-                        f"(waiting for {amount} bytes, got {len(buff)})\n"
-                        f"  pid={pid} alive={alive}\n"
-                        f"  wchan={wchan}\n"
-                        f"  /proc/{pid}/status:\n{status}"
-                    )
+            if chunk:
+                buff += chunk
                 continue
-            if not chunk:
-                raise EOFError(f"Stream closed while reading {amount} bytes. Read {len(buff)} bytes.")
-            buff += chunk
+
+            if self._proc is not None and self._proc.poll() is not None:
+                chunk = self._read_stream.read1(amount - len(buff))  # drain bytes flushed just before exit
+                if chunk:
+                    buff += chunk
+                    continue
+                raise EOFError(
+                    f"CE exited (code {self._proc.returncode}) while reading {amount} bytes; "
+                    f"got {len(buff)}.")
+
+            ready, _, _ = _select.select([self._read_stream], [], [], CE_READ_TIMEOUT)
+            if not ready:
+                pid = self._proc.pid if self._proc is not None else "?"
+                alive = (self._proc is not None and self._proc.poll() is None)
+
+                wchan = ""
+                try:
+                    with open(f"/proc/{pid}/wchan") as f:
+                        wchan = f.read().strip()
+                except Exception:
+                    pass
+
+                status = ""
+                try:
+                    with open(f"/proc/{pid}/status") as f:
+                        status = f.read()
+                except Exception:
+                    pass
+
+                raise RuntimeError(
+                    f"CE hung: no response after {CE_READ_TIMEOUT}s "
+                    f"(waiting for {amount} bytes, got {len(buff)})\n"
+                    f"  pid={pid} alive={alive}\n"
+                    f"  wchan={wchan}\n"
+                    f"  /proc/{pid}/status:\n{status}"
+                )
 
         assert len(buff) == amount
         return buff
