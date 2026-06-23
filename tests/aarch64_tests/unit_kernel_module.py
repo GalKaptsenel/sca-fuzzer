@@ -17,6 +17,7 @@ Both groups snapshot and restore the device state they touch so they do not
 leak configuration across tests or into a later fuzzing run.
 """
 import os
+import errno
 import fcntl
 import struct
 import unittest
@@ -234,21 +235,22 @@ class TestExecutorIoctl(unittest.TestCase):
     def _num_inputs(self):
         return self._ioctl_get_u64(GET_NUM_INPUTS)
 
-    def _tag_region(self, offset, length, tag=6):
+    def _tag_region(self, offset, length, tag):
+        # pass a bytearray so ioctl() returns its status code, not the request buffer
         req = struct.pack("<QQB", offset, length, tag).ljust(24, b"\x00")
-        return fcntl.ioctl(self.fd, MTE_TAG_REGION, req, False)
+        return fcntl.ioctl(self.fd, MTE_TAG_REGION, bytearray(req))
 
     # ---- MTE tag-region ioctl bounds (span = lower_overflow|main|faulty|upper_overflow) ------
     def test_mte_tag_region_accepts_full_span(self):
-        self.assertEqual(self._tag_region(0, MTE_TAGGABLE_SPAN), 0)
-        self.assertEqual(self._tag_region(3 * 4096, 4096), 0)   # the upper_overflow region
+        self.assertEqual(self._tag_region(0, MTE_TAGGABLE_SPAN, 0xF), 0)
+        self.assertEqual(self._tag_region(3 * 4096, 4096, 0xF), 0)   # the upper_overflow region
 
     def test_mte_tag_region_rejects_out_of_range(self):
         for offset, length in ((0, MTE_TAGGABLE_SPAN + 1),
                                (MTE_TAGGABLE_SPAN, 1),
                                (MTE_TAGGABLE_SPAN - 1, 2)):
             with self.assertRaises(OSError):
-                self._tag_region(offset, length)
+                self._tag_region(offset, length, 0xF)
 
     def test_short_input_write_is_rejected(self):
         a = self._ioctl_get_u64(ALLOCATE_INPUT)
@@ -285,11 +287,13 @@ class TestExecutorIoctl(unittest.TestCase):
         self._ioctl_put_u64(FREE_INPUT, a)
         self.assertEqual(self._num_inputs(), 1)
 
-    # ---- corner cases: invalid ids are soft no-ops (never crash) ------------
-    def test_free_negative_id_is_noop(self):
+    # ---- corner cases: invalid ids are rejected with -EINVAL, not swallowed -----
+    def test_free_negative_id_is_rejected(self):
         self._ioctl_get_u64(ALLOCATE_INPUT)
-        self._ioctl_put_u64(FREE_INPUT, -1)        # negative is invalid by definition
-        self.assertEqual(self._num_inputs(), 1)
+        with self.assertRaises(OSError) as cm:
+            self._ioctl_put_u64(FREE_INPUT, -1)    # negative is invalid by definition
+        self.assertEqual(cm.exception.errno, errno.EINVAL)
+        self.assertEqual(self._num_inputs(), 1)    # rejected cleanly, state intact
 
     def test_double_free_is_noop(self):
         # The second free targets an id that no longer exists (assumption-free way
@@ -299,11 +303,13 @@ class TestExecutorIoctl(unittest.TestCase):
         self._ioctl_put_u64(FREE_INPUT, a)
         self.assertEqual(self._num_inputs(), 0)
 
-    def test_checkout_freed_input_is_safe(self):
-        # Checking out an id that was freed (now non-existent) must be a safe no-op.
+    def test_checkout_freed_input_is_rejected(self):
+        # Checking out an id that was freed (now non-existent) is rejected, not swallowed.
         a = self._ioctl_get_u64(ALLOCATE_INPUT)
         self._ioctl_put_u64(FREE_INPUT, a)
-        self._ioctl_put_u64(CHECKOUT_INPUT, a)
+        with self.assertRaises(OSError) as cm:
+            self._ioctl_put_u64(CHECKOUT_INPUT, a)
+        self.assertEqual(cm.exception.errno, errno.EINVAL)
 
     # ---- precondition automata (these DO return errno) ----------------------
     def test_get_test_length_without_test_fails(self):
