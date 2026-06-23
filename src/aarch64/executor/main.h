@@ -8,6 +8,7 @@
 #include <linux/version.h>
 #include <linux/types.h>
 #include <linux/mm.h>
+#include <linux/highmem.h>
 #include <linux/io.h>
 #include <linux/vmalloc.h>
 #include <linux/kprobes.h>

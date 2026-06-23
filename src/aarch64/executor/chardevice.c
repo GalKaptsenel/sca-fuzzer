@@ -2,7 +2,7 @@
 #include "pac.h"
 #include <linux/mutex.h>
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 4, 0)
 #define CLASS_CREATE(DEV_CLASS, DEV_NAME) class_create(DEV_NAME);
 #else
 #define CLASS_CREATE(DEV_CLASS, DEV_NAME) class_create(DEV_CLASS, DEV_NAME);
