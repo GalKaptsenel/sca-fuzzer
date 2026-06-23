@@ -2173,6 +2173,256 @@ static void test_integration_bpu_without_predictor_traps(void) {
     EXPECT(!ok);   /* CE traps: BPU enabled with no predictor */
 }
 
+/* ---- Emulated MTE data-processing instructions ------------------------- *
+ * The CE software-emulates the MTE address/flag instructions so test cases can
+ * use them on a non-MTE CPU. These check that emulation produces the
+ * ARM-defined result. Expected values follow the ARM ARM (DDI0487). */
+
+/* SUBP  X<rd>, X<rn>, X<rm>  (tagged pointer difference, no flags) */
+static uint32_t enc_subp(int rd, int rn, int rm) {
+    return 0x9AC00000u | ((uint32_t)rm << 16) | ((uint32_t)rn << 5) | (uint32_t)rd;
+}
+/* SUBPS X<rd>, X<rn>, X<rm>  (tagged pointer difference, sets NZCV) */
+static uint32_t enc_subps(int rd, int rn, int rm) {
+    return 0xBAC00000u | ((uint32_t)rm << 16) | ((uint32_t)rn << 5) | (uint32_t)rd;
+}
+
+/* Same address, different tags → tag-stripped operands equal → diff 0, Z=1, C=1. */
+static void test_integration_mte_subps_equal_tagged_pointers(void) {
+    uint32_t code[] = {
+        enc_subps(0, 1, 2),   /* SUBPS X0, X1, X2 */
+        enc_ldr_reg(3, 29),   /* LDR  X3, [X29]   (carries cpu_state after SUBPS) */
+    };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[1] = UINT64_C(0x0A00000000001000);   /* tag 0xA, address 0x1000 */
+    regs[2] = UINT64_C(0x0500000000001000);   /* tag 0x5, address 0x1000 */
+
+    ce_result_t res;
+    if (!run_ce(code, 2, mem, sizeof(mem), KBASE, 0, 0u, regs, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+    instr_trace_entry_t *e = find_mem_entry(&res, 0);
+    EXPECT(e != NULL);
+    if (!e) return;
+
+    /* result = 0 (same address, tags stripped) */
+    EXPECT_EQ(e->cpu.gpr[0], (uint64_t)0);
+    /* NZCV: Z=1, C=1 (op1>=op2), N=0, V=0  →  0x60000000 */
+    EXPECT_EQ(e->cpu.nzcv, UINT64_C(0x60000000));
+}
+
+/* SUBPS where op1 < op2 → negative result; N=1, C=0 (borrow). */
+static void test_integration_mte_subps_negative(void) {
+    uint32_t code[] = {
+        enc_subps(0, 1, 2),
+        enc_ldr_reg(3, 29),
+    };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[1] = UINT64_C(0x1000);
+    regs[2] = UINT64_C(0x2000);
+
+    ce_result_t res;
+    if (!run_ce(code, 2, mem, sizeof(mem), KBASE, 0, 0u, regs, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+    instr_trace_entry_t *e = find_mem_entry(&res, 0);
+    EXPECT(e != NULL);
+    if (!e) return;
+
+    /* result = 0x1000 - 0x2000 = -0x1000, sign-extended to 64 bits */
+    EXPECT_EQ(e->cpu.gpr[0], UINT64_C(0xFFFFFFFFFFFFF000));
+    /* NZCV: N=1, Z=0, C=0, V=0  →  0x80000000 */
+    EXPECT_EQ(e->cpu.nzcv, UINT64_C(0x80000000));
+}
+
+/* SUBP (no S) computes the difference but must leave NZCV untouched. */
+static void test_integration_mte_subp_preserves_nzcv(void) {
+    uint32_t code[] = {
+        enc_subp(0, 1, 2),
+        enc_ldr_reg(3, 29),
+    };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[1] = UINT64_C(0x2000);
+    regs[2] = UINT64_C(0x1000);
+    regs[6] = UINT64_C(0x40000000);   /* incoming NZCV: Z=1 */
+
+    ce_result_t res;
+    if (!run_ce(code, 2, mem, sizeof(mem), KBASE, 0, 0u, regs, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+    instr_trace_entry_t *e = find_mem_entry(&res, 0);
+    EXPECT(e != NULL);
+    if (!e) return;
+
+    EXPECT_EQ(e->cpu.gpr[0], UINT64_C(0x1000));     /* result written          */
+    EXPECT_EQ(e->cpu.nzcv,   UINT64_C(0x40000000)); /* NZCV unchanged (no S)   */
+}
+
+/* ADDG  X<rd>, X<rn>, #uimm6, #uimm4  (uimm6 unit = 16 bytes; uimm4 = tag delta) */
+static uint32_t enc_addg(int rd, int rn, int uimm6, int uimm4) {
+    return 0x91800000u | ((uint32_t)(uimm6 & 0x3F) << 16) | ((uint32_t)(uimm4 & 0xF) << 10)
+         | ((uint32_t)rn << 5) | (uint32_t)rd;
+}
+/* SUBG  X<rd>, X<rn>, #uimm6, #uimm4 */
+static uint32_t enc_subg(int rd, int rn, int uimm6, int uimm4) {
+    return 0xD1800000u | ((uint32_t)(uimm6 & 0x3F) << 16) | ((uint32_t)(uimm4 & 0xF) << 10)
+         | ((uint32_t)rn << 5) | (uint32_t)rd;
+}
+
+/* ADDG adds (uimm6*16) to address[55:0] and uimm4 to tag[59:56] independently;
+ * attribute[63:60] preserved, no carry between the fields. */
+static void test_integration_mte_addg(void) {
+    uint32_t code[] = { enc_addg(0, 1, 1, 1), enc_ldr_reg(3, 29) };  /* ADDG X0,X1,#16,#1 */
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[1] = UINT64_C(0xF200000000001000);   /* attr=F, tag=2, addr=0x1000 */
+    ce_result_t res;
+    if (!run_ce(code, 2, mem, sizeof(mem), KBASE, 0, 0u, regs, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+    instr_trace_entry_t *e = find_mem_entry(&res, 0);
+    EXPECT(e != NULL);
+    if (!e) return;
+    /* addr 0x1000+0x10=0x1010, tag 2+1=3, attr F → 0xF300000000001010 */
+    EXPECT_EQ(e->cpu.gpr[0], UINT64_C(0xF300000000001010));
+}
+
+/* SUBG mirrors ADDG with subtraction; tag wraps mod 16. */
+static void test_integration_mte_subg(void) {
+    uint32_t code[] = { enc_subg(0, 1, 1, 1), enc_ldr_reg(3, 29) };  /* SUBG X0,X1,#16,#1 */
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[1] = UINT64_C(0xF300000000001010);   /* attr=F, tag=3, addr=0x1010 */
+    ce_result_t res;
+    if (!run_ce(code, 2, mem, sizeof(mem), KBASE, 0, 0u, regs, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+    instr_trace_entry_t *e = find_mem_entry(&res, 0);
+    EXPECT(e != NULL);
+    if (!e) return;
+    /* addr 0x1010-0x10=0x1000, tag 3-1=2, attr F → 0xF200000000001000 */
+    EXPECT_EQ(e->cpu.gpr[0], UINT64_C(0xF200000000001000));
+}
+
+/* ---- PAC sign / auth / strip — needs the kernel module (EL1 keys) ------- *
+ * PAC keys are EL1 registers, so the CE routes these through /dev/executor.
+ * They run on the VM once revizor-executor.ko is loaded, and SKIP otherwise. */
+
+static bool executor_dev_present(void) {
+    return access("/dev/executor", R_OK) == 0;
+}
+
+#define SKIP_IF_NO_EXECUTOR() do {                                              \
+    if (!executor_dev_present()) {                                              \
+        printf("SKIP %s: /dev/executor absent (load revizor-executor.ko)\n",   \
+               __func__);                                                       \
+        return;                                                                 \
+    }                                                                          \
+} while (0)
+
+static uint32_t enc_pacga(int rd, int rn, int rm) {
+    return 0x9AC03000u | ((uint32_t)rm << 16) | ((uint32_t)rn << 5) | (uint32_t)rd;
+}
+static uint32_t enc_xpaci(int rd) { return 0xDAC143E0u | (uint32_t)rd; }
+
+/* PACGA: MAC in bits[63:32], [31:0] zero, deterministic for equal inputs. */
+static void test_integration_pac_pacga(void) {
+    SKIP_IF_NO_EXECUTOR();
+    uint32_t code[] = { enc_pacga(0, 1, 2), enc_pacga(3, 1, 2), enc_ldr_reg(4, 29) };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[1] = KBASE;
+    regs[2] = UINT64_C(0x42);
+
+    ce_result_t res;
+    if (!run_ce(code, 3, mem, sizeof(mem), KBASE, 0, 0u, regs, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+    instr_trace_entry_t *e = find_mem_entry(&res, 0);
+    EXPECT(e != NULL);
+    if (!e) return;
+
+    EXPECT_EQ(e->cpu.gpr[0] & UINT64_C(0xFFFFFFFF), (uint64_t)0);
+    EXPECT(e->cpu.gpr[0] != 0);
+    EXPECT_EQ(e->cpu.gpr[0], e->cpu.gpr[3]);
+}
+
+/* PACIA then XPACI strips the PAC field back to the original pointer (no auth). */
+static void test_integration_pac_sign_then_strip(void) {
+    SKIP_IF_NO_EXECUTOR();
+    uint32_t code[] = { enc_pacia(0, 1), enc_ldr_reg(9, 29), enc_xpaci(0), enc_ldr_reg(2, 29) };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[0] = KBASE;
+    regs[1] = UINT64_C(0x99);
+
+    ce_result_t res;
+    if (!run_ce(code, 4, mem, sizeof(mem), KBASE, 0, 0u, regs, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+    EXPECT_EQ(count_mem_entries(&res), 2);
+    instr_trace_entry_t *a = find_mem_entry(&res, 0);
+    instr_trace_entry_t *b = find_mem_entry(&res, 1);
+    EXPECT(a != NULL); EXPECT(b != NULL);
+    if (!a || !b) return;
+    EXPECT(a->cpu.gpr[0] != KBASE);
+    EXPECT_EQ(b->cpu.gpr[0], KBASE);
+}
+
+/* PACIA then AUTIA with matching key+context authenticates and recovers the
+ * pointer. A *failing* auth faults the CPU (resets FEAT-FPAC) and exercises the
+ * flagged pac.c key-swap path — run on the recoverable VM first. */
+static void test_integration_pac_sign_then_auth(void) {
+    SKIP_IF_NO_EXECUTOR();
+    uint32_t code[] = { enc_pacia(0, 1), enc_ldr_reg(9, 29), enc_autia(0, 1), enc_ldr_reg(2, 29) };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[0] = KBASE;
+    regs[1] = UINT64_C(0x99);
+
+    ce_result_t res;
+    if (!run_ce(code, 4, mem, sizeof(mem), KBASE, 0, 0u, regs, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+    EXPECT_EQ(count_mem_entries(&res), 2);
+    instr_trace_entry_t *a = find_mem_entry(&res, 0);
+    instr_trace_entry_t *b = find_mem_entry(&res, 1);
+    EXPECT(a != NULL); EXPECT(b != NULL);
+    if (!a || !b) return;
+    EXPECT(a->cpu.gpr[0] != KBASE);   /* signed */
+    EXPECT_EQ(b->cpu.gpr[0], KBASE);  /* authenticated back */
+}
+
 int main(void) {
     printf("Running CE integration tests (fork+exec)...\n");
 
@@ -2232,12 +2482,22 @@ int main(void) {
     test_integration_bpu_input_selected_predictor();
     test_integration_bpu_without_predictor_traps();
 
-    // DISABLED — KNOWN BUG, UNDER INVESTIGATION: CE currently runs a real AUT*
-    // through the kernel on a pointer that is not correctly signed. A failing AUT*
-    // at EL1 is FATAL on FEAT_FPAC hardware (resets the whole box, not just an
-    // Oops). Root cause not yet fixed; re-enable once CE only auths correctly-signed
-    // pointers (or guards FPAC). See unit_pacga for the non-faulting XPAC+re-sign
-    // auth check.
+    test_integration_mte_subps_equal_tagged_pointers();
+    test_integration_mte_subps_negative();
+    test_integration_mte_subp_preserves_nzcv();
+    test_integration_mte_addg();
+    test_integration_mte_subg();
+
+    // PAC (need /dev/executor; skip without it). sign_then_auth is a matched,
+    // non-faulting round-trip — but a failing auth resets FEAT-FPAC silicon, so
+    // it also exercises the flagged pac.c key-swap path; run on the VM first.
+    test_integration_pac_pacga();
+    test_integration_pac_sign_then_strip();
+    test_integration_pac_sign_then_auth();
+
+    // Still disabled: these sign with one context and auth with another (or on a
+    // mismatched key), so the AUT* is expected to fault — fatal on FEAT-FPAC.
+    // Only enable behind an FPAC guard.
     // test_integration_pac_arch_roundtrip();
     // test_integration_pac_spec_xpac();
     // test_integration_paciza_autiza_roundtrip();

@@ -144,12 +144,9 @@ static int g_executor_fd = -1;
 
 void pac_sign_plugin_init(void)
 {
-    g_executor_fd = open(EXECUTOR_DEV, O_RDWR);
-    if (g_executor_fd < 0) {
-        perror("[CE FATAL] pac_sign_plugin: open " EXECUTOR_DEV);
-        abort();
-    }
-
+    /* The executor device is opened lazily on the first PAC instruction (see
+     * pac_executor_fd), so a test case that uses no PAC runs without the kernel
+     * module — e.g. on a VM orchestrator that only exercises architectural state. */
 }
 
 void pac_sign_plugin_cleanup(void)
@@ -158,6 +155,21 @@ void pac_sign_plugin_cleanup(void)
         close(g_executor_fd);
         g_executor_fd = -1;
     }
+}
+
+/* Lazily open /dev/executor on first use. A PAC instruction genuinely needs the
+ * kernel's EL1 keys, so its absence is fatal — but only for a test case that
+ * actually executes PAC. */
+static int pac_executor_fd(void)
+{
+    if (g_executor_fd < 0) {
+        g_executor_fd = open(EXECUTOR_DEV, O_RDWR);
+        if (g_executor_fd < 0) {
+            perror("[CE FATAL] pac_sign_plugin: open " EXECUTOR_DEV);
+            abort();
+        }
+    }
+    return g_executor_fd;
 }
 
 static uint64_t kernel_pac_xpac(auth_type_t atype, uint64_t ptr)
@@ -172,7 +184,7 @@ static uint64_t kernel_pac_xpac(auth_type_t atype, uint64_t ptr)
     }
     struct pac_sign_req req = { .ptr = ptr, .ctx = 0, .result = 0 };
     strncpy(req.mnemonic, m, sizeof(req.mnemonic) - 1);
-    if (ioctl(g_executor_fd, REVISOR_PAC_XPAC, &req) < 0) {
+    if (ioctl(pac_executor_fd(), REVISOR_PAC_XPAC, &req) < 0) {
         perror("[CE FATAL] pac_sign_plugin: REVISOR_PAC_XPAC failed");
         abort();
     }
@@ -188,7 +200,7 @@ static uint64_t kernel_pac_sign(pac_type_t ptype, uint64_t ptr, uint64_t ctx)
     }
     struct pac_sign_req req = { .ptr = ptr, .ctx = ctx, .result = 0 };
     strncpy(req.mnemonic, m, sizeof(req.mnemonic) - 1);
-    if (ioctl(g_executor_fd, REVISOR_PAC_SIGN, &req) < 0) {
+    if (ioctl(pac_executor_fd(), REVISOR_PAC_SIGN, &req) < 0) {
         perror("[CE FATAL] pac_sign_plugin: REVISOR_PAC_SIGN failed");
         abort();
     }
@@ -204,7 +216,7 @@ static uint64_t kernel_pac_auth(auth_type_t atype, uint64_t ptr, uint64_t ctx)
     }
     struct pac_sign_req req = { .ptr = ptr, .ctx = ctx, .result = 0 };
     strncpy(req.mnemonic, m, sizeof(req.mnemonic) - 1);
-    if (ioctl(g_executor_fd, REVISOR_PAC_AUTH, &req) < 0) {
+    if (ioctl(pac_executor_fd(), REVISOR_PAC_AUTH, &req) < 0) {
         perror("[CE FATAL] pac_sign_plugin: REVISOR_PAC_AUTH failed");
         abort();
     }
@@ -242,7 +254,7 @@ void *pac_sign_hook(struct simulation_state *sim_state)
         uint64_t xm = read_xreg(&sim_state->cpu_state, rm);
         struct pac_sign_req req = { .ptr = xn, .ctx = xm, .result = 0 };
         strncpy(req.mnemonic, "pacga", sizeof(req.mnemonic) - 1);
-        if (ioctl(g_executor_fd, REVISOR_PAC_SIGN, &req) < 0) {
+        if (ioctl(pac_executor_fd(), REVISOR_PAC_SIGN, &req) < 0) {
             perror("[CE FATAL] pac_sign_hook: REVISOR_PAC_SIGN(pacga) failed");
             abort();
         }
@@ -302,7 +314,7 @@ void *xpac_hook(struct simulation_state *sim_state)
     const char *m = (masked == XPACI_BASE) ? "xpaci" : "xpacd";
     struct pac_sign_req req = { .ptr = ptr, .ctx = 0, .result = 0 };
     strncpy(req.mnemonic, m, sizeof(req.mnemonic) - 1);
-    if (ioctl(g_executor_fd, REVISOR_PAC_XPAC, &req) < 0) {
+    if (ioctl(pac_executor_fd(), REVISOR_PAC_XPAC, &req) < 0) {
         perror("[CE FATAL] xpac_hook: REVISOR_PAC_XPAC failed");
         abort();
     }
