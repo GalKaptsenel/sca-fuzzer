@@ -27,6 +27,17 @@ MODULE_LOADED = os.path.isdir(SYSFS)
 DEVICE_PRESENT = os.path.exists(DEVICE)
 
 
+def _measurement_supported() -> bool:
+    try:
+        with open(f"{SYSFS}/system/measurement_supported") as f:
+            return "1" == f.read().strip()
+    except OSError:
+        return False
+
+
+MEASUREMENT_SUPPORTED = _measurement_supported()
+
+
 # =============================================================================
 # sysfs
 # =============================================================================
@@ -325,6 +336,7 @@ class TestExecutorIoctl(unittest.TestCase):
             self._ioctl_get_u64(GET_TEST_LENGTH)
 
     # ---- guarded full lifecycle: load NOP test case -> trace -> measure -----
+    @unittest.skipUnless(MEASUREMENT_SUPPORTED, "PMU measurement unsupported (need >=4 event counters)")
     def test_full_lifecycle_trace_and_measure(self):
         iid = self._ioctl_get_u64(ALLOCATE_INPUT)
         self._ioctl_put_u64(CHECKOUT_INPUT, iid)
@@ -341,6 +353,21 @@ class TestExecutorIoctl(unittest.TestCase):
         fcntl.ioctl(self.fd, MEASUREMENT, buf, True)             # htrace[1] + pfc[3]
         # measurement returned 32 bytes; just assert we got the structure back
         self.assertEqual(len(buf), 32)
+
+
+@unittest.skipUnless(MODULE_LOADED, "executor kernel module not loaded (/sys/executor absent)")
+class TestSystemSysfs(unittest.TestCase):
+    """system/ subdirectory exposing host capability info."""
+
+    def test_attributes_present_and_parse(self):
+        self.assertGreaterEqual(int(_read("system/pmu_event_counters")), 0)
+        self.assertIn(_read("system/measurement_supported").strip(), ("0", "1"))
+        self.assertIn("MIDR_EL1", _read("system/cpu_info"))
+
+    def test_measurement_supported_tracks_counter_count(self):
+        counters = int(_read("system/pmu_event_counters"))
+        supported = "1" == _read("system/measurement_supported").strip()
+        self.assertEqual(supported, counters >= 4)   # config_pfc programs counters 0..3
 
 
 if __name__ == "__main__":

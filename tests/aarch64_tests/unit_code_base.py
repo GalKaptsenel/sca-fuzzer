@@ -25,6 +25,17 @@ _ROOT = os.path.join(os.path.dirname(__file__), "..", "..")  # repo root: config
 _SYSFS = "/sys/executor"
 _MODULE_LOADED = os.path.exists(f"{_SYSFS}/print_code_base")
 
+
+def _measurement_supported() -> bool:
+    try:
+        with open(f"{_SYSFS}/system/measurement_supported") as f:
+            return "1" == f.read().strip()
+    except OSError:
+        return False
+
+
+_MEASUREMENT_SUPPORTED = _measurement_supported()
+
 _SAVED_CONF = None
 
 
@@ -69,6 +80,7 @@ class PrintCodeBaseTest(unittest.TestCase):
         self.assertNotEqual(pp, fr, "P+P and F+R harness prologues should differ in size")
         self.assertNotEqual(pp, sandbox, "code base must not equal the sandbox (main_region) base")
 
+    @unittest.skipUnless(_MEASUREMENT_SUPPORTED, "PMU measurement unsupported (need >=4 event counters)")
     def test_self_check_passes_on_real_trace(self):
         """A real trace runs the kernel self-check; success ⇒ offset is correct."""
         from src.config import CONF
