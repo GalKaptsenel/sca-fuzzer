@@ -1,4 +1,5 @@
 #include "main.h"
+#include "pmu.h"
 
 static ssize_t warmups_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
     return scnprintf(buf, PAGE_SIZE,"%lu\n", executor.config.uarch_reset_rounds);
@@ -216,6 +217,38 @@ static ssize_t enable_branch_training_show(struct kobject *kobj, struct kobj_att
 static struct kobj_attribute branch_training_config_attribute = __ATTR(branch_training_config, 0644,branch_training_config_show, branch_training_config_store);
 static struct kobj_attribute enable_branch_training_attribute = __ATTR(enable_branch_training, 0644,enable_branch_training_show, enable_branch_training_store);
 
+/* ---- system/ subdirectory: host info unrelated to the Revizor control knobs ---- */
+
+static ssize_t pmu_event_counters_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+	return scnprintf(buf, PAGE_SIZE, "%u\n", pmu_event_counters());
+}
+
+static ssize_t measurement_supported_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+	return scnprintf(buf, PAGE_SIZE, "%d\n", pmu_measurement_supported() ? 1 : 0);
+}
+
+static ssize_t cpu_info_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+	struct aarch64_cpu_info info = { 0 };
+	get_cpu_info(&info);
+	return scnprintf(buf, PAGE_SIZE,
+	                 "CPU ID      : %llu\n"
+	                 "MIDR_EL1    : 0x%016llx\n"
+	                 "MPIDR_EL1   : 0x%016llx\n"
+	                 "CTR_EL0     : 0x%016llx\n",
+	                 info.cpu_id, info.midr_el1, info.mpidr_el1, info.ctr_el0);
+}
+
+static struct kobj_attribute pmu_event_counters_attribute = __ATTR(pmu_event_counters, 0444, pmu_event_counters_show, NULL);
+static struct kobj_attribute measurement_supported_attribute = __ATTR(measurement_supported, 0444, measurement_supported_show, NULL);
+static struct kobj_attribute cpu_info_attribute = __ATTR(cpu_info, 0444, cpu_info_show, NULL);
+
+static struct attribute *system_attributes[] = {
+	&pmu_event_counters_attribute.attr,
+	&measurement_supported_attribute.attr,
+	&cpu_info_attribute.attr,
+	NULL,
+};
+
 static struct attribute *sysfs_attributes[] = {
 	&warmups_attribute.attr,
 	&print_sandbox_base_attribute.attr,
@@ -232,48 +265,57 @@ static struct attribute *sysfs_attributes[] = {
 };
 
 static struct kobject *kobj_interface = NULL;
+static struct kobject *kobj_system = NULL;
 
-int initialize_sysfs(void) {
-	int err = 0;
+static int create_sysfs_group(struct kobject *parent, const char *name,
+                              struct attribute **attrs, struct kobject **out) {
+	struct kobject *kobj = kobject_create_and_add(name, parent);
+	int i = 0;
 
-	// Create a pseudo file system interface
-	kobj_interface = kobject_create_and_add(SYSFS_DIRNAME, kernel_kobj->parent);
-	if (NULL == kobj_interface) {
-		module_err("Failed to create a sysfs directory\n");
-		err = -ENOMEM;
-		goto sysfs_init_failed_execution;
+	if (NULL == kobj) {
+		return -ENOMEM;
 	}
-
-	{
-		struct attribute *attr = NULL;
-		int i = 0;
-		for (i = 0, attr = sysfs_attributes[i];
-			       	(0 == err) && (NULL != attr);
-				++i, attr = sysfs_attributes[i]) {
-			err = sysfs_create_file(kobj_interface, attr);
+	for (i = 0; NULL != attrs[i]; ++i) {
+		int err = sysfs_create_file(kobj, attrs[i]);
+		if (0 != err) {
+			kobject_put(kobj);
+			return err;
 		}
 	}
-
-	if (0 != err) {
-		module_err("Failed to create a sysfs group\n");
-		goto sysfs_init_failed_remove_directory;
-	}
-
+	*out = kobj;
 	return 0;
-
-sysfs_init_failed_remove_directory:
-	kobject_put(kobj_interface);
-	kobj_interface = NULL;
-
-sysfs_init_failed_execution:
-	return err;
 }
 
 void free_sysfs(void) {
+	if (NULL != kobj_system)    { kobject_put(kobj_system);    kobj_system = NULL; }
+	if (NULL != kobj_interface) { kobject_put(kobj_interface); kobj_interface = NULL; }
+}
 
-	if (NULL != kobj_interface) {
-		kobject_put(kobj_interface);
-		kobj_interface = NULL;
+int initialize_sysfs(void) {
+	struct attribute *attr = NULL;
+	int err = 0;
+	int i = 0;
+
+	kobj_interface = kobject_create_and_add(SYSFS_DIRNAME, kernel_kobj->parent);
+	if (NULL == kobj_interface) {
+		module_err("Failed to create a sysfs directory\n");
+		return -ENOMEM;
 	}
+
+	for (i = 0, attr = sysfs_attributes[i];
+	     (0 == err) && (NULL != attr);
+	     ++i, attr = sysfs_attributes[i]) {
+		err = sysfs_create_file(kobj_interface, attr);
+	}
+	if (0 == err) {
+		err = create_sysfs_group(kobj_interface, "system", system_attributes, &kobj_system);
+	}
+	if (0 != err) {
+		module_err("Failed to create a sysfs group\n");
+		free_sysfs();
+		return err;
+	}
+
+	return 0;
 }
 
