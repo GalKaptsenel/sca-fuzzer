@@ -122,11 +122,14 @@ build_module() {
     fi
     local kdir; kdir=$(resolve_kdir)
     if [ -z "$kdir" ]; then
-        echo "[!] No kernel headers found; cannot build the module."
+        echo "[!] No kernel headers found; skipping module build." >&2
         return 1
     fi
     echo "[*] Building kernel module (revizor-executor)..."
-    make -C "$DEST_DIR/src/aarch64/executor" CC="$CC" KDIR="$kdir"
+    if ! make -C "$DEST_DIR/src/aarch64/executor" CC="$CC" KDIR="$kdir"; then
+        echo "[!] Kernel module build FAILED." >&2
+        return 2
+    fi
 }
 
 # -------------------------
@@ -145,11 +148,16 @@ build_executables() {
     make -C "$DEST_DIR/src/executor_userland" CC="$CC"
     cp "$DEST_DIR/src/executor_userland/executor_userland" "$BASE_DIR/"
 
-    if build_module; then
+    build_module; local mod_rc=$?
+    if [ 0 -eq "$mod_rc" ]; then
         cp "$DEST_DIR/src/aarch64/executor/revizor-executor.ko" "$BASE_DIR/"
+        echo "[*] Build complete (executor_userland + revizor-executor.ko copied to $BASE_DIR)."
+    elif [ 2 -eq "$mod_rc" ]; then
+        echo "[!] Aborting: kernel module failed to compile (.ko NOT produced)." >&2
+        exit 1
+    else
+        echo "[*] Build complete (executor_userland). Kernel module skipped: no headers, no .ko." >&2
     fi
-
-    echo "[*] Build complete (executor_userland + revizor-executor.ko copied to $BASE_DIR)."
 }
 
 # -------------------------
