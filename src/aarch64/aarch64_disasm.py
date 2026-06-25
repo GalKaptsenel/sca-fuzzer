@@ -15,6 +15,11 @@ from capstone.arm64 import (ARM64_OP_REG, ARM64_OP_MEM,
 _CAPSTONE = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
 _CAPSTONE.detail = True
 
+# Capstone 5.0.x leaves op.access empty for these MTE ops, so their register roles must be filled in
+# by position: the first register operand is the destination, any further register operands are
+# sources (memory bases are recovered separately). SUBPS additionally writes NZCV.
+_MTE_FIRST_REG_DEST = frozenset({"addg", "subg", "irg", "gmi", "subp", "subps", "ldg"})
+
 
 def decode_reg_accesses(encoding: int, pc: int) -> Tuple[List[str], List[str]]:
     FLAG_BITS = {"N", "Z", "C", "V"}
@@ -84,6 +89,13 @@ def decode_reg_accesses(encoding: int, pc: int) -> Tuple[List[str], List[str]]:
     elif mnemonic == "pacga":
         src.update(insn.reg_name(op.reg) for op in insn.operands
                    if op.type == ARM64_OP_REG and not (op.access & CS_AC_WRITE))
+    elif mnemonic in _MTE_FIRST_REG_DEST:
+        regs = [insn.reg_name(op.reg) for op in insn.operands if op.type == ARM64_OP_REG]
+        if regs:
+            dest.add(regs[0])        # first register operand is the destination
+            src.update(regs[1:])     # the rest are sources (a memory base is handled above)
+        if mnemonic == "subps":
+            dest |= FLAG_BITS
 
     return sorted(src), sorted(dest)
 

@@ -45,6 +45,20 @@ CASES = [
     ("ldp",    0xa9400440, {"x2"},          {"x0", "x1"}),
     ("cbz",    0x340000a0, {"w0"},          set()),
     ("b.eq",   0x54000000, {"Z"},           set()),
+    # MTE tag stores: Capstone reports the base register (read); no register dest in these forms.
+    ("stg",    0xd9200820, {"x1"},          set()),
+    ("st2g",   0xd9a00862, {"x3"},          set()),
+    ("stzg",   0xd96008a4, {"x5"},          set()),
+    ("stz2g",  0xd9e008e6, {"x7"},          set()),
+    # MTE tag arithmetic / load: Capstone 5.0.x leaves op.access empty, so decode_reg_accesses fills
+    # roles by position (first reg = dest, rest = sources); SUBPS also writes NZCV.
+    ("addg",   0x91800420, {"x1"},          {"x0"}),
+    ("subg",   0xd1800420, {"x1"},          {"x0"}),
+    ("irg",    0x9adf1020, {"x1"},          {"x0"}),
+    ("gmi",    0x9ac21420, {"x1", "x2"},    {"x0"}),
+    ("subp",   0x9ac20020, {"x1", "x2"},    {"x0"}),
+    ("subps",  0xbac20020, {"x1", "x2"},    {"x0", "N", "Z", "C", "V"}),
+    ("ldg",    0xd9600020, {"x1"},          {"x0"}),
 ]
 
 # Remaining supported instructions whose explicit operands are reported correctly by Capstone's

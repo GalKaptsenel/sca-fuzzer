@@ -1,16 +1,14 @@
 """
-Unit tests for MTEInstrumentation and MTEFixPoint.
+Unit tests for the MTE seal (MteTag) + the sealing pass (MTEInstrumentation) + the engine.
 
 Groups:
-  1. TestMteInstructionBuilders  — NOP/IRG/MOVK template and _mte_slot_id correctness
-  2. TestMteWrongTagComputation  — wrong_upper16 for various sandbox_base values
-  3. TestMteFillSlot             — _fill_slot replaces placeholder correctly
-  4. TestMteInstrumentStage2     — TC1/TC2/TC3 structure (NOP/IRG/MOVK per arch/spec)
-  5. TestMteTaintTracking        — taint decisions including ADDG/SUBG propagation
-  6. TestMteErrorCases           — slot_map assertion, spec_nesting None vs 0 vs >0
-  7. TestMteStage1E2E            — instrument_stage1 structural invariants
+  1. TestMteTagSeal      — placeholder/genuine/decoy slot encodings (NOP / IRG / EOR-retag)
+  2. TestMteEngine       — baseline (all genuine) and decoy (retag speculative slots) variants
+  3. TestMteTaintTracking — sealing-pass taint decisions including ADDG/SUBG propagation
+  4. TestMteFixPoint     — reset() semantics
+  5. TestMteSealE2E      — seal_test_case structural invariants
 """
-import copy
+import random
 import unittest
 from typing import Dict, List, Optional, Tuple
 
@@ -19,11 +17,12 @@ from src.interfaces import (
     TestCase, Function, BasicBlock, Instruction, Actor, ActorMode, ActorPL,
     OT, RegisterOperand, MemoryOperand, ImmediateOperand,
 )
-from src.aarch64.aarch64_generator import (
-    MTEInstrumentation, MTEFixPoint, MTEVariant,
+from src.aarch64.aarch64_seal import (
+    Sandbox, CompositeSeal, SealedNIInstrumentation,
     _SandboxInstrumentationBase,
-    MTE_SLOT_SIZE,
+    index_instructions, inst_at, is_speculative, _SANDBOX_MASK,
 )
+from src.aarch64.aarch64_mte import MTEInstrumentation, MTEFixPoint, MteTag, MTE_SLOT_SIZE
 from src.aarch64.aarch64_target_desc import AArch64MemRole
 
 
@@ -45,10 +44,12 @@ class _MTE(MTEInstrumentation):
         self._norm           = norm if norm is not None else dict(_NORM)
         self._sandbox_mask   = "#0x3fffff"
         self._sandbox_base_reg = "x29"
+        self._tag_seal       = MteTag()
+        self._sandbox        = Sandbox(_SANDBOX_MASK)
+        self._composite      = CompositeSeal([self._sandbox, self._tag_seal])
+        self._stg_seal       = Sandbox(_SANDBOX_MASK & ~0xF)
+        self._seal           = self._tag_seal
         self.last_taint_log: List[str] = []
-
-
-_MTE_INST = _MTE()  # shared stateless instance
 
 
 def _mem_base(reg: str) -> MemoryOperand:
@@ -92,6 +93,12 @@ def _subg_inst(dest: str, src: str, imm6: int, imm4: int) -> Instruction:
     inst.operands.append(ImmediateOperand(str(imm4), 4))
     return inst
 
+def _irg_inst(dest: str, src: str) -> Instruction:
+    inst = Instruction("irg", is_instrumentation=False)
+    inst.operands.append(RegisterOperand(dest, 64, src=False, dest=True))
+    inst.operands.append(RegisterOperand(src, 64, src=True, dest=False))
+    return inst
+
 def _simple_function(*instructions: Instruction) -> Function:
     func = Function(".function_test", _ACTOR)
     bb = BasicBlock(".bb_0")
@@ -100,39 +107,38 @@ def _simple_function(*instructions: Instruction) -> Function:
     func.append(bb)
     return func
 
-def _unpack_mte(d: dict) -> tuple:
-    """Extract (baseline, randomize_tag, wrong_tag) TestCases from instrument_stage2 dict."""
-    return d[MTEVariant.BASELINE], d[MTEVariant.RANDOMIZE_TAG], d[MTEVariant.WRONG_TAG]
-
 
 def _fp(slot_id=0, reg="x5", spec_nesting=None) -> MTEFixPoint:
-    return MTEFixPoint(slot_id=slot_id, bb=BasicBlock(".bb"),
-                       mem_inst=None, reg=reg, slot_insts=[],
-                       spec_nesting=spec_nesting)
+    return MTEFixPoint(slot_id=slot_id, value_reg=reg, spec_nesting=spec_nesting)
 
 def _build_prep_tc(fps: List[MTEFixPoint]) -> TestCase:
-    """Build a stage-1 TestCase: one BB per PACFixPoint with a tagged NOP."""
+    """Build a sealed TestCase: one BB per fix point holding its NOP placeholder; records slot_locs."""
     tc = TestCase(seed=0)
     actor = list(tc.actors.values())[0]
     func = Function(".function_main_0", actor)
     for fp in fps:
         bb = BasicBlock(f".bb_slot_{fp.slot_id}")
         nop = Instruction("nop", is_instrumentation=True, template="NOP")
-        nop._mte_slot_id = fp.slot_id
         bb.insert_after(bb.end, nop)
-        fp.bb = bb
+        fp.slot_insts = [nop]
         func.append(bb)
     tc.functions.append(func)
+    locs = index_instructions(tc)
+    for fp in fps:
+        fp.slot_locs = [locs[id(si)] for si in fp.slot_insts]
     return tc
 
-def _slot_inst(tc: TestCase, slot_id: int) -> Optional[Instruction]:
-    """Return the single instruction tagged with _mte_slot_id == slot_id."""
-    for func in tc.functions:
-        for bb in func:
-            for inst in bb:
-                if getattr(inst, '_mte_slot_id', None) == slot_id:
-                    return inst
-    return None
+def _slot_inst(tc: TestCase, fp: MTEFixPoint) -> Instruction:
+    """The fix point's tag instruction in tc — the last slot position (after any sandbox)."""
+    return inst_at(tc, fp.slot_locs[-1])[0]
+
+def _engine(fps: List[MTEFixPoint], prep: Optional[TestCase] = None):
+    """An NI engine over a fresh MteTag, sealed with prep (built from fps if not given)."""
+    if prep is None:
+        prep = _build_prep_tc(fps)
+    eng = SealedNIInstrumentation(MteTag())
+    eng.set_sealed(prep, fps)
+    return eng, prep
 
 def _call_build_mte_slots(mte: _MTE, func: Function):
     fix_points: List[MTEFixPoint] = []
@@ -143,217 +149,150 @@ def _call_build_mte_slots(mte: _MTE, func: Function):
 
 
 # ===========================================================================
-# 1. TestMteInstructionBuilders
+# 1. TestMteTagSeal — slot encodings
 # ===========================================================================
 
-class TestMteInstructionBuilders(unittest.TestCase):
-
-    def test_nop_builder_produces_instrumentation_nop(self):
-        # NOP placeholder: name "nop", template "NOP", flagged as instrumentation.
-        inst = _MTE_INST._make_mte_nop(0)
-        self.assertEqual(inst.name, "nop")
-        self.assertEqual(inst.template, "NOP")
-        self.assertTrue(inst.is_instrumentation)
-
-    def test_irg_builder_randomizes_tag_in_place(self):
-        # IRG re-tags its register in place: "IRG x5, x5".
-        inst = _MTE_INST._make_mte_irg("x5", 0)
-        self.assertEqual(inst.name, "irg")
-        self.assertIn("IRG", inst.template)
-        self.assertIn("x5", inst.template)
-
-    def test_movk_builder_writes_wrong_tag_into_top16(self):
-        # MOVK injects the wrong tag into bits[63:48]: "MOVK x5, #0xabcd, LSL #48".
-        inst = _MTE_INST._make_mte_movk_wrong_tag("x5", 0xABCD, 0)
-        self.assertEqual(inst.name, "movk")
-        self.assertIn("x5", inst.template)
-        self.assertIn("0xabcd", inst.template.lower())
-        self.assertIn("LSL #48", inst.template)
-
-    def test_movk_immediate_truncated_to_16_bits(self):
-        # wrong_upper16 wider than 16 bits must be masked to 16 bits.
-        inst = _MTE_INST._make_mte_movk_wrong_tag("x5", 0x1_0000, 0)
-        self.assertIn("#0x0000", inst.template)
-
-
-
-# ===========================================================================
-# 2. TestMteWrongTagComputation
-# ===========================================================================
-
-class TestMteWrongTagComputation(unittest.TestCase):
-    """Verify wrong_upper16 formula for a range of sandbox_base values."""
-
-    def _wrong_upper16(self, sandbox_base: int) -> int:
-        sandbox_upper16 = (sandbox_base >> 48) & 0xFFFF
-        arch_tag = (sandbox_base >> 56) & 0xF
-        wrong_tag = arch_tag ^ 1
-        return (sandbox_upper16 & ~(0xF << 8)) | (wrong_tag << 8)
-
-    def _run_stage2(self, sandbox_base: int, spec_nesting: int) -> Tuple[TestCase, TestCase, TestCase]:
-        from src.aarch64.aarch64_generator import MTEVariant
-        mte = _MTE()
-        fp = _fp(slot_id=0, reg="x5", spec_nesting=spec_nesting)
-        prep = _build_prep_tc([fp])
-        d = mte.instrument_stage2(prep, [fp], sandbox_base)
-        return d[MTEVariant.BASELINE], d[MTEVariant.RANDOMIZE_TAG], d[MTEVariant.WRONG_TAG]
-
-    def test_tc3_spec_slot_has_movk(self):
-        _, _, tc3 = self._run_stage2(sandbox_base=0x0600000000000000, spec_nesting=1)
-        inst = _slot_inst(tc3, 0)
-        self.assertIsNotNone(inst)
-        self.assertEqual(inst.name, "movk")
-
-    def test_tc3_arch_slot_has_nop(self):
-        _, _, tc3 = self._run_stage2(sandbox_base=0x0600000000000000, spec_nesting=0)
-        inst = _slot_inst(tc3, 0)
-        self.assertEqual(inst.name, "nop")
-
-    def test_movk_wrong_upper16_in_tc3(self):
-        sandbox_base = 0x06AB000000000000
-        expected_wu16 = self._wrong_upper16(sandbox_base)
-        _, _, tc3 = self._run_stage2(sandbox_base, spec_nesting=1)
-        inst = _slot_inst(tc3, 0)
-        self.assertIn(f"0x{expected_wu16 & 0xFFFF:04x}", inst.template.lower())
-
-
-# ===========================================================================
-# 3. TestMteFillSlot
-# ===========================================================================
-
-class TestMteFillSlot(unittest.TestCase):
+class TestMteTagSeal(unittest.TestCase):
 
     def setUp(self):
-        self.mte = _MTE()
+        self.seal = MteTag()
 
-    def _prep_with_nop(self, slot_id: int) -> Tuple[TestCase, Dict]:
-        fp = _fp(slot_id=slot_id)
-        tc = _build_prep_tc([fp])
-        slot_map = self.mte._find_slot_insts(tc)
-        return tc, slot_map, fp
+    def test_placeholder_is_single_nop(self):
+        s = self.seal.placeholder(_fp())
+        self.assertEqual(len(s), MTE_SLOT_SIZE)
+        self.assertEqual(s[0].name, "nop")
+        self.assertTrue(s[0].is_instrumentation)
 
-    def test_fill_slot_replaces_nop(self):
-        tc, slot_map, fp = self._prep_with_nop(0)
-        irg = self.mte._make_mte_irg("x5", 0)
-        self.mte._fill_slot(slot_map, fp, irg)
-        inst = _slot_inst(tc, 0)
-        self.assertEqual(inst.name, "irg")
+    def test_genuine_is_nop(self):
+        # The correct tag is already on the sandboxed pointer, so genuine keeps it (NOP).
+        self.assertEqual(self.seal.genuine(_fp())[0].name, "nop")
 
-    def test_fill_slot_old_instruction_removed(self):
-        tc, slot_map, fp = self._prep_with_nop(0)
-        old_nop = slot_map[0][0]
-        irg = self.mte._make_mte_irg("x5", 0)
-        self.mte._fill_slot(slot_map, fp, irg)
-        # old_nop must not be reachable in any bb
-        all_insts = [i for func in tc.functions for bb in func for i in bb]
-        self.assertNotIn(old_nop, all_insts)
+    def test_decoy_is_irg_or_retag(self):
+        rng = random.Random(0)
+        names = {self.seal.decoy(_fp(reg="x5"), rng)[0].name for _ in range(64)}
+        self.assertTrue(names <= {"irg", "eor"})
+        self.assertEqual(names, {"irg", "eor"})  # both decoy kinds appear over many draws
 
-    def test_fill_slot_missing_id_raises(self):
-        tc, slot_map, fp = self._prep_with_nop(0)
-        fp_bad = _fp(slot_id=99)
-        with self.assertRaises(AssertionError):
-            self.mte._fill_slot(slot_map, fp_bad, self.mte._make_mte_nop(99))
+    def test_decoy_uses_fp_reg(self):
+        rng = random.Random(0)
+        for _ in range(32):
+            self.assertIn("x7", self.seal.decoy(_fp(reg="x7"), rng)[0].template)
 
+    def test_retag_masks_touch_only_tag_field(self):
+        # Every EOR mask flips bits only in the tag field [59:56]; address bits stay intact.
+        for mask in MteTag._TAG_FLIP_MASKS:
+            self.assertNotEqual(mask, 0)
+            self.assertEqual(mask & ~(0xF << 56), 0)
+
+
+class TestMteGenuineTagFix(unittest.TestCase):
+    """genuine sets the pointer's tag to the cell's tag, but only when they mismatch (ADDG delta)."""
+
+    def setUp(self):
+        self.seal = MteTag()
+
+    def _fp(self, ptr_tag=None, correct_tag=None, reg="x5") -> MTEFixPoint:
+        fp = MTEFixPoint(slot_id=0, value_reg=reg)
+        fp.ptr_tag, fp.correct_tag = ptr_tag, correct_tag
+        return fp
+
+    def test_no_tag_info_is_nop(self):
+        self.assertEqual(self.seal.genuine(self._fp())[0].name, "nop")
+
+    def test_matching_tags_no_fix(self):
+        self.assertEqual(self.seal.genuine(self._fp(ptr_tag=3, correct_tag=3))[0].name, "nop")
+
+    def test_mismatch_fixes_with_addg(self):
+        s = self.seal.genuine(self._fp(ptr_tag=3, correct_tag=7, reg="x9"))
+        self.assertEqual(s[0].name, "addg")
+        self.assertIn("x9", s[0].template)
+        self.assertIn("#0, #4", s[0].template)   # delta = (7 - 3) % 16
+
+    def test_mismatch_wraps_mod16(self):
+        s = self.seal.genuine(self._fp(ptr_tag=15, correct_tag=1))
+        self.assertEqual(s[0].name, "addg")
+        self.assertIn("#0, #2", s[0].template)   # delta = (1 - 15) % 16 = 2
+
+    def test_all_16x16_tag_combinations(self):
+        """Exhaustive: every (ptr_tag, correct_tag) → NOP when equal, ADDG #0,#delta otherwise."""
+        for ptr in range(16):
+            for cell in range(16):
+                s = self.seal.genuine(self._fp(ptr_tag=ptr, correct_tag=cell))
+                delta = (cell - ptr) % 16
+                with self.subTest(ptr=ptr, cell=cell):
+                    if delta == 0:
+                        self.assertEqual(s[0].name, "nop")
+                    else:
+                        self.assertEqual(s[0].name, "addg")
+                        self.assertIn(f"#0, #{delta}", s[0].template)
+                        self.assertTrue(1 <= delta <= 15)   # encodable 4-bit tag offset
 
 
 # ===========================================================================
-# 4. TestMteInstrumentStage2
+# 2. TestMteEngine — baseline / decoy variants
 # ===========================================================================
 
-class TestMteInstrumentStage2(unittest.TestCase):
+class TestMteEngine(unittest.TestCase):
 
-    def _run(self, fps, sandbox_base=0x0600000000000000, prep=None):
-        from src.aarch64.aarch64_generator import MTEVariant
-        mte = _MTE()
-        if prep is None:
-            prep = _build_prep_tc(fps)
-        d = mte.instrument_stage2(prep, fps, sandbox_base)
-        return d[MTEVariant.BASELINE], d[MTEVariant.RANDOMIZE_TAG], d[MTEVariant.WRONG_TAG]
+    def _baseline_decoy(self, fps, seed=0):
+        eng, _ = _engine(fps)
+        return eng.baseline(), next(eng.decoys(random.Random(seed)))
 
-    # ── TC1: all placeholders → NOP ───────────────────────────────────────
+    # ── baseline: every slot genuine (NOP) ───────────────────────────────
+    def test_baseline_all_nop(self):
+        for sn in (0, 1, None):
+            fp = _fp(spec_nesting=sn)
+            base, _ = self._baseline_decoy([fp])
+            with self.subTest(spec_nesting=sn):
+                self.assertEqual(_slot_inst(base, fp).name, "nop")
 
-    def test_tc1_arch_slot_is_nop(self):
+    # ── decoy: genuine on arch path, retag on speculative path ────────────
+    def test_decoy_arch_slot_is_nop(self):
         fp = _fp(spec_nesting=0)
-        tc1, _, _ = self._run([fp])
-        self.assertEqual(_slot_inst(tc1, 0).name, "nop")
+        _, decoy = self._baseline_decoy([fp])
+        self.assertEqual(_slot_inst(decoy, fp).name, "nop")
 
-    def test_tc1_spec_slot_is_nop(self):
+    def test_decoy_spec_slot_is_retagged(self):
         fp = _fp(spec_nesting=1)
-        tc1, _, _ = self._run([fp])
-        self.assertEqual(_slot_inst(tc1, 0).name, "nop")
+        _, decoy = self._baseline_decoy([fp])
+        self.assertIn(_slot_inst(decoy, fp).name, ("irg", "eor"))
 
-    def test_tc1_spec_nesting_none_is_nop(self):
+    def test_decoy_spec_none_is_retagged(self):
+        # spec_nesting=None (CE never reached this access) → treated as speculative.
         fp = _fp(spec_nesting=None)
-        tc1, _, _ = self._run([fp])
-        self.assertEqual(_slot_inst(tc1, 0).name, "nop")
+        _, decoy = self._baseline_decoy([fp])
+        self.assertIn(_slot_inst(decoy, fp).name, ("irg", "eor"))
 
-    # ── TC2: arch→NOP, spec→IRG ──────────────────────────────────────────
+    def test_decoy_retag_uses_fp_reg(self):
+        fp = _fp(reg="x9", spec_nesting=1)
+        eng, _ = _engine([fp])
+        rng = random.Random(1)
+        for _ in range(32):
+            self.assertIn("x9", _slot_inst(next(eng.decoys(rng)), fp).template)
 
-    def test_tc2_arch_slot_is_nop(self):
-        fp = _fp(spec_nesting=0)
-        _, tc2, _ = self._run([fp])
-        self.assertEqual(_slot_inst(tc2, 0).name, "nop")
-
-    def test_tc2_spec_slot_is_irg(self):
-        fp = _fp(spec_nesting=1)
-        _, tc2, _ = self._run([fp])
-        self.assertEqual(_slot_inst(tc2, 0).name, "irg")
-
-    def test_tc2_spec_irg_uses_fp_reg(self):
-        fp = _fp(reg="x7", spec_nesting=1)
-        _, tc2, _ = self._run([fp])
-        self.assertIn("x7", _slot_inst(tc2, 0).template)
-
-    def test_tc2_spec_none_is_irg(self):
-        """spec_nesting=None (CE never reached this access) → treated as spec → IRG."""
-        fp = _fp(spec_nesting=None)
-        _, tc2, _ = self._run([fp])
-        self.assertEqual(_slot_inst(tc2, 0).name, "irg")
-
-    # ── TC3: arch→NOP, spec→MOVK wrong tag ───────────────────────────────
-
-    def test_tc3_arch_slot_is_nop(self):
-        fp = _fp(spec_nesting=0)
-        _, _, tc3 = self._run([fp])
-        self.assertEqual(_slot_inst(tc3, 0).name, "nop")
-
-    def test_tc3_spec_slot_is_movk(self):
-        fp = _fp(spec_nesting=1)
-        _, _, tc3 = self._run([fp])
-        self.assertEqual(_slot_inst(tc3, 0).name, "movk")
-
-    def test_tc3_spec_movk_has_lsl48(self):
-        fp = _fp(spec_nesting=1)
-        _, _, tc3 = self._run([fp])
-        self.assertIn("LSL #48", _slot_inst(tc3, 0).template)
-
-    def test_tc3_spec_none_is_movk(self):
-        """spec_nesting=None → treated as spec → MOVK wrong tag."""
-        fp = _fp(spec_nesting=None)
-        _, _, tc3 = self._run([fp])
-        self.assertEqual(_slot_inst(tc3, 0).name, "movk")
-
-    # ── multiple slots ────────────────────────────────────────────────────
+    def test_mixed_arch_and_spec(self):
+        fps = [_fp(slot_id=0, spec_nesting=0), _fp(slot_id=1, spec_nesting=1)]
+        _, decoy = self._baseline_decoy(fps)
+        self.assertEqual(_slot_inst(decoy, fps[0]).name, "nop")
+        self.assertIn(_slot_inst(decoy, fps[1]).name, ("irg", "eor"))
 
     def test_multiple_slots_all_filled(self):
         fps = [_fp(slot_id=i, reg=f"x{i+1}", spec_nesting=i) for i in range(4)]
-        tc1, tc2, tc3 = self._run(fps)
-        for i in range(4):
-            with self.subTest(slot=i):
-                self.assertIsNotNone(_slot_inst(tc1, i))
-                self.assertIsNotNone(_slot_inst(tc2, i))
-                self.assertIsNotNone(_slot_inst(tc3, i))
+        base, decoy = self._baseline_decoy(fps)
+        for fp in fps:
+            with self.subTest(slot=fp.slot_id):
+                self.assertIsNotNone(_slot_inst(base, fp))
+                self.assertIsNotNone(_slot_inst(decoy, fp))
 
-    def test_arch_and_spec_slots_differ_in_tc2(self):
-        """At least one slot must be IRG (spec_nesting=1) and one NOP (spec_nesting=0)."""
-        fps = [_fp(slot_id=0, spec_nesting=0), _fp(slot_id=1, spec_nesting=1)]
-        _, tc2, _ = self._run(fps)
-        self.assertEqual(_slot_inst(tc2, 0).name, "nop")
-        self.assertEqual(_slot_inst(tc2, 1).name, "irg")
+    def test_decoys_is_unbounded(self):
+        fp = _fp(spec_nesting=1)
+        eng, _ = _engine([fp])
+        gen = eng.decoys(random.Random(0))
+        self.assertEqual(len([next(gen) for _ in range(5)]), 5)
 
 
 # ===========================================================================
-# 5. TestMteTaintTracking
+# 3. TestMteTaintTracking
 # ===========================================================================
 
 class TestMteTaintTracking(unittest.TestCase):
@@ -399,7 +338,7 @@ class TestMteTaintTracking(unittest.TestCase):
         mem = _mem_inst("x3")
         func = _simple_function(mem)
         _, fix_points, _, _ = _call_build_mte_slots(self.mte, func)
-        self.assertEqual(fix_points[0].reg, "x3")
+        self.assertEqual(fix_points[0].value_reg, "x3")
 
     def test_implicit_mem_skipped(self):
         """Instruction with no MEM operand in operands/implicit_operands → skip."""
@@ -409,40 +348,89 @@ class TestMteTaintTracking(unittest.TestCase):
         self.assertEqual(len(fix_points), 0)
         self.assertEqual(len(insertions), 0)
 
-    # ── ADDG tag-preserving propagation ──────────────────────────────────
+    # ── STG-family tag stores: 16B-aligned clamp, no tag slot / fix point ────
+    def test_stg_aligned_clamp_no_fixpoint(self):
+        func = _simple_function(_mem_inst("x5", name="stg"))
+        _, fix_points, insertions, _ = _call_build_mte_slots(self.mte, func)
+        self.assertEqual(fix_points, [])                 # STG is a tag store, not a sealed use
+        _, _, sandbox, _, tag = insertions[0]
+        self.assertEqual([i.name for i in sandbox], ["and", "add"])  # clamp
+        self.assertEqual(tag, [])                                    # no tag slot
+        self.assertIn("0x1ff0", sandbox[0].template)                # 16B-aligned mask (mask & ~0xF)
 
-    def test_addg_imm4_zero_propagates_taint(self):
-        """ADDG x6, x5, #8, #0 with x5 tainted → x6 becomes tainted."""
-        mem1 = _mem_inst("x5")           # taints x5
-        addg = _addg_inst("x6", "x5", 8, 0)  # propagates x5's tag to x6
-        mem2 = _mem_inst("x6")          # x6 should be tainted → no sandbox
+    def test_stg_then_data_access_reclamps(self):
+        # STG clamps+rewrites x5, so a following data access to x5 is a fresh first-use (sandbox+tag)
+        func = _simple_function(_mem_inst("x5", name="stg"), _mem_inst("x5"))
+        _, fix_points, _, _ = _call_build_mte_slots(self.mte, func)
+        self.assertEqual(len(fix_points), 1)             # only the data access is a fix point
+        self.assertEqual(fix_points[0].seal.name, "sandbox+mte_tag")
+
+    # ── LDG: a tag LOAD — clamp the base, but not tag-checked, so no tag fix point ────────
+    def test_ldg_clamps_without_fixpoint_or_alignment(self):
+        func = _simple_function(_mem_inst("x5", name="ldg"))
+        _, fix_points, insertions, _ = _call_build_mte_slots(self.mte, func)
+        self.assertEqual(fix_points, [])                 # LDG is not tag-checked → no fix point
+        _, _, sandbox, _, tag = insertions[0]
+        self.assertEqual([i.name for i in sandbox], ["and", "add"])   # clamped in-region
+        self.assertIn("0x1fff", sandbox[0].template)     # full mask, NOT the 16B-aligned 0x1ff0
+        self.assertEqual(tag, [])                        # no tag slot
+
+    def test_ldg_after_clamp_reuses_taint(self):
+        # First access clamps x5 (tainted); a following LDG on x5 needs no re-clamp.
+        func = _simple_function(_mem_inst("x5"), _mem_inst("x5", name="ldg"))
+        _, _, insertions, _ = _call_build_mte_slots(self.mte, func)
+        self.assertEqual(insertions[1][2], [])           # LDG emits no clamp (x5 already in-region)
+
+    # ── address-preserving tag ops propagate taint (IRG, ADDG/SUBG with imm6==0) ──
+    # Taint means "in the sandbox region". An op may change the tag freely (the tag is corrected at
+    # the access); what gates propagation is whether the ADDRESS is preserved, i.e. imm6==0.
+
+    def test_addg_imm6_zero_propagates_despite_tag_change(self):
+        """ADDG x6, x5, #0, #4: imm6==0 keeps the address, so a tainted x5 propagates to x6 even
+        though imm4 changes the tag (the tag is fixed at the access, not by the taint)."""
+        mem1 = _mem_inst("x5")               # taints x5
+        addg = _addg_inst("x6", "x5", 0, 4)  # address preserved (imm6==0), tag offset 4
+        mem2 = _mem_inst("x6")               # x6 tainted → no re-clamp
         func = _simple_function(mem1, addg, mem2)
         _, _, insertions, taint_log = _call_build_mte_slots(self.mte, func)
         _, _, sandbox2, _, _ = insertions[1]
-        self.assertEqual(len(sandbox2), 0, f"Expected no sandbox for mem2 (taint should propagate). Log:\n" + "\n".join(taint_log))
+        self.assertEqual(len(sandbox2), 0, "imm6==0 must propagate taint:\n" + "\n".join(taint_log))
 
-    def test_addg_imm4_nonzero_clears_taint(self):
-        """ADDG x6, x5, #8, #4 (imm4≠0) does NOT propagate tag → x6 untainted."""
+    def test_addg_imm6_nonzero_clears_taint(self):
+        """ADDG x6, x5, #8, #0: imm6!=0 moves the address (up to 1008B) so x6 may leave the region;
+        taint must NOT propagate and the next access re-clamps."""
         mem1 = _mem_inst("x5")
-        addg = _addg_inst("x6", "x5", 8, 4)  # imm4=4 ≠ 0 → no propagation
+        addg = _addg_inst("x6", "x5", 8, 0)  # address moved → clear
         mem2 = _mem_inst("x6")
         func = _simple_function(mem1, addg, mem2)
         _, _, insertions, _ = _call_build_mte_slots(self.mte, func)
         _, _, sandbox2, _, _ = insertions[1]
-        self.assertGreater(len(sandbox2), 0)  # x6 untainted → gets sandbox
+        self.assertGreater(len(sandbox2), 0)  # x6 untainted → re-clamp
 
-    def test_subg_imm4_zero_propagates_taint(self):
-        """SUBG x6, x5, #8, #0 with x5 tainted → x6 becomes tainted."""
-        mem1 = _mem_inst("x5")
-        subg = _subg_inst("x6", "x5", 8, 0)
-        mem2 = _mem_inst("x6")
-        func = _simple_function(mem1, subg, mem2)
+    def test_subg_imm6_zero_propagates(self):
+        """SUBG x6, x5, #0, #2 (imm6==0) with x5 tainted → x6 tainted."""
+        func = _simple_function(_mem_inst("x5"), _subg_inst("x6", "x5", 0, 2), _mem_inst("x6"))
         _, _, insertions, _ = _call_build_mte_slots(self.mte, func)
-        _, _, sandbox2, _, _ = insertions[1]
-        self.assertEqual(len(sandbox2), 0)
+        self.assertEqual(len(insertions[1][2]), 0)
 
-    def test_addg_propagates_from_untainted_clears_dest(self):
-        """ADDG x6, x5, #0, #0 with x5 untainted → x6 also untainted."""
+    def test_subg_imm6_nonzero_clears(self):
+        """SUBG x6, x5, #16, #0 (imm6!=0) → address moved → taint cleared."""
+        func = _simple_function(_mem_inst("x5"), _subg_inst("x6", "x5", 16, 0), _mem_inst("x6"))
+        _, _, insertions, _ = _call_build_mte_slots(self.mte, func)
+        self.assertGreater(len(insertions[1][2]), 0)
+
+    def test_irg_preserves_address_propagates_taint(self):
+        """IRG x6, x5 re-tags but keeps the address, so a tainted x5 propagates to x6."""
+        mem1 = _mem_inst("x5")
+        irg = _irg_inst("x6", "x5")
+        mem2 = _mem_inst("x6")
+        func = _simple_function(mem1, irg, mem2)
+        _, _, insertions, taint_log = _call_build_mte_slots(self.mte, func)
+        _, _, sandbox2, _, _ = insertions[1]
+        self.assertEqual(len(sandbox2), 0, "IRG preserves the address:\n" + "\n".join(taint_log))
+
+    def test_addg_propagates_from_untainted_stays_untainted(self):
+        """ADDG x6, x5, #0, #0 with x5 untainted → x6 also untainted (propagating 'not in region')."""
         addg = _addg_inst("x6", "x5", 0, 0)  # x5 not tainted
         mem = _mem_inst("x6")
         func = _simple_function(addg, mem)
@@ -520,56 +508,29 @@ class TestMteTaintTracking(unittest.TestCase):
 
 
 # ===========================================================================
-# 6. TestMteErrorCases
+# 4. TestMteFixPoint
 # ===========================================================================
 
-class TestMteErrorCases(unittest.TestCase):
-
-    def setUp(self):
-        self.mte = _MTE()
-
-    def test_fill_slot_missing_slot_id_asserts(self):
-        fp = _fp(slot_id=42)
-        tc = _build_prep_tc([fp])
-        slot_map = self.mte._find_slot_insts(tc)
-        fp_bad = _fp(slot_id=99)
-        with self.assertRaises(AssertionError) as cm:
-            self.mte._fill_slot(slot_map, fp_bad, self.mte._make_mte_nop(99))
-        self.assertIn("99", str(cm.exception))
-
-    def test_spec_nesting_none_treated_as_spec(self):
-        """spec_nesting=None (CE never reached this access) → treated as spec → IRG/MOVK."""
-        fp = _fp(spec_nesting=None)
-        tc1, tc2, tc3 = _unpack_mte(self.mte.instrument_stage2(_build_prep_tc([fp]), [fp], 0))
-        self.assertEqual(_slot_inst(tc1, 0).name, "nop")   # TC1 always NOP
-        self.assertEqual(_slot_inst(tc2, 0).name, "irg")   # spec → IRG
-        self.assertEqual(_slot_inst(tc3, 0).name, "movk")  # spec → MOVK wrong tag
-
-    def test_spec_nesting_zero_treated_as_arch(self):
-        """spec_nesting=0 → not speculative → NOP in TC2 and TC3."""
-        fp = _fp(spec_nesting=0)
-        tc1, tc2, tc3 = _unpack_mte(self.mte.instrument_stage2(_build_prep_tc([fp]), [fp], 0))
-        self.assertEqual(_slot_inst(tc2, 0).name, "nop")
-        self.assertEqual(_slot_inst(tc3, 0).name, "nop")
-
-    def test_spec_nesting_positive_treated_as_spec(self):
-        """spec_nesting=1 (or any >0) → speculative → IRG/MOVK in TC2/TC3."""
-        fp = _fp(spec_nesting=1)
-        _, tc2, tc3 = _unpack_mte(self.mte.instrument_stage2(_build_prep_tc([fp]), [fp], 0))
-        self.assertEqual(_slot_inst(tc2, 0).name, "irg")
-        self.assertEqual(_slot_inst(tc3, 0).name, "movk")
+class TestMteFixPoint(unittest.TestCase):
 
     def test_reset_clears_spec_nesting(self):
         fp = _fp(spec_nesting=5)
         fp.reset()
         self.assertIsNone(fp.spec_nesting)
 
+    def test_reset_keeps_structural_fields(self):
+        fp = _fp(reg="x7", spec_nesting=3)
+        fp.slot_locs = [(0, 0, 0)]
+        fp.reset()
+        self.assertEqual(fp.value_reg, "x7")       # structural — survives reset
+        self.assertEqual(fp.slot_locs, [(0, 0, 0)])
+
 
 # ===========================================================================
-# 7. TestMteStage1E2E
+# 5. TestMteSealE2E
 # ===========================================================================
 
-class TestMteStage1E2E(unittest.TestCase):
+class TestMteSealE2E(unittest.TestCase):
 
     def setUp(self):
         self.mte = _MTE()
@@ -585,67 +546,61 @@ class TestMteStage1E2E(unittest.TestCase):
         tc.functions.append(func)
         return tc
 
-    def test_stage1_returns_fix_points(self):
+    def test_seal_returns_fix_points(self):
         tc = self._tc_with_mem()
-        _, fix_points = self.mte.instrument_stage1(tc)
+        _, fix_points = self.mte.seal_test_case(tc)
         self.assertEqual(len(fix_points), 1)
 
-    def test_stage1_nop_placeholder_appears_in_tc(self):
+    def test_seal_records_slot_locs(self):
         tc = self._tc_with_mem("x5")
-        prep, fix_points = self.mte.instrument_stage1(tc)
-        sid = fix_points[0].slot_id
-        inst = _slot_inst(prep, sid)
-        self.assertIsNotNone(inst)
-        self.assertEqual(inst.name, "nop")
+        prep, fix_points = self.mte.seal_test_case(tc)
+        fp = fix_points[0]
+        self.assertEqual(len(fp.slot_locs), fp.seal.slot_size)  # composite (sandbox+tag) on first use
+        self.assertEqual(_slot_inst(prep, fp).name, "nop")      # tag placeholder is a NOP
 
-    def test_stage1_nop_before_memory_access(self):
+    def test_seal_nop_before_memory_access(self):
         tc = self._tc_with_mem("x5")
-        prep, _ = self.mte.instrument_stage1(tc)
-        all_insts = [i for func in prep.functions for bb in func for i in bb]
-        names = [i.name for i in all_insts]
+        prep, _ = self.mte.seal_test_case(tc)
+        names = [i.name for func in prep.functions for bb in func for i in bb]
         ldr_idx = next(i for i, n in enumerate(names) if n == "ldr")
-        # NOP placeholder must appear before LDR (either directly or after AND+ADD)
-        before = names[:ldr_idx]
-        self.assertIn("nop", before)
+        self.assertIn("nop", names[:ldr_idx])  # placeholder appears before the access
 
-    def test_stage1_instrumentation_before_nop_placeholder(self):
-        """Sandbox instrumentation must appear before the NOP placeholder."""
+    def test_seal_sandbox_before_nop_placeholder(self):
+        """Sandbox instrumentation must appear before the tag (NOP) placeholder."""
         tc = self._tc_with_mem("x5")
-        prep, fix_points = self.mte.instrument_stage1(tc)
+        prep, fix_points = self.mte.seal_test_case(tc)
         all_insts = [i for func in prep.functions for bb in func for i in bb]
-        nop_idx = next((i for i, inst in enumerate(all_insts)
-                        if inst.name == "nop" and inst.is_instrumentation
-                        and fix_points and inst in fix_points[0].slot_insts), None)
-        if nop_idx is not None:
-            before = [inst for inst in all_insts[:nop_idx] if inst.is_instrumentation]
-            self.assertGreater(len(before), 0, "No sandbox instrumentation found before NOP placeholder")
+        nop = fix_points[0].slot_insts[-1]   # tag placeholder is last; sandbox AND/ADD precede it
+        nop_idx = all_insts.index(nop)
+        before = [inst for inst in all_insts[:nop_idx] if inst.is_instrumentation]
+        self.assertGreater(len(before), 0, "No sandbox instrumentation found before NOP placeholder")
 
-    def test_stage1_fix_point_reg_correct(self):
+    def test_seal_fix_point_reg_correct(self):
         tc = self._tc_with_mem("x7")
-        _, fix_points = self.mte.instrument_stage1(tc)
-        self.assertEqual(fix_points[0].reg, "x7")
+        _, fix_points = self.mte.seal_test_case(tc)
+        self.assertEqual(fix_points[0].value_reg, "x7")
 
-    def test_stage1_to_stage2_round_trip(self):
-        """stage1 output feeds stage2 without error; all slots get filled."""
+    def test_seal_to_engine_round_trip(self):
+        """Sealing output feeds the engine without error; baseline + decoy mint test cases."""
         tc = self._tc_with_mem("x5")
-        prep, fix_points = self.mte.instrument_stage1(tc)
+        prep, fix_points = self.mte.seal_test_case(tc)
         for fp in fix_points:
             fp.spec_nesting = 0
-        tc1, tc2, tc3 = _unpack_mte(self.mte.instrument_stage2(prep, fix_points, 0x0600000000000000))
-        self.assertIsInstance(tc1, TestCase)
-        self.assertIsInstance(tc2, TestCase)
-        self.assertIsInstance(tc3, TestCase)
+        eng = self.mte.make_engine()
+        eng.set_sealed(prep, fix_points)
+        self.assertIsInstance(eng.baseline(), TestCase)
+        self.assertIsInstance(next(eng.decoys(random.Random(0))), TestCase)
 
-    def test_stage2_tc1_slot_is_nop(self):
+    def test_seal_baseline_slot_is_nop(self):
         tc = self._tc_with_mem("x5")
-        prep, fix_points = self.mte.instrument_stage1(tc)
+        prep, fix_points = self.mte.seal_test_case(tc)
         for fp in fix_points:
             fp.spec_nesting = 0
-        tc1, _, _ = _unpack_mte(self.mte.instrument_stage2(prep, fix_points, 0))
-        inst = _slot_inst(tc1, fix_points[0].slot_id)
-        self.assertEqual(inst.name, "nop")
+        eng = self.mte.make_engine()
+        eng.set_sealed(prep, fix_points)
+        self.assertEqual(_slot_inst(eng.baseline(), fix_points[0]).name, "nop")
 
-    def test_stage1_multiple_accesses_separate_slots(self):
+    def test_seal_multiple_accesses_separate_slots(self):
         tc = TestCase(seed=0)
         actor = list(tc.actors.values())[0]
         func = Function(".function_main_0", actor)
@@ -655,11 +610,91 @@ class TestMteStage1E2E(unittest.TestCase):
         func.append(bb)
         tc.functions.append(func)
 
-        prep, fix_points = self.mte.instrument_stage1(tc)
+        prep, fix_points = self.mte.seal_test_case(tc)
         self.assertEqual(len(fix_points), 3)
-        slot_ids = {fp.slot_id for fp in fix_points}
-        self.assertEqual(len(slot_ids), 3)
+        self.assertEqual(len({fp.slot_id for fp in fix_points}), 3)
+
+
+# ===========================================================================
+# 6. TestMteCompositeWiring — the pass seals with CompositeSeal([Sandbox, MteTag])
+# ===========================================================================
+
+class TestMteCompositeWiring(unittest.TestCase):
+    """First use of a base -> sandbox+tag (composite); an already-clamped base -> tag only; and the
+    engine (sandbox-protecting policy) keeps the clamp on every variant, decoying only the tag."""
+
+    def setUp(self):
+        self.mte = _MTE()
+        self.policy = lambda fp, s: s.name != "sandbox" and is_speculative(fp)
+
+    def _tc(self, *regs) -> TestCase:
+        tc = TestCase(seed=0)
+        actor = list(tc.actors.values())[0]
+        func = Function(".function_main_0", actor)
+        bb = BasicBlock(".bb_0")
+        for r in regs:
+            bb.insert_after(bb.end, _mem_inst(r))
+        func.append(bb)
+        tc.functions.append(func)
+        return tc
+
+    def _slot_names(self, tc, fp):
+        return [inst_at(tc, loc)[0].name for loc in fp.slot_locs]
+
+    def test_first_use_composite_repeat_tag_only(self):
+        _, fps = self.mte.seal_test_case(self._tc("x5", "x5"))   # same base, no write between
+        self.assertEqual(fps[0].seal.name, "sandbox+mte_tag")    # first use -> clamp + tag
+        self.assertEqual(fps[1].seal.name, "mte_tag")            # already clamped -> tag only
+
+    def test_write_between_reclamps(self):
+        tc = TestCase(seed=0)
+        actor = list(tc.actors.values())[0]
+        func = Function(".f", actor)
+        bb = BasicBlock(".bb")
+        bb.insert_after(bb.end, _mem_inst("x5"))
+        w = Instruction("mov"); w.operands.append(_reg_dest("x5"))
+        bb.insert_after(bb.end, w)                                # writes x5 -> clears taint
+        bb.insert_after(bb.end, _mem_inst("x5"))
+        func.append(bb); tc.functions.append(func)
+        _, fps = self.mte.seal_test_case(tc)
+        self.assertEqual([fp.seal.name for fp in fps],
+                         ["sandbox+mte_tag", "sandbox+mte_tag"])  # both are first-uses
+
+    def test_composite_slot_is_clamp_then_tag(self):
+        prep, fps = self.mte.seal_test_case(self._tc("x5"))
+        self.assertEqual(self._slot_names(prep, fps[0]), ["and", "add", "nop"])
+
+    def test_tag_only_slot_has_no_clamp(self):
+        prep, fps = self.mte.seal_test_case(self._tc("x5", "x5"))
+        self.assertEqual(self._slot_names(prep, fps[1]), ["nop"])
+
+    def test_baseline_keeps_clamp_genuine(self):
+        prep, fps = self.mte.seal_test_case(self._tc("x5"))
+        for fp in fps:
+            fp.spec_nesting = 1
+        eng = self.mte.make_engine(should_decoy=self.policy)
+        eng.set_sealed(prep, fps)
+        self.assertEqual(self._slot_names(eng.baseline(), fps[0]), ["and", "add", "nop"])
+
+    def test_decoy_keeps_clamp_retags_tag(self):
+        prep, fps = self.mte.seal_test_case(self._tc("x5"))
+        for fp in fps:
+            fp.spec_nesting = 1
+        eng = self.mte.make_engine(should_decoy=self.policy)
+        eng.set_sealed(prep, fps)
+        names = self._slot_names(next(eng.decoys(random.Random(0))), fps[0])
+        self.assertEqual(names[:2], ["and", "add"])              # clamp never decoyed
+        self.assertIn(names[2], ("irg", "eor"))                  # tag decoyed on the spec slot
+
+    def test_decoy_arch_slot_all_genuine(self):
+        prep, fps = self.mte.seal_test_case(self._tc("x5"))
+        for fp in fps:
+            fp.spec_nesting = 0                                  # architectural
+        eng = self.mte.make_engine(should_decoy=self.policy)
+        eng.set_sealed(prep, fps)
+        self.assertEqual(self._slot_names(next(eng.decoys(random.Random(0))), fps[0]),
+                         ["and", "add", "nop"])
 
 
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    unittest.main()

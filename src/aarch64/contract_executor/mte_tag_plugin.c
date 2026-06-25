@@ -7,7 +7,7 @@
  * MTE instruction emulation for the Contract Executor.
  *
  * The CE runs as a regular EL0 process without MTE-enabled memory, so all
- * BASE-MTE instructions must be intercepted before they fault.  For each:
+ * MTE instructions must be intercepted before they fault.  For each:
  *
  *   - Register-result instructions (IRG, GMI, ADDG, SUBG, SUBP, SUBPS):
  *     compute the register result in software and write it back.
@@ -21,7 +21,7 @@
  *
  * All handlers return PC+4 so the native instruction is skipped.
  *
- * All BASE-MTE instructions use 64-bit X registers exclusively — no W-register
+ * All MTE instructions use 64-bit X registers exclusively — no W-register
  * variants exist in the MTE extension.
  */
 
@@ -112,7 +112,7 @@ void mte_tag_plugin_init(void) {}
 void mte_tag_plugin_cleanup(void) {}
 
 /* -------------------------------------------------------------------------
- * mte_emulator_hook — intercept all BASE-MTE instructions and software-emulate them.
+ * mte_emulator_hook — intercept all MTE instructions and software-emulate them.
  *
  * Size and extension rules (verified against ARM ISA DDI0487):
  *   - All MTE instructions use 64-bit X registers exclusively.

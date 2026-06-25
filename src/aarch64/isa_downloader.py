@@ -36,7 +36,7 @@ from .arm_isa_extractor.models import OperandKind, MemRole, MemAccess
 _GENERAL_CLASSES = {
     "BASE-ARITH": frozenset(
         "add adds sub subs adc adcs sbc sbcs madd msub maddpt msubpt addpt subpt smaddl smsubl umaddl"
-        " umsubl smulh umulh sdiv udiv abs smax smin umax umin subg addg subp subps adr adrp".split()),
+        " umsubl smulh umulh sdiv udiv abs smax smin umax umin adr adrp".split()),
     "BASE-LOGICAL": frozenset("and ands orr orn eor eon bic bics".split()),
     "BASE-SHIFT": frozenset("lslv lsrv asrv rorv".split()),
     "BASE-BITFIELD": frozenset("bfm ubfm sbfm extr".split()),
@@ -44,11 +44,16 @@ _GENERAL_CLASSES = {
     "BASE-BITBYTE": frozenset("rbit rev rev16 rev32".split()),          # GP reversal; the NEON rev is FPSIMD
     "BASE-CONDSEL": frozenset("csel csinc csinv csneg ccmp ccmn".split()),
     "BASE-CRC": frozenset("crc32b crc32h crc32w crc32x crc32cb crc32ch crc32cw crc32cx".split()),
-    "BASE-MTE": frozenset("irg gmi addg subg subp subps ldg ldgm stg st2g stz2g stzg stgm stgp stzgm".split()),
     "BASE-MOVE": frozenset("movz movk movn".split()),
 }
 
 # name-priority functional classes that span categories or have unique names (checked before category)
+# MTE families (each instruction also carries the general "MTE" tag) — kept off the BASE-* tags so
+# MTE generates only when an MTE category is enabled.
+_MTE_ARITH   = frozenset("addg subg subp subps".split())                # tagged-pointer arithmetic
+_MTE_TAG_MEM = frozenset("stg st2g stz2g stzg stgm stgp stzgm ldg ldgm".split())  # tag store + tag load
+_MTE_BASE    = frozenset("irg gmi".split())                             # tag-register manipulation
+_MTE = _MTE_ARITH | _MTE_TAG_MEM | _MTE_BASE
 _FLAGOP = frozenset("rmif setf8 setf16 cfinv axflag xaflag".split())    # purpose is flag manipulation
 _EXCEPTION = frozenset("brk hlt svc hvc smc dcps1 dcps2 dcps3 drps udf eret eretaa eretab".split())
 _BARRIER = frozenset("dmb dsb isb sb tsb psb csdb dgh esb gcsb clrex ssbb pssbb".split())
@@ -118,8 +123,18 @@ _SME_CATS = frozenset({"mortlach", "mortlach2"})
 def _functional(name: str, cat: str) -> set:
     """Functional/family class(es). Name-priority first (PAC prefix + flag-op/exception/barrier/hint),
     then the authoritative ARM category. Raises on an unknown category (loud, never a silent default)."""
-    if name.startswith(("aut", "pac", "xpac")):     # every PAC/auth/strip variant (no others share these)
-        return {"BASE-PAC"}
+    if name.startswith("xpac"):                     # strip a PAC (no others share these prefixes)
+        return {"PAC", "PAC-STRIP"}
+    if name.startswith("aut"):                       # authenticate
+        return {"PAC", "PAC-AUTH"}
+    if name.startswith("pac"):                       # sign (incl. pacga)
+        return {"PAC", "PAC-SIGN"}
+    if name in _MTE_ARITH:
+        return {"MTE", "MTE-ARITH"}
+    if name in _MTE_TAG_MEM:
+        return {"MTE", "MTE-TAG-MEM"}
+    if name in _MTE_BASE:
+        return {"MTE", "MTE-BASE"}
     if name in _FLAGOP:
         return {"BASE-FLAGOP"}
     if name == "nop":
@@ -148,6 +163,8 @@ def get_tags(inst: dict) -> list:
     name, cat = inst["name"], inst["category"]
     isa = "SVE" if cat in _SVE_CATS else "SME" if cat in _SME_CATS else "BASE"
     tags = _functional(name, cat)
+    if name in _MTE:        # MTE is fully classified by family; no structural BASE-* tags
+        return sorted(tags)
 
     # memory (load/store/rmw only; prefetch is separate)
     mem = inst["mem_access"]

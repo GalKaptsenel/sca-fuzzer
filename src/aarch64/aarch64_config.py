@@ -101,9 +101,13 @@ _option_values = {
     'instruction_categories': [
             # functional
             "BASE-ARITH", "BASE-LOGICAL", "BASE-SHIFT", "BASE-BITFIELD", "BASE-BITCOUNT",
-            "BASE-BITBYTE", "BASE-CONDSEL", "BASE-FLAGOP", "BASE-CRC", "BASE-PAC", "BASE-MTE",
+            "BASE-BITBYTE", "BASE-CONDSEL", "BASE-FLAGOP", "BASE-CRC",
             "BASE-MOVE", "BASE-NOP", "BASE-HINT", "BASE-SYSTEM", "BASE-BARRIER", "BASE-EXCEPTION",
             "BASE-FPSIMD",
+            # PAC (pointer authentication)
+            "PAC", "PAC-SIGN", "PAC-AUTH", "PAC-STRIP",
+            # MTE (memory tagging)
+            "MTE", "MTE-ARITH", "MTE-TAG-MEM", "MTE-BASE",
             # memory (coarse + direction + kind) and prefetch
             "BASE-MEM", "BASE-MEM-LOAD", "BASE-MEM-STORE", "BASE-MEM-ATOMIC", "BASE-MEM-EXCLUSIVE",
             "BASE-MEM-ACQREL", "BASE-MEM-COPY", "BASE-MEM-SET", "BASE-PREFETCH",
@@ -162,6 +166,11 @@ supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "l
                                      "cls", "clz",
                                      "crc32b", "crc32h", "crc32w", "crc32x", "crc32cb", "crc32ch", "crc32cw", "crc32cx",
                                      "rbit", "rev", "rev16", "rev32",
+                                     "stg", "st2g", "stzg", "stz2g",   # MTE tag stores (16B-aligned)
+                                     "addg", "subg", "irg", "gmi", "subp", "subps",  # MTE tag/pointer arithmetic
+                                     "ldg",                            # MTE load allocation tag
+                                     # Excluded: STGP (Capstone 5.0.x cannot decode it); LDGM/STGM/STZGM
+                                     # (bulk tag ops — UNDEFINED at EL0, would fault on the hardware path).
                                      ]
 
 # AArch64-only: which non-interference contract the `non-interference` fuzzer tests:

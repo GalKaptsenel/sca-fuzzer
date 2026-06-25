@@ -1,6 +1,6 @@
 instruction_set: aarch64
 instruction_categories:
-  - BASE-PAC
+  - PAC
   - BASE-ARITH
   - BASE-LOGICAL
   - BASE-SHIFT

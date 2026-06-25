@@ -1,35 +1,30 @@
 """
-PAC generator pipeline tests: TC generation → stage1 → simulated executor → stage2.
+PAC engine pipeline tests: TC generation → seal → simulated executor → baseline/decoy variants.
 
 Each test works over randomly-seeded test cases.  The executor is simulated by
 querying the kernel module for real PAC signatures for each PACFixPoint.
 
-Invariants under test (stage1):
-  - Every slot has exactly SLOT_SIZE instructions tagged with _pac_slot_id
+Invariants under test (sealing):
+  - Every slot has exactly SLOT_SIZE instructions (fp.slot_locs)
   - Position SLOT_SIG_POS  = NOP
   - Position AUTH_SLOT_POS = XPAC (xpaci or xpacd)
   - committed_inst is an AUT* instruction
   - All slot_ids within a TC are unique
 
-Invariants under test (stage2):
-  - All 3 variants have the same flat instruction count (layout preserved)
-  - Slot flat indices are identical across all 3 variants
-  - TC1 (STRIP_ONLY)  : every slot → [NOP, XPAC]
-  - TC2 (AUTH_CORRECT): every slot → [MOVK correct_sig, AUTH]
-  - TC3 arch (spec_nesting == 0): TC3 slot identical to TC2 slot
-  - TC3 spec (spec_nesting  > 0): every slot → [MOVK alt_sig,  AUTH]
-  - AUTH mnemonic in TC2/TC3 matches committed_inst
-  - XPAC mnemonic in TC1 matches committed_inst key family (xpaci vs xpacd)
+Invariants under test (variants):
+  - Baseline and decoy have the same flat instruction count (layout preserved)
+  - Slot flat indices are identical across variants
+  - BASELINE: reached slot → [MOVK correct_sig, AUTH]; unreached → [NOP, XPAC]
+  - DECOY arch slot (spec_nesting == 0): identical to the baseline slot (genuine)
+  - DECOY spec slot (spec_nesting != 0): [MOVK alt_sig, AUTH]
+  - AUTH mnemonic matches committed_inst
 
-CE arch-path state identity (stage2 vs stage1):
-  For every non-slotted arch-path (nesting==0) instruction in all 4 TCs
-  (stage1, TC1, TC2, TC3), the following fields are identical:
-    x0-x5, SP, NZCV
-    memory access offset relative to sandbox base (ea - x29), value-before, value-after
-  This holds because slot instructions only mutate ptr_reg and produce the
-  same stripped address in every variant:
-    - arch slots (nesting==0) → correct auth → stripped result = XPAC result
-    - spec slots  (nesting>0) → XPAC semantics in CE → stripped result
+CE arch-path state identity (variant vs sealed TC):
+  For every non-slotted arch-path (nesting==0) instruction in the sealed TC, the baseline, and the
+  decoy, these fields are identical: x0-x5, SP, NZCV, and (for memory accesses) the access offset
+  relative to the sandbox base (ea - x29), value-before, value-after.
+  This holds because slot instructions only mutate value_reg and produce the same stripped address in
+  every variant: arch slots authenticate correctly; spec slots take XPAC semantics in the CE.
 """
 import copy
 import os
@@ -49,12 +44,21 @@ from src.config import CONF
 from src.isa_loader import InstructionSet
 from src.interfaces import TestCase, Instruction, Input
 from src.input_generator import NumpyRandomInputGenerator
-from src.aarch64.aarch64_generator import (
-    PACInstrumentation, PACVariant, PACFixPoint,
-    Aarch64RandomGenerator,
+from enum import Enum, auto
+
+from src.aarch64.aarch64_generator import Aarch64RandomGenerator
+from src.aarch64.aarch64_seal import inst_at
+from src.aarch64.aarch64_pac import (
+    PACInstrumentation, PACFixPoint,
     SLOT_SIZE, SLOT_SIG_POS, AUTH_SLOT_POS,
     _AUTH_TO_PAC, _AUTH_TO_XPAC, _AUTH_TO_KEY, PACKey,
 )
+
+
+class V(Enum):
+    """The two test cases the engine compares: the all-genuine baseline and a decoy instance."""
+    BASELINE = auto()
+    DECOY    = auto()
 from src.aarch64.aarch64_printer import Aarch64Printer, Aarch64ASMLayout
 from src.aarch64.aarch64_target_desc import Aarch64TargetDesc
 from src.aarch64.aarch64_contract_executor import (
@@ -126,12 +130,24 @@ def _flat_insts(tc: TestCase) -> List[Instruction]:
     return [i for func in tc.functions for bb in func for i in bb]
 
 
-def _slot(tc: TestCase, slot_id: int) -> List[Instruction]:
-    pos_map: Dict[int, Instruction] = {}
-    for inst in _flat_insts(tc):
-        if getattr(inst, '_pac_slot_id', None) == slot_id:
-            pos_map[inst._pac_slot_pos] = inst
-    return [pos_map[p] for p in range(SLOT_SIZE)]
+def _slot(tc: TestCase, fp: PACFixPoint) -> List[Instruction]:
+    """The slot's instructions in `tc`, located by position (fp.slot_locs)."""
+    return [inst_at(tc, loc)[0] for loc in fp.slot_locs]
+
+
+def _flat_slot_index(tc: TestCase, fix_points) -> Dict[int, Tuple[int, int]]:
+    """flat index in _flat_insts(tc) -> (slot_id, pos) for slot instructions."""
+    loc_to_slot = {loc: (fp.slot_id, pos)
+                   for fp in fix_points for pos, loc in enumerate(fp.slot_locs)}
+    result: Dict[int, Tuple[int, int]] = {}
+    flat = 0
+    for fi, func in enumerate(tc.functions):
+        for bi, bb in enumerate(func):
+            for ii, inst in enumerate(bb):
+                if (fi, bi, ii) in loc_to_slot:
+                    result[flat] = loc_to_slot[(fi, bi, ii)]
+                flat += 1
+    return result
 
 
 def _sig_from_movk(inst: Instruction) -> int:
@@ -166,7 +182,7 @@ def _fill_fixpoints_from_ce(
     For slots the CE never reached:
       correct_sig  stays None
       alt_sig      — pac_sign(random ptr, random ctx)
-      spec_nesting stays None  (instrument_stage2 treats None as speculative)
+      spec_nesting stays None  (the engine treats None as speculative)
 
     _combo_observer: optional callable(wrong_ptr: bool, wrong_ctx: bool) invoked once per
                      alt_sig decision.  Intended for tests that count combo coverage.
@@ -200,10 +216,10 @@ def _fill_fixpoints_from_ce(
             if depth == 0 or fp.correct_sig is None:
                 auth_mn = fp.committed_inst.name.lower()
                 has_ctx = len(fp.committed_inst.operands) > 1
-                ptr_reg = fp.committed_inst.operands[0].value
+                value_reg = fp.committed_inst.operands[0].value
                 ctx_reg = fp.committed_inst.operands[1].value if has_ctx else None
 
-                ptr = _read_gpr(ite.cpu, ptr_reg)
+                ptr = _read_gpr(ite.cpu, value_reg)
                 ctx = _read_gpr(ite.cpu, ctx_reg) if has_ctx else 0
                 fp.correct_sig = _pac_sign(ptr, ctx, auth_mn)
 
@@ -213,9 +229,9 @@ def _fill_fixpoints_from_ce(
                 # back to 0xffff... instead of producing a non-canonical 0x0000... address.
                 use_wrong_ptr = random.choice([True, False])
                 use_wrong_ctx = has_ctx and random.choice([True, False])
-                alt_ptr = _other_gpr(ite.cpu, ptr_reg, ctx_reg) if use_wrong_ptr else ptr
+                alt_ptr = _other_gpr(ite.cpu, value_reg, ctx_reg) if use_wrong_ptr else ptr
                 alt_ptr = (alt_ptr & 0x0000FFFFFFFFFFFF) | 0xFFFF000000000000
-                alt_ctx = (_other_gpr(ite.cpu, ctx_reg, ptr_reg) if use_wrong_ctx else ctx) if has_ctx else 0
+                alt_ctx = (_other_gpr(ite.cpu, ctx_reg, value_reg) if use_wrong_ctx else ctx) if has_ctx else 0
                 fp.alt_sig = _pac_sign(alt_ptr, alt_ctx, auth_mn)
                 if _combo_observer is not None:
                     _combo_observer(use_wrong_ptr, use_wrong_ctx)
@@ -248,23 +264,25 @@ def _run_stage1(max_attempts: int = 500) -> Tuple[PACInstrumentation, TestCase, 
             tc = gen.create_test_case(asm_path, disable_assembler=True)
         except Exception:
             continue
-        stage1_tc, fix_points = pac.instrument_stage1(copy.deepcopy(tc))
+        stage1_tc, fix_points = pac.seal_test_case(copy.deepcopy(tc))
         if fix_points:
             return pac, stage1_tc, fix_points
     raise RuntimeError(f"No fix_points found after {max_attempts} random seeds")
 
 
 def _run_pipeline() -> Tuple[TestCase, List[PACFixPoint], Dict, Input]:
-    """Full pipeline: stage1 → CE trace → fix_point fill → stage2. Always returns a result.
+    """Full pipeline: seal → CE trace → fix_point fill → engine variants. Always returns a result.
 
-    Returns (stage1_tc, fix_points, variants, ref_input) where ref_input is the
-    same input used to classify spec_nesting in _fill_fixpoints_from_ce.  Reuse
-    ref_input when running the CE over stage2 variants so that input-dependent
-    execution paths (spec vs arch) are identical across all four test cases.
+    Returns (sealed_tc, fix_points, variants, ref_input) where variants is
+    {V.BASELINE: engine.baseline(), V.DECOY: a decoy instance} and ref_input is the input used to
+    classify spec_nesting in _fill_fixpoints_from_ce.  Reuse ref_input when running the CE over the
+    variants so the spec-vs-arch paths are identical across all test cases.
     """
     pac, stage1_tc, fix_points = _run_stage1()
     ref_input = _fill_fixpoints_from_ce(stage1_tc, fix_points)
-    variants = pac.instrument_stage2(stage1_tc, fix_points)
+    engine = pac.make_engine()
+    engine.set_sealed(stage1_tc, fix_points)
+    variants = {V.BASELINE: engine.baseline(), V.DECOY: next(engine.decoys(random))}
     return stage1_tc, fix_points, variants, ref_input
 
 
@@ -282,11 +300,11 @@ def _tc_to_bytes(tc: TestCase) -> bytes:
     return Aarch64RandomGenerator.in_memory_assemble(assembly)
 
 
-def _slot_offsets(tc: TestCase) -> Set[int]:
+def _slot_offsets(tc: TestCase, fix_points) -> Set[int]:
     """Byte offsets (from TC start) of every slotted instruction."""
     layout = Aarch64ASMLayout(tc)
-    return {layout.instruction_address[i]
-            for i in _flat_insts(tc) if hasattr(i, '_pac_slot_id')}
+    return {layout.instruction_address[inst_at(tc, loc)[0]]
+            for fp in fix_points for loc in fp.slot_locs}
 
 
 def _random_input() -> Input:
@@ -358,22 +376,19 @@ class TestStage1Structure(unittest.TestCase):
 
     def test_each_slot_has_exactly_slot_size_instructions(self):
         for stage1_tc, fix_points, _, _inp in self.cases:
-            all_insts = _flat_insts(stage1_tc)
             for fp in fix_points:
-                count = sum(1 for i in all_insts
-                            if getattr(i, '_pac_slot_id', None) == fp.slot_id)
-                self.assertEqual(count, SLOT_SIZE,
-                                 f"slot {fp.slot_id}: expected {SLOT_SIZE}, got {count}")
+                self.assertEqual(len(fp.slot_locs), SLOT_SIZE,
+                                 f"slot {fp.slot_id}: expected {SLOT_SIZE}, got {len(fp.slot_locs)}")
 
     def test_slot_sig_pos_is_nop(self):
         for stage1_tc, fix_points, _, _inp in self.cases:
             for fp in fix_points:
-                self.assertEqual(_slot(stage1_tc, fp.slot_id)[SLOT_SIG_POS].name, 'nop')
+                self.assertEqual(_slot(stage1_tc, fp)[SLOT_SIG_POS].name, 'nop')
 
     def test_auth_slot_pos_is_xpac(self):
         for stage1_tc, fix_points, _, _inp in self.cases:
             for fp in fix_points:
-                self.assertIn(_slot(stage1_tc, fp.slot_id)[AUTH_SLOT_POS].name, _XPAC_NAMES)
+                self.assertIn(_slot(stage1_tc, fp)[AUTH_SLOT_POS].name, _XPAC_NAMES)
 
     def test_committed_inst_is_auth_mnemonic(self):
         for _, fix_points, _, _inp in self.cases:
@@ -384,7 +399,7 @@ class TestStage1Structure(unittest.TestCase):
         for stage1_tc, fix_points, _, _inp in self.cases:
             for fp in fix_points:
                 key = _AUTH_TO_KEY[fp.committed_inst.name.lower()]
-                xpac_mn = _slot(stage1_tc, fp.slot_id)[AUTH_SLOT_POS].name
+                xpac_mn = _slot(stage1_tc, fp)[AUTH_SLOT_POS].name
                 expected = _I_KEY_XPAC if key in (PACKey.IA, PACKey.IB) else _D_KEY_XPAC
                 self.assertEqual(xpac_mn, expected,
                                  f"slot {fp.slot_id}: wrong xpac family")
@@ -407,25 +422,20 @@ class TestStage2Layout(unittest.TestCase):
                                  f"{variant.name}: instruction count changed")
 
     def test_slot_flat_indices_identical_across_variants(self):
-        for stage1_tc, _, variants, _inp in self.cases:
-            ref_idx: Dict[Tuple[int, int], int] = {}
-            for idx, inst in enumerate(_flat_insts(stage1_tc)):
-                if hasattr(inst, '_pac_slot_id'):
-                    ref_idx[(inst._pac_slot_id, inst._pac_slot_pos)] = idx
+        for stage1_tc, fix_points, variants, _inp in self.cases:
+            ref_idx = {flat: key for flat, key in _flat_slot_index(stage1_tc, fix_points).items()}
             for variant, tc in variants.items():
-                for idx, inst in enumerate(_flat_insts(tc)):
-                    if hasattr(inst, '_pac_slot_id'):
-                        key = (inst._pac_slot_id, inst._pac_slot_pos)
-                        self.assertEqual(idx, ref_idx[key],
-                                         f"{variant.name} slot {key}: flat index moved")
+                self.assertEqual(_flat_slot_index(tc, fix_points), ref_idx,
+                                 f"{variant.name}: slot flat indices moved")
 
     def test_non_slot_instructions_unchanged(self):
-        for stage1_tc, _, variants, _inp in self.cases:
+        for stage1_tc, fix_points, variants, _inp in self.cases:
             ref_insts = _flat_insts(stage1_tc)
+            slot_flat = _flat_slot_index(stage1_tc, fix_points)
             for variant, tc in variants.items():
                 tc_insts = _flat_insts(tc)
                 for idx, ref in enumerate(ref_insts):
-                    if hasattr(ref, '_pac_slot_id'):
+                    if idx in slot_flat:
                         continue
                     with self.subTest(variant=variant.name, idx=idx):
                         self.assertEqual(tc_insts[idx].name,     ref.name)
@@ -441,82 +451,52 @@ class TestStage2VariantContracts(unittest.TestCase):
     def setUpClass(cls):
         cls.cases = _collect_cases(20)
 
-    def test_tc1_no_auth_instructions(self):
+    def test_baseline_genuine_slots(self):
+        """Baseline: reached slots carry [MOVK correct_sig, AUTH]; unreached fall back to [NOP, XPAC]."""
         for _, fix_points, variants, _inp in self.cases:
-            tc1 = variants[PACVariant.STRIP_ONLY]
-            for inst in _flat_insts(tc1):
-                self.assertNotIn(inst.name.lower(), _AUTH_NAMES)
-
-    def test_tc2_slots_carry_correct_sig_and_auth(self):
-        for _, fix_points, variants, _inp in self.cases:
-            tc2 = variants[PACVariant.AUTH_CORRECT]
-            for fp in fix_points:
-                s = _slot(tc2, fp.slot_id)
-                with self.subTest(slot=fp.slot_id):
-                    self.assertEqual(s[SLOT_SIG_POS].name, 'movk')
-                    self.assertEqual(_sig_from_movk(s[SLOT_SIG_POS]), fp.correct_sig)
-                    self.assertIn(s[AUTH_SLOT_POS].name, _AUTH_NAMES)
-
-    def test_tc2_auth_mnemonic_matches_committed_inst(self):
-        for _, fix_points, variants, _inp in self.cases:
-            tc2 = variants[PACVariant.AUTH_CORRECT]
+            base = variants[V.BASELINE]
             for fp in fix_points:
                 auth_mn = fp.committed_inst.name.lower()
-                s = _slot(tc2, fp.slot_id)
+                s = _slot(base, fp)
                 with self.subTest(slot=fp.slot_id):
                     if fp.correct_sig is None:
-                        # CE never reached the slot → treated as a speculative flow:
-                        # TC2 strips with XPAC (simulating a correct auth with no real signature).
+                        self.assertEqual(s[SLOT_SIG_POS].name, 'nop')
                         self.assertEqual(s[AUTH_SLOT_POS].name, _AUTH_TO_XPAC[auth_mn])
                     else:
+                        self.assertEqual(s[SLOT_SIG_POS].name, 'movk')
+                        self.assertEqual(_sig_from_movk(s[SLOT_SIG_POS]), fp.correct_sig)
                         self.assertEqual(s[AUTH_SLOT_POS].name, auth_mn)
 
-    def test_tc3_arch_slot_identical_to_tc2(self):
+    def test_decoy_arch_slot_identical_to_baseline(self):
+        """An architectural slot (spec_nesting == 0) is genuine in the decoy too — the NI invariant."""
         for _, fix_points, variants, _inp in self.cases:
-            tc2 = variants[PACVariant.AUTH_CORRECT]
-            tc3 = variants[PACVariant.AUTH_WRONG]
+            base = variants[V.BASELINE]
+            decoy = variants[V.DECOY]
             for fp in fix_points:
                 if fp.spec_nesting != 0:
                     continue
-                s2 = _slot(tc2, fp.slot_id)
-                s3 = _slot(tc3, fp.slot_id)
-                for pos, (i2, i3) in enumerate(zip(s2, s3)):
+                for pos, (ib, idd) in enumerate(zip(_slot(base, fp), _slot(decoy, fp))):
                     with self.subTest(slot=fp.slot_id, pos=pos):
-                        self.assertEqual(i2.name,     i3.name)
-                        self.assertEqual(i2.template, i3.template)
+                        self.assertEqual(ib.name,     idd.name)
+                        self.assertEqual(ib.template, idd.template)
 
-    def test_tc3_spec_slot_carries_alt_sig(self):
+    def test_decoy_spec_slot_is_wrong_sig_or_strip(self):
+        """A speculative decoy slot either authenticates a wrong signature ([MOVK alt_sig, AUT*])
+        or strips the auth ([NOP, XPAC])."""
         for _, fix_points, variants, _inp in self.cases:
-            tc3 = variants[PACVariant.AUTH_WRONG]
+            decoy = variants[V.DECOY]
             for fp in fix_points:
                 if fp.spec_nesting == 0:
                     continue
-                s = _slot(tc3, fp.slot_id)
+                s = _slot(decoy, fp)
+                auth_mn = fp.committed_inst.name.lower()
                 with self.subTest(slot=fp.slot_id):
-                    self.assertEqual(s[SLOT_SIG_POS].name, 'movk')
-                    self.assertEqual(_sig_from_movk(s[SLOT_SIG_POS]), fp.alt_sig)
-                    self.assertIn(s[AUTH_SLOT_POS].name, _AUTH_NAMES)
-
-    def test_tc3_spec_auth_mnemonic_matches_committed_inst(self):
-        for _, fix_points, variants, _inp in self.cases:
-            tc3 = variants[PACVariant.AUTH_WRONG]
-            for fp in fix_points:
-                if fp.spec_nesting == 0:
-                    continue
-                s = _slot(tc3, fp.slot_id)
-                with self.subTest(slot=fp.slot_id):
-                    self.assertEqual(s[AUTH_SLOT_POS].name,
-                                     fp.committed_inst.name.lower())
-
-    def test_xpac_family_preserved_in_tc1(self):
-        for _, fix_points, variants, _inp in self.cases:
-            tc1 = variants[PACVariant.STRIP_ONLY]
-            for fp in fix_points:
-                key = _AUTH_TO_KEY[fp.committed_inst.name.lower()]
-                expected = _I_KEY_XPAC if key in (PACKey.IA, PACKey.IB) else _D_KEY_XPAC
-                s = _slot(tc1, fp.slot_id)
-                with self.subTest(slot=fp.slot_id):
-                    self.assertEqual(s[AUTH_SLOT_POS].name, expected)
+                    if s[AUTH_SLOT_POS].name == auth_mn:                    # wrong-signature auth
+                        self.assertEqual(s[SLOT_SIG_POS].name, 'movk')
+                        self.assertEqual(_sig_from_movk(s[SLOT_SIG_POS]), fp.alt_sig)
+                    else:                                                   # strip
+                        self.assertEqual(s[SLOT_SIG_POS].name, 'nop')
+                        self.assertEqual(s[AUTH_SLOT_POS].name, _AUTH_TO_XPAC[auth_mn])
 
 
 # ===========================================================================
@@ -524,46 +504,46 @@ class TestStage2VariantContracts(unittest.TestCase):
 # ===========================================================================
 
 class TestCENeverReached(unittest.TestCase):
-    """When correct_sig=None: AUTH_CORRECT → TC1, AUTH_WRONG → TC3-spec with alt_sig."""
+    """A slot the CE never reached (correct_sig=None, spec_nesting=None) is treated as speculative:
+    the baseline falls back to the strip placeholder, the decoy still gets alt_sig."""
 
     @classmethod
     def setUpClass(cls):
         cls.cases = []
         while len(cls.cases) < 5:
             pac, stage1_tc, fix_points = _run_stage1()
-            _fill_fixpoints_from_ce(stage1_tc, fix_points)   # populates alt_sig + spec_nesting
+            _fill_fixpoints_from_ce(stage1_tc, fix_points)   # populates alt_sig
             for fp in fix_points:
-                fp.correct_sig = None    # force never-reached: TC2 falls back to XPAC
-            variants = pac.instrument_stage2(stage1_tc, fix_points)
+                fp.correct_sig = None      # force never-reached
+                fp.spec_nesting = None     # ...consistently: a slot CE never reached has no depth
+            engine = pac.make_engine()
+            engine.set_sealed(stage1_tc, fix_points)
+            variants = {V.BASELINE: engine.baseline(), V.DECOY: next(engine.decoys(random))}
             cls.cases.append((stage1_tc, fix_points, variants))
 
-    def test_auth_correct_falls_back_to_xpac(self):
+    def test_baseline_falls_back_to_xpac(self):
         for _, fix_points, variants in self.cases:
-            tc_correct = variants[PACVariant.AUTH_CORRECT]
+            base = variants[V.BASELINE]
             for fp in fix_points:
-                s = _slot(tc_correct, fp.slot_id)
+                s = _slot(base, fp)
                 with self.subTest(slot=fp.slot_id):
                     self.assertEqual(s[SLOT_SIG_POS].name, 'nop')
                     self.assertIn(s[AUTH_SLOT_POS].name, _XPAC_NAMES)
 
-    def test_auth_wrong_uses_alt_sig_even_when_unreached(self):
+    def test_decoy_is_decoyed_even_when_unreached(self):
+        """An unreached slot is decoyed: a wrong-signature auth (alt_sig) or a strip (XPAC)."""
         for _, fix_points, variants in self.cases:
-            tc_wrong = variants[PACVariant.AUTH_WRONG]
+            decoy = variants[V.DECOY]
             for fp in fix_points:
-                s = _slot(tc_wrong, fp.slot_id)
+                s = _slot(decoy, fp)
+                auth_mn = fp.committed_inst.name.lower()
                 with self.subTest(slot=fp.slot_id):
-                    self.assertEqual(s[SLOT_SIG_POS].name, 'movk')
-                    self.assertEqual(_sig_from_movk(s[SLOT_SIG_POS]), fp.alt_sig)
-                    self.assertIn(s[AUTH_SLOT_POS].name, _AUTH_NAMES)
-
-    def test_strip_only_unaffected(self):
-        for _, fix_points, variants in self.cases:
-            tc1 = variants[PACVariant.STRIP_ONLY]
-            for fp in fix_points:
-                s = _slot(tc1, fp.slot_id)
-                with self.subTest(slot=fp.slot_id):
-                    self.assertEqual(s[SLOT_SIG_POS].name, 'nop')
-                    self.assertIn(s[AUTH_SLOT_POS].name, _XPAC_NAMES)
+                    if s[AUTH_SLOT_POS].name in _AUTH_NAMES:                # wrong-signature auth
+                        self.assertEqual(s[SLOT_SIG_POS].name, 'movk')
+                        self.assertEqual(_sig_from_movk(s[SLOT_SIG_POS]), fp.alt_sig)
+                    else:                                                   # strip
+                        self.assertEqual(s[SLOT_SIG_POS].name, 'nop')
+                        self.assertEqual(s[AUTH_SLOT_POS].name, _AUTH_TO_XPAC[auth_mn])
 
 
 # ===========================================================================
@@ -610,38 +590,31 @@ class TestCEArchStateIdentity(unittest.TestCase):
                     self.assertEqual(cmp['mem_after'],  ref['mem_after'],
                                      f"entry {i}: memory value-after mismatch")
 
-    def _ref_and_variant(self, stage1_tc, tc, inp):
-        slot_offs   = _slot_offsets(stage1_tc)
+    def _ref_and_variant(self, stage1_tc, fix_points, tc, inp):
+        slot_offs   = _slot_offsets(stage1_tc, fix_points)
         ref_entries = _arch_state_entries(_run_ce(_tc_to_bytes(stage1_tc), inp), slot_offs)
         cmp_entries = _arch_state_entries(_run_ce(_tc_to_bytes(tc), inp), slot_offs)
         return ref_entries, cmp_entries
 
-    def test_stage1_vs_tc1(self):
-        """TC1 (STRIP_ONLY) is identical to stage1 — arch state must match exactly."""
-        for stage1_tc, _, variants, ref_input in self.cases:
+    def test_stage1_vs_baseline(self):
+        """Baseline uses correct signatures → same stripped ptr → same arch state as the sealed TC."""
+        for stage1_tc, fix_points, variants, ref_input in self.cases:
             ref, cmp = self._ref_and_variant(
-                stage1_tc, variants[PACVariant.STRIP_ONLY], ref_input)
-            self._compare_vs_stage1(ref, cmp, "STRIP_ONLY")
+                stage1_tc, fix_points, variants[V.BASELINE], ref_input)
+            self._compare_vs_stage1(ref, cmp, "BASELINE")
 
-    def test_stage1_vs_tc2(self):
-        """TC2 (AUTH_CORRECT) uses correct signatures → same stripped ptr → same arch state."""
-        for stage1_tc, _, variants, ref_input in self.cases:
-            ref, cmp = self._ref_and_variant(
-                stage1_tc, variants[PACVariant.AUTH_CORRECT], ref_input)
-            self._compare_vs_stage1(ref, cmp, "AUTH_CORRECT")
+    def test_stage1_vs_decoy(self):
+        """Decoy: arch slots are genuine, spec slots carry alt_sig but only on speculative paths →
+        the architectural state still matches the sealed TC (the NI invariant).
 
-    def test_stage1_vs_tc3(self):
-        """TC3 (AUTH_WRONG) arch slots = TC2, spec slots use XPAC semantics → same arch state.
-
-        Must use the same input as _fill_fixpoints_from_ce so that slots classified
-        as speculative (spec_nesting > 0) remain at spec depth during TC3 execution.
-        If a different input were used, a previously-speculative slot might execute in
-        the arch path with alt_sig → auth failure → poisoned pointer → SIGSEGV.
+        Must reuse the input from _fill_fixpoints_from_ce so slots classified speculative
+        (spec_nesting > 0) stay at spec depth; otherwise a once-speculative slot could run the arch
+        path with alt_sig → auth failure → poisoned pointer → SIGSEGV.
         """
-        for stage1_tc, _, variants, ref_input in self.cases:
+        for stage1_tc, fix_points, variants, ref_input in self.cases:
             ref, cmp = self._ref_and_variant(
-                stage1_tc, variants[PACVariant.AUTH_WRONG], ref_input)
-            self._compare_vs_stage1(ref, cmp, "AUTH_WRONG")
+                stage1_tc, fix_points, variants[V.DECOY], ref_input)
+            self._compare_vs_stage1(ref, cmp, "DECOY")
 
 
 # ===========================================================================

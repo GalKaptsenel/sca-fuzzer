@@ -11,7 +11,7 @@ import os.path
 import numpy as np
 from typing import List, Tuple, Set, Optional, Dict
 from collections import defaultdict
-from enum import Enum
+from enum import Enum, auto
 from pathlib import Path
 
 
@@ -22,11 +22,14 @@ from ..config import CONF
 from ..util import Logger, STAT, FuzzLogger
 from .aarch64_target_desc import Aarch64TargetDesc
 from .aarch64_kernel import LocalHWExecutor, TestCaseRegion, InputRegion, ExecutorMemory
-from .aarch64_generator import Pass, Aarch64SandboxPass, PACInstrumentation, PACFixPoint, AUTH_SLOT_POS, MTEInstrumentation, MTEFixPoint, PACVariant, MTEVariant, _AUTH_TO_PAC
+from .aarch64_generator import Pass, Aarch64SandboxPass
+from .aarch64_seal import SealedNIInstrumentation, is_speculative
+from .aarch64_pac import PACInstrumentation, PACFixPoint, AUTH_SLOT_POS, _AUTH_TO_PAC
 from .aarch64_contract_executor import (ContractExecution, ContractExecutorService,
                                         ExecutionClause, SUPPORTED_EXECUTION_CLAUSES,
                                         BranchPredictor, EXECUTION_CLAUSE_MAP, SimArch)
 from .aarch64_disasm import disassemble_instruction, decode_reg_accesses, is_conditional_branch
+from .aarch64_mte import MteTagState, mte_tag_store_effect, MTEInstrumentation, MTEFixPoint
 from .aarch64_trace import compute_ctrace, compute_taint, ContractExecutionResult
 from .aarch64_input_layout import _input_bytes_with_pstate, REGISTER_REGION_OFFSET
 from .aarch64_log import (log_start_test_case, log_input, log_ce_trace, log_bb_map,
@@ -66,10 +69,17 @@ def _other_gpr_value(cpu, exclude: Set[str]) -> int:
 
 # ==================================================================================================
 # NON-INTERFERENCE: per-input TC variant result containers
-# Used by Aarch64PacNonInterferenceExecutor; regular-Revizor mode never produces these.
-# Maps variant enum → TestCase.  Extensible: add more entries in instrument_stage2 as needed.
+# Used by the non-interference executors; regular-Revizor mode never produces these.
+# Maps variant enum → TestCase.
 # ==================================================================================================
 TCVariants = Dict[Enum, TestCase]
+
+
+class NIVariant(Enum):
+    """The test cases an NI engine compares per input: the all-genuine reference and a decoy
+    instance. Any hardware-trace difference between them is a speculative leak."""
+    BASELINE = auto()  # engine.baseline() — genuine everywhere
+    DECOY    = auto()  # engine.decoys()   — decoys on speculative slots
 
 
 # ==================================================================================================
@@ -683,20 +693,21 @@ class Aarch64PacNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
     """Executor for PAC non-interference testing.
 
     Lifecycle:
-    1. load_test_case(tc)  — runs stage-1 PAC instrumentation, caches result.
+    1. load_test_case(tc)  — seals the test case (PAC instrumentation), caches the result.
     2. trace_test_case_with_taints(inputs, nesting)  — for each input:
-         a. Run CE on the stage-1 TC to capture signed pointer values per fix-point.
-         b. Call instrument_stage2() to produce TC1/TC2/TC3.
-       Returns ctraces/taints derived from the stage-1 CE traces.
+         a. Run the CE on the sealed TC to capture signed pointer values per fix point.
+         b. Mint the engine's baseline() + a decoy instance to compare on hardware.
+       Returns ctraces/taints derived from the sealed-TC CE traces.
     """
 
-    _compare_variants = (PACVariant.AUTH_CORRECT, PACVariant.AUTH_WRONG)
+    _compare_variants = (NIVariant.BASELINE, NIVariant.DECOY)
 
     def __init__(self, generator: Aarch64Generator, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._generator: Aarch64Generator = generator
         self._pac_instrumentation = PACInstrumentation(
             self._generator, CONF.pac_xpac_weight, CONF.pac_auth_weight)
+        self._engine: SealedNIInstrumentation = self._pac_instrumentation.make_engine()
 
         self._stage1_tc: Optional[TestCase] = None
         self._stage1_fix_points: Optional[List[PACFixPoint]] = None
@@ -727,7 +738,7 @@ class Aarch64PacNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
 
     def _run_stage1(self) -> None:
         patched = copy.deepcopy(self.test_case)
-        stage1_tc, fix_points = self._pac_instrumentation.instrument_stage1(patched)
+        stage1_tc, fix_points = self._pac_instrumentation.seal_test_case(patched)
         tc_bytes, layout = self._assemble_tc(stage1_tc)
 
         # Map byte offset of each XPAC placeholder → PACFixPoint (pre-slot state captured here)
@@ -757,6 +768,9 @@ class Aarch64PacNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
         fix_points = self._stage1_fix_points
         tc_bytes = self._stage1_tc_bytes
         sandbox_base, _ = self.read_base_addresses()
+        # The engine fills the same sealed TC + fix points; per input the fix points are reset and
+        # refilled from the CE trace below, so baseline()/decoys() reflect that input.
+        self._engine.set_sealed(tc, fix_points)
 
         stage1_traces: List[ContractExecutionResult] = []
         tc_variants_per_input: List[TCVariants] = []
@@ -791,11 +805,15 @@ class Aarch64PacNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
 
             self._fill_missing_alt_sigs(fix_points)
 
-            variants = self._pac_instrumentation.instrument_stage2(tc, fix_points)
+            # Fix points now hold this input's signatures/nesting; mint the variants to compare.
+            variants: TCVariants = {
+                NIVariant.BASELINE: self._engine.baseline(),
+                NIVariant.DECOY:    next(self._engine.decoys(random)),
+            }
             tc_variants_per_input.append(variants)
 
-            # Log all variant TC binaries for this input immediately after
-            # stage2 — these are the exact binaries that will run on HW.
+            # Log all variant TC binaries for this input immediately after minting them —
+            # these are the exact binaries that will run on HW.
             log.header(f"VARIANT TC BINARIES  inp={inp_idx}")
             for variant, vtc in variants.items():
                 log_tc_binary(log, variant.name, self._assemble_tc(vtc)[0])
@@ -831,11 +849,11 @@ class Aarch64PacNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
                 continue
 
             pac_mn  = _AUTH_TO_PAC[fp.committed_inst.name.lower()]
-            ptr_reg = fp.committed_inst.operands[0].value
+            value_reg = fp.committed_inst.operands[0].value
             has_ctx = len(fp.committed_inst.operands) > 1
             ctx_reg = fp.committed_inst.operands[1].value if has_ctx else None
 
-            ptr = _read_reg(ite.cpu, ptr_reg)
+            ptr = _read_reg(ite.cpu, value_reg)
             ctx = _read_reg(ite.cpu, ctx_reg) if has_ctx else 0
 
             signed = self.local_executor.pac_sign(ptr, ctx, pac_mn)
@@ -847,9 +865,9 @@ class Aarch64PacNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
             # kernel VA) so XPAC can sign-extend the signed pointer back without crashing.
             use_wrong_ptr = random.choice([True, False])
             use_wrong_ctx = has_ctx and random.choice([True, False])
-            alt_ptr = _other_gpr_value(ite.cpu, {ptr_reg, ctx_reg}) if use_wrong_ptr else ptr
+            alt_ptr = _other_gpr_value(ite.cpu, {value_reg, ctx_reg}) if use_wrong_ptr else ptr
             alt_ptr = (alt_ptr & 0x0000FFFFFFFFFFFF) | 0xFFFF000000000000
-            alt_ctx = (_other_gpr_value(ite.cpu, {ptr_reg, ctx_reg}) if use_wrong_ctx else ctx) if has_ctx else 0
+            alt_ctx = (_other_gpr_value(ite.cpu, {value_reg, ctx_reg}) if use_wrong_ctx else ctx) if has_ctx else 0
             alt_signed = self.local_executor.pac_sign(alt_ptr, alt_ctx, pac_mn)
             fp.alt_sig = (alt_signed >> 48) & 0xFFFF
             log_pac_op(log, "SIGN(alt)", pac_mn, alt_ptr, alt_ctx, alt_signed)
@@ -871,14 +889,14 @@ class Aarch64PacNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
         self,
         inputs: List[Input],
         n_reps: int,
-    ) -> List[Dict[PACVariant, HTrace]]:
+    ) -> List[Dict[NIVariant, HTrace]]:
         """Run all TC variants for each input on hardware with stage-1-compatible mistraining.
 
         For each input[i] and each variant in _last_tc_variants[i], executes the variant TC
         on hardware using i._arch_trace for BPU mistraining.  All variants share the same
         branch layout as stage-1, so the same arch_trace applies to all of them.
 
-        Returns per-input: {PACVariant → HTrace}.
+        Returns per-input: {NIVariant → HTrace}.
         """
         assert self._last_tc_variants is not None and len(self._last_tc_variants) == len(inputs), \
             "trace_test_case_with_taints() must be called before trace_test_case_variants_hw()"
@@ -898,9 +916,9 @@ class Aarch64PacNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
         counter_log = defaultdict(lambda: defaultdict(list))
         expected_log = {}
 
-        results: List[Dict[PACVariant, HTrace]] = []
+        results: List[Dict[NIVariant, HTrace]] = []
         for inp_idx, (inp, variants) in enumerate(zip(inputs, self._last_tc_variants)):
-            per_variant: Dict[PACVariant, HTrace] = {}
+            per_variant: Dict[NIVariant, HTrace] = {}
             self.local_executor.discard_all_inputs()
             iid = self.local_executor.allocate_iid()
             self.local_executor.checkout_region(InputRegion(iid))
@@ -947,23 +965,25 @@ class Aarch64MteNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
     Executor for MTE non-interference testing.
 
     Lifecycle:
-    1. load_test_case(tc)  — runs MTEInstrumentation.instrument_stage1(), caches result.
+    1. load_test_case(tc)  — seals the test case (MTE instrumentation), caches the result.
     2. trace_test_case_with_taints(inputs, nesting)  — for each input:
-         a. Run stage-1 TC through CE (CONTRACT_ALWAYS_MISPREDICT) to discover which
+         a. Run the sealed TC through CE (CONTRACT_ALWAYS_MISPREDICT) to discover which
             memory-access slots have spec_nesting > 0 (speculative) vs 0 (architectural).
             Uses arch_seen semantics: once a slot fires at nesting==0 it is permanently arch.
-         b. Call MTEInstrumentation.instrument_stage2() to produce TC1/TC2/TC3:
-              TC1 — all NOP (correct-tag baseline)
-              TC2 — spec slots → IRG Xd,Xd (random tag); arch slots → NOP
-              TC3 — spec slots → MOVK Xd,#wrong_upper16,LSL#48; arch slots → NOP
+         b. Mint the engine's baseline() (correct tag everywhere) + a decoy instance (speculative
+            slots retagged via IRG / MOVK) to compare on hardware.
     """
 
-    _compare_variants = (MTEVariant.BASELINE, MTEVariant.WRONG_TAG)
+    _compare_variants = (NIVariant.BASELINE, NIVariant.DECOY)
 
     def __init__(self, generator: Aarch64Generator, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._generator: Aarch64Generator = generator
         self._mte = MTEInstrumentation(generator)
+        # The sandbox clamp is part of the seal now but must never be decoyed (always in-bounds);
+        # the tag is decoyed on speculative slots.
+        self._engine: SealedNIInstrumentation = self._mte.make_engine(
+            should_decoy=lambda fp, seal: seal.name != "sandbox" and is_speculative(fp))
 
         # Stage-1 cache — populated by load_test_case()
         self._stage1_tc: Optional[TestCase] = None
@@ -986,15 +1006,15 @@ class Aarch64MteNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
         log.wp(f"[MTE] test case #{self._tc_counter}")
 
         patched = copy.deepcopy(self.test_case)
-        stage1_tc, fix_points = self._mte.instrument_stage1(patched)
+        stage1_tc, fix_points = self._mte.seal_test_case(patched)
         tc_bytes, layout = self._assemble_tc(stage1_tc)
 
-        # The NOP placeholder is inserted immediately before its memory access.
-        # So: mem_access is at nop_offset + 4.
+        # The tag placeholder (last slot inst) sits immediately before its memory access, whatever
+        # the seal — so: mem_access is at tag_offset + 4.
         mem_access_offset_to_fp: Dict[int, MTEFixPoint] = {}
         for fp in fix_points:
-            nop_offset = layout.instruction_address[fp.slot_insts[0]]
-            mem_access_offset_to_fp[nop_offset + 4] = fp
+            tag_offset = layout.instruction_address[fp.slot_insts[-1]]
+            mem_access_offset_to_fp[tag_offset + 4] = fp
 
         self._stage1_tc = stage1_tc
         self._stage1_fix_points = fix_points
@@ -1023,6 +1043,8 @@ class Aarch64MteNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
         sandbox_base, _ = self.read_base_addresses()
         traces: List[ContractExecutionResult] = []
         tc_variants_per_input: List[TCVariants] = []
+
+        self._engine.set_sealed(tc, fix_points)
 
         # Build sandboxed TC once — CE on this produces branch offsets matching
         # what trace_test_case() loads into the kernel module for mistraining.
@@ -1057,8 +1079,12 @@ class Aarch64MteNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
             sandboxed_cer = self._contract_executor.run(sandboxed_execution)
             sandboxed_traces.append(sandboxed_cer)
 
-            self._classify_mte_slots(cer, offset_to_fp)
-            tc_variants_per_input.append(self._mte.instrument_stage2(tc, fix_points, sandbox_base))
+            self._classify_mte_slots(cer, offset_to_fp, (sandbox_base >> 56) & 0xF)
+            # Fix points now hold this input's per-slot spec_nesting; mint the variants to compare.
+            tc_variants_per_input.append({
+                NIVariant.BASELINE: self._engine.baseline(),
+                NIVariant.DECOY:    next(self._engine.decoys(random)),
+            })
 
         # Use sandboxed-TC traces for ctrace/taint/mistraining — their branch offsets
         # match the sandboxed TC that trace_test_case() loads into the kernel module.
@@ -1068,23 +1094,34 @@ class Aarch64MteNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
         return ctraces, taints, sandboxed_traces, tc_variants_per_input
 
     @staticmethod
-    def _classify_mte_slots(cer, offset_to_fp) -> None:
-        """Record per-slot spec_nesting from a CE trace (in place). arch_seen semantics:
-        a slot seen at nesting 0 is permanently architectural and is not overwritten by a
-        later speculative firing."""
+    def _classify_mte_slots(cer, offset_to_fp, default_tag: int = 0) -> None:
+        """From the sealed-TC trace, record per-slot spec_nesting and correct_tag (in place).
+        spec_nesting: arch_seen — a slot seen at nesting 0 is permanently architectural.
+        correct_tag: the allocation tag of the accessed cell, tracked by MteTagState (architectural
+        tag stores commit; speculative ones are ignored)."""
         if len(cer) == 0:
             return
         code_base = cer[0].cpu.pc
         arch_seen: Set[int] = set()
+        tags = MteTagState(default_tag)
         for ite in cer:
+            nest = ite.metadata.speculation_nesting
+            tags.to_depth(nest)             # track depth: deeper copies, unwind pops (reverts)
+            store = mte_tag_store_effect(ite)
+            if store is not None:
+                tags.set(*store)            # at the current depth (arch at 0, else speculative)
             if not ite.metadata.has_memory_access:
                 continue
             fp = offset_to_fp.get(ite.cpu.pc - code_base)
             if fp is None:
                 continue
-            nest = ite.metadata.speculation_nesting
+            ea = ite.metadata.memory_access.effective_address
+            cell_tag, ptr_tag = tags.tag_at(ea), (ea >> 56) & 0xF
             if nest == 0:
                 fp.spec_nesting = 0
+                fp.correct_tag, fp.ptr_tag = cell_tag, ptr_tag
                 arch_seen.add(fp.slot_id)
             elif fp.slot_id not in arch_seen and fp.spec_nesting is None:
                 fp.spec_nesting = int(nest)
+                if fp.correct_tag is None:
+                    fp.correct_tag, fp.ptr_tag = cell_tag, ptr_tag

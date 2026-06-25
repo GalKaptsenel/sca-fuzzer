@@ -16,6 +16,7 @@ class SandboxedCeCrashTest(unittest.TestCase):
         ex._stage1_fix_points = []
         ex._stage1_tc_bytes = b""
         ex._stage1_mem_access_offset_to_fp = {}
+        ex._engine = mock.Mock()
         ex.read_base_addresses = mock.Mock(return_value=(0x1000, 0x2000))
         ex._assemble_tc = mock.Mock(return_value=(b"", None))
         ex._make_ce_execution = mock.Mock()
