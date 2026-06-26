@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import copy
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
@@ -107,25 +107,25 @@ class PacSign(Seal):
         return self._auth_fill(fp, fp.correct_sig)
 
     def decoy(self, fp, rng: random.Random) -> List[Instruction]:
-        """Either strip the auth (the [NOP, XPAC] placeholder encoding) or authenticate a wrong
-        signature ([MOVK alt_sig, AUT*])."""
-        if rng.random() < 0.5:
-            return self.placeholder(fp)
-        assert fp.alt_sig is not None, f"slot_id={fp.slot_id}: decoy value not resolved"
-        return self._auth_fill(fp, fp.alt_sig)
+        """A wrong-signature forgery [MOVK alt, AUT*], alt drawn fresh from the pool so each decoy
+        instance is a different forgery. Reached slots carry a PAC-mask-verified pool (provably fails
+        AUTH); unreached slots carry a random pool (they never execute on the contract path)."""
+        assert fp.alt_sigs, f"slot_id={fp.slot_id}: no decoy signatures resolved"
+        return self._auth_fill(fp, rng.choice(fp.alt_sigs))
 
 
 @dataclass
 class PACFixPoint(FixPoint):
     committed_inst: Optional[Any] = None  # structural: the AUT* instruction the seal commits to
     # Per-input, recomputed by the executor from the CE trace (reset between inputs):
-    correct_sig: Optional[int] = None  # upper-16 PAC bits signed by kernel; None if never reached
-    alt_sig:     Optional[int] = None  # upper-16 PAC bits from an alternative (ptr/ctx) combo
+    correct_sig: Optional[int] = None        # upper-16 PAC bits signed by kernel; None if never reached
+    alt_sigs: List[int] = field(default_factory=list)  # wrong upper-16 PAC bits, each differing from
+    #                                  correct_sig within the PAC-field bits (provably fails AUTH); [] if unreached
 
     def reset(self) -> None:
         super().reset()
         self.correct_sig = None
-        self.alt_sig     = None
+        self.alt_sigs = []
 
 
 class AuthInstructionSpec(InstructionSpec):

@@ -140,9 +140,9 @@ def log_pac_op(log: FuzzLogger, op: str, mnemonic: str,
 
 def log_slot(log: FuzzLogger, inp_idx: int, fp) -> None:
     cs  = f"0x{fp.correct_sig:04x}" if fp.correct_sig is not None else "None"
-    alt = f"0x{fp.alt_sig:04x}"     if fp.alt_sig     is not None else "None"
+    alt = ",".join(f"0x{s:04x}" for s in fp.alt_sigs) or "None"
     log.w(f"  slot={fp.slot_id:2d}  spec_nesting={str(fp.spec_nesting):<6}  "
-          f"correct_sig={cs}  alt_sig={alt}", ch="pac_signing")
+          f"correct_sig={cs}  alt_sigs=[{alt}]", ch="pac_signing")
 
 
 def log_mistraining(log: FuzzLogger, tc_counter: int, inp_idx: int,

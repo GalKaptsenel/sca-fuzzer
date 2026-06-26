@@ -17,10 +17,11 @@ from pathlib import Path
 
 from .aarch64_generator import Aarch64Generator
 from .aarch64_printer import Aarch64Printer, Aarch64ASMLayout
-from ..interfaces import HTrace, Input, TestCase, Executor, HardwareTracingError, CTrace, InputTaint
+from ..interfaces import (HTrace, Input, TestCase, Executor, HardwareTracingError, CTrace,
+                          InputTaint, GeneratorException)
 from ..config import CONF
 from ..util import Logger, STAT, FuzzLogger
-from .aarch64_target_desc import Aarch64TargetDesc
+from .aarch64_target_desc import Aarch64TargetDesc, SANDBOX_BASE_REGISTER
 from .aarch64_kernel import LocalHWExecutor, TestCaseRegion, InputRegion, ExecutorMemory
 from .aarch64_generator import Pass, Aarch64SandboxPass
 from .aarch64_seal import SealedNIInstrumentation, is_speculative
@@ -54,17 +55,6 @@ def _read_reg(cpu, reg: Optional[str]) -> Optional[int]:
     if reg is None:
         return None
     return cpu.sp if reg == 'sp' else cpu.gpr[int(reg[1:])]
-
-
-# GPRs never used as a random alternate value: fp/lr.
-_EXCLUDED_GPRS = frozenset({"x29", "x30"})
-
-
-def _other_gpr_value(cpu, exclude: Set[str]) -> int:
-    """A value from a random GPR, excluding `exclude` plus the reserved GPRs (fp/lr)."""
-    excluded = exclude | _EXCLUDED_GPRS
-    candidates = [f"x{i}" for i in range(31) if f"x{i}" not in excluded]
-    return _read_reg(cpu, random.choice(candidates))
 
 
 # ==================================================================================================
@@ -716,6 +706,12 @@ class Aarch64PacNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
         self._last_tc_variants: Optional[List[TCVariants]] = None
         self._last_stage1_traces: Optional[List[ContractExecutionResult]] = None
 
+        # Decoy-signature machinery (kernel SIGN only — never AUTH; a failed AUTH at EL1 resets the
+        # box on FEAT_FPAC hardware). The PAC-field mask is the set of top-16 bits kernel SIGN sets,
+        # i.e. exactly the bits AUTH checks; cached per signing mnemonic.
+        self._gpr_pool: List[str] = self._generator.target_desc.registers[64]
+        self._pac_mask16_cache: Dict[str, int] = {}
+
     def load_test_case(self, test_case: TestCase):
         log = FuzzLogger.get()
         # Register channels on first use; subsequent calls are no-ops.
@@ -798,12 +794,11 @@ class Aarch64PacNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
             log_ce_trace(log, "STAGE1", inp_idx, list(cer))
             log.header(f"STAGE1 PAC-SIGN OPS  inp={inp_idx}")
             self._sign_reached_fixpoints(cer, xpac_offset_to_fp, log)
+            self._fill_missing_alt_sigs(fix_points, size=6)
 
             log.header(f"STAGE1 SLOT CLASSIFICATION  inp={inp_idx}")
             for fp in fix_points:
                 log_slot(log, inp_idx, fp)
-
-            self._fill_missing_alt_sigs(fix_points)
 
             # Fix points now hold this input's signatures/nesting; mint the variants to compare.
             variants: TCVariants = {
@@ -829,11 +824,10 @@ class Aarch64PacNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
         return ctraces, taints, stage1_traces, tc_variants_per_input
 
     def _sign_reached_fixpoints(self, cer, xpac_offset_to_fp, log) -> None:
-        """Compute correct_sig and alt_sig (in place) for every fixpoint the CE trace reaches.
-
-        spec_nesting is tracked for all hits (minimum depth wins). Signing prefers the
-        architectural path (depth 0) and falls back to the first speculative occurrence,
-        so spec-only fixpoints are still signed.
+        """Sign every fix point the CE trace reaches: record correct_sig (the committed signature)
+        and a verified pool of wrong signatures, plus the minimum speculation depth. The
+        architectural occurrence (depth 0) is authoritative and overrides an earlier speculative
+        one. Uses only kernel SIGN — never AUTH (a failed AUTH at EL1 resets the box on FEAT_FPAC).
         """
         if len(cer) == 0:
             return
@@ -845,8 +839,8 @@ class Aarch64PacNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
             depth = ite.metadata.speculation_nesting
             if fp.spec_nesting is None or depth < fp.spec_nesting:
                 fp.spec_nesting = depth
-            if not (depth == 0 or fp.correct_sig is None):
-                continue
+            if fp.correct_sig is not None and depth != 0:
+                continue                       # already signed; keep it unless this is the arch hit
 
             pac_mn  = _AUTH_TO_PAC[fp.committed_inst.name.lower()]
             value_reg = fp.committed_inst.operands[0].value
@@ -861,29 +855,92 @@ class Aarch64PacNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
             log_pac_op(log, "SIGN", pac_mn, ptr, ctx, signed)
             log.w(f"    => slot={fp.slot_id}  correct_sig=0x{fp.correct_sig:04x}")
 
-            # alt_sig: randomize ptr/ctx. Force bits[63:48]=0xFFFF on alt_ptr (canonical
-            # kernel VA) so XPAC can sign-extend the signed pointer back without crashing.
-            use_wrong_ptr = random.choice([True, False])
-            use_wrong_ctx = has_ctx and random.choice([True, False])
-            alt_ptr = _other_gpr_value(ite.cpu, {value_reg, ctx_reg}) if use_wrong_ptr else ptr
-            alt_ptr = (alt_ptr & 0x0000FFFFFFFFFFFF) | 0xFFFF000000000000
-            alt_ctx = (_other_gpr_value(ite.cpu, {value_reg, ctx_reg}) if use_wrong_ctx else ctx) if has_ctx else 0
-            alt_signed = self.local_executor.pac_sign(alt_ptr, alt_ctx, pac_mn)
-            fp.alt_sig = (alt_signed >> 48) & 0xFFFF
-            log_pac_op(log, "SIGN(alt)", pac_mn, alt_ptr, alt_ctx, alt_signed)
-            log.w(f"    => slot={fp.slot_id}  alt_sig=0x{fp.alt_sig:04x}")
+            # The from-set: every generatable register except the committed value register
+            # (signing value_reg would just reproduce correct_sig).
+            from_regs = [r for r in self._gpr_pool if r != value_reg]
+            fp.alt_sigs = self._build_alt_sigs(ite.cpu, pac_mn, fp.correct_sig, ctx, from_regs,
+                                               size=6, tries=64)
+            log.w(f"    => slot={fp.slot_id}  alt_sigs={[f'0x{s:04x}' for s in fp.alt_sigs]}")
 
-    def _fill_missing_alt_sigs(self, fix_points) -> None:
-        """For fixpoints the CE never reached, derive alt_sig from random ptr/ctx."""
+    def _build_alt_sigs(self, cpu, pac_mn, correct_sig, ctx, from_regs, size, tries) -> List[int]:
+        """Distinct wrong top-16 signatures, each differing from correct_sig within the PAC-field
+        bits so AUTH provably fails (a sig differing only in TBI-ignored bits would still
+        authenticate). Candidates are signatures of live values from from_regs, or — less often — of
+        a random value. Pure SIGN, never AUTH."""
+        mask16 = self._pac_field_mask16(pac_mn, samples=64)
+        pool: List[int] = []
+        for _ in range(tries):
+            if from_regs and random.random() < 0.85:
+                value = _read_reg(cpu, random.choice(from_regs))
+            else:
+                value = random.randrange(1 << 64)
+            cand = (self.local_executor.pac_sign(value, ctx, pac_mn) >> 48) & 0xFFFF
+            # Flip only the PAC-field bits, keeping the genuine pointer's non-PAC bits (top byte,
+            # sign): XPAC then canonicalizes the forgery to exactly the genuine pointer on the
+            # speculative path, while AUTH still rejects it on hardware.
+            sig = (correct_sig & ~mask16) | (cand & mask16)
+            if sig != correct_sig and sig not in pool:
+                pool.append(sig)
+                if len(pool) >= size:
+                    break
+        if not pool:
+            raise GeneratorException(
+                f"no effective PAC forgery in {tries} tries (pac_field_mask=0x{mask16:04x}); "
+                "PAC appears misconfigured (signing changes no checked bits)")
+        return pool
+
+    def _pac_field_mask16(self, pac_mn, samples) -> int:
+        """Return the top-16-bit mask of the PAC field — the pointer bits an AUTH actually checks —
+        used to decide whether a candidate decoy signature really fails authentication.
+
+        WHAT: sign `samples` clean low-half addresses (top 16 bits zero, so the PAC field starts
+        empty) and OR together `signed ^ preimage`. The set bits are exactly the bits SIGN wrote —
+        the PAC field — viewed in the top-16 window (`>> 48`). Cached per signing mnemonic.
+
+        CORRECTNESS: SIGN inserts the code into the PAC field and AUTH recomputes and compares
+        against that *same* field — architecturally the same bit positions, so "bits SIGN sets" ==
+        "bits AUTH checks". SIGN never touches the address, the sign bit (55) or (under TBI) the top
+        byte, and the clean pre-image leaves those zero, so they never enter the mask. We use only
+        SIGN+XOR — never AUTH (a failed AUTH at EL1 resets the box) and never XPAC (its top-byte
+        handling is TBI-dependent).
+
+        SOUNDNESS: the result is always a *subset* of the true PAC field (over-counting is
+        impossible by the above). A decoy is accepted only if it differs from the correct signature
+        within this mask, and every masked bit is a genuine PAC bit, so an accepted decoy provably
+        fails AUTH on this hardware. Under-counting can only reject valid decoys (conservative),
+        never admit an ineffective one.
+
+        UNDER-COUNT PROBABILITY: a PAC bit is ~50/50 across random signatures, so a given field bit
+        is missed only if it is 0 in all `samples` of them ≈ 2**-samples; across the ~7 field bits
+        the chance of missing any is <= 7 * 2**-samples (samples=64 -> ~4e-19). The assertion below
+        also catches a grossly wrong mask (empty, or including the sign bit)."""
+        cached = self._pac_mask16_cache.get(pac_mn)
+        if cached is not None:
+            return cached
+        mask = 0
+        for _ in range(samples):
+            v = random.randrange(1 << 48)            # clean low-half address: top 16 bits are zero
+            mask |= self.local_executor.pac_sign(v, random.randrange(1 << 64), pac_mn) ^ v
+        mask16 = (mask >> 48) & 0xFFFF
+        # The field is a non-empty run ending at bit 54; it never includes bit 55 (the sign bit, 0x80).
+        assert mask16 and not (mask16 & 0x80), f"implausible PAC-field mask 0x{mask16:04x}"
+        self._pac_mask16_cache[pac_mn] = mask16
+        return mask16
+
+    def _fill_missing_alt_sigs(self, fix_points, size) -> None:
+        """Give each slot the CE never reached (no correct_sig) a pool of random wrong signatures.
+        They are not PAC-mask-verified — there is no committed signature to differ from — but an
+        unreached slot never executes on the contract path, and on hardware a forged AUTH there
+        faults at EL0 (sandboxed). Pure SIGN; never AUTH."""
         for fp in fix_points:
-            if fp.alt_sig is not None:
+            if fp.alt_sigs:
                 continue
-            pac_mn  = _AUTH_TO_PAC[fp.committed_inst.name.lower()]
-            has_ctx = len(fp.committed_inst.operands) > 1
-            alt_ptr = random.randrange(1 << 48) | 0xFFFF000000000000
-            alt_ctx = random.randrange(1 << 64) if has_ctx else 0
-            alt_signed = self.local_executor.pac_sign(alt_ptr, alt_ctx, pac_mn)
-            fp.alt_sig = (alt_signed >> 48) & 0xFFFF
+            pac_mn = _AUTH_TO_PAC[fp.committed_inst.name.lower()]
+            sigs: Set[int] = set()
+            while len(sigs) < size:
+                sigs.add((self.local_executor.pac_sign(
+                    random.randrange(1 << 64), random.randrange(1 << 64), pac_mn) >> 48) & 0xFFFF)
+            fp.alt_sigs = list(sigs)
 
     def trace_test_case_variants_hw(
         self,
