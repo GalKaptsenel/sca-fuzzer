@@ -21,11 +21,6 @@ _option_values = {
         'archdiff',
         'non-interference',
     ],
-    # AArch64-only: which non-interference contract the NI fuzzer exercises (PAC or MTE).
-    'noninterference_mode': [
-        'pac',
-        'mte',
-    ],
     # AArch64 adds the NZCV-aware input generator to the common set.
     'input_generator': [
         'random',
@@ -172,11 +167,6 @@ supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "l
                                      # Excluded: STGP (Capstone 5.0.x cannot decode it); LDGM/STGM/STZGM
                                      # (bulk tag ops — UNDEFINED at EL0, would fault on the hardware path).
                                      ]
-
-# AArch64-only: which non-interference contract the `non-interference` fuzzer tests:
-# 'pac' (pointer authentication) or 'mte' (memory tagging). No default — must be set
-# explicitly in the config when using the non-interference fuzzer.
-noninterference_mode: Optional[str] = None
 
 # AArch64-only: relative weights for the PAC non-interference instrumentation
 # (stage 1). AUT* and XPAC* strips are inserted with these weights, normalized

@@ -167,7 +167,8 @@ def get_executor(enable_mismatch_check_mode: bool = False) -> interfaces.Executo
 def get_noninterference_executor(generator: interfaces.Generator,
                                   enable_mismatch_check_mode: bool = False) -> interfaces.Executor:
     """
-    Create the PAC or MTE non-interference executor (per CONF.noninterference_mode) with the
+    Create the non-interference executor (it auto-detects PAC/MTE from the enabled
+    instruction categories) with the
     generator injected at construction.
 
     This is the only supported way to create a non-interference executor — the generator
