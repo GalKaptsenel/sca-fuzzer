@@ -930,13 +930,13 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
     # ------------------------------------------------------------------ MTE fill (classify tags)
     @staticmethod
     def _classify_mte_slots(cer, offset_to_fp, default_tag: int) -> None:
-        """From the sealed-TC trace, record per-slot spec_nesting and correct_tag (in place).
-        spec_nesting: arch_seen — a slot seen at nesting 0 is permanently architectural. correct_tag:
-        the accessed cell's tag from MteTagState (arch tag stores commit; speculative ones revert)."""
+        """From the sealed-TC trace, record per-slot spec_nesting (min depth seen; 0 = architectural)
+        and correct_tag — the accessed cell's tag from MteTagState (arch tag stores commit,
+        speculative ones revert). The architectural occurrence is authoritative; a speculative one
+        fills the tag only if no occurrence has set it yet."""
         if len(cer) == 0:
             return
         code_base = cer[0].cpu.pc
-        arch_seen: Set[int] = set()
         tags = MteTagState(default_tag)
         for ite in cer:
             nest = ite.metadata.speculation_nesting
@@ -951,14 +951,10 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                 continue
             ea = ite.metadata.memory_access.effective_address
             cell_tag, ptr_tag = tags.tag_at(ea), (ea >> 56) & 0xF
-            if nest == 0:
-                fp.spec_nesting = 0
-                fp.correct_tag, fp.ptr_tag = cell_tag, ptr_tag
-                arch_seen.add(fp.slot_id)
-            elif fp.slot_id not in arch_seen and fp.spec_nesting is None:
+            if fp.spec_nesting is None or nest < fp.spec_nesting:
                 fp.spec_nesting = int(nest)
-                if fp.correct_tag is None:
-                    fp.correct_tag, fp.ptr_tag = cell_tag, ptr_tag
+            if nest == 0 or fp.correct_tag is None:   # architectural occurrence is authoritative
+                fp.correct_tag, fp.ptr_tag = cell_tag, ptr_tag
 
     # ------------------------------------------------------------------ hardware: compare variants
     def trace_test_case_variants_hw(
