@@ -83,22 +83,19 @@ class NiRandomCoverageTest(unittest.TestCase):
             except Exception:
                 continue
             ex.load_test_case(tc)
-            fps = ex._stage1_fix_points
+            fps = ex._fix_points
             if not fps:
                 continue
             tcs += 1
             sb, _ = ex.read_base_addresses()
-            ex._engine.set_sealed(ex._stage1_tc, fps)
+            ex._engine.set_sealed(ex._sealed_tc, fps)
             for inp in self.igen.generate(4):
                 for fp in fps:
                     fp.reset()
                 cer = ex._contract_executor.run(ex._make_ce_execution(
-                    ex._stage1_tc_bytes, inp, sb, 5, CONF.model_max_spec_window, ExecutionClause.COND))
-                if ex._stage1_pac_offset_to_fp:
-                    ex._sign_reached_fixpoints(cer, ex._stage1_pac_offset_to_fp, log)
-                    ex._fill_missing_alt_sigs(ex._stage1_pac_fps, 6)
-                if ex._stage1_mte_offset_to_fp:
-                    ex._classify_mte_slots(cer, ex._stage1_mte_offset_to_fp, (sb >> 56) & 0xF)
+                    ex._sealed_tc_bytes, inp, sb, 5, CONF.model_max_spec_window, ExecutionClause.COND))
+                for fp in fps:
+                    fp.resolve(cer, ex._layout)
                 variants = {"baseline": ex._engine.baseline(random)}
                 decoys = [next(ex._engine.decoys(random)) for _ in range(6)]
                 # baseline + every decoy: classify each slot; arch slots must stay genuine

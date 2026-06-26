@@ -12,9 +12,17 @@ import unittest
 
 import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from src.aarch64.aarch64_mte import MteTagState, MTE_GRANULE, mte_tag_store_effect, MTEFixPoint, MteTag
-import src.aarch64.aarch64_executor as ex
+import src.aarch64.aarch64_mte as mte_mod
 
-_classify = ex.Aarch64NonInterferenceExecutor._classify_mte_slots
+
+def _classify(cer, offset_to_fp, default_tag):
+    """Resolve each MTEFixPoint from the trace by its guarded access's byte offset — the per-fp form
+    of the former _classify_mte_slots pass. x29 (in cer[0]) carries the region's default tag."""
+    if cer:
+        cer[0].cpu.gpr = [0] * 29 + [default_tag << 56] + [0, 0]
+    for off, fp in offset_to_fp.items():
+        fp.trigger = object()    # stands in for the guarded access instruction
+        fp.resolve(cer, types.SimpleNamespace(instruction_address={fp.trigger: off}))
 
 
 # ===========================================================================
@@ -93,11 +101,11 @@ class TestCorrectTagFromTrace(unittest.TestCase):
 
     def setUp(self):
         # Stub the disassembly-based STG detection: an entry stores iff it carries ._store.
-        self._orig = ex.mte_tag_store_effect
-        ex.mte_tag_store_effect = lambda ite: getattr(ite, "_store", None)
+        self._orig = mte_mod.mte_tag_store_effect
+        mte_mod.mte_tag_store_effect = lambda ite: getattr(ite, "_store", None)
 
     def tearDown(self):
-        ex.mte_tag_store_effect = self._orig
+        mte_mod.mte_tag_store_effect = self._orig
 
     def _fp(self, slot_id):
         return MTEFixPoint(slot_id=slot_id, value_reg="x5")
@@ -168,11 +176,11 @@ class TestMteArchTagFix(unittest.TestCase):
     _CELL = 0x4000_0000
 
     def setUp(self):
-        self._orig = ex.mte_tag_store_effect
-        ex.mte_tag_store_effect = lambda ite: getattr(ite, "_store", None)
+        self._orig = mte_mod.mte_tag_store_effect
+        mte_mod.mte_tag_store_effect = lambda ite: getattr(ite, "_store", None)
 
     def tearDown(self):
-        ex.mte_tag_store_effect = self._orig
+        mte_mod.mte_tag_store_effect = self._orig
 
     def _genuine(self, stores, ptr_tag, default_tag):
         """stores: (addr, tag, n) applied architecturally before an access to _CELL whose pointer

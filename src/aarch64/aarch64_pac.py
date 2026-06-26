@@ -142,18 +142,102 @@ class PacSign(Seal):
         return self._auth_fill(fp, rng.choice(fp.alt_sigs))
 
 
+def _read_reg(cpu, reg: Optional[str]) -> Optional[int]:
+    if reg is None:
+        return None
+    return cpu.sp if reg == "sp" else cpu.gpr[int(reg[1:])]
+
+
+class PacSigner:
+    """The kernel PAC signing capability — the only PAC code that touches the hardware keys. Pure
+    SIGN, never AUTH (a failed AUTH at EL1 resets the box). `field_mask16` characterizes which top-16
+    bits SIGN sets (the PAC field), so a forgery confined to them provably fails AUTH."""
+
+    def __init__(self, pac_sign):
+        self._pac_sign = pac_sign       # local_executor.pac_sign(ptr, ctx, mnemonic) -> signed 64-bit
+        self._mask_cache: Dict[str, int] = {}
+
+    def sign16(self, ptr: int, ctx: int, mn: str) -> int:
+        return (self._pac_sign(ptr, ctx, mn) >> 48) & 0xFFFF
+
+    def field_mask16(self, mn: str, samples: int = 64) -> int:
+        m = self._mask_cache.get(mn)
+        if m is None:
+            mask = 0
+            for _ in range(samples):
+                v = random.randrange(1 << 48)
+                mask |= self._pac_sign(v, random.randrange(1 << 64), mn) ^ v
+            m = (mask >> 48) & 0xFFFF
+            assert m and not (m & 0x80), f"implausible PAC-field mask 0x{m:04x}"
+            self._mask_cache[mn] = m
+        return m
+
+
 @dataclass
 class PACFixPoint(FixPoint):
-    committed_inst: Optional[Any] = None  # structural: the AUT* instruction the seal commits to
-    # Per-input, recomputed by the executor from the CE trace (reset between inputs):
-    correct_sig: Optional[int] = None        # upper-16 PAC bits signed by kernel; None if never reached
-    alt_sigs: List[int] = field(default_factory=list)  # wrong upper-16 PAC bits, each differing from
-    #                                  correct_sig within the PAC-field bits (provably fails AUTH); [] if unreached
+    signer: Optional[PacSigner] = None    # kernel signing capability (set when the fix point is created)
+    committed_inst: Optional[Any] = None  # the AUT* this slot commits to
+    # Per-input, resolved from the CE trace (reset between inputs):
+    correct_sig: Optional[int] = None        # upper-16 PAC bits signed by the kernel; None if never reached
+    alt_sigs: List[int] = field(default_factory=list)  # wrong upper-16 PAC bits (each fails AUTH); [] if unreached
+
+    def __post_init__(self) -> None:
+        # An AUT* trigger (a standalone PAC site) is the instruction this slot commits to; a memory
+        # trigger is not (PacSign picks the base's auth in placeholder()).
+        if self.committed_inst is None and self.trigger is not None \
+                and self.trigger.name.lower() in _AUTH_TO_PAC:
+            self.committed_inst = self.trigger
 
     def reset(self) -> None:
         super().reset()
         self.correct_sig = None
         self.alt_sigs = []
+
+    def _wrong_sigs(self, cpu, mn: str, ctx: int, size: int = 6, tries: int = 64) -> List[int]:
+        """A pool of wrong signatures that fail AUTH: real SIGN of varied values (live registers, or a
+        random value), kept only within the PAC field so they differ from correct_sig there."""
+        mask16, pool = self.signer.field_mask16(mn), []
+        for _ in range(tries):
+            v = cpu.gpr[random.randrange(len(cpu.gpr))] if random.random() < 0.85 else random.randrange(1 << 64)
+            sig = (self.correct_sig & ~mask16) | (self.signer.sign16(v, ctx, mn) & mask16)
+            if sig != self.correct_sig and sig not in pool:
+                pool.append(sig)
+                if len(pool) >= size:
+                    break
+        if not pool:
+            raise GeneratorException(f"no effective PAC forgery in {tries} tries (mask=0x{mask16:04x})")
+        return pool
+
+    def _random_sigs(self, mn: str, size: int = 6) -> List[int]:
+        sigs: set = set()
+        while len(sigs) < size:
+            sigs.add(self.signer.sign16(random.randrange(1 << 64), random.randrange(1 << 64), mn))
+        return list(sigs)
+
+    def resolve(self, cer, layout) -> None:
+        """Sign the pointer that reaches this slot's XPAC; build a wrong-signature pool. The
+        architectural occurrence (depth 0) is authoritative."""
+        if cer and self.committed_inst is not None:
+            xpac = next(i for i in self.slot_insts if i.name.lower() in ("xpaci", "xpacd"))
+            xpac_off, code_base = layout.instruction_address[xpac], cer[0].cpu.pc
+            pac_mn = _AUTH_TO_PAC[self.committed_inst.name.lower()]
+            value_reg = self.committed_inst.operands[0].value
+            ctx_reg = self.committed_inst.operands[1].value if len(self.committed_inst.operands) > 1 else None
+            for ite in cer:
+                if ite.cpu.pc - code_base != xpac_off:
+                    continue
+                depth = ite.metadata.speculation_nesting
+                if self.spec_nesting is None or depth < self.spec_nesting:
+                    self.spec_nesting = depth
+                if self.correct_sig is not None and depth != 0:
+                    continue
+                ptr = _read_reg(ite.cpu, value_reg)
+                cval = _read_reg(ite.cpu, ctx_reg) if ctx_reg is not None else 0
+                self.correct_sig = self.signer.sign16(ptr, cval, pac_mn)
+                self.alt_sigs = self._wrong_sigs(ite.cpu, pac_mn, cval)
+            if not self.alt_sigs:   # slot never reached on the contract path -> random wrong sigs
+                self.alt_sigs = self._random_sigs(pac_mn)
+        super().resolve(cer, layout)
 
 
 class AuthInstructionSpec(InstructionSpec):
@@ -192,8 +276,9 @@ class PacAuthInstrumentation:
     """Class 1 of PAC sealing: the generator's AUT* instructions. Each AUT* is replaced by a PacSign
     slot committing to that authentication. No memory access, no sandboxing — register ops only."""
 
-    def __init__(self, generator: Aarch64Generator):
+    def __init__(self, generator: Aarch64Generator, signer: PacSigner):
         self.generator = generator
+        self._signer = signer
         self._norm = generator.target_desc.reg_normalized
         _, self._auth_specs, xpac_specs = build_pac_specs(generator)
         self._seal = PacSign(generator, self._auth_specs, xpac_specs)
@@ -227,7 +312,7 @@ class PacAuthInstrumentation:
                                 inst.operands[1].value = fresh.operands[1].value
                                 break
                     fp = PACFixPoint(slot_id=slot_counter, value_reg=value_reg,
-                                     committed_inst=copy.deepcopy(inst), seal=self._seal)
+                                     trigger=copy.deepcopy(inst), seal=self._seal, signer=self._signer)
                     slot_counter += 1
                     fp.slot_insts = self._seal.placeholder(fp)
                     fix_points.append(fp)

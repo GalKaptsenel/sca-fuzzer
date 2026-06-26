@@ -70,9 +70,14 @@ class FixPoint:
     spec_nesting: Optional[int] = None                           # min speculation depth the slot ran at
     value_reg: str = ""                                          # register holding the committed value here
     seal: Optional["Seal"] = None                                # this slot's seal (set by the sealing pass)
+    trigger: Optional[Instruction] = None                        # the instruction that created this fix point
 
     def reset(self) -> None:
         self.spec_nesting = None
+
+    def resolve(self, cer: List, layout) -> None:
+        """Read this fix point's per-input data from one CE trace; layout.instruction_address locates
+        its own instructions in it. Base: nothing; subclasses override and chain super().resolve(...)."""
 
 
 class Seal(abc.ABC):
@@ -499,9 +504,7 @@ class SealInstrumentation(_SandboxInstrumentationBase):
                         else:
                             sid = slot_counter
                             slot_counter += 1
-                            fp = self._fixpoint_cls(slot_id=sid, value_reg=mem_reg)
-                            if hasattr(fp, "access_inst"):        # fps that classify by the access record it
-                                fp.access_inst = inst
+                            fp = self._fixpoint_cls(slot_id=sid, value_reg=mem_reg, trigger=inst)
                             if norm_mem in curr:                  # base already clamped -> tag only
                                 fp.seal = self._value_composite
                                 fp.slot_insts = fp.seal.placeholder(fp)        # [tag]
