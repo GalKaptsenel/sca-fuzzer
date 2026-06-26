@@ -7,10 +7,11 @@ MTE tag-state model tests.
                               architectural and speculative tag stores with revert on unwind.
 """
 import types
+import random
 import unittest
 
 import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-from src.aarch64.aarch64_mte import MteTagState, MTE_GRANULE, mte_tag_store_effect, MTEFixPoint
+from src.aarch64.aarch64_mte import MteTagState, MTE_GRANULE, mte_tag_store_effect, MTEFixPoint, MteTag
 import src.aarch64.aarch64_executor as ex
 
 _classify = ex.Aarch64NonInterferenceExecutor._classify_mte_slots
@@ -157,6 +158,84 @@ class TestCorrectTagFromTrace(unittest.TestCase):
         ]
         _classify(cer, {8: fp}, default_tag=6)
         self.assertEqual(fp.correct_tag, 4)
+
+
+class TestMteArchTagFix(unittest.TestCase):
+    """The architectural genuine fill (MteTag.genuine): NOP when the pointer's tag already matches
+    the cell's allocation tag, ADDG #delta when it doesn't — including after an STG retag. Standalone
+    (its own STG stub) so it neither inherits nor leaks into other test classes."""
+
+    _CELL = 0x4000_0000
+
+    def setUp(self):
+        self._orig = ex.mte_tag_store_effect
+        ex.mte_tag_store_effect = lambda ite: getattr(ite, "_store", None)
+
+    def tearDown(self):
+        ex.mte_tag_store_effect = self._orig
+
+    def _genuine(self, stores, ptr_tag, default_tag):
+        """stores: (addr, tag, n) applied architecturally before an access to _CELL whose pointer
+        carries ptr_tag. Returns (genuine mnemonics, fp). An anchor entry pins code_base so the
+        access's offset is stable regardless of how many stores precede it."""
+        cer = [_ite(0, 0, ea=0x5000_0000)]                                   # anchor (not a fix point)
+        cer += [_ite(0x10, 0, ea=s[0], store=s) for s in stores]
+        cer.append(_ite(0x40, 0, ea=(ptr_tag << 56) | self._CELL))
+        fp = MTEFixPoint(slot_id=0, value_reg="x5")
+        _classify(cer, {0x40: fp}, default_tag=default_tag)
+        return [i.name for i in MteTag().genuine(fp, random.Random(0))], fp
+
+    def test_match_no_store_is_nop(self):
+        out, _ = self._genuine([], ptr_tag=6, default_tag=6)                 # ptr 6 == region 6
+        self.assertEqual(out, ["nop"])
+
+    def test_mismatch_no_store_fixes_with_addg(self):
+        out, fp = self._genuine([], ptr_tag=3, default_tag=6)                # ptr 3 != cell 6
+        self.assertEqual(out, ["addg"])
+        self.assertEqual((fp.correct_tag, fp.ptr_tag), (6, 3))
+
+    def test_stg_changes_tag_then_mismatch_fixes(self):
+        out, fp = self._genuine([(self._CELL, 9, 1)], ptr_tag=6, default_tag=6)  # cell 9, ptr 6
+        self.assertEqual(fp.correct_tag, 9)
+        self.assertEqual(out, ["addg"])
+
+    def test_stg_changes_tag_but_ptr_matches_is_nop(self):
+        # STG retags the cell to 9 AND the access pointer carries tag 9: changed, yet correct -> NOP.
+        out, fp = self._genuine([(self._CELL, 9, 1)], ptr_tag=9, default_tag=6)
+        self.assertEqual(fp.correct_tag, 9)
+        self.assertEqual(out, ["nop"])                                       # no tag-fix needed
+
+    def test_stg_changes_then_code_flow_restores_is_nop(self):
+        # STG retags to 9, a later arch STG restores the region tag 6; ptr tag 6 -> matches -> NOP.
+        out, fp = self._genuine([(self._CELL, 9, 1), (self._CELL, 6, 1)], ptr_tag=6, default_tag=6)
+        self.assertEqual(fp.correct_tag, 6)
+        self.assertEqual(out, ["nop"])
+
+
+class _Rng:
+    """Deterministic stand-in: random() returns a fixed value; choice picks a fixed index."""
+    def __init__(self, r, idx=0): self._r, self._idx = r, idx
+    def random(self): return self._r
+    def choice(self, seq): return seq[self._idx]
+
+
+class TestMteDecoy(unittest.TestCase):
+    """The speculative decoy fill (MteTag.decoy): a retag — IRG (random tag) or EOR (flip tag bits)."""
+    def _fp(self):
+        fp = MTEFixPoint(slot_id=0, value_reg="x5"); fp.correct_tag, fp.ptr_tag = 6, 6
+        return fp
+
+    def test_decoy_irg(self):
+        out = MteTag().decoy(self._fp(), _Rng(0.1))          # random() < 0.5 -> IRG
+        self.assertEqual([i.name for i in out], ["irg"])
+
+    def test_decoy_eor_flips_tag_bits_only(self):
+        out = MteTag().decoy(self._fp(), _Rng(0.9, idx=0))   # random() >= 0.5 -> EOR a tag mask
+        self.assertEqual([i.name for i in out], ["eor"])
+        # the EOR mask must touch only the tag field [59:56]
+        mask = int(out[0].template.split("#0x")[1], 16)
+        self.assertEqual(mask & ~(0xF << 56), 0)
+        self.assertNotEqual(mask, 0)
 
 
 # ===========================================================================
