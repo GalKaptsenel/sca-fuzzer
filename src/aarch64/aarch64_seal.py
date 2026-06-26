@@ -280,9 +280,20 @@ class SealedNIInstrumentation:
     def baseline(self, rng: random.Random) -> TestCase:
         return self._fill(lambda fp: self._seal_for(fp).genuine(fp, rng))
 
+    @staticmethod
+    def _decoyable_names(fp) -> List[str]:
+        """The non-sandbox seal names this fix point can decoy (composite members or the lone seal)."""
+        return [s.name for s in getattr(fp.seal, "seals", [fp.seal]) if s.name != "sandbox"]
+
     def decoys(self, rng: random.Random) -> Iterator[TestCase]:
+        names = sorted({n for fp in self._fix_points for n in self._decoyable_names(fp)})
         while True:
-            yield self._fill(lambda fp: self._seal_for(fp).fill(fp, rng, self._should_decoy))
+            # Each decoy instance picks which primitives mismatch — PAC and MTE are orthogonal (any
+            # subset, incl. neither, applied consistently across all slots so a leak is attributable);
+            # with a single primitive present it is always the one decoyed.
+            enabled = {n for n in names if rng.random() < 0.5} if len(names) > 1 else set(names)
+            policy = lambda fp, s: self._should_decoy(fp, s) and s.name in enabled
+            yield self._fill(lambda fp: self._seal_for(fp).fill(fp, rng, policy))
 
 
 class Sandbox(Seal):
