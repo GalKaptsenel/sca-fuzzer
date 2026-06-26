@@ -114,11 +114,8 @@ def run_mode(mode, cfg, n_tcs=8, n_inputs=4, n_decoys=6):
         log = FuzzLogger.get()
         for inp in igen.generate(n_inputs):
             for fp in fps: fp.reset()
-            try:
-                cer = ex._contract_executor.run(ex._make_ce_execution(
-                    ex._stage1_tc_bytes, inp, sandbox_base, 5, CONF.model_max_spec_window, ExecutionClause.COND))
-            except RuntimeError:
-                continue  # CE OOB on this input (no TBI masking) — skip, as the fuzzer does
+            cer = ex._contract_executor.run(ex._make_ce_execution(
+                ex._stage1_tc_bytes, inp, sandbox_base, 5, CONF.model_max_spec_window, ExecutionClause.COND))
             if ex._stage1_pac_offset_to_fp:
                 ex._sign_reached_fixpoints(cer, ex._stage1_pac_offset_to_fp, log)
                 ex._fill_missing_alt_sigs(ex._stage1_pac_fps, 6)

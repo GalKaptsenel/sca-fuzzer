@@ -754,11 +754,11 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         # PAC fix points (AUT* sites + composed memory pointers): map each XPAC placeholder -> fp.
         pac_fps = list(auth_fps) + (mem_fps if "pac" in self._primitives else [])
         pac_offset_to_fp = {self._xpac_offset(fp, layout): fp for fp in pac_fps}
-        # MTE fix points: the tag placeholder is the last slot inst, with its memory access 4B later.
+        # MTE fix points: classify the cell tag at the access the slot guards (recorded on the fp,
+        # since the offset subtraction now sits between the slot and the access).
         mte_offset_to_fp: Dict[int, FixPoint] = {}
         if "mte" in self._primitives:
-            mte_offset_to_fp = {layout.instruction_address[fp.slot_insts[-1]] + 4: fp
-                                for fp in mem_fps}
+            mte_offset_to_fp = {layout.instruction_address[fp.access_inst]: fp for fp in mem_fps}
 
         self._stage1_tc = patched
         self._stage1_fix_points = fix_points

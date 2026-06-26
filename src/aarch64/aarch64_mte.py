@@ -123,6 +123,9 @@ class MteTag(Seal):
 
 @dataclass
 class MTEFixPoint(FixPoint):
+    # Structural: the memory access this slot guards. The tag is checked against the cell at this
+    # access's effective address, so its position is needed to classify the slot from the CE trace.
+    access_inst: Optional[Instruction] = None
     # Per-input, from the sealing trace (reset between inputs):
     correct_tag: Optional[int] = None  # the accessed cell's allocation tag (from MteTagState)
     ptr_tag: Optional[int] = None       # the tag the pointer itself carries (top byte of the EA)
@@ -260,6 +263,8 @@ class SealInstrumentation(_SandboxInstrumentationBase):
                             sid = slot_counter
                             slot_counter += 1
                             fp = self._fixpoint_cls(slot_id=sid, value_reg=mem_reg)
+                            if isinstance(fp, MTEFixPoint):       # only MTE fps need the access (tag classify)
+                                fp.access_inst = inst
                             if norm_mem in curr:                  # base already clamped -> tag only
                                 fp.seal = self._value_composite
                                 fp.slot_insts = fp.seal.placeholder(fp)        # [tag]
@@ -326,12 +331,18 @@ class SealInstrumentation(_SandboxInstrumentationBase):
                 func, slot_counter, fix_points, insertions, func_log)
             self.last_taint_log.extend(func_log)
 
-            for mem_inst, bb, sandbox_insts, offset_subs, nop_insts in insertions:
-                for s in sandbox_insts:
+            # Per access: clamp the base into the region, then the value-seals act on that canonical
+            # base, then the offset subtraction (cancelling the index/displacement so the access lands
+            # back at the clamped base) is emitted last — the two address adjustments bookend the
+            # value-seals. The subtraction must come after the seals: applied first it would leave a
+            # non-canonical base (clamped - offset) for a seal to act on, and the effective address
+            # could then fall outside the region.
+            for mem_inst, bb, clamp_insts, offset_subs, value_seal_insts in insertions:
+                for s in clamp_insts:
+                    bb.insert_before(mem_inst, s)
+                for s in value_seal_insts:
                     bb.insert_before(mem_inst, s)
                 for s in offset_subs:
-                    bb.insert_before(mem_inst, s)
-                for s in nop_insts:
                     bb.insert_before(mem_inst, s)
 
         # Record each slot's position so the fills can locate it in any structural copy.

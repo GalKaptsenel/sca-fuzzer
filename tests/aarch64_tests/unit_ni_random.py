@@ -92,11 +92,8 @@ class NiRandomCoverageTest(unittest.TestCase):
             for inp in self.igen.generate(4):
                 for fp in fps:
                     fp.reset()
-                try:
-                    cer = ex._contract_executor.run(ex._make_ce_execution(
-                        ex._stage1_tc_bytes, inp, sb, 5, CONF.model_max_spec_window, ExecutionClause.COND))
-                except RuntimeError:
-                    continue
+                cer = ex._contract_executor.run(ex._make_ce_execution(
+                    ex._stage1_tc_bytes, inp, sb, 5, CONF.model_max_spec_window, ExecutionClause.COND))
                 if ex._stage1_pac_offset_to_fp:
                     ex._sign_reached_fixpoints(cer, ex._stage1_pac_offset_to_fp, log)
                     ex._fill_missing_alt_sigs(ex._stage1_pac_fps, 6)
