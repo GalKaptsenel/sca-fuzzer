@@ -5,17 +5,19 @@ from unittest import mock
 
 import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
 import src.aarch64.aarch64_executor as ex_mod
-from src.aarch64.aarch64_executor import Aarch64MteNonInterferenceExecutor
+from src.aarch64.aarch64_executor import Aarch64NonInterferenceExecutor
 
 
 class SandboxedCeCrashTest(unittest.TestCase):
     def _executor(self):
-        ex = Aarch64MteNonInterferenceExecutor.__new__(Aarch64MteNonInterferenceExecutor)
+        ex = Aarch64NonInterferenceExecutor.__new__(Aarch64NonInterferenceExecutor)
         ex.test_case = mock.Mock()
         ex._stage1_tc = mock.Mock()
         ex._stage1_fix_points = []
         ex._stage1_tc_bytes = b""
-        ex._stage1_mem_access_offset_to_fp = {}
+        ex._stage1_pac_offset_to_fp = {}
+        ex._stage1_mte_offset_to_fp = {}
+        ex._stage1_pac_fps = []
         ex._engine = mock.Mock()
         ex.read_base_addresses = mock.Mock(return_value=(0x1000, 0x2000))
         ex._assemble_tc = mock.Mock(return_value=(b"", None))

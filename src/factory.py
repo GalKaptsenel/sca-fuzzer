@@ -180,15 +180,9 @@ def get_noninterference_executor(generator: interfaces.Generator,
             f"ERROR: non-interference executor requires aarch64 instruction set; "
             f"got '{CONF.instruction_set}'")
     from .aarch64 import aarch64_executor
-    if CONF.noninterference_mode == 'pac':
-        return aarch64_executor.Aarch64PacNonInterferenceExecutor(generator,
-                                                                  enable_mismatch_check_mode)
-    if CONF.noninterference_mode == 'mte':
-        return aarch64_executor.Aarch64MteNonInterferenceExecutor(generator,
-                                                                  enable_mismatch_check_mode)
-    raise ConfigException(
-        "ERROR: `noninterference_mode` must be set to 'pac' or 'mte' when fuzzer == "
-        f"'non-interference'; got {CONF.noninterference_mode!r}")
+    # One non-interference executor; it auto-detects the active primitives (PAC and/or MTE) from the
+    # enabled instruction categories and seals/compares whatever is present.
+    return aarch64_executor.Aarch64NonInterferenceExecutor(generator, enable_mismatch_check_mode)
 
 
 def get_analyser() -> interfaces.Analyser:

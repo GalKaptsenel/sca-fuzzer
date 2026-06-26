@@ -13,7 +13,7 @@ import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..",
 from src.aarch64.aarch64_mte import MteTagState, MTE_GRANULE, mte_tag_store_effect, MTEFixPoint
 import src.aarch64.aarch64_executor as ex
 
-_classify = ex.Aarch64MteNonInterferenceExecutor._classify_mte_slots
+_classify = ex.Aarch64NonInterferenceExecutor._classify_mte_slots
 
 
 # ===========================================================================
