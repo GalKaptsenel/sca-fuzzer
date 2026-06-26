@@ -720,9 +720,10 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
     # ------------------------------------------------------------------ lifecycle
     def load_test_case(self, test_case: TestCase):
         log = FuzzLogger.get()
-        log.register("ni_flow",    "ni/flow.log",    min_verbosity=1)
-        log.register("ni_signing", "ni/signing.log", min_verbosity=1)
-        log.register("pac_hw",     "ni/hw.log",      min_verbosity=1)
+        log.register("ni_flow",     "ni/flow.log",     min_verbosity=1)
+        log.register("pac_signing", "ni/signing.log",  min_verbosity=1)  # log_pac_op/log_slot channel
+        log.register("ni_table",    "ni/ni_table.log", min_verbosity=1)
+        log.register("pac_hw",      "ni/hw.log",       min_verbosity=1)
         result = super().load_test_case(test_case)
         log_start_test_case(log, self._tc_counter)
         if "pac" in self._primitives:
@@ -804,7 +805,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                 self._fill_missing_alt_sigs(self._stage1_pac_fps, size=6)
             if self._stage1_mte_offset_to_fp:
                 self._classify_mte_slots(cer, self._stage1_mte_offset_to_fp, (sandbox_base >> 56) & 0xF)
-            for fp in fix_points:
+            for fp in self._stage1_pac_fps:  # log_slot reads PAC signature data
                 log_slot(log, inp_idx, fp)
 
             # Fix points now hold this input's data; mint the variants to compare on hardware.
@@ -842,7 +843,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             ("baseline", self._assemble_tc(variants[NIVariant.BASELINE])[0]),
             ("decoy#1",  self._assemble_tc(variants[NIVariant.DECOY])[0]),
             ("decoy#2",  self._assemble_tc(next(self._engine.decoys(random)))[0]),
-        ], list(cer), "Sig/Tag", info_by_off, ch="ni_signing")
+        ], list(cer), "Sig/Tag", info_by_off, ch="ni_table")
 
     # ------------------------------------------------------------------ PAC fill (sign; never AUTH)
     def _sign_reached_fixpoints(self, cer, xpac_offset_to_fp, log) -> None:

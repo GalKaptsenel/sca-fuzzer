@@ -1,0 +1,24 @@
+# Combined PAC + MTE non-interference fuzzing (the case that used to reset the box). The NI executor
+# auto-detects both: AUT* sites are sealed with PacSign, memory accesses with [Sandbox, PacSign,
+# MteTag]; both PAC and MTE are decoyed on speculative slots.
+instruction_set: aarch64
+instruction_categories:
+  - PAC
+  - MTE
+  - MTE-TAG-MEM
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-BITFIELD
+  - BASE-CONDSEL
+  - BASE-BRANCH
+  - BASE-MEM-LOAD
+  - BASE-MEM-STORE
+min_bb_per_function: 5
+max_bb_per_function: 5
+max_successors_per_bb: 2
+min_successors_per_bb: 1
+fuzzer: non-interference
+input_generator: aarch64-nzcv
+pac_auth_weight: 0.3
+pac_xpac_weight: 0.2

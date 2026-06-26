@@ -768,6 +768,14 @@ class FuzzLogger:
         self._session_dir: Optional[Path] = None
         atexit.register(self.close)
 
+        # Env overrides so a run can turn on logging without editing code: REVIZOR_VERBOSITY=N sets
+        # the level; REVIZOR_NI_TABLE implies >= 1 so the non-interference table is written.
+        env_v = os.environ.get("REVIZOR_VERBOSITY")
+        if env_v is not None:
+            type(self)._VERBOSITY = int(env_v)
+        elif os.environ.get("REVIZOR_NI_TABLE") and self._VERBOSITY == 0:
+            type(self)._VERBOSITY = 1
+
         if self._VERBOSITY == 0:
             return
 
