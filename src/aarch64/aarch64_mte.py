@@ -135,29 +135,22 @@ class MTEFixPoint(FixPoint):
         self.ptr_tag = None
 
 
-class MTEInstrumentation(_SandboxInstrumentationBase):
-    """MTE non-interference sealing pass.
-
-    Seals every memory access with a single slot. For registers not yet correctly sandbox-tagged,
-    AND+ADD is prepended. Taint = frozenset of normalized register names holding a correctly
-    sandbox-tagged address (via AND+ADD with x29, not subsequently overwritten); cleared on any
-    register write; intersected at CFG join nodes. Address-preserving tag ops (IRG, ADDG/SUBG with
-    imm6==0) propagate the taint from source to destination.
-
-    The slot encodings (NOP genuine / IRG | MOVK decoy) live on the MteTag seal; the engine
-    (SealedNIInstrumentation) mints the baseline and decoy variants.
+class SealInstrumentation(_SandboxInstrumentationBase):
+    """General memory-sealing pass over a taint walk. Seals each memory access with one slot:
+    CompositeSeal([Sandbox] + value_seals) where the base is not yet clamped, the value_seals alone
+    where it is. value_seals is the ordered list to compose; fixpoint_cls holds their per-input data.
     """
 
-    def __init__(self, generator: Aarch64Generator):
+    def __init__(self, generator: Aarch64Generator, value_seals: List[Seal], fixpoint_cls):
         self.generator = generator
         self._norm = generator.target_desc.reg_normalized
         self._sandbox_mask = f"#0x{_SANDBOX_MASK:x}"
         self._sandbox_base_reg = SANDBOX_BASE_REGISTER
-        self._tag_seal = MteTag()
+        self._fixpoint_cls = fixpoint_cls
         self._sandbox = Sandbox(_SANDBOX_MASK)
-        # Untainted accesses are sealed with sandbox+tag; tainted ones (base already clamped) with
-        # tag alone — so the clamp is emitted exactly where the taint pass says it is needed.
-        self._composite = CompositeSeal([self._sandbox, self._tag_seal])
+        self._value_composite: Seal = value_seals[0] if len(value_seals) == 1 \
+            else CompositeSeal(value_seals)
+        self._composite = CompositeSeal([self._sandbox] + value_seals)
         # STG-family tag stores get a 16-byte-aligned clamp (no tag slot, never decoyed).
         self._stg_seal = Sandbox(_SANDBOX_MASK & ~0xF)
         self.last_taint_log: List[str] = []
@@ -246,7 +239,7 @@ class MTEInstrumentation(_SandboxInstrumentationBase):
                         # base is no longer at its sandboxed value and must not stay tainted.
                         modifies_base = bool(offset_subs)
                         if self._is_tag_store(inst):              # STG-family: 16B-aligned clamp only
-                            clamp = self._stg_seal.genuine(MTEFixPoint(slot_id=-1, value_reg=mem_reg),
+                            clamp = self._stg_seal.genuine(FixPoint(slot_id=-1, value_reg=mem_reg),
                                                             random.Random(0))  # Sandbox ignores rng
                             insertions.append((inst, bb, clamp, offset_subs, []))
                             curr = curr - frozenset([norm_mem])   # the clamp rewrote the base
@@ -259,7 +252,7 @@ class MTEInstrumentation(_SandboxInstrumentationBase):
                                 if modifies_base:
                                     curr = curr - frozenset([norm_mem])
                             else:
-                                clamp = self._sandbox.genuine(MTEFixPoint(slot_id=-1, value_reg=mem_reg),
+                                clamp = self._sandbox.genuine(FixPoint(slot_id=-1, value_reg=mem_reg),
                                                                random.Random(0))  # Sandbox ignores rng
                                 insertions.append((inst, bb, clamp, offset_subs, []))
                                 if not modifies_base:
@@ -268,9 +261,9 @@ class MTEInstrumentation(_SandboxInstrumentationBase):
                         else:
                             sid = slot_counter
                             slot_counter += 1
-                            fp = MTEFixPoint(slot_id=sid, value_reg=mem_reg)
+                            fp = self._fixpoint_cls(slot_id=sid, value_reg=mem_reg)
                             if norm_mem in curr:                  # base already clamped -> tag only
-                                fp.seal = self._tag_seal
+                                fp.seal = self._value_composite
                                 fp.slot_insts = fp.seal.placeholder(fp)        # [tag]
                                 insertions.append((inst, bb, [], offset_subs, fp.slot_insts))
                                 decision = "TAG-ONLY"

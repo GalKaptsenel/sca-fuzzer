@@ -22,7 +22,7 @@ from src.aarch64.aarch64_seal import (
     _SandboxInstrumentationBase,
     index_instructions, inst_at, is_speculative, _SANDBOX_MASK,
 )
-from src.aarch64.aarch64_mte import MTEInstrumentation, MTEFixPoint, MteTag, MTE_SLOT_SIZE
+from src.aarch64.aarch64_mte import SealInstrumentation, MTEFixPoint, MteTag, MTE_SLOT_SIZE
 from src.aarch64.aarch64_target_desc import AArch64MemRole
 
 
@@ -38,17 +38,18 @@ for i in range(31):
     _NORM[f"w{i}"] = f"x{i}"
 
 
-class _MTE(MTEInstrumentation):
-    """MTEInstrumentation with the ISA bypassed — no real generator needed."""
+class _MTE(SealInstrumentation):
+    """SealInstrumentation with the ISA bypassed — no real generator needed."""
     def __init__(self, norm=None):
         self._norm           = norm if norm is not None else dict(_NORM)
         self._sandbox_mask   = "#0x3fffff"
         self._sandbox_base_reg = "x29"
-        self._tag_seal       = MteTag()
+        self._fixpoint_cls   = MTEFixPoint
         self._sandbox        = Sandbox(_SANDBOX_MASK)
-        self._composite      = CompositeSeal([self._sandbox, self._tag_seal])
+        value_seals          = [MteTag()]
+        self._value_composite = value_seals[0]
+        self._composite      = CompositeSeal([self._sandbox] + value_seals)
         self._stg_seal       = Sandbox(_SANDBOX_MASK & ~0xF)
-        self._seal           = self._tag_seal
         self.last_taint_log: List[str] = []
 
 

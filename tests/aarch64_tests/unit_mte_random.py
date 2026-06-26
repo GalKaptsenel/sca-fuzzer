@@ -28,7 +28,7 @@ from src.config import CONF
 from src.isa_loader import InstructionSet
 from src.aarch64.aarch64_generator import Aarch64RandomGenerator
 from src.aarch64.aarch64_seal import inst_at, is_speculative
-from src.aarch64.aarch64_mte import MTEInstrumentation, MTEFixPoint, MTE_SLOT_SIZE
+from src.aarch64.aarch64_mte import SealInstrumentation, MTEFixPoint, MTE_SLOT_SIZE, MteTag
 
 _RETAG_NAMES = ("irg", "eor")   # the two decoy kinds MteTag can emit
 # The pass now seals untainted accesses with sandbox+tag; never decoy the sandbox clamp.
@@ -63,7 +63,7 @@ def _slot_inst(tc, fp: MTEFixPoint):
 def _gen_sealed(seed: int):
     """Return (fix_points, sealed_tc, mte) or None if the TC has no memory accesses."""
     gen = Aarch64RandomGenerator(_ISA, seed)
-    mte = MTEInstrumentation(gen)
+    mte = SealInstrumentation(gen, [MteTag()], MTEFixPoint)
     asm_path = os.path.join(_TMPDIR, f"mte_{seed}.asm")
     try:
         tc = gen.create_test_case(asm_path, disable_assembler=True)

@@ -30,7 +30,8 @@ from .aarch64_contract_executor import (ContractExecution, ContractExecutorServi
                                         ExecutionClause, SUPPORTED_EXECUTION_CLAUSES,
                                         BranchPredictor, EXECUTION_CLAUSE_MAP, SimArch)
 from .aarch64_disasm import disassemble_instruction, decode_reg_accesses, is_conditional_branch
-from .aarch64_mte import MteTagState, mte_tag_store_effect, MTEInstrumentation, MTEFixPoint
+from .aarch64_mte import MteTagState, mte_tag_store_effect, MTEFixPoint
+from .aarch64_seal_factory import make_seal_pass
 from .aarch64_trace import compute_ctrace, compute_taint, ContractExecutionResult
 from .aarch64_input_layout import _input_bytes_with_pstate, REGISTER_REGION_OFFSET
 from .aarch64_log import (log_start_test_case, log_input, log_ce_trace, log_bb_map,
@@ -1053,7 +1054,7 @@ class Aarch64MteNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
     def __init__(self, generator: Aarch64Generator, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._generator: Aarch64Generator = generator
-        self._mte = MTEInstrumentation(generator)
+        self._mte = make_seal_pass(generator, {"mte"})
         # The sandbox clamp is part of the seal now but must never be decoyed (always in-bounds);
         # the tag is decoyed on speculative slots.
         self._engine: SealedNIInstrumentation = self._mte.make_engine(

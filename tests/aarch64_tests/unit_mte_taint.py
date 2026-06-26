@@ -7,7 +7,7 @@ import unittest
 
 import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
 from src.aarch64.aarch64_seal import Sandbox, CompositeSeal, _SANDBOX_MASK
-from src.aarch64.aarch64_mte import MTEInstrumentation, MteTag
+from src.aarch64.aarch64_mte import SealInstrumentation, MteTag, MTEFixPoint
 
 
 class _FakeBB:
@@ -36,14 +36,15 @@ def _mem_inst():
 
 
 def _sandbox_decisions(offset_subs):
-    m = MTEInstrumentation.__new__(MTEInstrumentation)
+    m = SealInstrumentation.__new__(SealInstrumentation)
     m._get_mem_base_reg = lambda inst: "x5"            # same base for both accesses
     m._norm_reg = lambda r: r
     m._make_offset_sub_insts = lambda mem_op: list(offset_subs)
-    m._tag_seal = MteTag()
+    m._fixpoint_cls = MTEFixPoint
     m._sandbox = Sandbox(_SANDBOX_MASK)
-    m._composite = CompositeSeal([m._sandbox, m._tag_seal])
-    m._seal = m._tag_seal
+    value_seals = [MteTag()]
+    m._value_composite = value_seals[0]
+    m._composite = CompositeSeal([m._sandbox] + value_seals)
     m._mte_tag_propagates = lambda inst: None
     m._dest_regs = lambda inst: frozenset()
 
