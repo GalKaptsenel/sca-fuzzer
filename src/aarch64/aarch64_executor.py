@@ -34,7 +34,7 @@ from .aarch64_mte import MteTagState, mte_tag_store_effect, MTEInstrumentation, 
 from .aarch64_trace import compute_ctrace, compute_taint, ContractExecutionResult
 from .aarch64_input_layout import _input_bytes_with_pstate, REGISTER_REGION_OFFSET
 from .aarch64_log import (log_start_test_case, log_input, log_ce_trace, log_bb_map,
-                          log_tc_binary, log_pac_op, log_slot, log_mistraining)
+                          log_tc_binary, log_pac_op, log_slot, log_mistraining, log_ni_table)
 
 # ==================================================================================================
 # Helper functions
@@ -776,6 +776,7 @@ class Aarch64PacNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
         log = FuzzLogger.get()
         log.register("pac_signing",    "pac/signing.log",    min_verbosity=1)
         log.register("pac_comparison", "pac/comparison.log", min_verbosity=2)
+        log.register("pac_ni_table",   "pac/ni_table.log",   min_verbosity=1)
 
         for inp_idx, inp in enumerate(inputs):
             # Log input before CE so it's on disk even if CE crashes.
@@ -812,6 +813,16 @@ class Aarch64PacNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
             log.header(f"VARIANT TC BINARIES  inp={inp_idx}")
             for variant, vtc in variants.items():
                 log_tc_binary(log, variant.name, self._assemble_tc(vtc)[0])
+
+            # DEBUG (env REVIZOR_PAC_NI_TABLE): per-instruction sealed/baseline/decoy table with the
+            # CE arch/spec annotation, for eyeballing the seal result without any post-hoc parsing.
+            if os.environ.get("REVIZOR_PAC_NI_TABLE"):
+                log_ni_table(log, inp_idx, [
+                    ("sealed",   tc_bytes),
+                    ("baseline", self._assemble_tc(variants[NIVariant.BASELINE])[0]),
+                    ("decoy#1",  self._assemble_tc(variants[NIVariant.DECOY])[0]),
+                    ("decoy#2",  self._assemble_tc(next(self._engine.decoys(random)))[0]),
+                ], list(cer), ch="pac_ni_table")
 
             # Flush after every input's data so a crash between inputs
             # leaves a complete record for the inputs already processed.

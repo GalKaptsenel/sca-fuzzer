@@ -132,6 +132,52 @@ def log_tc_binary(log: FuzzLogger, label: str, tc_bytes: bytes,
     log.w("", ch=ch)
 
 
+def _disasm_by_offset(tc_bytes: bytes) -> Dict[int, str]:
+    """offset -> 'mnemonic operands' for every instruction in tc_bytes."""
+    out: Dict[int, str] = {}
+    for insn in _CAPSTONE.disasm(tc_bytes, 0):
+        out[insn.address] = f"{insn.mnemonic} {insn.op_str}".strip()
+    return out
+
+
+def _flow_tag(nestings: Optional[set]) -> str:
+    """CE execution annotation for one offset: '-' (never run), 'ARCH', 'SPEC<n>', or a combination."""
+    if not nestings:
+        return "-"
+    return ",".join("ARCH" if n == 0 else f"SPEC{n}" for n in sorted(nestings))
+
+
+def log_ni_table(log: FuzzLogger, inp_idx: int, columns: List[Tuple[str, bytes]],
+                 cer: List, ch: str) -> None:
+    """DEBUG: per-instruction table across the NI variants. Each row is one instruction offset; the
+    columns hold its disassembly in the sealed TC / baseline / decoys; `Flow` shows whether the CE
+    executed that offset architecturally and/or speculatively (with nesting), taken from the sealed
+    trace `cer` (all variants share the layout and — by the no-leak invariant — the same control
+    flow). Rows whose columns differ are the seal slots and are flagged."""
+    nest_by_off: Dict[int, set] = {}
+    if cer:
+        base = cer[0].cpu.pc
+        for ite in cer:
+            nest_by_off.setdefault(ite.cpu.pc - base, set()).add(ite.metadata.speculation_nesting)
+
+    labels  = [label for label, _ in columns]
+    disasms = [_disasm_by_offset(tcb) for _, tcb in columns]
+    offsets = sorted(disasms[0].keys())
+    colw    = max([len(l) for l in labels] + [len(d.get(o, "")) for d in disasms for o in offsets] + [1])
+
+    log.header(f"NI TABLE  inp={inp_idx}  (rows=instructions; columns=variants; Flow=CE arch/spec)", ch=ch)
+    header = f"  {'Off':>5}  {'Flow':<12}  " + "  ".join(f"{l:<{colw}}" for l in labels)
+    log.w(header, ch=ch)
+    log.w("  " + "-" * (len(header) - 2), ch=ch)
+    for off in offsets:
+        cells   = [d.get(off, "") for d in disasms]
+        flow    = _flow_tag(nest_by_off.get(off))
+        differs = len(set(cells)) > 1
+        row = f"  {off:>5x}  {flow:<12}  " + "  ".join(f"{c:<{colw}}" for c in cells)
+        log.w(row + ("   <== slot" if differs else ""), ch=ch)
+    log.w("", ch=ch)
+
+
 def log_pac_op(log: FuzzLogger, op: str, mnemonic: str,
                ptr: int, ctx: int, result: int) -> None:
     log.w(f"  PAC {op:<6}  {mnemonic:<10}  ptr=0x{ptr:016x}  "
