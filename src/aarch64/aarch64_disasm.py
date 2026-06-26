@@ -100,6 +100,22 @@ def decode_reg_accesses(encoding: int, pc: int) -> Tuple[List[str], List[str]]:
     return sorted(src), sorted(dest)
 
 
+def decode_tag_store(encoding: int, pc: int):
+    """For an STG-family tag store, return (mnemonic, xt_reg, base_reg, disp) from capstone's
+    structured operands; else None. STG writes the granule's allocation tag (not data memory), so the
+    target granule address is base_reg + disp; xt_reg supplies the tag. base+disp is correct for the
+    offset, pre-index (disp set) and post-index (disp 0, EA == base) forms."""
+    insns = list(_CAPSTONE.disasm(encoding.to_bytes(4, byteorder="little"), pc))
+    if not insns or insns[0].mnemonic.lower() not in ("stg", "stzg", "st2g", "stz2g"):
+        return None
+    insn = insns[0]
+    mem = next((o for o in insn.operands if o.type == ARM64_OP_MEM), None)
+    xt = next((o for o in insn.operands if o.type == ARM64_OP_REG), None)
+    if mem is None or xt is None:
+        return None
+    return insn.mnemonic.lower(), insn.reg_name(xt.reg), insn.reg_name(mem.mem.base), mem.mem.disp
+
+
 def is_conditional_branch(encoding: int) -> bool:
     """Return True if encoding is a conditional branch: B.cond, CBZ/CBNZ (32/64), TBZ/TBNZ."""
     op = (encoding >> 24) & 0xFF

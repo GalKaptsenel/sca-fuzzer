@@ -8,7 +8,7 @@ tagging.
 """
 from typing import Dict, List, Optional, Tuple
 
-from .aarch64_disasm import disassemble_instruction
+from .aarch64_disasm import decode_tag_store
 import copy
 import random
 from dataclasses import dataclass
@@ -62,17 +62,15 @@ def _reg_value(cpu, name: str) -> int:
 
 
 def mte_tag_store_effect(ite) -> Optional[Tuple[int, int, int]]:
-    """If ite is an STG-family tag store, return (addr, tag, n_granules); else None. The tag written
-    is the logical tag of the first operand Xt (STG Xt, [Xn] tags [Xn..] with Xt's tag)."""
-    if not ite.metadata.has_memory_access:
+    """If ite is an STG-family tag store, return (addr, tag, n_granules); else None. STG writes the
+    allocation TAG of the granule at the base register's address (not data memory) — the CE flags no
+    memory access and exposes no effective address, so the granule address (base + disp) and the tag
+    source register come from capstone's structured operands. The tag is the logical tag of Xt."""
+    dec = decode_tag_store(ite.cpu.encoding, ite.cpu.pc)
+    if dec is None:
         return None
-    parts = (disassemble_instruction(ite.cpu.encoding, ite.cpu.pc) or "").split()
-    n = _MTE_TAG_STORES.get(parts[0].lower()) if parts else None
-    if n is None:
-        return None
-    ea = ite.metadata.memory_access.effective_address
-    tag = (_reg_value(ite.cpu, parts[1].rstrip(",")) >> 56) & 0xF if len(parts) > 1 else (ea >> 56) & 0xF
-    return ea, tag, n
+    mn, xt, base, disp = dec
+    return _reg_value(ite.cpu, base) + disp, (_reg_value(ite.cpu, xt) >> 56) & 0xF, _MTE_TAG_STORES[mn]
 
 
 # ===========================================================================
