@@ -309,10 +309,9 @@ class PACInstrumentation(_SandboxInstrumentationBase):
 
         return slot_counter
 
-    def seal_test_case(self, test_case: TestCase) -> Tuple[TestCase, List[PACFixPoint]]:
-        """Seal the test case: replace AUT* with XPAC placeholder slots and add slots before some
-        memory accesses. Returns (sealed_tc, fix_points)."""
-        tc = copy.deepcopy(test_case)
+    def seal_test_case(self, tc: TestCase) -> Tuple[TestCase, List[PACFixPoint]]:
+        """Seal tc IN PLACE (the caller owns copying): replace AUT* with XPAC placeholder slots and
+        add slots before some memory accesses. Returns (tc, fix_points)."""
         fix_points: List[PACFixPoint] = []
         slot_counter = 0
 

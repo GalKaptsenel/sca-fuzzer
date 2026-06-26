@@ -321,10 +321,9 @@ class MTEInstrumentation(_SandboxInstrumentationBase):
     # Sealing pass
     # ------------------------------------------------------------------
 
-    def seal_test_case(self, test_case: TestCase) -> Tuple[TestCase, List[MTEFixPoint]]:
-        """Seal the test case: insert a slot before every memory access (sandboxing untainted base
-        registers first). Returns (sealed_tc, fix_points)."""
-        tc = copy.deepcopy(test_case)
+    def seal_test_case(self, tc: TestCase) -> Tuple[TestCase, List[MTEFixPoint]]:
+        """Seal tc IN PLACE (the caller owns copying): insert a slot before every memory access
+        (sandboxing untainted base registers first). Returns (tc, fix_points)."""
         fix_points: List[MTEFixPoint] = []
         slot_counter = 0
         self.last_taint_log = []
