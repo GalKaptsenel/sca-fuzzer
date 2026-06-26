@@ -817,12 +817,18 @@ class Aarch64PacNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
             # DEBUG (env REVIZOR_PAC_NI_TABLE): per-instruction sealed/baseline/decoy table with the
             # CE arch/spec annotation, for eyeballing the seal result without any post-hoc parsing.
             if os.environ.get("REVIZOR_PAC_NI_TABLE"):
+                # correct_sig per slot, read from the fix point (not the trace); annotate both the
+                # AUT*/XPAC (PAC-op) row and its MOVK/NOP sig row, 4 bytes earlier.
+                sig_by_off: Dict[int, Optional[int]] = {}
+                for auth_off, fp in xpac_offset_to_fp.items():
+                    sig_by_off[auth_off]     = fp.correct_sig
+                    sig_by_off[auth_off - 4] = fp.correct_sig
                 log_ni_table(log, inp_idx, [
                     ("sealed",   tc_bytes),
                     ("baseline", self._assemble_tc(variants[NIVariant.BASELINE])[0]),
                     ("decoy#1",  self._assemble_tc(variants[NIVariant.DECOY])[0]),
                     ("decoy#2",  self._assemble_tc(next(self._engine.decoys(random)))[0]),
-                ], list(cer), ch="pac_ni_table")
+                ], list(cer), sig_by_off, ch="pac_ni_table")
 
             # Flush after every input's data so a crash between inputs
             # leaves a complete record for the inputs already processed.
