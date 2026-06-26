@@ -781,15 +781,8 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         sandbox_base, _ = self.read_base_addresses()
         self._engine.set_sealed(tc, fix_points)
 
-        # A sandboxed (slot-free) copy: its branch offsets match what trace_test_case() loads into
-        # the kernel for mistraining, so ctrace/taint are computed from it (not the sealed TC).
-        sandboxed = copy.deepcopy(self.test_case)
-        pass_on_test_case(sandboxed, [Aarch64SandboxPass()])
-        sandboxed_tc_bytes = self._assemble_tc(sandboxed)[0]
-
         log = FuzzLogger.get()
         stage1_traces: List[ContractExecutionResult] = []
-        sandboxed_traces: List[ContractExecutionResult] = []
         tc_variants_per_input: List[TCVariants] = []
 
         for inp_idx, inp in enumerate(inputs):
@@ -798,16 +791,11 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             for fp in fix_points:
                 fp.reset()
 
-            # Run both CE traces up front (ALWAYS_MISPREDICT) so a CE crash propagates before any
-            # per-input logging: the sealed TC reveals speculative paths to fill fix points; the
-            # sandboxed (slot-free) TC gives the mistraining-compatible branch offsets for ctrace/taint.
+            # One CE trace of the sealed TC (ALWAYS_MISPREDICT) reveals the speculative paths.
             cer = self._contract_executor.run(self._make_ce_execution(
                 tc_bytes, inp, sandbox_base, nesting, CONF.model_max_spec_window,
                 ExecutionClause.COND))
             stage1_traces.append(cer)
-            sandboxed_traces.append(self._contract_executor.run(self._make_ce_execution(
-                sandboxed_tc_bytes, inp, sandbox_base, nesting, CONF.model_max_spec_window,
-                ExecutionClause.COND)))
 
             # Fill each fix point from the sealed-TC trace (PAC: sign; MTE: classify tags).
             log_ce_trace(log, "STAGE1", inp_idx, list(cer))
@@ -832,10 +820,10 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             log.ensure_flushed()
 
         self._last_tc_variants = tc_variants_per_input
-        self._last_stage1_traces = sandboxed_traces
-        taints = [compute_taint(cer) for cer in sandboxed_traces]
-        ctraces = [compute_ctrace(cer) for cer in sandboxed_traces]
-        return ctraces, taints, sandboxed_traces, tc_variants_per_input
+        self._last_stage1_traces = stage1_traces
+        taints = [compute_taint(cer) for cer in stage1_traces]
+        ctraces = [compute_ctrace(cer) for cer in stage1_traces]
+        return ctraces, taints, stage1_traces, tc_variants_per_input
 
     def _maybe_log_ni_table(self, log, inp_idx, cer, tc_bytes, variants) -> None:
         """DEBUG (env REVIZOR_NI_TABLE): per-instruction sealed/baseline/decoy table with the CE

@@ -1,5 +1,5 @@
-"""A sandboxed-CE crash during MTE variant tracing must propagate, not fall back to the stage-1
-trace (whose branch offsets don't match the sandboxed TC). Dependencies are mocked."""
+"""A contract-executor crash during NI variant tracing must propagate, not be swallowed.
+Dependencies are mocked."""
 import unittest
 from unittest import mock
 
@@ -23,11 +23,10 @@ class SandboxedCeCrashTest(unittest.TestCase):
         ex._assemble_tc = mock.Mock(return_value=(b"", None))
         ex._make_ce_execution = mock.Mock()
         ex._contract_executor = mock.Mock()
-        # first run (un-sandboxed) succeeds; the sandboxed run crashes
-        ex._contract_executor.run.side_effect = [mock.Mock(), RuntimeError("CE crashed")]
+        ex._contract_executor.run.side_effect = RuntimeError("CE crashed")
         return ex
 
-    def test_sandboxed_ce_crash_propagates(self):
+    def test_ce_crash_propagates(self):
         ex = self._executor()
         with mock.patch.object(ex_mod, "pass_on_test_case"), \
              mock.patch.object(ex_mod, "Aarch64SandboxPass"), \
