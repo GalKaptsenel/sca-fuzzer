@@ -6,8 +6,8 @@ import types
 import unittest
 
 import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
-from src.aarch64.aarch64_seal import Sandbox, CompositeSeal, _SANDBOX_MASK
-from src.aarch64.aarch64_mte import SealInstrumentation, MteTag, MTEFixPoint
+from src.aarch64.aarch64_seal import Sandbox, CompositeSeal, _SANDBOX_MASK, SealInstrumentation
+from src.aarch64.aarch64_mte import MteTag, MTEFixPoint
 
 
 class _FakeBB:
@@ -50,7 +50,7 @@ def _sandbox_decisions(offset_subs):
 
     insertions = []
     func = _FakeFunc([_FakeBB([_mem_inst(), _mem_inst()])])   # two accesses, same base
-    m._build_mte_slots(func, 0, [], insertions, [])
+    m._build_slots(func, 0, [], insertions, [])
     return [bool(sandbox) for (_i, _b, sandbox, _o, _n) in insertions]
 
 

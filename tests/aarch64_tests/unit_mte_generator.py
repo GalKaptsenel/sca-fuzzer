@@ -22,7 +22,8 @@ from src.aarch64.aarch64_seal import (
     _SandboxInstrumentationBase,
     index_instructions, inst_at, is_speculative, _SANDBOX_MASK,
 )
-from src.aarch64.aarch64_mte import SealInstrumentation, MTEFixPoint, MteTag, MTE_SLOT_SIZE
+from src.aarch64.aarch64_seal import SealInstrumentation
+from src.aarch64.aarch64_mte import MTEFixPoint, MteTag, MTE_SLOT_SIZE
 from src.aarch64.aarch64_target_desc import AArch64MemRole
 
 
@@ -150,7 +151,7 @@ def _call_build_mte_slots(mte: _MTE, func: Function):
     fix_points: List[MTEFixPoint] = []
     insertions: List = []
     taint_log: List[str] = []
-    slot_counter = mte._build_mte_slots(func, 0, fix_points, insertions, taint_log)
+    slot_counter = mte._build_slots(func, 0, fix_points, insertions, taint_log)
     return slot_counter, fix_points, insertions, taint_log
 
 

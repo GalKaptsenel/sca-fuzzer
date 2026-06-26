@@ -371,3 +371,220 @@ MTE_TAG_STORE_NAMES = frozenset({"stg", "st2g", "stzg", "stz2g"})
 # LDG reads a granule's allocation tag into a register: it touches memory (clamp the base) but is
 # not tag-checked, so it gets no tag fix point and needs no 16-byte alignment.
 MTE_TAG_LOAD_NAMES = frozenset({"ldg"})
+
+
+class SealInstrumentation(_SandboxInstrumentationBase):
+    """General memory-sealing pass over a taint walk. Seals each memory access with one slot:
+    CompositeSeal([Sandbox] + value_seals) where the base is not yet clamped, the value_seals alone
+    where it is. value_seals is the ordered list to compose; fixpoint_cls holds their per-input data.
+    """
+
+    def __init__(self, generator, value_seals: List[Seal], fixpoint_cls):
+        self.generator = generator
+        self._norm = generator.target_desc.reg_normalized
+        self._sandbox_mask = f"#0x{_SANDBOX_MASK:x}"
+        self._sandbox_base_reg = SANDBOX_BASE_REGISTER
+        self._fixpoint_cls = fixpoint_cls
+        self._sandbox = Sandbox(_SANDBOX_MASK)
+        self._value_composite: Seal = value_seals[0] if len(value_seals) == 1 \
+            else CompositeSeal(value_seals)
+        self._composite = CompositeSeal([self._sandbox] + value_seals)
+        # STG-family tag stores get a 16-byte-aligned clamp (no tag slot, never decoyed).
+        self._stg_seal = Sandbox(_SANDBOX_MASK & ~0xF)
+        self.last_taint_log: List[str] = []
+
+    def make_engine(self, should_decoy=None) -> "SealedNIInstrumentation":
+        """A non-interference engine; each fix point carries its own seal. Seal the test case with
+        seal_test_case(), then feed the result to engine.set_sealed()."""
+        return SealedNIInstrumentation(should_decoy)
+
+    # ------------------------------------------------------------------
+    # Taint helpers
+    # ------------------------------------------------------------------
+
+    def _address_preserving_tag_op(self, inst: Instruction) -> Optional[Tuple[str, str]]:
+        """If inst derives its destination from its source register while leaving the address (the
+        low 56 bits) unchanged — only the tag may differ — return (dest_reg, src_reg); else None.
+
+        Such an op keeps an in-region pointer in-region, so the sandbox taint propagates across it
+        (a changed tag is corrected later, at the access). Covers IRG (new random tag, same address)
+        and ADDG/SUBG whose address offset is zero (imm6 == 0). A nonzero imm6 moves the address by
+        up to 1008 bytes, which can leave the region, so taint must NOT propagate — the next access
+        re-clamps. (imm4, the tag offset, never affects whether the address stays in-region.)"""
+        name = inst.name.lower()
+        if name == "irg" and len(inst.operands) >= 2:
+            return inst.operands[0].value, inst.operands[1].value
+        if name in ("addg", "subg"):
+            if len(inst.operands) < 4:
+                return None
+            try:
+                imm6 = int(inst.operands[2].value)   # address offset (scaled x16)
+            except (ValueError, IndexError):
+                return None
+            if imm6 != 0:                            # address moved -> may leave the region
+                return None
+            return inst.operands[0].value, inst.operands[1].value
+        return None
+
+    # ------------------------------------------------------------------
+    # Stage-1 dataflow pass
+    # ------------------------------------------------------------------
+
+    def _build_slots(
+        self,
+        func: Function,
+        slot_counter: int,
+        fix_points: List,
+        insertions: List,
+        taint_log: List,
+    ) -> int:
+        """Topological taint pass: build NOP-placeholder fix_points for every memory access.
+
+        taint (curr) = frozenset of normalized register names that hold a
+        correctly-sandbox-tagged address (via AND+ADD with x29).
+        Cleared on any register write; intersection at CFG join nodes.
+        Address-preserving tag ops (IRG, ADDG/SUBG with imm6==0) propagate src taint to dest.
+
+        For each memory access:
+          tainted base  → offset_subs + NOP placeholder only
+          untainted base → AND+ADD + offset_subs + NOP placeholder; reg added to taint
+        """
+        predecessors, topo = self._topo_sort(func)
+        taint_out: Dict[BasicBlock, frozenset] = {}
+
+        for bb in topo:
+            processed = [p for p in predecessors.get(bb, []) if p in taint_out]
+            if not processed:
+                curr: frozenset = frozenset()
+            elif len(processed) == 1:
+                curr = taint_out[processed[0]]
+            else:
+                curr = taint_out[processed[0]]
+                for p in processed[1:]:
+                    curr = curr & taint_out[p]
+
+            for inst in bb:
+                if inst.has_memory_access:
+                    if len(inst.get_mem_operands()) > 1:
+                        raise GeneratorException(
+                            "the memory seal models one memory access per instruction; "
+                            f"{inst.name!r} has several")
+                    mem_reg = self._get_mem_base_reg(inst)
+                    if mem_reg is not None:
+                        norm_mem = self._norm_reg(mem_reg)
+                        offset_subs = self._make_offset_sub_insts(inst.get_mem_operands()[0])
+                        # offset_subs permanently rewrites the base to (sandboxed - offset), so the
+                        # base is no longer at its sandboxed value and must not stay tainted.
+                        modifies_base = bool(offset_subs)
+                        if self._is_tag_store(inst):              # STG-family: 16B-aligned clamp only
+                            clamp = self._stg_seal.genuine(FixPoint(slot_id=-1, value_reg=mem_reg),
+                                                            random.Random(0))  # Sandbox ignores rng
+                            insertions.append((inst, bb, clamp, offset_subs, []))
+                            curr = curr - frozenset([norm_mem])   # the clamp rewrote the base
+                            decision = "STG-CLAMP"
+                        elif self._is_tag_load(inst):             # LDG: clamp the base, no tag seal
+                            # LDG is not tag-checked, so a tag decoy could not leak — clamp only, no
+                            # fix point. Taint bookkeeping mirrors a data access (minus the tag slot).
+                            if norm_mem in curr:                  # already in-region -> no clamp
+                                insertions.append((inst, bb, [], offset_subs, []))
+                                if modifies_base:
+                                    curr = curr - frozenset([norm_mem])
+                            else:
+                                clamp = self._sandbox.genuine(FixPoint(slot_id=-1, value_reg=mem_reg),
+                                                               random.Random(0))  # Sandbox ignores rng
+                                insertions.append((inst, bb, clamp, offset_subs, []))
+                                if not modifies_base:
+                                    curr = curr | frozenset([norm_mem])
+                            decision = "LDG-CLAMP"
+                        else:
+                            sid = slot_counter
+                            slot_counter += 1
+                            fp = self._fixpoint_cls(slot_id=sid, value_reg=mem_reg)
+                            if hasattr(fp, "access_inst"):        # fps that classify by the access record it
+                                fp.access_inst = inst
+                            if norm_mem in curr:                  # base already clamped -> tag only
+                                fp.seal = self._value_composite
+                                fp.slot_insts = fp.seal.placeholder(fp)        # [tag]
+                                insertions.append((inst, bb, [], offset_subs, fp.slot_insts))
+                                decision = "TAG-ONLY"
+                                if modifies_base:
+                                    curr = curr - frozenset([norm_mem])
+                            else:                                 # first use -> sandbox + tag
+                                fp.seal = self._composite
+                                fp.slot_insts = fp.seal.placeholder(fp)        # [AND, ADD, tag]
+                                k = self._sandbox.slot_size
+                                insertions.append((inst, bb, fp.slot_insts[:k], offset_subs,
+                                                   fp.slot_insts[k:]))
+                                decision = "SANDBOX+TAG"
+                                if not modifies_base:
+                                    curr = curr | frozenset([norm_mem])
+                            fix_points.append(fp)
+                        taint_log.append(
+                            f"  MEM-ACCESS   inst={inst.name:12s}  base={mem_reg}"
+                            f"  decision={decision}  taint={sorted(curr)}")
+                    else:
+                        taint_log.append(
+                            f"  MEM-ACCESS   inst={inst.name:12s}  base=None(implicit?)"
+                            f"  decision=SKIP")
+
+                prop = self._address_preserving_tag_op(inst)
+                for dreg in self._dest_regs(inst):
+                    if prop is not None and dreg == self._norm_reg(prop[0]):
+                        norm_src = self._norm_reg(prop[1])
+                        if norm_src in curr:
+                            curr = curr | frozenset([dreg])
+                            taint_log.append(
+                                f"  TAG-PRESERVE inst={inst.name:12s}  {norm_src}->{dreg}")
+                        else:
+                            if dreg in curr:
+                                taint_log.append(
+                                    f"  ARITH-CLEAR  inst={inst.name:12s}  clears={dreg}")
+                            curr = curr - frozenset([dreg])
+                    else:
+                        if dreg in curr:
+                            taint_log.append(
+                                f"  ARITH-CLEAR  inst={inst.name:12s}  clears={dreg}")
+                        curr = curr - frozenset([dreg])
+
+            taint_out[bb] = curr
+
+        return slot_counter
+
+    # ------------------------------------------------------------------
+    # Sealing pass
+    # ------------------------------------------------------------------
+
+    def seal_test_case(self, tc: TestCase) -> Tuple[TestCase, List[FixPoint]]:
+        """Seal tc IN PLACE (the caller owns copying): insert a slot before every memory access
+        (sandboxing untainted base registers first). Returns (tc, fix_points)."""
+        fix_points: List[FixPoint] = []
+        slot_counter = 0
+        self.last_taint_log = []
+
+        for func in tc.functions:
+            insertions: List = []
+            func_log: List[str] = []
+            slot_counter = self._build_slots(
+                func, slot_counter, fix_points, insertions, func_log)
+            self.last_taint_log.extend(func_log)
+
+            # Per access: clamp the base into the region, then the value-seals act on that canonical
+            # base, then the offset subtraction (cancelling the index/displacement so the access lands
+            # back at the clamped base) is emitted last — the two address adjustments bookend the
+            # value-seals. The subtraction must come after the seals: applied first it would leave a
+            # non-canonical base (clamped - offset) for a seal to act on, and the effective address
+            # could then fall outside the region.
+            for mem_inst, bb, clamp_insts, offset_subs, value_seal_insts in insertions:
+                for s in clamp_insts:
+                    bb.insert_before(mem_inst, s)
+                for s in value_seal_insts:
+                    bb.insert_before(mem_inst, s)
+                for s in offset_subs:
+                    bb.insert_before(mem_inst, s)
+
+        # Record each slot's position so the fills can locate it in any structural copy.
+        locs = index_instructions(tc)
+        for fp in fix_points:
+            fp.slot_locs = [locs[id(si)] for si in fp.slot_insts]
+
+        return tc, fix_points

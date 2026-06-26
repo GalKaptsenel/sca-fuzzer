@@ -9,7 +9,8 @@ from dataclasses import dataclass
 from typing import Set
 
 from .aarch64_generator import Aarch64Generator
-from .aarch64_mte import SealInstrumentation, MteTag, MTEFixPoint
+from .aarch64_seal import SealInstrumentation
+from .aarch64_mte import MteTag, MTEFixPoint
 from .aarch64_pac import PacSign, PACFixPoint, build_pac_specs
 
 

@@ -27,8 +27,8 @@ _ROOT = os.path.join(os.path.dirname(__file__), "..", "..")  # repo root: config
 from src.config import CONF
 from src.isa_loader import InstructionSet
 from src.aarch64.aarch64_generator import Aarch64RandomGenerator
-from src.aarch64.aarch64_seal import inst_at, is_speculative
-from src.aarch64.aarch64_mte import SealInstrumentation, MTEFixPoint, MTE_SLOT_SIZE, MteTag
+from src.aarch64.aarch64_seal import inst_at, is_speculative, SealInstrumentation
+from src.aarch64.aarch64_mte import MTEFixPoint, MTE_SLOT_SIZE, MteTag
 
 _RETAG_NAMES = ("irg", "eor")   # the two decoy kinds MteTag can emit
 # The pass now seals untainted accesses with sandbox+tag; never decoy the sandbox clamp.
