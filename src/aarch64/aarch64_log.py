@@ -171,16 +171,17 @@ def log_ni_table(log: FuzzLogger, inp_idx: int, columns: List[Tuple[str, bytes]]
     disasms = [_disasm_by_offset(tcb) for _, tcb in columns]
     offsets = sorted(disasms[0].keys())
     colw    = max([len(l) for l in labels] + [len(d.get(o, "")) for d in disasms for o in offsets] + [1])
+    flows   = {o: _flow_tag(nest_by_off.get(o)) for o in offsets}
+    floww   = max([len("Flow")] + [len(f) for f in flows.values()])
 
     log.header(f"NI TABLE  inp={inp_idx}  (rows=instructions; columns=variants; Flow=CE arch/spec)", ch=ch)
-    header = f"  {'Off':>5}  {'Flow':<12}  {'CorrectSig':<10}  " + "  ".join(f"{l:<{colw}}" for l in labels)
+    header = f"  {'Off':>5}  {'Flow':<{floww}}  {'CorrectSig':<10}  " + "  ".join(f"{l:<{colw}}" for l in labels)
     log.w(header, ch=ch)
     log.w("  " + "-" * (len(header) - 2), ch=ch)
     for off in offsets:
         cells   = [d.get(off, "") for d in disasms]
-        flow    = _flow_tag(nest_by_off.get(off))
         differs = len(set(cells)) > 1
-        row = f"  {off:>5x}  {flow:<12}  {_sig(off):<10}  " + "  ".join(f"{c:<{colw}}" for c in cells)
+        row = f"  {off:>5x}  {flows[off]:<{floww}}  {_sig(off):<10}  " + "  ".join(f"{c:<{colw}}" for c in cells)
         log.w(row + ("   <== slot" if differs else ""), ch=ch)
     log.w("", ch=ch)
 
