@@ -86,6 +86,19 @@ class PacSign(Seal):
             inst.operands[1].value = ctx_reg
         return inst
 
+    def _pick_mem_auth(self, value_reg: str) -> Instruction:
+        """A random AUT* over value_reg with ctx_reg != value_reg — the authentication chosen for a
+        memory pointer that has no generator-emitted AUT* of its own."""
+        norm = self.generator.target_desc.reg_normalized
+        norm_base = norm.get(value_reg, value_reg)
+        for _ in range(20):
+            inst = self.generator.generate_instruction(self._auth_specs[random.choice(list(self._auth_specs))])
+            inst.operands[0].value = value_reg
+            if len(inst.operands) < 2 or \
+                    norm.get(inst.operands[1].value, inst.operands[1].value) != norm_base:
+                return inst
+        raise RuntimeError(f"cannot pick a memory AUT* for {value_reg}")
+
     def _committed_info(self, fp) -> Tuple[str, str, str, Optional[str]]:
         """Return (auth_mn, xpac_mn, value_reg, ctx_reg): mnemonics/ctx from fp.committed_inst, the
         pointer register from fp.value_reg."""
@@ -102,7 +115,10 @@ class PacSign(Seal):
 
     # ---- Seal protocol ----
     def placeholder(self, fp) -> List[Instruction]:
-        """[NOP, XPAC] — strip, no auth yet."""
+        """[NOP, XPAC] — strip, no auth yet. For a memory pointer with no committed AUT* (class 2),
+        pick the authentication for its base register here."""
+        if fp.committed_inst is None:
+            fp.committed_inst = self._pick_mem_auth(fp.value_reg)
         _, xpac_mn, value_reg, _ = self._committed_info(fp)
         return [make_nop(), self.make_xpac_inst(xpac_mn, value_reg)]
 
@@ -152,6 +168,78 @@ class AuthInstructionSpec(InstructionSpec):
             if norm.get(inst.operands[0].value) != norm.get(inst.operands[1].value):
                 return inst
         raise RuntimeError(f"Cannot generate {self.name} with value_reg ≠ ctx_reg")
+
+
+def build_pac_specs(generator) -> Tuple[Dict, Dict, Dict]:
+    """(pac_specs, auth_specs, xpac_specs) for PAC/AUT*/XPAC instructions usable as 1-2 operand
+    dest-GPR ops (excludes 0-operand system variants, 3-op pacga, src-only variants)."""
+    pac_instructions = [i for i in generator.instruction_set.instruction_unfiltered
+                        if "PAC" in i.tags and
+                        (CONF.supported_instructions is None or i.name in CONF.supported_instructions)]
+    def _usable(i) -> bool:
+        return 1 <= len(i.operands) <= 2 and i.operands[0].dest
+    pac_specs = {s.name.lower(): s for s in pac_instructions
+                 if s.name.lower().startswith('pac') and _usable(s)}
+    auth_specs = {s.name.lower(): AuthInstructionSpec(s.name, s.category, s.control_flow, s.datatype,
+                  s.template, s.operands, s.implicit_operands, s.tags)
+                  for s in pac_instructions if s.name.lower().startswith('aut') and _usable(s)}
+    xpac_specs = {s.name.lower(): s for s in pac_instructions
+                  if s.name.lower().startswith('xpac') and _usable(s)}
+    return pac_specs, auth_specs, xpac_specs
+
+
+class PacAuthInstrumentation:
+    """Class 1 of PAC sealing: the generator's AUT* instructions. Each AUT* is replaced by a PacSign
+    slot committing to that authentication. No memory access, no sandboxing — register ops only."""
+
+    def __init__(self, generator: Aarch64Generator):
+        self.generator = generator
+        self._norm = generator.target_desc.reg_normalized
+        _, self._auth_specs, xpac_specs = build_pac_specs(generator)
+        self._seal = PacSign(generator, self._auth_specs, xpac_specs)
+
+    def _norm_reg(self, reg: str) -> str:
+        return self._norm.get(reg, reg)
+
+    def make_engine(self, should_decoy=None) -> SealedNIInstrumentation:
+        return SealedNIInstrumentation(should_decoy)
+
+    def seal_test_case(self, tc: TestCase) -> Tuple[TestCase, List[PACFixPoint]]:
+        """Seal tc IN PLACE: replace every AUT* with its PacSign placeholder slot."""
+        fix_points: List[PACFixPoint] = []
+        slot_counter = 0
+        for func in tc.functions:
+            replacements: List = []
+            for bb in func:
+                for inst in bb:
+                    mn = inst.name.lower()
+                    if mn not in self._auth_specs:
+                        continue
+                    value_reg = inst.operands[0].value
+                    # Disallow value_reg == ctx_reg: resample ctx from the same allowed pool.
+                    if len(inst.operands) > 1 and \
+                            self._norm_reg(value_reg) == self._norm_reg(inst.operands[1].value):
+                        norm_ptr = self._norm_reg(value_reg)
+                        for _ in range(20):
+                            fresh = self.generator.generate_instruction(self._auth_specs[mn])
+                            if len(fresh.operands) > 1 and \
+                                    self._norm_reg(fresh.operands[1].value) != norm_ptr:
+                                inst.operands[1].value = fresh.operands[1].value
+                                break
+                    fp = PACFixPoint(slot_id=slot_counter, value_reg=value_reg,
+                                     committed_inst=copy.deepcopy(inst), seal=self._seal)
+                    slot_counter += 1
+                    fp.slot_insts = self._seal.placeholder(fp)
+                    fix_points.append(fp)
+                    replacements.append((inst, bb, fp.slot_insts))
+            for old_inst, bb, slot in replacements:
+                for s in slot:
+                    bb.insert_before(old_inst, s)
+                bb.delete(old_inst)
+        locs = index_instructions(tc)
+        for fp in fix_points:
+            fp.slot_locs = [locs[id(si)] for si in fp.slot_insts]
+        return tc, fix_points
 
 
 class PACInstrumentation(_SandboxInstrumentationBase):
