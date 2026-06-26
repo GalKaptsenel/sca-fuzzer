@@ -49,9 +49,14 @@ PAC has **two** independent fix-point kinds; MTE has one. Neither sandboxes.
   `mte → [Sandbox,MteTag]/MTEFixPoint`, both `→ [Sandbox,PacSign,MteTag]/PacMteFixPoint`.
 
 The engine (`SealedNIInstrumentation`) takes the sealed TC + fix points and mints variants:
-`baseline()` fills every slot genuine; `decoys()` fills genuine except where `should_decoy(fp, seal)`
-holds. The NI policy is `seal.name != "sandbox" and is_speculative(fp)` — i.e. perturb any non-clamp
-seal on a speculative slot (both PAC and MTE when both are active).
+`baseline()` fills every slot genuine; `decoys()` fills genuine except where the policy
+(`seal.name != "sandbox" and is_speculative(fp)`) allows — i.e. only non-clamp seals on speculative
+slots; the `Sandbox` clamp is always genuine. When **both** PAC and MTE are active the decoys are
+**orthogonal per variant**: each decoy instance enables a random subset of `{pac_sign, mte_tag}`
+(PAC-only / MTE-only / both / neither), applied consistently across all of that primitive's slots so
+a hardware leak is attributable to one primitive. With a single primitive present it is always
+decoyed. MTE `genuine` is the previous MTE behaviour: compare the pointer's tag to the cell's
+(`MteTagState`: region tag + `STG*` stores) and `NOP` if they match, `ADDG` to fix it (arch only).
 
 ## 4. The unified executor
 
@@ -102,6 +107,6 @@ the level generally (1 = logs, 2 = + verbose CE-trace comparison).
 
 - This VM has **no usable PMU**, so the final hardware step (`REVISOR_TRACE`) returns `ENODEV` for
   any executor; the table + all software stages run, but the htrace comparison needs real PMU HW.
-- Combined PAC+MTE: a slot's MTE `Sig/Tag` may show `None` (tag not resolved from the trace for some
-  composed slots) — the genuine/decoy encodings are still correct; tag resolution there is a TODO.
+- A slot's `Sig/Tag` shows `None` only when the slot was never executed in the CE trace (`Flow = "-"`):
+  there's no signature/tag to resolve, so it stays the genuine placeholder (safe).
 - Kernel `GCR_EL1.Exclude = 0` (clean ADDG/IRG mod-16 tag math) is still pending.
