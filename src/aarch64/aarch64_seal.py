@@ -253,6 +253,12 @@ class SealedNIInstrumentation:
         self._fix_points: List[FixPoint] = []
 
     def set_sealed(self, sealed_tc: TestCase, fix_points: List[FixPoint]) -> None:
+        # Re-derive each slot's positions over the final sealed TC, so fix points produced by
+        # several passes (PAC AUT* sites + MTE accesses) all resolve correctly after every pass's
+        # structural edits. Idempotent for a single pass.
+        locs = index_instructions(sealed_tc)
+        for fp in fix_points:
+            fp.slot_locs = [locs[id(si)] for si in fp.slot_insts]
         self._sealed_tc = sealed_tc
         self._fix_points = fix_points
 
