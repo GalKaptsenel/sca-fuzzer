@@ -110,7 +110,7 @@ class MteTag(Seal):
     def placeholder(self, fp) -> List[Instruction]:
         return [make_nop()]
 
-    def genuine(self, fp) -> List[Instruction]:
+    def genuine(self, fp, rng: random.Random) -> List[Instruction]:
         # The arch path must carry the cell's tag; fix the pointer's tag only when it mismatches.
         if fp.correct_tag is None or fp.ptr_tag is None:
             return [make_nop()]
@@ -160,13 +160,12 @@ class MTEInstrumentation(_SandboxInstrumentationBase):
         self._composite = CompositeSeal([self._sandbox, self._tag_seal])
         # STG-family tag stores get a 16-byte-aligned clamp (no tag slot, never decoyed).
         self._stg_seal = Sandbox(_SANDBOX_MASK & ~0xF)
-        self._seal = self._tag_seal  # engine fallback (every fix point sets its own fp.seal)
         self.last_taint_log: List[str] = []
 
     def make_engine(self, should_decoy=None) -> "SealedNIInstrumentation":
-        """A non-interference engine driven by this pass's seal. Seal the test case with
+        """A non-interference engine; each fix point carries its own seal. Seal the test case with
         seal_test_case(), then feed the result to engine.set_sealed()."""
-        return SealedNIInstrumentation(self._seal, should_decoy)
+        return SealedNIInstrumentation(should_decoy)
 
     # ------------------------------------------------------------------
     # Taint helpers
@@ -247,7 +246,8 @@ class MTEInstrumentation(_SandboxInstrumentationBase):
                         # base is no longer at its sandboxed value and must not stay tainted.
                         modifies_base = bool(offset_subs)
                         if self._is_tag_store(inst):              # STG-family: 16B-aligned clamp only
-                            clamp = self._stg_seal.genuine(MTEFixPoint(slot_id=-1, value_reg=mem_reg))
+                            clamp = self._stg_seal.genuine(MTEFixPoint(slot_id=-1, value_reg=mem_reg),
+                                                            random.Random(0))  # Sandbox ignores rng
                             insertions.append((inst, bb, clamp, offset_subs, []))
                             curr = curr - frozenset([norm_mem])   # the clamp rewrote the base
                             decision = "STG-CLAMP"
@@ -259,7 +259,8 @@ class MTEInstrumentation(_SandboxInstrumentationBase):
                                 if modifies_base:
                                     curr = curr - frozenset([norm_mem])
                             else:
-                                clamp = self._sandbox.genuine(MTEFixPoint(slot_id=-1, value_reg=mem_reg))
+                                clamp = self._sandbox.genuine(MTEFixPoint(slot_id=-1, value_reg=mem_reg),
+                                                               random.Random(0))  # Sandbox ignores rng
                                 insertions.append((inst, bb, clamp, offset_subs, []))
                                 if not modifies_base:
                                     curr = curr | frozenset([norm_mem])

@@ -133,10 +133,15 @@ def _slot_inst(tc: TestCase, fp: MTEFixPoint) -> Instruction:
     return inst_at(tc, fp.slot_locs[-1])[0]
 
 def _engine(fps: List[MTEFixPoint], prep: Optional[TestCase] = None):
-    """An NI engine over a fresh MteTag, sealed with prep (built from fps if not given)."""
+    """An NI engine sealed with prep (built from fps if not given). Each fix point carries its own
+    seal; default any bare hand-built fix point to a fresh MteTag."""
+    seal = MteTag()
+    for fp in fps:
+        if fp.seal is None:
+            fp.seal = seal
     if prep is None:
         prep = _build_prep_tc(fps)
-    eng = SealedNIInstrumentation(MteTag())
+    eng = SealedNIInstrumentation()
     eng.set_sealed(prep, fps)
     return eng, prep
 
@@ -165,7 +170,7 @@ class TestMteTagSeal(unittest.TestCase):
 
     def test_genuine_is_nop(self):
         # The correct tag is already on the sandboxed pointer, so genuine keeps it (NOP).
-        self.assertEqual(self.seal.genuine(_fp())[0].name, "nop")
+        self.assertEqual(self.seal.genuine(_fp(), random.Random(0))[0].name, "nop")
 
     def test_decoy_is_irg_or_retag(self):
         rng = random.Random(0)
@@ -197,19 +202,19 @@ class TestMteGenuineTagFix(unittest.TestCase):
         return fp
 
     def test_no_tag_info_is_nop(self):
-        self.assertEqual(self.seal.genuine(self._fp())[0].name, "nop")
+        self.assertEqual(self.seal.genuine(self._fp(), random.Random(0))[0].name, "nop")
 
     def test_matching_tags_no_fix(self):
-        self.assertEqual(self.seal.genuine(self._fp(ptr_tag=3, correct_tag=3))[0].name, "nop")
+        self.assertEqual(self.seal.genuine(self._fp(ptr_tag=3, correct_tag=3), random.Random(0))[0].name, "nop")
 
     def test_mismatch_fixes_with_addg(self):
-        s = self.seal.genuine(self._fp(ptr_tag=3, correct_tag=7, reg="x9"))
+        s = self.seal.genuine(self._fp(ptr_tag=3, correct_tag=7, reg="x9"), random.Random(0))
         self.assertEqual(s[0].name, "addg")
         self.assertIn("x9", s[0].template)
         self.assertIn("#0, #4", s[0].template)   # delta = (7 - 3) % 16
 
     def test_mismatch_wraps_mod16(self):
-        s = self.seal.genuine(self._fp(ptr_tag=15, correct_tag=1))
+        s = self.seal.genuine(self._fp(ptr_tag=15, correct_tag=1), random.Random(0))
         self.assertEqual(s[0].name, "addg")
         self.assertIn("#0, #2", s[0].template)   # delta = (1 - 15) % 16 = 2
 
@@ -217,7 +222,7 @@ class TestMteGenuineTagFix(unittest.TestCase):
         """Exhaustive: every (ptr_tag, correct_tag) → NOP when equal, ADDG #0,#delta otherwise."""
         for ptr in range(16):
             for cell in range(16):
-                s = self.seal.genuine(self._fp(ptr_tag=ptr, correct_tag=cell))
+                s = self.seal.genuine(self._fp(ptr_tag=ptr, correct_tag=cell), random.Random(0))
                 delta = (cell - ptr) % 16
                 with self.subTest(ptr=ptr, cell=cell):
                     if delta == 0:
@@ -236,7 +241,7 @@ class TestMteEngine(unittest.TestCase):
 
     def _baseline_decoy(self, fps, seed=0):
         eng, _ = _engine(fps)
-        return eng.baseline(), next(eng.decoys(random.Random(seed)))
+        return eng.baseline(random.Random(0)), next(eng.decoys(random.Random(seed)))
 
     # ── baseline: every slot genuine (NOP) ───────────────────────────────
     def test_baseline_all_nop(self):
@@ -588,7 +593,7 @@ class TestMteSealE2E(unittest.TestCase):
             fp.spec_nesting = 0
         eng = self.mte.make_engine()
         eng.set_sealed(prep, fix_points)
-        self.assertIsInstance(eng.baseline(), TestCase)
+        self.assertIsInstance(eng.baseline(random.Random(0)), TestCase)
         self.assertIsInstance(next(eng.decoys(random.Random(0))), TestCase)
 
     def test_seal_baseline_slot_is_nop(self):
@@ -598,7 +603,7 @@ class TestMteSealE2E(unittest.TestCase):
             fp.spec_nesting = 0
         eng = self.mte.make_engine()
         eng.set_sealed(prep, fix_points)
-        self.assertEqual(_slot_inst(eng.baseline(), fix_points[0]).name, "nop")
+        self.assertEqual(_slot_inst(eng.baseline(random.Random(0)), fix_points[0]).name, "nop")
 
     def test_seal_multiple_accesses_separate_slots(self):
         tc = TestCase(seed=0)
@@ -674,7 +679,7 @@ class TestMteCompositeWiring(unittest.TestCase):
             fp.spec_nesting = 1
         eng = self.mte.make_engine(should_decoy=self.policy)
         eng.set_sealed(prep, fps)
-        self.assertEqual(self._slot_names(eng.baseline(), fps[0]), ["and", "add", "nop"])
+        self.assertEqual(self._slot_names(eng.baseline(random.Random(0)), fps[0]), ["and", "add", "nop"])
 
     def test_decoy_keeps_clamp_retags_tag(self):
         prep, fps = self.mte.seal_test_case(self._tc("x5"))

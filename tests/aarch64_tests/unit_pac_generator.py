@@ -165,6 +165,25 @@ def _read_gpr(cpu, reg: str) -> int:
     return cpu.sp if reg == 'sp' else cpu.gpr[int(reg[1:])]
 
 
+# Slot classifiers — a slot is one of: strip [NOP, XPAC], genuine [MOVK correct_sig, AUTH], or
+# forged [MOVK alt_sig, AUTH]. Genuine and decoy slots may each randomly be the strip
+# (PacSign._REMAIN_STRIP_PROB), since stripping yields the same canonical pointer.
+def _is_strip(s: List[Instruction], auth_mn: str) -> bool:
+    return s[SLOT_SIG_POS].name == 'nop' and s[AUTH_SLOT_POS].name == _AUTH_TO_XPAC[auth_mn]
+
+def _is_genuine_slot(s: List[Instruction], fp: PACFixPoint) -> bool:
+    auth_mn = fp.committed_inst.name.lower()
+    return _is_strip(s, auth_mn) or (
+        s[SLOT_SIG_POS].name == 'movk' and _sig_from_movk(s[SLOT_SIG_POS]) == fp.correct_sig
+        and s[AUTH_SLOT_POS].name == auth_mn)
+
+def _is_decoy_slot(s: List[Instruction], fp: PACFixPoint) -> bool:
+    auth_mn = fp.committed_inst.name.lower()
+    return _is_strip(s, auth_mn) or (
+        s[SLOT_SIG_POS].name == 'movk' and _sig_from_movk(s[SLOT_SIG_POS]) in fp.alt_sigs
+        and s[AUTH_SLOT_POS].name == auth_mn)
+
+
 def _pac_field_mask16(auth_mn: str, samples: int) -> int:
     """Top-16 mask of the PAC field (the bits SIGN sets == the bits AUTH checks); mirrors the
     executor's _pac_field_mask16. SIGN only — never AUTH, never XPAC."""
@@ -300,7 +319,7 @@ def _run_pipeline() -> Tuple[TestCase, List[PACFixPoint], Dict, Input]:
     """Full pipeline: seal → CE trace → fix_point fill → engine variants. Always returns a result.
 
     Returns (sealed_tc, fix_points, variants, ref_input) where variants is
-    {V.BASELINE: engine.baseline(), V.DECOY: a decoy instance} and ref_input is the input used to
+    {V.BASELINE: engine.baseline(random), V.DECOY: a decoy instance} and ref_input is the input used to
     classify spec_nesting in _fill_fixpoints_from_ce.  Reuse ref_input when running the CE over the
     variants so the spec-vs-arch paths are identical across all test cases.
     """
@@ -308,7 +327,7 @@ def _run_pipeline() -> Tuple[TestCase, List[PACFixPoint], Dict, Input]:
     ref_input = _fill_fixpoints_from_ce(sealed_tc, fix_points)
     engine = pac.make_engine()
     engine.set_sealed(sealed_tc, fix_points)
-    variants = {V.BASELINE: engine.baseline(), V.DECOY: next(engine.decoys(random))}
+    variants = {V.BASELINE: engine.baseline(random), V.DECOY: next(engine.decoys(random))}
     return sealed_tc, fix_points, variants, ref_input
 
 
@@ -493,47 +512,41 @@ class TestStage2VariantContracts(unittest.TestCase):
         cls.cases = _collect_cases(20)
 
     def test_baseline_genuine_slots(self):
-        """Baseline: reached slots carry [MOVK correct_sig, AUTH]; unreached fall back to [NOP, XPAC]."""
+        """Baseline: every slot is genuine — [MOVK correct_sig, AUTH], or (with low probability, or
+        when unreached) the strip [NOP, XPAC]; both yield the same canonical pointer."""
         for _, fix_points, variants, _inp in self.cases:
             base = variants[V.BASELINE]
             for fp in fix_points:
-                auth_mn = fp.committed_inst.name.lower()
                 s = _slot(base, fp)
                 with self.subTest(slot=fp.slot_id):
-                    if fp.correct_sig is None:
-                        self.assertEqual(s[SLOT_SIG_POS].name, 'nop')
-                        self.assertEqual(s[AUTH_SLOT_POS].name, _AUTH_TO_XPAC[auth_mn])
-                    else:
-                        self.assertEqual(s[SLOT_SIG_POS].name, 'movk')
-                        self.assertEqual(_sig_from_movk(s[SLOT_SIG_POS]), fp.correct_sig)
-                        self.assertEqual(s[AUTH_SLOT_POS].name, auth_mn)
+                    self.assertTrue(_is_genuine_slot(s, fp))
+                    if fp.correct_sig is None:                 # unreached -> always the strip
+                        self.assertTrue(_is_strip(s, fp.committed_inst.name.lower()))
 
-    def test_decoy_arch_slot_identical_to_baseline(self):
-        """An architectural slot (spec_nesting == 0) is genuine in the decoy too — the NI invariant."""
+    def test_decoy_arch_slot_is_genuine(self):
+        """An architectural slot (spec_nesting == 0) is genuine in both baseline and decoy — the NI
+        invariant. The two may pick different equivalent genuine encodings (strip vs AUTH), but both
+        resolve to the same canonical pointer."""
         for _, fix_points, variants, _inp in self.cases:
-            base = variants[V.BASELINE]
-            decoy = variants[V.DECOY]
+            base, decoy = variants[V.BASELINE], variants[V.DECOY]
             for fp in fix_points:
                 if fp.spec_nesting != 0:
                     continue
-                for pos, (ib, idd) in enumerate(zip(_slot(base, fp), _slot(decoy, fp))):
-                    with self.subTest(slot=fp.slot_id, pos=pos):
-                        self.assertEqual(ib.name,     idd.name)
-                        self.assertEqual(ib.template, idd.template)
+                with self.subTest(slot=fp.slot_id):
+                    self.assertTrue(_is_genuine_slot(_slot(base, fp), fp))
+                    self.assertTrue(_is_genuine_slot(_slot(decoy, fp), fp))
 
-    def test_decoy_speculative_slot_is_wrong_sig(self):
-        """Every speculative decoy slot (spec_nesting != 0, incl. unreached) authenticates a wrong
-        signature from its pool ([MOVK alt_sig, AUT*]); only arch slots (==0) stay genuine."""
+    def test_decoy_speculative_slot_is_forged_or_strip(self):
+        """A speculative decoy slot (spec_nesting != 0, incl. unreached) is a wrong-signature forgery
+        [MOVK alt_sig, AUT*] or — with low probability — the strip [NOP, XPAC]; arch slots stay
+        genuine."""
         for _, fix_points, variants, _inp in self.cases:
             decoy = variants[V.DECOY]
             for fp in fix_points:
                 if fp.spec_nesting == 0:                       # arch slot -> genuine, not forged
                     continue
-                s = _slot(decoy, fp)
                 with self.subTest(slot=fp.slot_id):
-                    self.assertEqual(s[SLOT_SIG_POS].name, 'movk')
-                    self.assertEqual(s[AUTH_SLOT_POS].name, fp.committed_inst.name.lower())
-                    self.assertIn(_sig_from_movk(s[SLOT_SIG_POS]), fp.alt_sigs)
+                    self.assertTrue(_is_decoy_slot(_slot(decoy, fp), fp))
 
 
 # ===========================================================================
@@ -557,7 +570,7 @@ class TestCENeverReached(unittest.TestCase):
                 fp.spec_nesting = None
             engine = pac.make_engine()
             engine.set_sealed(sealed_tc, fix_points)
-            variants = {V.BASELINE: engine.baseline(), V.DECOY: next(engine.decoys(random))}
+            variants = {V.BASELINE: engine.baseline(random), V.DECOY: next(engine.decoys(random))}
             cls.cases.append((sealed_tc, fix_points, variants))
 
     def test_baseline_falls_back_to_xpac(self):
@@ -569,16 +582,14 @@ class TestCENeverReached(unittest.TestCase):
                     self.assertEqual(s[SLOT_SIG_POS].name, 'nop')
                     self.assertIn(s[AUTH_SLOT_POS].name, _XPAC_NAMES)
 
-    def test_decoy_unreached_is_forged_with_random_sig(self):
-        """An unreached slot is forged with a random pool signature ([MOVK alt, AUT*])."""
+    def test_decoy_unreached_is_forged_or_strip(self):
+        """An unreached slot's decoy is a random wrong-sig forgery [MOVK alt, AUT*] or — with low
+        probability — the strip [NOP, XPAC]."""
         for _, fix_points, variants in self.cases:
             decoy = variants[V.DECOY]
             for fp in fix_points:
-                s = _slot(decoy, fp)
                 with self.subTest(slot=fp.slot_id):
-                    self.assertEqual(s[SLOT_SIG_POS].name, 'movk')
-                    self.assertEqual(s[AUTH_SLOT_POS].name, fp.committed_inst.name.lower())
-                    self.assertIn(_sig_from_movk(s[SLOT_SIG_POS]), fp.alt_sigs)
+                    self.assertTrue(_is_decoy_slot(_slot(decoy, fp), fp))
 
 
 # ===========================================================================
@@ -688,13 +699,14 @@ class TestAltSigPool(unittest.TestCase):
             engine = pac.make_engine(); engine.set_sealed(sealed_tc, fix_points)
             seen = {fp.slot_id: set() for fp in fix_points}
             gen = engine.decoys(random.Random(0))
-            for _ in range(40):
+            for _ in range(60):
                 decoy = next(gen)
                 for fp in fix_points:
                     if fp.spec_nesting == 0:               # arch slot -> genuine, not forged
                         continue
                     s = _slot(decoy, fp)
-                    self.assertEqual(s[SLOT_SIG_POS].name, 'movk')   # always a wrong-sig auth
+                    if s[SLOT_SIG_POS].name != 'movk':     # the low-probability strip
+                        continue
                     sig = _sig_from_movk(s[SLOT_SIG_POS])
                     self.assertIn(sig, fp.alt_sigs)
                     seen[fp.slot_id].add(sig)
@@ -703,6 +715,48 @@ class TestAltSigPool(unittest.TestCase):
                     with self.subTest(slot=fp.slot_id):
                         self.assertGreater(len(seen[fp.slot_id]), 1,
                                            "successive decoys should draw different pool signatures")
+
+
+class TestRemainStripProbability(unittest.TestCase):
+    """genuine and decoy each leave the slot as the strip [NOP, XPAC] with low probability
+    (PacSign._REMAIN_STRIP_PROB), otherwise [MOVK correct_sig, AUTH] / [MOVK alt_sig, AUTH]. Both
+    encodings appear over many draws, and the strip is the minority."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.fp = None
+        while cls.fp is None:
+            _sealed, fix_points, _variants, _inp = _run_pipeline()
+            for fp in fix_points:
+                if fp.correct_sig is not None and fp.alt_sigs:   # a reached slot with a forge pool
+                    cls.fp, cls.seal = fp, fp.seal
+                    break
+
+    def _draw(self, fn, n=400):
+        rng = random.Random(0)
+        strips = sum(1 for _ in range(n)
+                     if _is_strip(fn(self.fp, rng), self.fp.committed_inst.name.lower()))
+        return strips, n
+
+    def test_genuine_strip_is_low_minority(self):
+        strips, n = self._draw(self.seal.genuine)
+        self.assertGreater(strips, 0)                      # the strip does occur
+        self.assertLess(strips, n * 0.4)                   # but is clearly the minority (~10%)
+
+    def test_decoy_strip_is_low_minority(self):
+        strips, n = self._draw(self.seal.decoy)
+        self.assertGreater(strips, 0)
+        self.assertLess(strips, n * 0.4)
+
+    def test_genuine_nonstrip_is_correct_auth(self):
+        rng = random.Random(0)
+        auth_mn = self.fp.committed_inst.name.lower()
+        for _ in range(400):
+            s = self.seal.genuine(self.fp, rng)
+            if not _is_strip(s, auth_mn):                  # the common [MOVK correct_sig, AUTH]
+                self.assertEqual(s[SLOT_SIG_POS].name, 'movk')
+                self.assertEqual(_sig_from_movk(s[SLOT_SIG_POS]), self.fp.correct_sig)
+                self.assertEqual(s[AUTH_SLOT_POS].name, auth_mn)
 
 
 if __name__ == '__main__':

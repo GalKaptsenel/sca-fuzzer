@@ -57,6 +57,13 @@ class PacSign(Seal):
     name = "pac_sign"
     slot_size = SLOT_SIZE
 
+    # Probability that a slot is left as the strip placeholder [NOP, XPAC] instead of running an
+    # AUTH — used by BOTH genuine ([MOVK correct_sig, AUTH]) and decoy ([MOVK alt, AUTH]). Stripping
+    # runs no AUTH and yields the canonical pointer, so a genuine strip is an equivalent genuine
+    # encoding and a decoy strip simply leaves that slot unperturbed; it just biases how often a
+    # real AUTH executes.
+    _REMAIN_STRIP_PROB = 0.1
+
     def __init__(self, generator, auth_specs: Dict, xpac_specs: Dict):
         self.generator = generator
         self._auth_specs = auth_specs
@@ -99,17 +106,22 @@ class PacSign(Seal):
         _, xpac_mn, value_reg, _ = self._committed_info(fp)
         return [make_nop(), self.make_xpac_inst(xpac_mn, value_reg)]
 
-    def genuine(self, fp) -> List[Instruction]:
-        """[MOVK correct_sig LSL#48, AUTH] — auth succeeds; the placeholder when no signature was
+    def genuine(self, fp, rng: random.Random) -> List[Instruction]:
+        """The committed (correct) value: usually [MOVK correct_sig LSL#48, AUTH] (AUTH succeeds),
+        but with probability _REMAIN_STRIP_PROB just the strip placeholder [NOP, XPAC] — both yield
+        the same canonical pointer, so both are genuine. Also the placeholder when no signature was
         resolved."""
-        if fp.correct_sig is None:
+        if fp.correct_sig is None or rng.random() < self._REMAIN_STRIP_PROB:
             return self.placeholder(fp)
         return self._auth_fill(fp, fp.correct_sig)
 
     def decoy(self, fp, rng: random.Random) -> List[Instruction]:
-        """A wrong-signature forgery [MOVK alt, AUT*], alt drawn fresh from the pool so each decoy
-        instance is a different forgery. Reached slots carry a PAC-mask-verified pool (provably fails
-        AUTH); unreached slots carry a random pool (they never execute on the contract path)."""
+        """Either leave the slot stripped (the [NOP, XPAC] placeholder, with probability
+        _REMAIN_STRIP_PROB — no perturbation there) or a wrong-signature forgery [MOVK alt, AUT*]
+        drawn fresh from the pool so each decoy instance is a different forgery. Reached slots carry
+        a PAC-mask-verified pool (provably fails AUTH); unreached slots carry a random pool."""
+        if rng.random() < self._REMAIN_STRIP_PROB:
+            return self.placeholder(fp)
         assert fp.alt_sigs, f"slot_id={fp.slot_id}: no decoy signatures resolved"
         return self._auth_fill(fp, rng.choice(fp.alt_sigs))
 
@@ -261,7 +273,8 @@ class PACInstrumentation(_SandboxInstrumentationBase):
                                 inst.operands[1].value = fresh.operands[1].value
                                 break
                     sid = slot_counter; slot_counter += 1
-                    fp = PACFixPoint(slot_id=sid, value_reg=value_reg, committed_inst=copy.deepcopy(inst))
+                    fp = PACFixPoint(slot_id=sid, value_reg=value_reg,
+                                     committed_inst=copy.deepcopy(inst), seal=self._seal)
                     fp.slot_insts = self._seal.placeholder(fp)
                     fix_points.append(fp)
                     auth_replacements.append((inst, bb, fp.slot_insts))
@@ -287,7 +300,7 @@ class PACInstrumentation(_SandboxInstrumentationBase):
                         if auth_inst is not None:
                             sid = slot_counter; slot_counter += 1
                             fp = PACFixPoint(slot_id=sid, value_reg=auth_inst.operands[0].value,
-                                             committed_inst=auth_inst)
+                                             committed_inst=auth_inst, seal=self._seal)
                             fp.slot_insts = self._seal.placeholder(fp)
                             fix_points.append(fp)
                             xpac_insertions.append((inst, bb, fp.slot_insts, offset_subs, sandbox_insts))
@@ -335,6 +348,6 @@ class PACInstrumentation(_SandboxInstrumentationBase):
         return tc, fix_points
 
     def make_engine(self, should_decoy=None) -> "SealedNIInstrumentation":
-        """A non-interference engine driven by this pass's seal. Seal the test case with
+        """A non-interference engine; each fix point carries its own seal. Seal the test case with
         seal_test_case(), then feed the result to engine.set_sealed()."""
-        return SealedNIInstrumentation(self._seal, should_decoy)
+        return SealedNIInstrumentation(should_decoy)

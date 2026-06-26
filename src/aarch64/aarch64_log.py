@@ -147,25 +147,20 @@ def _flow_tag(nestings: Optional[set]) -> str:
     return ",".join("ARCH" if n == 0 else f"SPEC{n}" for n in sorted(nestings))
 
 
-def log_ni_table(log: FuzzLogger, inp_idx: int, columns: List[Tuple[str, bytes]],
-                 cer: List, sig_by_off: Dict[int, Optional[int]], ch: str) -> None:
-    """DEBUG: per-instruction table across the NI variants. Each row is one instruction offset; the
-    columns hold its disassembly in the sealed TC / baseline / decoys; `Flow` shows whether the CE
-    executed that offset architecturally and/or speculatively (with nesting), taken from the sealed
-    trace `cer` (all variants share the layout and — by the no-leak invariant — the same control
-    flow). `CorrectSig` is the slot's committed signature taken from fp.correct_sig (not the trace),
-    shown on the PAC-operation rows. Rows whose columns differ are the seal slots and are flagged."""
+def log_ni_table(log: FuzzLogger, inp_idx: int, columns: List[Tuple[str, bytes]], cer: List,
+                 info_label: str, info_by_off: Dict[int, str], ch: str) -> None:
+    """DEBUG: per-instruction table across the NI variants, shared by PAC and MTE. Each row is one
+    instruction offset; the columns hold its disassembly in the sealed TC / baseline / decoys;
+    `Flow` shows whether the CE executed that offset architecturally and/or speculatively (with
+    nesting), taken from the sealed trace `cer` (all variants share the layout and — by the no-leak
+    invariant — the same control flow). The `info_label` column carries the slot's committed seal
+    data taken from the fix point, not the trace (PAC: correct signature; MTE: correct tag). Rows
+    whose columns differ are the seal slots and are flagged."""
     nest_by_off: Dict[int, set] = {}
     if cer:
         base = cer[0].cpu.pc
         for ite in cer:
             nest_by_off.setdefault(ite.cpu.pc - base, set()).add(ite.metadata.speculation_nesting)
-
-    def _sig(off: int) -> str:
-        if off not in sig_by_off:
-            return ""
-        s = sig_by_off[off]
-        return f"0x{s:04x}" if s is not None else "None"
 
     labels  = [label for label, _ in columns]
     disasms = [_disasm_by_offset(tcb) for _, tcb in columns]
@@ -173,15 +168,17 @@ def log_ni_table(log: FuzzLogger, inp_idx: int, columns: List[Tuple[str, bytes]]
     colw    = max([len(l) for l in labels] + [len(d.get(o, "")) for d in disasms for o in offsets] + [1])
     flows   = {o: _flow_tag(nest_by_off.get(o)) for o in offsets}
     floww   = max([len("Flow")] + [len(f) for f in flows.values()])
+    infow   = max([len(info_label)] + [len(v) for v in info_by_off.values()] + [1])
 
     log.header(f"NI TABLE  inp={inp_idx}  (rows=instructions; columns=variants; Flow=CE arch/spec)", ch=ch)
-    header = f"  {'Off':>5}  {'Flow':<{floww}}  {'CorrectSig':<10}  " + "  ".join(f"{l:<{colw}}" for l in labels)
+    header = f"  {'Off':>5}  {'Flow':<{floww}}  {info_label:<{infow}}  " + "  ".join(f"{l:<{colw}}" for l in labels)
     log.w(header, ch=ch)
     log.w("  " + "-" * (len(header) - 2), ch=ch)
     for off in offsets:
         cells   = [d.get(off, "") for d in disasms]
         differs = len(set(cells)) > 1
-        row = f"  {off:>5x}  {flows[off]:<{floww}}  {_sig(off):<10}  " + "  ".join(f"{c:<{colw}}" for c in cells)
+        row = (f"  {off:>5x}  {flows[off]:<{floww}}  {info_by_off.get(off, ''):<{infow}}  "
+               + "  ".join(f"{c:<{colw}}" for c in cells))
         log.w(row + ("   <== slot" if differs else ""), ch=ch)
     log.w("", ch=ch)
 

@@ -803,7 +803,7 @@ class Aarch64PacNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
 
             # Fix points now hold this input's signatures/nesting; mint the variants to compare.
             variants: TCVariants = {
-                NIVariant.BASELINE: self._engine.baseline(),
+                NIVariant.BASELINE: self._engine.baseline(random),
                 NIVariant.DECOY:    next(self._engine.decoys(random)),
             }
             tc_variants_per_input.append(variants)
@@ -819,16 +819,16 @@ class Aarch64PacNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
             if os.environ.get("REVIZOR_PAC_NI_TABLE"):
                 # correct_sig per slot, read from the fix point (not the trace); annotate both the
                 # AUT*/XPAC (PAC-op) row and its MOVK/NOP sig row, 4 bytes earlier.
-                sig_by_off: Dict[int, Optional[int]] = {}
+                info_by_off: Dict[int, str] = {}
                 for auth_off, fp in xpac_offset_to_fp.items():
-                    sig_by_off[auth_off]     = fp.correct_sig
-                    sig_by_off[auth_off - 4] = fp.correct_sig
+                    sig = f"0x{fp.correct_sig:04x}" if fp.correct_sig is not None else "None"
+                    info_by_off[auth_off] = info_by_off[auth_off - 4] = sig
                 log_ni_table(log, inp_idx, [
                     ("sealed",   tc_bytes),
                     ("baseline", self._assemble_tc(variants[NIVariant.BASELINE])[0]),
                     ("decoy#1",  self._assemble_tc(variants[NIVariant.DECOY])[0]),
                     ("decoy#2",  self._assemble_tc(next(self._engine.decoys(random)))[0]),
-                ], list(cer), sig_by_off, ch="pac_ni_table")
+                ], list(cer), "CorrectSig", info_by_off, ch="pac_ni_table")
 
             # Flush after every input's data so a crash between inputs
             # leaves a complete record for the inputs already processed.
@@ -1077,6 +1077,7 @@ class Aarch64MteNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
         log.register("mte_flow",   "mte/flow.log",   min_verbosity=1)
         log.register("mte_stage1", "mte/stage1.log", min_verbosity=2)
         log.register("mte_hw",     "mte/hw.log",     min_verbosity=1)
+        log.register("mte_ni_table", "mte/ni_table.log", min_verbosity=1)
         log.wp(f"[MTE] test case #{self._tc_counter}")
 
         patched = copy.deepcopy(self.test_case)
@@ -1155,10 +1156,26 @@ class Aarch64MteNonInterferenceExecutor(Aarch64NonInterferenceExecutor):
 
             self._classify_mte_slots(cer, offset_to_fp, (sandbox_base >> 56) & 0xF)
             # Fix points now hold this input's per-slot spec_nesting; mint the variants to compare.
-            tc_variants_per_input.append({
-                NIVariant.BASELINE: self._engine.baseline(),
+            variants = {
+                NIVariant.BASELINE: self._engine.baseline(random),
                 NIVariant.DECOY:    next(self._engine.decoys(random)),
-            })
+            }
+            tc_variants_per_input.append(variants)
+
+            # DEBUG (env REVIZOR_MTE_NI_TABLE): per-instruction sealed/baseline/decoy table with the
+            # CE arch/spec annotation and each slot's committed tag (from fp.correct_tag, not the
+            # trace), on the tag-op row (4 bytes before its memory access).
+            if os.environ.get("REVIZOR_MTE_NI_TABLE"):
+                info_by_off: Dict[int, str] = {}
+                for mem_off, fp in offset_to_fp.items():
+                    info_by_off[mem_off - 4] = (f"0x{fp.correct_tag:x}"
+                                                if fp.correct_tag is not None else "None")
+                log_ni_table(log, inp_idx, [
+                    ("sealed",   tc_bytes),
+                    ("baseline", self._assemble_tc(variants[NIVariant.BASELINE])[0]),
+                    ("decoy#1",  self._assemble_tc(variants[NIVariant.DECOY])[0]),
+                    ("decoy#2",  self._assemble_tc(next(self._engine.decoys(random)))[0]),
+                ], list(cer), "CorrectTag", info_by_off, ch="mte_ni_table")
 
         # Use sandboxed-TC traces for ctrace/taint/mistraining — their branch offsets
         # match the sandboxed TC that trace_test_case() loads into the kernel module.

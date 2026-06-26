@@ -69,7 +69,7 @@ class FixPoint:
     slot_locs: List[SlotLoc] = field(default_factory=list)       # their positions, for structural copies
     spec_nesting: Optional[int] = None                           # min speculation depth the slot ran at
     value_reg: str = ""                                          # register holding the committed value here
-    seal: Optional["Seal"] = None                                # this slot's seal (None -> engine default)
+    seal: Optional["Seal"] = None                                # this slot's seal (set by the sealing pass)
 
     def reset(self) -> None:
         self.spec_nesting = None
@@ -94,9 +94,11 @@ class Seal(abc.ABC):
         """The arch-safe slot inserted at the sealing point — no behaviour change yet."""
 
     @abc.abstractmethod
-    def genuine(self, fp) -> List[Instruction]:
+    def genuine(self, fp, rng: random.Random) -> List[Instruction]:
         """The use site resolved to the genuine (committed) value; architecturally safe even when
-        the genuine value is unavailable (falls back to the placeholder)."""
+        the genuine value is unavailable (falls back to the placeholder). `rng` lets a seal vary
+        between equivalent genuine encodings (e.g. PAC occasionally stripping instead of
+        re-authenticating); seals with a single genuine form ignore it."""
 
     @abc.abstractmethod
     def decoy(self, fp, rng: random.Random) -> List[Instruction]:
@@ -106,7 +108,7 @@ class Seal(abc.ABC):
     def fill(self, fp, rng: random.Random, should_decoy: "DecoyPolicy") -> List[Instruction]:
         """Genuine or decoy for this fix point, per should_decoy(fp, self). Composites override this
         to decoy a subset of their members."""
-        return self.decoy(fp, rng) if should_decoy(fp, self) else self.genuine(fp)
+        return self.decoy(fp, rng) if should_decoy(fp, self) else self.genuine(fp, rng)
 
 
 class _SandboxInstrumentationBase:
@@ -239,12 +241,13 @@ def _default_decoy_policy(fp: FixPoint, seal: Seal) -> bool:
 
 
 class SealedNIInstrumentation:
-    """Non-interference engine over a Seal: seal once, then baseline() (all genuine) and
-    decoys(rng) (an unbounded stream decoying the slots `should_decoy(fp, seal)` allows; default:
-    the speculative ones). Decoys landing only on speculative slots is the NI invariant."""
+    """Non-interference engine over per-fix-point seals: seal once, then baseline() (all genuine)
+    and decoys(rng) (an unbounded stream decoying the slots `should_decoy(fp, seal)` allows;
+    default: the speculative ones). Decoys landing only on speculative slots is the NI invariant.
+    Every fix point carries its own seal (`fp.seal`), so one test case can mix seals (PAC, MTE,
+    composite) across slots — the engine is seal-agnostic, with no engine-wide default seal."""
 
-    def __init__(self, seal: Seal, should_decoy: Optional[DecoyPolicy] = None):
-        self._seal = seal
+    def __init__(self, should_decoy: Optional[DecoyPolicy] = None):
         self._should_decoy: DecoyPolicy = should_decoy or _default_decoy_policy
         self._sealed_tc: Optional[TestCase] = None
         self._fix_points: List[FixPoint] = []
@@ -260,12 +263,20 @@ class SealedNIInstrumentation:
             fill_slot_at(tc, fp.slot_locs, slot_fn(fp))
         return tc
 
-    def baseline(self) -> TestCase:
-        return self._fill(lambda fp: (fp.seal or self._seal).genuine(fp))
+    @staticmethod
+    def _seal_for(fp) -> Seal:
+        """The seal to apply at this fix point — its own `fp.seal`, set by the instrumentation pass
+        that created it (PAC slots carry PacSign; MTE slots carry MteTag or CompositeSeal[Sandbox,
+        MteTag]). There is no engine-wide default, so a single engine can fill a mixed slot list."""
+        assert fp.seal is not None, f"fix point {getattr(fp, 'slot_id', '?')} has no seal"
+        return fp.seal
+
+    def baseline(self, rng: random.Random) -> TestCase:
+        return self._fill(lambda fp: self._seal_for(fp).genuine(fp, rng))
 
     def decoys(self, rng: random.Random) -> Iterator[TestCase]:
         while True:
-            yield self._fill(lambda fp: (fp.seal or self._seal).fill(fp, rng, self._should_decoy))
+            yield self._fill(lambda fp: self._seal_for(fp).fill(fp, rng, self._should_decoy))
 
 
 class Sandbox(Seal):
@@ -288,9 +299,9 @@ class Sandbox(Seal):
 
     # ---- Seal protocol (stateless) ----
     def placeholder(self, fp) -> List[Instruction]:
-        return self.genuine(fp)
+        return [self._and(fp.value_reg), self._add(fp.value_reg)]
 
-    def genuine(self, fp) -> List[Instruction]:
+    def genuine(self, fp, rng: random.Random) -> List[Instruction]:
         return [self._and(fp.value_reg), self._add(fp.value_reg)]
 
     def decoy(self, fp, rng: random.Random) -> List[Instruction]:
@@ -311,8 +322,8 @@ class CompositeSeal(Seal):
     def placeholder(self, fp) -> List[Instruction]:
         return [i for s in self.seals for i in s.placeholder(fp)]
 
-    def genuine(self, fp) -> List[Instruction]:
-        return [i for s in self.seals for i in s.genuine(fp)]
+    def genuine(self, fp, rng: random.Random) -> List[Instruction]:
+        return [i for s in self.seals for i in s.genuine(fp, rng)]
 
     def decoy(self, fp, rng: random.Random) -> List[Instruction]:
         return self._fill_subset(fp, rng, list(range(len(self.seals))))
@@ -328,7 +339,7 @@ class CompositeSeal(Seal):
             chosen = {eligible[k] for k in range(len(eligible)) if subset & (1 << k)}
         out: List[Instruction] = []
         for i, s in enumerate(self.seals):
-            out += s.decoy(fp, rng) if i in chosen else s.genuine(fp)
+            out += s.decoy(fp, rng) if i in chosen else s.genuine(fp, rng)
         return out
 
 

@@ -78,7 +78,7 @@ def _gen_sealed(seed: int):
 def _baseline_decoy(mte, sealed_tc, fix_points, seed=0):
     eng = mte.make_engine(should_decoy=_NO_SANDBOX)
     eng.set_sealed(sealed_tc, fix_points)
-    return eng.baseline(), next(eng.decoys(random.Random(seed)))
+    return eng.baseline(random.Random(0)), next(eng.decoys(random.Random(seed)))
 
 
 # ===========================================================================

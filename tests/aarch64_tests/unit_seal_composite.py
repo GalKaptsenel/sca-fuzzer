@@ -61,7 +61,7 @@ class TestSandboxSeal(unittest.TestCase):
         self.assertEqual(self.seal.slot_size, 2)
 
     def test_genuine_clamps_in_bounds(self):
-        s = self.seal.genuine(_fp(reg="x5"))
+        s = self.seal.genuine(_fp(reg="x5"), random.Random(0))
         self.assertEqual(_names(s), ["and", "add"])
         self.assertIn("x5", s[0].template)
         self.assertIn("x29", s[1].template)  # rebased on the sandbox base register
@@ -91,7 +91,7 @@ class TestCompositeSeal(unittest.TestCase):
         self.assertEqual(_names(self.seal.placeholder(_fp())), ["and", "add", "nop"])
 
     def test_genuine_concatenates_members(self):
-        self.assertEqual(_names(self.seal.genuine(_fp())), ["and", "add", "nop"])
+        self.assertEqual(_names(self.seal.genuine(_fp(), random.Random(0))), ["and", "add", "nop"])
 
     def test_empty_raises(self):
         with self.assertRaises(AssertionError):
@@ -118,7 +118,7 @@ class TestCompositeSubsets(unittest.TestCase):
         self.seal = CompositeSeal([MteTag(), MteTag()])
 
     def test_genuine_is_two_nops(self):
-        self.assertEqual(_names(self.seal.genuine(_fp())), ["nop", "nop"])
+        self.assertEqual(_names(self.seal.genuine(_fp(), random.Random(0))), ["nop", "nop"])
 
     def test_decoy_explores_every_subset(self):
         rng = random.Random(1)
@@ -139,15 +139,17 @@ class TestEngineWithComposite(unittest.TestCase):
         self.seal = CompositeSeal([Sandbox(_SANDBOX_MASK), MteTag()])
 
     def _engine(self, seal, fps, should_decoy=None):
+        for fp in fps:
+            fp.seal = seal                      # each fix point carries its own seal (no engine default)
         prep = _build_sealed_tc(seal, fps)
-        eng = SealedNIInstrumentation(seal, should_decoy)
+        eng = SealedNIInstrumentation(should_decoy)
         eng.set_sealed(prep, fps)
         return eng
 
     def test_baseline_all_genuine(self):
         for sn in (0, 1, None):
             fp = _fp(spec_nesting=sn)
-            base = self._engine(self.seal, [fp], NO_SANDBOX).baseline()
+            base = self._engine(self.seal, [fp], NO_SANDBOX).baseline(random.Random(0))
             with self.subTest(spec_nesting=sn):
                 self.assertEqual(_names(_slot(base, fp)), ["and", "add", "nop"])
 
@@ -263,7 +265,7 @@ class TestValueCommitment(unittest.TestCase):
 
     def test_seal_acts_only_on_value_reg(self):
         for reg in ("x5", "x9", "x0", "x23"):
-            clamp = Sandbox(_SANDBOX_MASK).genuine(_fp(reg=reg))
+            clamp = Sandbox(_SANDBOX_MASK).genuine(_fp(reg=reg), random.Random(0))
             self.assertTrue(all(reg in i.template for i in clamp))
             retag = MteTag().decoy(_fp(reg=reg), random.Random(0))
             self.assertIn(reg, retag[0].template)
@@ -273,7 +275,7 @@ class TestValueCommitment(unittest.TestCase):
         # identically — same op, each on its own register, no shared/historical state.
         a = MTEFixPoint(slot_id=0, value_reg="x1"); a.ptr_tag, a.correct_tag = 2, 5
         b = MTEFixPoint(slot_id=1, value_reg="x7"); b.ptr_tag, b.correct_tag = 2, 5
-        ga, gb = MteTag().genuine(a), MteTag().genuine(b)
+        ga, gb = MteTag().genuine(a, random.Random(0)), MteTag().genuine(b, random.Random(0))
         self.assertEqual(ga[0].name, gb[0].name)               # same op (delta 3)
         self.assertIn("x1", ga[0].template)
         self.assertIn("x7", gb[0].template)
