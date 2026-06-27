@@ -745,6 +745,12 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         FuzzLogger.get().wp(f"  [SEALED] primitives={sorted(self._primitives)} fix_points="
                             f"{len(self._fix_points)} (pac={len(self._pac_fps)}, mem={len(mem_fps)})")
 
+    def _mint_variants(self) -> TCVariants:
+        """The TC variants to run on hardware for the current input's resolved fix points. NI compares
+        a genuine baseline against a decoy; the regular subclass overrides to mint genuine only."""
+        return {NIVariant.BASELINE: self._engine.baseline(random),
+                NIVariant.DECOY:    next(self._engine.decoys(random))}
+
     def trace_test_case_with_taints(
         self,
         inputs: List[Input],
@@ -781,11 +787,8 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             for fp in self._pac_fps:  # log_slot reads PAC signature data
                 log_slot(log, inp_idx, fp)
 
-            # Fix points now hold this input's data; mint the variants to compare on hardware.
-            variants: TCVariants = {
-                NIVariant.BASELINE: self._engine.baseline(random),
-                NIVariant.DECOY:    next(self._engine.decoys(random)),
-            }
+            # Fix points now hold this input's data; mint the variants to run on hardware.
+            variants = self._mint_variants()
             tc_variants_per_input.append(variants)
             log.header(f"VARIANT TC BINARIES  inp={inp_idx}")
             for variant, vtc in variants.items():
@@ -870,3 +873,49 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                 log.w(f"  htrace=0x{ht.raw[0]:016x}  n_reps={len(trace_list)}", ch="pac_hw")
             results.append(per_variant)
         return results
+
+
+class Aarch64RegularSealedExecutor(Aarch64NonInterferenceExecutor):
+    """Regular fuzzing with PAC/MTE support.
+
+    Reuses the NI seal/resolve pipeline so that, per input, every PAC pointer is correctly signed and
+    every MTE access correctly tagged for *that* input (arch-safe: no failed AUTH at EL1, no tag
+    fault). But the leak model is the regular one — inputs are grouped by their (sealed-TC) contract
+    trace and the per-input genuine htraces must match; there are no decoys. The genuine TC is
+    architecturally equivalent to the sealed placeholder and its seal slots are register-only, so the
+    sig/tag differences between inputs never enter the cache htrace."""
+
+    def _mint_variants(self) -> TCVariants:
+        return {NIVariant.BASELINE: self._engine.baseline(random)}
+
+    def trace_test_case(self, inputs: List[Input], n_reps: int) -> Tuple[List[HTrace], List[TestCase]]:
+        """Run each input's genuine sealed TC on hardware. trace_test_case_with_taints() (called first
+        by the fuzzer) minted and cached each input's genuine TC; replay it one input at a time, since
+        the TC differs per input (its signatures/tags are input-specific, so inputs cannot be batched
+        onto one loaded TC)."""
+        if not inputs or self.test_case is None:
+            return [], []
+        assert self._last_tc_variants is not None and len(self._last_tc_variants) == len(inputs), \
+            "trace_test_case_with_taints() must run before trace_test_case()"
+        STAT.executor_reruns += n_reps * len(inputs)
+        input_to_trace_list: Dict[int, List[int]] = defaultdict(list)
+        pfc_log: Dict[int, List] = defaultdict(list)
+        genuine_tcs: List[TestCase] = []
+        for inp_idx, (inp, variants) in enumerate(zip(inputs, self._last_tc_variants)):
+            tc = variants[NIVariant.BASELINE]
+            genuine_tcs.append(tc)
+            self.local_executor.discard_all_inputs()
+            iid = self.local_executor.allocate_iid()
+            self.local_executor.checkout_region(InputRegion(iid))
+            self.local_executor.write(ExecutorMemory(_input_bytes_with_pstate(inp)))
+            self.apply_branch_mistraining(
+                self.branch_mistraining_entries(getattr(inp, "_arch_trace", None)))
+            self._assemble_and_write_test_case(tc)
+            for _ in range(n_reps):
+                self.local_executor.trace()
+                self.local_executor.checkout_region(InputRegion(iid))
+                hwm = self.local_executor.hardware_measurement()
+                input_to_trace_list[inp_idx].append(hwm.htrace)
+                pfc_log[inp_idx].append(hwm.pfcs)
+        htraces = self._aggregate_htraces(len(inputs), n_reps, input_to_trace_list, pfc_log)
+        return htraces, genuine_tcs

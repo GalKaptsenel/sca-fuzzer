@@ -151,7 +151,8 @@ def get_model(bases: Tuple[int, int], enable_mismatch_check_mode: bool = False) 
                             bases[0], bases[1], tracer, enable_mismatch_check_mode)
 
 
-def get_executor(enable_mismatch_check_mode: bool = False) -> interfaces.Executor:
+def get_executor(enable_mismatch_check_mode: bool = False,
+                 generator: interfaces.Generator = None) -> interfaces.Executor:
     if CONF.executor in ("x86-64-intel", "x86-64-amd"):
         from .x86 import x86_executor
         cls = {"x86-64-intel": x86_executor.X86IntelExecutor,
@@ -159,6 +160,13 @@ def get_executor(enable_mismatch_check_mode: bool = False) -> interfaces.Executo
         return cls(enable_mismatch_check_mode)
     if CONF.executor == "aarch64":
         from .aarch64 import aarch64_executor
+        # Regular fuzzing with PAC/MTE: each input runs its own genuine sealed TC (correct
+        # signatures/tags for that input), so the box-resetting raw AUT*/tag-fault never happens.
+        # Needs the generator (for the seal passes); falls back to the plain local executor otherwise.
+        cats = CONF.instruction_categories or []
+        if generator is not None and CONF.fuzzer != "non-interference" \
+                and any(c.startswith(("PAC", "MTE")) for c in cats):
+            return aarch64_executor.Aarch64RegularSealedExecutor(generator, enable_mismatch_check_mode)
         return aarch64_executor.Aarch64LocalExecutor(enable_mismatch_check_mode)
     raise ConfigException(
         f"ERROR: unknown value `{CONF.executor}` of `executor` configuration option")
