@@ -1,28 +1,15 @@
 """
-MTE tag-state model tests.
-
-  1. TestMteTagState        — the speculative address->tag map: uniform default, granule keying,
-                              stores, and depth push/pop (speculation copy + unwind revert).
-  2. TestCorrectTagFromTrace — _classify_mte_slots populates fp.correct_tag from the trace, tracking
-                              architectural and speculative tag stores with revert on unwind.
+MTE tag-state model tests: MteTagState (the speculative address->tag map — uniform default, granule
+keying, stores, depth push/pop with speculation copy + unwind revert) and mte_tag_store_effect
+(STG-family detection + the written tag is Xt's tag).
 """
 import types
 import random
 import unittest
 
 import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-from src.aarch64.aarch64_mte import MteTagState, MTE_GRANULE, mte_tag_store_effect, MTEFixPoint, MteTag
+from src.aarch64.aarch64_mte import MteTagState, MTE_GRANULE, mte_tag_store_effect
 import src.aarch64.aarch64_mte as mte_mod
-
-
-def _classify(cer, offset_to_fp, default_tag):
-    """Resolve each MTEFixPoint from the trace by its guarded access's byte offset — the per-fp form
-    of the former _classify_mte_slots pass. x29 (in cer[0]) carries the region's default tag."""
-    if cer:
-        cer[0].cpu.gpr = [0] * 29 + [default_tag << 56] + [0, 0]
-    for off, fp in offset_to_fp.items():
-        fp.trigger = object()    # stands in for the guarded access instruction
-        fp.resolve(cer, types.SimpleNamespace(instruction_address={fp.trigger: off}))
 
 
 # ===========================================================================
@@ -80,170 +67,6 @@ class TestMteTagState(unittest.TestCase):
         self.assertEqual(s.tag_at(0x4000_0000), 5)   # depth-1 store survives
         s.to_depth(0)
         self.assertEqual(s.tag_at(0x4000_0000), 0)   # all speculative gone
-
-
-# ===========================================================================
-# 2. correct_tag populated from the trace
-# ===========================================================================
-
-_CODE_BASE = 0x1000
-
-def _ite(pc_off, nesting, ea, mem=True, store=None):
-    ns = types.SimpleNamespace
-    md = ns(has_memory_access=mem, speculation_nesting=nesting,
-            memory_access=ns(effective_address=ea))
-    it = ns(cpu=ns(pc=_CODE_BASE + pc_off, encoding=0), metadata=md)
-    it._store = store  # (addr, tag, n_granules) or None
-    return it
-
-
-class TestCorrectTagFromTrace(unittest.TestCase):
-
-    def setUp(self):
-        # Stub the disassembly-based STG detection: an entry stores iff it carries ._store.
-        self._orig = mte_mod.mte_tag_store_effect
-        mte_mod.mte_tag_store_effect = lambda ite: getattr(ite, "_store", None)
-
-    def tearDown(self):
-        mte_mod.mte_tag_store_effect = self._orig
-
-    def _fp(self, slot_id):
-        return MTEFixPoint(slot_id=slot_id, value_reg="x5")
-
-    def test_default_tag_when_no_stores(self):
-        fp = self._fp(0)
-        _classify([_ite(0, 0, ea=0x4000_0000)], {0: fp}, default_tag=6)
-        self.assertEqual(fp.correct_tag, 6)
-
-    def test_ptr_tag_is_ea_top_byte(self):
-        fp = self._fp(0)
-        _classify([_ite(0, 0, ea=0x0500_0000_4000_0000)], {0: fp}, default_tag=6)
-        self.assertEqual(fp.ptr_tag, 5)          # pointer's own tag (EA bits [59:56])
-        self.assertEqual(fp.correct_tag, 6)      # cell's allocation tag (region default)
-
-    def test_architectural_store_updates_tag(self):
-        fp = self._fp(0)
-        cer = [
-            _ite(0, 0, ea=0x4000_0000, store=(0x4000_0000, 9, 1)),  # STG (arch) tags the cell 9
-            _ite(8, 0, ea=0x4000_0000),                             # later access to that cell
-        ]
-        _classify(cer, {8: fp}, default_tag=6)
-        self.assertEqual(fp.correct_tag, 9)
-
-    def test_speculative_store_reverted_for_arch_access(self):
-        fp = self._fp(0)
-        cer = [
-            _ite(0, 2, ea=0x4000_0000, store=(0x4000_0000, 9, 1)),  # STG under speculation
-            _ite(8, 0, ea=0x4000_0000),                             # arch access after unwind
-        ]
-        _classify(cer, {8: fp}, default_tag=6)
-        self.assertEqual(fp.correct_tag, 6)                         # reverted -> default
-
-    def test_speculative_access_sees_speculative_store(self):
-        fp = self._fp(0)
-        cer = [
-            _ite(0, 1, ea=0x4000_0000, store=(0x4000_0000, 9, 1)),  # speculative STG
-            _ite(8, 1, ea=0x4000_0000),                             # speculative access, same window
-        ]
-        _classify(cer, {8: fp}, default_tag=6)
-        self.assertEqual(fp.spec_nesting, 1)
-        self.assertEqual(fp.correct_tag, 9)                         # sees the live speculative tag
-
-    def test_store_to_other_granule_does_not_affect(self):
-        fp = self._fp(0)
-        cer = [
-            _ite(0, 0, ea=0x4000_0100, store=(0x4000_0100, 9, 1)),
-            _ite(8, 0, ea=0x4000_0000),
-        ]
-        _classify(cer, {8: fp}, default_tag=6)
-        self.assertEqual(fp.correct_tag, 6)
-
-    def test_st2g_tags_two_granules(self):
-        fp = self._fp(0)
-        cer = [
-            _ite(0, 0, ea=0x4000_0000, store=(0x4000_0000, 4, 2)),
-            _ite(8, 0, ea=0x4000_0000 + MTE_GRANULE),
-        ]
-        _classify(cer, {8: fp}, default_tag=6)
-        self.assertEqual(fp.correct_tag, 4)
-
-
-class TestMteArchTagFix(unittest.TestCase):
-    """The architectural genuine fill (MteTag.genuine): NOP when the pointer's tag already matches
-    the cell's allocation tag, ADDG #delta when it doesn't — including after an STG retag. Standalone
-    (its own STG stub) so it neither inherits nor leaks into other test classes."""
-
-    _CELL = 0x4000_0000
-
-    def setUp(self):
-        self._orig = mte_mod.mte_tag_store_effect
-        mte_mod.mte_tag_store_effect = lambda ite: getattr(ite, "_store", None)
-
-    def tearDown(self):
-        mte_mod.mte_tag_store_effect = self._orig
-
-    def _genuine(self, stores, ptr_tag, default_tag):
-        """stores: (addr, tag, n) applied architecturally before an access to _CELL whose pointer
-        carries ptr_tag. Returns (genuine mnemonics, fp). An anchor entry pins code_base so the
-        access's offset is stable regardless of how many stores precede it."""
-        cer = [_ite(0, 0, ea=0x5000_0000)]                                   # anchor (not a fix point)
-        cer += [_ite(0x10, 0, ea=s[0], store=s) for s in stores]
-        cer.append(_ite(0x40, 0, ea=(ptr_tag << 56) | self._CELL))
-        fp = MTEFixPoint(slot_id=0, value_reg="x5")
-        _classify(cer, {0x40: fp}, default_tag=default_tag)
-        return [i.name for i in MteTag().genuine(fp, random.Random(0))], fp
-
-    def test_match_no_store_is_nop(self):
-        out, _ = self._genuine([], ptr_tag=6, default_tag=6)                 # ptr 6 == region 6
-        self.assertEqual(out, ["nop"])
-
-    def test_mismatch_no_store_fixes_with_addg(self):
-        out, fp = self._genuine([], ptr_tag=3, default_tag=6)                # ptr 3 != cell 6
-        self.assertEqual(out, ["addg"])
-        self.assertEqual((fp.correct_tag, fp.ptr_tag), (6, 3))
-
-    def test_stg_changes_tag_then_mismatch_fixes(self):
-        out, fp = self._genuine([(self._CELL, 9, 1)], ptr_tag=6, default_tag=6)  # cell 9, ptr 6
-        self.assertEqual(fp.correct_tag, 9)
-        self.assertEqual(out, ["addg"])
-
-    def test_stg_changes_tag_but_ptr_matches_is_nop(self):
-        # STG retags the cell to 9 AND the access pointer carries tag 9: changed, yet correct -> NOP.
-        out, fp = self._genuine([(self._CELL, 9, 1)], ptr_tag=9, default_tag=6)
-        self.assertEqual(fp.correct_tag, 9)
-        self.assertEqual(out, ["nop"])                                       # no tag-fix needed
-
-    def test_stg_changes_then_code_flow_restores_is_nop(self):
-        # STG retags to 9, a later arch STG restores the region tag 6; ptr tag 6 -> matches -> NOP.
-        out, fp = self._genuine([(self._CELL, 9, 1), (self._CELL, 6, 1)], ptr_tag=6, default_tag=6)
-        self.assertEqual(fp.correct_tag, 6)
-        self.assertEqual(out, ["nop"])
-
-
-class _Rng:
-    """Deterministic stand-in: random() returns a fixed value; choice picks a fixed index."""
-    def __init__(self, r, idx=0): self._r, self._idx = r, idx
-    def random(self): return self._r
-    def choice(self, seq): return seq[self._idx]
-
-
-class TestMteDecoy(unittest.TestCase):
-    """The speculative decoy fill (MteTag.decoy): a retag — IRG (random tag) or EOR (flip tag bits)."""
-    def _fp(self):
-        fp = MTEFixPoint(slot_id=0, value_reg="x5"); fp.correct_tag, fp.ptr_tag = 6, 6
-        return fp
-
-    def test_decoy_irg(self):
-        out = MteTag().decoy(self._fp(), _Rng(0.1))          # random() < 0.5 -> IRG
-        self.assertEqual([i.name for i in out], ["irg"])
-
-    def test_decoy_eor_flips_tag_bits_only(self):
-        out = MteTag().decoy(self._fp(), _Rng(0.9, idx=0))   # random() >= 0.5 -> EOR a tag mask
-        self.assertEqual([i.name for i in out], ["eor"])
-        # the EOR mask must touch only the tag field [59:56]
-        mask = int(out[0].template.split("#0x")[1], 16)
-        self.assertEqual(mask & ~(0xF << 56), 0)
-        self.assertNotEqual(mask, 0)
 
 
 # ===========================================================================

@@ -376,9 +376,9 @@ static long handle_pac_auth(void __user *arg)
 		return -EINVAL;
 	}
 
-	req.result = pac_run_op_with_keys(op, req.ptr, req.ctx,
-	                                  executor.config.pac_keys_set,
-	                                  &executor.config.pac_keys);
+	req.result = pac_auth_with_keys(op, req.ptr, req.ctx,
+	                                executor.config.pac_keys_set,
+	                                &executor.config.pac_keys);
 	return copy_to_user_with_access_check(arg, &req, sizeof(req)) ? -EFAULT : 0;
 }
 
@@ -532,23 +532,101 @@ static ssize_t do_revisor_read(struct file* File, char __user* user_buffer,
 	return number_of_bytes_to_copy - not_copied;
 }
 
-static ssize_t copy_input_from_user_and_update_state(const char __user* user_buffer, size_t count) {
-	if(USER_CONTROLLED_INPUT_LENGTH > count) {
-	    module_err("Input must be exactly of length USER_CONTROLLED_INPUT_LENGTH(=%lu)!\n",
-	    USER_CONTROLLED_INPUT_LENGTH);
-	    return -EINVAL;
+/* Generous ceiling on a single input initialization; the legitimate input_init is < 10 KB. */
+#define REVISOR_INPUT_MAX_SIZE  (32 * 1024)
+
+/* Extract a validated input initialization into the device's input_t. main/faulty/gpr are
+ * required and must be exactly sized; mte_tags / pac_keys are optional and set their
+ * *_present flag when supplied. Returns 0, or -EINVAL on a missing/mis-sized section. */
+static int parse_input_init(const void* input_init, input_t* dst) {
+	const struct revisor_input_section* sec;
+
+	sec = revisor_input_find_section(input_init, REVISOR_SEC_MEMORY_MAIN);
+	if (NULL == sec || MAIN_REGION_SIZE != sec->length) {
+		return -EINVAL;
+	}
+	memcpy(dst->main_region, (const char*)input_init + sec->offset, MAIN_REGION_SIZE);
+
+	sec = revisor_input_find_section(input_init, REVISOR_SEC_MEMORY_FAULTY);
+	if (NULL == sec || FAULTY_REGION_SIZE != sec->length) {
+		return -EINVAL;
+	}
+	memcpy(dst->faulty_region, (const char*)input_init + sec->offset, FAULTY_REGION_SIZE);
+
+	sec = revisor_input_find_section(input_init, REVISOR_SEC_GPR);
+	if (NULL == sec || sizeof(registers_t) != sec->length) {
+		return -EINVAL;
+	}
+	memcpy(&dst->regs, (const char*)input_init + sec->offset, sizeof(registers_t));
+
+	/* MTE tags: two 4-bit tags per byte, low nibble first (granule 2*i, then 2*i+1). */
+	dst->mte_tags_present = false;
+	sec = revisor_input_find_section(input_init, REVISOR_SEC_MTE_TAGS);
+	if (NULL != sec) {
+		const uint8_t* packed = (const uint8_t*)((const char*)input_init + sec->offset);
+		if ((INPUT_MTE_TAG_COUNT + 1) / 2 != sec->length) {
+			return -EINVAL;
+		}
+		for (uint64_t i = 0; i < INPUT_MTE_TAG_COUNT; ++i) {
+			uint8_t byte = packed[i / 2];
+			dst->mte_tags[i] = (0 == (i & 1)) ? (byte & 0xF) : (byte >> 4);
+		}
+		dst->mte_tags_present = true;
 	}
 
-	void* to_buffer = get_input(executor.checkout_region);
-	BUG_ON(NULL == to_buffer);
+	/* Per-input PAC keys (highest precedence over the ioctl-set keys at execute). */
+	dst->pac_keys_present = false;
+	sec = revisor_input_find_section(input_init, REVISOR_SEC_PAC_KEYS);
+	if (NULL != sec) {
+		if (sizeof(struct pac_keys) != sec->length) {
+			return -EINVAL;
+		}
+		memcpy(&dst->pac_keys, (const char*)input_init + sec->offset, sizeof(struct pac_keys));
+		dst->pac_keys_present = true;
+	}
 
-	if(copy_from_user_with_access_check(to_buffer, user_buffer, USER_CONTROLLED_INPUT_LENGTH)) {
+	return 0;
+}
+
+static ssize_t copy_input_from_user_and_update_state(const char __user* user_buffer, size_t count) {
+	void* input_init;
+	input_t* dst;
+	int err;
+
+	if (sizeof(struct revisor_input_header) > count || REVISOR_INPUT_MAX_SIZE < count) {
+		module_err("Input input_init size %zu out of range\n", count);
+		return -EINVAL;
+	}
+
+	input_init = kmalloc(count, GFP_KERNEL);
+	if (NULL == input_init) {
+		return -ENOMEM;
+	}
+
+	if (copy_from_user_with_access_check(input_init, user_buffer, count)) {
 		module_err("Was unable to read entire input from user\n");
+		kfree(input_init);
 		return -EFAULT;
 	}
 
+	if (!revisor_input_header_valid(input_init, count)) {
+		module_err("Malformed input initialization (bad magic/version/header/sections)\n");
+		kfree(input_init);
+		return -EINVAL;
+	}
+
+	dst = get_input(executor.checkout_region);
+	BUG_ON(NULL == dst);
+
+	err = parse_input_init(input_init, dst);
+	kfree(input_init);
+	if (err) {
+		module_err("Input input_init missing or mis-sized required section\n");
+		return err;
+	}
+
 	update_state_after_writing_input();
-	return USER_CONTROLLED_INPUT_LENGTH;
+	return count;
 }
 
 static ssize_t do_revisor_write(struct file* File, const char __user* user_buffer,

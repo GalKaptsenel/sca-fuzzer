@@ -30,6 +30,12 @@ enum pac_op pac_auth_op_from_mnemonic(const char *m);
 uint64_t pac_run_op_with_keys(enum pac_op op, uint64_t ptr, uint64_t mod,
                               bool keys_set, const struct pac_keys *exec_keys);
 
+/* Crash-safe AUTH: verifies the signature with non-faulting ops (XPAC + re-sign) and runs the real
+ * AUT* only if it would succeed; otherwise warns and returns the canonical pointer. Use this for
+ * every auth op so a wrong signature can never FPAC-reset the box. */
+uint64_t pac_auth_with_keys(enum pac_op op, uint64_t ptr, uint64_t mod,
+                            bool keys_set, const struct pac_keys *exec_keys);
+
 void pac_save_keys(struct pac_keys *out);
 void pac_load_keys(const struct pac_keys *keys);
 uint64_t pac_enable_all_keys(void);    /* enables EnIA|EnIB|EnDA|EnDB in SCTLR_EL1; returns old SCTLR value */

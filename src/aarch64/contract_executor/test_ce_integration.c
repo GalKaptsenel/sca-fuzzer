@@ -3,7 +3,7 @@
  *
  * Approach:
  *   fork() + pipe() + exec() ./contract_executor, write a crafted
- *   simulation_input blob to its stdin, read the contract_trace_t output
+ *   simulation_input initialization to its stdin, read the contract_trace_t output
  *   from its stdout, and verify trace entries match expected observations.
  *
  * Main.c wires X29 = requested_mem_base_virt before entering simulation,
@@ -30,6 +30,7 @@
 #include "simulation_output.h"
 #include "instruction_encodings.h"
 #include "stream_ipc.h"
+#include "userapi/executor_input_format.h"
 
 /* ---- test infrastructure ------------------------------------------------ */
 
@@ -166,9 +167,11 @@ static uint32_t enc_tbnz(int rt, int bit, int offset) {
 /* ---- IPC frame builder -------------------------------------------------- */
 
 /*
- * Build the blob written to CE's stdin:
- *   [struct header (8 B)] [struct input_header (112 B)] [code] [memory] [regs]
- * regs_override: 8-element array of uint64_t for X0..X5, NZCV(slot6), SP(slot7); NULL = all zero.
+ * Build the message written to CE's stdin:
+ *   [struct header (8 B)] [struct input_header (128 B)] [code] [input initialization]
+ * The input initialization (executor_input_format) carries memory as MAIN(=mem) + an empty FAULTY,
+ * and the GPR section (regs). regs_override: 8-element array for X0..X5, NZCV(slot6), SP(slot7);
+ * NULL = all zero.
  */
 static size_t build_ce_input(
         uint8_t *buf, size_t bufsz,
@@ -178,7 +181,8 @@ static size_t build_ce_input(
         uint64_t max_nesting,
         uint64_t contract,
         uint64_t branch_predictor,
-        const uint64_t *regs_override)
+        const uint64_t *regs_override,
+        const uint8_t  *mte_tags, size_t mte_len)
 {
     uint64_t regs[REGS_COUNT];
     if (regs_override) {
@@ -189,7 +193,12 @@ static size_t build_ce_input(
 
     size_t code_sz  = n_words * 4;
     size_t regs_sz  = sizeof(regs);
-    size_t payload  = sizeof(struct input_header) + code_sz + mem_sz + regs_sz;
+
+    /* input initialization: main = mem, empty faulty, gpr = regs, and (optionally) MTE tags. */
+    const uint64_t n_sec = (NULL != mte_tags) ? 4 : 3;
+    size_t init_hdr = sizeof(struct revisor_input_header) + n_sec * sizeof(struct revisor_input_section);
+    size_t init_len = init_hdr + mem_sz + regs_sz + ((NULL != mte_tags) ? mte_len : 0);
+    size_t payload  = sizeof(struct input_header) + code_sz + init_len;
 
     if (bufsz < sizeof(struct header) + payload) return 0;
 
@@ -199,27 +208,43 @@ static size_t build_ce_input(
     struct header ipc = { .length = (uint32_t)payload, .type = 0 };
     memcpy(p, &ipc, sizeof(ipc)); p += sizeof(ipc);
 
-    /* simulation input_header */
+    /* CE envelope */
     struct input_header hdr;
     memset(&hdr, 0, sizeof(hdr));
-    hdr.magic    = RVZR_MAGIC;
-    hdr.version  = RVZR_VERSION;
+    hdr.magic    = RVZRCE_MAGIC;
+    hdr.version  = RVZRCE_VERSION;
     hdr.arch     = RVZR_ARCH_AARCH64;
-    hdr.flags    = RVZR_FLAG_HAS_CODE | RVZR_FLAG_HAS_MEMORY | RVZR_FLAG_HAS_REGS;
+    hdr.flags    = RVZR_FLAG_HAS_CODE | RVZR_FLAG_HAS_INPUT;
     hdr.config.flags                    = CONFIG_FLAG_REQ_MEM_BASE_VIRT;
     hdr.config.max_misspred_branch_nesting = max_nesting;
     hdr.config.requested_mem_base_virt  = kbase_addr;
     hdr.config.execution_clauses            = contract;
     hdr.config.branch_predictor             = branch_predictor;
-    hdr.code_size  = (uint64_t)code_sz;
-    hdr.mem_size   = (uint64_t)mem_sz;
-    hdr.regs_size  = (uint64_t)regs_sz;
+    hdr.code_size       = (uint64_t)code_sz;
+    hdr.input_init_size = (uint64_t)init_len;
     memcpy(p, &hdr, sizeof(hdr)); p += sizeof(hdr);
 
-    /* sections */
+    /* code */
     memcpy(p, code, code_sz); p += code_sz;
-    memcpy(p, mem,  mem_sz);  p += mem_sz;
-    memcpy(p, regs, regs_sz); p += regs_sz;
+
+    /* input initialization */
+    uint8_t *init = p;
+    struct revisor_input_header *ih = (struct revisor_input_header *)init;
+    struct revisor_input_section *tab = (struct revisor_input_section *)(init + sizeof(*ih));
+    size_t off = init_hdr;
+    uint64_t i = 0;
+    tab[i].type = REVISOR_SEC_MEMORY_MAIN;   tab[i].flags = 0; tab[i].offset = off; tab[i].length = mem_sz;
+    memcpy(init + off, mem, mem_sz); off += mem_sz; i++;
+    tab[i].type = REVISOR_SEC_MEMORY_FAULTY; tab[i].flags = 0; tab[i].offset = off; tab[i].length = 0; i++;
+    tab[i].type = REVISOR_SEC_GPR;           tab[i].flags = 0; tab[i].offset = off; tab[i].length = regs_sz;
+    memcpy(init + off, regs, regs_sz); off += regs_sz; i++;
+    if (NULL != mte_tags) {
+        tab[i].type = REVISOR_SEC_MTE_TAGS;  tab[i].flags = 0; tab[i].offset = off; tab[i].length = mte_len;
+        memcpy(init + off, mte_tags, mte_len); off += mte_len; i++;
+    }
+    ih->magic = REVISOR_INPUT_MAGIC; ih->version = REVISOR_INPUT_VERSION;
+    ih->header_len = init_hdr; ih->n_sections = n_sec; ih->flags = 0; ih->total_len = init_len;
+    p += init_len;
 
     return (size_t)(p - buf);
 }
@@ -277,6 +302,7 @@ static bool run_ce_full(
         uint64_t contract,
         uint64_t branch_predictor,
         const uint64_t *regs_override,
+        const uint8_t  *mte_tags, size_t mte_len,
         ce_result_t *result)
 {
     static uint8_t in_buf[1 << 22];   /* 4 MB — never stack-allocate */
@@ -284,7 +310,7 @@ static bool run_ce_full(
     size_t in_len = build_ce_input(in_buf, sizeof(in_buf),
                                    code, n_words, mem, mem_sz,
                                    kbase_addr, max_nesting, contract,
-                                   branch_predictor, regs_override);
+                                   branch_predictor, regs_override, mte_tags, mte_len);
     if (in_len == 0) return false;
 
     int to_ce[2], from_ce[2];
@@ -349,7 +375,7 @@ static bool run_ce(
     uint64_t bp = (contract & EXEC_CLAUSE_BPU) ? BRANCH_PREDICTOR_NEOVERSE_N3
                                                : BRANCH_PREDICTOR_NONE;
     return run_ce_full(code, n_words, mem, mem_sz, kbase_addr, max_nesting, contract, bp,
-                       regs_override, result);
+                       regs_override, NULL, 0, result);
 }
 
 /* Convenience: run with all-zero regs. */
@@ -807,7 +833,7 @@ static void test_integration_access_size_word(void) {
 
 static void test_integration_strb_partial_write(void) {
     /*
-     * STRB W0,[X29] with X0=0x42 (set via regs blob slot 0 = X0).
+     * STRB W0,[X29] with X0=0x42 (set via regs input_init slot 0 = X0).
      * mem[0..7] = 0xAABBCCDDEEFF0011; access-size = 1 byte, so before=0x11, after=0x42.
      */
     uint32_t code[] = { enc_strb(0, 29) };
@@ -838,11 +864,11 @@ static void test_integration_strb_partial_write(void) {
     EXPECT_EQ(e->metadata.memory_access.after,             (uint64_t)0x42);
 }
 
-/* ---- GROUP 15: non-X29 base register from regs blob ------------------- */
+/* ---- GROUP 15: non-X29 base register from regs input_init ------------------- */
 
 static void test_integration_non_x29_base(void) {
     /*
-     * Set X1 = kbase via regs blob (slot 1 = X1).
+     * Set X1 = kbase via regs input_init (slot 1 = X1).
      * Code: LDR X0,[X1]
      * EA must be kbase, even though we didn't use X29.
      */
@@ -877,7 +903,7 @@ static void test_integration_non_x29_base(void) {
 
 static void test_integration_nzcv_in_cpu_state(void) {
     /*
-     * Set initial NZCV = Z=1 (PSTATE: 0x40000000) via regs blob slot 6.
+     * Set initial NZCV = Z=1 (PSTATE: 0x40000000) via regs input_init slot 6.
      * Code: LDR X0,[X29]
      * The trace entry's cpu_state.nzcv should have Z=1.
      */
@@ -913,7 +939,7 @@ static void test_integration_nzcv_in_cpu_state(void) {
 
 static void test_integration_register_offset(void) {
     /*
-     * Set X1 = 16 via regs blob. Code: LDR X0,[X29,X1]
+     * Set X1 = 16 via regs input_init. Code: LDR X0,[X29,X1]
      * EA = kbase + 16.
      */
     uint32_t code[] = { enc_ldr_regoff(0, 29, 1) };  /* LDR X0,[X29,X1] */
@@ -2169,7 +2195,7 @@ static void test_integration_bpu_without_predictor_traps(void) {
     memset(mem, 0, sizeof(mem));
     ce_result_t res;
     bool ok = run_ce_full(code, 3, mem, sizeof(mem), KBASE, 4,
-                          EXEC_CLAUSE_BPU, BRANCH_PREDICTOR_NONE, NULL, &res);
+                          EXEC_CLAUSE_BPU, BRANCH_PREDICTOR_NONE, NULL, NULL, 0, &res);
     EXPECT(!ok);   /* CE traps: BPU enabled with no predictor */
 }
 
@@ -2325,6 +2351,32 @@ static void test_integration_mte_subg(void) {
     EXPECT_EQ(e->cpu.gpr[0], UINT64_C(0xF200000000001000));
 }
 
+/* LDG X<rt>, [X<rn>] (offset 0). */
+static uint32_t enc_ldg(int rt, int rn) {
+    return 0xD9600000u | ((uint32_t)rn << 5) | (uint32_t)rt;
+}
+
+/* An emulated memory-tag op (LDG X0,[X0], Rt==Rn) must not leave a uaddr in its base register:
+ * base_hook excludes the memory-tag family from the native kaddr<->uaddr translation. After LDG, X0
+ * keeps its sandbox address (only the tag field [59:56] is rewritten; tag 0 with no tag memory). */
+static void test_integration_ldg_base_not_translated(void) {
+    uint32_t code[] = { enc_ldg(0, 0), enc_ldr_reg(9, 29) };   /* LDG X0,[X0] ; LDR X9,[X29] */
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[0] = KBASE;
+    ce_result_t res;
+    if (!run_ce(code, 2, mem, sizeof(mem), KBASE, 0, 0u, regs, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+    instr_trace_entry_t *e = find_mem_entry(&res, 0);          /* LDR X9 entry: post-LDG cpu state */
+    EXPECT(e != NULL);
+    if (!e) return;
+    EXPECT_EQ(e->cpu.gpr[0] & UINT64_C(0x00FFFFFFFFFFFFFF), KBASE & UINT64_C(0x00FFFFFFFFFFFFFF));
+}
+
 /* ---- PAC sign / auth / strip — needs the kernel module (EL1 keys) ------- *
  * PAC keys are EL1 registers, so the CE routes these through /dev/executor.
  * They run on the VM once revizor-executor.ko is loaded, and SKIP otherwise. */
@@ -2423,6 +2475,71 @@ static void test_integration_pac_sign_then_auth(void) {
     EXPECT_EQ(b->cpu.gpr[0], KBASE);  /* authenticated back */
 }
 
+/* ============================================================================
+ * MTE mode: after-access tag correction
+ * ----------------------------------------------------------------------------
+ * In MTE-test mode (MTE_TAGS supplied) the pointer used by a data access carries the accessed
+ * granule's tag *afterwards* -- the CE fixes-after, genuine fixes-before (the ADDG), so the two
+ * flows differ only in the tag at the access itself. Before this correction these would fail.
+ * ============================================================================ */
+
+static void test_integration_mte_after_access_correction(void) {
+    uint8_t mem[64]; memset(mem, 0, sizeof(mem));
+    uint8_t tags[2] = { 0x05, 0x00 };               /* 4 granules; granule 0 = tag 5 */
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[1] = KBASE;                                 /* X1 = clean pointer (tag 0) to granule 0 */
+
+    uint32_t code[] = { 0xF9400020u /* LDR X0,[X1] */, 0xD503201Fu /* NOP */ };
+    ce_result_t res;
+    if (!run_ce_full(code, 2, mem, sizeof(mem), KBASE, 0, 0u, BRANCH_PREDICTOR_NONE,
+                     regs, tags, sizeof(tags), &res)) {
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__); ++g_tests_failed; return;
+    }
+    EXPECT(res.n_entries >= 2);
+    /* KBASE's tag nibble [59:56] is already 0xF; the correction REPLACES it with the cell tag 5. */
+    EXPECT_EQ(res.entries[0].cpu.gpr[1], KBASE);                                       /* before */
+    EXPECT_EQ(res.entries[1].cpu.gpr[1], (KBASE & ~((uint64_t)0xF << 56)) | ((uint64_t)0x5 << 56));
+}
+
+/* Control: no MTE_TAGS -> not MTE mode -> the pointer's tag is NOT touched after an access. */
+static void test_integration_mte_inactive_no_correction(void) {
+    uint8_t mem[64]; memset(mem, 0, sizeof(mem));
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[1] = KBASE;
+    uint32_t code[] = { 0xF9400020u /* LDR X0,[X1] */, 0xD503201Fu /* NOP */ };
+    ce_result_t res;
+    if (!run_ce(code, 2, mem, sizeof(mem), KBASE, 0, 0u, regs, &res)) {
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__); ++g_tests_failed; return;
+    }
+    EXPECT(res.n_entries >= 2);
+    EXPECT_EQ(res.entries[1].cpu.gpr[1], KBASE);   /* unchanged: no tag memory */
+}
+
+/* BUG #3 corner case: the corrected tag propagates. LDR fixes X1's tag to the cell's (5); a
+ * downstream STG stores X1's tag into granule 1; LDG reads it back as 5. Without the after-access
+ * correction X1's tag would still be 0 and this would read 0. */
+static void test_integration_mte_correction_propagates(void) {
+    uint8_t mem[64]; memset(mem, 0, sizeof(mem));
+    uint8_t tags[2] = { 0x15, 0x00 };               /* granule 0 = 5, granule 1 = 1 */
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[1] = KBASE;                                 /* X1 -> granule 0 (tag 5) */
+    regs[3] = KBASE + 16;                            /* X3 -> granule 1 (tag 1) */
+
+    uint32_t code[] = {
+        0xF9400020u,   /* LDR X0,[X1]  -> after-access correction sets X1 tag = 5 */
+        0xD9200861u,   /* STG X1,[X3]  -> store X1's tag (5) into granule 1        */
+        0xD9600064u,   /* LDG X4,[X3]  -> X4[59:56] = granule 1 tag (now 5)        */
+        0xD503201Fu,   /* NOP                                                      */
+    };
+    ce_result_t res;
+    if (!run_ce_full(code, 4, mem, sizeof(mem), KBASE, 0, 0u, BRANCH_PREDICTOR_NONE,
+                     regs, tags, sizeof(tags), &res)) {
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__); ++g_tests_failed; return;
+    }
+    EXPECT(res.n_entries >= 4);
+    EXPECT_EQ(res.entries[3].cpu.gpr[4] >> 56, (uint64_t)0x5);   /* corrected tag propagated */
+}
+
 int main(void) {
     printf("Running CE integration tests (fork+exec)...\n");
 
@@ -2434,6 +2551,9 @@ int main(void) {
 
     test_integration_ldr_base();
     test_integration_str_base();
+    test_integration_mte_after_access_correction();
+    test_integration_mte_inactive_no_correction();
+    test_integration_mte_correction_propagates();
     test_integration_ldr_unsigned_offset();
     test_integration_ldr_postidx();
     test_integration_ldr_preidx();
@@ -2482,6 +2602,7 @@ int main(void) {
     test_integration_bpu_input_selected_predictor();
     test_integration_bpu_without_predictor_traps();
 
+    test_integration_ldg_base_not_translated();
     test_integration_mte_subps_equal_tagged_pointers();
     test_integration_mte_subps_negative();
     test_integration_mte_subp_preserves_nzcv();
@@ -2494,6 +2615,10 @@ int main(void) {
     test_integration_pac_pacga();
     test_integration_pac_sign_then_strip();
     test_integration_pac_sign_then_auth();
+    test_integration_pac_arch_roundtrip();
+    test_integration_pac_spec_xpac();
+    test_integration_paciza_autiza_roundtrip();
+    test_integration_pacda_autda_roundtrip();
 
     // Still disabled: these sign with one context and auth with another (or on a
     // mismatched key), so the AUT* is expected to fault — fatal on FEAT-FPAC.

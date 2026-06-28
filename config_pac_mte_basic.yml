@@ -1,0 +1,28 @@
+# Regular (non-NI) fuzzing with PAC + MTE. The aarch64 executor seals each test case per input
+# (always genuine on architectural slots; speculative slots are genuine or decoyed by a per-sealing-
+# class coin flip) and runs one sealed TC per sealing class, so a stale AUT*/tag-fault never resets
+# the box. Print the per-instruction sealed/baseline/decoy table with REVIZOR_NI_TABLE=1.
+#
+# With no PAC/MTE categories this would be plain regular fuzzing; with only PAC or only MTE the
+# corresponding logic is added; with both, both (decoys are orthogonal per slot).
+instruction_set: aarch64
+instruction_categories:
+  - PAC
+  - MTE
+  - MTE-TAG-MEM
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-BITFIELD
+  - BASE-CONDSEL
+  - BASE-BRANCH
+  - BASE-MEM-LOAD
+  - BASE-MEM-STORE
+min_bb_per_function: 5
+max_bb_per_function: 5
+max_successors_per_bb: 2
+min_successors_per_bb: 1
+fuzzer: basic
+input_generator: aarch64-nzcv
+pac_auth_weight: 0.3
+pac_xpac_weight: 0.2

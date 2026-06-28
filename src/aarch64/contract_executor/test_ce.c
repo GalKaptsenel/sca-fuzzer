@@ -23,6 +23,7 @@
 #include "simulation_input.h"
 #include "simulation_state.h"
 #include "common_msg_constants.h"
+#include "userapi/executor_input_format.h"
 #include "branch_speculation.h"   /* cond_branch_is_taken / cond_branch_architectural_next */
 
 /* ---- test infrastructure ------------------------------------------------ */
@@ -418,15 +419,15 @@ static void test_input_header_validation(void) {
     memset(&hdr, 0, sizeof(hdr));
 
     hdr.magic   = 0xDEADBEEFu;
-    hdr.version = RVZR_VERSION;
+    hdr.version = RVZRCE_VERSION;
     hdr.arch    = RVZR_ARCH_AARCH64;
     EXPECT(simulation_input_validate_header(&hdr) != 0); /* bad magic */
 
-    hdr.magic   = RVZR_MAGIC;
-    hdr.version = RVZR_VERSION + 1;
+    hdr.magic   = RVZRCE_MAGIC;
+    hdr.version = RVZRCE_VERSION + 1;
     EXPECT(simulation_input_validate_header(&hdr) != 0); /* bad version */
 
-    hdr.version = RVZR_VERSION;
+    hdr.version = RVZRCE_VERSION;
     hdr.arch    = 99;
     EXPECT(simulation_input_validate_header(&hdr) != 0); /* bad arch */
 
@@ -467,37 +468,31 @@ static void test_literal_access_size(void) {
 }
 
 /* ======================================================================== */
-/* ---- GROUP 15: HAS_MEMORY / HAS_REGS flag+size validation ------------ */
+/* ---- GROUP 15: HAS_CODE / HAS_INPUT flag+size validation -------------- */
 /* ======================================================================== */
 
-static void test_input_header_mem_regs_size(void) {
+static void test_input_header_input_init_size(void) {
     struct input_header hdr;
     memset(&hdr, 0, sizeof(hdr));
-    hdr.magic   = RVZR_MAGIC;
-    hdr.version = RVZR_VERSION;
+    hdr.magic   = RVZRCE_MAGIC;
+    hdr.version = RVZRCE_VERSION;
     hdr.arch    = RVZR_ARCH_AARCH64;
 
-    /* HAS_MEMORY with mem_size=0 → reject */
-    hdr.flags    = RVZR_FLAG_HAS_MEMORY;
-    hdr.mem_size = 0;
+    /* HAS_INPUT with input_init_size=0 → reject */
+    hdr.flags     = RVZR_FLAG_HAS_INPUT;
+    hdr.input_init_size = 0;
     EXPECT(simulation_input_validate_header(&hdr) != 0);
 
-    /* HAS_REGS with regs_size=0 → reject */
-    hdr.flags     = RVZR_FLAG_HAS_REGS;
-    hdr.regs_size = 0;
-    EXPECT(simulation_input_validate_header(&hdr) != 0);
-
-    /* All 3 flags with nonzero sizes → accept */
-    hdr.flags     = RVZR_FLAG_HAS_CODE | RVZR_FLAG_HAS_MEMORY | RVZR_FLAG_HAS_REGS;
-    hdr.code_size  = 4;
-    hdr.mem_size   = 4096;
-    hdr.regs_size  = 256;
+    /* HAS_CODE | HAS_INPUT with nonzero sizes → accept */
+    hdr.flags     = RVZR_FLAG_HAS_CODE | RVZR_FLAG_HAS_INPUT;
+    hdr.code_size = 4;
+    hdr.input_init_size = 4096;
     EXPECT_EQ(simulation_input_validate_header(&hdr), 0);
 
     /* version=0 → reject */
     hdr.version = 0;
     EXPECT(simulation_input_validate_header(&hdr) != 0);
-    hdr.version = RVZR_VERSION;
+    hdr.version = RVZRCE_VERSION;
 
     /* x86_64 arch also accepted */
     hdr.arch = RVZR_ARCH_X86_64;
@@ -516,13 +511,11 @@ static void test_payload_size(void) {
     EXPECT_EQ(simulation_input_payload_size(&hdr), (size_t)0);
 
     hdr.code_size  = 4;
-    hdr.mem_size   = 4096;
-    hdr.regs_size  = 256;
-    EXPECT_EQ(simulation_input_payload_size(&hdr), (size_t)(4 + 4096 + 256));
+    hdr.input_init_size  = 4096;
+    EXPECT_EQ(simulation_input_payload_size(&hdr), (size_t)(4 + 4096));
 
     hdr.code_size  = 0;
-    hdr.mem_size   = 0;
-    hdr.regs_size  = 8;
+    hdr.input_init_size  = 8;
     EXPECT_EQ(simulation_input_payload_size(&hdr), (size_t)8);
 }
 
@@ -534,9 +527,9 @@ static void test_struct_sizes(void) {
     /* struct configuration: 9 fields × 8 bytes = 72 bytes */
     EXPECT_EQ(sizeof(struct configuration), (size_t)72);
 
-    /* struct input_header: magic(4)+version(2)+arch(2)+flags(8)+config(72)
-     *   +code_size(8)+mem_size(8)+regs_size(8)+reserved(8) = 120 bytes */
-    EXPECT_EQ(sizeof(struct input_header), (size_t)120);
+    /* struct input_header: 16 u64 = magic+version+arch+flags(4) + config(9)
+     *   + code_size+input_init_size+reserved(3) = 128 bytes */
+    EXPECT_EQ(sizeof(struct input_header), (size_t)128);
 
     /* input_header starts with magic at offset 0 */
     EXPECT_EQ(offsetof(struct input_header, magic), (size_t)0);
@@ -557,25 +550,71 @@ static void pipe_write_all(int fd, const void* buf, size_t n) {
 
 static struct input_header make_valid_hdr(uint64_t flags,
                                           uint64_t code_sz,
-                                          uint64_t mem_sz,
-                                          uint64_t regs_sz) {
+                                          uint64_t input_init_sz) {
     struct input_header hdr;
     memset(&hdr, 0, sizeof(hdr));
-    hdr.magic     = RVZR_MAGIC;
-    hdr.version   = RVZR_VERSION;
+    hdr.magic     = RVZRCE_MAGIC;
+    hdr.version   = RVZRCE_VERSION;
     hdr.arch      = RVZR_ARCH_AARCH64;
     hdr.flags     = flags;
-    hdr.code_size  = code_sz;
-    hdr.mem_size   = mem_sz;
-    hdr.regs_size  = regs_sz;
+    hdr.code_size = code_sz;
+    hdr.input_init_size = input_init_sz;
     return hdr;
+}
+
+/* Build a shared input initialization (executor_input_format) holding main || faulty || gpr [+ optional
+ * mte-tags / pac-keys sections] into `out`. Returns the input_init length, or 0 if `out` is too small.
+ * Passing a NULL payload with length 0 emits a zero-length section (e.g. an empty faulty page). */
+static size_t make_input_init(uint8_t* out, size_t cap,
+                              const uint8_t* main, size_t main_len,
+                              const uint8_t* faulty, size_t faulty_len,
+                              const uint8_t* gpr, size_t gpr_len,
+                              const uint8_t* mte_tags, size_t mte_len,
+                              const uint8_t* pac_keys, size_t pac_len) {
+    uint64_t n = 3 + (NULL != mte_tags ? 1 : 0) + (NULL != pac_keys ? 1 : 0);
+    size_t header_len = sizeof(struct revisor_input_header) + n * sizeof(struct revisor_input_section);
+    struct revisor_input_header* h = (struct revisor_input_header*)out;
+    struct revisor_input_section* tab = (struct revisor_input_section*)(out + sizeof(*h));
+    size_t off = header_len;
+    uint64_t i = 0;
+
+    if (cap < header_len + main_len + faulty_len + gpr_len + mte_len + pac_len) {
+        return 0;
+    }
+
+    tab[i].type = REVISOR_SEC_MEMORY_MAIN;   tab[i].flags = 0; tab[i].offset = off; tab[i].length = main_len;
+    if (main_len) memcpy(out + off, main, main_len);
+    off += main_len; i++;
+
+    tab[i].type = REVISOR_SEC_MEMORY_FAULTY; tab[i].flags = 0; tab[i].offset = off; tab[i].length = faulty_len;
+    if (faulty_len) memcpy(out + off, faulty, faulty_len);
+    off += faulty_len; i++;
+
+    tab[i].type = REVISOR_SEC_GPR;           tab[i].flags = 0; tab[i].offset = off; tab[i].length = gpr_len;
+    if (gpr_len) memcpy(out + off, gpr, gpr_len);
+    off += gpr_len; i++;
+
+    if (NULL != mte_tags) {
+        tab[i].type = REVISOR_SEC_MTE_TAGS;  tab[i].flags = 0; tab[i].offset = off; tab[i].length = mte_len;
+        memcpy(out + off, mte_tags, mte_len);
+        off += mte_len; i++;
+    }
+    if (NULL != pac_keys) {
+        tab[i].type = REVISOR_SEC_PAC_KEYS;  tab[i].flags = 0; tab[i].offset = off; tab[i].length = pac_len;
+        memcpy(out + off, pac_keys, pac_len);
+        off += pac_len; i++;
+    }
+
+    h->magic = REVISOR_INPUT_MAGIC; h->version = REVISOR_INPUT_VERSION;
+    h->header_len = header_len; h->n_sections = n; h->flags = 0; h->total_len = off;
+    return off;
 }
 
 static void test_input_load_fd_valid(void) {
     int pfd[2];
     if (pipe(pfd) < 0) { EXPECT(0 && "pipe failed"); return; }
 
-    struct input_header hdr = make_valid_hdr(RVZR_FLAG_HAS_CODE, 4, 0, 0);
+    struct input_header hdr = make_valid_hdr(RVZR_FLAG_HAS_CODE, 4, 0);
     uint32_t code_word = ENC_NOP;
 
     pipe_write_all(pfd[1], &hdr, sizeof(hdr));
@@ -601,7 +640,7 @@ static void test_input_load_fd_truncated(void) {
     if (pipe(pfd) < 0) { EXPECT(0 && "pipe failed"); return; }
 
     /* Claim 16 bytes of code, write only 4 */
-    struct input_header hdr = make_valid_hdr(RVZR_FLAG_HAS_CODE, 16, 0, 0);
+    struct input_header hdr = make_valid_hdr(RVZR_FLAG_HAS_CODE, 16, 0);
     pipe_write_all(pfd[1], &hdr, sizeof(hdr));
     uint32_t partial = ENC_NOP;
     pipe_write_all(pfd[1], &partial, 4);  /* only 4 of 16 bytes */
@@ -625,7 +664,7 @@ static void test_input_load_fd_bad_header(void) {
     struct input_header hdr;
     memset(&hdr, 0, sizeof(hdr));
     hdr.magic   = 0xDEADBEEFu;  /* bad magic */
-    hdr.version = RVZR_VERSION;
+    hdr.version = RVZRCE_VERSION;
     hdr.arch    = RVZR_ARCH_AARCH64;
     pipe_write_all(pfd[1], &hdr, sizeof(hdr));
     close(pfd[1]);
@@ -637,45 +676,140 @@ static void test_input_load_fd_bad_header(void) {
     EXPECT(ret != 0);
 }
 
-static void test_input_load_fd_all_sections(void) {
+/* Feed `hdr` + code + input_init over a pipe to simulation_input_load_fd; returns its result and
+ * fills `si` (caller frees on success). */
+static int load_fd_via_pipe(const struct input_header* hdr, const uint8_t* code, size_t code_len,
+                            const uint8_t* input_init, size_t init_len, struct simulation_input* si) {
     int pfd[2];
-    if (pipe(pfd) < 0) { EXPECT(0 && "pipe failed"); return; }
-
-    struct input_header hdr = make_valid_hdr(
-        RVZR_FLAG_HAS_CODE | RVZR_FLAG_HAS_MEMORY | RVZR_FLAG_HAS_REGS,
-        8, 64, 32);
-
-    uint8_t code[8];  memset(code, 0x1F, 8);    /* 2× NOP bytes */
-    uint8_t mem[64];  memset(mem,  0xAB, 64);
-    uint8_t regs[32]; memset(regs, 0xCD, 32);
-
-    pipe_write_all(pfd[1], &hdr,  sizeof(hdr));
-    pipe_write_all(pfd[1], code,  8);
-    pipe_write_all(pfd[1], mem,   64);
-    pipe_write_all(pfd[1], regs,  32);
+    if (pipe(pfd) < 0) { return -99; }
+    pipe_write_all(pfd[1], hdr, sizeof(*hdr));
+    if (code_len)  pipe_write_all(pfd[1], code, code_len);
+    if (init_len)  pipe_write_all(pfd[1], input_init, init_len);
     close(pfd[1]);
+    int ret = simulation_input_load_fd(pfd[0], si);
+    close(pfd[0]);
+    return ret;
+}
+
+static void test_input_load_fd_all_sections(void) {
+    uint8_t code[8];   memset(code, 0x1F, 8);     /* 2× NOP bytes */
+    uint8_t main_[64]; memset(main_, 0xAB, 64);
+    uint8_t faulty[16]; memset(faulty, 0xEF, 16);
+    uint8_t gpr[32];   memset(gpr,  0xCD, 32);
+
+    uint8_t init[512];
+    size_t init_len = make_input_init(init, sizeof(init), main_, 64, faulty, 16, gpr, 32,
+                                      NULL, 0, NULL, 0);
+    EXPECT(init_len > 0);
+
+    struct input_header hdr = make_valid_hdr(RVZR_FLAG_HAS_CODE | RVZR_FLAG_HAS_INPUT, 8, init_len);
 
     struct simulation_input si;
-    int ret = simulation_input_load_fd(pfd[0], &si);
-    close(pfd[0]);
+    int ret = load_fd_via_pipe(&hdr, code, 8, init, init_len, &si);
 
     EXPECT_EQ(ret, 0);
     EXPECT(si.code   != NULL);
     EXPECT(si.memory != NULL);
     EXPECT(si.regs   != NULL);
-    EXPECT_EQ(si.hdr.code_size,  (uint64_t)8);
-    EXPECT_EQ(si.hdr.mem_size,   (uint64_t)64);
-    EXPECT_EQ(si.hdr.regs_size,  (uint64_t)32);
-    EXPECT_EQ(si.memory[0],      0xABu);
-    EXPECT_EQ(si.memory[63],     0xABu);
-    EXPECT_EQ(si.regs[0],        0xCDu);
-    EXPECT_EQ(si.regs[31],       0xCDu);
+    EXPECT_EQ(si.hdr.code_size, (uint64_t)8);
+    /* memory is main || faulty (64 + 16); regs is the gpr section (32). */
+    EXPECT_EQ(si.mem_size,  (size_t)80);
+    EXPECT_EQ(si.regs_size, (size_t)32);
+    EXPECT_EQ(si.memory[0],  0xABu);   /* main */
+    EXPECT_EQ(si.memory[63], 0xABu);
+    EXPECT_EQ(si.memory[64], 0xEFu);   /* faulty concatenated after main */
+    EXPECT_EQ(si.memory[79], 0xEFu);
+    EXPECT_EQ(si.regs[0],    0xCDu);
+    EXPECT_EQ(si.regs[31],   0xCDu);
+    EXPECT(si.mte_tags == NULL);
+    EXPECT(!si.pac_keys_present);
 
     simulation_input_free(&si);
-    /* After free, all pointers must be NULL */
     EXPECT(si.code   == NULL);
     EXPECT(si.memory == NULL);
     EXPECT(si.regs   == NULL);
+}
+
+/* A required section (here: GPR) missing from the input_init must make the load fail cleanly. */
+static void test_input_init_missing_required_section(void) {
+    uint8_t code[4];   memset(code, 0x1F, 4);
+    uint8_t main_[64]; memset(main_, 0xAB, 64);
+    uint8_t faulty[16]; memset(faulty, 0xEF, 16);
+
+    /* Build a malformed init: main + faulty only, no GPR. Hand-roll (make_input_init always adds GPR). */
+    uint8_t init[512];
+    const uint64_t n = 2;
+    size_t header_len = sizeof(struct revisor_input_header) + n * sizeof(struct revisor_input_section);
+    struct revisor_input_header* h = (struct revisor_input_header*)init;
+    struct revisor_input_section* tab = (struct revisor_input_section*)(init + sizeof(*h));
+    size_t off = header_len;
+    tab[0].type = REVISOR_SEC_MEMORY_MAIN;   tab[0].flags = 0; tab[0].offset = off; tab[0].length = 64;
+    memcpy(init + off, main_, 64); off += 64;
+    tab[1].type = REVISOR_SEC_MEMORY_FAULTY; tab[1].flags = 0; tab[1].offset = off; tab[1].length = 16;
+    memcpy(init + off, faulty, 16); off += 16;
+    h->magic = REVISOR_INPUT_MAGIC; h->version = REVISOR_INPUT_VERSION;
+    h->header_len = header_len; h->n_sections = n; h->flags = 0; h->total_len = off;
+
+    struct input_header hdr = make_valid_hdr(RVZR_FLAG_HAS_CODE | RVZR_FLAG_HAS_INPUT, 4, off);
+
+    struct simulation_input si;
+    int ret = load_fd_via_pipe(&hdr, code, 4, init, off, &si);
+    EXPECT(ret != 0);
+    EXPECT(si.memory == NULL);
+    EXPECT(si.regs   == NULL);
+}
+
+/* A malformed input_init header (bad inner magic) must be rejected. */
+static void test_input_init_bad_inner_magic(void) {
+    uint8_t code[4];   memset(code, 0x1F, 4);
+    uint8_t main_[64]; memset(main_, 0xAB, 64);
+    uint8_t gpr[32];   memset(gpr,  0xCD, 32);
+
+    uint8_t init[512];
+    size_t init_len = make_input_init(init, sizeof(init), main_, 64, NULL, 0, gpr, 32,
+                                      NULL, 0, NULL, 0);
+    EXPECT(init_len > 0);
+    ((struct revisor_input_header*)init)->magic = 0xDEADBEEFu;   /* corrupt the inner magic */
+
+    struct input_header hdr = make_valid_hdr(RVZR_FLAG_HAS_CODE | RVZR_FLAG_HAS_INPUT, 4, init_len);
+
+    struct simulation_input si;
+    int ret = load_fd_via_pipe(&hdr, code, 4, init, init_len, &si);
+    EXPECT(ret != 0);
+}
+
+/* MTE tag + PAC key sections must decode into sim_input (tags unpacked one-per-granule). */
+static void test_input_init_mte_and_pac_sections(void) {
+    uint8_t code[4];   memset(code, 0x1F, 4);
+    uint8_t main_[64]; memset(main_, 0xAB, 64);   /* 64 bytes -> 4 granules */
+    uint8_t gpr[32];   memset(gpr,  0xCD, 32);
+    /* 4 granules -> 2 packed bytes: tags {1,2,3,4} = low/high nibbles 0x21, 0x43. */
+    uint8_t tags[2] = { 0x21, 0x43 };
+    uint64_t keys[9];
+    for (int i = 0; i < 9; i++) keys[i] = 0x1000ULL + i;
+
+    uint8_t init[512];
+    size_t init_len = make_input_init(init, sizeof(init), main_, 64, NULL, 0, gpr, 32,
+                                      tags, sizeof(tags), (const uint8_t*)keys, sizeof(keys));
+    EXPECT(init_len > 0);
+
+    struct input_header hdr = make_valid_hdr(RVZR_FLAG_HAS_CODE | RVZR_FLAG_HAS_INPUT, 4, init_len);
+
+    struct simulation_input si;
+    int ret = load_fd_via_pipe(&hdr, code, 4, init, init_len, &si);
+
+    EXPECT_EQ(ret, 0);
+    EXPECT(si.mte_tags != NULL);
+    EXPECT_EQ(si.mte_tag_count, (size_t)4);   /* mem_size(64) / 16 */
+    EXPECT_EQ(si.mte_tags[0], 1u);
+    EXPECT_EQ(si.mte_tags[1], 2u);
+    EXPECT_EQ(si.mte_tags[2], 3u);
+    EXPECT_EQ(si.mte_tags[3], 4u);
+    EXPECT(si.pac_keys_present);
+    EXPECT_EQ(si.pac_keys[0], (uint64_t)0x1000);
+    EXPECT_EQ(si.pac_keys[8], (uint64_t)0x1008);
+
+    simulation_input_free(&si);
 }
 
 /* ======================================================================== */
@@ -1685,13 +1819,16 @@ int main(void) {
     test_literal_access_size();
 
     /* New groups */
-    test_input_header_mem_regs_size();
+    test_input_header_input_init_size();
     test_payload_size();
     test_struct_sizes();
     test_input_load_fd_valid();
     test_input_load_fd_truncated();
     test_input_load_fd_bad_header();
     test_input_load_fd_all_sections();
+    test_input_init_missing_required_section();
+    test_input_init_bad_inner_magic();
+    test_input_init_mte_and_pac_sections();
     test_gpr_layout();
     test_cpu_state_layout();
     test_gpr_write_read_roundtrip();

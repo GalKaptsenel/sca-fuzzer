@@ -15,6 +15,7 @@ HDRS = $(wildcard *.h)
 # Source files
 SRCS = \
   base_hook.S \
+  ../executor/input_format.c \
   instruction_encodings.c \
   simulation_code.c \
   simulation_hook.c \
@@ -48,13 +49,18 @@ test: test_ce test_ce_integration contract_executor
 contract_executor: $(SRCS) $(HDRS)
 	$(CC) $(CFLAGS) $(PYTHON_CFLAGS) $(SRCS) -o $@ $(PYTHON_LDFLAGS)
 
-TEST_SRCS = instruction_encodings.c simulation_input.c branch_speculation.c utils.c test_ce.c
+TEST_SRCS = ../executor/input_format.c instruction_encodings.c simulation_input.c branch_speculation.c utils.c test_ce.c
 test_ce: $(TEST_SRCS) $(HDRS)
 	$(CC) $(CFLAGS) -I. $(TEST_SRCS) -o $@
 
-INT_TEST_SRCS = instruction_encodings.c simulation_input.c test_ce_integration.c
+INT_TEST_SRCS = ../executor/input_format.c instruction_encodings.c simulation_input.c test_ce_integration.c
 test_ce_integration: $(INT_TEST_SRCS) $(HDRS)
 	$(CC) $(CFLAGS) -I. $(INT_TEST_SRCS) -o $@
+
+# MTE tag-memory + instruction emulation unit tests (pure software, no device).
+MTE_TEST_SRCS = mte_tag_plugin.c test_mte_tagmem.c
+test_mte_tagmem: $(MTE_TEST_SRCS) $(HDRS)
+	$(CC) $(CFLAGS) -I. $(MTE_TEST_SRCS) -o $@
 
 clean:
 	rm -f contract_executor test_ce test_ce_integration

@@ -1,0 +1,565 @@
+"""PAC/MTE sealing as composable per-location sealings (AArch64).
+
+Layers:
+  * `Sealing` — one exact location + the compile-time facts it exposes; `seal(value)` returns that
+    slot's instructions for a runtime value (None -> arch-safe). Pure: never reads a trace, never
+    decides genuine/decoy.
+  * `Sealer.seal(tc) -> SealedTestCase` — walks the TC, creates the sealings, inserts their arch-safe
+    placeholders. The sealings are not resolved yet.
+  * `SealedTestCase.resolve(input) -> ResolvedSealingTestCase` — runs the staged CE trace(s) via the
+    injected `trace_fn(tc, input)` and computes each sealing's value (signing / tag classification);
+    the concern-specific subclass owns the staging order. The sealing only supplies the facts.
+  * `ResolvedSealingTestCase` — `genuine()` / `decoy()`, each returning a hardware `TestCase`.
+"""
+import abc
+import copy
+import random
+from typing import Dict, List, Optional, Tuple
+
+from ..interfaces import (Instruction, TestCase, Function, BasicBlock, GeneratorException)
+from .aarch64_seal import (make_nop, fill_slot_at, index_instructions, _SANDBOX_MASK,
+                           _SandboxInstrumentationBase)
+from .aarch64_pac import (PacSign, PacSigner, build_pac_specs, _AUTH_TO_PAC, _AUTH_TO_XPAC, _read_reg)
+from .aarch64_mte import MteTagState, mte_tag_store_effect, MTE_INITIAL_TAG
+from .aarch64_target_desc import SANDBOX_BASE_REGISTER
+from .aarch64_printer import Aarch64ASMLayout
+
+
+# ==================================================================================================
+# Sealing — one location; pure seal(value); exposes the facts the resolver reads
+# ==================================================================================================
+class Sealing(abc.ABC):
+    """One sealing site. `seal(value)` returns the instructions for this slot given the runtime value
+    it needs (None -> the arch-safe form). The sealing exposes the read-only facts the resolver needs
+    (its `value_reg`, plus `committed_inst`/`access` where relevant) but never reads a trace or decides
+    genuine/decoy. `slot_insts` are the placeholder instructions inserted here; `slot_locs` their
+    positions in the sealed TC."""
+    value_reg: str
+
+    def __init__(self) -> None:
+        self.slot_insts: List[Instruction] = []
+        self.slot_locs: List = []
+
+    @abc.abstractmethod
+    def seal(self, value: Optional[int] = None) -> List[Instruction]:
+        """The instructions sealing this location with `value`; the caller supplies it."""
+
+
+class SandboxSealing(Sealing):
+    """Clamp a base register into the input region: [AND reg, #mask; ADD reg, base]. Needs no runtime
+    value — the clamp is identical every time, so `seal` ignores its argument."""
+
+    def __init__(self, value_reg: str, mask: str, base_reg: str) -> None:
+        super().__init__()
+        self.value_reg = value_reg
+        self._mask = mask
+        self._base_reg = base_reg
+        self.slot_insts = self.seal(None)   # seal itself with its placeholder = the slot to fill
+
+    def seal(self, value: Optional[int] = None) -> List[Instruction]:
+        return [Instruction("and", True, "", False,
+                            template=f"AND {self.value_reg}, {self.value_reg}, {self._mask}"),
+                Instruction("add", True, "", False,
+                            template=f"ADD {self.value_reg}, {self.value_reg}, {self._base_reg}")]
+
+
+class PacSealing(Sealing):
+    """Authenticate a pointer register. `seal(sig)` = [MOVK sig LSL#48, AUT*]; `seal(None)` = the
+    arch-safe strip [NOP, XPAC*]. Mnemonics + context register come from the committed AUT*; encoders
+    are reused from PacSign. `committed_inst` is exposed for the resolver.
+
+    The sealing owns its own strip policy: even given a real signature, `seal` emits the arch-safe
+    strip with low probability `_STRIP_PROB`. XPAC yields the same canonical pointer a successful AUTH
+    would, so stripping puts XPAC on both the architectural and speculative paths without changing the
+    arch result — the caller just supplies the value and never decides whether to strip."""
+    _STRIP_PROB = 0.1   # chance of stripping a real signature to its arch-safe [NOP, XPAC*] form
+
+    def __init__(self, value_reg: str, committed_inst: Instruction, encoder: PacSign) -> None:
+        super().__init__()
+        self.value_reg = value_reg
+        self.committed_inst = committed_inst
+        self._enc = encoder
+        self.slot_insts = self.seal(None)   # seal itself with its placeholder = the slot to fill
+
+    def seal(self, value: Optional[int] = None) -> List[Instruction]:
+        auth_mn = self.committed_inst.name.lower()
+        ctx_reg = self.committed_inst.operands[1].value if len(self.committed_inst.operands) > 1 else None
+        if value is None or random.random() < self._STRIP_PROB:
+            return [make_nop(), self._enc.make_xpac_inst(_AUTH_TO_XPAC[auth_mn], self.value_reg)]
+        return [self._enc.make_movk(self.value_reg, value, 48),
+                self._enc.make_auth_inst(auth_mn, self.value_reg, ctx_reg)]
+
+
+class MteSealing(Sealing):
+    """Retag a pointer register by a 4-bit tag delta: `seal(delta)` = [ADDG reg, reg, #0, #delta]
+    (delta mod 16), or [NOP] when delta is 0/None. Deterministic. `access` is exposed for the resolver
+    (the memory access whose cell tag is the genuine tag for this pointer)."""
+
+    def __init__(self, value_reg: str, access: Instruction) -> None:
+        super().__init__()
+        self.value_reg = value_reg
+        self.access = access
+        self.slot_insts = self.seal(None)   # seal itself with its placeholder = the slot to fill
+
+    def seal(self, value: Optional[int] = None) -> List[Instruction]:
+        delta = 0 if value is None else value % 16
+        if delta == 0:
+            return [make_nop()]
+        return [Instruction("addg", True, "", False,
+                            template=f"ADDG {self.value_reg}, {self.value_reg}, #0, #{delta}")]
+
+
+# ==================================================================================================
+# ResolvedSealingTestCase — one input's resolution; mints genuine / decoy hardware test cases
+# ==================================================================================================
+class _Resolved:
+    """A sealing paired with its resolved runtime value for one input: `value` is the correct value
+    (None where the sealing needs none / was unreached); `alts` are alternative values that fail; the
+    slot is speculative (decoy-eligible) when it never ran architecturally."""
+    def __init__(self, sealing: Sealing, value: Optional[int], alts: List[int],
+                 spec_nesting: Optional[int]) -> None:
+        self.sealing = sealing
+        self.value = value
+        self.alts = alts
+        self.speculative = spec_nesting != 0   # None (unreached) or >0 -> speculative; 0 -> arch
+
+
+class ResolvedSealingTestCase:
+    """The result of resolving a sealed TC for one input. Two methods, each returning a TestCase that
+    runs that input: `genuine()` seals every slot with its correct value; `decoy()` perturbs a random
+    NON-EMPTY subset of the speculative (decoy-eligible) slots with an alternative (failing) value and
+    seals the correct value everywhere else. Decoying a random subset (not every speculative slot at
+    once) means successive decoys explore every combination of the eligible slots — e.g. PAC-only,
+    MTE-only, and PAC+MTE together — so each speculative leak is exercised both alone and jointly. A
+    each sealing decides for itself how to vary its slot: a PAC slot (PacSealing) emits its arch-safe
+    strip — seal(None), i.e. [NOP, XPAC] — with low probability, putting XPAC on both the arch (genuine)
+    and speculative (decoy) paths; that strip is the same canonical pointer as the AUTH, so baseline and
+    decoy still agree on the arch path. MTE is never stripped (its NOP would leave the wrong tag and
+    break that agreement). This class only chooses each slot's value and calls its sealing."""
+
+    def __init__(self, sealed_tc: TestCase, entries: List[_Resolved]) -> None:
+        self._tc = sealed_tc
+        self._entries = entries
+
+    @staticmethod
+    def _decoy_subset(eligible: List[_Resolved]) -> set:
+        """A random non-empty subset of the decoy-eligible slots to perturb (empty when none are
+        eligible). Each independent coin makes every combination reachable over many draws."""
+        if not eligible:
+            return set()
+        chosen = {r for r in eligible if random.random() < 0.5}
+        return chosen if chosen else {random.choice(eligible)}
+
+    def _fill(self, decoy: bool) -> TestCase:
+        tc = copy.deepcopy(self._tc)
+        eligible = [r for r in self._entries if r.speculative and r.alts]
+        perturb = self._decoy_subset(eligible) if decoy else set()
+        for r in self._entries:
+            value = random.choice(r.alts) if r in perturb else r.value
+            fill_slot_at(tc, r.sealing.slot_locs, r.sealing.seal(value))
+        return tc
+
+    def genuine(self) -> TestCase:
+        return self._fill(decoy=False)
+
+    def decoy(self) -> TestCase:
+        return self._fill(decoy=True)
+
+    @property
+    def collapse_key(self) -> Tuple:
+        """The sealing class of the resolved input: per-entry (value, speculative). Two inputs share
+        a sealed TC iff every slot resolves to the same value with the same speculative status (so the
+        same genuine fill is arch-safe for both, and decoy perturbs the same slots). Sandbox entries
+        are constant across inputs (value None, non-speculative) so they never split classes."""
+        return tuple((r.value, r.speculative) for r in self._entries)
+
+
+# ==================================================================================================
+# Resolvers — concern-specific value computation from a CE trace (used by the SealedTestCase)
+# ==================================================================================================
+class _PacResolver:
+    """Computes a PacSealing's value from a trace: sign the pointer that reaches the sealing's XPAC,
+    plus a pool of wrong signatures that fail AUTH. Needs `self._signer`."""
+    _signer: PacSigner
+
+    def _resolve_pac(self, s: PacSealing, cer, layout) -> Tuple[Optional[int], List[int], Optional[int]]:
+        correct_sig, alts, spec = None, [], None
+        if not cer or s.committed_inst is None:
+            return correct_sig, alts, spec
+        xpac = next(i for i in s.slot_insts if i.name.lower() in ("xpaci", "xpacd"))
+        xpac_off, code_base = layout.instruction_address[xpac], cer[0].cpu.pc
+        pac_mn = _AUTH_TO_PAC[s.committed_inst.name.lower()]
+        value_reg = s.committed_inst.operands[0].value
+        ctx_reg = s.committed_inst.operands[1].value if len(s.committed_inst.operands) > 1 else None
+        for ite in cer:
+            if ite.cpu.pc - code_base != xpac_off:
+                continue
+            depth = ite.metadata.speculation_nesting
+            if spec is None or depth < spec:
+                spec = depth
+            if correct_sig is not None and depth != 0:   # architectural occurrence is authoritative
+                continue
+            ptr = _read_reg(ite.cpu, value_reg)
+            cval = _read_reg(ite.cpu, ctx_reg) if ctx_reg is not None else 0
+            correct_sig = self._signer.sign16(ptr, cval, pac_mn)
+            alts = self._wrong_sigs(ite.cpu, pac_mn, cval, correct_sig)
+        if correct_sig is not None and not alts:        # reached but no live pool -> random forgeries
+            alts = self._random_sigs(pac_mn)
+        return correct_sig, alts, spec
+
+    def _wrong_sigs(self, cpu, mn: str, ctx: int, correct_sig: int, size: int = 6,
+                    tries: int = 64) -> List[int]:
+        mask16, pool = self._signer.field_mask16(mn), []
+        for _ in range(tries):
+            v = cpu.gpr[random.randrange(len(cpu.gpr))] if random.random() < 0.85 \
+                else random.randrange(1 << 64)
+            sig = (correct_sig & ~mask16) | (self._signer.sign16(v, ctx, mn) & mask16)
+            if sig != correct_sig and sig not in pool:
+                pool.append(sig)
+                if len(pool) >= size:
+                    break
+        if not pool:
+            raise GeneratorException(f"no effective PAC forgery in {tries} tries (mask=0x{mask16:04x})")
+        return pool
+
+    def _random_sigs(self, mn: str, size: int = 6) -> List[int]:
+        sigs: set = set()
+        while len(sigs) < size:
+            sigs.add(self._signer.sign16(random.randrange(1 << 64), random.randrange(1 << 64), mn))
+        return list(sigs)
+
+
+class _MteResolver:
+    """Computes an MteSealing's tag delta from a trace: classify the accessed cell's allocation tag
+    and the pointer's own tag at the guarded access; the genuine delta brings the pointer to the cell
+    tag, alternatives are every other tag (a mismatch)."""
+
+    def _resolve_mte(self, s: MteSealing, cer, layout) -> Tuple[Optional[int], List[int], Optional[int]]:
+        correct_tag, ptr_tag, spec = None, None, None
+        if cer and s.access is not None:
+            access_off, code_base = layout.instruction_address[s.access], cer[0].cpu.pc
+            tags = MteTagState(MTE_INITIAL_TAG)
+            for ite in cer:
+                nest = ite.metadata.speculation_nesting
+                tags.to_depth(nest)
+                store = mte_tag_store_effect(ite)
+                if store is not None:
+                    tags.set(*store)
+                if not ite.metadata.has_memory_access or ite.cpu.pc - code_base != access_off:
+                    continue
+                ea = ite.metadata.memory_access.effective_address
+                if spec is None or nest < spec:
+                    spec = int(nest)
+                if nest == 0 or correct_tag is None:
+                    correct_tag, ptr_tag = tags.tag_at(ea), (ea >> 56) & 0xF
+        if correct_tag is None or ptr_tag is None:
+            return None, [], spec
+        delta = (correct_tag - ptr_tag) % 16
+        alts = [d for d in range(16) if d != delta]   # any other tag -> a tag mismatch on the access
+        return delta, alts, spec
+
+
+# ==================================================================================================
+# SealedTestCase — holds the unresolved sealings; resolve(input) orchestrates value computation
+# ==================================================================================================
+class SealedTestCase:
+    """A sealed TC plus the sealings to orchestrate. `resolve(input)` traces via `trace_fn(tc, input)`
+    and computes each sealing's value, returning a ResolvedSealingTestCase. Subclasses own which
+    sealings exist and the order their values resolve."""
+
+    def __init__(self, sealed_tc: TestCase, trace_fn) -> None:
+        self._tc = sealed_tc
+        self._trace_fn = trace_fn
+        self._layout = Aarch64ASMLayout(sealed_tc)
+
+    def resolve(self, inp) -> ResolvedSealingTestCase:
+        raise NotImplementedError
+
+    @staticmethod
+    def _clamp_entries(sandbox_sealings: List[SandboxSealing]) -> List[_Resolved]:
+        return [_Resolved(s, None, [], None) for s in sandbox_sealings]   # always seal(None); never decoyed
+
+
+class PacSealedTestCase(SealedTestCase, _PacResolver):
+    def __init__(self, sealed_tc, trace_fn, signer, sandbox_sealings, pac_sealings) -> None:
+        super().__init__(sealed_tc, trace_fn)
+        self._signer = signer
+        self._sandbox = sandbox_sealings
+        self._pac = pac_sealings
+
+    def resolve(self, inp) -> ResolvedSealingTestCase:
+        cer = self._trace_fn(self._tc, inp)
+        pac = [_Resolved(s, *self._resolve_pac(s, cer, self._layout)) for s in self._pac]
+        return ResolvedSealingTestCase(self._tc, self._clamp_entries(self._sandbox) + pac)
+
+
+class MteSealedTestCase(SealedTestCase, _MteResolver):
+    def __init__(self, sealed_tc, trace_fn, sandbox_sealings, mte_sealings) -> None:
+        super().__init__(sealed_tc, trace_fn)
+        self._sandbox = sandbox_sealings
+        self._mte = mte_sealings
+
+    def resolve(self, inp) -> ResolvedSealingTestCase:
+        cer = self._trace_fn(self._tc, inp)
+        resolved = self._clamp_entries(self._sandbox)
+        for s in self._mte:
+            resolved.append(_Resolved(s, *self._resolve_mte(s, cer, self._layout)))
+        return ResolvedSealingTestCase(self._tc, resolved)
+
+
+class MtePacSealedTestCase(SealedTestCase, _PacResolver, _MteResolver):
+    """MTE resolves over the placeholder trace; its genuine tags are then applied into a re-traced
+    copy so PAC signs over a trace where a context/pointer register carries the tag it will have at the
+    AUTH (a tag mismatch there FPAC-faults at EL1)."""
+
+    def __init__(self, sealed_tc, trace_fn, signer, sandbox_sealings, pac_sealings, mte_sealings) -> None:
+        super().__init__(sealed_tc, trace_fn)
+        self._signer = signer
+        self._sandbox = sandbox_sealings
+        self._pac = pac_sealings
+        self._mte = mte_sealings
+
+    def resolve(self, inp) -> ResolvedSealingTestCase:
+        cer = self._trace_fn(self._tc, inp)
+        mte = [_Resolved(s, *self._resolve_mte(s, cer, self._layout)) for s in self._mte]
+
+        tagged = copy.deepcopy(self._tc)                      # apply MTE genuine, re-trace for PAC
+        for r in mte:
+            fill_slot_at(tagged, r.sealing.slot_locs, r.sealing.seal(r.value))
+        cer_tagged = self._trace_fn(tagged, inp)
+
+        pac = [_Resolved(s, *self._resolve_pac(s, cer_tagged, self._layout)) for s in self._pac]
+        return ResolvedSealingTestCase(self._tc, self._clamp_entries(self._sandbox) + pac + mte)
+
+
+# ==================================================================================================
+# Sealer — walk the TC, create the sealings, insert their placeholders
+# ==================================================================================================
+class _Addressing(_SandboxInstrumentationBase):
+    """Composable wrapper over the shared AArch64 address/CFG helpers (a sealer *has-a* one)."""
+    def __init__(self, norm: Dict[str, str], mask: str, base_reg: str) -> None:
+        self._norm = norm
+        self._sandbox_mask = mask
+        self._sandbox_base_reg = base_reg
+
+    def address_preserving_tag_op(self, inst: Instruction) -> Optional[Tuple[str, str]]:
+        name = inst.name.lower()
+        if name == "irg" and len(inst.operands) >= 2:
+            return inst.operands[0].value, inst.operands[1].value
+        if name in ("addg", "subg"):
+            if len(inst.operands) < 4:
+                return None
+            try:
+                imm6 = int(inst.operands[2].value)
+            except (ValueError, IndexError):
+                return None
+            return None if imm6 != 0 else (inst.operands[0].value, inst.operands[1].value)
+        return None
+
+
+def _pac_encoder(generator):
+    """The PacSign slot encoder + the AUT* spec table. The kernel signer is NOT built here — it wraps
+    `local_executor.pac_sign` and is passed to make_sealer (a PacSigner over the seal would be wrong)."""
+    _, auth_specs, xpac_specs = build_pac_specs(generator)
+    return PacSign(generator, auth_specs, xpac_specs), auth_specs
+
+
+def _seal_auths(tc: TestCase, enc: PacSign, auth_specs, pac: List) -> None:
+    """Replace every generator-emitted AUT* with a PacSealing committing to it (a non-memory site the
+    sandbox walk doesn't reach). Appends the new sealings to `pac`."""
+    for func in tc.functions:
+        replacements = []
+        for bb in func:
+            for inst in bb:
+                if inst.name.lower() in auth_specs:
+                    s = PacSealing(inst.operands[0].value, copy.deepcopy(inst), enc)
+                    pac.append(s)
+                    replacements.append((inst, bb, s.slot_insts))
+        for old, bb, slot in replacements:
+            for i in slot:
+                bb.insert_before(old, i)
+            bb.delete(old)
+
+
+class Sealer(abc.ABC):
+    """Interface only: `seal(tc) -> SealedTestCase`. No logic of its own — concrete sealers implement
+    `seal()` and mix in `SandboxWalk` for the shared taint walk."""
+
+    @abc.abstractmethod
+    def seal(self, test_case: TestCase) -> SealedTestCase:
+        """Seal `test_case` and return a SealedTestCase ready to resolve per input."""
+
+
+def _insert(bb, anchor, *groups) -> None:
+    """Insert each group of instructions before `anchor`, in order — so they land in group order
+    immediately before it (clamp, then value sealings, then the index/displacement cancellation)."""
+    for group in groups:
+        for inst in group:
+            bb.insert_before(anchor, inst)
+
+
+def _record_positions(tc: TestCase, sealings: List[Sealing]) -> None:
+    """Once every slot is inserted, record each sealing's slot positions in the final TC so a
+    structural copy can locate and fill them. Must run last — any later insertion shifts positions."""
+    locs = index_instructions(tc)
+    for s in sealings:
+        s.slot_locs = [locs[id(i)] for i in s.slot_insts]
+
+
+class SandboxWalk:
+    """Mixin: ONLY the sandbox-taint walk. Decides which memory bases need clamping (the clamp is not
+    idempotent, so a base already in-region is not re-clamped) and makes a SandboxSealing for each.
+    Knows nothing about value sealings, PAC, MTE, slot placement, or position recording — `_sandbox`
+    returns the clamps plus a per-access plan the host sealer uses to place its own value sealings."""
+
+    def __init__(self, generator) -> None:
+        self._addr = _Addressing(generator.target_desc.reg_normalized,
+                                 f"#0x{_SANDBOX_MASK:x}", SANDBOX_BASE_REGISTER)
+        self._mask = f"#0x{_SANDBOX_MASK:x}"
+        self._stg_mask = f"#0x{_SANDBOX_MASK & ~0xF:x}"
+
+    def _sandbox(self, tc: TestCase) -> Tuple[List[SandboxSealing], List]:
+        """The sandbox-taint dataflow + clamping. Decides which memory bases need an in-region clamp
+        (the clamp is not idempotent, so a base already in-region is not re-clamped) and inserts a
+        SandboxSealing for each (16B-aligned for STG). STG/LDG are handled fully here (clamp + the
+        index/displacement cancellation, since they take no value sealing). A data access only gets
+        its clamp inserted here and yields a site — (access, bb, mem_reg, offset_subs) — so the host
+        sealer can place its value sealings between the clamp and the cancellation. Returns
+        (sandbox_sealings, data_sites)."""
+        addr, base, sandbox, data_sites = self._addr, SANDBOX_BASE_REGISTER, [], []
+
+        def clamp(reg, mask):
+            s = SandboxSealing(reg, mask, base)   # seals its own placeholder on construction
+            sandbox.append(s)
+            return s.slot_insts
+
+        for func in tc.functions:
+            prefixes = []                       # (access, bb, insts) the walk inserts itself
+            predecessors, topo = addr._topo_sort(func)
+            taint_out: Dict[BasicBlock, frozenset] = {}
+            for bb in topo:
+                processed = [p for p in predecessors.get(bb, []) if p in taint_out]
+                curr: frozenset = frozenset()
+                if processed:
+                    curr = taint_out[processed[0]]
+                    for p in processed[1:]:
+                        curr = curr & taint_out[p]
+                for inst in bb:
+                    if inst.has_memory_access:
+                        if len(inst.get_mem_operands()) > 1:
+                            raise GeneratorException(
+                                f"the memory seal models one access per instruction; {inst.name!r} has several")
+                        mem_reg = addr._get_mem_base_reg(inst)
+                        if mem_reg is not None:
+                            norm_mem = addr._norm_reg(mem_reg)
+                            offset_subs = addr._make_offset_sub_insts(inst.get_mem_operands()[0])
+                            modifies_base = bool(offset_subs)
+                            if addr._is_tag_store(inst):             # STG: 16B-aligned clamp, no value
+                                prefixes.append((inst, bb, clamp(mem_reg, self._stg_mask) + offset_subs))
+                                curr = curr - frozenset([norm_mem])
+                            elif addr._is_tag_load(inst):            # LDG: clamp, no value
+                                if norm_mem in curr:
+                                    prefixes.append((inst, bb, list(offset_subs)))
+                                    if modifies_base:
+                                        curr = curr - frozenset([norm_mem])
+                                else:
+                                    prefixes.append((inst, bb, clamp(mem_reg, self._mask) + offset_subs))
+                                    if not modifies_base:
+                                        curr = curr | frozenset([norm_mem])
+                            else:                                    # data access: clamp now, value later
+                                if norm_mem not in curr:
+                                    prefixes.append((inst, bb, clamp(mem_reg, self._mask)))
+                                    if not modifies_base:
+                                        curr = curr | frozenset([norm_mem])
+                                elif modifies_base:
+                                    curr = curr - frozenset([norm_mem])
+                                data_sites.append((inst, bb, mem_reg, offset_subs))
+                    prop = addr.address_preserving_tag_op(inst)
+                    for dreg in addr._dest_regs(inst):
+                        if prop is not None and dreg == addr._norm_reg(prop[0]):
+                            curr = curr | frozenset([dreg]) if addr._norm_reg(prop[1]) in curr \
+                                else curr - frozenset([dreg])
+                        else:
+                            curr = curr - frozenset([dreg])
+                taint_out[bb] = curr
+            for anchor, bb, insts in prefixes:   # clamps (and STG/LDG cancellation) go in before value
+                for i in insts:
+                    bb.insert_before(anchor, i)
+        return sandbox, data_sites
+
+
+class MteSealer(SandboxWalk, Sealer):
+    """Sandbox clamp + an MTE tag per data access."""
+    def __init__(self, generator, trace_fn) -> None:
+        super().__init__(generator)
+        self._trace_fn = trace_fn
+
+    def seal(self, test_case: TestCase) -> SealedTestCase:
+        tc = copy.deepcopy(test_case)
+        sandbox, data_sites = self._sandbox(tc)
+        mte: List[MteSealing] = []
+        for inst, bb, mem_reg, offset_subs in data_sites:
+            s = MteSealing(mem_reg, inst)
+            mte.append(s)
+            _insert(bb, inst, s.slot_insts, offset_subs)   # value sealing, then the cancellation
+        _record_positions(tc, sandbox + mte)
+        return MteSealedTestCase(tc, self._trace_fn, sandbox, mte)
+
+
+class PacSealer(SandboxWalk, Sealer):
+    """Sandbox clamp + a PAC auth per data access, plus a PAC auth per standalone AUT*."""
+    def __init__(self, generator, trace_fn, signer) -> None:
+        super().__init__(generator)
+        self._trace_fn = trace_fn
+        self._signer = signer                      # kernel PAC signer (resolve only), from the executor
+        self._enc, self._auth_specs = _pac_encoder(generator)
+
+    def seal(self, test_case: TestCase) -> SealedTestCase:
+        tc = copy.deepcopy(test_case)
+        sandbox, data_sites = self._sandbox(tc)
+        pac: List[PacSealing] = []
+        for inst, bb, mem_reg, offset_subs in data_sites:
+            s = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc)
+            pac.append(s)
+            _insert(bb, inst, s.slot_insts, offset_subs)   # value sealing, then the cancellation
+        _seal_auths(tc, self._enc, self._auth_specs, pac)
+        _record_positions(tc, sandbox + pac)
+        return PacSealedTestCase(tc, self._trace_fn, self._signer, sandbox, pac)
+
+
+class MtePacSealer(SandboxWalk, Sealer):
+    """Sandbox clamp + PAC auth + MTE tag per data access (PAC before MTE), plus a PAC auth per AUT*."""
+    def __init__(self, generator, trace_fn, signer) -> None:
+        super().__init__(generator)
+        self._trace_fn = trace_fn
+        self._signer = signer                      # kernel PAC signer (resolve only), from the executor
+        self._enc, self._auth_specs = _pac_encoder(generator)
+
+    def seal(self, test_case: TestCase) -> SealedTestCase:
+        tc = copy.deepcopy(test_case)
+        sandbox, data_sites = self._sandbox(tc)
+        pac: List[PacSealing] = []
+        mte: List[MteSealing] = []
+        for inst, bb, mem_reg, offset_subs in data_sites:
+            p = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc)
+            pac.append(p)
+            m = MteSealing(mem_reg, inst)
+            mte.append(m)
+            _insert(bb, inst, p.slot_insts + m.slot_insts, offset_subs)   # PAC then MTE, then cancel
+        _seal_auths(tc, self._enc, self._auth_specs, pac)
+        _record_positions(tc, sandbox + pac + mte)
+        return MtePacSealedTestCase(tc, self._trace_fn, self._signer, sandbox, pac, mte)
+
+
+def make_sealer(generator, trace_fn, primitives, signer=None) -> Sealer:
+    """Pick the Sealer for the active primitives. `trace_fn(tc, input) -> cer` runs a CE trace (owns
+    assembly + the CE setup; the sealer never sees the assembler). `signer` is the kernel PAC signer
+    (a PacSigner over local_executor.pac_sign), needed by resolve when 'pac' is active."""
+    prims = frozenset(primitives)
+    if prims == frozenset({"mte"}):
+        return MteSealer(generator, trace_fn)
+    if prims == frozenset({"pac"}):
+        return PacSealer(generator, trace_fn, signer)
+    if prims == frozenset({"pac", "mte"}):
+        return MtePacSealer(generator, trace_fn, signer)
+    raise ValueError(f"unsupported seal primitives: {primitives!r}")

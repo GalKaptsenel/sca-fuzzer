@@ -25,6 +25,7 @@ ccflags-y += -I$(src)/userapi
 revizor-executor-y := \
 	main.o \
 	chardevice.o \
+	input_format.o \
 	cpu.o \
 	executor.o \
 	inputs.o \
@@ -53,11 +54,16 @@ HOSTCC ?= cc
 test_pmu: test_pmu.c pmu_logic.h
 	$(HOSTCC) -Wall -Wextra -O2 -o $@ test_pmu.c
 
+# Host-compiled, device-backed test of the kernel PAC sign/xpac ioctls via the non-faulting
+# verification (never AUTHs). Needs /dev/executor at runtime.
+test_pac_auth_verify: test_pac_auth_verify.c userapi/executor_pac_api.h userapi/executor_ioctl_nr.h
+	$(HOSTCC) -Wall -Wextra -O2 -Iuserapi -o $@ test_pac_auth_verify.c
+
 test: test_pmu
 	./test_pmu
 
 # Cleanup
 clean:
 	$(MAKE) -C $(KERNEL_DIR) M=$(CURDIR) clean
-	rm -f test_pmu
+	rm -f test_pmu test_pac_auth_verify
 

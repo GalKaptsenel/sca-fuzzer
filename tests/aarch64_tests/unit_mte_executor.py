@@ -12,26 +12,16 @@ class SandboxedCeCrashTest(unittest.TestCase):
     def _executor(self):
         ex = Aarch64NonInterferenceExecutor.__new__(Aarch64NonInterferenceExecutor)
         ex.test_case = mock.Mock()
-        ex._sealed_tc = mock.Mock()
-        ex._fix_points = []
-        ex._sealed_tc_bytes = b""
-        ex._layout = None
-        ex._pac_fps = []
-        ex._mem_fps = []
-        ex._engine = mock.Mock()
+        ex._sealed = mock.Mock()
+        # resolve() runs a CE trace internally (via the sealer's trace_fn); a crash there must
+        # propagate, not be swallowed.
+        ex._sealed.resolve.side_effect = RuntimeError("CE crashed")
         ex.read_base_addresses = mock.Mock(return_value=(0x1000, 0x2000))
-        ex._assemble_tc = mock.Mock(return_value=(b"", None))
-        ex._make_ce_execution = mock.Mock()
-        ex._contract_executor = mock.Mock()
-        ex._contract_executor.run.side_effect = RuntimeError("CE crashed")
         return ex
 
     def test_ce_crash_propagates(self):
         ex = self._executor()
-        with mock.patch.object(ex_mod, "pass_on_test_case"), \
-             mock.patch.object(ex_mod, "Aarch64SandboxPass"), \
-             mock.patch.object(ex_mod, "log_input"), \
-             mock.patch.object(ex_mod.copy, "deepcopy", return_value=mock.Mock()):
+        with mock.patch.object(ex_mod, "log_input"):
             with self.assertRaises(RuntimeError):
                 ex.trace_test_case_with_taints([mock.Mock()], 0)
 

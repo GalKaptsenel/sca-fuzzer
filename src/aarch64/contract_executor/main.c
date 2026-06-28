@@ -205,7 +205,7 @@ int main() {
 			goto main_input_free;
 		}
 
-		size_t sandbox_size = simulation.sim_input.hdr.mem_size + 0x1000; // Add a single page for overflow
+		size_t sandbox_size = simulation.sim_input.mem_size + 0x1000; // Add a single page for overflow
 		simulation.simulation_memory = (uint8_t*)malloc(sandbox_size);
 		if(NULL == simulation.simulation_memory) {
 			alarm(0);
@@ -230,7 +230,7 @@ int main() {
 		}
 
 		memset(simulation.simulation_memory, 0, sandbox_size);
-		memcpy(simulation.simulation_memory, simulation.sim_input.memory, simulation.sim_input.hdr.mem_size);
+		memcpy(simulation.simulation_memory, simulation.sim_input.memory, simulation.sim_input.mem_size);
 
 		simulation.n_hooks = 0;
 		memset(simulation.hooks, 0, sizeof(simulation.hooks));
@@ -238,8 +238,8 @@ int main() {
 
 		simulation.n_hooks = install_hooks(&simulation, MAX_HOOKS, hooks_to_install, (sizeof(hooks_to_install)/sizeof(hooks_to_install[0])));
 
-		if (!(RVZR_FLAG_HAS_REGS & simulation.sim_input.hdr.flags) ||
-		    simulation.sim_input.hdr.regs_size < 8 * sizeof(uint64_t)) {   /* asm reads slots [0..7] */
+		if (NULL == simulation.sim_input.regs ||
+		    simulation.sim_input.regs_size < 8 * sizeof(uint64_t)) {   /* asm reads slots [0..7] */
 			alarm(0);
 			fprintf(stderr, "[ERR] regs blob missing or smaller than 8 x u64\n");
 			ret = -1;
@@ -256,6 +256,11 @@ int main() {
 			ret = -1;
 			goto main_simulation_memory_free;
 		}
+
+		/* Seed the MTE tag memory from the input's MTE_TAGS section. A no-op (no tag memory) when
+		 * the input carries no tags -- i.e. this is not an MTE-test-mode input. */
+		mte_tagmem_init((uintptr_t)kernel_sandbox_base, simulation.sim_input.mte_tags,
+		                simulation.sim_input.mte_tag_count);
 
 		g_iter_phase = 2; /* simulation */
 		CE_INSTALL_CRASH_HANDLERS(); /* reinstall in case Python code (TAGE) overrode them */
@@ -289,6 +294,7 @@ int main() {
 		                                   lazily at the next BPU test case (ensure_initialized ->
 		                                   on_reset -> reset()) */
 		destroy_trace_log();
+		mte_tagmem_free();
 		free(simulation.simulation_memory);
 		simulation_code_free(&simulation.sim_code, 4 + base_hook_size);
 		simulation_input_free(&simulation.sim_input);
@@ -298,6 +304,7 @@ int main() {
 
 
 main_simulation_memory_free:
+	mte_tagmem_free();
 	free(simulation.simulation_memory);
 main_code_free:
 	simulation_code_free(&simulation.sim_code, 4 + base_hook_size);

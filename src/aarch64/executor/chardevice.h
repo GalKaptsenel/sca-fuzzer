@@ -7,6 +7,9 @@
 /* ioctl serial numbers (single source of truth). */
 #include "userapi/executor_ioctl_nr.h"
 
+/* Self-describing per-input wire format parsed by copy_input_from_user. */
+#include "userapi/executor_input_format.h"
+
 /*
  * REVISOR_MTE_TAG_REGION: write a uniform allocation tag to a byte range within
  * the sandbox, starting at sandbox_offset bytes from the base of lower_overflow.

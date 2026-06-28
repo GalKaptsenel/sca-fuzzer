@@ -2,6 +2,7 @@
 #include "simulation.h"
 #include "simulation_output.h"
 #include "execution_clauses.h"
+#include "mte_tag_plugin.h"
 
 /* Generic speculation engine: a checkpoint/rollback stack + nesting counter. Per-instruction
  * behavior lives in the execution clauses, dispatched via the registry. */
@@ -22,6 +23,20 @@ static uint64_t take_checkpoint(struct simulation_state* sim_state) {
 	}
 	mgmt.checkpoints_array[mgmt.current_checkpoint_id].memory = checkpoint_memory;
 	memcpy(checkpoint_memory, sim_state->memory, mgmt.memory_size);
+
+	/* Snapshot the MTE tag memory alongside data memory so STG* updates roll back on misspeculation
+	 * (NULL when not in MTE-test mode). */
+	uint8_t* checkpoint_tags = NULL;
+	size_t tag_bytes = mte_tagmem_bytes();
+	if(0 != tag_bytes) {
+		checkpoint_tags = malloc(tag_bytes);
+		if(NULL == checkpoint_tags) {
+			fprintf(stderr, "OUT OF MEMORY - Unable to allocate a tag checkpoint!");
+			__builtin_trap();
+		}
+		mte_tagmem_snapshot(checkpoint_tags);
+	}
+	mgmt.checkpoints_array[mgmt.current_checkpoint_id].tags = checkpoint_tags;
 	return mgmt.current_checkpoint_id++;
 }
 
@@ -31,6 +46,9 @@ static void reload_checkpoint(struct simulation_state* sim_state, uint64_t check
 	}
 	sim_state->cpu_state = mgmt.checkpoints_array[checkpoint_id].cpu_state;
 	memcpy(sim_state->memory, mgmt.checkpoints_array[checkpoint_id].memory, mgmt.memory_size);
+	if(NULL != mgmt.checkpoints_array[checkpoint_id].tags) {
+		mte_tagmem_restore(mgmt.checkpoints_array[checkpoint_id].tags);
+	}
 }
 
 void spec_reload_checkpoint(struct simulation_state* sim_state, const struct execution_checkpoint_desc* frame) {
@@ -42,6 +60,8 @@ static void destroy_execution_clause(void) {
 		for(size_t i = 0; i < mgmt.current_checkpoint_id; ++i) {
 			free(mgmt.checkpoints_array[i].memory);
 			mgmt.checkpoints_array[i].memory = NULL;
+			free(mgmt.checkpoints_array[i].tags);
+			mgmt.checkpoints_array[i].tags = NULL;
 		}
 		free(mgmt.checkpoints_array);
 		mgmt.checkpoints_array = NULL;
@@ -91,7 +111,7 @@ static void ensure_initialized(void) {
 		__builtin_trap();
 	}
 	mgmt.current_checkpoint_id = 0;
-	mgmt.memory_size = simulation.sim_input.hdr.mem_size + 0x1000; // + overflow page
+	mgmt.memory_size = simulation.sim_input.mem_size + 0x1000; // + overflow page
 	size_t checkpoints_array_size = mgmt.max_checkpoints * sizeof(struct execution_checkpoint);
 	mgmt.checkpoints_array = malloc(checkpoints_array_size);
 	if(NULL == mgmt.checkpoints_array) {

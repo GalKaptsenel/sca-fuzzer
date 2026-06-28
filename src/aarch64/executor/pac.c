@@ -248,5 +248,83 @@ uint64_t pac_run_op_with_keys(enum pac_op op, uint64_t ptr, uint64_t mod,
 	return result;
 }
 
+/* Auth op -> the sign op that produces the same PAC field, for non-faulting verification. */
+static enum pac_op pac_auth_to_sign(enum pac_op op) {
+	switch (op) {
+	case PAC_OP_AUTIA:  return PAC_OP_PACIA;
+	case PAC_OP_AUTIB:  return PAC_OP_PACIB;
+	case PAC_OP_AUTDA:  return PAC_OP_PACDA;
+	case PAC_OP_AUTDB:  return PAC_OP_PACDB;
+	case PAC_OP_AUTIZA: return PAC_OP_PACIZA;
+	case PAC_OP_AUTIZB: return PAC_OP_PACIZB;
+	case PAC_OP_AUTDZA: return PAC_OP_PACDZA;
+	case PAC_OP_AUTDZB: return PAC_OP_PACDZB;
+	default:            return PAC_OP_INVALID;
+	}
+}
+
+/* Strip the same key family's PAC field as this auth op (XPAC never faults). */
+static uint64_t pac_auth_strip(enum pac_op op, uint64_t ptr) {
+	switch (op) {
+	case PAC_OP_AUTIA: case PAC_OP_AUTIB:
+	case PAC_OP_AUTIZA: case PAC_OP_AUTIZB:
+		return xpaci(ptr);
+	default:
+		return xpacd(ptr);
+	}
+}
+
+/* Model the AUT* with non-faulting ops: strip (XPAC) then re-sign the canonical pointer with the
+ * same key+context. The signature is correct iff the re-signed value equals the original pointer.
+ * Only then run the real AUT* (guaranteed to succeed); otherwise flag would_fault and return the
+ * canonical pointer WITHOUT executing AUT*. Assumes the intended keys/SCTLR are already live. */
+static uint64_t pac_auth_verify_core(enum pac_op op, uint64_t ptr, uint64_t mod, bool *would_fault) {
+	uint64_t canonical = pac_auth_strip(op, ptr);
+	uint64_t resigned  = pac_run_op(pac_auth_to_sign(op), canonical, mod);
+	if (resigned == ptr) {
+		*would_fault = false;
+		return pac_run_op(op, ptr, mod);   /* correctly signed -> safe to authenticate */
+	}
+	*would_fault = true;
+	return canonical;                      /* wrong sig: a real AUT* here would FPAC-reset the box */
+}
+
+/* Crash-safe AUTH for the REVISOR_PAC_AUTH ioctl: a wrong signature must never reach a real AUT* at
+ * EL1 (synchronous FPAC fault -> hard reset). Verifies first (pac_auth_verify_core) inside the same
+ * one-op key window as pac_run_op_with_keys, and warns when a fault was suppressed. */
+uint64_t pac_auth_with_keys(enum pac_op op, uint64_t ptr, uint64_t mod,
+                            bool keys_set, const struct pac_keys *exec_keys) {
+	struct pac_keys saved_keys;
+	uint64_t saved_sctlr, result;
+	unsigned long flags;
+	bool would_fault = false;
+
+	if (!keys_set) {
+		result = pac_auth_verify_core(op, ptr, mod, &would_fault);
+	} else {
+		local_irq_save(flags);
+		preempt_disable();
+
+		pac_save_keys(&saved_keys);
+		pac_load_keys(exec_keys);
+		saved_sctlr = pac_enable_all_keys();
+
+		result = pac_auth_verify_core(op, ptr, mod, &would_fault);
+
+		pac_restore_sctlr(saved_sctlr);
+		pac_load_keys(&saved_keys);
+
+		preempt_enable();
+		local_irq_restore(flags);
+	}
+
+	if (would_fault) {
+		pr_warn("revizor: PAC AUTH would FPAC (op=%d ptr=%#llx ctx=%#llx keys_set=%d) -- suppressed, returned canonical %#llx\n",
+		        op, (unsigned long long)ptr, (unsigned long long)mod, keys_set,
+		        (unsigned long long)result);
+	}
+	return result;
+}
+
 #pragma GCC pop_options
 

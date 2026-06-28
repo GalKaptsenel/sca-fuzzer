@@ -24,17 +24,18 @@ from ..util import Logger, STAT, FuzzLogger
 from .aarch64_target_desc import Aarch64TargetDesc, SANDBOX_BASE_REGISTER
 from .aarch64_kernel import LocalHWExecutor, TestCaseRegion, InputRegion, ExecutorMemory
 from .aarch64_generator import Pass, Aarch64SandboxPass
-from .aarch64_seal import SealedNIInstrumentation, is_speculative, FixPoint
-from .aarch64_pac import PacAuthInstrumentation, PacSigner
+from .aarch64_pac import PacSigner
+from .aarch64_sealer import make_sealer, SealedTestCase, ResolvedSealingTestCase
 from .aarch64_contract_executor import (ContractExecution, ContractExecutorService,
                                         ExecutionClause, SUPPORTED_EXECUTION_CLAUSES,
                                         BranchPredictor, EXECUTION_CLAUSE_MAP, SimArch)
 from .aarch64_disasm import disassemble_instruction, decode_reg_accesses, is_conditional_branch
-from .aarch64_seal_factory import make_seal_pass
 from .aarch64_trace import compute_ctrace, compute_taint, ContractExecutionResult
 from .aarch64_input_layout import _input_bytes_with_pstate, REGISTER_REGION_OFFSET
+from .aarch64_input_wire import serialize_input, MTE_TAG_COUNT
+from .aarch64_mte import MTE_INITIAL_TAG
 from .aarch64_log import (log_start_test_case, log_input, log_ce_trace, log_bb_map,
-                          log_tc_binary, log_slot, log_mistraining, log_ni_table)
+                          log_tc_binary, log_mistraining, log_ni_table)
 
 # ==================================================================================================
 # Helper functions
@@ -290,7 +291,8 @@ class Aarch64LocalExecutor(Aarch64Executor):
 
     def _make_ce_execution(self, tc_bytes: bytes, inp: Input, sandbox_base: int, nesting: int,
                            max_mispred_instructions: int, ct: ExecutionClause,
-                           bp: BranchPredictor = BranchPredictor.NONE) -> ContractExecution:
+                           bp: BranchPredictor = BranchPredictor.NONE,
+                           mte_tags: Optional[List[int]] = None) -> ContractExecution:
         tc_memory, tc_regs = _ce_memory_regs(inp)
         return ContractExecution(
             tc_bytes, tc_memory, tc_regs, SimArch.RVZR_ARCH_AARCH64,
@@ -299,6 +301,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
             req_mem_base_virt=sandbox_base,
             execution_clauses=ct,
             branch_predictor=bp,
+            mte_tags=mte_tags,
         )
 
     def trace_test_case(self, inputs: List[Input], n_reps: int) -> Tuple[List[HTrace], List[TestCase]]:
@@ -327,7 +330,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
         expected_log = {}
         log = FuzzLogger.get()
 
-        payloads = [ExecutorMemory(_input_bytes_with_pstate(i)) for i in inputs]
+        payloads = [ExecutorMemory(serialize_input(i)) for i in inputs]
         train_entries = [self.branch_mistraining_entries(getattr(i, "_arch_trace", None))
                          for i in inputs]
         for idx, entries in enumerate(train_entries):
@@ -689,25 +692,34 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                 "non-interference fuzzing needs a PAC or MTE instruction category enabled")
 
         # PAC signing capability (kernel SIGN only — never AUTH; a failed AUTH at EL1 resets the box).
-        self._signer = PacSigner(self.local_executor.pac_sign) if "pac" in self._primitives else None
+        signer = PacSigner(self.local_executor.pac_sign) if "pac" in self._primitives else None
 
-        # Memory pass composes [Sandbox] + the active value-seals; PAC also seals AUT* sites.
-        self._mem_pass = make_seal_pass(generator, self._primitives, self._signer)
-        self._auth_pass = (PacAuthInstrumentation(generator, self._signer)
-                           if "pac" in self._primitives else None)
-        # Decoy any non-sandbox seal on a speculative slot (PAC and MTE both, when both active).
-        self._engine: SealedNIInstrumentation = self._mem_pass.make_engine(
-            should_decoy=lambda fp, seal: seal.name != "sandbox" and is_speculative(fp))
+        # The sealer owns all sealing + resolution; it traces via our _seal_trace (assemble + CE run).
+        self._sealer = make_sealer(generator, self._seal_trace, self._primitives, signer)
 
-        # Sealed-TC cache, populated by load_test_case().
-        self._sealed_tc: Optional[TestCase] = None
-        self._fix_points: Optional[List[FixPoint]] = None
-        self._sealed_tc_bytes: Optional[bytes] = None
-        self._layout = None                    # assembled-TC layout (instruction -> byte offset), for resolve
-        self._pac_fps: List[FixPoint] = []
-        self._mem_fps: List[FixPoint] = []
+        # Per-test-case sealed placeholder, populated by load_test_case(); the CE-trace context the
+        # sealer's resolve uses (captured per with_taints call).
+        self._sealed: Optional[SealedTestCase] = None
+        self._sandbox_base: Optional[int] = None
+        self._nesting: int = CONF.model_max_nesting
         self._last_tc_variants: Optional[List[TCVariants]] = None
         self._last_ce_traces: Optional[List[ContractExecutionResult]] = None
+
+    def _mte_tags_for(self, inp: Input) -> Optional[List[int]]:
+        """Uniform initial tags the sandbox is loaded with when MTE is active (else None — leave tag
+        memory untouched). The kernel HW, the CE tag memory, and the model's MteTagState all seed
+        from this same uniform tag."""
+        if "mte" not in self._primitives:
+            return None
+        return [MTE_INITIAL_TAG] * MTE_TAG_COUNT
+
+    def _seal_trace(self, tc: TestCase, inp: Input) -> ContractExecutionResult:
+        """One CE trace of `tc` for `inp` — the trace_fn the sealer resolves over. Owns assembly +
+        the CE setup so the sealer never sees the assembler."""
+        tc_bytes, _ = self._assemble_tc(tc)
+        return self._contract_executor.run(self._make_ce_execution(
+            tc_bytes, inp, self._sandbox_base, self._nesting, CONF.model_max_spec_window,
+            ExecutionClause.COND, mte_tags=self._mte_tags_for(inp)))
 
     # ------------------------------------------------------------------ lifecycle
     def load_test_case(self, test_case: TestCase):
@@ -722,34 +734,9 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             # Pin PAC keys so this process's pac_sign and the CE subprocess's auth share the same
             # key material (else AUTH fails against correct_sig).
             self.local_executor.set_pac_keys(self.local_executor.get_pac_keys())
-        self._build_sealed_tc()
-        if self._sealed_tc_bytes:
-            log_tc_binary(log, "SEALED", self._sealed_tc_bytes)
-            log.ensure_flushed()
+        self._sealed = self._sealer.seal(self.test_case)
+        log.ensure_flushed()
         return result
-
-    def _build_sealed_tc(self) -> None:
-        patched = copy.deepcopy(self.test_case)
-        _, mem_fps = self._mem_pass.seal_test_case(patched)
-        auth_fps: List[FixPoint] = []
-        if self._auth_pass is not None:
-            _, auth_fps = self._auth_pass.seal_test_case(patched)
-        tc_bytes, layout = self._assemble_tc(patched)
-
-        self._sealed_tc = patched
-        self._fix_points = mem_fps + auth_fps
-        self._sealed_tc_bytes = tc_bytes
-        self._layout = layout
-        self._mem_fps = mem_fps
-        self._pac_fps = list(auth_fps) + (mem_fps if "pac" in self._primitives else [])
-        FuzzLogger.get().wp(f"  [SEALED] primitives={sorted(self._primitives)} fix_points="
-                            f"{len(self._fix_points)} (pac={len(self._pac_fps)}, mem={len(mem_fps)})")
-
-    def _mint_variants(self) -> TCVariants:
-        """The TC variants to run on hardware for the current input's resolved fix points. NI compares
-        a genuine baseline against a decoy; the regular subclass overrides to mint genuine only."""
-        return {NIVariant.BASELINE: self._engine.baseline(random),
-                NIVariant.DECOY:    next(self._engine.decoys(random))}
 
     def trace_test_case_with_taints(
         self,
@@ -758,11 +745,10 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
     ) -> Tuple[List[CTrace], List[InputTaint], List[ContractExecutionResult], List[TCVariants]]:
         if not inputs or self.test_case is None:
             return [], [], [], []
-        assert self._sealed_tc is not None, "sealed-TC cache empty — load_test_case() not called"
+        assert self._sealed is not None, "sealed TC not built — load_test_case() not called"
 
-        tc, fix_points, tc_bytes = self._sealed_tc, self._fix_points, self._sealed_tc_bytes
-        sandbox_base, _ = self.read_base_addresses()
-        self._engine.set_sealed(tc, fix_points)
+        self._nesting = nesting
+        self._sandbox_base, _ = self.read_base_addresses()
 
         log = FuzzLogger.get()
         ce_traces: List[ContractExecutionResult] = []
@@ -771,29 +757,23 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         for inp_idx, inp in enumerate(inputs):
             log_input(log, inp_idx, inp, ch="ni_flow")
             log.ensure_flushed()
-            for fp in fix_points:
-                fp.reset()
 
-            # One CE trace of the sealed TC (ALWAYS_MISPREDICT) reveals the speculative paths.
-            cer = self._contract_executor.run(self._make_ce_execution(
-                tc_bytes, inp, sandbox_base, nesting, CONF.model_max_spec_window,
-                ExecutionClause.COND))
+            # Resolve the placeholder for this input, then mint genuine ONCE (it carries the random
+            # XPAC strip). taint/ctrace are the GENUINE baseline's CE trace — the TC that actually runs
+            # on hardware — NOT the placeholder, whose slots behave differently.
+            resolved = self._sealed.resolve(inp)
+            genuine = resolved.genuine()
+            cer = self._seal_trace(genuine, inp)
             ce_traces.append(cer)
 
-            # Each fix point parses its own data from the trace (PAC signs, MTE classifies tags).
-            log_ce_trace(log, "SEALED", inp_idx, list(cer))
-            for fp in fix_points:
-                fp.resolve(cer, self._layout)
-            for fp in self._pac_fps:  # log_slot reads PAC signature data
-                log_slot(log, inp_idx, fp)
-
-            # Fix points now hold this input's data; mint the variants to run on hardware.
-            variants = self._mint_variants()
+            variants = self._mint_variants(resolved, genuine)
             tc_variants_per_input.append(variants)
+
+            log_ce_trace(log, "BASELINE", inp_idx, list(cer))
             log.header(f"VARIANT TC BINARIES  inp={inp_idx}")
             for variant, vtc in variants.items():
                 log_tc_binary(log, variant.name, self._assemble_tc(vtc)[0])
-            self._maybe_log_ni_table(log, inp_idx, cer, tc_bytes, variants)
+            self._maybe_log_ni_table(log, inp_idx, cer, variants)
             log.ensure_flushed()
 
         self._last_tc_variants = tc_variants_per_input
@@ -802,28 +782,24 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         ctraces = [compute_ctrace(cer) for cer in ce_traces]
         return ctraces, taints, ce_traces, tc_variants_per_input
 
-    def _maybe_log_ni_table(self, log, inp_idx, cer, tc_bytes, variants) -> None:
-        """DEBUG (env REVIZOR_NI_TABLE): per-instruction sealed/baseline/decoy table with the CE
-        arch/spec annotation and each PAC/MTE fix point's committed signature/tag (from the fix
-        point, not the trace)."""
+    def _mint_variants(self, resolved: ResolvedSealingTestCase, genuine: TestCase) -> TCVariants:
+        """The TC variants to run on hardware for the resolved input. NI compares the already-minted
+        genuine baseline against a fresh decoy; the regular subclass overrides this."""
+        return {NIVariant.BASELINE: genuine, NIVariant.DECOY: resolved.decoy()}
+
+    def _maybe_log_ni_table(self, log, inp_idx, cer, variants) -> None:
+        """DEBUG (env REVIZOR_NI_TABLE): per-variant byte columns for the sealed/baseline/decoy table.
+        The per-slot Sig/Tag annotation is dropped — it read the old fix points, which no longer exist
+        (the resolved values live inside the sealer's ResolvedSealingTestCase)."""
         if not os.environ.get("REVIZOR_NI_TABLE"):
             return
-        addr_of, info_by_off = self._layout.instruction_address, {}
-        for fp in self._pac_fps:                       # PAC: signature at the XPAC slot
-            xpac = next(i for i in fp.slot_insts if i.name.lower() in ("xpaci", "xpacd"))
-            off = addr_of[xpac]
-            info_by_off[off] = info_by_off[off - 4] = \
-                f"0x{fp.correct_sig:04x}" if fp.correct_sig is not None else "None"
-        if "mte" in self._primitives:                         # MTE: tag at the guarded access
-            for fp in self._mem_fps:
-                info_by_off[addr_of[fp.trigger]] = \
-                    f"0x{fp.correct_tag:x}" if fp.correct_tag is not None else "None"
-        log_ni_table(log, inp_idx, [
-            ("sealed",   tc_bytes),
-            ("baseline", self._assemble_tc(variants[NIVariant.BASELINE])[0]),
-            ("decoy#1",  self._assemble_tc(variants[NIVariant.DECOY])[0]),
-            ("decoy#2",  self._assemble_tc(next(self._engine.decoys(random)))[0]),
-        ], list(cer), "Sig/Tag", info_by_off, ch="ni_table")
+        log_ni_table(log, inp_idx, self._ni_table_columns(variants),
+                     list(cer), "", {}, ch="ni_table")
+
+    def _ni_table_columns(self, variants):
+        """(name, bytes) columns for the debug table: this input's baseline and decoy."""
+        return [(variant.name.lower(), self._assemble_tc(tc)[0])
+                for variant, tc in variants.items()]
 
 
     # ------------------------------------------------------------------ hardware: compare variants
@@ -850,7 +826,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             self.local_executor.discard_all_inputs()
             iid = self.local_executor.allocate_iid()
             self.local_executor.checkout_region(InputRegion(iid))
-            self.local_executor.write(ExecutorMemory(_input_bytes_with_pstate(inp)))
+            self.local_executor.write(ExecutorMemory(serialize_input(inp, mte_tags=self._mte_tags_for(inp))))
 
             entries = self.branch_mistraining_entries(getattr(inp, "_arch_trace", None))
             self.apply_branch_mistraining(entries)
@@ -878,44 +854,97 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
 class Aarch64RegularSealedExecutor(Aarch64NonInterferenceExecutor):
     """Regular fuzzing with PAC/MTE support.
 
-    Reuses the NI seal/resolve pipeline so that, per input, every PAC pointer is correctly signed and
-    every MTE access correctly tagged for *that* input (arch-safe: no failed AUTH at EL1, no tag
-    fault). But the leak model is the regular one — inputs are grouped by their (sealed-TC) contract
-    trace and the per-input genuine htraces must match; there are no decoys. The genuine TC is
-    architecturally equivalent to the sealed placeholder and its seal slots are register-only, so the
-    sig/tag differences between inputs never enter the cache htrace."""
+    Reuses the NI seal/resolve pipeline. Inputs are grouped into *sealing classes* — identical
+    resolved (correct_sig, correct_tag, spec_nesting) across all fix points — and each class runs ONE
+    sealed TC, minted once (with the real rng) and shared by every member. The form is a per-class
+    coin flip:
+      - decoy: genuine on every architectural slot, decoyed (wrong signature / retag) on the
+        speculative slots — exposes the speculative PAC/MTE leak.
+      - genuine: genuine everywhere.
+    Either way the architectural slots are always correct, so the TC is arch-safe (no failed AUTH at
+    EL1, no tag fault), and the representative's arch AUT*/tag match every member's pointer.
 
-    def _mint_variants(self) -> TCVariants:
-        return {NIVariant.BASELINE: self._engine.baseline(random)}
+    Sharing one TC per class gives, for free, a consistent decoy decision at each slot across all the
+    class's inputs (they run the identical program); an input never runs another class's TC. The seal
+    slots are register-only, so sealing differences between classes never enter the cache htrace,
+    leaving the standard regular by-contract-trace leak comparison valid. (A contract trace fixes the
+    accessed addresses, hence the pointers, hence the signatures/tags — so a contract-trace class is
+    contained in a sealing class and likewise shares one TC.)"""
+
+    _DECOY_PROB = 0.5   # per sealing class: probability of the speculative-decoy form vs all-genuine
+
+    def __init__(self, generator: Aarch64Generator, *args, **kwargs):
+        super().__init__(generator, *args, **kwargs)
+        self._class_tc: Dict[tuple, TCVariants] = {}    # sealing key -> the class's one shared TC
+        self._tc_by_input: Dict[int, TCVariants] = {}   # id(input) -> its TC (from the last resolve)
+
+    def load_test_case(self, test_case: TestCase):
+        self._class_tc = {}                             # fresh per-class TCs for each test case
+        self._tc_by_input = {}
+        super().load_test_case(test_case)
+
+    def _mint_variants(self, resolved: ResolvedSealingTestCase, genuine: TestCase) -> TCVariants:
+        """The TC for the resolved input's sealing class — minted once per class with a real-random
+        per-class coin (decoy vs all-genuine) and shared by every member, so caveat-4 merges (Ti ==
+        Tt) fall out automatically. Reuses the already-minted `genuine` for the BASELINE form."""
+        key = resolved.collapse_key
+        if key not in self._class_tc:
+            if random.random() < self._DECOY_PROB:
+                self._class_tc[key] = {NIVariant.DECOY: resolved.decoy()}
+            else:
+                self._class_tc[key] = {NIVariant.BASELINE: genuine}
+        return self._class_tc[key]
+
+    def trace_test_case_with_taints(self, inputs, nesting):
+        result = super().trace_test_case_with_taints(inputs, nesting)
+        # remember each input's TC so trace_test_case can find it without re-resolving
+        self._tc_by_input = {id(inp): var for inp, var in zip(inputs, self._last_tc_variants)}
+        return result
+
+    def _resolve_input_tc(self, inp: Input) -> TCVariants:
+        """Resolve one input over the placeholder sealed TC and return its sealing class's TC. Used
+        by trace_test_case for inputs the last with_taints pass didn't cover (slow-path priming,
+        reuse_ctraces). genuine()'s arch slots are always correct (never a forged/failed AUTH)."""
+        resolved = self._sealed.resolve(inp)
+        return self._mint_variants(resolved, resolved.genuine())
 
     def trace_test_case(self, inputs: List[Input], n_reps: int) -> Tuple[List[HTrace], List[TestCase]]:
-        """Run each input's genuine sealed TC on hardware. trace_test_case_with_taints() (called first
-        by the fuzzer) minted and cached each input's genuine TC; replay it one input at a time, since
-        the TC differs per input (its signatures/tags are input-specific, so inputs cannot be batched
-        onto one loaded TC)."""
+        """Run each input on its sealing class's one shared TC. Every input maps to its TC here (from
+        the with_taints cache, else re-resolved), so this is correct for any input list the slow path
+        passes (priming subsets, reuse_ctraces, larger samples) and never runs a wrong-class TC."""
         if not inputs or self.test_case is None:
             return [], []
-        assert self._last_tc_variants is not None and len(self._last_tc_variants) == len(inputs), \
-            "trace_test_case_with_taints() must run before trace_test_case()"
+        self._sandbox_base, _ = self.read_base_addresses()
         STAT.executor_reruns += n_reps * len(inputs)
+
+        # map each input -> its class TC, then group inputs sharing a TC (one TC written per class)
+        per_input_tcs: List[TestCase] = []
+        classes: Dict[int, List[int]] = defaultdict(list)
+        tc_by_id: Dict[int, TestCase] = {}
+        for i, inp in enumerate(inputs):
+            var = self._tc_by_input.get(id(inp)) or self._resolve_input_tc(inp)
+            tc = next(iter(var.values()))
+            per_input_tcs.append(tc)
+            classes[id(tc)].append(i)
+            tc_by_id[id(tc)] = tc
+
         input_to_trace_list: Dict[int, List[int]] = defaultdict(list)
         pfc_log: Dict[int, List] = defaultdict(list)
-        genuine_tcs: List[TestCase] = []
-        for inp_idx, (inp, variants) in enumerate(zip(inputs, self._last_tc_variants)):
-            tc = variants[NIVariant.BASELINE]
-            genuine_tcs.append(tc)
-            self.local_executor.discard_all_inputs()
-            iid = self.local_executor.allocate_iid()
-            self.local_executor.checkout_region(InputRegion(iid))
-            self.local_executor.write(ExecutorMemory(_input_bytes_with_pstate(inp)))
-            self.apply_branch_mistraining(
-                self.branch_mistraining_entries(getattr(inp, "_arch_trace", None)))
-            self._assemble_and_write_test_case(tc)
-            for _ in range(n_reps):
-                self.local_executor.trace()
+        for tcid, idxs in classes.items():
+            self._assemble_and_write_test_case(tc_by_id[tcid])
+            for i in idxs:
+                inp = inputs[i]
+                self.local_executor.discard_all_inputs()
+                iid = self.local_executor.allocate_iid()
                 self.local_executor.checkout_region(InputRegion(iid))
-                hwm = self.local_executor.hardware_measurement()
-                input_to_trace_list[inp_idx].append(hwm.htrace)
-                pfc_log[inp_idx].append(hwm.pfcs)
+                self.local_executor.write(ExecutorMemory(serialize_input(inp, mte_tags=self._mte_tags_for(inp))))
+                self.apply_branch_mistraining(
+                    self.branch_mistraining_entries(getattr(inp, "_arch_trace", None)))
+                for _ in range(n_reps):
+                    self.local_executor.trace()
+                    self.local_executor.checkout_region(InputRegion(iid))
+                    hwm = self.local_executor.hardware_measurement()
+                    input_to_trace_list[i].append(hwm.htrace)
+                    pfc_log[i].append(hwm.pfcs)
         htraces = self._aggregate_htraces(len(inputs), n_reps, input_to_trace_list, pfc_log)
-        return htraces, genuine_tcs
+        return htraces, per_input_tcs

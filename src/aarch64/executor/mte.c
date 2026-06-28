@@ -48,6 +48,14 @@ void mte_init_sandbox_tags(const void* base, uint64_t length, uint8_t tag) {
 	}
 }
 
+void mte_apply_sandbox_tags(const void* base, const uint8_t* tags, uint64_t n_granules) {
+	for (uint64_t i = 0; i < n_granules; ++i) {
+		uintptr_t current_ptr = (uintptr_t)base + i * MTE_GRANULE_SIZE;
+		const void* tagged_ptr = tag_ptr((void*)current_ptr, tags[i] & 0xF);
+		stg(tagged_ptr);
+	}
+}
+
 // MTE system register bit accessors
 DEFINE_FULL_MSR_BIT_ACCESSORS(TCO, TCO, 25)
 DEFINE_FULL_MSR_BIT_ACCESSORS(TCR_EL1, TCMA1, 58)
@@ -101,6 +109,8 @@ static inline void stg(const void* ptr)				{ (void)ptr; }
 void mte_randomly_tag_region(const void* ptr, uint64_t length)	{ (void)ptr; (void)length; }
 
 void mte_init_sandbox_tags(const void* base, uint64_t length, uint8_t tag) { (void)base; (void)length; (void)tag; }
+
+void mte_apply_sandbox_tags(const void* base, const uint8_t* tags, uint64_t n_granules) { (void)base; (void)tags; (void)n_granules; }
 
 uint8_t enable_TCMA1_bit(void)					{ return 0; }
 

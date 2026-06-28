@@ -14,6 +14,7 @@
 struct execution_checkpoint {
 	struct cpu_state cpu_state;
 	uint8_t* memory;
+	uint8_t* tags;     /* MTE tag-memory snapshot, or NULL when not in MTE-test mode */
 };
 
 /* A pushed speculation frame: where/how to resume when the window unwinds. `owner` is the

@@ -113,3 +113,12 @@ class Aarch64Fuzzer(FuzzerGeneric):
                     return True
 
             return False
+
+    def _supports_fast_boosting(self) -> bool:
+        # When factory.get_executor selected the PAC/MTE sealing executor, every input is re-resolved
+        # to its per-class sealed test case, so fast boosting (which skips re-tracing boosted inputs)
+        # would save nothing and skip the per-input contract-trace verification. Disable it then.
+        from .aarch64_executor import Aarch64RegularSealedExecutor
+        if isinstance(self.executor, Aarch64RegularSealedExecutor):
+            return False
+        return CONF.enable_fast_path_model

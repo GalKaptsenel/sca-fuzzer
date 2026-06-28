@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include "stream_ipc.h"
@@ -16,8 +17,7 @@
 enum sim_flags {
 	RVZR_FLAG_NONE		= 0,
 	RVZR_FLAG_HAS_CODE	= 1 << 0,
-	RVZR_FLAG_HAS_REGS	= 1 << 1,
-	RVZR_FLAG_HAS_MEMORY	= 1 << 2,
+	RVZR_FLAG_HAS_INPUT	= 1 << 1,   /* the shared input initialization (executor_input_format) follows code */
 };
 
 enum config_flags {
@@ -64,24 +64,26 @@ struct configuration {
 	uint64_t branch_predictor;         /* enum branch_predictor_id; used iff EXEC_CLAUSE_BPU */
 };
 
+/* Envelope for one contract-executor message: exec-params (config) + code + a shared input initialization
+ * (executor_input_format). All members are u64. The payload after this header is `code` followed by
+ * the input initialization; memory/regs/mte-tags/pac-keys are sections inside that input_init. */
 struct input_header {
-    uint32_t magic;
-    uint16_t version;
-    uint16_t arch;
+    uint64_t magic;       /* RVZRCE_MAGIC */
+    uint64_t version;     /* RVZRCE_VERSION */
+    uint64_t arch;
 
     uint64_t flags;
     struct configuration config;
 
-    uint64_t code_size;   /* bytes */
-    uint64_t mem_size;    /* bytes */
-    uint64_t regs_size;   /* bytes */
+    uint64_t code_size;   /* bytes of machine code following the header */
+    uint64_t input_init_size;   /* bytes of the input initialization following the code */
 
     uint64_t reserved;    /* must be 0 */
 };
 
 /* Wire ABI must match the Python encoder (ContractExecution.encode). */
 _Static_assert(sizeof(struct configuration) == 9 * sizeof(uint64_t), "configuration ABI mismatch");
-_Static_assert(sizeof(struct input_header) == 120, "input_header ABI mismatch");
+_Static_assert(sizeof(struct input_header) == 16 * sizeof(uint64_t), "input_header ABI mismatch");
 
 /* ============================
  * In-memory representation
@@ -90,9 +92,15 @@ _Static_assert(sizeof(struct input_header) == 120, "input_header ABI mismatch");
 struct simulation_input {
     struct input_header hdr;
 
-    uint8_t *code;   /* machine code */
-    uint8_t *memory; /* initial memory image */
-    uint8_t *regs;   /* architecture-specific register blob; slot 6 (x6/NZCV) is already in PSTATE format */
+    uint8_t *code;     /* machine code */
+    uint8_t *memory;   /* initial memory image (main || faulty from the input initialization) */
+    size_t   mem_size;
+    uint8_t *regs;     /* register data (gpr section); slot 6 (x6/NZCV) is already in PSTATE format */
+    size_t   regs_size;
+    uint8_t *mte_tags; /* one tag per granule (unpacked), or NULL */
+    size_t   mte_tag_count;
+    uint64_t pac_keys[9];
+    bool     pac_keys_present;
 };
 
 /* ============================

@@ -9,12 +9,13 @@ from dataclasses import dataclass
 from enum import IntFlag, IntEnum
 from .contract_executor.stream_ipc import StreamIPC
 from .aarch64_trace import ContractExecutionResult
+from .aarch64_input_wire import build_input_init
+from ..interfaces import MAIN_AREA_SIZE, GPR_SUBREGION_SIZE
 
 class SimFlags(IntFlag):
     RVZR_FLAG_NONE          = 0
     RVZR_FLAG_HAS_CODE      = 1 << 0
-    RVZR_FLAG_HAS_REGS      = 1 << 1
-    RVZR_FLAG_HAS_MEMORY    = 1 << 2
+    RVZR_FLAG_HAS_INPUT     = 1 << 1   # the shared input initialization (executor_input_format) follows code
 
 
 class ConfigFlags(IntFlag):
@@ -68,7 +69,7 @@ EXECUTION_CLAUSE_MAP = {
 }
 
 
-RVZR_MAGIC      = b"RVZR" # 0x525A5652u
+RVZRCE_MAGIC    = 0x4543525A5652  # "RVZRCE" (matches RVZRCE_MAGIC in common_msg_constants.h)
 
 # IPC message types exchanged with the CE over StreamIPC.
 _MSG_REQUEST  = 1
@@ -92,6 +93,8 @@ class ContractExecution:
     version: SimVersion = SimVersion.VER_1
     execution_clauses: ExecutionClause = ExecutionClause.COND
     branch_predictor: BranchPredictor = BranchPredictor.NONE
+    mte_tags: Optional[list] = None       # per-input MTE tags (one per 16B granule), or None
+    pac_keys: Optional[list] = None       # per-input PAC keys (9 u64), or None
 
     def encode(self) -> bytes:
         """
@@ -103,7 +106,7 @@ class ContractExecution:
         assert isinstance(self.memory, bytes)
         assert isinstance(self.registers, bytes)
         assert isinstance(self.machine_code, bytes)
-        sim_flags = SimFlags.RVZR_FLAG_HAS_CODE | SimFlags.RVZR_FLAG_HAS_REGS | SimFlags.RVZR_FLAG_HAS_MEMORY
+        sim_flags = SimFlags.RVZR_FLAG_HAS_CODE | SimFlags.RVZR_FLAG_HAS_INPUT
 
         config_flags = ConfigFlags.CONFIG_FLAG_NONE
 
@@ -127,14 +130,17 @@ class ContractExecution:
             req_mem_base_virt = self.req_mem_base_virt
             config_flags |= ConfigFlags.CONFIG_FLAG_REQ_MEM_BASE_VIRT
 
+        # memory = main‖faulty; the gpr register slots are the GPR section (CE reads only those).
+        input_init = build_input_init(self.memory[:MAIN_AREA_SIZE], self.memory[MAIN_AREA_SIZE:],
+                                self.registers[:GPR_SUBREGION_SIZE],
+                                mte_tags=self.mte_tags, pac_keys=self.pac_keys)
         code_size: int = len(self.machine_code)
-        mem_size: int = len(self.memory)
-        regs_size: int = len(self.registers)
+        input_init_size: int = len(input_init)
 
         data = bytearray()
-        data += RVZR_MAGIC
-        data += (self.version).to_bytes(2, 'little')
-        data += (self.arch).to_bytes(2, 'little')
+        data += (RVZRCE_MAGIC).to_bytes(8, 'little')
+        data += (self.version).to_bytes(8, 'little')
+        data += (self.arch).to_bytes(8, 'little')
         data += (sim_flags).to_bytes(8, 'little')
 
         data += (config_flags).to_bytes(8, 'little')
@@ -148,14 +154,12 @@ class ContractExecution:
         data += (int(self.branch_predictor)).to_bytes(8, 'little')
 
         data += code_size.to_bytes(8, 'little')
-        data += mem_size.to_bytes(8, 'little')
-        data += regs_size.to_bytes(8, 'little')
+        data += input_init_size.to_bytes(8, 'little')
 
         data += (0).to_bytes(8, 'little') # Reserved
 
         data += self.machine_code
-        data += self.memory
-        data += self.registers
+        data += input_init
 
         return bytes(data)
 

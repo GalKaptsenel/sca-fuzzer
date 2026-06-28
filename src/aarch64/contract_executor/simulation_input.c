@@ -1,6 +1,7 @@
 #include <stdbool.h>
 #include <errno.h>
 #include "simulation_input.h"
+#include "userapi/executor_input_format.h"
 
 static int read_full(int fd, void* buf, size_t size) {
 	uint8_t *p = buf;
@@ -11,7 +12,7 @@ static int read_full(int fd, void* buf, size_t size) {
 		if (0 >= n) {
 			return -1;
 		}
-	
+
 		off += (size_t)n;
 	}
 
@@ -20,33 +21,27 @@ static int read_full(int fd, void* buf, size_t size) {
 
 int simulation_input_validate_header(const struct input_header* hdr) {
 	if (NULL == hdr) return -1;
-	
-	if (RVZR_MAGIC != hdr->magic) return -1;
-	
-	if (RVZR_VERSION != hdr->version) return -1;
-	
+
+	if (RVZRCE_MAGIC != hdr->magic) return -1;
+
+	if (RVZRCE_VERSION != hdr->version) return -1;
+
 	if (RVZR_ARCH_X86_64 != hdr->arch &&
 	    RVZR_ARCH_AARCH64 != hdr->arch) {
 		return -1;
 	}
-	
+
 	if (0 != hdr->reserved) return -1;
-	
-	if ((hdr->flags & RVZR_FLAG_HAS_CODE) && hdr->code_size == 0) {
-		return -1;
-	}
-	
-	if ((hdr->flags & RVZR_FLAG_HAS_MEMORY) && hdr->mem_size == 0) {
-		return -1;
-	}
-	
-	if ((hdr->flags & RVZR_FLAG_HAS_REGS) && hdr->regs_size == 0) {
+
+	if ((hdr->flags & RVZR_FLAG_HAS_CODE) && 0 == hdr->code_size) {
 		return -1;
 	}
 
-	if (hdr->code_size > MAX_PAYLOAD_SIZE ||
-	    hdr->mem_size  > MAX_PAYLOAD_SIZE ||
-	    hdr->regs_size > MAX_PAYLOAD_SIZE) {
+	if ((hdr->flags & RVZR_FLAG_HAS_INPUT) && 0 == hdr->input_init_size) {
+		return -1;
+	}
+
+	if (MAX_PAYLOAD_SIZE < hdr->code_size || MAX_PAYLOAD_SIZE < hdr->input_init_size) {
 		return -1;
 	}
 
@@ -55,10 +50,80 @@ int simulation_input_validate_header(const struct input_header* hdr) {
 
 size_t simulation_input_payload_size(const struct input_header* hdr) {
 	if(NULL == hdr) return 0;
-	return hdr->code_size + hdr->mem_size + hdr->regs_size;
+	return hdr->code_size + hdr->input_init_size;
+}
+
+/* Parse the shared input initialization (executor_input_format) into sim_input: memory = main || faulty,
+ * regs = gpr, plus optional MTE tags (unpacked) and PAC keys. Returns 0, or -1 on a malformed input_init
+ * or a missing/mis-sized required section. */
+static int parse_input_init(const uint8_t* input_init, size_t input_init_size, struct simulation_input* sim_input) {
+	const struct revisor_input_section* sec;
+	const struct revisor_input_section* main_sec;
+	const struct revisor_input_section* faulty_sec;
+	const struct revisor_input_section* gpr_sec;
+
+	if (!revisor_input_header_valid(input_init, input_init_size)) {
+		return -1;
+	}
+
+	main_sec   = revisor_input_find_section(input_init, REVISOR_SEC_MEMORY_MAIN);
+	faulty_sec = revisor_input_find_section(input_init, REVISOR_SEC_MEMORY_FAULTY);
+	gpr_sec    = revisor_input_find_section(input_init, REVISOR_SEC_GPR);
+	if (NULL == main_sec || NULL == faulty_sec || NULL == gpr_sec) {
+		return -1;
+	}
+
+	/* memory image is the contiguous main || faulty span. */
+	sim_input->mem_size = main_sec->length + faulty_sec->length;
+	sim_input->memory = malloc(sim_input->mem_size);
+	if (NULL == sim_input->memory) {
+		return -1;
+	}
+	memcpy(sim_input->memory, input_init + main_sec->offset, main_sec->length);
+	memcpy(sim_input->memory + main_sec->length, input_init + faulty_sec->offset, faulty_sec->length);
+
+	sim_input->regs_size = gpr_sec->length;
+	sim_input->regs = malloc(sim_input->regs_size);
+	if (NULL == sim_input->regs) {
+		return -1;
+	}
+	memcpy(sim_input->regs, input_init + gpr_sec->offset, gpr_sec->length);
+
+	/* optional MTE tags: two 4-bit tags per byte, low nibble first; one tag per 16B granule. */
+	sec = revisor_input_find_section(input_init, REVISOR_SEC_MTE_TAGS);
+	if (NULL != sec) {
+		size_t count = sim_input->mem_size / 16;
+		const uint8_t* packed = input_init + sec->offset;
+		if ((count + 1) / 2 != sec->length) {
+			return -1;
+		}
+		sim_input->mte_tags = malloc(count);
+		if (NULL == sim_input->mte_tags) {
+			return -1;
+		}
+		for (size_t i = 0; i < count; ++i) {
+			uint8_t byte = packed[i / 2];
+			sim_input->mte_tags[i] = (0 == (i & 1)) ? (byte & 0xF) : (byte >> 4);
+		}
+		sim_input->mte_tag_count = count;
+	}
+
+	/* optional per-input PAC keys. */
+	sec = revisor_input_find_section(input_init, REVISOR_SEC_PAC_KEYS);
+	if (NULL != sec) {
+		if (sizeof(sim_input->pac_keys) != sec->length) {
+			return -1;
+		}
+		memcpy(sim_input->pac_keys, input_init + sec->offset, sizeof(sim_input->pac_keys));
+		sim_input->pac_keys_present = true;
+	}
+
+	return 0;
 }
 
 int simulation_input_load_fd(int fd, struct simulation_input* sim_input) {
+	uint8_t* input_init = NULL;
+
 	memset(sim_input, 0, sizeof(*sim_input));
 
 	if (0 > read_full(fd, &sim_input->hdr, sizeof(sim_input->hdr))) {
@@ -80,31 +145,26 @@ int simulation_input_load_fd(int fd, struct simulation_input* sim_input) {
 		}
 	}
 
-	if (sim_input->hdr.flags & RVZR_FLAG_HAS_MEMORY) {
-		sim_input->memory = malloc(sim_input->hdr.mem_size);
-		if (NULL == sim_input->memory) {
+	if (sim_input->hdr.flags & RVZR_FLAG_HAS_INPUT) {
+		input_init = malloc(sim_input->hdr.input_init_size);
+		if (NULL == input_init) {
 			goto load_fd_fail;
 		}
 
-		if (0 > read_full(fd, sim_input->memory, sim_input->hdr.mem_size)) {
-			goto load_fd_fail;
-		}
-	}
-
-	if (sim_input->hdr.flags & RVZR_FLAG_HAS_REGS) {
-		sim_input->regs = malloc(sim_input->hdr.regs_size);
-		if (NULL == sim_input->regs) {
+		if (0 > read_full(fd, input_init, sim_input->hdr.input_init_size)) {
 			goto load_fd_fail;
 		}
 
-		if (0 > read_full(fd, sim_input->regs, sim_input->hdr.regs_size)) {
+		if (0 > parse_input_init(input_init, sim_input->hdr.input_init_size, sim_input)) {
 			goto load_fd_fail;
 		}
 	}
 
+	free(input_init);
 	return 0;
 
 load_fd_fail:
+	free(input_init);
 	simulation_input_free(sim_input);
 	return -1;
 }
@@ -184,7 +244,7 @@ int simulation_input_from_file(FILE* f, struct simulation_input* sim_input) {
 		goto simulation_input_from_file_err;
 	}
 
-	if (payload_len < sizeof(sim_input->hdr) + sim_input->hdr.code_size + sim_input->hdr.mem_size + sim_input->hdr.regs_size) {
+	if (payload_len < sizeof(sim_input->hdr) + sim_input->hdr.code_size + sim_input->hdr.input_init_size) {
 		fprintf(stderr, "Payload truncated!\n");
 		ret = -1;
 		goto simulation_input_from_file_err;
@@ -201,25 +261,13 @@ int simulation_input_from_file(FILE* f, struct simulation_input* sim_input) {
 		current_ptr += sim_input->hdr.code_size;
 	}
 
-	if (sim_input->hdr.flags & RVZR_FLAG_HAS_MEMORY) {
-		sim_input->memory = malloc(sim_input->hdr.mem_size);
-		if (NULL == sim_input->memory) {
+	if (sim_input->hdr.flags & RVZR_FLAG_HAS_INPUT) {
+		if (0 > parse_input_init(current_ptr, sim_input->hdr.input_init_size, sim_input)) {
+			fprintf(stderr, "Malformed input initialization!\n");
 			ret = -1;
 			goto simulation_input_from_file_err;
 		}
-
-		memcpy(sim_input->memory, current_ptr, sim_input->hdr.mem_size);
-		current_ptr += sim_input->hdr.mem_size;
-	}
-
-	if (sim_input->hdr.flags & RVZR_FLAG_HAS_REGS) {
-		sim_input->regs = malloc(sim_input->hdr.regs_size);
-		if (NULL == sim_input->regs) {
-			ret = -1;
-			goto simulation_input_from_file_err;
-		}
-		memcpy(sim_input->regs, current_ptr, sim_input->hdr.regs_size);
-		current_ptr += sim_input->hdr.regs_size;
+		current_ptr += sim_input->hdr.input_init_size;
 	}
 
 	goto simulation_input_from_file_success;
@@ -241,7 +289,7 @@ void simulation_input_free(struct simulation_input* sim_input) {
 	free(sim_input->code);
 	free(sim_input->memory);
 	free(sim_input->regs);
+	free(sim_input->mte_tags);
 
 	memset(sim_input, 0, sizeof(*sim_input));
 }
-

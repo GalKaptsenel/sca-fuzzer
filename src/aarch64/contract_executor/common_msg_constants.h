@@ -1,8 +1,10 @@
 #ifndef COMMON_MSG_CONSTANTS_H
 #define COMMON_MSG_CONSTANTS_H
 
-#define RVZR_MAGIC 0x525A5652u  /* "RVZR" */
-#define RVZR_VERSION 1
+#include <stdint.h>
+
+#define RVZRCE_MAGIC ((uint64_t)0x4543525A5652ULL)  /* "RVZRCE" (contract-executor message envelope) */
+#define RVZRCE_VERSION ((uint64_t)1ULL)
 
 /* Architectures */
 enum sim_arch {

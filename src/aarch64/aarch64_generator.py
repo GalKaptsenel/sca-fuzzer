@@ -120,6 +120,13 @@ _STP_WRITEBACK = frozenset({"stp"})
 # Single-register store with writeback: transferred reg == base → UNPREDICTABLE.
 _STR_WRITEBACK = frozenset({"str", "strb", "strh"})
 
+# AUT* with an explicit context register (Xd = pointer/dest, Xn = context). Xn == Xd is unsatisfiable
+# once sealed: the seal rewrites AUT* to [MOVK sig, AUT*], and the MOVK writes the signature into
+# Xd[63:48] before the AUT* reads Xd as its context, so the auth context (sig|addr) never matches the
+# clean addr the sig was computed over → the genuine AUT* FPAC-faults. Force ctx ≠ ptr. (PAC* sign
+# instructions are fine: they only sign, never fault, and the seal does not rewrite them.)
+_AUTH_CTX = frozenset({"autia", "autib", "autda", "autdb"})
+
 
 class Aarch64PatchUndefinedLoadsStoresPass(Pass):
     """
@@ -154,6 +161,9 @@ class Aarch64PatchUndefinedLoadsStoresPass(Pass):
         elif any(name.startswith(m) for m in _STR_WRITEBACK):
             self._patch_single_writeback(inst)
 
+        elif name in _AUTH_CTX:
+            self._patch_auth_context_collision(inst)
+
         elif any(name.startswith(m) for m in _LDP_ANY):
             self._patch_ldp(inst)
 
@@ -179,6 +189,13 @@ class Aarch64PatchUndefinedLoadsStoresPass(Pass):
             if base is not None and index is not None \
                     and self._norm(base.value) == self._norm(index.value):
                 self._replace_reg(index, forbidden={self._norm(base.value)})
+
+    def _patch_auth_context_collision(self, inst: Instruction) -> None:
+        """Force an AUT*'s context register (Xn) to differ from its pointer register (Xd); see _AUTH_CTX."""
+        ptr, ctx = inst.operands[0], inst.operands[1]
+        assert isinstance(ptr, RegisterOperand) and isinstance(ctx, RegisterOperand)
+        if self._norm(ptr.value) == self._norm(ctx.value):
+            self._replace_reg(ctx, forbidden={self._norm(ptr.value)})
 
     def _writes_back(self, inst: Instruction) -> bool:
         """Whether the access updates its base register (pre/post-index), marked on the inner base."""

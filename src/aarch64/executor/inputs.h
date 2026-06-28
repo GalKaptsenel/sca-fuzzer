@@ -2,8 +2,12 @@
 #define ARM64_EXECUTOR_INPUTS_H
 
 #include "main.h"
+#include "pac.h"
 
 #define REG_INITIALIZATION_REGION_SIZE_ALIGNED			(4 * KB)
+
+/* One MTE allocation tag per granule of the main|faulty span (see executor_input_format.h). */
+#define INPUT_MTE_TAG_COUNT					(MEMORY_INPUT_SIZE / MTE_GRANULE_SIZE)
 
 typedef struct registers {
 	uint64_t x0;
@@ -16,6 +20,12 @@ typedef struct registers {
 	uint64_t sp;
 } registers_t;
 
+/*
+ * Per-input execution-environment state, parsed from the wire format
+ * (userapi/executor_input_format.h). main/faulty/regs are the classic initial
+ * memory + registers; mte_tags / pac_keys are optional per-input initial state,
+ * each guarded by its *_present flag.
+ */
 typedef struct Input {
 	char main_region[MAIN_REGION_SIZE];
 	char faulty_region[FAULTY_REGION_SIZE];
@@ -23,6 +33,10 @@ typedef struct Input {
 		char regs_region[REG_INITIALIZATION_REGION_SIZE_ALIGNED];
 		registers_t regs;
 	};
+	uint8_t mte_tags[INPUT_MTE_TAG_COUNT];   /* one 4-bit tag per 16B granule, unpacked */
+	bool mte_tags_present;
+	struct pac_keys pac_keys;                /* per-input PAC key override */
+	bool pac_keys_present;
 } input_t;
 
 struct input_node {

@@ -12,6 +12,15 @@
 
 #define EXECUTOR_DEV "/dev/executor"
 
+/* ─────────────────────────────────────────────────────────────────────────────
+ * DEBUG ONLY. When 1, the architectural-path AUT* is NOT executed at EL1. Instead
+ * we derive the canonical pointer via XPAC and re-sign it (XPAC + PAC sign — both
+ * non-faulting) to report whether the real AUT* WOULD have succeeded or FPAC-faulted,
+ * logging ptr/ctx and their MTE tags. This lets a PAC×MTE context-tag mismatch be
+ * diagnosed without hard-resetting the machine. Set to 0 to restore the real AUT*.
+ * ───────────────────────────────────────────────────────────────────────────── */
+#define CE_DEBUG_PAC_AUTH_NO_FAULT 0
+
 #define PACGA_MASK   0xFFE0FC00U
 #define PACGA_BASE   0x9AC03000U
 
@@ -207,6 +216,7 @@ static uint64_t kernel_pac_sign(pac_type_t ptype, uint64_t ptr, uint64_t ctx)
     return req.result;
 }
 
+#if !CE_DEBUG_PAC_AUTH_NO_FAULT
 static uint64_t kernel_pac_auth(auth_type_t atype, uint64_t ptr, uint64_t ctx)
 {
     const char *m = auth_mnemonic(atype);
@@ -222,6 +232,50 @@ static uint64_t kernel_pac_auth(auth_type_t atype, uint64_t ptr, uint64_t ctx)
     }
     return req.result;
 }
+#endif /* !CE_DEBUG_PAC_AUTH_NO_FAULT */
+
+#if CE_DEBUG_PAC_AUTH_NO_FAULT
+/* The PAC sign op corresponding to an auth op (same key/key-letter; parallel enums). */
+static pac_type_t auth_to_pac(auth_type_t a)
+{
+    switch (a) {
+        case AUTH_IA:  return PAC_IA;
+        case AUTH_IB:  return PAC_IB;
+        case AUTH_DA:  return PAC_DA;
+        case AUTH_DB:  return PAC_DB;
+        case AUTH_IZA: return PAC_IZA;
+        case AUTH_IZB: return PAC_IZB;
+        case AUTH_DZA: return PAC_DZA;
+        case AUTH_DZB: return PAC_DZB;
+        default:       return PAC_NONE;
+    }
+}
+
+/* Model an architectural AUT* WITHOUT executing it at EL1 (a wrong sig there FPAC-resets the box).
+ * Returns the canonical pointer (= what a successful AUT* yields) via XPAC, and logs whether the
+ * real AUT* WOULD have succeeded: re-sign the canonical pointer with the same key+context and
+ * compare to the actual pointer (equal ⇔ correctly signed ⇔ AUT* succeeds). Uses only non-faulting
+ * ops (XPAC + PAC sign). */
+static uint64_t debug_auth_no_fault(const struct simulation_state *s, uint32_t inst,
+                                    auth_type_t atype, uint32_t rd, uint32_t rn,
+                                    uint64_t ptr, uint64_t ctx)
+{
+    uint64_t canonical = kernel_pac_xpac(atype, ptr);
+    uint64_t resigned  = kernel_pac_sign(auth_to_pac(atype), canonical, ctx);
+    int would_succeed  = (resigned == ptr);
+
+    fprintf(stderr,
+        "[CE AUTH-DEBUG] pc=%#lx inst=%08x %s x%u=%#018lx(tag=%u) ctx=x%u=%#018lx(tag=%u) "
+        "xpac=%#018lx resign=%#018lx -> %s diff=%#018lx\n",
+        (unsigned long)s->cpu_state.pc, inst, auth_mnemonic(atype),
+        rd, (unsigned long)ptr, (unsigned)((ptr >> 56) & 0xF),
+        rn, (unsigned long)ctx, (unsigned)((ctx >> 56) & 0xF),
+        (unsigned long)canonical, (unsigned long)resigned,
+        would_succeed ? "WOULD-SUCCEED" : "WOULD-FPAC", (unsigned long)(ptr ^ resigned));
+
+    return canonical;
+}
+#endif
 
 /* ---------------------------------------------------------------------------
  * Hooks
@@ -293,7 +347,11 @@ void *auth_verify_hook(struct simulation_state *sim_state)
     if (spec) {
         result = kernel_pac_xpac(atype, ptr);
     } else {
+#if CE_DEBUG_PAC_AUTH_NO_FAULT
+        result = debug_auth_no_fault(sim_state, inst, atype, rd, rn, ptr, ctx);
+#else
         result = kernel_pac_auth(atype, ptr, ctx);
+#endif
     }
     write_xreg(&sim_state->cpu_state, rd, result);
 

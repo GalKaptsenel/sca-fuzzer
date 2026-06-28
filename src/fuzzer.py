@@ -236,6 +236,12 @@ class FuzzerGeneric(Fuzzer):
     def filter(self, test_case, inputs) -> bool:
         return False  # implemented by architecture-specific subclasses
 
+    def _supports_fast_boosting(self) -> bool:
+        """Whether the fast path may reuse the initial inputs' contract traces for their boosted
+        variants without re-tracing them. Subclasses that need every boosted input re-traced (e.g.
+        the PAC/MTE sealing fuzzer, which maps each input to a per-class sealed TC) return False."""
+        return CONF.enable_fast_path_model
+
     def fuzzing_round(self,
                       test_case: TestCase,
                       inputs: List[Input],
@@ -273,7 +279,7 @@ class FuzzerGeneric(Fuzzer):
             model_nesting=start_nesting,
             ctraces=[],
             record_stats=True,
-            fast_boosting=CONF.enable_fast_path_model,
+            fast_boosting=self._supports_fast_boosting(),
             update_ignore_list=True,
             reuse_ctraces=False,
             added_htraces=[])
@@ -934,7 +940,9 @@ class NoninterferenceFuzzer(FuzzerGeneric):
         end_nesting: int = 1 #CONF.model_max_nesting if self.model.is_speculative_contract else 1
         assert start_nesting <= end_nesting
 
-        assert len(inputs) >= 2
+        # Need at least two test executions to compare; boosting/variants supply them, so a single
+        # initial input is fine as long as inputs x inputs_per_class >= 2.
+        assert len(inputs) * CONF.inputs_per_class >= 2
 
         first_input = inputs[0]
         inputs = [y for x in inputs for y in (x, first_input)]

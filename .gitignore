@@ -54,3 +54,7 @@ bpu_interactive.html
 
 # host-compiled PMU logic unit test (src/aarch64/executor)
 test_pmu
+
+# compiled CE/executor test binaries
+src/aarch64/contract_executor/test_mte_tagmem
+src/aarch64/executor/test_pac_auth_verify

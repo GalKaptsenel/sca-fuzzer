@@ -2,6 +2,7 @@
 #include "simulation.h"
 #include "simulation_execution_clause_hook.h"
 #include "instruction_encodings.h"
+#include "mte_tag_plugin.h"
 
 #include "simulation_output.h"
 
@@ -27,13 +28,26 @@ void ce_debug_print_last_sim_state(FILE *out) {
 	fflush(out);
 }
 
+/*
+ * Post-instruction repairs queued by base_hook_c and applied by the next hook's apply_fixups. A
+ * fixup is composable: it may carry a REGISTER fixup (rewrite a base register — revert its
+ * kaddr<->uaddr translation and/or correct its MTE tag) and/or a MEMORY fixup (restore bytes a
+ * native store clobbered). What to do is decided at log time; apply_fixups just applies it.
+ */
 typedef struct {
-	void *addr;        // Address of the instruction (kept for debugging)
-	uint32_t original; // Original instruction; Rn is extracted from this by apply_fixups
-	/* apply_fixups (post-store) rewrites store_fix_size bytes of store_fix_value at store_fix_uaddr. */
-	void *store_fix_uaddr;
-	uint64_t store_fix_value;
-	uint32_t store_fix_size;
+	void *addr;                  /* instruction address (debug only) */
+	struct {
+		int      apply;      /* rewrite `reg` */
+		uint32_t reg;        /* base register index */
+		int      revert;     /* uaddr -> kaddr */
+		int      retag;      /* overwrite tag bits [59:56] with `tag` */
+		uint8_t  tag;
+	} reg_fix;
+	struct {
+		void    *uaddr;      /* NULL = none; else restore `size` bytes of `value` here */
+		uint64_t value;
+		uint32_t size;
+	} mem_fix;
 } fixup_t;
 
 #define MAX_FIXUPS 1024
@@ -44,38 +58,27 @@ static void revert_log_fixup(void) {
 	memset(fixups, 0, fixup_count * sizeof(fixups[0]));
 	fixup_count = 0;
 }
-static void log_fixup(void *addr, uint32_t original, void *store_fix_uaddr,
-                      uint64_t store_fix_value, uint32_t store_fix_size) {
+static void log_fixup(fixup_t f) {
 	if (fixup_count >= MAX_FIXUPS) return;
-	fixups[fixup_count].addr = addr;
-	fixups[fixup_count].original = original;
-	fixups[fixup_count].store_fix_uaddr = store_fix_uaddr;
-	fixups[fixup_count].store_fix_value = store_fix_value;
-	fixups[fixup_count].store_fix_size = store_fix_size;
-	++fixup_count;
+	fixups[fixup_count++] = f;
 }
 
 static void apply_fixups(struct cpu_state* state) {
 	for (size_t i = 0; i < fixup_count; ++i) {
-		uint32_t inst = fixups[i].original;
-		uint32_t rn = get_rn(inst);
-		/* A store whose data register aliased the base wrote the translated uaddr as data; restore
-		 * the real architectural bytes the native store clobbered in the sandbox memory. */
-		if (fixups[i].store_fix_uaddr != NULL) {
-			memcpy(fixups[i].store_fix_uaddr, &fixups[i].store_fix_value, fixups[i].store_fix_size);
+		fixup_t* f = &fixups[i];
+		if (NULL != f->mem_fix.uaddr) {
+			memcpy(f->mem_fix.uaddr, &f->mem_fix.value, f->mem_fix.size);
 		}
-		/* Normally rn still holds a uaddr-space address here (the unchanged base, or
-		 * base+offset after writeback), so revert it to the kernel-space address.
-		 * EXCEPTION: a load whose destination register aliases the base (regular Rt,
-		 * or either element Rt/Rt2 of a pair) has overwritten the base with the loaded
-		 * *data* value — reverting that would corrupt the architectural result, so skip
-		 * it. Stores never write a GPR; writeback (dest != base, enforced) stays uaddr. */
-		if (is_load(inst) &&
-		    (get_rt(inst) == rn || (is_pair_load_store(inst) && get_rt2(inst) == rn))) {
-			continue;
+		if (f->reg_fix.apply) {
+			uintptr_t v = cpu_state_read_base_reg(state, f->reg_fix.reg);
+			if (f->reg_fix.revert) {
+				v = (uintptr_t)uaddr2kaddr((void*)v);
+			}
+			if (f->reg_fix.retag) {
+				v = (v & ~(0xFull << 56)) | ((uint64_t)f->reg_fix.tag << 56);
+			}
+			cpu_state_write_base_reg(state, f->reg_fix.reg, v);
 		}
-		uintptr_t uaddr = cpu_state_read_base_reg(state, rn);
-		cpu_state_write_base_reg(state, rn, (uintptr_t)uaddr2kaddr((void*)uaddr));
 	}
 	revert_log_fixup();
 }
@@ -187,35 +190,64 @@ void base_hook_c(struct cpu_state* state) {
 
 	__builtin___clear_cache((char*)state->pc, (char*)state->pc + 4); /* must precede the translation below */
 
-	/* LAST write to *state — nothing must follow this block. */
-	if(is_memory_access(*(uint32_t*)state->pc)) {
+	/* LAST write to *state — nothing must follow this block. MTE memory-tag ops (LDG/STG/STGP) are
+	 * software-emulated and skipped from native execution, so they must NOT have their base register
+	 * translated kaddr->uaddr here (the emulator already produced the architectural result from the
+	 * kaddr; translating would leave a uaddr in the base register). */
+	if(is_memory_access(*(uint32_t*)state->pc) && !mte_is_mem_tag_access(*(uint32_t*)state->pc)) {
 		uint32_t inst = *(uint32_t*)state->pc;
 		uint32_t rn = get_rn(inst);
 		uintptr_t kaddr = cpu_state_read_base_reg(state, rn);
+
+		fixup_t f = { 0 };
+		f.addr = (void*)state->pc;
+		f.reg_fix.reg = rn;
+
+		/* Register fixup reverts Rn's kaddr<->uaddr translation on the next hook -- UNLESS a load
+		 * wrote its result into Rn (regular Rt, or either element of a pair), in which case Rn holds
+		 * loaded data, not the translated pointer, and must be left alone. */
+		int load_aliases = is_load(inst) &&
+		    (get_rt(inst) == rn || (is_pair_load_store(inst) && get_rt2(inst) == rn));
+		f.reg_fix.apply  = !load_aliases;
+		f.reg_fix.revert = !load_aliases;
+
+		/* After-access MTE tag correction (MTE-test mode; not for SP): capture the accessed granule's
+		 * tag now, while Rn is still kaddr so the effective address is exact for every addressing
+		 * mode. apply_fixups writes it into Rn's tag once the access has run -- modelling "the pointer
+		 * carries the accessed cell's tag afterwards" (genuine fixes it before the access, the CE
+		 * after, so the only difference is the tag at the access itself). */
+		if (!load_aliases && mte_tagmem_active() && rn != 31) {
+			trace_cpu_state_t tcs0 = { 0 };
+			for (uint32_t r = 0; r < 31; ++r) { tcs0.gpr[r] = cpu_state_read_base_reg(state, r); }
+			tcs0.sp = state->sp;
+			tcs0.pc = state->pc;
+			mem_access_info_t ea = parse_memory_access_instruction(inst, &tcs0);
+			f.reg_fix.retag = 1;
+			f.reg_fix.tag = mte_tagmem_tag_at((uintptr_t)ea.effective_address);
+		}
+
 		cpu_state_write_base_reg(state, rn, (uintptr_t)kaddr2uaddr((void*)kaddr));
 
-		/* A store whose data register aliases the base will, after this in-place translation, store
-		 * the sandbox pointer (uaddr) instead of the architectural value (the original base, kaddr).
-		 * Record the offset + correct value so apply_fixups repairs sandbox memory after the store. */
-		void *sf_uaddr = NULL; uint64_t sf_val = 0; uint32_t sf_size = 0;
+		/* Memory fixup: a store whose data register aliases the base would store the uaddr pointer
+		 * instead of the architectural value (the original base = kaddr); record the bytes to restore
+		 * after the native store. (Rn now holds uaddr, so the decoded EA is in sandbox space.) */
 		if (is_store(inst)) {
 			int pair = is_pair_load_store(inst);
 			int rt_aliases = (get_rt(inst) == rn);
 			int rt2_aliases = (pair && get_rt2(inst) == rn);
 			if (rt_aliases || rt2_aliases) {
-				/* rn already holds uaddr, so the decoded EA is in sandbox-memory space. */
 				trace_cpu_state_t tcs = { 0 };
 				for (uint32_t r = 0; r < 31; ++r) { tcs.gpr[r] = cpu_state_read_base_reg(state, r); }
 				tcs.sp = state->sp; tcs.pc = state->pc;
 				mem_access_info_t mi = parse_memory_access_instruction(inst, &tcs);
-				sf_val = (uint64_t)kaddr;                 /* architectural data = original base value */
-				sf_size = (uint32_t)mi.data_size;
+				f.mem_fix.value = (uint64_t)kaddr;        /* architectural data = original base value */
+				f.mem_fix.size  = (uint32_t)mi.data_size;
 				/* a pair writes element 0 at EA and element 1 at EA + element_size */
-				sf_uaddr = rt_aliases ? (void*)mi.effective_address
-				                      : (void*)(mi.effective_address + mi.data_size);
+				f.mem_fix.uaddr = rt_aliases ? (void*)mi.effective_address
+				                             : (void*)(mi.effective_address + mi.data_size);
 			}
 		}
-		log_fixup((void*)state->pc, inst, sf_uaddr, sf_val, sf_size);
+		log_fixup(f);
 	}
 }
 
