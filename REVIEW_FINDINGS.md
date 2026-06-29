@@ -19,6 +19,35 @@
 
 ---
 
+## ⚠️ Reviewer guidance — verify cross-layer (CE-semantics) claims against the C, do not trust the Python view alone
+
+A later deep read of the CE C found that **F-P0-1 and F-P0-2 may both be over-flags** — the seal-only
+review reasoned from the Python resolver without tracing the CE simulator:
+- The CE **never models an MTE tag-check fault** (`mte_tag_plugin.c` software-emulates MTE ops as pure
+  tag read/write; no mismatch→exception). So a raw-tag access cannot change control flow → an MTE
+  slot's `spec_nesting` from the placeholder trace already equals the genuine-tagged run (F-P0-1's
+  "flow diverges" premise does not hold in the CE).
+- The CE applies an **after-access tag correction** (`simulation_hook.c:214-226`): after each data
+  access it writes the accessed cell's tag into the base register — "genuine fixes it before the
+  access, the CE after, so the only difference is the tag at the access itself." So the placeholder
+  trace already carries the genuine allocation tags at every PAC auth → PAC can sign over the
+  placeholder; the `cer_tagged` re-trace is redundant (F-P0-2's "placeholder ≠ genuine" premise).
+- Caveats checked: the SP exclusion (`rn != 31`) is moot — the generator register pool is `x0..x30`
+  only (`aarch64_target_desc.py:131-135`), so no sealed access uses SP as base; ordering holds (the
+  memory-base PAC auth precedes its `[ADDG]`, so both traces read the raw tag there; later uses read
+  the corrected tag in both). HW still needs the genuine `[ADDG]` (it faults; only the *resolver* now
+  trusts the placeholder).
+
+**Action taken on `review/engine-fixes`:** `MtePacSealedTestCase.resolve` collapsed to a single
+placeholder trace (PAC signs over `cer`, no `cer_tagged`). **These findings are deliberately kept
+open (not downgraded)** pending independent confirmation.
+
+**Instruction to the review agents:** do NOT take F-P0-1/F-P0-2 — or ANY finding whose correctness
+depends on CE/kernel/HW behavior — at face value from the Python side. Verify each against the actual
+C (here: `simulation_hook.c` after-access correction + `mte_tag_plugin.c` no-fault emulation; the
+SP/`load_aliases`/timing caveats; that the collapse did not introduce a `would FPAC`). Apply the same
+cross-layer rigor to every similar finding (any Python resolver assuming hardware/CE semantics).
+
 ## TOP PRIORITY — P0 correctness/soundness
 
 ### F-P0-1  MTE `spec_nesting` classified over the PLACEHOLDER trace, not the genuine-tag trace
