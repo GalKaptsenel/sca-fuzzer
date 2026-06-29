@@ -19,34 +19,31 @@
 
 ---
 
-## ⚠️ Reviewer guidance — verify cross-layer (CE-semantics) claims against the C, do not trust the Python view alone
+## ⚠️ Reviewer guidance — cross-layer claims need an empirical check, not code reasoning alone
 
-A later deep read of the CE C found that **F-P0-1 and F-P0-2 may both be over-flags** — the seal-only
-review reasoned from the Python resolver without tracing the CE simulator:
-- The CE **never models an MTE tag-check fault** (`mte_tag_plugin.c` software-emulates MTE ops as pure
-  tag read/write; no mismatch→exception). So a raw-tag access cannot change control flow → an MTE
-  slot's `spec_nesting` from the placeholder trace already equals the genuine-tagged run (F-P0-1's
-  "flow diverges" premise does not hold in the CE).
-- The CE applies an **after-access tag correction** (`simulation_hook.c:214-226`): after each data
-  access it writes the accessed cell's tag into the base register — "genuine fixes it before the
-  access, the CE after, so the only difference is the tag at the access itself." So the placeholder
-  trace already carries the genuine allocation tags at every PAC auth → PAC can sign over the
-  placeholder; the `cer_tagged` re-trace is redundant (F-P0-2's "placeholder ≠ genuine" premise).
-- Caveats checked: the SP exclusion (`rn != 31`) is moot — the generator register pool is `x0..x30`
-  only (`aarch64_target_desc.py:131-135`), so no sealed access uses SP as base; ordering holds (the
-  memory-base PAC auth precedes its `[ADDG]`, so both traces read the raw tag there; later uses read
-  the corrected tag in both). HW still needs the genuine `[ADDG]` (it faults; only the *resolver* now
-  trusts the placeholder).
+F-P0-1 / F-P0-2 were initially suspected over-flags (the CE models no MTE tag-check fault and applies
+an after-access tag correction, so a Python-only reading suggested the placeholder trace already
+matched the genuine register state; `MtePacSealedTestCase.resolve` was briefly collapsed to a single
+placeholder trace on `07ce424`). **A deterministic repro refuted that** — `investigate_seal_fpac.py`
+trial 52, `AUTDA x1, x2`: ctx `0xa60ea833c47f1100` (placeholder) vs `0x960ea833c47f1100` (genuine),
+so the placeholder-signed sig was `0xffd4` while the genuine auth needs `0xff98` → would-FPAC.
 
-**Action taken on `review/engine-fixes`:** `MtePacSealedTestCase.resolve` collapsed to a single
-placeholder trace (PAC signs over `cer`, no `cer_tagged`). **These findings are deliberately kept
-open (not downgraded)** pending independent confirmation.
+**Mechanism (confirmed real):** an earlier MTE seal `ADDG reg` retags a register later used as an
+`AUT*` context, with an address `SUB reg,reg,x0` between them. The CE after-access correction repairs
+only the tag nibble `[59:56]`; the `SUB`'s borrow into bits `[63:60]` is computed on the ADDG-modified
+register in genuine but the raw register in the placeholder — so the placeholder register at the auth
+≠ genuine, and the placeholder-signed sig is wrong. The after-access correction is NOT positionally
+equivalent to the genuine `ADDG`.
 
-**Instruction to the review agents:** do NOT take F-P0-1/F-P0-2 — or ANY finding whose correctness
-depends on CE/kernel/HW behavior — at face value from the Python side. Verify each against the actual
-C (here: `simulation_hook.c` after-access correction + `mte_tag_plugin.c` no-fault emulation; the
-SP/`load_aliases`/timing caveats; that the collapse did not introduce a `would FPAC`). Apply the same
-cross-layer rigor to every similar finding (any Python resolver assuming hardware/CE semantics).
+**Action:** the collapse was a regression and has been **reverted** — `resolve` signs PAC over
+`cer_tagged` (the genuine-MTE re-trace), which is load-bearing. Post-revert sweep: 0 would-FPAC in
+150 trials. Diagnostics: `investigate_seal_fpac.py`, `compare_seal_traces.py`, `tabulate_x2.py`.
+Remaining (F-SEAL-2 step 4): program-order resolution for *chained* PAC and truly-zero-context auths,
+on top of the re-trace.
+
+**Instruction to the review agents:** verify any finding whose correctness depends on CE/kernel/HW
+behavior with an empirical repro, not code reasoning alone — the C-only argument here was wrong
+because it missed the `SUB`/ordering interaction.
 
 ## TOP PRIORITY — P0 correctness/soundness
 

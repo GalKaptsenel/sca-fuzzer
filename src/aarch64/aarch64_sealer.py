@@ -308,10 +308,9 @@ class MteSealedTestCase(SealedTestCase, _MteResolver):
 
 
 class MtePacSealedTestCase(SealedTestCase, _PacResolver, _MteResolver):
-    """One placeholder trace resolves both concerns. The CE's after-access tag correction
-    (simulation_hook.c) carries each accessed pointer's genuine allocation tag forward, so the
-    placeholder register tags already match the genuine [ADDG] retag at every PAC auth — PAC can sign
-    over the same trace MTE classifies over, with no genuine-tag re-trace."""
+    """MTE resolves over the placeholder trace; its genuine tags are then applied into a re-traced
+    copy so PAC signs over a trace where a context/pointer register carries the tag it will have at
+    the AUTH (a tag mismatch there FPAC-faults at EL1)."""
 
     def __init__(self, sealed_tc, trace_fn, signer, sandbox_sealings, pac_sealings, mte_sealings) -> None:
         super().__init__(sealed_tc, trace_fn)
@@ -323,7 +322,13 @@ class MtePacSealedTestCase(SealedTestCase, _PacResolver, _MteResolver):
     def resolve(self, inp) -> ResolvedSealingTestCase:
         cer = self._trace_fn(self._tc, inp)
         mte = [_Resolved(s, *self._resolve_mte(s, cer, self._layout)) for s in self._mte]
-        pac = [_Resolved(s, *self._resolve_pac(s, cer, self._layout)) for s in self._pac]
+
+        tagged = copy.deepcopy(self._tc)                      # apply MTE genuine, re-trace for PAC
+        for r in mte:
+            fill_slot_at(tagged, r.sealing.slot_locs, r.sealing.seal(r.value))
+        cer_tagged = self._trace_fn(tagged, inp)
+
+        pac = [_Resolved(s, *self._resolve_pac(s, cer_tagged, self._layout)) for s in self._pac]
         return ResolvedSealingTestCase(self._tc, self._clamp_entries(self._sandbox) + pac + mte)
 
 
