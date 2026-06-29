@@ -35,11 +35,15 @@ register in genuine but the raw register in the placeholder — so the placehold
 ≠ genuine, and the placeholder-signed sig is wrong. The after-access correction is NOT positionally
 equivalent to the genuine `ADDG`.
 
-**Action:** the collapse was a regression and has been **reverted** — `resolve` signs PAC over
-`cer_tagged` (the genuine-MTE re-trace), which is load-bearing. Post-revert sweep: 0 would-FPAC in
-150 trials. Diagnostics: `investigate_seal_fpac.py`, `compare_seal_traces.py`, `tabulate_x2.py`.
-Remaining (F-SEAL-2 step 4): program-order resolution for *chained* PAC and truly-zero-context auths,
-on top of the re-trace.
+**Fix (at source):** the real cause was the seal slot ORDER — the MTE retag (`ADDG`) was placed
+*before* the offset-cancel `SUB`. Reordered so the MTE retag is LAST, immediately before the access
+(`sandbox -> auth -> sub -> mte -> access`); now no address op runs between the retag and the access,
+the CE after-access correction is positionally equivalent to the genuine retag, and the placeholder
+trace is correct. So `MtePacSealedTestCase.resolve` signs PAC over the single placeholder trace `cer`
+(no `cer_tagged` re-trace). Slot-ordering ownership moved into the per-combination `SealedTestCase`
+(the `Sealer`/walk no longer assumes value-seal order; no composite). Verified: every PAC slot signs
+the same sig in placeholder vs genuine-tagged (`compare_seal_traces.py`), 0 would-FPAC in 150 trials
+(`investigate_seal_fpac.py`), suite 373 OK. Regression test: `tests/aarch64_tests/unit_seal_ordering.py`.
 
 **Instruction to the review agents:** verify any finding whose correctness depends on CE/kernel/HW
 behavior with an empirical repro, not code reasoning alone — the C-only argument here was wrong

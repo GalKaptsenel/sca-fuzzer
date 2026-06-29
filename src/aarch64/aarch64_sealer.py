@@ -14,7 +14,7 @@ Layers:
 import abc
 import copy
 import random
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from ..interfaces import (Instruction, TestCase, Function, BasicBlock, GeneratorException)
 from .aarch64_seal import (make_nop, fill_slot_at, index_instructions, _SANDBOX_MASK,
@@ -263,14 +263,26 @@ class _MteResolver:
 # SealedTestCase — holds the unresolved sealings; resolve(input) orchestrates value computation
 # ==================================================================================================
 class SealedTestCase:
-    """A sealed TC plus the sealings to orchestrate. `resolve(input)` traces via `trace_fn(tc, input)`
-    and computes each sealing's value, returning a ResolvedSealingTestCase. Subclasses own which
-    sealings exist and the order their values resolve."""
+    """Owns the sealings for one test case end-to-end. During construction it PLACES each value
+    sealing's slot in the order this concern requires (the sandbox walk supplies clamps + per-access
+    sites but never decides value-seal order), then `resolve(input)` computes their values. The
+    per-concern subclass owns both the placement order and the resolution."""
 
-    def __init__(self, sealed_tc: TestCase, trace_fn) -> None:
+    def __init__(self, sealed_tc: TestCase, trace_fn, sandbox_sealings: List[SandboxSealing],
+                 data_sites: List) -> None:
         self._tc = sealed_tc
         self._trace_fn = trace_fn
-        self._layout = Aarch64ASMLayout(sealed_tc)
+        self._sandbox = sandbox_sealings
+        self._place(data_sites)                            # subclass inserts its value sealings, in order
+        _record_positions(self._tc, self._sealings())      # AFTER every slot is inserted
+        self._layout = Aarch64ASMLayout(self._tc)
+
+    def _place(self, data_sites: List) -> None:
+        """Insert this concern's value sealings around each data-access site."""
+        raise NotImplementedError
+
+    def _sealings(self) -> List[Sealing]:
+        raise NotImplementedError
 
     def resolve(self, inp) -> ResolvedSealingTestCase:
         raise NotImplementedError
@@ -281,11 +293,24 @@ class SealedTestCase:
 
 
 class PacSealedTestCase(SealedTestCase, _PacResolver):
-    def __init__(self, sealed_tc, trace_fn, signer, sandbox_sealings, pac_sealings) -> None:
-        super().__init__(sealed_tc, trace_fn)
+    """Sandbox clamp + a PAC auth per data access, plus a PAC auth per standalone AUT*."""
+
+    def __init__(self, sealed_tc, trace_fn, sandbox_sealings, data_sites, signer, enc, auth_specs) -> None:
         self._signer = signer
-        self._sandbox = sandbox_sealings
-        self._pac = pac_sealings
+        self._enc = enc
+        self._auth_specs = auth_specs
+        self._pac: List[PacSealing] = []
+        super().__init__(sealed_tc, trace_fn, sandbox_sealings, data_sites)
+
+    def _place(self, data_sites) -> None:
+        for inst, bb, mem_reg, offset_subs in data_sites:
+            s = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc)
+            self._pac.append(s)
+            _insert(bb, inst, s.slot_insts, offset_subs)   # auth the base, then cancel the offset
+        _seal_auths(self._tc, self._enc, self._auth_specs, self._pac)
+
+    def _sealings(self) -> List[Sealing]:
+        return self._sandbox + self._pac
 
     def resolve(self, inp) -> ResolvedSealingTestCase:
         cer = self._trace_fn(self._tc, inp)
@@ -294,10 +319,20 @@ class PacSealedTestCase(SealedTestCase, _PacResolver):
 
 
 class MteSealedTestCase(SealedTestCase, _MteResolver):
-    def __init__(self, sealed_tc, trace_fn, sandbox_sealings, mte_sealings) -> None:
-        super().__init__(sealed_tc, trace_fn)
-        self._sandbox = sandbox_sealings
-        self._mte = mte_sealings
+    """Sandbox clamp + an MTE retag per data access — the retag is the last op before the access."""
+
+    def __init__(self, sealed_tc, trace_fn, sandbox_sealings, data_sites) -> None:
+        self._mte: List[MteSealing] = []
+        super().__init__(sealed_tc, trace_fn, sandbox_sealings, data_sites)
+
+    def _place(self, data_sites) -> None:
+        for inst, bb, mem_reg, offset_subs in data_sites:
+            s = MteSealing(mem_reg, inst)
+            self._mte.append(s)
+            _insert(bb, inst, offset_subs, s.slot_insts)   # cancel the offset, then retag last
+
+    def _sealings(self) -> List[Sealing]:
+        return self._sandbox + self._mte
 
     def resolve(self, inp) -> ResolvedSealingTestCase:
         cer = self._trace_fn(self._tc, inp)
@@ -308,27 +343,36 @@ class MteSealedTestCase(SealedTestCase, _MteResolver):
 
 
 class MtePacSealedTestCase(SealedTestCase, _PacResolver, _MteResolver):
-    """MTE resolves over the placeholder trace; its genuine tags are then applied into a re-traced
-    copy so PAC signs over a trace where a context/pointer register carries the tag it will have at
-    the AUTH (a tag mismatch there FPAC-faults at EL1)."""
+    """Sandbox clamp + PAC auth + MTE retag per data access, plus a PAC auth per standalone AUT*.
+    The MTE retag (ADDG) is placed LAST — after the offset-cancel SUBs, immediately before the access
+    — so no address op runs between the retag and the access. The CE's after-access tag correction is
+    then positionally equivalent to the genuine retag, so the placeholder trace already carries the
+    genuine tag at every later AUT*; PAC resolves over that single trace, no genuine-tag re-trace."""
 
-    def __init__(self, sealed_tc, trace_fn, signer, sandbox_sealings, pac_sealings, mte_sealings) -> None:
-        super().__init__(sealed_tc, trace_fn)
+    def __init__(self, sealed_tc, trace_fn, sandbox_sealings, data_sites, signer, enc, auth_specs) -> None:
         self._signer = signer
-        self._sandbox = sandbox_sealings
-        self._pac = pac_sealings
-        self._mte = mte_sealings
+        self._enc = enc
+        self._auth_specs = auth_specs
+        self._pac: List[PacSealing] = []
+        self._mte: List[MteSealing] = []
+        super().__init__(sealed_tc, trace_fn, sandbox_sealings, data_sites)
+
+    def _place(self, data_sites) -> None:
+        for inst, bb, mem_reg, offset_subs in data_sites:
+            p = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc)
+            m = MteSealing(mem_reg, inst)
+            self._pac.append(p)
+            self._mte.append(m)
+            _insert(bb, inst, p.slot_insts, offset_subs, m.slot_insts)   # auth, cancel the offset, retag
+        _seal_auths(self._tc, self._enc, self._auth_specs, self._pac)
+
+    def _sealings(self) -> List[Sealing]:
+        return self._sandbox + self._pac + self._mte
 
     def resolve(self, inp) -> ResolvedSealingTestCase:
         cer = self._trace_fn(self._tc, inp)
         mte = [_Resolved(s, *self._resolve_mte(s, cer, self._layout)) for s in self._mte]
-
-        tagged = copy.deepcopy(self._tc)                      # apply MTE genuine, re-trace for PAC
-        for r in mte:
-            fill_slot_at(tagged, r.sealing.slot_locs, r.sealing.seal(r.value))
-        cer_tagged = self._trace_fn(tagged, inp)
-
-        pac = [_Resolved(s, *self._resolve_pac(s, cer_tagged, self._layout)) for s in self._pac]
+        pac = [_Resolved(s, *self._resolve_pac(s, cer, self._layout)) for s in self._pac]
         return ResolvedSealingTestCase(self._tc, self._clamp_entries(self._sandbox) + pac + mte)
 
 
@@ -381,13 +425,29 @@ def _seal_auths(tc: TestCase, enc: PacSign, auth_specs, pac: List) -> None:
             bb.delete(old)
 
 
-class Sealer(abc.ABC):
-    """Interface only: `seal(tc) -> SealedTestCase`. No logic of its own — concrete sealers implement
-    `seal()` and mix in `SandboxWalk` for the shared taint walk."""
+class Sealer:
+    """Factory: runs the sandbox walk (mechanics only) and constructs the per-primitive
+    SealedTestCase, which owns its value-seal placement order + resolution. The Sealer holds no
+    knowledge of slot order itself."""
 
-    @abc.abstractmethod
+    def __init__(self, generator, trace_fn, primitives: Set[str], signer) -> None:
+        self._walk = SandboxWalk(generator)
+        self._trace_fn = trace_fn
+        self._primitives = frozenset(primitives)
+        self._signer = signer
+        self._enc, self._auth_specs = _pac_encoder(generator) if "pac" in self._primitives \
+            else (None, None)
+
     def seal(self, test_case: TestCase) -> SealedTestCase:
-        """Seal `test_case` and return a SealedTestCase ready to resolve per input."""
+        tc = copy.deepcopy(test_case)
+        sandbox, data_sites = self._walk.sandbox(tc)
+        if self._primitives == frozenset({"mte"}):
+            return MteSealedTestCase(tc, self._trace_fn, sandbox, data_sites)
+        if self._primitives == frozenset({"pac"}):
+            return PacSealedTestCase(tc, self._trace_fn, sandbox, data_sites,
+                                     self._signer, self._enc, self._auth_specs)
+        return MtePacSealedTestCase(tc, self._trace_fn, sandbox, data_sites,
+                                    self._signer, self._enc, self._auth_specs)
 
 
 def _insert(bb, anchor, *groups) -> None:
@@ -407,10 +467,10 @@ def _record_positions(tc: TestCase, sealings: List[Sealing]) -> None:
 
 
 class SandboxWalk:
-    """Mixin: ONLY the sandbox-taint walk. Decides which memory bases need clamping (the clamp is not
-    idempotent, so a base already in-region is not re-clamped) and makes a SandboxSealing for each.
-    Knows nothing about value sealings, PAC, MTE, slot placement, or position recording — `_sandbox`
-    returns the clamps plus a per-access plan the host sealer uses to place its own value sealings."""
+    """Mechanics only: the sandbox-taint walk. Decides which memory bases need clamping (the clamp is
+    not idempotent, so a base already in-region is not re-clamped) and makes a SandboxSealing for each.
+    Knows nothing about value sealings, PAC, MTE, slot placement, or position recording — `sandbox`
+    returns the clamps plus a per-access site list the SealedTestCase uses to place its value sealings."""
 
     def __init__(self, generator) -> None:
         self._addr = _Addressing(generator.target_desc.reg_normalized,
@@ -418,7 +478,7 @@ class SandboxWalk:
         self._mask = f"#0x{_SANDBOX_MASK:x}"
         self._stg_mask = f"#0x{_SANDBOX_MASK & ~0xF:x}"
 
-    def _sandbox(self, tc: TestCase) -> Tuple[List[SandboxSealing], List]:
+    def sandbox(self, tc: TestCase) -> Tuple[List[SandboxSealing], List]:
         """The sandbox-taint dataflow + clamping. Decides which memory bases need an in-region clamp
         (the clamp is not idempotent, so a base already in-region is not re-clamped) and inserts a
         SandboxSealing for each (16B-aligned for STG). STG/LDG are handled fully here (clamp + the
@@ -488,78 +548,11 @@ class SandboxWalk:
         return sandbox, data_sites
 
 
-class MteSealer(SandboxWalk, Sealer):
-    """Sandbox clamp + an MTE tag per data access."""
-    def __init__(self, generator, trace_fn) -> None:
-        super().__init__(generator)
-        self._trace_fn = trace_fn
-
-    def seal(self, test_case: TestCase) -> SealedTestCase:
-        tc = copy.deepcopy(test_case)
-        sandbox, data_sites = self._sandbox(tc)
-        mte: List[MteSealing] = []
-        for inst, bb, mem_reg, offset_subs in data_sites:
-            s = MteSealing(mem_reg, inst)
-            mte.append(s)
-            _insert(bb, inst, s.slot_insts, offset_subs)   # value sealing, then the cancellation
-        _record_positions(tc, sandbox + mte)
-        return MteSealedTestCase(tc, self._trace_fn, sandbox, mte)
-
-
-class PacSealer(SandboxWalk, Sealer):
-    """Sandbox clamp + a PAC auth per data access, plus a PAC auth per standalone AUT*."""
-    def __init__(self, generator, trace_fn, signer) -> None:
-        super().__init__(generator)
-        self._trace_fn = trace_fn
-        self._signer = signer                      # kernel PAC signer (resolve only), from the executor
-        self._enc, self._auth_specs = _pac_encoder(generator)
-
-    def seal(self, test_case: TestCase) -> SealedTestCase:
-        tc = copy.deepcopy(test_case)
-        sandbox, data_sites = self._sandbox(tc)
-        pac: List[PacSealing] = []
-        for inst, bb, mem_reg, offset_subs in data_sites:
-            s = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc)
-            pac.append(s)
-            _insert(bb, inst, s.slot_insts, offset_subs)   # value sealing, then the cancellation
-        _seal_auths(tc, self._enc, self._auth_specs, pac)
-        _record_positions(tc, sandbox + pac)
-        return PacSealedTestCase(tc, self._trace_fn, self._signer, sandbox, pac)
-
-
-class MtePacSealer(SandboxWalk, Sealer):
-    """Sandbox clamp + PAC auth + MTE tag per data access (PAC before MTE), plus a PAC auth per AUT*."""
-    def __init__(self, generator, trace_fn, signer) -> None:
-        super().__init__(generator)
-        self._trace_fn = trace_fn
-        self._signer = signer                      # kernel PAC signer (resolve only), from the executor
-        self._enc, self._auth_specs = _pac_encoder(generator)
-
-    def seal(self, test_case: TestCase) -> SealedTestCase:
-        tc = copy.deepcopy(test_case)
-        sandbox, data_sites = self._sandbox(tc)
-        pac: List[PacSealing] = []
-        mte: List[MteSealing] = []
-        for inst, bb, mem_reg, offset_subs in data_sites:
-            p = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc)
-            pac.append(p)
-            m = MteSealing(mem_reg, inst)
-            mte.append(m)
-            _insert(bb, inst, p.slot_insts + m.slot_insts, offset_subs)   # PAC then MTE, then cancel
-        _seal_auths(tc, self._enc, self._auth_specs, pac)
-        _record_positions(tc, sandbox + pac + mte)
-        return MtePacSealedTestCase(tc, self._trace_fn, self._signer, sandbox, pac, mte)
-
-
-def make_sealer(generator, trace_fn, primitives, signer=None) -> Sealer:
-    """Pick the Sealer for the active primitives. `trace_fn(tc, input) -> cer` runs a CE trace (owns
-    assembly + the CE setup; the sealer never sees the assembler). `signer` is the kernel PAC signer
-    (a PacSigner over local_executor.pac_sign), needed by resolve when 'pac' is active."""
+def make_sealer(generator, trace_fn, primitives, signer) -> Sealer:
+    """The Sealer for the active primitives. `trace_fn(tc, input) -> cer` runs a CE trace; `signer` is
+    the kernel PAC signer (a PacSigner over local_executor.pac_sign), used by resolve when 'pac' is
+    active (None otherwise)."""
     prims = frozenset(primitives)
-    if prims == frozenset({"mte"}):
-        return MteSealer(generator, trace_fn)
-    if prims == frozenset({"pac"}):
-        return PacSealer(generator, trace_fn, signer)
-    if prims == frozenset({"pac", "mte"}):
-        return MtePacSealer(generator, trace_fn, signer)
-    raise ValueError(f"unsupported seal primitives: {primitives!r}")
+    if prims not in (frozenset({"mte"}), frozenset({"pac"}), frozenset({"pac", "mte"})):
+        raise ValueError(f"unsupported seal primitives: {primitives!r}")
+    return Sealer(generator, trace_fn, prims, signer)
