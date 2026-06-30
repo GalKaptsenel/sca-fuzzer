@@ -24,6 +24,7 @@ struct execution_checkpoint_desc {
 	uintptr_t return_addr;
 	uint64_t checkpoint_id;
 	uint64_t owner;          /* execution-clause registry index */
+	uint64_t start_instr;    /* instr_count when this window opened (for the per-window cap) */
 };
 
 struct execution_mgmt {
@@ -35,6 +36,8 @@ struct execution_mgmt {
 	uint64_t max_checkpoints;
 	uint64_t current_checkpoint_id;
 	struct execution_checkpoint* checkpoints_array;
+	uint64_t instr_count;    /* instructions simulated so far (monotonic) */
+	uint64_t max_instr;      /* per-window instruction cap (max_misspred_instructions; 0 = no cap) */
 };
 
 void* execution_clause_hook(struct simulation_state* sim_state);

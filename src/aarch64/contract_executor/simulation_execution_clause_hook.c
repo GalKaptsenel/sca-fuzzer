@@ -83,6 +83,7 @@ void spec_push_frame(struct simulation_state* sim_state, uintptr_t return_addr, 
 	mgmt.stack[mgmt.stack_top].return_addr   = return_addr;
 	mgmt.stack[mgmt.stack_top].checkpoint_id = take_checkpoint(sim_state);
 	mgmt.stack[mgmt.stack_top].owner         = owner;
+	mgmt.stack[mgmt.stack_top].start_instr   = mgmt.instr_count;
 	++mgmt.stack_top;
 	++mgmt.current_nesting;
 }
@@ -101,6 +102,8 @@ static void ensure_initialized(void) {
 	if(initialized) return;
 	mgmt.current_nesting = 0;
 	mgmt.max_nesting = simulation.sim_input.hdr.config.max_misspred_branch_nesting;
+	mgmt.instr_count = 0;
+	mgmt.max_instr = simulation.sim_input.hdr.config.max_misspred_instructions;
 	mgmt.stack_top = 0;
 	memset(mgmt.stack, 0, sizeof(mgmt.stack));
 	mgmt.max_checkpoints = 1024;
@@ -174,10 +177,23 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 	ensure_initialized();
 	if(!initialized) return NULL;
 
+	++mgmt.instr_count;
+
 	/* End of a path: unwind checkpoints until we resume on an in-sim instruction, then fall
 	 * through and dispatch the clauses on it so an architectural continuation re-forks too. */
 	int rolled_back = 0;
 	while(out_of_simulation(&sim_state->cpu_state)) {
+		void* resume = handle_window_end(sim_state);
+		if(NULL == resume) return NULL;
+		sim_state->cpu_state.pc = (uintptr_t)resume;
+		rolled_back = 1;
+	}
+
+	/* Per-window instruction cap: end the innermost window once it has run max_misspred_instructions,
+	 * so a wrong-path loop cannot speculate forever (else it spins to the watchdog). One frame per
+	 * hook; a deeper over-cap window unwinds on the next instruction. */
+	if(mgmt.current_nesting > 0 && mgmt.max_instr > 0 && mgmt.stack_top > 0 &&
+	   mgmt.instr_count - mgmt.stack[mgmt.stack_top - 1].start_instr > mgmt.max_instr) {
 		void* resume = handle_window_end(sim_state);
 		if(NULL == resume) return NULL;
 		sim_state->cpu_state.pc = (uintptr_t)resume;

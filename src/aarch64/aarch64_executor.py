@@ -297,7 +297,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
         return ContractExecution(
             tc_bytes, tc_memory, tc_regs, SimArch.RVZR_ARCH_AARCH64,
             nesting,
-            max_mispred_instructions,  # unused by CE
+            max_mispred_instructions,  # CE per-window instruction cap
             req_mem_base_virt=sandbox_base,
             execution_clauses=ct,
             branch_predictor=bp,

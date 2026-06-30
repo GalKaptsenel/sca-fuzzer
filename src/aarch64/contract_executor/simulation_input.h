@@ -55,7 +55,7 @@ enum branch_predictor_id {
 struct configuration {
 	uint64_t flags;
 	uint64_t max_misspred_branch_nesting;
-	uint64_t max_misspred_instructions; // NOT SUPPORTED
+	uint64_t max_misspred_instructions; // per-window instruction cap (0 = no cap)
 	uint64_t requested_code_base_phys; // NOT SUPPORTED
 	uint64_t requested_code_base_virt;
 	uint64_t requested_mem_base_phys; // NOT SUPPORTED

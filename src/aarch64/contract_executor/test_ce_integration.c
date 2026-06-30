@@ -179,6 +179,7 @@ static size_t build_ce_input(
         const uint8_t  *mem,  size_t mem_sz,
         uint64_t kbase_addr,
         uint64_t max_nesting,
+        uint64_t max_instr,
         uint64_t contract,
         uint64_t branch_predictor,
         const uint64_t *regs_override,
@@ -217,6 +218,7 @@ static size_t build_ce_input(
     hdr.flags    = RVZR_FLAG_HAS_CODE | RVZR_FLAG_HAS_INPUT;
     hdr.config.flags                    = CONFIG_FLAG_REQ_MEM_BASE_VIRT;
     hdr.config.max_misspred_branch_nesting = max_nesting;
+    hdr.config.max_misspred_instructions   = max_instr;
     hdr.config.requested_mem_base_virt  = kbase_addr;
     hdr.config.execution_clauses            = contract;
     hdr.config.branch_predictor             = branch_predictor;
@@ -299,6 +301,7 @@ static bool run_ce_full(
         const uint8_t  *mem,  size_t mem_sz,
         uint64_t kbase_addr,
         uint64_t max_nesting,
+        uint64_t max_instr,
         uint64_t contract,
         uint64_t branch_predictor,
         const uint64_t *regs_override,
@@ -309,7 +312,7 @@ static bool run_ce_full(
 
     size_t in_len = build_ce_input(in_buf, sizeof(in_buf),
                                    code, n_words, mem, mem_sz,
-                                   kbase_addr, max_nesting, contract,
+                                   kbase_addr, max_nesting, max_instr, contract,
                                    branch_predictor, regs_override, mte_tags, mte_len);
     if (in_len == 0) return false;
 
@@ -374,7 +377,7 @@ static bool run_ce(
 {
     uint64_t bp = (contract & EXEC_CLAUSE_BPU) ? BRANCH_PREDICTOR_NEOVERSE_N3
                                                : BRANCH_PREDICTOR_NONE;
-    return run_ce_full(code, n_words, mem, mem_sz, kbase_addr, max_nesting, contract, bp,
+    return run_ce_full(code, n_words, mem, mem_sz, kbase_addr, max_nesting, 0, contract, bp,
                        regs_override, NULL, 0, result);
 }
 
@@ -1098,6 +1101,37 @@ static void test_integration_always_mispredict_cbz(void) {
     EXPECT_EQ(ma2->metadata.memory_access.effective_address, KBASE + 8);
     EXPECT_EQ(ma2->metadata.memory_access.before,            v8);
     EXPECT_EQ(ma2->metadata.speculation_nesting,             (uint64_t)0);
+}
+
+/* ---- GROUP 20b: per-window instruction cap (max_misspred_instructions) ---- */
+
+static void test_integration_spec_window_cap(void) {
+    /* Same TC as GROUP 20 (uncapped: 2 speculative + 1 arch access). With max_misspred_instructions=1
+     * the window runs one instruction (LDR X1) then is cut before the second (LDR X2), so
+     * only one speculative access survives. */
+    uint32_t code[] = {
+        enc_cbz(0, +8),
+        enc_ldr_reg(1, 29),
+        enc_ldr_unsigned(2, 29, 8),
+    };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+
+    ce_result_t res;
+    if (!run_ce_full(code, 3, mem, sizeof(mem), KBASE, 1, /*max_instr=*/1,
+                     EXEC_CLAUSE_COND, BRANCH_PREDICTOR_NONE, NULL, NULL, 0, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    EXPECT_EQ(count_mem_entries(&res), 2);   /* one speculative + one architectural (was 3 uncapped) */
+    instr_trace_entry_t *ma0 = find_mem_entry(&res, 0);
+    instr_trace_entry_t *ma1 = find_mem_entry(&res, 1);
+    EXPECT(ma0 != NULL); EXPECT(ma1 != NULL);
+    if (!ma0 || !ma1) return;
+    EXPECT_EQ(ma0->metadata.speculation_nesting, (uint64_t)1);   /* spec LDR X1 survives the cap */
+    EXPECT_EQ(ma1->metadata.speculation_nesting, (uint64_t)0);   /* arch LDR X2 after the window cut */
 }
 
 /* ---- GROUP 21: ALWAYS_MISPREDICT CBNZ not-taken — spec TAKEN first ---- */
@@ -2194,7 +2228,7 @@ static void test_integration_bpu_without_predictor_traps(void) {
     uint8_t mem[MEM_SIZE];
     memset(mem, 0, sizeof(mem));
     ce_result_t res;
-    bool ok = run_ce_full(code, 3, mem, sizeof(mem), KBASE, 4,
+    bool ok = run_ce_full(code, 3, mem, sizeof(mem), KBASE, 4, 0,
                           EXEC_CLAUSE_BPU, BRANCH_PREDICTOR_NONE, NULL, NULL, 0, &res);
     EXPECT(!ok);   /* CE traps: BPU enabled with no predictor */
 }
@@ -2491,7 +2525,7 @@ static void test_integration_mte_after_access_correction(void) {
 
     uint32_t code[] = { 0xF9400020u /* LDR X0,[X1] */, 0xD503201Fu /* NOP */ };
     ce_result_t res;
-    if (!run_ce_full(code, 2, mem, sizeof(mem), KBASE, 0, 0u, BRANCH_PREDICTOR_NONE,
+    if (!run_ce_full(code, 2, mem, sizeof(mem), KBASE, 0, 0, 0u, BRANCH_PREDICTOR_NONE,
                      regs, tags, sizeof(tags), &res)) {
         fprintf(stderr, "FAIL %s: run_ce failed\n", __func__); ++g_tests_failed; return;
     }
@@ -2532,7 +2566,7 @@ static void test_integration_mte_correction_propagates(void) {
         0xD503201Fu,   /* NOP                                                      */
     };
     ce_result_t res;
-    if (!run_ce_full(code, 4, mem, sizeof(mem), KBASE, 0, 0u, BRANCH_PREDICTOR_NONE,
+    if (!run_ce_full(code, 4, mem, sizeof(mem), KBASE, 0, 0, 0u, BRANCH_PREDICTOR_NONE,
                      regs, tags, sizeof(tags), &res)) {
         fprintf(stderr, "FAIL %s: run_ce failed\n", __func__); ++g_tests_failed; return;
     }
@@ -2573,6 +2607,7 @@ int main(void) {
     test_integration_load_updates_dest_reg();
     test_integration_postidx_writeback_cpu_state();
     test_integration_always_mispredict_cbz();
+    test_integration_spec_window_cap();
     test_integration_always_mispredict_cbnz();
     test_integration_tbz_bit32();
     test_integration_always_mispredict_bcond();
