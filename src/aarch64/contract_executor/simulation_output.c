@@ -74,11 +74,10 @@ void* kaddr2uaddr(void* kaddr) {
 	if(CONFIG_FLAG_REQ_MEM_BASE_VIRT & simulation.sim_input.hdr.config.flags) {
 		uintptr_t kbase  = simulation.sim_input.hdr.config.requested_mem_base_virt;
 		uintptr_t kaddr_ = (uintptr_t)kaddr;
-		/* No bounds check: pre-indexed instructions use a base register that is
-		 * offset-adjusted (e.g. STR X4, [X5, #0x82]! where X5 = kbase-0x82).
-		 * The arithmetic translation is correct regardless; truly OOB accesses
-		 * will fault on the resulting user pointer and get caught by SIGSEGV. */
-		uaddr = (char*)simulation.simulation_memory + (kaddr_ - kbase);
+		/* TBI: the top-byte tag is not part of the address and may hold any value, so mask it from both
+		 * operands rather than assume kbase shares it. */
+		uaddr = (char*)simulation.simulation_memory
+		        + ((kaddr_ & 0x00FFFFFFFFFFFFFFu) - (kbase & 0x00FFFFFFFFFFFFFFu));
 	}
 	return uaddr;
 }

@@ -203,34 +203,32 @@ void base_hook_c(struct cpu_state* state) {
 		f.addr = (void*)state->pc;
 		f.reg_fix.reg = rn;
 
-		/* Register fixup reverts Rn's kaddr<->uaddr translation on the next hook -- UNLESS a load
-		 * wrote its result into Rn (regular Rt, or either element of a pair), in which case Rn holds
-		 * loaded data, not the translated pointer, and must be left alone. */
+		/* A load that writes its result into Rn leaves loaded data there, not a pointer: leave it. */
 		int load_aliases = is_load(inst) &&
 		    (get_rt(inst) == rn || (is_pair_load_store(inst) && get_rt2(inst) == rn));
 		f.reg_fix.apply  = !load_aliases;
 		f.reg_fix.revert = !load_aliases;
 
-		/* After-access MTE tag correction (MTE-test mode; not for SP): capture the accessed granule's
-		 * tag now, while Rn is still kaddr so the effective address is exact for every addressing
-		 * mode. apply_fixups writes it into Rn's tag once the access has run -- modelling "the pointer
-		 * carries the accessed cell's tag afterwards" (genuine fixes it before the access, the CE
-		 * after, so the only difference is the tag at the access itself). */
-		if (!load_aliases && mte_tagmem_active() && rn != 31) {
+		/* MTE-test mode (not SP): give the pointer the accessed cell's tag before the access, as the
+		 * genuine ADDG does, so a store of it writes the tagged value. The cell lookup masks the tag. */
+		uint8_t cell_tag = 0;
+		int retag = !load_aliases && mte_tagmem_active() && rn != 31;
+		if (retag) {
 			trace_cpu_state_t tcs0 = { 0 };
 			for (uint32_t r = 0; r < 31; ++r) { tcs0.gpr[r] = cpu_state_read_base_reg(state, r); }
 			tcs0.sp = state->sp;
 			tcs0.pc = state->pc;
 			mem_access_info_t ea = parse_memory_access_instruction(inst, &tcs0);
-			f.reg_fix.retag = 1;
-			f.reg_fix.tag = mte_tagmem_tag_at((uintptr_t)ea.effective_address);
+			cell_tag = mte_tagmem_tag_at((uintptr_t)ea.effective_address);
+			kaddr = (kaddr & ~(0xFull << 56)) | ((uintptr_t)cell_tag << 56);
+			f.reg_fix.retag = 1;   /* the revert recovers the canonical kaddr (TBI dropped the tag) */
+			f.reg_fix.tag = cell_tag;
 		}
 
 		cpu_state_write_base_reg(state, rn, (uintptr_t)kaddr2uaddr((void*)kaddr));
 
-		/* Memory fixup: a store whose data register aliases the base would store the uaddr pointer
-		 * instead of the architectural value (the original base = kaddr); record the bytes to restore
-		 * after the native store. (Rn now holds uaddr, so the decoded EA is in sandbox space.) */
+		/* A store whose data register aliases the base writes kaddr (the tagged architectural pointer),
+		 * not the uaddr; restore those bytes after the native store. */
 		if (is_store(inst)) {
 			int pair = is_pair_load_store(inst);
 			int rt_aliases = (get_rt(inst) == rn);
@@ -240,9 +238,8 @@ void base_hook_c(struct cpu_state* state) {
 				for (uint32_t r = 0; r < 31; ++r) { tcs.gpr[r] = cpu_state_read_base_reg(state, r); }
 				tcs.sp = state->sp; tcs.pc = state->pc;
 				mem_access_info_t mi = parse_memory_access_instruction(inst, &tcs);
-				f.mem_fix.value = (uint64_t)kaddr;        /* architectural data = original base value */
+				f.mem_fix.value = (uint64_t)kaddr;
 				f.mem_fix.size  = (uint32_t)mi.data_size;
-				/* a pair writes element 0 at EA and element 1 at EA + element_size */
 				f.mem_fix.uaddr = rt_aliases ? (void*)mi.effective_address
 				                             : (void*)(mi.effective_address + mi.data_size);
 			}
