@@ -46,12 +46,6 @@ static uint64_t decode_imm7(uint32_t inst) {
 	return (uint64_t)imm7;
 }
 
-static uint64_t decode_imm19(uint32_t inst) {
-	int64_t imm19 = (inst >> 5) & 0x7FFFF;
-	if (imm19 & 0x40000) imm19 |= ~0x7FFFF;
-	return (uint64_t)imm19;
-}
-
 static inline int64_t get_offset(uint32_t inst) {
 	if(is_pre_index(inst) || is_post_index(inst)) {
 		return (int64_t)decode_imm9(inst);
@@ -74,8 +68,10 @@ void* kaddr2uaddr(void* kaddr) {
 	if(CONFIG_FLAG_REQ_MEM_BASE_VIRT & simulation.sim_input.hdr.config.flags) {
 		uintptr_t kbase  = simulation.sim_input.hdr.config.requested_mem_base_virt;
 		uintptr_t kaddr_ = (uintptr_t)kaddr;
-		/* TBI: the top-byte tag is not part of the address and may hold any value, so mask it from both
-		 * operands rather than assume kbase shares it. */
+		/* kaddr is a sandbox-clamped memory base (the generator masks every base into the sandbox via
+		 * AND/ADD; PC-relative literals, the lone exception, are not routed here), so this linear map
+		 * lands in simulation_memory without a bounds check. TBI: the top-byte tag is not part of the
+		 * address and may hold any value, so mask it from both operands, not assume kbase shares it. */
 		uaddr = (char*)simulation.simulation_memory
 		        + ((kaddr_ & 0x00FFFFFFFFFFFFFFu) - (kbase & 0x00FFFFFFFFFFFFFFu));
 	}
@@ -185,12 +181,10 @@ mem_access_info_t parse_memory_access_instruction(uint32_t inst, const trace_cpu
 			mi.effective_address = base;   /* post-index */
 		}
 	} else if(is_literal_pc_relative(inst)) {
-		uint64_t sz = literal_pc_relative_access_size(inst);
-		if (0 == sz) { mi.is_mem = 0; return mi; } // PRFM: prefetch hint, not a real memory load
-		mi.is_store = 0;
-		mi.is_load = 1;
-		mi.data_size = sz;
-		mi.effective_address = (uint64_t)((int64_t)state->pc + (decode_imm19(inst) * 4));
+		/* A PC-relative literal load reads a constant from the code region (not sandbox data) and has
+		 * no base register to translate -- not a modeled data access; the native load handles it. */
+		mi.is_mem = 0;
+		return mi;
 	} else {
 		/* Remaining memory accesses all address [Xn] with no offset: load/store exclusive
 		 * (LDXR/STXR/LDAXR/STLXR and the pair forms LDXP/STXP), acquire/release ordered

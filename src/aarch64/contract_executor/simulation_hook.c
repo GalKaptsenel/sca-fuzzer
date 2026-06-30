@@ -194,7 +194,8 @@ void base_hook_c(struct cpu_state* state) {
 	 * software-emulated and skipped from native execution, so they must NOT have their base register
 	 * translated kaddr->uaddr here (the emulator already produced the architectural result from the
 	 * kaddr; translating would leave a uaddr in the base register). */
-	if(is_memory_access(*(uint32_t*)state->pc) && !mte_is_mem_tag_access(*(uint32_t*)state->pc)) {
+	if(is_memory_access(*(uint32_t*)state->pc) && !mte_is_mem_tag_access(*(uint32_t*)state->pc)
+	   && !is_literal_pc_relative(*(uint32_t*)state->pc)) {
 		uint32_t inst = *(uint32_t*)state->pc;
 		uint32_t rn = get_rn(inst);
 		uintptr_t kaddr = cpu_state_read_base_reg(state, rn);
