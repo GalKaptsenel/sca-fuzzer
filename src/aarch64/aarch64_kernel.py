@@ -18,6 +18,7 @@ from collections import defaultdict
 from contextlib import contextmanager
 from functools import wraps
 from ..config import CONF
+from .aarch64_pac import PacKeys
 
 if TYPE_CHECKING:
     from .aarch64_connection import Connection
@@ -188,20 +189,6 @@ class PacSignReq(ctypes.Structure):
         ("ctx",      ctypes.c_uint64),
         ("mnemonic", ctypes.c_char * 16),
         ("result",   ctypes.c_uint64),
-    ]
-
-class PacKeys(ctypes.Structure):
-    _fields_ = [
-        ("apia_lo", ctypes.c_uint64),
-        ("apia_hi", ctypes.c_uint64),
-        ("apib_lo", ctypes.c_uint64),
-        ("apib_hi", ctypes.c_uint64),
-        ("apda_lo", ctypes.c_uint64),
-        ("apda_hi", ctypes.c_uint64),
-        ("apdb_lo", ctypes.c_uint64),
-        ("apdb_hi", ctypes.c_uint64),
-        ("apga_lo", ctypes.c_uint64),
-        ("apga_hi", ctypes.c_uint64),
     ]
 
 IOCTL_NR_TO_NAME = {

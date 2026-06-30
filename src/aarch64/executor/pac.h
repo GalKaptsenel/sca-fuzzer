@@ -10,6 +10,7 @@ struct pac_keys {
 	uint64_t apdb_lo, apdb_hi;
 	uint64_t apga_lo, apga_hi;
 };
+_Static_assert(sizeof(struct pac_keys) == 80, "pac_keys ABI: 5 keys * {lo,hi} = 80 bytes");
 
 enum pac_op {
 	PAC_OP_PACIA, PAC_OP_PACIB, PAC_OP_PACDA, PAC_OP_PACDB, PAC_OP_PACGA,

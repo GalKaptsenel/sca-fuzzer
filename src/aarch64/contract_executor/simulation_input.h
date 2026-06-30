@@ -99,7 +99,7 @@ struct simulation_input {
     size_t   regs_size;
     uint8_t *mte_tags; /* one tag per granule (unpacked), or NULL */
     size_t   mte_tag_count;
-    uint64_t pac_keys[9];
+    uint64_t pac_keys[10];
     bool     pac_keys_present;
 };
 

@@ -33,7 +33,7 @@ _ALIGN = 8
 
 MTE_GRANULE = 16                # bytes per allocation tag (matches kernel MTE_GRANULE_SIZE)
 MTE_TAG_COUNT = (MAIN_AREA_SIZE + FAULTY_AREA_SIZE) // MTE_GRANULE   # tags over the main|faulty span
-PAC_KEYS_WORDS = 9              # struct ce_pac_keys: 9 * u64
+PAC_KEYS_WORDS = 10             # = struct pac_keys / ce_pac_keys: 5 keys * {lo,hi}
 # ----------------------------------------------------------------------------------------------
 
 
@@ -96,7 +96,7 @@ def _pack_mte_tags(tags: Sequence[int]) -> bytes:
 
 
 def _pack_pac_keys(keys: Sequence[int]) -> bytes:
-    """Pack struct ce_pac_keys (9 * u64, little-endian)."""
+    """Pack the PAC keys section (little-endian)."""
     if len(keys) != PAC_KEYS_WORDS:
         raise ValueError(f"expected {PAC_KEYS_WORDS} PAC key words, got {len(keys)}")
     return struct.pack(f"<{PAC_KEYS_WORDS}Q", *keys)

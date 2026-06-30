@@ -785,8 +785,8 @@ static void test_input_init_mte_and_pac_sections(void) {
     uint8_t gpr[32];   memset(gpr,  0xCD, 32);
     /* 4 granules -> 2 packed bytes: tags {1,2,3,4} = low/high nibbles 0x21, 0x43. */
     uint8_t tags[2] = { 0x21, 0x43 };
-    uint64_t keys[9];
-    for (int i = 0; i < 9; i++) keys[i] = 0x1000ULL + i;
+    uint64_t keys[10];
+    for (int i = 0; i < 10; i++) keys[i] = 0x1000ULL + i;
 
     uint8_t init[512];
     size_t init_len = make_input_init(init, sizeof(init), main_, 64, NULL, 0, gpr, 32,
@@ -807,9 +807,30 @@ static void test_input_init_mte_and_pac_sections(void) {
     EXPECT_EQ(si.mte_tags[3], 4u);
     EXPECT(si.pac_keys_present);
     EXPECT_EQ(si.pac_keys[0], (uint64_t)0x1000);
-    EXPECT_EQ(si.pac_keys[8], (uint64_t)0x1008);
+    EXPECT_EQ(si.pac_keys[9], (uint64_t)0x1009);
 
     simulation_input_free(&si);
+}
+
+/* A PAC_KEYS section whose length is not exactly sizeof(pac_keys) (80B) must be rejected. */
+static void test_input_init_pac_keys_wrong_size_rejected(void) {
+    uint8_t code[4];   memset(code, 0x1F, 4);
+    uint8_t main_[64]; memset(main_, 0xAB, 64);
+    uint8_t gpr[32];   memset(gpr,  0xCD, 32);
+    uint64_t keys[9];   /* 72B: the old, short layout */
+    for (int i = 0; i < 9; i++) keys[i] = 0x2000ULL + i;
+
+    uint8_t init[512];
+    size_t init_len = make_input_init(init, sizeof(init), main_, 64, NULL, 0, gpr, 32,
+                                      NULL, 0, (const uint8_t*)keys, sizeof(keys));
+    EXPECT(init_len > 0);
+
+    struct input_header hdr = make_valid_hdr(RVZR_FLAG_HAS_CODE | RVZR_FLAG_HAS_INPUT, 4, init_len);
+
+    struct simulation_input si;
+    int ret = load_fd_via_pipe(&hdr, code, 4, init, init_len, &si);
+
+    EXPECT_EQ(ret, -1);
 }
 
 /* ======================================================================== */
@@ -1829,6 +1850,7 @@ int main(void) {
     test_input_init_missing_required_section();
     test_input_init_bad_inner_magic();
     test_input_init_mte_and_pac_sections();
+    test_input_init_pac_keys_wrong_size_rejected();
     test_gpr_layout();
     test_cpu_state_layout();
     test_gpr_write_read_roundtrip();

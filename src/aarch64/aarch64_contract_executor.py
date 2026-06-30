@@ -10,6 +10,7 @@ from enum import IntFlag, IntEnum
 from .contract_executor.stream_ipc import StreamIPC
 from .aarch64_trace import ContractExecutionResult
 from .aarch64_input_wire import build_input_init
+from .aarch64_pac import PacKeys
 from ..interfaces import MAIN_AREA_SIZE, GPR_SUBREGION_SIZE
 
 class SimFlags(IntFlag):
@@ -94,7 +95,7 @@ class ContractExecution:
     execution_clauses: ExecutionClause = ExecutionClause.COND
     branch_predictor: BranchPredictor = BranchPredictor.NONE
     mte_tags: Optional[list] = None       # per-input MTE tags (one per 16B granule), or None
-    pac_keys: Optional[list] = None       # per-input PAC keys (9 u64), or None
+    pac_keys: Optional[PacKeys] = None    # per-input PAC keys, or None
 
     def encode(self) -> bytes:
         """
@@ -133,7 +134,8 @@ class ContractExecution:
         # memory = main‖faulty; the gpr register slots are the GPR section (CE reads only those).
         input_init = build_input_init(self.memory[:MAIN_AREA_SIZE], self.memory[MAIN_AREA_SIZE:],
                                 self.registers[:GPR_SUBREGION_SIZE],
-                                mte_tags=self.mte_tags, pac_keys=self.pac_keys)
+                                mte_tags=self.mte_tags,
+                                pac_keys=self.pac_keys.words() if self.pac_keys is not None else None)
         code_size: int = len(self.machine_code)
         input_init_size: int = len(input_init)
 

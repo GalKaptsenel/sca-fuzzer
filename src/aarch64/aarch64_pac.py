@@ -5,12 +5,32 @@ encodings, used by the sealer's PacSealing); PacSigner is the kernel SIGN capabi
 build_pac_specs derives the usable PAC/AUT*/XPAC instruction specs (AUT* via AuthInstructionSpec,
 which guarantees value_reg != ctx_reg).
 """
+import ctypes
 import random
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
 
 from ..config import CONF
 from ..interfaces import Instruction, InstructionSpec
+
+
+class PacKeys(ctypes.Structure):
+    """The five PAC keys (instruction A/B, data A/B, generic), each {lo,hi}, in the canonical order
+    shared by the kernel ioctl (struct pac_keys), the CE/UAPI (struct ce_pac_keys), and the input-init
+    PAC_KEYS wire section. The fixed field set is what guarantees exactly 80 bytes / 10 words."""
+    _fields_ = [
+        ("apia_lo", ctypes.c_uint64), ("apia_hi", ctypes.c_uint64),
+        ("apib_lo", ctypes.c_uint64), ("apib_hi", ctypes.c_uint64),
+        ("apda_lo", ctypes.c_uint64), ("apda_hi", ctypes.c_uint64),
+        ("apdb_lo", ctypes.c_uint64), ("apdb_hi", ctypes.c_uint64),
+        ("apga_lo", ctypes.c_uint64), ("apga_hi", ctypes.c_uint64),
+    ]
+
+    def words(self) -> List[int]:
+        return [getattr(self, name) for name, _ in self._fields_]
+
+
+assert ctypes.sizeof(PacKeys) == 80
 
 class PACKey(Enum):
     IA = 'ia'

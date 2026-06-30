@@ -101,7 +101,7 @@ class InputWireRoundTrip(unittest.TestCase):
         gpr = b"\xCC" * GPR_SUBREGION_SIZE
         simd = b"\xDD" * SIMD_SUBREGION_SIZE
         tags = [i % 16 for i in range(wire.MTE_TAG_COUNT)]
-        keys = list(range(100, 109))
+        keys = list(range(100, 110))
         _, sections = _parse(wire.build_input_init(main, faulty, gpr, simd, tags, keys))
 
         self.assertIn(wire.SEC_MTE_TAGS, sections)
@@ -111,7 +111,7 @@ class InputWireRoundTrip(unittest.TestCase):
         self.assertEqual(sections[wire.SEC_GPR], gpr)
         self.assertEqual(sections[wire.SEC_SIMD], simd)
         self.assertEqual(len(sections[wire.SEC_MTE_TAGS]), (wire.MTE_TAG_COUNT + 1) // 2)
-        self.assertEqual(struct.unpack("<9Q", sections[wire.SEC_PAC_KEYS]), tuple(keys))
+        self.assertEqual(struct.unpack("<10Q", sections[wire.SEC_PAC_KEYS]), tuple(keys))
 
     def test_contract_execution_encode_envelope(self):
         """ContractExecution.encode emits a 16*u64 envelope + code + an input initialization whose
