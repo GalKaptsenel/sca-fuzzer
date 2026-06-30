@@ -22,7 +22,6 @@ bool out_of_simulation(struct cpu_state* state);
 
 typedef void* (*simulation_hook_fn)(struct simulation_state* sim_state);
 
-void* stdout_print_hook(struct simulation_state* sim_state);
 void* handle_ret_hook(struct simulation_state* sim_state);
 
 /* Debug: last CPU state seen by base_hook_c and the original instruction at that PC */

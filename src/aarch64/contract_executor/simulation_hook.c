@@ -249,57 +249,6 @@ void base_hook_c(struct cpu_state* state) {
 	}
 }
 
-void* stdout_print_hook(struct simulation_state* sim_state) {
-	if(NULL == sim_state) return NULL;
-	fprintf(stderr, "X0 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x0);
-	fprintf(stderr, "X1 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x1);
-	fprintf(stderr, "X2 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x2);
-	fprintf(stderr, "X3 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x3);
-	fprintf(stderr, "X4 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x4);
-	fprintf(stderr, "X5 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x5);
-	fprintf(stderr, "X6 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x6);
-	fprintf(stderr, "X7 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x7);
-	fprintf(stderr, "X8 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x8);
-	fprintf(stderr, "X9 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x9);
-	fprintf(stderr, "X10 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x10);
-	fprintf(stderr, "X11 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x11);
-	fprintf(stderr, "X12 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x12);
-	fprintf(stderr, "X13 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x13);
-	fprintf(stderr, "X14 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x14);
-	fprintf(stderr, "X15 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x15);
-	fprintf(stderr, "X16 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x16);
-	fprintf(stderr, "X17 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x17);
-	fprintf(stderr, "X18 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x18);
-	fprintf(stderr, "X19 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x19);
-	fprintf(stderr, "X20 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x20);
-	fprintf(stderr, "X21 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x21);
-	fprintf(stderr, "X22 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x22);
-	fprintf(stderr, "X23 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x23);
-	fprintf(stderr, "X24 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x24);
-	fprintf(stderr, "X25 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x25);
-	fprintf(stderr, "X26 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x26);
-	fprintf(stderr, "X27 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x27);
-	fprintf(stderr, "X28 = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x28);
-	fprintf(stderr, "X29 (FP) = 0x%016" PRIxPTR "\n", sim_state->cpu_state.gprs.x29);
-	fprintf(stderr, "X30 (LR) = 0x%016" PRIxPTR "\n", sim_state->cpu_state.lr);
-	fprintf(stderr, "SP = 0x%016" PRIxPTR "\n", sim_state->cpu_state.sp);
-	fprintf(stderr, "PC = 0x%016" PRIxPTR "\n", sim_state->cpu_state.pc);
-	fprintf(stderr, "\tINSTR = 0x%08x\n", *(uint32_t*)sim_state->cpu_state.pc);
-	uintptr_t nzcv = sim_state->cpu_state.nzcv;
-	uint32_t N = (nzcv >> 31) & 1;
-	uint32_t Z = (nzcv >> 30) & 1;
-	uint32_t C = (nzcv >> 29) & 1;
-	uint32_t V = (nzcv >> 28) & 1;
-	fprintf(stderr, "NZCV   = 0x%016" PRIxPTR "  [N=%u Z=%u C=%u V=%u]  (%c%c%c%c)\n",
-           nzcv,
-           N, Z, C, V,
-           N ? 'N' : '-',
-           Z ? 'Z' : '-',
-           C ? 'C' : '-',
-           V ? 'V' : '-');
-	return NULL;
-}
-
 void* handle_ret_hook(struct simulation_state* sim_state) {
 	if(NULL == sim_state) return NULL;
 	if(0xd65f03c0 == *(uint32_t*)sim_state->cpu_state.pc) { // Identify RET

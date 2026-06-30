@@ -53,7 +53,6 @@ static void neoverse_n3_advance(uintptr_t pc, int taken, uintptr_t target) {
 
 static void neoverse_n3_checkpoint(void) { tagebp_checkpoint(); }
 static void neoverse_n3_rollback(void)   { tagebp_rollback(); }
-static void neoverse_n3_commit(void)     { tagebp_commit(); }
 
 const struct branch_predictor neoverse_n3_bpu = {
 	.name       = "neoverse-n3-tage",
@@ -64,5 +63,4 @@ const struct branch_predictor neoverse_n3_bpu = {
 	.advance    = neoverse_n3_advance,
 	.checkpoint = neoverse_n3_checkpoint,
 	.rollback   = neoverse_n3_rollback,
-	.commit     = neoverse_n3_commit,
 };

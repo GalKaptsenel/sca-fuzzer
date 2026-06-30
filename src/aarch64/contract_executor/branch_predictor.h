@@ -16,13 +16,11 @@ struct branch_predictor {
 	 * model ignores it. The speculative global history is driven separately by the clause: at each
 	 * branch advance() with the direction taken on the current path; when a misprediction opens a
 	 * window checkpoint() first, and on recovery rollback() then advance() with the resolved
-	 * direction. commit() drops a snapshot without restoring (unused by the always-rollback engine;
-	 * present for completeness). */
+	 * direction. */
 	void (*update)(uintptr_t pc, int taken, uintptr_t target); /* retire: update tables (counters)       */
 	void (*advance)(uintptr_t pc, int taken, uintptr_t target);/* advance speculative global history     */
 	void (*checkpoint)(void);                                  /* snapshot history (window opens)        */
 	void (*rollback)(void);                                    /* restore history (misprediction)        */
-	void (*commit)(void);                                      /* drop the latest history snapshot       */
 };
 
 #endif // BRANCH_PREDICTOR_H

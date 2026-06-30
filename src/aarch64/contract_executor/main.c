@@ -19,7 +19,6 @@ simulation_hook_fn hooks_to_install[] = {
 	auth_verify_hook,
 	xpac_hook,
 	mte_emulator_hook,
-//	stdout_print_hook,
 	log_instr_execution_cluase_hook,
 //	log_instr_hook,
 	handle_ret_hook,
@@ -28,8 +27,6 @@ simulation_hook_fn hooks_to_install[] = {
 /* ---- crash debug handler ----------------------------------------------- */
 
 /* Async-signal-safe helpers: only write() is safe inside a signal handler. */
-static int g_crash_log_fd = -1;
-
 static void dbg_write(const char *s) {
 	size_t len = strlen(s);
 	const char *p = s;
@@ -37,14 +34,6 @@ static void dbg_write(const char *s) {
 		ssize_t n = write(STDERR_FILENO, p, len);
 		if (n <= 0) break;
 		p += n; len -= (size_t)n;
-	}
-	if (g_crash_log_fd >= 0) {
-		p = s; len = strlen(s);
-		while (len > 0) {
-			ssize_t n = write(g_crash_log_fd, p, len);
-			if (n <= 0) break;
-			p += n; len -= (size_t)n;
-		}
 	}
 }
 
@@ -71,18 +60,8 @@ static void dbg_uint(unsigned long v) {
 static uint8_t g_sigstack[65536];
 
 static void ce_crash_handler(int sig, siginfo_t *info, void *uctx) {
-	/* Absolute first thing: raw write to prove handler is running */
-	{ const char probe[] = "\n[CE CRASH PROBE]\n"; write(2, probe, sizeof(probe)-1); }
-	{ int fd = open("/tmp/ce_crash.log", O_WRONLY|O_CREAT|O_TRUNC, 0644);
-	  if (fd >= 0) { write(fd, "probe\n", 6); close(fd); } }
-
 	ucontext_t *uc = (ucontext_t *)uctx;
 	mcontext_t *mc = &uc->uc_mcontext;
-
-	/* Also write to a dedicated log file in case fd 2 is not inherited correctly */
-	if (g_crash_log_fd < 0)
-		g_crash_log_fd = open("/tmp/ce_crash.log",
-		                      O_WRONLY | O_CREAT | O_APPEND, 0644);
 
 	const char *signame = (sig == SIGSEGV) ? "SIGSEGV" :
 	                      (sig == SIGBUS)  ? "SIGBUS"  :

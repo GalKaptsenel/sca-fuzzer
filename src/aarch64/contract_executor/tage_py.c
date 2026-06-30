@@ -142,7 +142,6 @@ static void tagebp_call_void(const char *method) {
 
 void tagebp_checkpoint(void) { tagebp_call_void("checkpoint"); }
 void tagebp_rollback(void)   { tagebp_call_void("rollback"); }
-void tagebp_commit(void)     { tagebp_call_void("commit"); }
 
 void tagebp_reset(void) {
 	if (!tage_instance) return;
