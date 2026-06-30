@@ -1,7 +1,7 @@
 """Each Sealing decides for itself how to render its slot (the strip policy lives in the sealing, not
 in ResolvedSealingTestCase). Verifies:
-  - PacSealing.seal(sig) emits [MOVK, AUT*] most of the time and the arch-safe strip [NOP, XPAC*] with
-    probability ~PacSealing._STRIP_PROB; seal(None) is ALWAYS the strip.
+  - PacSealing.seal(sig) emits [MOVK, AUT*], or [MOVK, XPAC*] (strip) with probability
+    ~PacSealing._STRIP_PROB; seal(None) is [NOP, XPAC*].
   - SandboxSealing.seal never strips (always [AND, ADD], value-independent).
   - MteSealing.seal never emits XPAC ([NOP] for 0/None, [ADDG] otherwise).
 No kernel module needed — seal() only emits instructions.
@@ -47,20 +47,21 @@ class SealingStripPolicyTest(unittest.TestCase):
         ps = self._pac_sealing()
         random.seed(0)
         n = 4000
-        strips = sum(1 for _ in range(n) if _names(ps.seal(0x1234))[0] == "nop")
+        strips = sum(1 for _ in range(n) if _names(ps.seal(0x1234))[-1] in ("xpaci", "xpacd"))
         rate = strips / n
         # both branches must occur, and the strip rate must track PacSealing._STRIP_PROB
         self.assertGreater(strips, 0)
         self.assertLess(strips, n)
         self.assertAlmostEqual(rate, PacSealing._STRIP_PROB, delta=0.05)
 
-    def test_pac_seal_sig_nonstrip_is_movk_auth(self):
+    def test_pac_seal_sig_is_movk_then_auth_or_xpac(self):
         ps = self._pac_sealing()
         random.seed(1)
         for _ in range(200):
-            out = ps.seal(0x1234)
-            if _names(out)[0] != "nop":
-                self.assertEqual(_names(out), ["movk", "autia"])
+            out = _names(ps.seal(0x1234))
+            self.assertEqual(out[0], "movk")             # the signature is always loaded
+            if out[-1] not in ("xpaci", "xpacd"):        # not a strip -> a real auth
+                self.assertEqual(out, ["movk", "autia"])
 
     def test_sandbox_never_strips(self):
         sb = SandboxSealing("x0", "#0x1fff", "x29")

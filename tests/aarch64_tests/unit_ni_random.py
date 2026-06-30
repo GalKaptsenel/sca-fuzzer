@@ -23,6 +23,7 @@ from src.config import CONF
 from src.isa_loader import InstructionSet
 from src.aarch64.aarch64_generator import Aarch64RandomGenerator
 from src.aarch64.aarch64_seal import inst_at
+from src.aarch64.aarch64_pac import _AUTH_TO_PAC, _read_reg
 from src import factory
 from src.util import FuzzLogger
 
@@ -72,6 +73,45 @@ class NiRandomCoverageTest(unittest.TestCase):
         if hasattr(cls, "ex"):
             cls.ex.local_executor.set_pac_keys(None)
 
+    def _assert_oracle_matches_genuine(self, baseline, inp, pac, mte, by_sealing):
+        """Independent oracle: classify each slot from the GENUINE trace (the resolver's flag comes
+        from the placeholder), and verify every genuine AUT* would authenticate without faulting."""
+        ex = self.ex
+        layout = ex._sealed._layout
+        trace = ex._seal_trace(baseline, inp)
+        base = trace[0].cpu.pc
+
+        def min_nesting_at(off):
+            ns = [e.metadata.speculation_nesting for e in trace if e.cpu.pc - base == off]
+            return min(ns) if ns else None
+
+        def auth_off(s):
+            xpac = next(i for i in s.slot_insts if i.name.lower() in ("xpaci", "xpacd"))
+            return layout.instruction_address[xpac]
+
+        for s in pac:
+            self.assertEqual(min_nesting_at(auth_off(s)) != 0, by_sealing[id(s)].speculative,
+                             f"PAC slot reg={s.value_reg}: genuine arch-ness != resolver flag")
+        for s in mte:
+            self.assertEqual(min_nesting_at(layout.instruction_address[s.access]) != 0,
+                             by_sealing[id(s)].speculative,
+                             f"MTE slot reg={s.value_reg}: genuine arch-ness != resolver flag")
+
+        for s in pac:
+            r = by_sealing[id(s)]
+            if r.value is None:
+                continue
+            ent = next((e for e in trace if e.cpu.pc - base == auth_off(s)
+                        and e.metadata.speculation_nesting == 0), None)
+            if ent is None:
+                continue
+            inst = s.committed_inst
+            ptr = _read_reg(ent.cpu, inst.operands[0].value)
+            ctx = _read_reg(ent.cpu, inst.operands[1].value) if len(inst.operands) > 1 else 0
+            self.assertEqual(ex._sealed._signer.sign16(ptr, ctx, _AUTH_TO_PAC[inst.name.lower()]), r.value,
+                             f"genuine {inst.name} {inst.operands[0].value}: re-sign over genuine "
+                             f"state != resolved sig (would FPAC)")
+
     def test_random_coverage_and_safety(self):
         ex, gen = self.ex, self.gen
         cov = collections.Counter()
@@ -98,6 +138,8 @@ class NiRandomCoverageTest(unittest.TestCase):
                 by_sealing = {id(r.sealing): r for r in resolved._entries}
                 baseline = resolved.genuine()
                 decoys = [resolved.decoy() for _ in range(6)]
+
+                self._assert_oracle_matches_genuine(baseline, inp, pac, mte, by_sealing)
 
                 for label, tcv in [("baseline", baseline)] + [("decoy", d) for d in decoys]:
                     for s in sandbox:                              # clamp is never decoyed

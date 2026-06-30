@@ -64,15 +64,13 @@ class SandboxSealing(Sealing):
 
 
 class PacSealing(Sealing):
-    """Authenticate a pointer register. `seal(sig)` = [MOVK sig LSL#48, AUT*]; `seal(None)` = the
-    arch-safe strip [NOP, XPAC*]. Mnemonics + context register come from the committed AUT*; encoders
-    are reused from PacSign. `committed_inst` is exposed for the resolver.
-
-    The sealing owns its own strip policy: even given a real signature, `seal` emits the arch-safe
-    strip with low probability `_STRIP_PROB`. XPAC yields the same canonical pointer a successful AUTH
-    would, so stripping puts XPAC on both the architectural and speculative paths without changing the
-    arch result — the caller just supplies the value and never decides whether to strip."""
-    _STRIP_PROB = 0.1   # chance of stripping a real signature to its arch-safe [NOP, XPAC*] form
+    """Authenticate a pointer register. Given a signature, `seal` emits [MOVK sig LSL#48, AUT*], or
+    with low probability `_STRIP_PROB` the arch-safe strip [MOVK sig LSL#48, XPAC*] — same MOVK, the
+    AUT* replaced by XPAC, which yields the same canonical pointer a successful AUTH would, so strip
+    and auth differ only in that last op and agree on the arch path. `seal(None)` (no signature) is the
+    placeholder [NOP, XPAC*]. Mnemonics + context register come from the committed AUT*; encoders are
+    reused from PacSign. `committed_inst` is exposed for the resolver."""
+    _STRIP_PROB = 0.1
 
     def __init__(self, value_reg: str, committed_inst: Instruction, encoder: PacSign) -> None:
         super().__init__()
@@ -84,10 +82,13 @@ class PacSealing(Sealing):
     def seal(self, value: Optional[int] = None) -> List[Instruction]:
         auth_mn = self.committed_inst.name.lower()
         ctx_reg = self.committed_inst.operands[1].value if len(self.committed_inst.operands) > 1 else None
-        if value is None or random.random() < self._STRIP_PROB:
-            return [make_nop(), self._enc.make_xpac_inst(_AUTH_TO_XPAC[auth_mn], self.value_reg)]
-        return [self._enc.make_movk(self.value_reg, value, 48),
-                self._enc.make_auth_inst(auth_mn, self.value_reg, ctx_reg)]
+        xpac = self._enc.make_xpac_inst(_AUTH_TO_XPAC[auth_mn], self.value_reg)
+        if value is None:
+            return [make_nop(), xpac]
+        movk = self._enc.make_movk(self.value_reg, value, 48)
+        if random.random() < self._STRIP_PROB:
+            return [movk, xpac]
+        return [movk, self._enc.make_auth_inst(auth_mn, self.value_reg, ctx_reg)]
 
 
 class MteSealing(Sealing):
@@ -125,17 +126,10 @@ class _Resolved:
 
 
 class ResolvedSealingTestCase:
-    """The result of resolving a sealed TC for one input. Two methods, each returning a TestCase that
-    runs that input: `genuine()` seals every slot with its correct value; `decoy()` perturbs a random
-    NON-EMPTY subset of the speculative (decoy-eligible) slots with an alternative (failing) value and
-    seals the correct value everywhere else. Decoying a random subset (not every speculative slot at
-    once) means successive decoys explore every combination of the eligible slots — e.g. PAC-only,
-    MTE-only, and PAC+MTE together — so each speculative leak is exercised both alone and jointly. A
-    each sealing decides for itself how to vary its slot: a PAC slot (PacSealing) emits its arch-safe
-    strip — seal(None), i.e. [NOP, XPAC] — with low probability, putting XPAC on both the arch (genuine)
-    and speculative (decoy) paths; that strip is the same canonical pointer as the AUTH, so baseline and
-    decoy still agree on the arch path. MTE is never stripped (its NOP would leave the wrong tag and
-    break that agreement). This class only chooses each slot's value and calls its sealing."""
+    """One input's resolution. `genuine()` seals every slot with its correct value; `decoy()` perturbs
+    a random non-empty subset of the speculative slots with a failing value and seals the rest correctly.
+    Perturbing a random subset (not all at once) lets successive decoys cover every combination of the
+    eligible slots. Each sealing owns how its value maps to instructions."""
 
     def __init__(self, sealed_tc: TestCase, entries: List[_Resolved]) -> None:
         self._tc = sealed_tc
