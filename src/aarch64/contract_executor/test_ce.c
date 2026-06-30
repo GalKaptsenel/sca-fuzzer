@@ -113,6 +113,12 @@ uint64_t spec_max_nesting(void) { return 0; }
 #define ENC_LDP_X0_X2_X1 0xA9400820u
 /* STP X0, X2, [X1] — same layout, L=0 (bit22=0) → 0xA9000820 */
 #define ENC_STP_X0_X2_X1 0xA9000820u
+/* LDRSW X0, [X1] — size=10, opc=10 (load, sign-extend to 64): a load whose opc[0]=0 */
+#define ENC_LDRSW_X0_X1  0xB9800020u
+/* STP X0, X2, [X1, #imm]! — pre-index (bit23=1) store; opc[23:22]=10 would mis-read as a load */
+#define ENC_STP_PREIDX   0xA9800820u
+/* PRFM (pfrop), [X1] — size=11, opc=10: a hint, neither load nor store */
+#define ENC_PRFM_X1      0xF9800020u
 /* LDR  X0, #0 (literal, offset=0) */
 #define ENC_LDR_LIT_X0   0x58000000u
 
@@ -266,6 +272,16 @@ static void test_load_store_predicates(void) {
     EXPECT(!is_store(ENC_LDR_X0_X1));
     EXPECT(is_store(ENC_STR_X0_X1));
     EXPECT(!is_load(ENC_STR_X0_X1));
+
+    /* sign-extending loads (opc=10) are loads, not stores (opc[0]=0 misled the old bit-22 decode) */
+    EXPECT(is_load(ENC_LDRSW_X0_X1));
+    EXPECT(!is_store(ENC_LDRSW_X0_X1));
+    /* a pre-indexed STP must stay a store: pairs decode by the L-bit, not opc[23:22] */
+    EXPECT(is_store(ENC_STP_PREIDX));
+    EXPECT(!is_load(ENC_STP_PREIDX));
+    /* PRFM is a hint: neither load nor store */
+    EXPECT(!is_load(ENC_PRFM_X1));
+    EXPECT(!is_store(ENC_PRFM_X1));
 
     EXPECT(is_unsigned_offset(ENC_LDR_X0_X1));
     EXPECT(!is_pre_index(ENC_LDR_X0_X1));

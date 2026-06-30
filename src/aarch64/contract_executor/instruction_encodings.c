@@ -111,8 +111,20 @@ inline uint64_t literal_pc_relative_access_size(uint32_t inst) {
 	if(3 == size) return 0; // PRFM
 	__builtin_unreachable();
 }
-inline int is_load(uint32_t inst) { return (inst >> 22) & 0x1; }
-inline int is_store(uint32_t inst) { return !is_load(inst); }
+/* Regular load/store-register selects the op by opc[23:22]: STR=00 (the only store), LDR=01,
+ * LDRS-to-64=10, LDRS-to-32=11 are loads; opc=10 with size=11 is PRFM, a hint, not an access. Pair
+ * (LDP/STP) and other classes keep the L-bit (bit22): STP L=0, LDP L=1. */
+inline int is_load(uint32_t inst) {
+	if (is_regular_load_store(inst)) {
+		uint32_t opc = (inst >> 22) & 0x3, size = (inst >> 30) & 0x3;
+		return opc != 0 && !(opc == 2 && size == 3);
+	}
+	return (inst >> 22) & 0x1;
+}
+inline int is_store(uint32_t inst) {
+	if (is_regular_load_store(inst)) return ((inst >> 22) & 0x3) == 0;
+	return !((inst >> 22) & 0x1);
+}
 inline int is_pre_index(uint32_t inst) { return ((inst >> 24) & 0x3) == 0x0 && ((inst >> 10) & 0x3) == 0x3; }
 inline int is_post_index(uint32_t inst) { return ((inst >> 24) & 0x3) == 0x0 && ((inst >> 10) & 0x3) == 0x1; }
 inline int is_reg_offset(uint32_t inst) { return ((inst >> 24) & 0x3) == 0x0 && ((inst >> 10) & 0x3) == 0x2; }
