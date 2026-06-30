@@ -34,6 +34,7 @@ def setUpModule():
     _SAVED_CONF = copy.deepcopy(CONF._borg_shared_state)
     CONF.load(os.path.join(_ROOT, "config.yml"))
     _executor = LocalHWExecutor('/dev/executor', '/sys/executor')
+    _executor.set_pac_keys(None)   # drop any deterministic keys leaked from an earlier module
     keys = _executor.get_pac_keys()
     _executor.set_pac_keys(keys)
 

@@ -66,6 +66,12 @@ class NiRandomCoverageTest(unittest.TestCase):
         except Exception as e:
             raise unittest.SkipTest(f"NI executor setup failed: {e}")
 
+    @classmethod
+    def tearDownClass(cls):
+        # the pinned deterministic keys outlive this module in the kernel; revert to live
+        if hasattr(cls, "ex"):
+            cls.ex.local_executor.set_pac_keys(None)
+
     def test_random_coverage_and_safety(self):
         ex, gen = self.ex, self.gen
         cov = collections.Counter()
