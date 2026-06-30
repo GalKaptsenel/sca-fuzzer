@@ -99,9 +99,9 @@ inline uint64_t access_size(uint32_t inst) {
 inline uint64_t pair_element_access_size(uint32_t inst) {
 	uint64_t size = ((inst >> 30) & 0x3);
 	if(0 == size) return 4;
+	if(1 == size) return 4;   /* LDPSW: two 4-byte words, each sign-extended to 64 */
 	if(2 == size) return 8;
-	/* opc=01 (LDPSW) / opc=11 are not modeled; fail loud rather than risk UB. */
-	__builtin_trap();
+	__builtin_trap();          /* opc=11 is reserved */
 }
 inline uint64_t literal_pc_relative_access_size(uint32_t inst) {
 	uint64_t size = ((inst >> 30) & 0x3);
@@ -141,6 +141,7 @@ inline int is_unsigned_offset(uint32_t inst) { return ((inst >> 24) & 0x3) == 0x
 inline int is_pair_pre_index(uint32_t inst) { return ((inst >> 23) & 0x7) == 0b011; }
 inline int is_pair_post_index(uint32_t inst) { return ((inst >> 23) & 0x7) == 0b001; }
 inline int is_pair_signed_offset(uint32_t inst) { return ((inst >> 23) & 0x7) == 0b010; }
+inline int is_pair_no_alloc(uint32_t inst) { return ((inst >> 23) & 0x7) == 0b000; }
 inline int is_immediate_offset(uint32_t inst) { return is_pre_index(inst) || is_post_index(inst) || is_unsigned_offset(inst); }
 inline uint32_t get_rm(uint32_t inst) { return (inst >> 16) & 0x1F; }
 inline uint32_t get_rn(uint32_t inst) { return (inst >> 5) & 0x1F; }

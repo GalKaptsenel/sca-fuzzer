@@ -267,6 +267,8 @@ int main(void) {
 	CHECK(mte_is_mem_tag_access(STGM(0, 0))     == 1, "is_mem_tag: STGM");
 	CHECK(mte_is_mem_tag_access(STZGM(0, 0))    == 1, "is_mem_tag: STZGM");
 	CHECK(mte_is_mem_tag_access(e_stgp(0, 1, 0, 0)) == 1, "is_mem_tag: STGP");
+	/* LDPSW shares STGP's top byte but has L(bit22)=1: a pair load, not a tag store */
+	CHECK(mte_is_mem_tag_access(e_stgp(0, 1, 0, 0) | (1u << 22)) == 0, "is_mem_tag: LDPSW excluded");
 	CHECK(mte_is_mem_tag_access(e_addg(2, 1, 2, 3)) == 0, "is_mem_tag: ADDG is not a memory access");
 	CHECK(mte_is_mem_tag_access(e_subg(2, 1, 1, 3)) == 0, "is_mem_tag: SUBG is not a memory access");
 	CHECK(mte_is_mem_tag_access(e_irg(2, 1, 3))     == 0, "is_mem_tag: IRG is not a memory access");

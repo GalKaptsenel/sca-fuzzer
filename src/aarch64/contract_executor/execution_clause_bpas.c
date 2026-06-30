@@ -1,5 +1,6 @@
 #include "execution_clause_bpas.h"
 #include "instruction_encodings.h"   /* is_memory_access, is_store */
+#include "mte_tag_plugin.h"          /* mte_is_mem_tag_access */
 #include "simulation_input.h"        /* EXEC_CLAUSE_BPAS */
 #include <stdlib.h>
 #include <string.h>
@@ -42,7 +43,8 @@ static void* bpas_on_instruction(struct simulation_state* sim_state) {
 
 	/* Phase A: snapshot before a store, let the HW execute it, undo it on the next instruction. */
 	uint32_t insn = *(uint32_t*)sim_state->cpu_state.pc;
-	if (spec_nesting() < spec_max_nesting() && is_memory_access(insn) && is_store(insn)) {
+	if (spec_nesting() < spec_max_nesting() && is_memory_access(insn) && is_store(insn)
+	    && !mte_is_mem_tag_access(insn)) {
 		memcpy(bpas_preimage, sim_state->memory, spec_memory_size());
 		bpas_pending = 1;
 		bpas_pending_nesting = spec_nesting();

@@ -177,14 +177,12 @@ mem_access_info_t parse_memory_access_instruction(uint32_t inst, const trace_cpu
 		mi.data_size = pair_element_access_size(inst);
 		mi.rt2_register = get_rt2(inst);
 
-		if(is_pair_pre_index(inst) || is_pair_signed_offset(inst)) {
+		if(is_pair_pre_index(inst) || is_pair_signed_offset(inst) || is_pair_no_alloc(inst)) {
+			/* LDNP/STNP (no-alloc) address [Xn, #imm] like the signed-offset form, no writeback. */
 			int64_t offset = decode_imm7(inst) * pair_element_access_size(inst);
 			mi.effective_address = (uint64_t)((int64_t)base + offset);
-		} else if(is_pair_post_index(inst)) {
-			mi.effective_address = base;
 		} else {
-			/* 000 = LDNP/STNP (non-temporal pair) is not modeled; fail loud, not UB. */
-			__builtin_trap();
+			mi.effective_address = base;   /* post-index */
 		}
 	} else if(is_literal_pc_relative(inst)) {
 		uint64_t sz = literal_pc_relative_access_size(inst);

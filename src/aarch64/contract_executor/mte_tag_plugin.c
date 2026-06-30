@@ -104,8 +104,9 @@ static mte_type_t classify_mte(uint32_t enc)
 		}
 	}
 
-	/* STGP: bits[31:24] = 0x68 (post-index) or 0x69 (signed-offset / pre-index) */
-	if ((enc >> 24) == 0x68u || (enc >> 24) == 0x69u) {
+	/* STGP: bits[31:24] = 0x68 (post-index) or 0x69 (signed-offset / pre-index), L(bit22)=0. LDPSW
+	 * shares the top byte but has L=1 -- it is a normal pair load, not a tag store. */
+	if (((enc >> 24) == 0x68u || (enc >> 24) == 0x69u) && (((enc >> 22) & 1u) == 0u)) {
 		return MTE_STGP;
 	}
 

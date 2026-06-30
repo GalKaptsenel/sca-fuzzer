@@ -468,9 +468,14 @@ static void test_input_header_validation(void) {
 /* ======================================================================== */
 
 static void test_pair_access_size(void) {
-    uint32_t ldp_w = 0x29400420u;  /* LDP W0, W2, [X1] — 32-bit */
+    uint32_t ldp_w = 0x29400420u;     /* LDP W0, W2, [X1] — 32-bit */
+    uint32_t ldpsw = 0x69400820u;     /* LDPSW X0, X2, [X1] — opc=01, two 4-byte words */
+    uint32_t stnp  = 0xA8000820u;     /* STNP X0, X2, [X1] — no-allocate pair (bits[25:23]=000) */
     EXPECT_EQ(pair_element_access_size(ldp_w), 4u);
+    EXPECT_EQ(pair_element_access_size(ldpsw), 4u);   /* was a trap (SIGILL) before F-CE-3 */
     EXPECT_EQ(pair_element_access_size(ENC_LDP_X0_X2_X1), 8u);
+    EXPECT(is_load(ldpsw) && !is_store(ldpsw));        /* LDPSW is a pair load (L=1) */
+    EXPECT(is_pair_no_alloc(stnp) && is_store(stnp));  /* STNP is a no-alloc pair store */
 }
 
 /* ======================================================================== */
