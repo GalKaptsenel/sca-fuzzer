@@ -19,6 +19,8 @@ int execution_clause_count(void) {
 }
 
 const struct execution_clause_descriptor* execution_clause_at(int index) {
+	/* All callers deref the result; a corrupted frame->owner must trap, not OOB-read the registry. */
+	if (index < 0 || index >= execution_clause_count()) __builtin_trap();
 	return REGISTRY[index];
 }
 

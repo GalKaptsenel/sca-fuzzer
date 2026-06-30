@@ -2,6 +2,10 @@
 .global base_hook, base_hook_end, base_hook_c_target
 .type base_hook, %function
 
+/* Saves/restores x0-x29, LR, PC, SP, NZCV around base_hook_c. KNOWN GAP: the FP/SIMD registers
+ * v0-v31 are NOT preserved, so base_hook_c's C callees (fprintf/malloc/Python) may clobber a test
+ * case's caller-saved FP/SIMD state. Safe only while the generator emits no FP/SIMD; when it is
+ * re-enabled, save/restore the caller-saved vector regs around the blr below. */
 base_hook:
 	/* Save context */
 	stp x1, x0, [sp, #-16]!
