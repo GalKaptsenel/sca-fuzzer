@@ -716,6 +716,8 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
     def _seal_trace(self, tc: TestCase, inp: Input) -> ContractExecutionResult:
         """One CE trace of `tc` for `inp` — the trace_fn the sealer resolves over. Owns assembly +
         the CE setup so the sealer never sees the assembler."""
+        assert self._sandbox_base is not None, \
+            "sandbox base not resolved — read_base_addresses() must run before any seal trace"
         tc_bytes, _ = self._assemble_tc(tc)
         return self._contract_executor.run(self._make_ce_execution(
             tc_bytes, inp, self._sandbox_base, self._nesting, CONF.model_max_spec_window,
