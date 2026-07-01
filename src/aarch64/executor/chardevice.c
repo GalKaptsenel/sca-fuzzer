@@ -178,6 +178,8 @@ static void clear_all_inputs(void) {
 }
 
 static void kernel_measurement_to_user_measurement(user_measurement_t* um, const measurement_t* km) {
+	_Static_assert(sizeof(um->htrace) == sizeof(km->htrace), "htrace width diverged between kernel and UAPI");
+	_Static_assert(sizeof(um->pfc) == sizeof(km->pfc), "pfc count diverged between kernel and UAPI");
 	memset(um, 0, sizeof(*um));
 	memcpy(um->htrace, km->htrace, sizeof(um->htrace));
 	memcpy(um->pfc, km->pfc, sizeof(um->pfc));

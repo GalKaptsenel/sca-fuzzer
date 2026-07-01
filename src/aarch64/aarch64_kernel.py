@@ -149,10 +149,15 @@ class InputRegion(ExecutorRegion):
         super().__init__()
         self.iid = iid
 
+# Mirror of userapi/executor_user_api.h — keep in sync with that header (the single source).
+HTRACE_WIDTH = 1
+NUM_PFC = 3
+
+
 class UserMeasurement(ctypes.Structure):
     _fields_ = [
-        ("htrace", ctypes.c_uint64 * 1),
-        ("pfc", ctypes.c_uint64 * 3),
+        ("htrace", ctypes.c_uint64 * HTRACE_WIDTH),
+        ("pfc", ctypes.c_uint64 * NUM_PFC),
     ]
 
 # Mirror of src/aarch64/executor/userapi/executor_ioctl_nr.h — keep the numbers
