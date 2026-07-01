@@ -174,7 +174,7 @@ region with a checkout ioctl. *Valid in* lists the states in which the command d
 | 7 | `MEASUREMENT` | — | `measurement_t` = `htrace` (u64) + `pfc[3]` (u64 each) | `TRACED`, input checked out | Result for the checked-out input. |
 | 8 | `TRACE` | — | — | `READY` / `TRACED` | Run the test case over all inputs and measure. |
 | 9 | `CLEAR_ALL_INPUTS` | — | — | any | Free every input. |
-| 10 | `GET_TEST_LENGTH` | — | `uint64` length | any | Length of the loaded test case. |
+| 10 | `GET_TEST_LENGTH` | — | `uint64` length | test loaded (`LOADED_TEST` / `READY` / `TRACED`) | Length of the loaded test case. |
 | 11 | `SET_PAC_KEYS` | `pac_keys` (5×128-bit: IA/IB/DA/DB/GA) | — | any | Set the keys the executor signs/auths with. |
 | 12 | `GET_PAC_KEYS` | — | `pac_keys` | any | Read the keys the executor will use. |
 | 13 | `PAC_SIGN` | `pac_sign_req` = `ptr`, `ctx`, `mnemonic` | signed pointer | any | Sign a pointer (`PAC*`). |
