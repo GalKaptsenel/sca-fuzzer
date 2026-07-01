@@ -71,7 +71,7 @@ class NiRandomCoverageTest(unittest.TestCase):
     def tearDownClass(cls):
         # the pinned deterministic keys outlive this module in the kernel; revert to live
         if hasattr(cls, "ex"):
-            cls.ex.local_executor.set_pac_keys(None)
+            cls.ex.local_executor.clear_pac_keys()
 
     def _assert_oracle_matches_genuine(self, baseline, inp, pac, mte, by_sealing):
         """Independent oracle: classify each slot from the GENUINE trace (the resolver's flag comes

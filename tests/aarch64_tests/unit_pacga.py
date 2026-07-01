@@ -34,7 +34,7 @@ def setUpModule():
     _SAVED_CONF = copy.deepcopy(CONF._borg_shared_state)
     CONF.load(os.path.join(_ROOT, "config.yml"))
     _executor = LocalHWExecutor('/dev/executor', '/sys/executor')
-    _executor.set_pac_keys(None)   # drop any deterministic keys leaked from an earlier module
+    _executor.clear_pac_keys()   # drop any deterministic keys leaked from an earlier module
     keys = _executor.get_pac_keys()
     _executor.set_pac_keys(keys)
 
@@ -205,24 +205,24 @@ class TestInstructionKeyModes(unittest.TestCase):
     CTX = 0x1234
 
     def tearDown(self):
-        _executor.set_pac_keys(None)
+        _executor.clear_pac_keys()
         _executor.set_pac_keys(_executor.get_pac_keys())
 
     def test_live_keys_roundtrip(self):
-        _executor.set_pac_keys(None)
+        _executor.clear_pac_keys()
         signed = _executor.pac_sign(self.PTR, self.CTX, "pacia")
         self.assertNotEqual(signed, self.PTR)
         self.assertEqual(_executor.pac_auth(signed, self.CTX, "autia"), self.PTR)
 
     def test_swapped_keys_equal_live_match(self):
-        _executor.set_pac_keys(None)
+        _executor.clear_pac_keys()
         live = _executor.pac_sign(self.PTR, self.CTX, "pacia")
         _executor.set_pac_keys(_executor.get_pac_keys())
         self.assertEqual(_executor.pac_sign(self.PTR, self.CTX, "pacia"), live)
 
     def test_swapped_different_instruction_key(self):
         # regression: a different APIA used to fault the kernel pac-ret RETAA and reset the VM
-        _executor.set_pac_keys(None)
+        _executor.clear_pac_keys()
         live = _executor.pac_sign(self.PTR, self.CTX, "pacia")
         keys = _executor.get_pac_keys()
         keys.apia_lo ^= 0xA5A5A5A5A5A5A5A5

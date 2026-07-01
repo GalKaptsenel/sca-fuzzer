@@ -525,18 +525,6 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         if FuzzLogger._VERBOSITY < 2:  # nothing is logged below this verbosity; skip the CE runs
             return
 
-        def _run_ce_on_tc(tc: TestCase):
-            tc_bytes = self._assemble_tc(tc)[0]
-            try:
-                execution = self._make_ce_execution(tc_bytes, inp, sandbox_base,
-                                                     CONF.model_max_nesting,
-                                                     CONF.model_max_spec_window,
-                                                     ExecutionClause.COND)
-                return list(self._contract_executor.run(execution))
-            except RuntimeError as exc:
-                FuzzLogger.get().w(f"  [CE ERROR] {exc}")
-                return None
-
         def _fmt_regs(ite) -> str:
             srcs, _ = decode_reg_accesses(ite.cpu.encoding, ite.cpu.pc)
             parts = []
@@ -571,7 +559,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         named_traces.append(("SEALED", s1_list, s1_base))
 
         for variant, tc in tc_variants.items():
-            cer = _run_ce_on_tc(tc) if tc is not None else None
+            cer = self._run_ce_on_tc(tc, inp, sandbox_base) if tc is not None else None
             entries = cer if cer else []
             base = cer[0].cpu.pc if cer else 0
             named_traces.append((variant.name, entries, base))

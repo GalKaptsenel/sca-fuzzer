@@ -63,6 +63,14 @@ class NZCVScheme:
         return cls._LAYOUT.keys()
 
 
+# The 4 flags must map to 4 distinct bytes / PSTATE bits, and the flags slot must fit in the GPR
+# register region -- otherwise the encoding silently collides with a register slot.
+assert len(NZCVScheme._LAYOUT) == 4
+assert len({b for b, _ in NZCVScheme._LAYOUT.values()}) == 4
+assert len({p for _, p in NZCVScheme._LAYOUT.values()}) == 4
+assert NZCVScheme.SLOT_BASE_BYTE + 4 <= InputFragment.fields['gpr'][0].itemsize
+
+
 def _reconstruct_pstate(view: memoryview) -> None:
     """Convert the per-flag NZCV encoding in the flags slot to ARM PSTATE format."""
     view[NZCVScheme.SLOT_IDX] = NZCVScheme.to_pstate(int(view[NZCVScheme.SLOT_IDX]))

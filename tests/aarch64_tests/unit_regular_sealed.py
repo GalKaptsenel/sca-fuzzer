@@ -123,7 +123,7 @@ class RegularSealedSealingTest(unittest.TestCase):
     def tearDownClass(cls):
         # the pinned deterministic keys outlive this module in the kernel; revert to live
         if getattr(cls, "_last_ex", None) is not None:
-            cls._last_ex.local_executor.set_pac_keys(None)
+            cls._last_ex.local_executor.clear_pac_keys()
 
     def _has_value_slots(self, ex) -> bool:
         return bool(getattr(ex._sealed, "_pac", []) or getattr(ex._sealed, "_mte", []))

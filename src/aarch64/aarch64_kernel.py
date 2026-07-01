@@ -403,13 +403,12 @@ class LocalHWExecutor(HWExecutor):
         self._ioctl(REVISOR_GET_PAC_KEYS, keys)
         return keys
 
-    def set_pac_keys(self, keys: PacKeys | None = None) -> None:
-        # keys=None clears the configured keys: the executor reverts to the
-        # live hardware keys (signalled to the kernel with a NULL argument).
-        if keys is None:
-            self._fcntl.ioctl(self.fd, REVISOR_SET_PAC_KEYS, 0)
-        else:
-            self._ioctl(REVISOR_SET_PAC_KEYS, keys)
+    def set_pac_keys(self, keys: PacKeys) -> None:
+        self._ioctl(REVISOR_SET_PAC_KEYS, keys)
+
+    def clear_pac_keys(self) -> None:
+        # revert the executor to the live hardware keys (NULL argument to the kernel)
+        self._fcntl.ioctl(self.fd, REVISOR_SET_PAC_KEYS, 0)
 
     def mte_tag_sandbox_region(self, sandbox_offset: int, tags: List[int]) -> None:
         """Tag len(tags) consecutive granules with the given 4-bit `tags`. `sandbox_offset` is
