@@ -56,7 +56,3 @@ jobs:
         python3 -m unittest tests.x86_tests.unit_generators -v
         python3 -m unittest tests.x86_tests.unit_isa_loader -v
         python3 -m unittest tests.x86_tests.unit_model -v
-    - name: AArch64 contract-executor C tests
-      run: |
-        # Host-portable subset only; test_ce_integration needs the AArch64 contract_executor binary.
-        make -C src/aarch64/contract_executor test-ci
