@@ -4,6 +4,34 @@
 #include <linux/preempt.h>
 #include <linux/string.h>
 
+/* Mnemonic -> op maps: pure lookups with no PAC hardware, so always compiled. */
+enum pac_op pac_sign_op_from_mnemonic(const char *m) {
+	if (!strcmp(m, "pacia"))  return PAC_OP_PACIA;
+	if (!strcmp(m, "pacib"))  return PAC_OP_PACIB;
+	if (!strcmp(m, "pacda"))  return PAC_OP_PACDA;
+	if (!strcmp(m, "pacdb"))  return PAC_OP_PACDB;
+	if (!strcmp(m, "pacga"))  return PAC_OP_PACGA;
+	if (!strcmp(m, "paciza")) return PAC_OP_PACIZA;
+	if (!strcmp(m, "pacizb")) return PAC_OP_PACIZB;
+	if (!strcmp(m, "pacdza")) return PAC_OP_PACDZA;
+	if (!strcmp(m, "pacdzb")) return PAC_OP_PACDZB;
+	return PAC_OP_INVALID;
+}
+
+enum pac_op pac_auth_op_from_mnemonic(const char *m) {
+	if (!strcmp(m, "autia"))  return PAC_OP_AUTIA;
+	if (!strcmp(m, "autib"))  return PAC_OP_AUTIB;
+	if (!strcmp(m, "autda"))  return PAC_OP_AUTDA;
+	if (!strcmp(m, "autdb"))  return PAC_OP_AUTDB;
+	if (!strcmp(m, "autiza")) return PAC_OP_AUTIZA;
+	if (!strcmp(m, "autizb")) return PAC_OP_AUTIZB;
+	if (!strcmp(m, "autdza")) return PAC_OP_AUTDZA;
+	if (!strcmp(m, "autdzb")) return PAC_OP_AUTDZB;
+	return PAC_OP_INVALID;
+}
+
+#if CONFIG_ARM64_PAC_HW	// Real PAC hardware implementation
+
 #define DEFINE_KEY_INIT_FUNC(reg_name) \
 static void pauth_set_key_##reg_name(uint64_t hi, uint64_t lo) { \
 	write_sysreg(lo, reg_name##KeyLo_EL1); \
@@ -164,31 +192,6 @@ void pac_load_keys(const struct pac_keys *keys) {
 	/* isb() is called inside each pauth_set_key_* */
 }
 
-enum pac_op pac_sign_op_from_mnemonic(const char *m) {
-	if (!strcmp(m, "pacia"))  return PAC_OP_PACIA;
-	if (!strcmp(m, "pacib"))  return PAC_OP_PACIB;
-	if (!strcmp(m, "pacda"))  return PAC_OP_PACDA;
-	if (!strcmp(m, "pacdb"))  return PAC_OP_PACDB;
-	if (!strcmp(m, "pacga"))  return PAC_OP_PACGA;
-	if (!strcmp(m, "paciza")) return PAC_OP_PACIZA;
-	if (!strcmp(m, "pacizb")) return PAC_OP_PACIZB;
-	if (!strcmp(m, "pacdza")) return PAC_OP_PACDZA;
-	if (!strcmp(m, "pacdzb")) return PAC_OP_PACDZB;
-	return PAC_OP_INVALID;
-}
-
-enum pac_op pac_auth_op_from_mnemonic(const char *m) {
-	if (!strcmp(m, "autia"))  return PAC_OP_AUTIA;
-	if (!strcmp(m, "autib"))  return PAC_OP_AUTIB;
-	if (!strcmp(m, "autda"))  return PAC_OP_AUTDA;
-	if (!strcmp(m, "autdb"))  return PAC_OP_AUTDB;
-	if (!strcmp(m, "autiza")) return PAC_OP_AUTIZA;
-	if (!strcmp(m, "autizb")) return PAC_OP_AUTIZB;
-	if (!strcmp(m, "autdza")) return PAC_OP_AUTDZA;
-	if (!strcmp(m, "autdzb")) return PAC_OP_AUTDZB;
-	return PAC_OP_INVALID;
-}
-
 static uint64_t pac_run_op(enum pac_op op, uint64_t ptr, uint64_t mod) {
 	switch (op) {
 	case PAC_OP_PACIA:  return pacia(ptr, mod);
@@ -328,3 +331,41 @@ uint64_t pac_auth_with_keys(enum pac_op op, uint64_t ptr, uint64_t mod,
 
 #pragma GCC pop_options
 
+#else	// Non-PAC hardware: all stubs
+
+uint64_t pacia(uint64_t ptr, uint64_t mod)	{ (void)mod; return ptr; }
+uint64_t pacib(uint64_t ptr, uint64_t mod)	{ (void)mod; return ptr; }
+uint64_t pacda(uint64_t ptr, uint64_t mod)	{ (void)mod; return ptr; }
+uint64_t pacdb(uint64_t ptr, uint64_t mod)	{ (void)mod; return ptr; }
+uint64_t pacga(uint64_t x, uint64_t y)		{ (void)x; (void)y; return 0; }
+uint64_t autia(uint64_t ptr, uint64_t mod)	{ (void)mod; return ptr; }
+uint64_t autib(uint64_t ptr, uint64_t mod)	{ (void)mod; return ptr; }
+uint64_t autda(uint64_t ptr, uint64_t mod)	{ (void)mod; return ptr; }
+uint64_t autdb(uint64_t ptr, uint64_t mod)	{ (void)mod; return ptr; }
+uint64_t autiza(uint64_t ptr)			{ return ptr; }
+uint64_t autizb(uint64_t ptr)			{ return ptr; }
+uint64_t autdza(uint64_t ptr)			{ return ptr; }
+uint64_t autdzb(uint64_t ptr)			{ return ptr; }
+uint64_t paciza(uint64_t ptr)			{ return ptr; }
+uint64_t pacizb(uint64_t ptr)			{ return ptr; }
+uint64_t pacdza(uint64_t ptr)			{ return ptr; }
+uint64_t pacdzb(uint64_t ptr)			{ return ptr; }
+uint64_t xpaci(uint64_t ptr)			{ return ptr; }
+uint64_t xpacd(uint64_t ptr)			{ return ptr; }
+
+uint64_t pac_enable_all_keys(void)		{ return 0; }
+void pac_restore_sctlr(uint64_t saved_sctlr)	{ (void)saved_sctlr; }
+void pac_save_keys(struct pac_keys *out)	{ (void)out; }
+void pac_load_keys(const struct pac_keys *keys)	{ (void)keys; }
+
+uint64_t pac_run_op_with_keys(enum pac_op op, uint64_t ptr, uint64_t mod,
+                              bool keys_set, const struct pac_keys *exec_keys) {
+	(void)op; (void)mod; (void)keys_set; (void)exec_keys; return ptr;
+}
+
+uint64_t pac_auth_with_keys(enum pac_op op, uint64_t ptr, uint64_t mod,
+                            bool keys_set, const struct pac_keys *exec_keys) {
+	(void)op; (void)mod; (void)keys_set; (void)exec_keys; return ptr;
+}
+
+#endif

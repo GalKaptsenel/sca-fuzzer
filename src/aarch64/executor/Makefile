@@ -8,14 +8,29 @@ obj-m := revizor-executor.o
 
 # Detect hardware MTE support (overrideable from command line)
 HW_SUPPORTS_MTE ?= $(shell grep -q 'Features.*mte' /proc/cpuinfo 2>/dev/null && echo y || echo n)
+# Detect hardware PAC support (overrideable from command line)
+HW_SUPPORTS_PAC ?= $(shell grep -q 'Features.*paca' /proc/cpuinfo 2>/dev/null && echo y || echo n)
 
 ifeq ($(HW_SUPPORTS_MTE),y)
 $(info Hardware supports MTE)
-ccflags-y += -DCONFIG_ARM64_MTE_HW=1 -march=armv8.5-a+sve+memtag+pauth
+ARM_ARCH := armv8.5-a+sve+memtag
+ccflags-y += -DCONFIG_ARM64_MTE_HW=1
 else
 $(info Hardware does NOT support MTE)
-ccflags-y += -DCONFIG_ARM64_MTE_HW=0 -march=armv8.3-a+sve+pauth
+ARM_ARCH := armv8.3-a+sve
+ccflags-y += -DCONFIG_ARM64_MTE_HW=0
 endif
+
+ifeq ($(HW_SUPPORTS_PAC),y)
+$(info Hardware supports PAC)
+ARM_ARCH := $(ARM_ARCH)+pauth
+ccflags-y += -DCONFIG_ARM64_PAC_HW=1
+else
+$(info Hardware does NOT support PAC)
+ccflags-y += -DCONFIG_ARM64_PAC_HW=0
+endif
+
+ccflags-y += -march=$(ARM_ARCH)
 
 # Common flags
 ccflags-y += -g -DL1D_SIZE_K=64 -DL1D_ASSOCIATIVITY=4
