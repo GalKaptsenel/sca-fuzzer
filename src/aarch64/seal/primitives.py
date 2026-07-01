@@ -2,15 +2,15 @@
 
 Knows the AArch64 NOP / sandbox-clamp encodings, slot addressing (a slot is a fixed-width run of
 instructions filled by position), and the offset-cancelling SUBs that pin an effective address to
-its already-clamped base. The concrete sealings + per-input resolution live in aarch64_sealer.py.
+its already-clamped base. The concrete sealings + per-input resolution live in sealer.py.
 """
 import copy
 import math
 from typing import Dict, List, Optional, Set, Tuple
 
-from ..interfaces import (TestCase, Instruction, BasicBlock, Function, GeneratorException,
+from ...interfaces import (TestCase, Instruction, BasicBlock, Function, GeneratorException,
                           MemoryOperand, OT, MAIN_AREA_SIZE, FAULTY_AREA_SIZE)
-from .aarch64_target_desc import AArch64MemRole
+from ..aarch64_target_desc import AArch64MemRole
 
 _SANDBOX_MASK_BITS = int(math.log(MAIN_AREA_SIZE + FAULTY_AREA_SIZE, 2))
 _SANDBOX_MASK = (1 << _SANDBOX_MASK_BITS) - 1

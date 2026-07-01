@@ -18,8 +18,8 @@ _ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 from src.config import CONF
 from src.isa_loader import InstructionSet
 from src.aarch64.aarch64_generator import Aarch64RandomGenerator
-from src.aarch64.aarch64_seal import index_instructions
-from src.aarch64.aarch64_sealer import make_sealer
+from src.aarch64.seal.primitives import index_instructions
+from src.aarch64.seal.sealer import make_sealer
 
 
 class SealOrderingTest(unittest.TestCase):

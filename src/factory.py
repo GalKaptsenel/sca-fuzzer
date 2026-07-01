@@ -214,6 +214,6 @@ def get_downloader(arch: str, extensions: List[str], out_file: str) -> Callable:
         from .x86 import get_spec as x86_get_spec
         return x86_get_spec.Downloader(extensions, out_file)
     if arch == "aarch64":
-        from .aarch64 import isa_downloader
-        return isa_downloader.Downloader(extensions, out_file)
+        from .aarch64 import instruction_db_builder
+        return instruction_db_builder.Downloader(extensions, out_file)
     raise ConfigException(f"ERROR: unknown value `{arch}` of `architecture` configuration option")

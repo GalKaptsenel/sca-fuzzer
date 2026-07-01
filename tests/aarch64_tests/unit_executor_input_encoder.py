@@ -1,4 +1,4 @@
-"""Round-trip checks for the device input wire format (src/aarch64/aarch64_input_wire.py).
+"""Round-trip checks for the device input wire format (src/aarch64/aarch64_executor_input_encoder.py).
 
 Validates the input_init the Python writer produces against the structure the kernel module documents
 in src/aarch64/executor/userapi/executor_input_format.h: a 6*u64 preamble, a 4*u64 section table,
@@ -11,7 +11,7 @@ import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..",
 from src.interfaces import (Input, InputFragment, MAIN_AREA_SIZE, FAULTY_AREA_SIZE,
                             GPR_SUBREGION_SIZE, SIMD_SUBREGION_SIZE)
 from src.aarch64.aarch64_input_layout import NZCVScheme
-from src.aarch64 import aarch64_input_wire as wire
+from src.aarch64 import aarch64_executor_input_encoder as wire
 
 _PREAMBLE = struct.Struct("<6Q")
 _DESC = struct.Struct("<4Q")

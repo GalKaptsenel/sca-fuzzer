@@ -16,13 +16,13 @@ import copy
 import random
 from typing import Dict, List, Optional, Set, Tuple
 
-from ..interfaces import (Instruction, TestCase, Function, BasicBlock, GeneratorException)
-from .aarch64_seal import (make_nop, fill_slot_at, index_instructions, _SANDBOX_MASK,
+from ...interfaces import (Instruction, TestCase, Function, BasicBlock, GeneratorException)
+from .primitives import (make_nop, fill_slot_at, index_instructions, _SANDBOX_MASK,
                            _SandboxInstrumentationBase)
-from .aarch64_pac import (PacSign, PacSigner, build_pac_specs, _AUTH_TO_PAC, _AUTH_TO_XPAC, _read_reg)
-from .aarch64_mte import MteTagState, mte_tag_store_effect, MTE_INITIAL_DEFAULT_TAG
-from .aarch64_target_desc import SANDBOX_BASE_REGISTER
-from .aarch64_printer import Aarch64ASMLayout
+from .pac import (PacSign, PacSigner, build_pac_specs, _AUTH_TO_PAC, _AUTH_TO_XPAC, _read_reg)
+from ..aarch64_mte import MteTagState, mte_tag_store_effect, MTE_INITIAL_DEFAULT_TAG
+from ..aarch64_target_desc import SANDBOX_BASE_REGISTER
+from ..aarch64_printer import Aarch64ASMLayout
 
 
 # ==================================================================================================

@@ -9,7 +9,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-from src.aarch64 import isa_downloader as dl   # noqa: E402
+from src.aarch64 import instruction_db_builder as dl   # noqa: E402
 from src.aarch64.arm_isa_extractor.models import MemAccess   # noqa: E402
 from src.interfaces import MemorySpec, OperandSpec, OT   # noqa: E402
 from src.aarch64.aarch64_target_desc import AArch64MemRole   # noqa: E402

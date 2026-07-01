@@ -23,7 +23,7 @@ from .aarch64_elf_parser import Aarch64ElfParser
 from .aarch64_printer import Aarch64Printer
 
 
-from .aarch64_seal import _SANDBOX_MASK, _SandboxInstrumentationBase
+from .seal.primitives import _SANDBOX_MASK, _SandboxInstrumentationBase
 
 
 class Aarch64Generator(ConfigurableGenerator, abc.ABC):

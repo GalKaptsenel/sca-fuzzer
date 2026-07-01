@@ -24,15 +24,15 @@ from ..util import Logger, STAT, FuzzLogger
 from .aarch64_target_desc import Aarch64TargetDesc, SANDBOX_BASE_REGISTER
 from .aarch64_kernel import LocalHWExecutor, TestCaseRegion, InputRegion, ExecutorMemory
 from .aarch64_generator import Pass, Aarch64SandboxPass
-from .aarch64_pac import PacSigner
-from .aarch64_sealer import make_sealer, SealedTestCase, ResolvedSealingTestCase
+from .seal.pac import PacSigner
+from .seal.sealer import make_sealer, SealedTestCase, ResolvedSealingTestCase
 from .aarch64_contract_executor import (ContractExecution, ContractExecutorService,
                                         ExecutionClause, SUPPORTED_EXECUTION_CLAUSES,
                                         BranchPredictor, EXECUTION_CLAUSE_MAP, SimArch)
 from .aarch64_disasm import disassemble_instruction, decode_reg_accesses, is_conditional_branch
 from .aarch64_trace import compute_ctrace, compute_taint, ContractExecutionResult
 from .aarch64_input_layout import _input_bytes_with_pstate, REGISTER_REGION_OFFSET
-from .aarch64_input_wire import serialize_input, MTE_TAG_COUNT
+from .aarch64_executor_input_encoder import serialize_input, MTE_TAG_COUNT
 from .aarch64_mte import MTE_INITIAL_DEFAULT_TAG
 from .aarch64_log import (log_start_test_case, log_input, log_ce_trace, log_bb_map,
                           log_tc_binary, log_mistraining, log_ni_table)

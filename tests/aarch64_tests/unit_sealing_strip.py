@@ -13,8 +13,8 @@ from src.config import CONF
 from src.isa_loader import InstructionSet
 from src.interfaces import Instruction, RegisterOperand
 from src.aarch64.aarch64_generator import Aarch64RandomGenerator
-from src.aarch64.aarch64_pac import PacSign, build_pac_specs
-from src.aarch64.aarch64_sealer import PacSealing, SandboxSealing, MteSealing
+from src.aarch64.seal.pac import PacSign, build_pac_specs
+from src.aarch64.seal.sealer import PacSealing, SandboxSealing, MteSealing
 
 _ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 

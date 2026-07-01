@@ -655,5 +655,5 @@ class Downloader:
         finally:
             os.unlink(ir_path)
         if failures:
-            print(f"[isa_downloader] {len(failures)} instructions skipped (template placeholder with no "
+            print(f"[instruction_db_builder] {len(failures)} instructions skipped (template placeholder with no "
                   f"operand, e.g. SME ZA tiles): {', '.join(sorted(failures))}")
