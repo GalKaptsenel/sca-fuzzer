@@ -20,7 +20,7 @@ from ..interfaces import (Instruction, TestCase, Function, BasicBlock, Generator
 from .aarch64_seal import (make_nop, fill_slot_at, index_instructions, _SANDBOX_MASK,
                            _SandboxInstrumentationBase)
 from .aarch64_pac import (PacSign, PacSigner, build_pac_specs, _AUTH_TO_PAC, _AUTH_TO_XPAC, _read_reg)
-from .aarch64_mte import MteTagState, mte_tag_store_effect, MTE_INITIAL_TAG
+from .aarch64_mte import MteTagState, mte_tag_store_effect, MTE_INITIAL_DEFAULT_TAG
 from .aarch64_target_desc import SANDBOX_BASE_REGISTER
 from .aarch64_printer import Aarch64ASMLayout
 
@@ -232,7 +232,7 @@ class _MteResolver:
         correct_tag, ptr_tag, spec = None, None, None
         if cer and s.access is not None:
             access_off, code_base = layout.instruction_address[s.access], cer[0].cpu.pc
-            tags = MteTagState(MTE_INITIAL_TAG)
+            tags = MteTagState(MTE_INITIAL_DEFAULT_TAG)
             for ite in cer:
                 nest = ite.metadata.speculation_nesting
                 tags.to_depth(nest)

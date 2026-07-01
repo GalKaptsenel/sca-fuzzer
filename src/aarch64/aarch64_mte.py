@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Tuple
 from .aarch64_disasm import decode_tag_store
 
 MTE_GRANULE = 16  # bytes covered by one allocation tag
-MTE_INITIAL_TAG = 6  # uniform allocation tag the sandbox is loaded with (kernel + CE + model agree)
+MTE_INITIAL_DEFAULT_TAG = 6
 
 # STG-family memory-tag stores -> number of granules each tags.
 _MTE_TAG_STORES = {"stg": 1, "stzg": 1, "st2g": 2, "stz2g": 2}

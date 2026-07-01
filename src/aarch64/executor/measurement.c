@@ -61,7 +61,7 @@ static void load_input_to_sandbox(input_t* input) {
 		mte_apply_sandbox_tags(executor.sandbox->main_region, input->mte_tags,
 		                       INPUT_MTE_TAG_COUNT);
 	} else {
-		mte_init_sandbox_tags(executor.sandbox->main_region, MEMORY_INPUT_SIZE, MTE_INITIAL_TAG);
+		mte_init_sandbox_tags(executor.sandbox->main_region, MEMORY_INPUT_SIZE, MTE_INITIAL_DEFAULT_TAG);
 	}
 }
 

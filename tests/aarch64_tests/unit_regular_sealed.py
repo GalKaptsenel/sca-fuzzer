@@ -87,14 +87,14 @@ class RegularSealedRoutingTest(unittest.TestCase):
         """The sandbox is loaded with the uniform initial tag exactly when MTE is a live primitive;
         PAC-only never tags (so the kernel/CE leave tag memory untouched)."""
         from src.interfaces import Input
-        from src.aarch64.aarch64_mte import MTE_INITIAL_TAG
+        from src.aarch64.aarch64_mte import MTE_INITIAL_DEFAULT_TAG
         from src.aarch64.aarch64_input_wire import MTE_TAG_COUNT
         inp = Input()
         self.assertIsNone(self._executor_for(["PAC"] + _BASE)._mte_tags_for(inp))
         tags = self._executor_for(["MTE", "MTE-TAG-MEM"] + _BASE)._mte_tags_for(inp)
-        self.assertEqual(tags, [MTE_INITIAL_TAG] * MTE_TAG_COUNT)
+        self.assertEqual(tags, [MTE_INITIAL_DEFAULT_TAG] * MTE_TAG_COUNT)
         self.assertEqual(self._executor_for(["PAC", "MTE", "MTE-TAG-MEM"] + _BASE)._mte_tags_for(inp),
-                         [MTE_INITIAL_TAG] * MTE_TAG_COUNT)
+                         [MTE_INITIAL_DEFAULT_TAG] * MTE_TAG_COUNT)
 
 
 class RegularSealedSealingTest(unittest.TestCase):

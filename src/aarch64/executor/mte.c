@@ -35,7 +35,7 @@ void mte_randomly_tag_region(const void* ptr, uint64_t length) {
 
 	for (; loc < length; loc += MTE_GRANULE_SIZE) {
 		uintptr_t current_ptr = (uintptr_t)ptr + loc;
-		uint8_t tag = MTE_INITIAL_TAG;
+		uint8_t tag = MTE_INITIAL_DEFAULT_TAG;
 		const void* tagged_ptr = tag_ptr((void*)current_ptr, tag);
 		stg(tagged_ptr);
 	}

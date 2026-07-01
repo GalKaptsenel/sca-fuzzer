@@ -33,7 +33,7 @@ from .aarch64_disasm import disassemble_instruction, decode_reg_accesses, is_con
 from .aarch64_trace import compute_ctrace, compute_taint, ContractExecutionResult
 from .aarch64_input_layout import _input_bytes_with_pstate, REGISTER_REGION_OFFSET
 from .aarch64_input_wire import serialize_input, MTE_TAG_COUNT
-from .aarch64_mte import MTE_INITIAL_TAG
+from .aarch64_mte import MTE_INITIAL_DEFAULT_TAG
 from .aarch64_log import (log_start_test_case, log_input, log_ce_trace, log_bb_map,
                           log_tc_binary, log_mistraining, log_ni_table)
 
@@ -711,7 +711,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         from this same uniform tag."""
         if "mte" not in self._primitives:
             return None
-        return [MTE_INITIAL_TAG] * MTE_TAG_COUNT
+        return [MTE_INITIAL_DEFAULT_TAG] * MTE_TAG_COUNT
 
     def _seal_trace(self, tc: TestCase, inp: Input) -> ContractExecutionResult:
         """One CE trace of `tc` for `inp` — the trace_fn the sealer resolves over. Owns assembly +
