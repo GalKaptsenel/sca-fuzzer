@@ -298,8 +298,9 @@ static bool is_pac_command(int command) {
  *   11 SET_PAC_KEYS  <10 hex words> | (none) to revert to live keys
  *   12 GET_PAC_KEYS
  *   13 PAC_SIGN      <mnemonic> <ptr> <ctx>
- *   14 PAC_AUTH      <mnemonic> <ptr> <ctx>   (ptr must be correctly signed; a
- *                                             failed AUTH faults FEAT-FPAC silicon)
+ *   14 PAC_AUTH      <mnemonic> <ptr> <ctx> [--force]  (default: XPAC-strip only;
+ *                                             --force issues a real AUT* -- a wrong
+ *                                             signature faults FEAT-FPAC silicon)
  *   15 PAC_XPAC      <mnemonic> <ptr>
  */
 static int serve_pac_command(int fd, int command, int argc, char** argv) {
@@ -334,8 +335,7 @@ static int serve_pac_command(int fd, int command, int argc, char** argv) {
 			return ioctl(fd, command, &keys);
 		}
 
-		case REVISOR_PAC_SIGN_CONSTANT:
-		case REVISOR_PAC_AUTH_CONSTANT: {
+		case REVISOR_PAC_SIGN_CONSTANT: {
 			if (6 != argc) {
 				printf("Usage: <command> <mnemonic> <ptr> <ctx>\n");
 				return -2;
@@ -344,6 +344,44 @@ static int serve_pac_command(int fd, int command, int argc, char** argv) {
 			strncpy(req.mnemonic, argv[3], sizeof(req.mnemonic) - 1);
 			req.ptr = strtoull(argv[4], NULL, 0);
 			req.ctx = strtoull(argv[5], NULL, 0);
+			int result = ioctl(fd, command, &req);
+			if (0 <= result) {
+				printf("%s(0x%016lx, ctx=0x%016lx) = 0x%016lx\n",
+				       req.mnemonic, req.ptr, req.ctx, req.result);
+			}
+			return result;
+		}
+
+		case REVISOR_PAC_AUTH_CONSTANT: {
+			// A wrong signature makes a real AUT* FPAC-reset the box. Without --force, strip the
+			// pointer with XPAC instead (the canonical value a successful AUT* would yield) --
+			// non-faulting; issue the real AUT* only when explicitly forced.
+			bool forced = (7 == argc) && (0 == strcmp(argv[6], "--force"));
+			if (6 != argc && !forced) {
+				printf("Usage: <command> <mnemonic> <ptr> <ctx> [--force]\n");
+				return -2;
+			}
+			struct pac_sign_req req = { 0 };
+			req.ptr = strtoull(argv[4], NULL, 0);
+			req.ctx = strtoull(argv[5], NULL, 0);
+			if (!forced) {
+				const char* xpac_m = (0 == strncmp(argv[3], "auti", 4)) ? "xpaci"
+				                   : (0 == strncmp(argv[3], "autd", 4)) ? "xpacd" : NULL;
+				if (NULL == xpac_m) {
+					printf("Unknown auth mnemonic %s\n", argv[3]);
+					return -2;
+				}
+				strncpy(req.mnemonic, xpac_m, sizeof(req.mnemonic) - 1);
+				int result = ioctl(fd, REVISOR_PAC_XPAC, &req);
+				if (0 <= result) {
+					printf("PAC_AUTH not forced: %s(0x%016lx) = 0x%016lx "
+					       "(canonical; no real AUT* issued -- pass --force to authenticate)\n",
+					       xpac_m, req.ptr, req.result);
+				}
+				return result;
+			}
+			printf("WARNING: issuing a real AUT*; a wrong signature will reset the box.\n");
+			strncpy(req.mnemonic, argv[3], sizeof(req.mnemonic) - 1);
 			int result = ioctl(fd, command, &req);
 			if (0 <= result) {
 				printf("%s(0x%016lx, ctx=0x%016lx) = 0x%016lx\n",
