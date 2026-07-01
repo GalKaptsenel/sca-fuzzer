@@ -123,8 +123,15 @@ static int __nocfi run_experiments(void) {
 	// Zero-initialize the region of memory used by Prime+Probe
 	memset(executor.sandbox->eviction_region, 0, sizeof(executor.sandbox->eviction_region));
 
+	// S3_3_C4_C2_6 is the SSBS register (mrs/msr ssbs); SSBS is PSTATE bit 12.
+	uint64_t saved_ssbs = 0;
+	bool ssbs_changed = false;
 	if (executor.config.enable_ssbs) {
-		asm volatile(".inst 0xd503413f\n isb\n" ::: "memory");  /* MSR SSBS, #1 */
+		asm volatile("mrs %0, s3_3_c4_c2_6" : "=r"(saved_ssbs));
+		if (0 == (saved_ssbs & (1ULL << 12))) {
+			asm volatile("msr s3_3_c4_c2_6, %0\n isb\n" :: "r"(saved_ssbs | (1ULL << 12)) : "memory");
+			ssbs_changed = true;
+		}
 	}
 
 	for (int64_t i = -executor.config.uarch_reset_rounds; i < rounds; ++i) {
@@ -183,6 +190,10 @@ static int __nocfi run_experiments(void) {
 		raw_local_irq_restore(flags);
 
 		measure(&current_input->measurement);
+	}
+
+	if (ssbs_changed) {
+		asm volatile("msr s3_3_c4_c2_6, %0\n isb\n" :: "r"(saved_ssbs) : "memory");
 	}
 
 	return 0;
