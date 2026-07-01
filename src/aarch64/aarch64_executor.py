@@ -213,9 +213,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
         :param cer: ContractExecutionResult for the input, or None
         :return: list of (byte_offset, train_taken) entries; empty if no branches to train
         """
-        # Disabled by default: the applied training currently saturates the branch toward its
-        # architectural direction, suppressing the natural misprediction Spectre-v1 needs (see
-        # CONF.enable_branch_mistraining). Empty -> apply_branch_mistraining() clears training.
+        # WIP, off by default (CONF.enable_branch_mistraining) pending hardware efficacy confirmation.
         if not CONF.enable_branch_mistraining:
             return []
         if cer is None or len(cer) == 0:

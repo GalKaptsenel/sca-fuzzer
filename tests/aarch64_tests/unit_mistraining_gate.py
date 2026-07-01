@@ -1,13 +1,9 @@
-"""TEMPORARY test — DELETE when the branch-mistraining bug is fixed and the gate is removed.
+"""branch_mistraining_entries is gated by CONF.enable_branch_mistraining. This pins the gate (off =>
+no mistraining even for a trainable branch) and the training polarity (on => the branch is saturated
+OPPOSITE its architectural direction, so it mispredicts on first execution).
 
-`CONF.enable_branch_mistraining` is gated OFF *only* because the current mistraining implementation
-has a bug: it trains toward the architectural direction and thereby suppresses the natural
-misprediction Spectre-v1 needs (see docs/aarch64 §3.2 and memory project_spectrev1_mistrain_regression).
-This pins that the gate actually disables mistraining (`branch_mistraining_entries` returns []), and
-that the gate is the *only* thing suppressing it (with the gate on, the same trace yields an entry).
-
-Once the mistraining direction/path is fixed on hardware and mistraining is re-enabled by default,
-the gate — and therefore this whole test file — should be removed.
+The gate is off by default while mistraining is WIP, pending hardware confirmation that the training
+is effective on this core. Remove the gate (and this test) once mistraining is enabled by default.
 """
 import os
 import sys
