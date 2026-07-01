@@ -1,95 +1,138 @@
-# Revizor on AArch64 — Reference Manual
+# Revizor on AArch64 — Onboarding Manual
 
 ## About this document
 
-A reference for the AArch64 port of Revizor: its components, interfaces, operation, and
-limitations. Explanations are layered — a short definition, then an *Under the hood* block for
-detail; read as deep as you need. New terms are **bold** on first use and defined in the
-[Glossary](#glossary).
+An introduction to the AArch64 port of Revizor: what it does, how its pieces fit together, the
+control surfaces you drive it through, and the file formats you work with. It aims to be thorough
+without cataloguing every internal micro-mechanic. New terms are **bold** on first use and
+collected in the [Glossary](#glossary).
 
-Generated from a single Markdown source at `docs/aarch64/index.md`. Edit that file, then
-rebuild from the `docs/aarch64/` directory with `make` (or `python3 build_docs.py`).
+Generated from `docs/aarch64/index.md`. Edit that file, then rebuild from `docs/aarch64/` with
+`make` (or `python3 build_docs.py`).
 
 ## 1. What Revizor does
 
-Revizor is a *microarchitectural fuzzer*: it searches for cases where a CPU leaks more through
-its microarchitecture than a **[contract](#glossary)** permits. A contract states the only ways
-a program's data may influence attacker-observable state (here, the data-cache footprint).
+Revizor is a *microarchitectural fuzzer*: it searches for cases where a CPU leaks more through its
+microarchitecture than a **[contract](#glossary)** permits. A contract states the only ways a
+program's data may influence attacker-observable state — here, the data-cache footprint.
 
 For each generated program, two traces are compared:
 
 - the **[contract trace](#glossary)** (**ctrace**) — what the contract permits to be observable,
-  computed by a model;
-- the **[hardware trace](#glossary)** (**htrace**) — what the real CPU actually leaked, measured
-  as a 64-bit cache-set bitmap.
+  computed by a software model;
+- the **[hardware trace](#glossary)** (**htrace**) — what the real CPU actually leaked, measured as
+  a 64-bit cache-set bitmap.
 
-A **[violation](#glossary)** is a pair of inputs that the contract treats as identical
-(**equal ctrace**) but the hardware tells apart (**different htrace**). In words: the contract
-promised the two inputs would look the same to an attacker, yet the CPU produced two different
-cache footprints — so it leaked something the contract forbade (for example, a Spectre-style
-speculative access). The contract/trace framework originates in Guarnieri et al.,
-*Hardware-Software Contracts for Secure Speculation* (IEEE S&P 2021).
+A **[violation](#glossary)** is a pair of inputs the contract treats as identical (**equal
+ctrace**) but the hardware tells apart (**different htrace**): the contract promised the two inputs
+would look the same to an attacker, yet the CPU produced two different cache footprints — so it
+leaked something the contract forbade (for example, a Spectre-style speculative access). The
+contract framework originates in Guarnieri et al., *Hardware-Software Contracts for Secure
+Speculation* (IEEE S&P 2021).
 
 > **Intuition**
->
 > - **ctrace** — what an attacker is *allowed* to observe.
 > - **htrace** — what an attacker can *actually* observe.
 > - **Violation** — the hardware revealed something the contract forbade.
 
-*Under the hood.* Leaks are about *distinguishing* secrets, so Revizor runs **many inputs**
-through one program and searches for a pair that is contract-equal yet hardware-distinct.
-**[Taint](#glossary)** marks the input bytes the traced execution actually reads; **[boosting](#glossary)**
-then cheaply mass-produces contract-equal inputs by varying only the *other* bytes — the ones
-the contract trace cannot depend on (§3).
+Leaks are about *distinguishing* secrets, so Revizor runs **many inputs** through one program and
+looks for a pair that is contract-equal yet hardware-distinct. **[Taint](#glossary)** marks the
+input bytes a traced execution actually reads; **[boosting](#glossary)** then cheaply mass-produces
+contract-equal inputs by varying only the *other* bytes.
 
-## 2. Components at a glance
+## 2. Components
+
+The **fuzzer** (Python, `src/`) is the only long-lived coordinator. It drives three external
+pieces, each over its own mechanism.
 
 | Component | Language / location | Role |
 |---|---|---|
 | Fuzzer | Python (`src/`) | Orchestrates generate → model → measure → compare. |
 | Generator | Python (`src/aarch64/`) | Emits random AArch64 test cases from the ISA spec. |
-| Contract executor (**CE**) | C process (`src/aarch64/contract_executor/`) | Models a program to produce the ctrace. |
-| Kernel module | C (`src/aarch64/executor/`) | Runs the test case on the real CPU in a sandbox; measures the cache. |
+| Contract executor (**CE**) | C process (`src/aarch64/contract_executor/`) | Models a program to produce the ctrace, including speculation. |
+| Kernel module | C (`src/aarch64/executor/`) | Runs the test case on the real CPU in a sandbox and measures the cache. |
 | `asm_to_bytes` | C (`src/aarch64/asm_to_bytes/`) | Assembles instruction text to encodings, in memory. |
-| ISA spec tooling | Python | Downloads/parses the instruction set the generator uses. |
 
-Interfaces, the communication map, and a full end-to-end run are in Part II.
+### 2.1 Communication map
 
-## Glossary
+```
+   +=======================================================================+
+   |                       Fuzzer   (Python, user space)                   |
+   |              generate  ->  model  ->  measure  ->  compare            |
+   +=======================================================================+
+          |                            |                            |
+          |  fork / exec               |  pipe (stdin/stdout):      |  ioctl + read/write
+          |  asm text -> bytes         |  8-byte {len,type} header  |  + sysfs config files
+          |                            |  then the message payload  |
+          v                            v                            v
+   +-----------------+      +---------------------------+      +---------------------------+
+   |  asm_to_bytes   |      |  Contract Executor (CE)   |      |  Kernel module            |
+   |  (C helper)     |      |  (C process)              |      |  /dev/executor            |
+   |                 |      |                           |      |  + /sys/executor/*        |
+   |  assembles      |      |  models the program,      |      |  loads TC + inputs,       |
+   |  instructions   |      |  emits the trace          |      |  runs on the real CPU,    |
+   +-----------------+      +---------------------------+      |  measures cache -> htrace |
+                                        |                      +---------------------------+
+                                        |  Py_Initialize                     |
+                                        v                                    v
+                            +-----------------------+                  +-----------+
+                            |  CPython: BPU sim     |                  |    CPU    |
+                            +-----------------------+                  +-----------+
+                                                                   (device under test)
+```
 
-| Term | Meaning |
-|---|---|
-| **Contract** | Promise of what data may influence observable state. Has an *execution clause* (what the model simulates, e.g. always-mispredict) and an *observation clause* (what is observable, e.g. cache sets). |
-| **ctrace** | Contract trace — what the model says is observable for a program+input. |
-| **htrace** | Hardware trace — what the CPU actually leaked; a 64-bit cache-set bitmap. |
-| **Violation** | Two inputs with equal ctrace but different htrace. |
-| **CE** | Contract executor; produces ctraces by modelling the program, including speculation. |
-| **Taint** | The input bytes the contract trace depends on — those actually read along the traced execution paths. |
-| **Boosting** | Cheaply producing more inputs with the *same* ctrace by mutating only the bytes the trace does not depend on (the untainted ones). |
-| **Nesting** | Depth of speculative execution the model explores. |
-| **Prime+Probe (P+P)** | Fill the cache with attacker-controlled lines, run the victim, then detect which lines were evicted. |
-| **Flush+Reload (F+R)** | Flush lines shared between attacker and victim, run the victim, then detect which lines were reloaded back into the cache. |
-| **Cache set** | One of 64 buckets an address maps to; the unit of the htrace bitmap. |
-| **Sandbox** | The memory a test case may touch: two input pages (`main` + `faulty`), with a zeroed overflow guard page at the end. |
-| **Mistraining** | Purposefully steering the branch predictor before the measured run to provoke misprediction. |
-| **PAC / MTE** | Arm Pointer Authentication / Memory Tagging. |
+The fuzzer never talks to the CPU directly: the **CE** gives the *expected* (contract) trace, the
+**kernel module** gives the *actual* (hardware) trace, and the fuzzer compares them. The CE is
+launched once and kept alive to serve many requests; `asm_to_bytes` is a one-shot helper forked per
+call.
 
----
+## 3. A fuzzing round
 
-# Part II — Architecture & components
+One round = **one test case measured against many inputs**.
 
-## 2.1 Component catalog & interfaces
+1. **Generate** a random test case (or load one from asm / a template).
+2. **Seed inputs** — initial register + memory values.
+3. **Model (CE).** Trace each input to get its ctrace and its **taint** — the input bytes the
+   ctrace depends on.
+4. **Boost.** Manufacture many extra inputs by mutating only the *untainted* bytes; by construction
+   they share one ctrace, which is what makes leak-hunting cheap.
+5. **Measure (kernel module).** Run the test case over every input on the CPU and collect htraces.
+6. **Analyse.** Group inputs by ctrace; within a group, **differing htraces ⇒ a candidate
+   violation**.
+7. **Filter.** Re-trace at higher speculation nesting and re-measure to drop false positives.
+8. **Report.** Save the confirmed violation — test case, inputs, and traces — for triage (§8).
 
-The fuzzer is the only long-lived coordinator. It drives three external pieces over three
-different mechanisms: it **forks** a helper to assemble instructions, talks to the **CE** over a
-**pipe**, and talks to the **kernel module** over **ioctl + sysfs**.
+A **fast path** (minimal speculation nesting, few repetitions) finds candidates quickly; only
+candidates pay for the slower confirmation path (max nesting + re-measurement).
 
-### Kernel module — execution state machine
+**Classic round — one program, many inputs.**
 
-The module behaves as a small automaton. Its state records whether a **test case** and/or
-**inputs** are loaded and whether a **measurement** has been taken, and it gates which
-operations are legal (`TRACE` needs `READY`/`TRACED`; reading a `MEASUREMENT` needs `TRACED`).
-The `Valid in` column of the ioctl table below refers to these states.
+```
+                       +-----------------------+
+                       |   test case (program) |
+                       +-----------+-----------+
+                                   | boost > inputs i0~iN
+                   +---------------+---------------+
+            model  |                               |  hardware
+             (CE)  v                               v  (kernel)
+            +---------------+               +---------------+
+            | ctrace(i0~iN) |               | htrace(i0~iN) |
+            +-------+-------+               +-------+-------+
+                    +---------------+---------------+
+                                    v
+                         group inputs by ctrace
+                                    |
+                                    v
+            +---------------------------------------------+
+            |  same ctrace + different htrace > VIOLATION |
+            +---------------------------------------------+
+```
+
+## 4. Driving the kernel module
+
+The module is a small **state machine**. Its state records whether a **test case** and/or
+**inputs** are loaded and whether a **measurement** has been taken, and it gates which operations
+are legal.
 
 | State | Test | Inputs | Measured | Meaning |
 |---|---|---|---|---|
@@ -114,28 +157,11 @@ The `Valid in` column of the ioctl table below refers to these states.
    +---------------+                         +---------------+               +--------------+
 ```
 
-`T` = test loaded, `I` = inputs loaded (`1` = yes, `0` = no). From `TRACED`, *unload test* /
-*clear inputs* behave as from `READY` (see the transition table below).
+### 4.1 Control: `ioctl` on `/dev/executor`
 
-*Under the hood — transitions:*
-
-| Event | From → To |
-|---|---|
-| write test | `CONFIGURATION`→`LOADED_TEST`; `LOADED_INPUTS`→`READY` |
-| write input | `CONFIGURATION`→`LOADED_INPUTS`; `LOADED_TEST`→`READY` |
-| `UNLOAD_TEST` | `LOADED_TEST`→`CONFIGURATION`; `READY`/`TRACED`→`LOADED_INPUTS` |
-| `CLEAR_ALL_INPUTS` | `LOADED_INPUTS`→`CONFIGURATION`; `READY`/`TRACED`→`LOADED_TEST` |
-| `TRACE` | `READY`→`TRACED`; `TRACED`→`TRACED` (re-run) |
-| `MEASUREMENT` (read) | `TRACED` only; no transition |
-
-### Kernel module — `/dev/executor` + `/sys/executor/`
-
-A char device plus a sysfs directory. **Control** goes through `ioctl`; **bulk data** (test
-case bytes, input bytes, measurement results) moves with `read`/`write` *after* selecting a
-region with a checkout ioctl. Runtime knobs are plain sysfs files.
-
-*Under the hood — ioctl ABI* (magic `'r'`; mirrored in `aarch64_kernel.py`). *Valid in* lists
-the states (above) in which the command does its job:
+**Control** goes through `ioctl` (magic `'r'`; mirrored in `aarch64_kernel.py`); **bulk data**
+(test-case bytes, input bytes, measurement results) moves with `read`/`write` *after* selecting a
+region with a checkout ioctl. *Valid in* lists the states in which the command does its job.
 
 | # | Command | Input | Output | Valid in | Purpose |
 |---|---|---|---|---|---|
@@ -149,174 +175,70 @@ the states (above) in which the command does its job:
 | 8 | `TRACE` | — | — | `READY` / `TRACED` | Run the test case over all inputs and measure. |
 | 9 | `CLEAR_ALL_INPUTS` | — | — | any | Free every input. |
 | 10 | `GET_TEST_LENGTH` | — | `uint64` length | any | Length of the loaded test case. |
-| 11 | `SET_PAC_KEYS` | `pac_keys` (5×128-bit: IA/IB/DA/DB/GA), or `NULL` to clear | — | any | Set the keys the executor signs/auths with; `NULL` reverts to the live hardware keys. |
+| 11 | `SET_PAC_KEYS` | `pac_keys` (5×128-bit: IA/IB/DA/DB/GA) | — | any | Set the keys the executor signs/auths with. |
 | 12 | `GET_PAC_KEYS` | — | `pac_keys` | any | Read the keys the executor will use. |
-| 13 | `PAC_SIGN` | `pac_sign_req` = `ptr`, `ctx`, `mnemonic` | `result` = signed pointer | any | Sign a pointer (`PAC*`). |
-| 14 | `PAC_AUTH` | `pac_sign_req` = `ptr`, `ctx`, `mnemonic` | `result` = authenticated pointer | any | Authenticate a signed pointer (`AUT*`). |
-| 15 | `PAC_XPAC` | `pac_sign_req` = `ptr` | `result` = stripped pointer | any | Strip the PAC field (`XPAC`). |
-| 16 | `MTE_TAG_REGION` | `mte_tag_region_req` = `sandbox_offset`, `length`, `tag` | — | any | Tag a sandbox region. |
+| 13 | `PAC_SIGN` | `pac_sign_req` = `ptr`, `ctx`, `mnemonic` | signed pointer | any | Sign a pointer (`PAC*`). |
+| 14 | `PAC_AUTH` | `pac_sign_req` = `ptr`, `ctx`, `mnemonic` | authenticated pointer | any | Authenticate a signed pointer (`AUT*`). |
+| 15 | `PAC_XPAC` | `pac_sign_req` = `ptr` | stripped pointer | any | Strip the PAC field (`XPAC`). |
+| 16 | `MTE_TAG_REGION` | `mte_tag_region_req` = `sandbox_offset`, `n_granules`, per-granule `tags` | — | any | Tag a run of sandbox granules. |
 
-Called outside its *Valid in* states a command fails without changing state: `TRACE` returns
-`-EINVAL`; `MEASUREMENT` is rejected (error logged, no data) if the state is not `TRACED` or if
-the test region — rather than an input — is checked out; `CHECKOUT_INPUT` with an unknown id
-leaves the current selection unchanged.
+Called outside its *Valid in* states, a command fails without changing state (`TRACE` returns
+`-EINVAL`; `MEASUREMENT` is rejected unless the state is `TRACED` and an input is checked out;
+`CHECKOUT_INPUT` with an unknown id leaves the selection unchanged).
 
-*Under the hood — sysfs files:*
+*Bulk data via `read`/`write`.* To load a test case: `CHECKOUT_TEST`, then `write` the encoded
+bytes. To seed an input: `ALLOCATE_INPUT`/`CHECKOUT_INPUT`, then `write` the input image. To read a
+result: after `TRACE`, `CHECKOUT_INPUT`, then `MEASUREMENT` returns that input's `measurement_t`.
+
+### 4.2 Configuration: `/sys/executor/` files
+
+Runtime knobs are plain sysfs files.
 
 | File | Mode | Accepted value | Meaning |
 |---|---|---|---|
-| `measurement_mode` | rw | exactly `P+P` or `F+R` | Prime+Probe vs Flush+Reload. |
-| `warmups` | rw | unsigned integer | Micro-architectural warm-up rounds before the measured run. |
-| `enable_pre_run_flush` | rw | `0` = off, non-zero = on | Flush the branch-predictor history (PHR) before each run, so the previous run doesn't bias the next. |
-| `pin_to_core` | rw | base-10 int; an online CPU id (negative/invalid → pinning cleared) | Pin execution to a CPU; invalid input falls back to the current CPU. |
-| `enable_branch_training` | rw | `0` = off, non-zero = on | Apply mistraining before the measured run. |
-| `branch_training_config` | rw | `offset:taken,offset:taken,…` — e.g. `12:1,40:0` (`offset` = **byte** offset from the start of the test case) | Mistraining sequence: for the branch at that offset, train taken (`1`) or not-taken (`0`). Writing it also enables training. |
-| `print_sandbox_base` | r | (read-only) hexadecimal pointer | Base address of the sandbox `main_region` (input page 0). |
-| `print_code_base` | r | (read-only) hexadecimal pointer | The address where the user's test-case code will be loaded, for the selected `measurement_mode` (P+P and F+R place it at different fixed offsets). Known from module load; does not require a test case. |
+| `measurement_mode` | rw | `P+P` or `F+R` | Prime+Probe vs Flush+Reload. |
+| `warmups` | rw | unsigned int | Micro-architectural warm-up rounds before the measured run. |
+| `enable_pre_run_flush` | rw | `0` / non-zero | Flush the branch-predictor history before each run so the previous run doesn't bias the next. |
+| `pin_to_core` | rw | online CPU id | Pin execution to a CPU (invalid → current CPU). |
+| `enable_branch_training` | rw | `0` / non-zero | Apply mistraining before the measured run (§7). |
+| `branch_training_config` | rw | `offset:taken,…` (byte offset from the start of the test case; `1`=taken, `0`=not-taken) | Mistraining sequence; writing it also enables training. |
+| `print_sandbox_base` | r | hex pointer | Base of the sandbox `main_region` (input page 0). |
+| `print_code_base` | r | hex pointer | Where the test-case code is loaded, for the selected `measurement_mode`. |
 
-### Contract executor (CE) — pipe over `stdin`/`stdout`
+## 5. The contract executor (CE)
 
-The fuzzer launches the CE with `subprocess.Popen` and exchanges length-prefixed messages
-over its `stdin`/`stdout`. Every message is an **8-byte little-endian header** `{length, type}`
-followed by `length` payload bytes; payloads begin with the magic `RVZR`.
+The CE produces a ctrace by *modelling* a test case's execution, including the speculation a
+contract permits.
 
-*Under the hood — message & request format:*
+### 5.1 Protocol: pipe over `stdin`/`stdout`
+
+The fuzzer launches the CE with `subprocess.Popen` and exchanges length-prefixed messages over its
+`stdin`/`stdout`. Every message is an **8-byte little-endian header** `{length, type}` followed by
+`length` payload bytes; payloads begin with the magic `RVZR`.
 
 - **Types:** `REQUEST = 1`, `RESPONSE = 2`.
-- A request carries a `configuration` (flags, `max_misspred_branch_nesting`, `execution_clauses`,
-  `branch_predictor`, optional requested code/mem bases) plus optional **code**, **registers**,
-  and **memory** sections selected by `sim_flags` (`HAS_CODE` / `HAS_REGS` / `HAS_MEMORY`).
-- **`execution_clauses`:** a **bitmask** of independently-composable clauses —
-  `EXEC_CLAUSE_COND = 1` (conditional-branch misprediction), `EXEC_CLAUSE_BPAS = 2`
-  (speculative store bypass), `EXEC_CLAUSE_BPU = 4` (branch-predictor model). `0` = seq/arch-only.
-  Only an explicit allowlist is accepted (e.g. `COND`, `BPAS`, `COND|BPAS`); the CE traps on any
-  other combination (see §3.1).
-- **`branch_predictor`:** an enum selecting the model used when `EXEC_CLAUSE_BPU` is set —
-  `BRANCH_PREDICTOR_NONE = 0`, `BRANCH_PREDICTOR_NEOVERSE_N3 = 1` (TAGE). Chosen from the input,
-  not hardcoded; BPU with `NONE` traps.
-- The response carries the per-instruction trace (registers, PC, memory accesses, speculation
+- A **request** carries a `configuration` (flags, `max_misspred_branch_nesting`,
+  `execution_clauses`, `branch_predictor`, optional requested code/mem bases) plus optional
+  **code**, **registers**, and **memory** sections selected by `sim_flags`
+  (`HAS_CODE` / `HAS_REGS` / `HAS_MEMORY`).
+- **`execution_clauses`** is a **bitmask** of independently-composable clauses:
+  `EXEC_CLAUSE_COND = 1` (conditional-branch misprediction), `EXEC_CLAUSE_BPAS = 2` (speculative
+  store bypass), `EXEC_CLAUSE_BPU = 4` (branch-predictor model); `0` = architectural only. Only an
+  explicit allow-list of combinations is accepted; any other combination traps.
+- **`branch_predictor`** selects the model used when `EXEC_CLAUSE_BPU` is set —
+  `BRANCH_PREDICTOR_NONE = 0`, `BRANCH_PREDICTOR_NEOVERSE_N3 = 1` (TAGE).
+- The **response** carries the per-instruction trace (registers, PC, memory accesses, speculation
   nesting) the fuzzer turns into the ctrace.
-- *(maintainer note)* `max_misspred_instructions` and the physical base requests exist in the
-  struct but are **not supported**.
 
 The CE also **embeds CPython** (`Py_Initialize`): the Neoverse-N3 contract calls a Python TAGE
-branch-predictor model from inside the C process (§3.1).
+branch-predictor model from inside the C process.
 
-### `asm_to_bytes` — fork/exec helper
+### 5.2 How it models a program
 
-When the generator needs raw encodings for assembly text (in-memory assembly), it forks the
-small `asm_to_bytes` binary and pipes text in / encodings out, avoiding a full assemble-to-ELF
-round trip. A **fresh process is spawned per call** (`Popen` + `communicate`, one-shot) — unlike
-the **CE**, which is launched once and kept alive to serve many requests.
-
-## 2.2 Communication map
-
-```
-   +=======================================================================+
-   |                       Fuzzer   (Python, user space)                   |
-   |                                                                       |
-   |              generate  ->  model  ->  measure  ->  compare            |
-   +=======================================================================+
-          |                            |                            |
-          |  fork / exec               |  pipe (stdin/stdout):      |  ioctl + read/write
-          |  asm text -> bytes         |  8-byte {len,type} header  |  + sysfs config files
-          |                            |  then the message payload  |
-          v                            v                            v
-   +-----------------+      +---------------------------+      +---------------------------+
-   |  asm_to_bytes   |      |  Contract Executor (CE)   |      |  Kernel module            |
-   |  (C helper)     |      |  (C process)              |      |  /dev/executor            |
-   |                 |      |                           |      |  + /sys/executor/*        |
-   |  assembles      |      |  models the program,      |      |  loads TC + inputs,       |
-   |  instructions   |      |  emits the trace          |      |  runs on the real CPU,    |
-   +-----------------+      +---------------------------+      |  measures cache -> htrace |
-                                        |                      +---------------------------+
-                                        |  Py_Initialize                     |
-                                        v                                    v
-                            +-----------------------+                  +-----------+
-                            |  CPython: BPU sim     |                  |    CPU    |
-                            +-----------------------+                  +-----------+
-                                                                   (device under test)
-```
-
-The fuzzer never talks to the CPU directly: the **CE** gives the *expected* (contract) trace,
-the **kernel module** gives the *actual* (hardware) trace, and the fuzzer compares them.
-## 2.3 Life of a fuzzing round
-
-One round = **one test case measured against many inputs**.
-
-1. **Generate** a random test case (or load one from asm/template).
-2. **Seed inputs** — initial register + memory values.
-3. **Model (CE).** Trace each input to get its ctrace and its **taint** — the set of input bytes
-   that actually affect the ctrace.
-4. **Boost.** Manufacture many extra inputs by mutating only the *untainted* bytes; by
-   construction they all share one ctrace (this is what makes leak-hunting cheap).
-5. **Measure (kernel module).** Run the test case over every input on the CPU and collect
-   htraces (with warm-ups and, if enabled, mistraining).
-6. **Analyse.** Group inputs by ctrace; within a group, **differing htraces ⇒ a candidate
-   violation**.
-7. **Filter (slow path).** Re-trace at higher speculation nesting and re-measure with a
-   *priming* check to drop false positives.
-8. **Report.** Save the confirmed violation — test case, inputs, and htraces — for triage (§4.4).
-
-*Under the hood — fast vs slow path.* The fast path uses minimal nesting and few repetitions to
-find candidates quickly; only candidates pay for the expensive slow path (max nesting +
-priming) that confirms a real violation.
-
-## 2.4 Diagrams
-
-**Classic round — one program, many inputs.** The same test case is run against many boosted
-inputs; the model and the hardware each produce a trace, and inputs are grouped by ctrace.
-
-```
-                       +-----------------------+
-                       |   test case (program) |
-                       +-----------+-----------+
-                                   | boost > inputs i0~iN
-                   +---------------+---------------+
-            model  |                               |  hardware
-             (CE)  v                               v  (kernel)
-            +---------------+               +---------------+
-            | ctrace(i0~iN) |               | htrace(i0~iN) |
-            +-------+-------+               +-------+-------+
-                    +---------------+---------------+
-                                    v
-                         group inputs by ctrace
-                                    |
-                                    v
-            +---------------------------------------------+
-            |  same ctrace + different htrace > VIOLATION |
-            +---------------------------------------------+
-```
-
-**PAC / non-interference setup — one input, many sibling programs.** One input is run against
-many variants of the program (e.g. different PAC signing slots); their htraces are compared.
-
-```
-                          +-----------+
-                          | one input |
-                          +-----+-----+
-              +-----------------+-----------------+
-              v                 v                 v
-        +-----------+     +-----------+     +-----------+
-        | program P0|     | program P1| ... | program PN|
-        +-----+-----+     +-----+-----+     +-----+-----+
-              |   (same code, different PAC slot / variant)
-              v                 v                 v
-        +-----------+     +-----------+     +-----------+
-        | htrace P0 |     | htrace P1 |     | htrace PN |
-        +-----+-----+     +-----+-----+     +-----+-----+
-              +-----------------+-----------------+
-                                v
-            +----------------------------------------+
-            | htraces differ across variants          |
-            |              > PAC-related leak         |
-            +----------------------------------------+
-```
-
-**CE single-step loop.** The CE rewrites every test-case instruction into a `BL hook`
-trampoline, then walks them one at a time. At each *speculation point* — a conditional branch
-(mispredict) or, under the `bpas` clause, a store (bypass) — it checkpoints, explores the
-speculative path, and rolls back; the enabled execution clauses decide what counts as one (§3.1).
+The CE rewrites every test-case instruction into a `BL hook` trampoline, then walks the
+instructions one at a time. At each *speculation point* — a conditional branch (mispredict) or,
+under the `bpas` clause, a store (bypass) — it checkpoints, explores the speculative path, and
+rolls back.
 
 ```
    +----------------------------------------------------+
@@ -340,9 +262,112 @@ speculative path, and rolls back; the enabled execution clauses decide what coun
    +----------------------------------------------------+
 ```
 
-**Sandbox memory map.** A test case may only touch this fixed arena. During the run `x29`
-holds the **main-region** base; every memory access is masked to `x29 + (reg & 0x1fff)`, so it
-lands somewhere in `main`+`faulty` (8 KB). Cache set = `(offset // 64) % 64`.
+The speculation engine is built so contracts are **composable**: a run enables a set of independent
+*execution clauses* and the engine runs them together over one instruction stream. The three
+clauses:
+
+- **`cond`** (always-mispredict): at a conditional branch, checkpoint the architectural
+  continuation and redirect to the mispredicted path.
+- **`bpu`**: like `cond`, but the branch outcome is driven by the injected predictor model
+  (Neoverse-N3 TAGE), so only branches the model mispredicts fork.
+- **`bpas`** (speculative store bypass / Spectre-v4): at a store, snapshot memory and let the model
+  run the store, then on the next instruction restore the pre-store snapshot so the speculative
+  window reads the **stale** value.
+
+Supported clause combinations are validated in both Python and C: `seq` (empty), `cond`, `bpas`,
+`bpu`, and `cond|bpas`; two branch models together (`cond|bpu`) are rejected.
+
+## 6. Contracts: what you can detect
+
+A contract has two halves, each chosen in the config:
+
+- an **execution clause** (`contract_execution_clause`) — what speculation the model simulates;
+- an **observation clause** (`contract_observation_clause`, default `l1d`) — what the model treats
+  as observable (for `l1d`, the set of L1 data-cache sets touched).
+
+The execution clause decides which leak class shows up as a violation — anything the hardware leaks
+*beyond* what the clause models:
+
+| clause | models | effect |
+|---|---|---|
+| `seq` | architectural execution only | any speculative leak (Spectre-v1 or v4) is a violation |
+| `cond` | architectural + conditional-branch misprediction | branch bypass (v1) is now in-contract; only store bypass (v4) remains a violation |
+| `bpas` | architectural + speculative store bypass | used to model / confirm v4 |
+| `bpu` | architectural + predictor-driven misprediction | like `cond`, but only mispredicted branches fork |
+
+**Spectre-v1** uses the arch-only contract (`seq`) with the branch-predictor flush off
+(`enable_pre_run_flush: 0`), so a guarding branch mispredicts naturally and a speculative load lands
+in a forbidden cache set. **Spectre-v4** uses `cond` (so v1 is in-contract) plus
+`enable_speculative_store_bypass: true` (sets `PSTATE.SSBS=1`, so the CPU may bypass stores); the
+only remaining unmodeled speculation is store bypass, so a violation can only be v4. **Prime+Probe**
+is the more sensitive channel for both.
+
+### PAC / non-interference — one input, many sibling programs
+
+Some campaigns instead run **one input against many variants of the same program** (e.g. different
+PAC signing slots) and compare their htraces; a difference across variants is a
+primitive-related leak.
+
+```
+                          +-----------+
+                          | one input |
+                          +-----+-----+
+              +-----------------+-----------------+
+              v                 v                 v
+        +-----------+     +-----------+     +-----------+
+        | program P0|     | program P1| ... | program PN|
+        +-----+-----+     +-----+-----+     +-----+-----+
+              |   (same code, different PAC slot / variant)
+              v                 v                 v
+        +-----------+     +-----------+     +-----------+
+        | htrace P0 |     | htrace P1 |     | htrace PN |
+        +-----+-----+     +-----+-----+     +-----+-----+
+              +-----------------+-----------------+
+                                v
+            +----------------------------------------+
+            | htraces differ across variants          |
+            |              > PAC-related leak         |
+            +----------------------------------------+
+```
+
+## 7. Mistraining
+
+Branch mistraining saturates a conditional branch **opposite** its architectural direction before
+the measured run, so the branch mispredicts and a speculative window opens. It is driven by the
+CE's architectural branch directions (`branch_mistraining_entries` → `apply_branch_mistraining`) and
+applied through the `enable_branch_training` + `branch_training_config` sysfs knobs (§4.2).
+
+It is **off by default** (`enable_branch_mistraining = False`), pending hardware confirmation that
+the training is effective on the target core. With it off, Spectre-v1 relies on the guarding branch
+mispredicting naturally (`enable_pre_run_flush: 0`).
+
+## 8. Techniques: triaging a violation
+
+A `fuzz` run reports a *contract violation* — two inputs that are architecturally equivalent yet
+produce different hardware traces. Two [Claude Code](https://claude.com/claude-code) **skills**
+under `.claude/skills/` help make sense of one; ask Claude Code to "triage" or "reproduce" a
+`violation-*/` directory, or run the scripts directly.
+
+- **`revizor-violation-triage`** — genuine leak vs noise **without re-running on hardware**. Runs
+  the CE under always-mispredict and checks three things: the two inputs' *architectural* cache
+  lines are identical, their *speculative* lines differ, and that speculative divergence matches the
+  HW htrace divergence already in the report. Verdict: **GENUINE** / **NOISE** / **INVESTIGATE**.
+- **`reproduce-revizor-violation`** — confirms it on hardware by recreating the exact
+  micro-architectural state: load context inputs `0..min(A,B)`, **swap only the violating input**,
+  measure, and see which cache set encodes which input ran. The leak is intermittent, so collect
+  statistics over many trials.
+
+These are quick verification heuristics: a GENUINE verdict plus a clean reproduction is strong
+corroboration. Note that re-measuring the *same* test many times trains the branch predictor and can
+hide a genuine leak, so it is not a way to "confirm noise".
+
+## 9. Memory layouts
+
+### 9.1 Sandbox
+
+A test case may only touch a fixed arena. During the run `x29` holds the **main-region** base;
+every memory access is masked to `x29 + (reg & 0x1fff)`, so it always lands in `main`+`faulty`
+(8 KB). The cache set of an access is `(offset // 64) % 64`.
 
 ```
    low address
@@ -364,368 +389,216 @@ lands somewhere in `main`+`faulty` (8 KB). Cache set = `(offset // 64) % 64`.
    high address
 ```
 
-# Part III — Subsystems in depth
+### 9.2 Input register region
 
-## 3.1 Contract executor (CE)
+An input seeds memory (`main` + `faulty`) and the registers. The register region is 8 × 64-bit
+slots:
 
-The CE produces a ctrace by *modelling* a test case's execution, including the speculation a
-contract permits. Its speculation engine is built so contracts are **composable**: a run enables
-a set of independent *execution clauses* (the `execution_clauses` bitmask, §2.1), and the engine
-runs them together over one instruction stream.
+| Slot | Register |
+|---|---|
+| 0–5 | `x0`–`x5` |
+| 6 | NZCV flags (per-flag encoding, below) |
+| 7 | unused (the executor forces `sp` to the sandbox stack base) |
 
-**Three layers, mutually ignorant** (`src/aarch64/contract_executor/`):
+The flags slot uses a **per-flag NZCV encoding**: each of N, Z, C, V occupies bit 0 of its own byte
+within the slot, so the four flags stay independent under taint tracking; the slot is converted to
+ARM `PSTATE` form just before execution.
 
-| Layer | Files | Responsibility |
-|---|---|---|
-| **Engine** | `simulation_execution_clause_hook.{c,h}` | Mechanism only: speculation nesting, the `max_misspred_branch_nesting` cap, a LIFO checkpoint stack, `spec_push_frame()` (stamps a frame with the clause that owns it), and `handle_window_end()` (routes a window's end to the owning clause's `on_rollback`, default = reload memory + registers). Knows nothing about branches, stores, or TAGE. |
-| **Execution clauses** | `execution_clauses.{c,h}` (registry + `execution_clauses_supported`), `execution_clause_{cond,bpu,bpas}.c`, `branch_speculation.{c,h}` | Each clause is a `struct execution_clause_descriptor { name; clause_bit; on_init; on_reset; on_instruction → redirect\|NULL; on_rollback; }`. Enabled per-run by its bit. |
-| **Branch predictor** (DI) | `branch_predictors.{c,h}`, `neoverse_n3_bpu.c` | `branch_predictor_by_id()` maps the input's `branch_predictor` enum to a `{init,reset,predict,update}` vtable. The BPU clause resolves it in `on_reset`; the engine references no predictor. |
+## 10. File formats
 
-**Per-instruction dispatch.** For each instruction the engine iterates the enabled clauses in
-registry order, calling `on_instruction(state)`; each may return a redirect PC or `NULL`. The
-rule: multiple clauses *may* return a redirect, but every non-`NULL` redirect must be the **same**
-address, else the engine hard-traps (it never assumes a clause returns `NULL`).
+### 10.1 Run config (YAML)
 
-**Each fork is independent → 2ᴺ flows.** A store (bypass/apply) and a branch (mispredict/correct)
-are both 2-way speculation forks. Crucially, when a window ends the engine reverts the checkpoint
-and then **re-dispatches the clauses on the instruction it resumes into** — so a store or branch on
-an *architectural continuation* re-forks just like one on a speculative path. Thus N forks before a
-load produce up to 2ᴺ flows reaching it, and `max_misspred_branch_nesting` bounds how many forks may
-be open at once (so a flow that bypasses *k* stores needs depth *k*). Stores and branches are
-symmetric: the same program shape with N stores or N branches yields the identical fork tree. (If a
-resumed continuation is itself past the code end — e.g. a branch target beyond the program — the
-engine keeps unwinding the stack rather than ending the run with frames still pending.)
+A run is configured by a YAML file passed with `-c`. Options not set take their architecture
+defaults (`src/aarch64/aarch64_config.py` and the shared `src/config.py`). A representative config:
 
-**Why registry order matters.** The checkpoint stack is strictly **LIFO** — `handle_window_end`
-always pops the top frame and returns to *its* `return_addr`. When a store is followed by a
-branch, **both** clauses act on that branch instruction in one dispatch: `bpas` (phase B) pushes
-the **outer** store-bypass frame and installs the stale memory, then `cond`/`bpu` pushes the
-**inner** branch-mispredict frame and redirects. The branch window resolves first (the wrong path
-re-converges to the branch's architectural continuation), so by LIFO it must sit on top — i.e. be
-pushed **last**. Both frames are pushed in the same dispatch, in registry order, so `bpas` must be
-registered **before** `cond`/`bpu`. Reversed, the branch's wrong path would pop the bypass frame
-and "return" to the store's PC with the bypass snapshot — the wrong address and the wrong memory
-(this is what the `checkpoint_id == current_checkpoint_id - 1` LIFO assert guards).
+```yaml
+instruction_set: aarch64
 
-**The three clauses:**
+# Which instruction families the generator may emit (§11).
+instruction_categories:
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-BRANCH
+  - BASE-MEM-LOAD
+  - BASE-MEM-STORE
 
-- **`cond`** (always-mispredict): at a conditional branch, checkpoints the architectural
-  continuation and redirects to the mispredicted path; the engine reloads at the window's end.
-- **`bpu`**: like `cond`, but the branch's outcome is driven by the injected predictor model
-  (Neoverse-N3 TAGE), so only branches the model mispredicts fork.
-- **`bpas`** (speculative store bypass / Spectre-v4): **two-phase**. *Phase A* at a store —
-  snapshot the whole memory image, then let the model execute the store (register writeback
-  included). *Phase B* on the next instruction — push a frame checkpointing the **post-store**
-  state (so the store is never re-executed and rollback stays uniform), then restore the
-  pre-store snapshot so the speculative window reads the **stale** value. A whole-memory
-  snapshot makes `STR`/`STP`/writeback/atomics all uniform. Phase B is skipped if a rollback
-  changed the nesting depth since phase A (its snapshot would belong to a discarded context).
+# Shape of each generated test case.
+min_bb_per_function: 2
+max_bb_per_function: 5
+min_successors_per_bb: 1
+max_successors_per_bb: 2
 
-**Supported combinations** are validated in **both** Python (`SUPPORTED_EXECUTION_CLAUSES`,
-`aarch64_contract_executor.py`) and C (`execution_clauses_supported` → trap): `seq` (empty),
-`cond`, `bpas`, `bpu`, and `cond|bpas`. Two branch models together (`cond|bpu`) are rejected.
+# Contract (§6).
+contract_execution_clause: [seq]     # seq | cond | bpas | bpu
+contract_observation_clause: l1d     # what the ctrace records
 
-**Invariants (do not regress):** predictor init is **lazy** in `bpu_on_reset` (eager init breaks
-non-BPU runs); checkpoint slots are **reused** on rollback (LIFO free, else the 1024-slot cap
-traps in a loop with many windows); `is_conditional_branch` is defined by **inclusion**
-(`B.cond`/`CBZ`/`CBNZ`/`TBZ`/`TBNZ`); the `max_misspred_branch_nesting` cap gates **every** clause
-(`spec_nesting() < spec_max_nesting()`), so a cap of 0 disables speculation entirely. These are
-covered by `test_ce_integration.c` (`bpas_*`, `cond_*`, `unsupported_clauses_rejected`,
-`bpu_*`).
+# Measurement.
+executor_mode: P+P                   # P+P (Prime+Probe) or F+R (Flush+Reload)
+executor_warmups: 5                  # warm-up rounds before the measured run
+enable_pre_run_flush: 0              # 0 => branches mispredict naturally (needed for v1)
+enable_speculative_store_bypass: false   # true => PSTATE.SSBS=1 (needed for v4)
 
-## 3.2 Mistraining
+# Inputs.
+input_generator: aarch64-nzcv
+input_gen_seed: 0
+input_gen_entropy_bits: 16           # 1..32; entropy of generated input values
 
-Branch mistraining saturates the BPU against a conditional branch's architectural direction before
-the measured run, so the branch mispredicts and a speculative window opens. It is driven by the CE's
-architectural branch directions (`branch_mistraining_entries` → `apply_branch_mistraining`) and
-applied through the `enable_branch_training` + `branch_training_config` sysfs knobs.
+fuzzer: basic
+```
 
-**The current implementation has a known bug (WIP) and is gated off by default
-(`CONF.enable_branch_mistraining = False`); it must stay off for Spectre-v1 detection.** Instead of
-saturating against the architectural direction, it empirically trains toward it (the inverse of the
-intent) — so enabling it makes the guarding branch predict *correctly*, closes the speculative
-window, and **suppresses** the very misprediction the fuzzer hunts.
-A controlled experiment (same generator, spec, config, and kernel — mistraining the only variable)
-measured this directly: per 800 test cases, **0** violations with mistraining on vs **13** (F+R) /
-**2** (P+P) with it off. This — not the tag taxonomy — was the cause of the earlier "stopped finding
-Spectre-v1" regression (culprit commit `6dfeb4b`; see memory `project_spectrev1_mistrain_regression`).
-Re-enable only after the training direction/path is fixed on hardware.
+Commonly-set options, by group:
 
-## 3.3 Instruction tagging
+| Group | Options |
+|---|---|
+| Scope | `instruction_set`, `instruction_categories`, `supported_instructions`, `instruction_allowlist`, `instruction_blocklist` |
+| Program shape | `min_bb_per_function`, `max_bb_per_function`, `min_successors_per_bb`, `max_successors_per_bb`, `avg_mem_accesses` |
+| Contract | `contract_execution_clause`, `contract_observation_clause`, `model_max_nesting` |
+| Measurement | `executor_mode`, `executor_warmups`, `enable_pre_run_flush`, `enable_speculative_store_bypass` |
+| Inputs | `input_generator`, `input_gen_seed`, `input_gen_entropy_bits`, `inputs_per_class` |
 
-`base.json` is produced by the **`arm_isa_extractor`** pipeline (download ARM's A64 XML → extract a
-general ISA IR → `isa_downloader` serialises it into the shape `isa_loader` reads). Every spec
-carries a `tags` list (the x86 path stores its single category there instead). Tags are
-ISA-prefixed and coarse-to-fine: an ISA prefix (`BASE`/`SVE`/`SME`), a coarse family (`BASE-ARITH`,
-`BASE-MEM`, `BASE-FLAGS`, `BASE-BRANCH`, `BASE-BITCOUNT`, …) and optional fine tags
-(`BASE-MEM-LOAD`/`-STORE`/`-ATOMIC`, `BASE-FLAGS-WRITE`, `BASE-BRANCH-COND`, …). Every spec gets
-≥1 tag — the tagger asserts this, since an untagged spec is ungeneratable.
+The number of test cases and inputs per run are CLI flags, not config keys: `-n <test cases>` and
+`-i <inputs>`.
 
-**Filtering strategy.** `isa_loader.reduce` → `is_supported` decides the emittable set. The general
-idea is a conjunction of independent gates — a spec is generatable only if it passes **every** one
-(evaluated per spec, in this order):
+### 10.2 Instruction-set spec (`base.json`)
 
-1. **Category gate** (AArch64) — only `category == "general"` specs are eligible at all. The FP/SIMD,
-   SVE/SME, float and system categories are excluded outright, because the generator and the CE model
-   only the general-purpose subset.
-2. **`supported_instructions`** — an AArch64 mnemonic allow-list (the curated known-good set): a spec
-   whose name is absent is dropped. This is the primary "what do we trust to emit" gate, so the
-   emittable set is essentially a hand-picked subset of the general category.
-3. **Per-name overrides** — `instruction_allowlist` forces a name in (escape hatch); `instruction_blocklist`
-   drops names outright. The blocklist holds permanent crash/stall/HW-absent hazards: `eretaa`/`eretab`/`udf`
-   (trap or EL change), `wfe`/`wfi`/`wfet`/`wfit` (stall), `cnt`/`ctz` (FEAT_CSSC, absent on the N3 →
-   SIGILL), plus the MOPS/atomic ordering families.
-4. **`instruction_categories`** (from the run config) — the spec is kept only if **at least one** of its
-   tags is an enabled category. This is how a run scopes itself (e.g. arith + logical + branches +
-   memory for the Spectre configs).
-5. **Address-register blocklist** — specs whose memory-operand base/index would use a reserved register
-   are dropped.
+`base.json` is the instruction-set spec the generator emits from. It is **not hand-edited** — it is
+generated from ARM's machine-readable A64 ISA (§12) — but its shape is worth knowing.
 
-So, in short: **emittable ≈ general ∩ supported_instructions ∩ ¬blocklist ∩ (tag ∈ categories)**, with
-the allowlist as a per-name override. (A few debug-only knobs can narrow this further during
-investigation but are not part of the standard flow.)
+The file is a JSON **list** of instruction nodes. `isa_loader` reads these fields per node:
 
-## 3.4 Data-structure reference
+| Field | Meaning |
+|---|---|
+| `name` | Mnemonic (e.g. `"add"`). |
+| `category` | Coarse ISA category; only `"general"` is emittable (§11). |
+| `control_flow` | `true` for branches / control-flow instructions. |
+| `template` | Python format string used to render the instruction to assembly text. |
+| `tags` | List of taxonomy tags (§11); defaults to `[category]` if absent. |
+| `operands` | List of operand specs (below). |
+| `implicit_operands` | Operands read/written but not spelled out in the text (e.g. flags). |
 
-Specs and runtime instructions share one operand model (`src/interfaces.py`) common to both ISAs;
-the memory pieces are AArch64-specific.
+Each **operand** node has `type_` (`REG`, `IMM`, `MEM`, `LABEL`, `COND`, or `FLAGS`), `name` (the
+placeholder used by `template`), `width` (bits), `signed`, `src`/`dest` (read/written), and `values`
+(the allowed choices). **Memory operands** (`type_ == "MEM"`) decompose their address into an
+`inner` list of operand nodes — base register, index, offset, extend — each carrying a role; the
+access *direction* comes from the operand's own `src`/`dest` (load reads, store writes, RMW both),
+taken from the ISA definition rather than inferred from register positions. One node:
 
-- `OperandSpec` — one operand template: `type` (`OT.REG/IMM/MEM/LABEL/COND/FLAGS`), `width`,
-  `signed`, `src`/`dest` (read/written), `values` (the choices), `name`, and `mem_role`.
-- `MemorySpec(OperandSpec)` — a memory access (`type == OT.MEM`) that **wraps** its address
-  components in `inner: List[OperandSpec]`. Its `src`/`dest` give the access *direction* (a load
-  reads, a store writes, an RMW both), derived from the ASL — never inferred from a register's
-  position or the mnemonic.
-- `MemoryRole` — an empty common base enum each ISA subtypes; `AArch64MemRole` =
-  `BASE`/`INDEX`/`OFFSET`/`EXTEND`, and "no role" is plain Python `None`. Only inner components
-  carry a role, never a top-level operand. The `OFFSET` role is overloaded: an additive
-  displacement when there is no index, otherwise the index's shift amount.
-- Runtime mirrors: `Operand` and `MemoryOperand(inner: List[Operand])`.
-  `Instruction.to_asm_string` renders from the spec's `template` (a Python format string),
-  flattening each `MemoryOperand`'s inner components into the substitution dict by name.
+```json
+{
+  "name": "add",
+  "category": "general",
+  "control_flow": false,
+  "tags": ["BASE-ARITH"],
+  "template": "add {Wd}, {Wn}, {Wm}",
+  "operands": [
+    {"type_": "REG", "name": "Wd", "width": 32, "signed": false, "src": false, "dest": true,  "values": ["w0", "w1", "..."]},
+    {"type_": "REG", "name": "Wn", "width": 32, "signed": false, "src": true,  "dest": false, "values": ["w0", "w1", "..."]},
+    {"type_": "REG", "name": "Wm", "width": 32, "signed": false, "src": true,  "dest": false, "values": ["w0", "w1", "..."]}
+  ],
+  "implicit_operands": []
+}
+```
 
-`has_mem_operand`/`has_read`/`has_write` derive from the MEM operand's type and direction. The
-sandbox finds the BASE component **by role** and confines it (`AND base,#mask; ADD base,x29`),
-then cancels every other component so the effective address stays `x29 + (base & mask)`; it
-iterates **every** memory operand, so multi-access instructions are all confined.
+### 10.3 Operand model (Python)
 
-## 3.5 Device lock & fault safety
+Specs and runtime instructions share one operand model (`src/interfaces.py`), common to both ISAs:
 
-All `/dev/executor` access (ioctl / read / write) is serialized by one mutex (`executor_lock`
-in `chardevice.c`) — the inputs rbtree, the state machine and the test-case/measurement buffers
-have no other synchronization.
+- `OperandSpec` — one operand template: `type`, `width`, `signed`, `src`/`dest`, `values`, `name`.
+- `MemorySpec(OperandSpec)` — a memory access (`type == OT.MEM`) that wraps its address components
+  in `inner: List[OperandSpec]`; `src`/`dest` give the access direction.
+- `MemoryRole` — an ISA-subtyped role enum; `AArch64MemRole` = `BASE`/`INDEX`/`OFFSET`/`EXTEND`.
+  Only inner components carry a role.
+- Runtime mirrors: `Operand` and `MemoryOperand(inner)`. `Instruction.to_asm_string` renders from
+  the spec's `template`, flattening each `MemoryOperand`'s inner components into the substitution
+  dict by name.
 
-**The hazard:** a fault *inside* an ioctl while the lock is held — e.g. a failed PAC `AUT*` at
-EL1 on FEAT_FPAC hardware Oopses the kernel — kills the faulting task without releasing the
-lock. With a plain blocking `mutex_lock`, every later caller then blocks forever in
-uninterruptible **D** state: an unkillable deadlock that only a reboot clears (the dead holder
-also pins a module reference, so `rmmod` won't work either).
+The sandbox finds the `BASE` component **by role** and confines it (`AND base,#mask; ADD base,x29`),
+cancelling every other component so the effective address stays `x29 + (base & mask)`; it iterates
+every memory operand, so multi-access instructions are all confined.
 
-So the device lock is **self-healing** — it can't recover the executor state a faulting op left
-half-mutated (that genuinely needs a reboot), but it refuses to become a silent, unkillable hang:
+## 11. Instruction taxonomy
 
-- **killable waits** (`mutex_lock_killable`): a blocked caller can always be killed, never the
-  D-state pile-up;
-- **wedged fail-fast**: if a new caller finds the lock held longer than any legitimate operation
-  (`EXECUTOR_LOCK_DEADLOCK_MS`), it latches a `wedged` flag, logs a **CRITICAL** message naming
-  the holder pid, and returns `-EIO` instead of blocking — telling you to check `dmesg` for the
-  Oops and reload the module or reboot.
+The generator emits only instructions the spec marks as supported, scoped to a set of
+**categories**. Both are driven by tags in `base.json`.
 
-It never force-unlocks or re-initialises the mutex (that would corrupt the wait-list and the
-shared state). `handle_pac_auth` runs the real `AUT*` (faithful to hardware), so a bad pointer
-still faults; the self-healing lock plus the test runner's dmesg guard turn that into a reported,
-contained failure rather than a deadlock. Tests verify auth equivalence *without* faulting via
-`XPAC` (strip) + `PAC` (re-sign) + compare — see `unit_pacga`.
+**Tags.** Every spec carries a `tags` list, coarse-to-fine: an ISA prefix (`BASE`/`SVE`/`SME`), a
+coarse family (`BASE-ARITH`, `BASE-MEM`, `BASE-BRANCH`, `BASE-FLAGS`, …), and optional fine tags
+(`BASE-MEM-LOAD`/`-STORE`/`-ATOMIC`, `BASE-BRANCH-COND`, …). Every spec gets at least one tag.
 
-# Part IV — Operating it
+**Filtering.** `isa_loader` decides the emittable set as a conjunction of gates — a spec is emitted
+only if it passes **all** of them:
 
-## 4.1 Installing
-## 4.2 Running: download_spec, fuzz, tfuzz
+1. **Category gate** — only `category == "general"` specs are eligible (FP/SIMD, SVE/SME, float, and
+   system categories are excluded: the generator and CE model only the general-purpose subset).
+2. **`supported_instructions`** — a curated mnemonic allow-list; the emittable set is essentially a
+   hand-picked subset of the general category.
+3. **Per-name overrides** — `instruction_allowlist` forces a name in; `instruction_blocklist` drops
+   permanent hazards (traps, stalls, or instructions absent on the target core).
+4. **`instruction_categories`** (from the run config) — the spec is kept only if at least one of its
+   tags is an enabled category. This is how a run scopes itself.
+5. **Address-register blocklist** — specs whose memory base/index would use a reserved register are
+   dropped.
 
-### Downloading the instruction set (`base.json`)
+In short: **emittable ≈ general ∩ supported_instructions ∩ ¬blocklist ∩ (tag ∈ categories)**, with
+the allow-list as a per-name override.
 
-The fuzzer drives generation from an instruction-set spec, `base.json`. It is **not**
-checked in — it is generated from ARM's machine-readable A64 ISA. Build it once:
+## 12. Running
+
+Build the instruction-set spec once (downloads ARM's A64 ISA XML and parses it into `base.json`;
+the download is cached, so re-runs are fast):
 
 ```
 python revizor.py download_spec -a aarch64 -o base.json
 ```
 
-This downloads the ARM A64 ISA XML release (`A64-2025-09`) from `developer.arm.com`
-(the tarball is cached locally, so re-runs are fast) and parses it into `base.json`.
-All `fuzz`/`tfuzz` invocations below consume it via `-s base.json`. Pass
-`--extensions <category> ...` to keep only specific instruction-class categories
-(default: the full set).
-
-### Detecting speculative-execution leaks (Spectre-v1 and v4)
-
-Revizor reports a **contract violation**: two inputs that are *equivalent under the contract* (same
-contract trace) yet produce *different hardware traces*. The contract decides which speculation is
-"allowed/expected" — anything the hardware leaks **beyond** the contract is a violation, so the
-contract choice decides *which* leak class you hunt. It is selected with `contract_execution_clause`;
-the AArch64 CE implements these clauses (see §3.1):
-
-| clause | models | use |
-|---|---|---|
-| `seq` | architectural execution only | equivalence = same arch trace → any speculative leak (v1 **or** v4) shows as a violation |
-| `cond` | architectural **+ conditional-branch misprediction** | branch-bypass (Spectre-v1) is *in-contract* (not flagged); only store bypass (v4) remains a violation |
-| `bpas` | architectural **+ speculative store bypass** | used in *triage* to model/confirm v4 |
-
-The contract trace (`compute_ctrace`, `src/aarch64/aarch64_trace.py`) is an **order-preserving
-sequence** of the cache sets touched by the CE run, in execution order — architectural and
-speculative accesses interleaved at their execution point (the same shape as the x86 contract
-tracer). Within one access, consecutive bytes in the same line collapse to a single entry.
-
-Because the trace is ordered, architectural and speculative observations are distinguished by their
-**position** in the sequence — no value offset is needed. Two inputs that take opposite branch
-directions (one touches `X` then `Y`, the other `Y` then `X`) produce different ordered traces and
-are correctly kept in different equivalence classes. Two inputs are equivalent iff their whole
-ordered observation sequence matches (same architectural footprint *and* same speculative footprint,
-in the same order), so under `cond` the only thing that can still separate two equivalent inputs on
-hardware is a leak the contract does not model (speculative store bypass, v4).
-
-#### Spectre-v1 (conditional branch bypass)
-
-Use the **arch-only** contract (`[seq]`) with the **BPU flush off** (`enable_pre_run_flush: 0`) so the
-guarding branch mispredicts naturally; a speculative load then touches a cache set the contract
-forbids → violation.
+Then fuzz — pass the spec with `-s`, the config with `-c`, the number of test cases with `-n`, and
+inputs per test case with `-i`:
 
 ```
-# Prime+Probe (preferred - more sensitive):
-python revizor.py fuzz -s base.json -c configs/spectre_v1_pp.yml -n 200 -i 50 --save-violations true -w out_pp
-# Flush+Reload:
-python revizor.py fuzz -s base.json -c configs/spectre_v1_fr.yml -n 200 -i 50 --save-violations true -w out_fr
+python revizor.py fuzz -s base.json -c configs/spectre_v1_pp.yml -n 200 -i 50 --save-violations true -w out
 ```
 
-The leak is **intermittent** (the branch mispredicts only part of the time), so the fuzzer relies on
-its large-sample slow path — expect a hit within a few dozen test cases. **Prime+Probe is markedly
-more sensitive** than Flush+Reload to the store-based gadgets that turn up here (≈8× more positive
-runs), so use `spectre_v1_pp.yml` for a quick confirmation and give F+R more test cases.
-
-#### Spectre-v4 (speculative store bypass / SSB)
-
-A load speculatively bypasses an older store to the same address, reads the **stale** (pre-store)
-value, and uses it to address a later load — leaking the stale value through the cache. Detection
-(`configs/spectre_v4_pp.yml`) needs three things together:
-
-- **`contract_execution_clause: [cond]`** — branch misprediction is now *in-contract*, so Spectre-v1
-  no longer shows as a violation; the only unmodeled speculation left is store bypass, so a violation
-  can only be v4.
-- **`enable_speculative_store_bypass: true`** — sets `PSTATE.SSBS=1` on the core before each measured run so the hardware
-  is actually allowed to bypass stores. **Without it the leak cannot occur** and the run finds nothing
-  real. (Requires the kernel module built with the `enable_ssbs` sysfs knob.)
-- **`executor_mode: P+P`** — Prime+Probe isolates the single-set store-bypass leak cleanly. **F+R is
-  not recommended for v4**: store-heavy gadgets fill the Flush+Reload footprint with noise and bury
-  the one-set signal (the contract still *finds* the gadget, but F+R cannot confirm it cleanly).
-
-```
-python revizor.py fuzz -s base.json -c configs/spectre_v4_pp.yml -n 1000 -i 50 --save-violations true -w out_v4
-```
-
-**Triage a v4 hit** (see the triage skill): confirm the pair is arch+`cond` equivalent, then re-run
-the CE under **`[bpas]`** and check that the store-bypass speculative sets *diverge between the pair*
-and *match the HW-divergent bits*. A genuine v4 also **vanishes when SSBS=0** (re-measure the pair with
-`enable_speculative_store_bypass` off — the divergence must disappear); that on/off control is the SSB-specific proof (not
-v1, not architectural, not noise).
-
-A violation (either class) drops a `violation-*/` artifact in the working dir (the test case, the
-counterexample inputs as `input_NNNN_nzcv_scheme.bin`, traces, and a `reproduce.yaml`). Requires the
-kernel module loaded (`--test aarch64-ko` or a manual insmod).
-
-#### Detection-related config flags
-
-| flag | default | effect |
-|---|---|---|
-| `enable_pre_run_flush` | 1 | flush BPU/PHR before each run; **set 0** so branches mispredict naturally |
-| `enable_branch_mistraining` | false | force-mispredict each branch. **Keep off**: the current implementation trains toward the *architectural* direction and *suppresses* the misprediction v1 needs (WIP). |
-| `enable_speculative_store_bypass` | false | set `PSTATE.SSBS=1` (allow store bypass) — required to observe v4 on hardware |
-| `recompute_artifact_traces` | false | on a saved violation, recompute each input's own contract trace instead of the fast-path-propagated original's |
-| `in_memory_assembler` | true (AArch64) | assemble in memory → a fuzzing run writes no per-test-case files (only the violation artifact); x86 leaves it false (executor loads the object from disk) |
-| `avoid_extended_memory_operands` | true | skip extended-register-index memory forms (UXTW/SXTW/...). **Temporary/WIP**: defaulted on because emitting them was seen to reduce violations found, for a not-yet-understood reason; remove once investigated. |
-
-## 4.3 minimize / reproduce
+A violation drops a `violation-*/` artifact in the working directory (the test case, the
+counterexample inputs, traces, and a `reproduce.yaml`). Measuring on hardware needs the kernel
+module loaded (`--test aarch64-ko`, or a manual `insmod`).
 
 `revizor.py minimize` reduces a saved violation to a minimal reproducer. The minimizer is
-architecture-agnostic — it sources the NOP, speculation barrier (`DSB SY`) and branch detection
-from the AArch64 target description — so the standard passes (instruction removal, NOP
-replacement, constant/mask simplification, input-sequence and differential-input minimization)
-all run on AArch64. See [Minimization](../user/minimization.md) for the pass list and flags.
+architecture-agnostic — it sources the NOP, the speculation barrier (`DSB SY`), and branch
+detection from the AArch64 target description — so the standard passes (instruction removal, NOP
+replacement, constant/mask simplification, input-sequence and differential-input minimization) all
+run on AArch64.
 
-## 4.4 Helper & triage scripts
+### Testing
 
-**Debugging utilities** (`src/aarch64/debugging/`):
-
-- `make_input.py` — build a raw `input_t` binary from an optional JSON spec (per-register
-  values and per-byte memory overrides; unspecified bytes are randomized). The layout is
-  main 4K + faulty 4K + register region 4K; flags/sp are written verbatim. Example:
-  `make_input.py --input input_pattern.json --output input.bin [--print]`.
-- `to_executor_input.py` — convert a saved input (NZCV flags in the per-flag NZCVScheme
-  encoding, i.e. `input_NNNN_nzcv_scheme.bin`) into the form `/dev/executor` accepts (flags
-  slot reconstructed to PSTATE). Needed for **manual** reproduction via `executor_userland`,
-  which bypasses the Python executor that normally does this conversion on write:
-  `to_executor_input.py saved.bin executor_ready.bin`.
-
-**`executor_userland`** (`src/executor_userland/`) is the minimal C tool to drive
-`/dev/executor` by hand: numbered ioctls plus `w file` / `r file` to write/read the current
-checkout.
-
-### Triaging and reproducing a violation (skills)
-
-A `fuzz` run reports a *contract violation* — two inputs that are architecturally equivalent
-yet produce different hardware traces. Two [Claude Code](https://claude.com/claude-code)
-**skills** under `.claude/skills/` help you make sense of one; ask Claude Code to "triage" or
-"reproduce" a `violation-*/` directory, or run the scripts directly (activate your venv +
-`sudo chmod 777 /dev/executor`).
-
-- **`revizor-violation-triage`** — genuine leak vs noise **without re-running on hardware**.
-  Runs the CE under `ALWAYS_MISPREDICT` and checks: the two inputs' architectural cache lines
-  are identical, their speculative lines differ, and that speculative divergence matches the HW
-  htrace divergence *already in the report*. Verdict **GENUINE** / **NOISE** / **INVESTIGATE**.
-  `python3 .claude/skills/revizor-violation-triage/scripts/triage_violation.py <violation-dir>`.
-- **`reproduce-revizor-violation`** — confirms it on hardware by recreating the exact µarch
-  state: load context inputs `0..min(A,B)`, **swap only the violating input**, measure, and see
-  which cache set encodes which input ran. Intermittent, so collect statistics over many trials.
-
-> ⚠️ **Caveats.** These are *quick verification heuristics, not proofs* — a GENUINE verdict plus a
-> clean reproduction is strong corroboration, not a guarantee; NOISE/INVESTIGATE warrants a manual
-> look. They have **not been exercised by other users yet**, so expect to refine them by hand for
-> your setup (rough edges will be fixed over time). And never "confirm noise" by re-measuring the
-> same test many times — repetition trains the branch predictor and *hides* a genuine leak.
-
-## 4.5 Testing
-
-The installer doubles as the test runner — `src/aarch64/install_revizor_env.sh --test <group>`:
+`src/aarch64/install_revizor_env.sh --test <group>` runs the suites:
 
 | group | what it runs |
-|-------|--------------|
-| `aarch64-ce`     | contract-executor C tests (`test_ce` unit + `test_ce_integration`) |
-| `aarch64-ko`     | builds + (re)loads the kernel module, then the `/dev/executor` Python tests |
+|---|---|
+| `aarch64-ce` | contract-executor C tests (`test_ce` unit + `test_ce_integration`) |
+| `aarch64-ko` | builds + (re)loads the kernel module, then the `/dev/executor` Python tests |
 | `aarch64-python` | all Python unit tests (common + `tests/aarch64_tests/`) |
-| `aarch64-all`    | all of the above |
+| `aarch64-all` | all of the above |
 
-Each device-touching group is wrapped in a **dmesg guard**: it scans the kernel log for new
-`Oops` / `Internal error` / `FPAC` / `Call trace` lines around the run and fails loudly if the
-module faulted, so a kernel exception is reported rather than silently swallowed.
+Tests also run from the repo root: `python3 -m unittest discover -s tests -p 'unit_*.py'` (common)
+and `python3 -m unittest discover -s tests/aarch64_tests -p 'unit_*.py' -t tests/aarch64_tests`
+(AArch64). `tests/runtests.sh` runs the whole thing.
 
-Tests also run directly from the repo root: `python3 -m unittest discover -s tests -p 'unit_*.py'`
-(common) and `python3 -m unittest discover -s tests/aarch64_tests -p 'unit_*.py' -t .` (AArch64);
-`tests/runtests.sh` runs the whole thing (mypy, flake8, common + AArch64 + x86).
+## Glossary
 
-**Hardware caveat:** the `/dev/executor` tests need the module loaded
-(`sudo insmod revizor-executor.ko && sudo chmod 777 /dev/executor`). A fault under the device
-lock (e.g. a failed PAC AUTH at EL1 on FEAT_FPAC) latches the device "wedged" and fails fast;
-recover with a module reload or a reboot.
-
-To read this manual as a styled page, build it to a standalone HTML file with
-`src/aarch64/install_revizor_env.sh --doc` (prints the path to open in a browser).
-
-## 4.6 Troubleshooting & gotchas
-## 4.7 Experimental / WIP
-
-# Part V — Reference
-
-## 5.1 Feature parity with x86
-## 5.2 Deliberate limitations
-## 5.3 Target machine
-## 5.4 Shared `src/` code
-## 5.5 Provenance & validation
+| Term | Meaning |
+|---|---|
+| **Contract** | Promise of what data may influence observable state. Has an *execution clause* (what the model simulates) and an *observation clause* (what is observable). |
+| **ctrace** | Contract trace — what the model says is observable for a program + input. |
+| **htrace** | Hardware trace — what the CPU actually leaked; a 64-bit cache-set bitmap. |
+| **Violation** | Two inputs with equal ctrace but different htrace. |
+| **CE** | Contract executor; produces ctraces by modelling the program, including speculation. |
+| **Taint** | The input bytes the ctrace depends on — those read along the traced execution paths. |
+| **Boosting** | Cheaply producing more inputs with the *same* ctrace by mutating only the untainted bytes. |
+| **Nesting** | Depth of speculative execution the model explores. |
+| **Prime+Probe (P+P)** | Fill the cache with attacker lines, run the victim, then detect which lines were evicted. |
+| **Flush+Reload (F+R)** | Flush shared lines, run the victim, then detect which lines were reloaded. |
+| **Cache set** | One of 64 buckets an address maps to; the unit of the htrace bitmap. |
+| **Sandbox** | The memory a test case may touch: `main` + `faulty` input pages, with zeroed overflow guards. |
+| **Mistraining** | Steering the branch predictor before the measured run to provoke misprediction. |
+| **PAC / MTE** | Arm Pointer Authentication / Memory Tagging. |
