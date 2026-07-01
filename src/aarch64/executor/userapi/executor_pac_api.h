@@ -19,22 +19,24 @@
 #include "executor_ioctl_nr.h"
 
 /*
- * Matches struct pac_keys in executor/pac.h.
- * Named ce_pac_keys to avoid clashing with the kernel definition when this
- * header is referenced alongside kernel headers.
+ * PAC key set. Userspace mirror of the kernel's struct pac_keys (executor/pac.h); defined here only
+ * for userspace so it does not clash with the kernel definition. The SET/GET_PAC_KEYS macros below
+ * are the single source for both environments (kernel uses its own struct pac_keys).
  */
 #ifndef __KERNEL__
-struct ce_pac_keys {
+struct pac_keys {
     uint64_t apia_lo, apia_hi;
     uint64_t apib_lo, apib_hi;
     uint64_t apda_lo, apda_hi;
     uint64_t apdb_lo, apdb_hi;
     uint64_t apga_lo, apga_hi;
 };
-#define REVISOR_GET_PAC_KEYS _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_PAC_KEYS_CONSTANT, struct ce_pac_keys)
-/* Pass a struct ce_pac_keys to pin the exec keys; pass NULL to revert to the live kernel keys. */
-#define REVISOR_SET_PAC_KEYS _IOW(REVISOR_IOC_MAGIC, REVISOR_SET_PAC_KEYS_CONSTANT, struct ce_pac_keys)
+_Static_assert(sizeof(struct pac_keys) == 80, "pac_keys ABI: 5 keys * {lo,hi} = 80 bytes");
 #endif
+
+#define REVISOR_GET_PAC_KEYS _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_PAC_KEYS_CONSTANT, struct pac_keys)
+/* Pass a struct pac_keys to pin the exec keys; pass NULL to revert to the live kernel keys. */
+#define REVISOR_SET_PAC_KEYS _IOW(REVISOR_IOC_MAGIC, REVISOR_SET_PAC_KEYS_CONSTANT, struct pac_keys)
 
 /*
  * REVISOR_PAC_SIGN / REVISOR_PAC_AUTH

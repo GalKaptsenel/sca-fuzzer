@@ -1,5 +1,6 @@
 #include <executor_ioctl.h>
 #include <executor_pac_api.h>
+#include <executor_mte_api.h>
 #include <executor_user_api.h>
 #include <executor_utils.h>
 
@@ -19,7 +20,8 @@ static unsigned long int_to_cmd[] = {
 	REVISOR_GET_PAC_KEYS,
 	REVISOR_PAC_SIGN,
 	REVISOR_PAC_AUTH,
-	REVISOR_PAC_XPAC
+	REVISOR_PAC_XPAC,
+	REVISOR_MTE_TAG_REGION
 };
 
 #define MAX_COMMAND_NUMBER ((int)(sizeof(int_to_cmd) / sizeof(int_to_cmd[0])) - 1)
@@ -272,7 +274,7 @@ static int serve_numerical_command_with_argument(int fd, int command, uint64_t a
 	return result;
 }
 
-static void print_pac_keys(const struct ce_pac_keys* k) {
+static void print_pac_keys(const struct pac_keys* k) {
 	printf("\tAPIA %016lx:%016lx\n", k->apia_hi, k->apia_lo);
 	printf("\tAPIB %016lx:%016lx\n", k->apib_hi, k->apib_lo);
 	printf("\tAPDA %016lx:%016lx\n", k->apda_hi, k->apda_lo);
@@ -293,6 +295,31 @@ static bool is_pac_command(int command) {
 	}
 }
 
+/* 16 MTE_TAG_REGION  <sandbox_offset> <tag0> [tag1 ...]  — one 4-bit tag per 16B granule,
+ * starting at sandbox_offset bytes from lower_overflow. */
+static int serve_mte_command(int fd, int command, int argc, char** argv) {
+	if (5 > argc) {
+		printf("Usage: <command> <sandbox_offset> <tag0> [tag1 ...]\n");
+		return -2;
+	}
+	uint64_t n = (uint64_t)(argc - 4);
+	if (n > MTE_TAG_MAX_GRANULES) {
+		printf("too many granules: %lu (max %d)\n", n, MTE_TAG_MAX_GRANULES);
+		return -2;
+	}
+	struct mte_tag_region_req req = { 0 };
+	req.sandbox_offset = strtoull(argv[3], NULL, 0);
+	req.n_granules = n;
+	for (uint64_t i = 0; i < n; ++i) {
+		req.tags[i] = (uint8_t)(strtoul(argv[4 + i], NULL, 0) & 0xF);
+	}
+	int result = ioctl(fd, command, &req);
+	if (0 <= result) {
+		printf("tagged %lu granule(s) at offset 0x%lx\n", n, req.sandbox_offset);
+	}
+	return result;
+}
+
 /*
  * PAC ioctls carry structs, so they take their own arguments:
  *   11 SET_PAC_KEYS  <10 hex words> | (none) to revert to live keys
@@ -306,7 +333,7 @@ static bool is_pac_command(int command) {
 static int serve_pac_command(int fd, int command, int argc, char** argv) {
 	switch (_IOC_NR(command)) {
 		case REVISOR_GET_PAC_KEYS_CONSTANT: {
-			struct ce_pac_keys keys = { 0 };
+			struct pac_keys keys = { 0 };
 			int result = ioctl(fd, command, &keys);
 			if (0 <= result) {
 				printf("PAC keys (hi:lo):\n");
@@ -325,7 +352,7 @@ static int serve_pac_command(int fd, int command, int argc, char** argv) {
 				       "apia_lo apia_hi apib_lo apib_hi apda_lo apda_hi apdb_lo apdb_hi apga_lo apga_hi\n");
 				return -2;
 			}
-			struct ce_pac_keys keys = {
+			struct pac_keys keys = {
 				.apia_lo = strtoull(argv[3],  NULL, 0), .apia_hi = strtoull(argv[4],  NULL, 0),
 				.apib_lo = strtoull(argv[5],  NULL, 0), .apib_hi = strtoull(argv[6],  NULL, 0),
 				.apda_lo = strtoull(argv[7],  NULL, 0), .apda_hi = strtoull(argv[8],  NULL, 0),
@@ -428,6 +455,8 @@ static int serve_numerical_operation(int fd, int argc, char** argv) {
 
 	if (is_pac_command(command)) {
 		result = serve_pac_command(fd, command, argc, argv);
+	} else if (REVISOR_MTE_TAG_REGION_CONSTANT == _IOC_NR(command)) {
+		result = serve_mte_command(fd, command, argc, argv);
 	} else if (3 < argc) {
 		result = serve_numerical_command_with_argument(fd, command, strtoull(argv[3], NULL, 0));
 	} else {

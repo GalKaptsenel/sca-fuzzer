@@ -181,11 +181,16 @@ REVISOR_PAC_AUTH_CONSTANT           = 14
 REVISOR_PAC_XPAC_CONSTANT           = 15
 REVISOR_MTE_TAG_REGION_CONSTANT     = 16
 
+# Mirror of userapi/executor_mte_api.h — keep in sync with that header.
+_UAPI_PAGESIZE = 4096
+MTE_TAG_MAX_GRANULES = (2 * _UAPI_PAGESIZE + _UAPI_PAGESIZE + _UAPI_PAGESIZE) // 16
+
+
 class MteTagRegionReq(ctypes.Structure):
     _fields_ = [
         ("sandbox_offset", ctypes.c_uint64),
-        ("length",         ctypes.c_uint64),
-        ("tag",            ctypes.c_uint8),
+        ("n_granules",     ctypes.c_uint64),
+        ("tags",           ctypes.c_uint8 * MTE_TAG_MAX_GRANULES),
     ]
 
 class PacSignReq(ctypes.Structure):
@@ -406,13 +411,14 @@ class LocalHWExecutor(HWExecutor):
         else:
             self._ioctl(REVISOR_SET_PAC_KEYS, keys)
 
-    def mte_tag_sandbox_region(self, sandbox_offset: int, length: int, tag: int) -> None:
-        """Tag `length` bytes (granule multiples) with `tag` (0-15). `sandbox_offset` is relative
-        to the start of the tagged span: lower_overflow | main | faulty | upper_overflow."""
+    def mte_tag_sandbox_region(self, sandbox_offset: int, tags: List[int]) -> None:
+        """Tag len(tags) consecutive granules with the given 4-bit `tags`. `sandbox_offset` is
+        relative to the start of the tagged span: lower_overflow | main | faulty | upper_overflow."""
         req = MteTagRegionReq()
         req.sandbox_offset = sandbox_offset
-        req.length = length
-        req.tag = tag & 0xF
+        req.n_granules = len(tags)
+        for i, t in enumerate(tags):
+            req.tags[i] = t & 0xF
         self._ioctl(REVISOR_MTE_TAG_REGION, req)
 
     @property

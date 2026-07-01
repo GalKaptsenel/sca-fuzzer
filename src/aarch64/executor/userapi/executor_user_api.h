@@ -13,6 +13,7 @@
 // Configuration
 #define UAPI_MAIN_REGION_SIZE		        UAPI_PAGESIZE
 #define UAPI_FAULTY_REGION_SIZE		        UAPI_PAGESIZE
+#define UAPI_OVERFLOW_REGION_SIZE	        UAPI_PAGESIZE
 
 #define HTRACE_WIDTH	(1)
 #define NUM_PFC		    (3)

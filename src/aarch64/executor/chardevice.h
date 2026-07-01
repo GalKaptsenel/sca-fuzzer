@@ -10,20 +10,8 @@
 /* Self-describing per-input wire format parsed by copy_input_from_user. */
 #include "userapi/executor_input_format.h"
 
-/*
- * REVISOR_MTE_TAG_REGION: write a uniform allocation tag to a byte range within
- * the sandbox, starting at sandbox_offset bytes from the base of lower_overflow.
- * sandbox_offset : byte offset from lower_overflow base (must be granule-aligned).
- * length         : number of bytes to tag (granule-aligned, sandbox_offset + length
- *                  <= 2*OVERFLOW_REGION_SIZE + MAIN_REGION_SIZE + FAULTY_REGION_SIZE --
- *                  the contiguous lower_overflow|main|faulty|upper_overflow block).
- * tag            : 4-bit tag value (bits[3:0] used; upper bits ignored).
- */
-struct mte_tag_region_req {
-    uint64_t sandbox_offset;
-    uint64_t length;
-    uint8_t  tag;
-};
+/* REVISOR_MTE_TAG_REGION (16) + struct mte_tag_region_req. */
+#include "userapi/executor_mte_api.h"
 
 #define REVISOR_CHECKOUT_TEST      	    _IO(REVISOR_IOC_MAGIC, REVISOR_CHECKOUT_TEST_CONSTANT)                   // Can read test case and write test case
 #define REVISOR_UNLOAD_TEST    		    _IO(REVISOR_IOC_MAGIC, REVISOR_UNLOAD_TEST_CONSTANT)
@@ -35,10 +23,9 @@ struct mte_tag_region_req {
 #define REVISOR_TRACE			        _IO(REVISOR_IOC_MAGIC, REVISOR_TRACE_CONSTANT)
 #define REVISOR_CLEAR_ALL_INPUTS	    _IO(REVISOR_IOC_MAGIC, REVISOR_CLEAR_ALL_INPUTS_CONSTANT)
 #define REVISOR_GET_TEST_LENGTH		    _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_TEST_LENGTH_CONSTANT, uint64_t)
-#define REVISOR_SET_PAC_KEYS		    _IOW(REVISOR_IOC_MAGIC, REVISOR_SET_PAC_KEYS_CONSTANT, struct pac_keys)
-#define REVISOR_GET_PAC_KEYS		    _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_PAC_KEYS_CONSTANT, struct pac_keys)
-/* REVISOR_PAC_SIGN (13), REVISOR_PAC_AUTH (14), REVISOR_PAC_XPAC (15) — defined in userapi/executor_pac_api.h */
-#define REVISOR_MTE_TAG_REGION		    _IOW(REVISOR_IOC_MAGIC, REVISOR_MTE_TAG_REGION_CONSTANT, struct mte_tag_region_req)
+/* REVISOR_SET_PAC_KEYS (11), REVISOR_GET_PAC_KEYS (12), REVISOR_PAC_SIGN (13), REVISOR_PAC_AUTH (14),
+ * REVISOR_PAC_XPAC (15) — defined in userapi/executor_pac_api.h */
+/* REVISOR_MTE_TAG_REGION (16) — defined in userapi/executor_mte_api.h */
 
 #define REVISOR_DEVICE_NAME		        kernel_module_name
 #define REVISOR_DEVICE_CLASS_NAME	    "revisor_device_class"

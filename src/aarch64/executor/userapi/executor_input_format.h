@@ -33,7 +33,7 @@
  *                              loaded verbatim; the writer is responsible for any
  *                              encoding conversion before packing this section.
  *   REVISOR_SEC_SIMD           256 bytes (v0..v7)       -> reserved (not yet loaded)
- *   REVISOR_SEC_PAC_KEYS       sizeof(struct ce_pac_keys) -> per-input PAC keys
+ *   REVISOR_SEC_PAC_KEYS       sizeof(struct pac_keys) -> per-input PAC keys
  *   REVISOR_SEC_MTE_TAGS       one 4-bit allocation tag per MTE_GRANULE_SIZE (16-byte)
  *                              granule of the main|faulty span, packed two tags per
  *                              byte, low nibble first (granule 2*i in bits 3:0,

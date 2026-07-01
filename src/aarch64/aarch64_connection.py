@@ -133,4 +133,10 @@ class ADBConnection(Connection):
         return self.device.pull(src, dst)
 
     def is_file_present(self, filename: str) -> bool:
-        return 'No such file or directory' not in self.shell(f'ls {filename}')
+        # shell() raises on a nonzero exit status, so `ls` of a missing file raises rather than
+        # returning; treat that as absent instead of letting it propagate.
+        try:
+            self.shell(f'ls {filename}')
+            return True
+        except IOError:
+            return False

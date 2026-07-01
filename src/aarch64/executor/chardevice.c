@@ -481,13 +481,18 @@ static long do_revisor_ioctl(struct file* file, unsigned int cmd, unsigned long 
 			}
 			/* sandbox_offset is relative to lower_overflow; the taggable span is the contiguous
 			 * block lower_overflow|main|faulty|upper_overflow (eviction is the P+P region and is
-			 * left untagged). Overflow-safe bounds check (u64 sums could wrap). */
-			const u64 taggable = 2 * OVERFLOW_REGION_SIZE + MAIN_REGION_SIZE + FAULTY_REGION_SIZE;
-			if (req.length > taggable || req.sandbox_offset > taggable - req.length) {
+			 * left untagged). */
+			_Static_assert(MTE_TAGGABLE_BYTES ==
+			               2 * OVERFLOW_REGION_SIZE + MAIN_REGION_SIZE + FAULTY_REGION_SIZE,
+			               "UAPI taggable span diverged from the sandbox layout");
+			const u64 span_bytes = req.n_granules * MTE_GRANULE_SIZE;
+			if ((req.sandbox_offset & (MTE_GRANULE_SIZE - 1)) != 0 ||
+			    req.n_granules > MTE_TAG_MAX_GRANULES ||
+			    req.sandbox_offset > MTE_TAGGABLE_BYTES - span_bytes) {
 				return -EINVAL;
 			}
-			mte_init_sandbox_tags(executor.sandbox->lower_overflow + req.sandbox_offset,
-			                      req.length, req.tag & 0xF);
+			mte_apply_sandbox_tags(executor.sandbox->lower_overflow + req.sandbox_offset,
+			                       req.tags, req.n_granules);
 			return 0;
 		}
 
