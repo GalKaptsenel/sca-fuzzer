@@ -24,7 +24,9 @@ static inline void stg(const void* ptr) {
 }
 
 static inline void *tag_ptr(void *p, u8 tag) {
-    return (void *)(((u64)p & 0x00FFFFFFFFFFFFFFULL) | ((u64)tag << 56));
+    // The allocation tag is bits [59:56]; mask to 4 bits so a wider value cannot bleed into the
+    // rest of the top byte.
+    return (void *)(((u64)p & 0x00FFFFFFFFFFFFFFULL) | ((u64)(tag & 0xF) << 56));
 }
 
 
@@ -33,7 +35,7 @@ void mte_randomly_tag_region(const void* ptr, uint64_t length) {
 
 	for (; loc < length; loc += MTE_GRANULE_SIZE) {
 		uintptr_t current_ptr = (uintptr_t)ptr + loc;
-		uint8_t tag = 6; // mte_get_random_tag();
+		uint8_t tag = MTE_INITIAL_TAG;
 		const void* tagged_ptr = tag_ptr((void*)current_ptr, tag);
 		stg(tagged_ptr);
 	}
@@ -51,7 +53,7 @@ void mte_init_sandbox_tags(const void* base, uint64_t length, uint8_t tag) {
 void mte_apply_sandbox_tags(const void* base, const uint8_t* tags, uint64_t n_granules) {
 	for (uint64_t i = 0; i < n_granules; ++i) {
 		uintptr_t current_ptr = (uintptr_t)base + i * MTE_GRANULE_SIZE;
-		const void* tagged_ptr = tag_ptr((void*)current_ptr, tags[i] & 0xF);
+		const void* tagged_ptr = tag_ptr((void*)current_ptr, tags[i]);
 		stg(tagged_ptr);
 	}
 }

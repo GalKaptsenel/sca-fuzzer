@@ -55,10 +55,13 @@ static void load_input_to_sandbox(input_t* input) {
 	load_memory_from_input(input);
 	load_registers_from_input(input);
 
-	// Per-input MTE tags override the setup tagging over the contiguous main|faulty span.
+	// Per-input MTE tags override the setup tagging over the contiguous main|faulty span. When an
+	// input carries no tags, reset the span to the default so it never inherits a prior input's tags.
 	if (input->mte_tags_present) {
 		mte_apply_sandbox_tags(executor.sandbox->main_region, input->mte_tags,
 		                       INPUT_MTE_TAG_COUNT);
+	} else {
+		mte_init_sandbox_tags(executor.sandbox->main_region, MEMORY_INPUT_SIZE, MTE_INITIAL_TAG);
 	}
 }
 

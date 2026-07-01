@@ -3,6 +3,10 @@
 
 #include "main.h"
 
+// The default allocation tag the sandbox is uniformly loaded with. TBD: generalize to randomized
+// per-granule initial tags.
+#define MTE_INITIAL_TAG		(6)
+
 void *mte_alloc_tagged_region(size_t size);
 void mte_free_tagged_region(void *ptr, size_t size);
 bool mte_region_is_tagged(const void *ptr, size_t size);
