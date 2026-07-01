@@ -37,6 +37,11 @@ python3 -m unittest discover -s tests/aarch64_tests -p "unit_*.py" -t tests/aarc
 cd - >/dev/null || exit
 
 echo ""
+echo "===== AArch64 contract-executor C tests ====="
+# Full suite (needs an AArch64 host: test_ce_integration forks the contract_executor binary).
+make -C $SCRIPT_DIR/../src/aarch64/contract_executor test
+
+echo ""
 echo "===== x86 kernel module ====="
 cd $SCRIPT_DIR || exit
 ./x86_tests/kernel_module.bats

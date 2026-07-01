@@ -36,14 +36,22 @@ SRCS = \
   tage_py.c \
   main.c
 
-.PHONY: all clean test
+.PHONY: all clean test test-ci
 all: contract_executor
 
-# Build + run both C test suites. The binaries resolve paths from their own location, so this
-# works from any cwd (no need to cd anywhere first).
-test: test_ce test_ce_integration contract_executor
+# Build + run every C test suite. The binaries resolve paths from their own location, so this works
+# from any cwd. test_ce_integration forks ./contract_executor, so that target is built too; this
+# requires an AArch64 host (contract_executor embeds base_hook.S + python-embed).
+test: test_ce test_ce_integration test_mte_tagmem contract_executor
 	./test_ce
 	./test_ce_integration
+	./test_mte_tagmem
+
+# Host-portable subset for CI on a non-AArch64 runner: only the self-contained suites (test_ce and
+# test_mte_tagmem build and run anywhere; test_ce_integration needs the AArch64 contract_executor).
+test-ci: test_ce test_mte_tagmem
+	./test_ce
+	./test_mte_tagmem
 
 # Target
 contract_executor: $(SRCS) $(HDRS)
@@ -63,5 +71,5 @@ test_mte_tagmem: $(MTE_TEST_SRCS) $(HDRS)
 	$(CC) $(CFLAGS) -I. $(MTE_TEST_SRCS) -o $@
 
 clean:
-	rm -f contract_executor test_ce test_ce_integration
+	rm -f contract_executor test_ce test_ce_integration test_mte_tagmem
 
