@@ -100,7 +100,7 @@ One round = **one test case measured against many inputs**.
 6. **Analyse.** Group inputs by ctrace; within a group, **differing htraces ⇒ a candidate
    violation**.
 7. **Filter.** Re-trace at higher speculation nesting and re-measure to drop false positives.
-8. **Report.** Save the confirmed violation — test case, inputs, and traces — for triage (§8).
+8. **Report.** Save the confirmed violation — test case, inputs, and traces — for triage (§7).
 
 A **fast path** (minimal speculation nesting, few repetitions) finds candidates quickly; only
 candidates pay for the slower confirmation path (max nesting + re-measurement).
@@ -200,7 +200,7 @@ Runtime knobs are plain sysfs files.
 | `warmups` | rw | unsigned int | Micro-architectural warm-up rounds before the measured run. |
 | `enable_pre_run_flush` | rw | `0` / non-zero | Flush the branch-predictor history before each run so the previous run doesn't bias the next. |
 | `pin_to_core` | rw | online CPU id | Pin execution to a CPU (invalid → current CPU). |
-| `enable_branch_training` | rw | `0` / non-zero | Apply mistraining before the measured run (§7). |
+| `enable_branch_training` | rw | `0` / non-zero | Apply mistraining before the measured run (§12). |
 | `branch_training_config` | rw | `offset:taken,…` (byte offset from the start of the test case; `1`=taken, `0`=not-taken) | Mistraining sequence; writing it also enables training. |
 | `print_sandbox_base` | r | hex pointer | Base of the sandbox `main_region` (input page 0). |
 | `print_code_base` | r | hex pointer | Where the test-case code is loaded, for the selected `measurement_mode`. |
@@ -277,6 +277,66 @@ clauses:
 Supported clause combinations are validated in both Python and C: `seq` (empty), `cond`, `bpas`,
 `bpu`, and `cond|bpas`; two branch models together (`cond|bpu`) are rejected.
 
+### 5.3 Branch-predictor model (reverse-engineered Neoverse-N3)
+
+The `bpu` clause drives branch outcomes with a model of the target core's predictor — a TAGE
+direction predictor for the Arm Neoverse-N3 (`saturating_bp.py::Aarch64NeoverseN3BPU`, configured in
+`bootstrap_director.py`). Some of it is reverse-engineered from the silicon; the rest is an
+explicit, labelled model.
+
+**Structure.** A bimodal base table plus tagged tables, indexed and tagged by the branch PC folded
+with progressively longer slices of a **path-history register (PHR)**. A prediction is the counter
+of the longest table whose tag matches; the base is the always-available fallback. The base table
+has 2¹² entries, the tagged tables 2¹¹ each, with 3-bit saturating counters.
+
+**Reverse-engineered facts** (from the N3 silicon; see the `kb-bpu-re` notes):
+
+- The global history is **path** history: it advances on **taken** branches only.
+- Each taken branch shifts the PHR left by 4 bits and XORs in a 4-bit footprint of the branch,
+  computed from fixed PC and target bit positions:
+  - `b0 = pc[2] ^ pc[6] ^ target[3] ^ target[7]`
+  - `b1 = pc[3] ^ pc[7] ^ target[4] ^ target[8]`
+  - `b2 = pc[4] ^ pc[8] ^ target[5] ^ target[9]`
+  - `b3 = pc[5] ^ pc[9] ^ target[6] ^ target[10]`
+- The two tagged tables use history lengths **172** and **300**.
+- Each entry holds a **3-bit** saturating counter (confirmed on the base table and the
+  300-history-length table; the 172-length table is presumed the same).
+- PC bits **[2:18]** feed the index/tag functions. Within that range, bits **[2:7]** appear in the
+  **tag** (not the index) and bits **[8:18]** appear in the **index** (whether [8:18] also feed the
+  tag is not established).
+
+**Tentative — low-confidence, from experiments only (fragile, not implemented):** the tag appears to
+combine PC bits with *deep* PHR bits, stepped by 10. Two tag inputs looked like
+
+```
+tag_a ~ PC[3] ^ PC[5] ^ PC[7] ^ PHR[299] ^ PHR[289] ^ ... ^ PHR[178]
+tag_b ~ PC[2] ^ PC[4] ^ PC[6] ^ PHR[298] ^ PHR[288] ^ ... ^ PHR[177]
+```
+
+and probably continue deeper than the range that was observable. Treat this as a hypothesis, not a
+result.
+
+**Separating test cases in the BPU.** Because PC bits [2:18] feed the index/tag, changing a bit in
+that range moves a branch to a different tag or index and so **de-aliases** it from another branch —
+useful for keeping test cases (or inputs) from sharing predictor state. Changing an **index** bit
+([8:18]) is the stronger choice: it gives a *physical* separation into a different table entry,
+whereas changing a tag-only bit ([2:7]) merely forces a tag mismatch within the same entry.
+
+**Speculation** (textbook TAGE + speculative global history): the PHR is advanced *speculatively* at
+fetch with the predicted direction and checkpointed, so a misprediction rolls it back; the counter
+tables train **at retire only** (architectural path, `spec_nesting == 0`), so wrong-path branches
+never train them and the tables need no rollback.
+
+**Modelling placeholders** — *not* reverse-engineered, and made explicitly at the construction seam
+(`bootstrap_director.create_predictor`) rather than baked in silently:
+
+- the PHR fold algorithm and its group width (`PHR_FOLD_GROUP_WIDTH = 11`) for the index/tag;
+- the tagged-table tag width (`TAG_WIDTH = 8`, arbitrary — a finite tag does make distinct branches
+  alias, as real TAGE does);
+- the "useful" (u) bit and everything it drives (u-gated replacement and aging), replaced here by
+  plain LRU within a set;
+- the `altpred` / `USE_ALT_ON_NA` fallback for freshly-allocated entries.
+
 ## 6. Contracts: what you can detect
 
 A contract has two halves, each chosen in the config:
@@ -330,18 +390,7 @@ primitive-related leak.
             +----------------------------------------+
 ```
 
-## 7. Mistraining
-
-Branch mistraining saturates a conditional branch **opposite** its architectural direction before
-the measured run, so the branch mispredicts and a speculative window opens. It is driven by the
-CE's architectural branch directions (`branch_mistraining_entries` → `apply_branch_mistraining`) and
-applied through the `enable_branch_training` + `branch_training_config` sysfs knobs (§4.2).
-
-It is **off by default** (`enable_branch_mistraining = False`), pending hardware confirmation that
-the training is effective on the target core. With it off, Spectre-v1 relies on the guarding branch
-mispredicting naturally (`enable_pre_run_flush: 0`).
-
-## 8. Techniques: triaging a violation
+## 7. Techniques: triaging a violation
 
 A `fuzz` run reports a *contract violation* — two inputs that are architecturally equivalent yet
 produce different hardware traces. Two [Claude Code](https://claude.com/claude-code) **skills**
@@ -361,13 +410,19 @@ These are quick verification heuristics: a GENUINE verdict plus a clean reproduc
 corroboration. Note that re-measuring the *same* test many times trains the branch predictor and can
 hide a genuine leak, so it is not a way to "confirm noise".
 
-## 9. Memory layouts
+## 8. Memory layouts
 
-### 9.1 Sandbox
+### 8.1 Sandbox
 
 A test case may only touch a fixed arena. During the run `x29` holds the **main-region** base;
 every memory access is masked to `x29 + (reg & 0x1fff)`, so it always lands in `main`+`faulty`
-(8 KB). The cache set of an access is `(offset // 64) % 64`.
+(8 KB).
+
+The target core's L1 data cache is **64 KB, 4-way set-associative** with 64-byte lines
+(`L1D_SIZE_K=64`, `L1D_ASSOCIATIVITY=4` in the executor Makefile), giving 256 sets and a 16 KB
+conflict distance — the stride at which addresses collide in a set, which is what Prime+Probe
+evicts along. The htrace is a 64-entry cache-set bitmap; an access at sandbox `offset` maps to bit
+`(offset // 64) % 64`.
 
 ```
    low address
@@ -389,7 +444,7 @@ every memory access is masked to `x29 + (reg & 0x1fff)`, so it always lands in `
    high address
 ```
 
-### 9.2 Input register region
+### 8.2 Input register region
 
 An input seeds memory (`main` + `faulty`) and the registers. The register region is 8 × 64-bit
 slots:
@@ -404,9 +459,9 @@ The flags slot uses a **per-flag NZCV encoding**: each of N, Z, C, V occupies bi
 within the slot, so the four flags stay independent under taint tracking; the slot is converted to
 ARM `PSTATE` form just before execution.
 
-## 10. File formats
+## 9. File formats
 
-### 10.1 Run config (YAML)
+### 9.1 Run config (YAML)
 
 A run is configured by a YAML file passed with `-c`. Options not set take their architecture
 defaults (`src/aarch64/aarch64_config.py` and the shared `src/config.py`). A representative config:
@@ -414,7 +469,7 @@ defaults (`src/aarch64/aarch64_config.py` and the shared `src/config.py`). A rep
 ```yaml
 instruction_set: aarch64
 
-# Which instruction families the generator may emit (§11).
+# Which instruction families the generator may emit (§10).
 instruction_categories:
   - BASE-ARITH
   - BASE-LOGICAL
@@ -460,20 +515,20 @@ Commonly-set options, by group:
 The number of test cases and inputs per run are CLI flags, not config keys: `-n <test cases>` and
 `-i <inputs>`.
 
-### 10.2 Instruction-set spec (`base.json`)
+### 9.2 Instruction-set spec (`base.json`)
 
 `base.json` is the instruction-set spec the generator emits from. It is **not hand-edited** — it is
-generated from ARM's machine-readable A64 ISA (§12) — but its shape is worth knowing.
+generated from ARM's machine-readable A64 ISA (§11) — but its shape is worth knowing.
 
 The file is a JSON **list** of instruction nodes. `isa_loader` reads these fields per node:
 
 | Field | Meaning |
 |---|---|
 | `name` | Mnemonic (e.g. `"add"`). |
-| `category` | Coarse ISA category; only `"general"` is emittable (§11). |
+| `category` | Coarse ISA category; only `"general"` is emittable (§10). |
 | `control_flow` | `true` for branches / control-flow instructions. |
 | `template` | Python format string used to render the instruction to assembly text. |
-| `tags` | List of taxonomy tags (§11); defaults to `[category]` if absent. |
+| `tags` | List of taxonomy tags (§10); defaults to `[category]` if absent. |
 | `operands` | List of operand specs (below). |
 | `implicit_operands` | Operands read/written but not spelled out in the text (e.g. flags). |
 
@@ -500,7 +555,7 @@ taken from the ISA definition rather than inferred from register positions. One 
 }
 ```
 
-### 10.3 Operand model (Python)
+### 9.3 Operand model (Python)
 
 Specs and runtime instructions share one operand model (`src/interfaces.py`), common to both ISAs:
 
@@ -517,7 +572,7 @@ The sandbox finds the `BASE` component **by role** and confines it (`AND base,#m
 cancelling every other component so the effective address stays `x29 + (base & mask)`; it iterates
 every memory operand, so multi-access instructions are all confined.
 
-## 11. Instruction taxonomy
+## 10. Instruction taxonomy
 
 The generator emits only instructions the spec marks as supported, scoped to a set of
 **categories**. Both are driven by tags in `base.json`.
@@ -543,7 +598,7 @@ only if it passes **all** of them:
 In short: **emittable ≈ general ∩ supported_instructions ∩ ¬blocklist ∩ (tag ∈ categories)**, with
 the allow-list as a per-name override.
 
-## 12. Running
+## 11. Running
 
 Build the instruction-set spec once (downloads ARM's A64 ISA XML and parses it into `base.json`;
 the download is cached, so re-runs are fast):
@@ -583,6 +638,23 @@ run on AArch64.
 Tests also run from the repo root: `python3 -m unittest discover -s tests -p 'unit_*.py'` (common)
 and `python3 -m unittest discover -s tests/aarch64_tests -p 'unit_*.py' -t tests/aarch64_tests`
 (AArch64). `tests/runtests.sh` runs the whole thing.
+
+## 12. Experimental: work in progress
+
+**Mistraining.** Branch mistraining saturates a conditional branch *opposite* its architectural
+direction before the measured run, so it mispredicts on the measured run and opens a speculative
+window. It is driven by the CE's architectural branch directions (`branch_mistraining_entries` →
+`apply_branch_mistraining`) and applied through the `enable_branch_training` +
+`branch_training_config` sysfs knobs (§4.2). It is **off by default**
+(`enable_branch_mistraining = False`): the training direction is correct (opposite = mispredict) but
+its effectiveness on the target core is not yet confirmed, so Spectre-v1 detection currently relies
+on the branch mispredicting *naturally* (`enable_pre_run_flush: 0`). Re-enable once validated on
+hardware.
+
+**Directed fuzzing.** `src/directed_fuzzing/` is a self-contained alternative to purely random
+generation: it uses Monte-Carlo Tree Search over a micro-architecture simulator to steer test-case
+generation toward programs more likely to leak, rather than sampling uniformly. It is not wired into
+the main fuzzer yet.
 
 ## Glossary
 
