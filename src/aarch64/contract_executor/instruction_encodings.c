@@ -52,7 +52,7 @@ uint32_t encode_bl(uintptr_t from, uintptr_t to) {
 }
 
 branch_type_t classify_branch(uint32_t instr) {
-    if ((instr & 0xFF000010) == 0x54000000) return BRANCH_B_COND;
+    if ((instr & 0xFF000010) == 0x54000000 && (instr & 0xF) < 0xE) return BRANCH_B_COND;  /* excl. AL/NV */
     if ((instr & 0xFC000000) == 0x14000000) return BRANCH_B;
     if ((instr & 0xFC000000) == 0x94000000) return BRANCH_BL;
     if ((instr & 0xFFFFFC1F) == 0xD63F0000) return BRANCH_BLR;

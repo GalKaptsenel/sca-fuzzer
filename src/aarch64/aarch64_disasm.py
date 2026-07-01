@@ -117,10 +117,12 @@ def decode_tag_store(encoding: int, pc: int):
 
 
 def is_conditional_branch(encoding: int) -> bool:
-    """Return True if encoding is a conditional branch: B.cond, CBZ/CBNZ (32/64), TBZ/TBNZ."""
+    """Return True if encoding is a conditional branch: B.cond, CBZ/CBNZ (32/64), TBZ/TBNZ.
+    B.cond with cond AL (0xE) or NV (0xF) branches unconditionally, so it is excluded."""
     op = (encoding >> 24) & 0xFF
-    return op in (0x54,                          # B.cond
-                  0x34, 0x35, 0xB4, 0xB5,        # CBZ/CBNZ w/x
+    if op == 0x54:
+        return (encoding & 0xF) < 0xE
+    return op in (0x34, 0x35, 0xB4, 0xB5,        # CBZ/CBNZ w/x
                   0x36, 0x37, 0xB6, 0xB7)        # TBZ/TBNZ w/x
 
 

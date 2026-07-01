@@ -94,6 +94,15 @@ class Aarch64AsmParserTest(unittest.TestCase):
     def test_immediate_operand_preserved(self):
         self._assert_roundtrip("ADDS  w4, w3, #1417")
 
+    def test_fpsimd_instruction_rejected(self):
+        for line in ("fmov d0, d1", "fadd v0.4s, v1.4s, v2.4s", "ldr q0, [x1]", "movprfx z0, z1"):
+            with self.assertRaises(SystemExit):
+                self._parse(line)
+
+    def test_general_form_of_dual_category_mnemonic_still_parses(self):
+        # `ldr` exists in both `general` and `fpsimd`/`sve`; the GPR form must survive the category filter.
+        self.assertEqual(self._parse("LDR  x0, [x1]").name, "ldr")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -144,6 +144,9 @@ static void test_classify_branch(void) {
     EXPECT_EQ(classify_branch(ENC_LDR_X0_X1),       BRANCH_NONE);
     /* B.cond with bit4=1 is not a valid conditional branch */
     EXPECT_EQ(classify_branch(0x54000010u),         BRANCH_NONE);
+    /* B.al / B.nv branch unconditionally, so they are not conditional branches */
+    EXPECT_EQ(classify_branch(0x5400004Eu),         BRANCH_NONE);  /* B.al +8 */
+    EXPECT_EQ(classify_branch(0x5400004Fu),         BRANCH_NONE);  /* B.nv +8 */
 }
 
 /* ======================================================================== */
@@ -1647,8 +1650,13 @@ static void test_bcond_integration(void) {
         /* Build B.cond: bits[31:24]=0x54, bits[23:5]=imm19=2, bit4=0, bits[3:0]=cond */
         uint32_t insn = 0x54000000u | (2u << 5) | cond;
 
-        EXPECT_EQ(classify_branch(insn),         BRANCH_B_COND);
-        EXPECT_EQ(evaluate_cond_target(pc, insn), pc + 8);
+        if (cases[i].always_taken) {
+            /* AL/NV branch unconditionally, so they are not conditional branches */
+            EXPECT_EQ(classify_branch(insn), BRANCH_NONE);
+        } else {
+            EXPECT_EQ(classify_branch(insn),         BRANCH_B_COND);
+            EXPECT_EQ(evaluate_cond_target(pc, insn), pc + 8);
+        }
 
         /* taken path */
         bool taken = condition_passed_ref(cond, cases[i].nzcv_taken);

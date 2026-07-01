@@ -664,14 +664,11 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
         search_for_memory_access = random.random() < memory_access_probability
         if not search_for_memory_access:
             return random.choice(non_memory_access_instructions)
-        if store_instructions:
-            search_for_store = random.random() < 0.5  # 50% probability of stores
-        else:
-            search_for_store = False
 
-        if search_for_store:
+        # Draw store vs load only among the non-empty pools: a config may enable a single direction,
+        # so a 50/50 draw landing on an empty pool must fall through to the other, not crash.
+        if store_instructions and (not load_instructions or random.random() < 0.5):
             return random.choice(store_instructions)
-
         return random.choice(load_instructions)
 
     @abc.abstractmethod

@@ -15,6 +15,11 @@ from ..interfaces import OT, Instruction, InstructionSpec, LabelOperand, Registe
 
 _TEMPLATE_REGEX_CACHE = weakref.WeakKeyDictionary()
 
+# base.json categories the executor cannot run: FP/SIMD, SVE/SVE2, SME/SME2 (mortlach). Generation
+# already excludes them (only "general" is emitted), but the asm/template path resolves against the
+# unfiltered spec set, so it must reject them explicitly.
+_REJECTED_CATEGORIES = frozenset({"advsimd", "float", "fpsimd", "sve", "sve2", "mortlach", "mortlach2"})
+
 
 def _flatten_specs(spec):
     """The operand specs that own a template placeholder, in order: a memory access contributes its
@@ -126,6 +131,8 @@ class Aarch64AsmParser(AsmParserGeneric):
                       f"Ambiguous parse: {len(shapes)} distinct operand shapes match {line!r}")
 
         spec, values = matches[0]
+        parser_assert(spec.category not in _REJECTED_CATEGORIES, line_num,
+                      f"Unsupported instruction category {spec.category!r}: {line}")
         return self._build_instruction(spec, values, is_instrumentation, is_noremove, line_num)
 
     def _simple_operand(self, op_spec, value, line_num):

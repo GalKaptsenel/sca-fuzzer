@@ -12,7 +12,7 @@ import unittest
 
 import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
 import capstone
-from src.aarch64.aarch64_disasm import decode_reg_accesses
+from src.aarch64.aarch64_disasm import decode_reg_accesses, is_conditional_branch
 from src.aarch64.aarch64_config import supported_instructions
 
 _MD = capstone.Cs(capstone.CS_ARCH_ARM64, capstone.CS_MODE_LITTLE_ENDIAN)
@@ -91,6 +91,18 @@ class DisasmRegAccessTest(unittest.TestCase):
                        or mnemonic in EXPLICIT_OPERAND_ONLY
                        or any(t.startswith(mnemonic) for t in tested))   # "b." <- "b.eq"
             self.assertTrue(covered, f"{mnemonic!r} is generated but has no reg-access test/classification")
+
+
+class IsConditionalBranchTest(unittest.TestCase):
+    def test_bcond_is_conditional(self):
+        self.assertTrue(is_conditional_branch(0x54000040))   # B.eq +8
+        self.assertTrue(is_conditional_branch(0x5400004B))   # B.lt +8
+        self.assertTrue(is_conditional_branch(0xB4000040))   # CBZ  x0, +8
+        self.assertTrue(is_conditional_branch(0x36000040))   # TBZ  w0, #0, +8
+
+    def test_bal_bnv_are_not_conditional(self):
+        self.assertFalse(is_conditional_branch(0x5400004E))  # B.al +8
+        self.assertFalse(is_conditional_branch(0x5400004F))  # B.nv +8
 
 
 if __name__ == "__main__":

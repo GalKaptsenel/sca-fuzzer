@@ -424,9 +424,12 @@ class Aarch64RandomGenerator(Aarch64Generator, RandomGenerator):
         reg = random.choice(choices)
         return RegisterOperand(reg, spec.width, spec.src, spec.dest)
 
-    def generate_cond_operand(self, spec: OperandSpec, _: Instruction) -> Operand:
-        cond = random.choice(spec.values)
-        return CondOperand(cond)
+    def generate_cond_operand(self, spec: OperandSpec, inst: Instruction) -> Operand:
+        values = spec.values
+        if inst.control_flow:
+            # AL/NV branch unconditionally; keep a conditional branch's fallthrough reachable.
+            values = [c for c in values if c not in ("al", "nv")]
+        return CondOperand(random.choice(values))
 
     def generate_mem_operand(self, spec: MemorySpec, inst: Instruction) -> Operand:
         # a memory access wraps its address components (base/index/offset/extend); generate each via the
