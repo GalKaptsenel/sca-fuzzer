@@ -9,6 +9,7 @@ from typing import Iterable, Iterator, List, Set
 from itertools import chain
 
 from ..interfaces import CTrace, InputTaint
+from ..config import CONF, ConfigException
 from .aarch64_disasm import disassemble_instruction, decode_reg_accesses
 from .aarch64_input_layout import map_register_to_offsets
 from .aarch64_target_desc import Aarch64TargetDesc, SANDBOX_BASE_REGISTER
@@ -268,23 +269,164 @@ def compute_taint(cer: ContractExecutionResult) -> InputTaint:
     return input_taint
 
 
-def compute_ctrace(cer: ContractExecutionResult) -> CTrace:
-    # Ordered sequence of cache sets, in execution order (architectural and speculative accesses
-    # interleaved at their execution point). Order distinguishes architectural from speculative
-    # observations by position — like the x86 contract tracer — so no arch/spec value offset is
-    # needed. Within one access, consecutive bytes in the same line collapse to a single entry.
-    line_size, num_sets = 64, 64
+_CACHE_LINE = 64
+_NUM_SETS = 64
+
+
+def _sandbox_base(ite) -> int:
+    return ite.cpu.gpr[_SANDBOX_BASE_GPR]
+
+
+def _code_start(cer: ContractExecutionResult) -> int:
+    """The PC of the first traced instruction; PCs are normalized against it for reproducibility."""
+    for ite in cer:
+        return ite.cpu.pc
+    return 0
+
+
+def _initial_regs(cer: ContractExecutionResult) -> List[int]:
+    """Register state at test-case entry (the CTR/ARCH observation clauses seed the trace with it)."""
+    for ite in cer:
+        return list(ite.cpu.gpr) + [ite.cpu.sp, ite.cpu.nzcv]
+    return []
+
+
+def _cache_sets(ma, base: int) -> Iterator[int]:
+    for byte_idx in range(ma.element_size):
+        yield ((ma.effective_address + byte_idx - base) // _CACHE_LINE) % _NUM_SETS
+
+
+def _is_speculative(ite) -> bool:
+    return ite.metadata.speculation_nesting != 0
+
+
+def _ct_none(cer: ContractExecutionResult) -> CTrace:
+    return CTrace.get_null()
+
+
+def _ct_l1d(cer: ContractExecutionResult) -> CTrace:
+    # Union bitmap of the L1D cache sets touched (arch and speculative merged), matching the single
+    # unordered cache-set bitmap the hardware reports. Order has no observable counterpart here.
+    bitmap = 0
+    for ite in cer:
+        base = _sandbox_base(ite)
+        for ma in ite.metadata.accesses():
+            for cache_set in _cache_sets(ma, base):
+                bitmap |= 1 << cache_set
+    ctrace = CTrace([bitmap])
+    ctrace.hash_ = bitmap
+    return ctrace
+
+
+def _ct_pc(cer: ContractExecutionResult) -> CTrace:
+    code_start = _code_start(cer)
+    return CTrace([ite.cpu.pc - code_start for ite in cer])
+
+
+def _ct_memory(cer: ContractExecutionResult) -> CTrace:
     trace: List[int] = []
     for ite in cer:
-        base = ite.cpu.gpr[_SANDBOX_BASE_GPR]
+        base = _sandbox_base(ite)
         for ma in ite.metadata.accesses():
-            prev = None
-            for byte_idx in range(ma.element_size):
-                cache_set = ((ma.effective_address + byte_idx - base) // line_size) % num_sets
-                if cache_set != prev:
-                    trace.append(cache_set)
-                    prev = cache_set
-    return CTrace(raw_trace=trace)
+            trace.append(ma.effective_address - base)
+    return CTrace(trace)
+
+
+def _ct_ct(cer: ContractExecutionResult) -> CTrace:
+    code_start = _code_start(cer)
+    trace: List[int] = []
+    for ite in cer:
+        base = _sandbox_base(ite)
+        trace.append(ite.cpu.pc - code_start)
+        for ma in ite.metadata.accesses():
+            trace.append(ma.effective_address - base)
+    return CTrace(trace)
+
+
+def _ct_nonspecstore(cer: ContractExecutionResult) -> CTrace:
+    code_start = _code_start(cer)
+    trace: List[int] = []
+    for ite in cer:
+        base = _sandbox_base(ite)
+        spec = _is_speculative(ite)
+        trace.append(ite.cpu.pc - code_start)
+        for ma in ite.metadata.accesses():
+            if not spec or not ma.is_write:   # speculative stores are not observed
+                trace.append(ma.effective_address - base)
+    return CTrace(trace)
+
+
+def _ct_ctr(cer: ContractExecutionResult) -> CTrace:
+    return CTrace(_initial_regs(cer) + _ct_ct(cer).raw)
+
+
+def _ct_arch(cer: ContractExecutionResult) -> CTrace:
+    code_start = _code_start(cer)
+    trace: List[int] = _initial_regs(cer)
+    for ite in cer:
+        base = _sandbox_base(ite)
+        trace.append(ite.cpu.pc - code_start)
+        for ma in ite.metadata.accesses():
+            if not ma.is_write or ma.is_atomic:
+                trace.append(ma.before)       # value read from memory
+            trace.append(ma.effective_address - base)
+    return CTrace(trace)
+
+
+def _line(addr: int) -> int:
+    return (addr // _CACHE_LINE) * _CACHE_LINE
+
+
+def _ct_tct(cer: ContractExecutionResult) -> CTrace:
+    code_start = _code_start(cer)
+    trace: List[int] = []
+    for ite in cer:
+        base = _sandbox_base(ite)
+        trace.append(_line(ite.cpu.pc - code_start))
+        for ma in ite.metadata.accesses():
+            trace.append(_line(ma.effective_address - base))
+    return CTrace(trace)
+
+
+def _ct_tcto(cer: ContractExecutionResult) -> CTrace:
+    code_start = _code_start(cer)
+    trace: List[int] = []
+    for ite in cer:
+        base = _sandbox_base(ite)
+        pc = ite.cpu.pc - code_start
+        trace.append(_line(pc))
+        if (pc + 4) // _CACHE_LINE != pc // _CACHE_LINE:   # instruction crosses a line
+            trace.append(_line(pc + 4))
+        for ma in ite.metadata.accesses():
+            addr = ma.effective_address - base
+            trace.append(_line(addr))
+            if (addr + ma.element_size) // _CACHE_LINE != addr // _CACHE_LINE:
+                trace.append(_line(addr + ma.element_size))
+    return CTrace(trace)
+
+
+_CTRACE_BUILDERS = {
+    "none": _ct_none,
+    "l1d": _ct_l1d,
+    "pc": _ct_pc,
+    "memory": _ct_memory,
+    "ct": _ct_ct,
+    "loads+stores+pc": _ct_ct,
+    "ct-nonspecstore": _ct_nonspecstore,
+    "ctr": _ct_ctr,
+    "arch": _ct_arch,
+    "tct": _ct_tct,
+    "tcto": _ct_tcto,
+}
+
+
+def compute_ctrace(cer: ContractExecutionResult) -> CTrace:
+    builder = _CTRACE_BUILDERS.get(CONF.contract_observation_clause)
+    if builder is None:
+        raise ConfigException(
+            f"contract_observation_clause '{CONF.contract_observation_clause}' "
+            f"is not implemented on AArch64")
+    return builder(cer)
 
 
 def show_context(trace, idx, window=-1):

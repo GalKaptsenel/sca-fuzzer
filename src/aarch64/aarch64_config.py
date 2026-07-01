@@ -142,6 +142,9 @@ suppresses the misprediction Spectre-v1 needs. """
 instruction_categories: List[str] = ["BASE-ARITH", "BASE-LOGICAL", "BASE-BRANCH-COND"]
 """ instruction_categories: a default list of tested instruction categories """
 
+contract_observation_clause: str = 'l1d'
+""" contract_observation_clause: """
+
 # Instructions known to misbehave under the executor; none identified for AArch64 yet.
 _buggy_instructions: List[str] = []
 

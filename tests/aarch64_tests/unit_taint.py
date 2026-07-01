@@ -12,6 +12,7 @@ import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..",
 from src.aarch64.aarch64_trace import _TaintTracker, compute_taint, compute_ctrace
 from src.aarch64.aarch64_disasm import decode_reg_accesses
 from src.aarch64.aarch64_input_layout import map_register_to_offsets
+from src.config import CONF, ConfigException
 
 # ===========================================================================
 # Mock CE trace infrastructure
@@ -26,6 +27,7 @@ class _MA:
     element_size: int
     is_write: bool
     is_atomic: bool = False
+    before: int = 0
 
 
 @dataclass
@@ -47,6 +49,8 @@ class _CPU:
     gpr: List[int]
     pc: int = 0
     encoding: int = 0
+    sp: int = 0
+    nzcv: int = 0
 
 
 @dataclass
@@ -63,11 +67,18 @@ def _make_trace(*steps: dict) -> Tuple[List[_ITE], object]:
       depth   : int              speculation nesting (default 0)
       srcs    : List[str]        register source operands
       dests   : List[str]        register destination operands
-      mem     : (offset, size, is_write)  memory access relative to sandbox base
-      mem2    : (offset, size, is_write)  second pair element (LDP/STP); marks the entry is_pair
+      mem     : (offset, size, is_write[, before])  memory access relative to sandbox base
+      mem2    : (offset, size, is_write[, before])  second pair element (LDP/STP); marks is_pair
+      pc      : int              instruction PC (default 0)
+      sp,nzcv : int              register state at this instruction (default 0)
 
     Returns (trace, fake_get_srcs_dests) ready for use with patch().
     """
+    def _mk_ma(spec):
+        rel_off, size, is_write = spec[0], spec[1], spec[2]
+        before = spec[3] if len(spec) > 3 else 0
+        return _MA(SANDBOX_BASE + rel_off, size, is_write, before=before)
+
     ites: List[_ITE] = []
     patch_map: Dict[int, Tuple[List[str], List[str]]] = {}
 
@@ -76,19 +87,15 @@ def _make_trace(*steps: dict) -> Tuple[List[_ITE], object]:
         gprs[29] = SANDBOX_BASE
 
         mem = step.get('mem')
-        if mem:
-            rel_off, size, is_write = mem
-            ma = _MA(SANDBOX_BASE + rel_off, size, is_write)
-        else:
-            ma = None
+        ma = _mk_ma(mem) if mem else None
 
         meta = _Meta(step.get('depth', 0), ma is not None, ma)
         mem2 = step.get('mem2')
         if mem2:
-            rel_off2, size2, is_write2 = mem2
             meta.is_pair = True
-            meta.memory_access2 = _MA(SANDBOX_BASE + rel_off2, size2, is_write2)
-        ites.append(_ITE(meta, _CPU(gprs, encoding=enc)))
+            meta.memory_access2 = _mk_ma(mem2)
+        ites.append(_ITE(meta, _CPU(gprs, pc=step.get('pc', 0), encoding=enc,
+                                    sp=step.get('sp', 0), nzcv=step.get('nzcv', 0))))
         patch_map[enc] = (step.get('srcs', []), step.get('dests', []))
 
     def _fake(encoding, pc):
@@ -106,9 +113,31 @@ def _taint(*steps: dict):
         return compute_taint(trace)
 
 
-def _ctrace(*steps: dict):
+import copy as _copy
+
+_SAVED_CONF = None
+
+
+def setUpModule():
+    # CONF is a Borg singleton; snapshot it so per-test contract_observation_clause changes here
+    # cannot leak into other modules during a full `unittest discover` run.
+    global _SAVED_CONF
+    _SAVED_CONF = _copy.deepcopy(CONF._borg_shared_state)
+
+
+def tearDownModule():
+    CONF._borg_shared_state.clear()
+    CONF._borg_shared_state.update(_SAVED_CONF)
+
+
+def _ctrace(clause: str, *steps: dict):
     trace, _ = _make_trace(*steps)
-    return compute_ctrace(trace)
+    saved = CONF.contract_observation_clause
+    CONF.contract_observation_clause = clause
+    try:
+        return compute_ctrace(trace)
+    finally:
+        CONF.contract_observation_clause = saved
 
 
 def _gpr_preserved(t, slot: int) -> bool:
@@ -448,85 +477,104 @@ class TestComputeTaint(unittest.TestCase):
 # compute_ctrace tests
 # ===========================================================================
 
-class TestComputeCtrace(unittest.TestCase):
+class TestComputeCtraceL1D(unittest.TestCase):
+    """l1d: an unordered union bitmap of touched cache sets, arch and speculative merged."""
 
-    def test_empty_trace_empty_ctrace(self):
-        ct = _ctrace()
-        self.assertEqual(ct.raw, [])
+    def test_single_read_sets_its_bit(self):
+        ct = _ctrace("l1d", {'mem': (64, 1, False)})   # set 1
+        self.assertEqual(ct.raw, [1 << 1])
 
-    def test_single_read_correct_cache_set(self):
-        ct = _ctrace({'depth': 0, 'mem': (0, 1, False)})
+    def test_union_of_distinct_sets(self):
+        ct = _ctrace("l1d",
+                     {'mem': (64, 1, False)},          # set 1
+                     {'mem': (128, 1, False)})         # set 2
+        self.assertEqual(ct.raw, [(1 << 1) | (1 << 2)])
+
+    def test_order_independent(self):
+        a = _ctrace("l1d", {'mem': (64, 1, False)}, {'mem': (128, 1, False)})
+        b = _ctrace("l1d", {'mem': (128, 1, False)}, {'mem': (64, 1, False)})
+        self.assertEqual(a.raw, b.raw)
+
+    def test_arch_and_speculative_merged(self):
+        ct = _ctrace("l1d",
+                     {'depth': 0, 'mem': (5 * 64, 8, False)},   # arch set 5
+                     {'depth': 1, 'mem': (3 * 64, 8, False)})   # spec set 3
+        self.assertEqual(ct.raw, [(1 << 5) | (1 << 3)])
+
+    def test_repeated_set_idempotent(self):
+        ct = _ctrace("l1d", {'mem': (0, 1, False)}, {'mem': (16, 1, False)})  # both set 0
+        self.assertEqual(ct.raw, [1 << 0])
+
+    def test_multi_byte_access_spans_lines(self):
+        ct = _ctrace("l1d", {'mem': (0, 128, False)})   # sets 0 and 1
+        self.assertEqual(ct.raw, [(1 << 0) | (1 << 1)])
+
+    def test_hash_equals_bitmap(self):
+        ct = _ctrace("l1d", {'mem': (128, 1, False)})
+        self.assertEqual(ct.hash_, 1 << 2)
+
+    def test_no_memory_access_zero_bitmap(self):
+        ct = _ctrace("l1d", {'srcs': ['x1'], 'dests': ['x0']})
         self.assertEqual(ct.raw, [0])
 
-    def test_cache_set_formula_in_execution_order(self):
-        # The trace is the sequence of cache sets in access order: set1, set2, set0 (64*64 wraps).
-        ct = _ctrace(
-            {'depth': 0, 'mem': (64,       1, False)},
-            {'depth': 0, 'mem': (128,      1, False)},
-            {'depth': 0, 'mem': (64 * 64,  1, False)},
-        )
-        self.assertEqual(ct.raw, [1, 2, 0])
 
-    def test_repeated_same_set_accesses_each_recorded(self):
-        # Separate accesses to the same line are each recorded (order-preserving, not set-folded).
-        ct = _ctrace(
-            {'depth': 0, 'mem': (0,  1, False)},
-            {'depth': 0, 'mem': (16, 1, False)},
-            {'depth': 0, 'mem': (32, 1, False)},
-        )
-        self.assertEqual(ct.raw, [0, 0, 0])
+class TestComputeCtraceClauses(unittest.TestCase):
+    """The ordered clauses derived from the CE trace, mirroring the x86 tracers."""
 
-    def test_order_is_preserved_not_sorted(self):
-        ct = _ctrace(
-            {'depth': 0, 'mem': (128, 1, False)},  # set 2
-            {'depth': 0, 'mem': (64,  1, False)},  # set 1
-            {'depth': 0, 'mem': (0,   1, False)},  # set 0
-        )
-        self.assertEqual(ct.raw, [2, 1, 0])        # execution order, NOT sorted
-
-    def test_write_accesses_appear_in_ctrace(self):
-        # Stores also leak via cache → must appear in ctrace.
-        ct = _ctrace({'depth': 0, 'mem': (64, 1, True)})
-        self.assertEqual(ct.raw, [1])
-
-    def test_speculative_access_recorded_at_its_position(self):
-        # Speculation depth no longer shifts the value — the access is recorded as its plain set,
-        # distinguished from architectural accesses only by its position in the sequence.
-        ct = _ctrace(
-            {'depth': 0, 'mem': (5 * 64, 8, False)},    # arch set 5
-            {'depth': 1, 'mem': (3 * 64, 8, False)},    # spec set 3 (recorded after, in order)
-        )
-        self.assertEqual(ct.raw, [5, 3])
-
-    def test_opposite_branch_directions_separated_by_order(self):
-        # A: arch X then spec Y → [X, Y];  B: arch Y then spec X → [Y, X].  Order keeps them distinct
-        # (no +offset needed), exactly like the x86 ordered contract tracer.
-        X, Y = 5, 10
-        a = _ctrace({'depth': 0, 'mem': (X * 64, 8, False)},
-                    {'depth': 1, 'mem': (Y * 64, 8, False)})
-        b = _ctrace({'depth': 0, 'mem': (Y * 64, 8, False)},
-                    {'depth': 1, 'mem': (X * 64, 8, False)})
-        self.assertEqual(a.raw, [X, Y])
-        self.assertEqual(b.raw, [Y, X])
-        self.assertNotEqual(a.raw, b.raw)
-
-    def test_multi_byte_access_spans_lines_in_order(self):
-        # A 128-byte load spanning two lines → both sets, in ascending address order, from ONE access.
-        ct = _ctrace({'depth': 0, 'mem': (0, 128, False)})
-        self.assertEqual(ct.raw, [0, 1])
-
-    def test_pair_records_both_elements_in_order(self):
-        # LDP/STP reads two adjacent 8-byte elements (element1 = element0 + 8). Straddling a line
-        # boundary, element0 (0x38 → set 0) and element1 (0x40 → set 1) are BOTH recorded, in order.
-        ct = _ctrace({'depth': 0, 'mem': (0x38, 8, False), 'mem2': (0x40, 8, False)})
-        self.assertEqual(ct.raw, [0, 1])
-
-    def test_no_memory_access_empty_ctrace(self):
-        ct = _ctrace(
-            {'depth': 0, 'srcs': ['x1'], 'dests': ['x0']},
-            {'depth': 0, 'srcs': ['x0'], 'dests': ['x2']},
-        )
+    def test_none_is_null(self):
+        ct = _ctrace("none", {'pc': 0x100, 'mem': (64, 8, False)})
         self.assertEqual(ct.raw, [])
+
+    def test_pc_records_normalized_pcs(self):
+        ct = _ctrace("pc",
+                     {'pc': 0x100}, {'pc': 0x104}, {'pc': 0x108})
+        self.assertEqual(ct.raw, [0, 4, 8])           # relative to the first PC
+
+    def test_memory_records_sandbox_relative_addresses(self):
+        ct = _ctrace("memory",
+                     {'pc': 0x100, 'mem': (0x40, 8, False)},
+                     {'pc': 0x104, 'mem': (0x80, 8, True)})
+        self.assertEqual(ct.raw, [0x40, 0x80])        # PC absent; stores included
+
+    def test_ct_interleaves_pc_then_addresses(self):
+        ct = _ctrace("ct",
+                     {'pc': 0x100, 'mem': (0x40, 8, False)},
+                     {'pc': 0x104, 'mem': (0x80, 8, True)})
+        self.assertEqual(ct.raw, [0, 0x40, 4, 0x80])
+
+    def test_ct_nonspecstore_drops_speculative_stores(self):
+        ct = _ctrace("ct-nonspecstore",
+                     {'pc': 0x100, 'depth': 1, 'mem': (0x40, 8, True)},    # spec store -> dropped
+                     {'pc': 0x104, 'depth': 1, 'mem': (0x80, 8, False)})   # spec load  -> kept
+        self.assertEqual(ct.raw, [0, 4, 0x80])
+
+    def test_ctr_prepends_initial_registers(self):
+        ct = _ctrace("ctr", {'pc': 0x100, 'sp': 0xabc, 'nzcv': 0xf, 'mem': (0x40, 8, False)})
+        self.assertEqual(len(ct.raw), 31 + 2 + 2)     # 31 gpr + sp + nzcv, then [pc, addr]
+        self.assertEqual(ct.raw[29], SANDBOX_BASE)    # base register seeded
+        self.assertEqual(ct.raw[31], 0xabc)           # sp
+        self.assertEqual(ct.raw[32], 0xf)             # nzcv
+        self.assertEqual(ct.raw[33:], [0, 0x40])
+
+    def test_arch_records_loaded_value_then_address(self):
+        ct = _ctrace("arch", {'pc': 0x100, 'mem': (0x40, 8, False, 0xdeadbeef)})
+        self.assertEqual(ct.raw[33:], [0, 0xdeadbeef, 0x40])   # pc, loaded value, address
+
+    def test_arch_store_has_no_loaded_value(self):
+        ct = _ctrace("arch", {'pc': 0x100, 'mem': (0x40, 8, True, 0x11)})
+        self.assertEqual(ct.raw[33:], [0, 0x40])               # pc, address (no value)
+
+    def test_tct_truncates_to_cache_line(self):
+        ct = _ctrace("tct", {'pc': 0x104, 'mem': (0x48, 8, False)})   # pc line 0x100, addr line 0x40
+        self.assertEqual(ct.raw, [0, 0x40])                          # (pc 4 -> line 0), (0x48 -> 0x40)
+
+    def test_tcto_adds_line_crossing(self):
+        ct = _ctrace("tcto", {'pc': 0x100, 'mem': (0x38, 16, False)})  # 0x38..0x47 crosses 0x40
+        self.assertEqual(ct.raw, [0, 0x0, 0x40])                       # pc line 0; addr lines 0x00,0x40
+
+    def test_unimplemented_clause_rejected(self):
+        with self.assertRaises(ConfigException):
+            _ctrace("wibble", {'pc': 0x100})
 
 
 class TestMemoryOperandRegisterTaint(unittest.TestCase):
