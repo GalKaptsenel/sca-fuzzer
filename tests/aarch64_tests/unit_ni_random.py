@@ -8,7 +8,7 @@ inputs, mints many decoys per input, classifies every slot, and checks:
     forged-auth, spec strip, MTE genuine/wrong-tag; and all four PAC*MTE decoy combinations.
 The deterministic per-case behaviour is pinned in unit_pac_seal / unit_mte_tagstate; this guards that
 the random generator+pipeline actually exercises them together. Driven through the new
-Sealer/SealedTestCase pipeline (src/aarch64/aarch64_sealer.py).
+Sealer/SealedTestCase pipeline (src/aarch64/seal/sealer.py).
 """
 import os
 import sys
@@ -22,8 +22,8 @@ _ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 from src.config import CONF
 from src.isa_loader import InstructionSet
 from src.aarch64.aarch64_generator import Aarch64RandomGenerator
-from src.aarch64.aarch64_seal import inst_at
-from src.aarch64.aarch64_pac import _AUTH_TO_PAC, _read_reg
+from src.aarch64.seal.primitives import inst_at
+from src.aarch64.seal.pac import _AUTH_TO_PAC, _read_reg
 from src import factory
 from src.util import FuzzLogger
 

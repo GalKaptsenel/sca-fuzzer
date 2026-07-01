@@ -29,7 +29,7 @@ def setUpModule():
             "kernel module not loaded — run "
             "'sudo insmod revizor-executor.ko && sudo chmod 777 /dev/executor' "
             "to run these tests")
-    from src.aarch64.aarch64_kernel import LocalHWExecutor, PacKeys
+    from src.aarch64.aarch64_kernel import LocalHWExecutor
     # Snapshot the CONF Borg so CONF.load() does not leak into other modules.
     _SAVED_CONF = copy.deepcopy(CONF._borg_shared_state)
     CONF.load(os.path.join(_ROOT, "config.yml"))

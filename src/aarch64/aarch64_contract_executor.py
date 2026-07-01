@@ -10,8 +10,8 @@ from enum import IntFlag, IntEnum
 from .contract_executor.stream_ipc import StreamIPC
 from .aarch64_trace import ContractExecutionResult
 from ..util import Logger
-from .aarch64_input_wire import build_input_init
-from .aarch64_pac import PacKeys
+from .aarch64_executor_input_encoder import build_input_init
+from .aarch64_kernel import PacKeys
 from ..interfaces import MAIN_AREA_SIZE, GPR_SUBREGION_SIZE
 
 class SimFlags(IntFlag):

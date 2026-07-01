@@ -2,7 +2,7 @@
 
 Verifies the routing (no PAC/MTE -> plain executor; PAC / MTE / both -> sealed executor with the
 right primitives) and the per-input sealing of Aarch64RegularSealedExecutor, now driven through the
-new Sealer/SealedTestCase pipeline (src/aarch64/aarch64_sealer.py): every architectural slot is
+new Sealer/SealedTestCase pipeline (src/aarch64/seal/sealer.py): every architectural slot is
 genuine (correct signature/tag — arch-safe); speculative slots are genuine or decoyed by a
 per-sealing-class coin flip (consistent within a class, shared by every class member).
 """
@@ -17,7 +17,7 @@ _ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 from src.config import CONF
 from src.isa_loader import InstructionSet
 from src.aarch64.aarch64_generator import Aarch64RandomGenerator
-from src.aarch64.aarch64_seal import inst_at
+from src.aarch64.seal.primitives import inst_at
 from src import factory
 
 _BASE = ["BASE-ARITH", "BASE-LOGICAL", "BASE-SHIFT", "BASE-BRANCH", "BASE-MEM-LOAD", "BASE-MEM-STORE"]
@@ -88,7 +88,7 @@ class RegularSealedRoutingTest(unittest.TestCase):
         PAC-only never tags (so the kernel/CE leave tag memory untouched)."""
         from src.interfaces import Input
         from src.aarch64.aarch64_mte import MTE_INITIAL_DEFAULT_TAG
-        from src.aarch64.aarch64_input_wire import MTE_TAG_COUNT
+        from src.aarch64.aarch64_executor_input_encoder import MTE_TAG_COUNT
         inp = Input()
         self.assertIsNone(self._executor_for(["PAC"] + _BASE)._mte_tags_for(inp))
         tags = self._executor_for(["MTE", "MTE-TAG-MEM"] + _BASE)._mte_tags_for(inp)

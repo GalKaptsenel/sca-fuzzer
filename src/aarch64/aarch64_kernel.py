@@ -18,7 +18,6 @@ from collections import defaultdict
 from contextlib import contextmanager
 from functools import wraps
 from ..config import CONF
-from .aarch64_pac import PacKeys
 
 if TYPE_CHECKING:
     from .aarch64_connection import Connection
@@ -200,6 +199,25 @@ class PacSignReq(ctypes.Structure):
         ("mnemonic", ctypes.c_char * 16),
         ("result",   ctypes.c_uint64),
     ]
+
+
+class PacKeys(ctypes.Structure):
+    """The five PAC keys (instruction A/B, data A/B, generic), each {lo,hi}, in the canonical order
+    shared by the kernel ioctl (struct pac_keys), the CE/UAPI (struct ce_pac_keys), and the input-init
+    PAC_KEYS wire section. The fixed field set is what guarantees exactly 80 bytes / 10 words."""
+    _fields_ = [
+        ("apia_lo", ctypes.c_uint64), ("apia_hi", ctypes.c_uint64),
+        ("apib_lo", ctypes.c_uint64), ("apib_hi", ctypes.c_uint64),
+        ("apda_lo", ctypes.c_uint64), ("apda_hi", ctypes.c_uint64),
+        ("apdb_lo", ctypes.c_uint64), ("apdb_hi", ctypes.c_uint64),
+        ("apga_lo", ctypes.c_uint64), ("apga_hi", ctypes.c_uint64),
+    ]
+
+    def words(self) -> List[int]:
+        return [getattr(self, name) for name, _ in self._fields_]
+
+
+assert ctypes.sizeof(PacKeys) == 80
 
 IOCTL_NR_TO_NAME = {
     1: "REVISOR_CHECKOUT_TEST",
