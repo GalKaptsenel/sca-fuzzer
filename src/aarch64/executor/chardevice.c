@@ -254,6 +254,11 @@ static ssize_t load_test_and_update_state(const char __user* test, size_t length
 		return -ENOMEM;
 	}
 
+	if (0 != (length & 3)) {
+		module_err("test case length %lu is not a multiple of 4 (AArch64 instruction size)\n", length);
+		return -EINVAL;
+	}
+
 	if(copy_from_user_with_access_check(executor.test_case, test, length)) {
 		module_err("Failed to read entire test case from userspace!");
 		return -EFAULT;
@@ -290,6 +295,11 @@ static int trace(void) {
 	if(0 != err) {
 		module_err("Failed to execute on CPU %d (err: %d)\n", executor.config.pinned_cpu_id, err);
 		return err;
+	}
+
+	if(0 != execute_result) {
+		module_err("Measurement failed (error code: %d); not entering traced state\n", execute_result);
+		return execute_result;
 	}
 
 	executor.state = TRACED_STATE;

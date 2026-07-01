@@ -104,11 +104,12 @@ uint8_t* jit_next_with_mask(jit_t* jit,
 
 		uint32_t* p = (uint32_t*)jit->cur;
 		uint32_t* end = (uint32_t*)candidate;
+		JIT_ASSERT((uint8_t*)end <= jit->base + jit->size);
 
-		while (p < end) {
+		while (p < end && (uint8_t*)p < jit->base + jit->size) {
 			*(p++) = 0xd503201f;
 		}
-	
+
 		jit->cur = (uint8_t*)candidate;
 
 	} else {
