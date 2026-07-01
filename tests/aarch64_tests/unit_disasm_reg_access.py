@@ -8,12 +8,19 @@ the safe direction and is allowed). Encodings are confirmed to disassemble to th
 a wrong encoding fails loudly instead of testing nothing. test_every_supported_instruction_is_classified
 forces a case (or an explicit op.access-only classification) for every instruction the fuzzer emits, so
 a newly-added instruction with hidden accesses cannot slip through unchecked."""
+import copy
 import unittest
+from unittest.mock import patch
 
 import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
+_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 import capstone
-from src.aarch64.aarch64_disasm import decode_reg_accesses, is_conditional_branch
+import src.aarch64.aarch64_disasm as disasm
+from src.aarch64.aarch64_disasm import decode_reg_accesses, is_conditional_branch, _MTE_FIRST_REG_DEST
 from src.aarch64.aarch64_config import supported_instructions
+from src.config import CONF
+from src.isa_loader import InstructionSet
+from src.interfaces import OT
 
 _MD = capstone.Cs(capstone.CS_ARCH_ARM64, capstone.CS_MODE_LITTLE_ENDIAN)
 
@@ -58,7 +65,7 @@ CASES = [
     ("gmi",    0x9ac21420, {"x1", "x2"},    {"x0"}),
     ("subp",   0x9ac20020, {"x1", "x2"},    {"x0"}),
     ("subps",  0xbac20020, {"x1", "x2"},    {"x0", "N", "Z", "C", "V"}),
-    ("ldg",    0xd9600020, {"x1"},          {"x0"}),
+    ("ldg",    0xd9600020, {"x0", "x1"},    {"x0"}),   # RMW: Xt(x0) read+written, Xn(x1) base read
 ]
 
 # Remaining supported instructions whose explicit operands are reported correctly by Capstone's
@@ -91,6 +98,48 @@ class DisasmRegAccessTest(unittest.TestCase):
                        or mnemonic in EXPLICIT_OPERAND_ONLY
                        or any(t.startswith(mnemonic) for t in tested))   # "b." <- "b.eq"
             self.assertTrue(covered, f"{mnemonic!r} is generated but has no reg-access test/classification")
+
+
+class EmptyAccessFallbackTest(unittest.TestCase):
+    def test_unknown_role_is_over_approximated_as_source(self):
+        # With the positional MTE fixup disabled, GMI's registers (which Capstone leaves access-empty)
+        # must fall through to the src-only over-approximation: all read, none written.
+        with patch.object(disasm, "_MTE_FIRST_REG_DEST", frozenset()):
+            src, dest = decode_reg_accesses(0x9ac21420, 0)   # gmi x0, x1, x2
+        self.assertEqual(set(src), {"x0", "x1", "x2"})
+        self.assertEqual(set(dest), set())
+
+
+class BaseJsonRoleCrossCheckTest(unittest.TestCase):
+    """base.json carries authoritative per-operand src/dest roles (from ARM's spec). Cross-check the
+    hand-maintained positional fixup in decode_reg_accesses against it, so the fixup cannot silently
+    drift from the architecture as instructions are added."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._saved_conf = copy.deepcopy(CONF._borg_shared_state)
+        CONF.load(os.path.join(_ROOT, "config.yml"))
+        isa = InstructionSet(os.path.join(_ROOT, "base.json"), CONF.instruction_categories)
+        cls.by_name = {}
+        for spec in isa.instructions:
+            cls.by_name.setdefault(spec.name, []).append(spec)
+
+    @classmethod
+    def tearDownClass(cls):
+        CONF._borg_shared_state.clear()
+        CONF._borg_shared_state.update(cls._saved_conf)
+
+    def test_mte_positional_fixup_agrees_with_base_json(self):
+        for mnemonic in _MTE_FIRST_REG_DEST:
+            for spec in self.by_name.get(mnemonic, []):   # absent (e.g. irg) => not generated, skip
+                regs = [op for op in spec.operands if op.type == OT.REG]
+                self.assertTrue(regs, f"{mnemonic}: base.json has no register operands")
+                with self.subTest(mnemonic=mnemonic):
+                    self.assertTrue(regs[0].dest, "first register must be a destination")
+                    for op in regs[1:]:
+                        self.assertTrue(op.src and not op.dest, "non-first registers must be src-only")
+                    # LDG is the sole RMW: base.json marks Xt both src and dest.
+                    self.assertEqual(bool(regs[0].src), mnemonic == "ldg")
 
 
 class IsConditionalBranchTest(unittest.TestCase):

@@ -62,12 +62,20 @@ def decode_reg_accesses(encoding: int, pc: int) -> Tuple[List[str], List[str]]:
     if insn.cc is not None and insn.cc != ARM64_CC_INVALID:
         src |= cc_to_read_flags(insn.cc)
 
+    mnemonic = insn.mnemonic.lower()
+    reg_roles_fixed = mnemonic in _MTE_FIRST_REG_DEST or mnemonic in ("rmif", "setf8", "setf16",
+                                                                      "pacga")
+
     for op in insn.operands:
         if op.type == ARM64_OP_REG:
             reg = insn.reg_name(op.reg)
             if op.access & CS_AC_WRITE:
                 dest.add(reg)
             if op.access & CS_AC_READ:
+                src.add(reg)
+            # Access empty and no explicit role: over-approximate as a read (taint-safe; a spurious
+            # write would not be).
+            if not (op.access & (CS_AC_READ | CS_AC_WRITE)) and not reg_roles_fixed:
                 src.add(reg)
         elif op.type == ARM64_OP_MEM:
             if op.mem.base != 0:
@@ -82,7 +90,6 @@ def decode_reg_accesses(encoding: int, pc: int) -> Tuple[List[str], List[str]]:
 
     # Capstone 5.0.x under-reports these: rmif/setf8/setf16 expose neither the source read nor the
     # NZCV write, and pacga omits its second source (Xm).
-    mnemonic = insn.mnemonic.lower()
     if mnemonic in ("rmif", "setf8", "setf16"):
         dest |= FLAG_BITS
         src.update(insn.reg_name(op.reg) for op in insn.operands if op.type == ARM64_OP_REG)
@@ -94,6 +101,8 @@ def decode_reg_accesses(encoding: int, pc: int) -> Tuple[List[str], List[str]]:
         if regs:
             dest.add(regs[0])        # first register operand is the destination
             src.update(regs[1:])     # the rest are sources (a memory base is handled above)
+        if mnemonic == "ldg":
+            src.add(regs[0])         # LDG is RMW: loads the tag into Xt, preserving its other bits
         if mnemonic == "subps":
             dest |= FLAG_BITS
 
