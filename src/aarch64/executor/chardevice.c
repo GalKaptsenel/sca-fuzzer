@@ -51,6 +51,7 @@ static int executor_lock_acquire(const char* who) {
 		if (time_after(jiffies, READ_ONCE(executor_lock_acquired_jiffies) +
 		    msecs_to_jiffies(EXECUTOR_LOCK_DEADLOCK_MS))) {
 			WRITE_ONCE(executor_wedged, true);
+			executor.tracing_error = -EIO;   // corrupted state: warned again at module unload
 			module_err("CRITICAL: device lock held by pid %d for >%u ms — the holder is "
 				   "wedged, almost certainly because it faulted while holding the lock "
 				   "(check dmesg for an Oops/Internal error). Failing fast so callers do "
