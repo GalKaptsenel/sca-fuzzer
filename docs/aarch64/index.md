@@ -192,18 +192,32 @@ result: after `TRACE`, `CHECKOUT_INPUT`, then `MEASUREMENT` returns that input's
 
 ### 4.2 Configuration: `/sys/executor/` files
 
-Runtime knobs are plain sysfs files.
+Runtime knobs are plain sysfs files under `/sys/executor/`, with read-only capability/identity files
+grouped in the `/sys/executor/system/` subdirectory.
+
+**`/sys/executor/` — runtime knobs:**
 
 | File | Mode | Accepted value | Meaning |
 |---|---|---|---|
 | `measurement_mode` | rw | `P+P` or `F+R` | Prime+Probe vs Flush+Reload. |
 | `warmups` | rw | unsigned int | Micro-architectural warm-up rounds before the measured run. |
-| `enable_pre_run_flush` | rw | `0` / non-zero | Flush the branch-predictor history before each run so the previous run doesn't bias the next. |
+| `enable_pre_run_flush` | rw | `0` / non-zero | Legacy combined knob: writing it sets the BPU flush, the PHR flush, and view rotation together (back-compat); reads back the BPU-flush component. |
+| `enable_phr_flush` | rw | `0` / non-zero | Flush the path-history register (PHR) before each run, independently of the combined knob. |
+| `enable_view_rotation` | rw | `0` / non-zero | Toggle the view-rotation part of the pre-run reset, independently. |
+| `enable_ssbs` | rw | `0` / non-zero | Set `PSTATE.SSBS=1` on the core so it may bypass stores (required to observe Spectre-v4). |
 | `pin_to_core` | rw | online CPU id | Pin execution to a CPU (invalid → current CPU). |
 | `enable_branch_training` | rw | `0` / non-zero | Apply mistraining before the measured run (§12). |
 | `branch_training_config` | rw | `offset:taken,…` (byte offset from the start of the test case; `1`=taken, `0`=not-taken) | Mistraining sequence; writing it also enables training. |
 | `print_sandbox_base` | r | hex pointer | Base of the sandbox `main_region` (input page 0). |
 | `print_code_base` | r | hex pointer | Where the test-case code is loaded, for the selected `measurement_mode`. |
+
+**`/sys/executor/system/` — read-only capability & identity:**
+
+| File | Mode | Meaning |
+|---|---|---|
+| `measurement_supported` | r | `1` if the PMU has enough counters to measure on this core, else `0`. |
+| `pmu_event_counters` | r | Number of PMU event counters available. |
+| `cpu_info` | r | CPU identity: `CPU ID`, `MIDR_EL1`, `MPIDR_EL1`, `CTR_EL0`. |
 
 ## 5. The contract executor (CE)
 
@@ -286,8 +300,41 @@ explicit, labelled model.
 
 **Structure.** A bimodal base table plus tagged tables, indexed and tagged by the branch PC folded
 with progressively longer slices of a **path-history register (PHR)**. A prediction is the counter
-of the longest table whose tag matches; the base is the always-available fallback. The base table
-has 2¹² entries, the tagged tables 2¹¹ each, with 3-bit saturating counters.
+of the longest table whose tag matches; the base is the always-available fallback.
+
+```
+  PHR — path history, advanced on TAKEN branches:  PHR = (PHR << 4) ^ footprint(PC, target)
+        footprint = 4 bits over fixed PC/target bit positions
+
+  bit 0                              171                             299
+   |==================================|===============================|
+   |<------ T1 uses PHR[0..171] ------>|                               |
+   |<----------------- T2 uses PHR[0..299] ------------------------->|
+                            ( T2's slice contains T1's — geometric )
+
+   PC ---> +-----------+   +-----------+   +-----------+
+           |  base T0  |   | tagged T1 |   | tagged T2 |
+           | bimodal   |   | hist 172  |   | hist 300  |
+           | 2^12 ent* |   | 2^11 ent* |   | 2^11 ent* |
+           | 3-bit ctr |   | 3-bit ctr*|   | 3-bit ctr |
+           | untagged  |   | tagged    |   | tagged    |
+           +-----+-----+   +-----+-----+   +-----+-----+
+                 |               |               |
+                 +-------+-------+-------+-------+
+                         v
+      predict = counter of the LONGEST table whose TAG matches
+                (T2 > T1 > T0); else the base table T0
+
+   index = PC[8:18] combined with the table's PHR slice   (T0: none)
+   tag   = PC[2:7], folded with the PHR slice *  (+ deeper PHR bits *)
+   ( the PC[8:18] / PC[2:7] split and the deep-PHR tag were established on T2,
+     the long-history table; T1 is presumed to follow the same scheme )
+
+  * = NOT reverse-engineered (model placeholder / low-confidence):
+      the table entry counts (2^12, 2^11), T1's counter width (presumed 3-bit),
+      the TAG fold (algorithm + width) and its deep-PHR dependence, the tag width (= 8),
+      and the u-bit / altpred (modelled as plain LRU within a set).
+```
 
 **Reverse-engineered facts** (from the N3 silicon; see the `kb-bpu-re` notes):
 
@@ -355,6 +402,14 @@ The execution clause decides which leak class shows up as a violation — anythi
 | `bpas` | architectural + speculative store bypass | used to model / confirm v4 |
 | `bpu` | architectural + predictor-driven misprediction | like `cond`, but only mispredicted branches fork |
 
+The **observation clause** (`contract_observation_clause`) is likewise configurable, mirroring the
+x86 tracer set: `l1d` (default — the union of L1 data-cache sets touched), `pc` (the control-flow /
+program-counter trace), `memory` (the addresses of memory accesses), `ct` (PC + addresses, the
+classic constant-time observer), and the remaining x86 variants (`loads+stores+pc`,
+`ct-nonspecstore`, `ctr`, `arch`, `tct`, `tcto`). `l1d` records the **same** union of cache sets the
+htrace measures, so the ctrace and htrace compare directly; the others let a run target a different
+observation model.
+
 **Spectre-v1** uses the arch-only contract (`seq`) with the branch-predictor flush off
 (`enable_pre_run_flush: 0`), so a guarding branch mispredicts naturally and a speculative load lands
 in a forbidden cache set. **Spectre-v4** uses `cond` (so v1 is in-contract) plus
@@ -362,11 +417,30 @@ in a forbidden cache set. **Spectre-v4** uses `cond` (so v1 is in-contract) plus
 only remaining unmodeled speculation is store bypass, so a violation can only be v4. **Prime+Probe**
 is the more sensitive channel for both.
 
-### PAC / non-interference — one input, many sibling programs
+### 6.1 Non-interference fuzzing (PAC & MTE)
 
-Some campaigns instead run **one input against many variants of the same program** (e.g. different
-PAC signing slots) and compare their htraces; a difference across variants is a
-primitive-related leak.
+A second scheme targets Arm's **pointer authentication (PAC)** and **memory tagging (MTE)** — leak
+primitives a single ctrace cannot capture. Instead of many inputs against one program, it runs
+**one input against many sibling programs** and compares their htraces (*non-interference*).
+
+The sibling programs are produced by **sealing**: each speculative-leak primitive in the test case
+is replaced by a fixed-width instruction slot the fuzzer fills per variant. Three independent,
+composable seals:
+
+- **Sandbox** — clamps a memory access into the sandbox (the only seal that touches memory);
+- **PacSign** — signs / authenticates a pointer register (PAC);
+- **MteTag** — retags a register (MTE).
+
+A **baseline** variant fills every slot with genuine values; each **decoy** variant perturbs only
+the speculative slots of the single primitive under test (the *non-interference target*, PAC or MTE),
+leaving everything else — including the Sandbox clamp — genuine. If the primitive does not leak, the
+baseline and decoys are architecturally identical and produce the same htrace; a **difference**
+between baseline and a decoy is a leak of that primitive.
+
+Sealing *every* primitive (not just the target) is what keeps a run safe and single-pass: an MTE run
+whose test case also contains PAC `AUT*` instructions must still authenticate those pointers
+genuinely. One CE pass over the sealed program fills every slot (signs the PAC slots, classifies the
+MTE slots); the decoy policy then perturbs only the target's speculative slots.
 
 ```
                           +-----------+
@@ -392,23 +466,50 @@ primitive-related leak.
 
 ## 7. Techniques: triaging a violation
 
-A `fuzz` run reports a *contract violation* — two inputs that are architecturally equivalent yet
-produce different hardware traces. Two [Claude Code](https://claude.com/claude-code) **skills**
-under `.claude/skills/` help make sense of one; ask Claude Code to "triage" or "reproduce" a
-`violation-*/` directory, or run the scripts directly.
+**Goal.** A `fuzz` run reports a *contract violation* — two inputs that are architecturally
+equivalent yet produced different hardware traces. That difference is either a genuine speculative
+leak or measurement **noise**, and triage decides which. It does so **without re-running the test on
+hardware**: re-measuring the same test trains the branch predictor and can *hide* a genuine leak, so
+repetition is never a way to "confirm noise".
 
-- **`revizor-violation-triage`** — genuine leak vs noise **without re-running on hardware**. Runs
-  the CE under always-mispredict and checks three things: the two inputs' *architectural* cache
-  lines are identical, their *speculative* lines differ, and that speculative divergence matches the
-  HW htrace divergence already in the report. Verdict: **GENUINE** / **NOISE** / **INVESTIGATE**.
-- **`reproduce-revizor-violation`** — confirms it on hardware by recreating the exact
-  micro-architectural state: load context inputs `0..min(A,B)`, **swap only the violating input**,
-  measure, and see which cache set encodes which input ran. The leak is intermittent, so collect
-  statistics over many trials.
+**How it is done.** Re-run the two violating inputs through the CE (the model) and compare their
+cache-line footprints:
 
-These are quick verification heuristics: a GENUINE verdict plus a clean reproduction is strong
-corroboration. Note that re-measuring the *same* test many times trains the branch predictor and can
-hide a genuine leak, so it is not a way to "confirm noise".
+1. their **architectural** cache lines must be identical — they are arch-equivalent by construction;
+2. their **speculative** (wrong-path) cache lines must **differ** — that is the candidate leak;
+3. that speculative divergence must **match** the cache-set divergence the hardware htraces already
+   show in the saved report.
+
+All three holding is a **GENUINE** verdict; speculative lines that don't differ, or don't line up
+with the HW divergence, are **NOISE**; anything ambiguous is **INVESTIGATE**. This is what the
+`revizor-violation-triage` skill (under `.claude/skills/`) computes.
+
+**Spectre-v1 (branch bypass).** Re-trace the pair under **always-mispredict** (`seq`/`cond` with the
+branch mispredicting): the speculative divergence is the mispredicted load landing in a different
+cache set for each input.
+
+**Spectre-v4 (store bypass).** The branch-mispredict model will not reveal it — re-trace the pair
+under the **`bpas`** (speculative-store-bypass) clause instead, and check that the store-bypass
+speculative sets diverge between the pair and match the HW divergence. The decisive, v4-specific
+proof is the **SSBS on/off** control: re-measure the pair with `enable_speculative_store_bypass`
+**off** — a genuine v4 divergence must **vanish** (with store bypass disallowed the leak cannot
+occur), which rules out v1, architectural effects, and noise.
+
+A **fully offline** alternative confirms v4 from CE traces alone (no HW at all). For the two inputs
+`I0`, `I1`, the pair is already `seq`- and `cond`-equivalent **by construction** — i.e.
+`CT-SEQ(I0) == CT-SEQ(I1)` and `CT-COND(I0) == CT-COND(I1)`, which is how the fuzzer grouped them —
+so re-checking those equalities is only a sanity check, not the discriminator. The actual test is
+that the pair **diverges** under store bypass, `CT-BPAS(I0) != CT-BPAS(I1)`, and that this
+divergence matches the cache-set divergence in the measured htraces: only store bypass separates the
+pair, and it matches hardware ⇒ v4.
+
+**Reproducing on hardware.** The `reproduce-revizor-violation` skill confirms a leak on the CPU by
+recreating the exact micro-architectural state: load the context inputs `0..min(A,B)`, **swap only
+the violating input**, measure, and read which cache set encodes which input ran. The leak is
+intermittent, so collect statistics over many trials.
+
+These are quick verification heuristics, not proofs: a GENUINE verdict plus a clean reproduction is
+strong corroboration.
 
 ## 8. Memory layouts
 
@@ -456,8 +557,9 @@ slots:
 | 7 | unused (the executor forces `sp` to the sandbox stack base) |
 
 The flags slot uses a **per-flag NZCV encoding**: each of N, Z, C, V occupies bit 0 of its own byte
-within the slot, so the four flags stay independent under taint tracking; the slot is converted to
-ARM `PSTATE` form just before execution.
+within the slot. This lets the `aarch64-nzcv` input generator **fuzz each flag separately** — and,
+because taint is tracked per byte, lets the trace depend on each flag independently instead of
+lumping all four into one word. The slot is converted to ARM `PSTATE` form just before execution.
 
 ## 9. File formats
 
@@ -571,6 +673,66 @@ Specs and runtime instructions share one operand model (`src/interfaces.py`), co
 The sandbox finds the `BASE` component **by role** and confines it (`AND base,#mask; ADD base,x29`),
 cancelling every other component so the effective address stays `x29 + (base & mask)`; it iterates
 every memory operand, so multi-access instructions are all confined.
+
+### 9.4 Executor input wire format
+
+One input written to `/dev/executor` is a self-describing blob (`executor_input_format.h`; the kernel
+validates it strictly and locates sections **by type**, never by a hardcoded offset). Every field is
+little-endian `u64`. The layout is a fixed preamble, a section table, then the payloads.
+
+**Preamble** — `struct revisor_input_header` (48 bytes):
+
+| Field | Meaning |
+|---|---|
+| `magic` | `RVZRI` sentinel |
+| `version` | format version (1) |
+| `header_len` | `48 + 32·n_sections` — offset of the first payload |
+| `n_sections` | number of section descriptors |
+| `flags` | reserved |
+| `total_len` | total byte count (equals the bytes written to the device) |
+
+**Section table** — `n_sections` × `struct revisor_input_section` (32 bytes each):
+`{type, flags, offset, length}`, `offset`/`length` locating the payload within the blob.
+
+**Section payloads** (unknown types are skipped):
+
+| Type | Contents |
+|---|---|
+| `MEMORY_MAIN` (1) | sandbox `main_region` bytes |
+| `MEMORY_FAULTY` (2) | sandbox `faulty_region` bytes |
+| `GPR` (3) | `registers_t` = x0..x5, `flags` (ARM PSTATE, NZCV in bits 31:28), sp |
+| `SIMD` (4) | v0..v7 (256 B; reserved, not yet loaded) |
+| `PAC_KEYS` (5) | per-input PAC keys |
+| `MTE_TAGS` (6) | one 4-bit tag per 16-byte granule of main‖faulty, packed two per byte (granule 2i in bits 3:0, 2i+1 in bits 7:4) |
+
+The `GPR` section carries the flags **already** in PSTATE form — the writer reconstructs the per-flag
+NZCV encoding (§8.2) before packing. `PAC_KEYS` and `MTE_TAGS` are the optional per-input state the
+non-interference scheme (§6.1) uses.
+
+### 9.5 Contract-executor request format
+
+A CE request travels as one pipe message: the 8-byte `{length, type}` header (§5.1) wraps a payload
+of a **16×u64 little-endian envelope**, then the code, then one input:
+
+| u64 | Field |
+|---|---|
+| 0 | magic (`RVZRCE`) |
+| 1 | version |
+| 2 | arch (`AARCH64 = 2`) |
+| 3 | `sim_flags` (`HAS_CODE` \| `HAS_INPUT`) |
+| 4 | `config_flags` (which base-address requests are present) |
+| 5 | `max_misspred_branch_nesting` |
+| 6 | `max_misspred_instructions` (unused) |
+| 7–10 | requested code/mem base phys/virt (optional) |
+| 11 | `execution_clauses` bitmask (§6) |
+| 12 | `branch_predictor` enum |
+| 13 | `code_size` |
+| 14 | `input_init_size` |
+| 15 | reserved |
+
+followed by `code_size` bytes of machine code, then an `input_init_size`-byte **input in exactly the
+wire format of §9.4**. The CE reads the `GPR` slots from that input (plus the `PAC_KEYS` / `MTE_TAGS`
+sections in PAC/MTE runs). The response carries the per-instruction trace of §5.1.
 
 ## 10. Instruction taxonomy
 
