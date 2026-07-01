@@ -210,8 +210,8 @@ class ContractExecutorService:
     def run(self, execution: ContractExecution) -> ContractExecutionResult:
         """
         Run a single execution and return raw result.
-        On CE crash or hang: log stderr, restart the process, and re-raise so the
-        caller can decide whether to skip the test case.
+        A CE crash or hang is a fatal bug, not a recoverable condition: drain stderr for diagnostics
+        and raise. It must never be skipped or masked — do not add a respawn/retry fallback here.
         """
         data = execution.encode()
         self._stream_ipc.send_req(_MSG_REQUEST, data)
@@ -224,20 +224,18 @@ class ContractExecutorService:
                 self._proc.kill()
             stderr = self._drain_stderr()
             rc = self._proc.returncode
-            self._proc = self._spawn()
             raise RuntimeError(
                 f"contract_executor crashed (exit code {rc}, signal {-rc if rc and rc < 0 else 'none'}).\n"
                 f"stderr:\n{stderr or '(empty)'}"
             ) from None
         except RuntimeError as e:
-            # CE hung (alive but no response within timeout) — kill it, drain stderr, restart
+            # CE hung (alive but no response within timeout) — kill it, drain stderr, and fail
             stderr = self._drain_stderr()
             self._proc.kill()
             try:
                 self._proc.wait(timeout=2)
             except Exception:
                 pass
-            self._proc = self._spawn()
             raise RuntimeError(
                 f"contract_executor hung.\n"
                 f"  hang details: {e}\n"
