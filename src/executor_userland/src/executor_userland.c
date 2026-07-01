@@ -108,9 +108,18 @@ static int read_file(const char* file_path, char** buffer, size_t* size) {
 		goto read_file_cleanup_free_memory;
 	}
 
-	if ((ssize_t)*size != read(fd, *buffer, *size)) {
-		perror("Error reading file");
-		goto read_file_cleanup_close_file;
+	size_t total = 0;
+	while (total < *size) {
+		ssize_t n = read(fd, *buffer + total, *size - total);
+		if (0 > n) {
+			perror("Error reading file");
+			goto read_file_cleanup_close_file;
+		}
+		if (0 == n) {  // EOF before the stat'd size
+			fprintf(stderr, "%s: short read (%zu of %zu bytes)\n", file_path, total, *size);
+			goto read_file_cleanup_close_file;
+		}
+		total += (size_t)n;
 	}
 
 	close(fd);
