@@ -1231,6 +1231,7 @@ class BaseTaintTracker(TaintTrackerInterface):
             # create a view of the taint array as a 64-bit array
             # note that it *does not* copy the taint, only casts it into a different type
             linear_view = taint.linear_view(actor_id)
+            # BUG? per-actor input stride is InputFragment.itemsize (0x3000), not 0x4000.
             actor_offset = actor_id * 0x4000 // 8
 
             for i in range(actor_offset, actor_offset + linear_view.size):

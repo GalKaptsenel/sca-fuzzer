@@ -316,11 +316,15 @@ class Input(np.ndarray):
     def load(self, path: str) -> None:
         with open(path, 'rb') as f:
             contents = np.fromfile(f, dtype=np.uint64)
-            n_actors = self.shape[0]
-            for actor_id in range(n_actors):
-                actor_start = actor_id * self.itemsize // 8
-                actor_end = actor_start + self.itemsize // 8
-                self.linear_view(actor_id)[:] = contents[actor_start:actor_end]
+        n_actors = self.shape[0]
+        words_per_actor = self.itemsize // 8
+        expected = n_actors * words_per_actor
+        if contents.size != expected:
+            raise ValueError(f"input file {path}: {contents.size} u64 words, "
+                             f"expected {expected} ({n_actors} actors x {self.itemsize} bytes)")
+        for actor_id in range(n_actors):
+            actor_start = actor_id * words_per_actor
+            self.linear_view(actor_id)[:] = contents[actor_start:actor_start + words_per_actor]
 
 
 class InputTaint(Input):
@@ -975,8 +979,6 @@ class EquivalenceClass:
     htrace_groups: List[List[Measurement]]
     """ htrace_groups: a list of htrace groups; each group is a list of measurements that produced
     the same htrace (or a equivalent htraces under the current analyser). """
-
-    MOD2P64 = pow(2, 64)
 
     def __init__(self, ctrace: CTrace, measurements: List[Measurement],
                  htrace_groups: List[List[Measurement]]) -> None:

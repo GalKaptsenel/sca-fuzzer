@@ -423,8 +423,8 @@ class Conf:
                                   "(it selects the architecture)")
         if self.recompute_artifact_traces and self.instruction_set == "x86-64":
             raise ConfigException("recompute_artifact_traces is not supported on x86-64")
-        if self.input_gen_entropy_bits > 32:
-            raise ConfigException("input_gen_entropy_bits must be less or equal to 32 bits")
+        if not 1 <= self.input_gen_entropy_bits <= 32:
+            raise ConfigException("input_gen_entropy_bits must be between 1 and 32 bits")
         if self.min_successors_per_bb > self.max_successors_per_bb:
             raise ConfigException("min_successors_per_bb is larger than max_successors_per_bb")
 

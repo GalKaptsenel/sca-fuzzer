@@ -864,6 +864,7 @@ class DifferentialInputMinimizerPass(BaseInputMinimizationPass):
                     i += 1
 
                     # progress indicator
+                    # BUG? per-actor input stride is InputFragment.itemsize (0x3000), not 0x4000.
                     absolute_address = actor_id * 0x4000 + region_offset + i * 8
                     if i % 64 == 0:
                         print(f"\n0x{absolute_address:08x} ", end="", flush=True)

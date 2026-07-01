@@ -40,10 +40,8 @@ class InstructionSet(InstructionSetAbstract):
             instruction.category = instruction_node["category"]
             instruction.control_flow = instruction_node["control_flow"]
             instruction.template = instruction_node.get("template", None)
-            # tags default to the single category (x86 stores its tag there); optional alias constraints
+            # tags default to the single category (x86 stores its tag there)
             instruction.tags = tuple(instruction_node.get("tags") or [instruction.category])
-            if "constraints" in instruction_node:
-                instruction.constraints = tuple(tuple(c) for c in instruction_node["constraints"])
 
             for op_node in instruction_node["operands"]:
                 op = self.parse_operand(op_node, instruction)

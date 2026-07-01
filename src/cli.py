@@ -489,11 +489,6 @@ def main() -> int:
             with open(_CRASH_LOG, 'a') as f:
                 f.write(msg)
             raise
-        finally:
-            # For identifieng unexpected regressions and for debug - should be removed
-            if "aarch64" in CONF.instruction_set:
-                from .aarch64.aarch64_kernel import print_opcode_summary
-                print_opcode_summary()
         return exit_code
 
     # Reproducing a violation
