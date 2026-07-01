@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from enum import IntFlag, IntEnum
 from .contract_executor.stream_ipc import StreamIPC
 from .aarch64_trace import ContractExecutionResult
+from ..util import Logger
 from .aarch64_input_wire import build_input_init
 from .aarch64_pac import PacKeys
 from ..interfaces import MAIN_AREA_SIZE, GPR_SUBREGION_SIZE
@@ -244,4 +245,9 @@ class ContractExecutorService:
             ) from None
         if msg_type != _MSG_RESPONSE:
             raise RuntimeError(f"unexpected CE message type {msg_type} (expected {_MSG_RESPONSE})")
-        return ContractExecutionResult(reply, AARCH64_NUM_GPRS)
+        result = ContractExecutionResult(reply, AARCH64_NUM_GPRS)
+        if result.truncated:
+            Logger().warning("contract_executor",
+                             "contract trace hit the log cap and was truncated; the ctrace/taint for "
+                             "this input are incomplete")
+        return result

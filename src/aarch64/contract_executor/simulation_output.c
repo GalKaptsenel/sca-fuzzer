@@ -258,6 +258,7 @@ static instr_trace_entry_t* log_sim_state(struct simulation_state* sim_state) {
 	size_t current_index = current_log_index;
 	if(max_log_index <= current_index) {
 		fprintf(stderr, "Unable to log more instructions, reached maximum log size!\n");
+		trace_log->truncated = 1;   // signal the reader that the trace is incomplete
 		return NULL;
 	}
 
@@ -346,7 +347,10 @@ void init_trace_log(size_t test_size) {
 	trace_log = alloc_contract_trace(max_log_index);
 	if (NULL == trace_log) {
 		max_log_index = 0;
+		return;
 	}
+	trace_log->entry_count = 0;
+	trace_log->truncated = 0;
 }
 
 static bool safe_file_write(FILE* f, const void* buff, size_t size) {

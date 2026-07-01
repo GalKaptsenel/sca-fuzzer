@@ -255,6 +255,7 @@ static size_t build_ce_input(
 
 typedef struct {
     int              n_entries;
+    uint64_t         truncated;
     instr_trace_entry_t entries[MAX_ENTRIES];
 } ce_result_t;
 
@@ -278,6 +279,7 @@ static bool parse_ce_output(int fd, ce_result_t *out) {
 
     contract_trace_t ct;
     if (!read_all(fd, &ct, sizeof(ct))) return false;
+    out->truncated = ct.truncated;
 
     size_t n = ct.entry_count;
     if (n > MAX_ENTRIES) n = MAX_ENTRIES;
@@ -430,6 +432,8 @@ static void test_integration_ldr_base(void) {
         fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
         return;
     }
+
+    EXPECT_EQ(res.truncated, (uint64_t)0);   // a short trace must not be flagged truncated
 
     instr_trace_entry_t *e = find_mem_entry(&res, 0);
     EXPECT(e != NULL);

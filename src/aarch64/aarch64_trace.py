@@ -70,6 +70,8 @@ class CPUState:
         self.encoding, = U64.unpack_from(buf, off); off += U64.size
 
         self.extra_data_size, = SIZE_T.unpack_from(buf, off); off += SIZE_T.size
+        assert self.extra_data_size == 0, \
+            f"CE emitted extra_data_size={self.extra_data_size}; the parser assumes a fixed entry stride"
 
         self.extra_data = buf[off:off + self.extra_data_size]
         off += self.extra_data_size
@@ -163,6 +165,8 @@ class ContractExecutionResult:
         off = 0
         self.entry_count, = SIZE_T.unpack_from(self._buf, off)
         off += SIZE_T.size
+        self.truncated, = U64.unpack_from(self._buf, off)
+        off += U64.size
 
         self.entries = []
         for _ in range(self.entry_count):

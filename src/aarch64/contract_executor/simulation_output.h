@@ -51,8 +51,17 @@ typedef struct {
 
 typedef struct {
 	size_t entry_count;
+	uint64_t truncated;	// 1 = the log hit max_log_index and dropped entries; the trace is incomplete
 	// dynamic array of trace entries
 } contract_trace_t;
+
+/* extra_data is unused (always size 0), so every entry is a fixed 416-byte stride the Python parser
+ * relies on. Lock the layout: a field/padding change must fail the build, not silently desync. */
+_Static_assert(sizeof(mem_access_t) == 48, "mem_access_t layout changed");
+_Static_assert(sizeof(trace_cpu_state_t) == 288, "trace_cpu_state_t layout changed");
+_Static_assert(sizeof(instr_metadata_t) == 128, "instr_metadata_t layout changed");
+_Static_assert(sizeof(instr_trace_entry_t) == 416, "instr_trace_entry_t stride changed");
+_Static_assert(sizeof(contract_trace_t) == 16, "contract_trace_t header changed");
 
 void init_trace_log(size_t test_size);
 void* log_instr_hook(struct simulation_state* sim_state);
