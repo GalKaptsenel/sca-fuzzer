@@ -15,6 +15,23 @@ import unittest
 
 import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # any cwd
 from src.aarch64.aarch64_target_desc import Aarch64TargetDesc
+from src.aarch64.aarch64_generator import Aarch64DsbSyPass
+from src.interfaces import BasicBlock, Function, TestCase, Instruction
+
+
+def _tc_with(mnemonics):
+    """A single-BB test case with the given instructions; returns (test_case, basic_block)."""
+    tc = TestCase(0)
+    func = Function(".function_0", tc.actors["main"])
+    bb = BasicBlock(".bb0")
+    prev = None
+    for m in mnemonics:
+        inst = Instruction(m, False, "", False, template=m)
+        bb.insert_after(prev, inst)
+        prev = inst
+    func.append(bb)
+    tc.functions.append(func)
+    return tc, bb
 
 
 class Aarch64MinimizerHooksTest(unittest.TestCase):
@@ -57,6 +74,22 @@ class Aarch64MinimizerHooksTest(unittest.TestCase):
         self.assertFalse(self.t.is_branch_line("ldr x0, [x1]"))
         self.assertFalse(self.t.is_branch_line("bic x0, x1, x2"))   # 'b'-prefixed but not a branch
         self.assertFalse(self.t.is_branch_line("bfi x0, x1, #2, #4"))
+
+
+class Aarch64DsbSyPassTest(unittest.TestCase):
+    """The full-fencing pass (used by create_fenced_test_case for the observation filter) must put a
+    DSB SY after every instruction, i.e. a fence between every two instructions."""
+
+    def test_fence_after_every_instruction(self):
+        tc, bb = _tc_with(["add x0, x1, x2", "ldr x3, [x0]", "eor x4, x4, x4"])
+        Aarch64DsbSyPass().run_on_test_case(tc)
+        self.assertEqual([i.name for i in bb],
+                         ["add x0, x1, x2", "DSB SY", "ldr x3, [x0]", "DSB SY", "eor x4, x4, x4", "DSB SY"])
+
+    def test_single_instruction(self):
+        tc, bb = _tc_with(["add x0, x1, x2"])
+        Aarch64DsbSyPass().run_on_test_case(tc)
+        self.assertEqual([i.name for i in bb], ["add x0, x1, x2", "DSB SY"])
 
 
 if __name__ == "__main__":
