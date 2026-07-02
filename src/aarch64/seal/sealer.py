@@ -17,7 +17,7 @@ import random
 from typing import Dict, List, Optional, Set, Tuple
 
 from ...interfaces import (Instruction, TestCase, Function, BasicBlock, GeneratorException)
-from .primitives import (make_nop, fill_slot_at, index_instructions, _SANDBOX_MASK,
+from .primitives import (make_nop, fill_slot_at, index_instructions, inst_at, _SANDBOX_MASK,
                            _SandboxInstrumentationBase)
 from .pac import (PacSign, PacSigner, build_pac_specs, _AUTH_TO_PAC, _AUTH_TO_XPAC, _read_reg)
 from ..aarch64_mte import MteTagState, mte_tag_store_effect, MTE_INITIAL_DEFAULT_TAG
@@ -285,6 +285,26 @@ class SealedTestCase:
     def _clamp_entries(sandbox_sealings: List[SandboxSealing]) -> List[_Resolved]:
         return [_Resolved(s, None, [], None) for s in sandbox_sealings]   # always seal(None); never decoyed
 
+    # ---- relocation support (see seal/relocation.py) --------------------------------------------
+    def byte_offset_of(self, loc) -> int:
+        """Byte offset of the instruction at slot position `loc` in the assembled code. Positions are
+        one-for-one across fills, so an offset taken from the placeholder holds for every variant."""
+        inst, _ = inst_at(self._tc, loc)
+        return self._layout.instruction_address[inst]
+
+    def relocation_slots(self):
+        """Per PAC value slot: (movk_loc, op_loc). Returns None when the sealed TC carries value slots
+        this scheme does not cover (MTE tag deltas), so the caller assembles the whole TC normally
+        rather than relocate a subset. Overridden by the PAC-only sealed TC."""
+        return None
+
+    def reference_fills(self):
+        """(auth_ref_tc, xpac_ref_tc): two deterministic fills for harvesting relocation words — every
+        PAC slot sealed with `MOVK #0` plus AUT (first) and plus XPAC (second). The sentinel immediate
+        is overwritten per input via a WORD32 relocation; the AUT*/XPAC word is selected per fill.
+        Only defined where relocation_slots() is not None."""
+        raise NotImplementedError
+
 
 class PacSealedTestCase(SealedTestCase, _PacResolver):
     """Sandbox clamp + a PAC auth per data access, plus a PAC auth per standalone AUT*."""
@@ -310,6 +330,25 @@ class PacSealedTestCase(SealedTestCase, _PacResolver):
         cer = self._trace_fn(self._tc, inp)
         pac = [_Resolved(s, *self._resolve_pac(s, cer, self._layout)) for s in self._pac]
         return ResolvedSealingTestCase(self._tc, self._clamp_entries(self._sandbox) + pac)
+
+    def relocation_slots(self):
+        return [(p.slot_locs[0], p.slot_locs[1]) for p in self._pac]
+
+    def _reference_fill(self, op_kind: str) -> TestCase:
+        tc = copy.deepcopy(self._tc)
+        for p in self._pac:
+            movk = p._enc.make_movk(p.value_reg, 0, 48)
+            if op_kind == "auth":
+                auth_mn = p.committed_inst.name.lower()
+                ctx = p.committed_inst.operands[1].value if len(p.committed_inst.operands) > 1 else None
+                op = p._enc.make_auth_inst(auth_mn, p.value_reg, ctx)
+            else:
+                op = p._enc.make_xpac_inst(_AUTH_TO_XPAC[p.committed_inst.name.lower()], p.value_reg)
+            fill_slot_at(tc, p.slot_locs, [movk, op])
+        return tc
+
+    def reference_fills(self):
+        return self._reference_fill("auth"), self._reference_fill("xpac")
 
 
 class MteSealedTestCase(SealedTestCase, _MteResolver):

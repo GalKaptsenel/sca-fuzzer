@@ -7,6 +7,7 @@ from __future__ import annotations
 import copy
 import random
 import os.path
+import re
 
 import numpy as np
 from typing import List, Tuple, Set, Optional, Dict
@@ -26,6 +27,8 @@ from .aarch64_kernel import LocalHWExecutor, TestCaseRegion, InputRegion, Execut
 from .aarch64_generator import Pass, Aarch64SandboxPass
 from .seal.pac import PacSigner
 from .seal.sealer import make_sealer, SealedTestCase, ResolvedSealingTestCase
+from .seal.primitives import inst_at
+from .seal.relocation import (Relocation, apply_relocations, read_word32, set_movk_imm16, NOP_WORD)
 from .aarch64_contract_executor import (ContractExecution, ContractExecutorService,
                                         ExecutionClause, SUPPORTED_EXECUTION_CLAUSES,
                                         BranchPredictor, EXECUTION_CLAUSE_MAP, SimArch)
@@ -452,11 +455,11 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
 
     def _assemble_and_write_test_case(self, tc: TestCase) -> None:
         self.local_executor.checkout_region(TestCaseRegion())
-        self.local_executor.write(self._assemble_tc(tc)[0])
+        self.local_executor.write(self._assemble_sealed_bytes(tc))
 
     def _run_ce_on_tc(self, tc: TestCase, inp: Input, sandbox_base: int) -> Optional[List]:
         """Run CE on *tc* for *inp*; return list of trace entries or None on failure."""
-        tc_bytes = self._assemble_tc(tc)[0]
+        tc_bytes = self._assemble_sealed_bytes(tc)
         try:
             execution = self._make_ce_execution(tc_bytes, inp, sandbox_base, CONF.model_max_nesting,
                                                  CONF.model_max_spec_window,
@@ -691,6 +694,16 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         self._last_tc_variants: Optional[List[TCVariants]] = None
         self._last_ce_traces: Optional[List[ContractExecutionResult]] = None
 
+        # Relocation-based variant assembly (seal/relocation.py): assemble a skeleton once per test
+        # case, then splice per-input signature/auth words in instead of re-running the assembler.
+        # REVIZOR_SEAL_RELOC=0 disables it; _VALIDATE selects how many fills per TC are checked
+        # byte-for-byte against a real assembly ('all' | 'none' | <int>, default 2) — a wrong splice
+        # would send a bad signature to hardware and FPAC-fault, so validation is on by default.
+        self._reloc_enabled: bool = os.environ.get("REVIZOR_SEAL_RELOC", "1") != "0"
+        self._reloc_validate: str = os.environ.get("REVIZOR_SEAL_RELOC_VALIDATE", "2")
+        self._reloc_tmpl: Optional[dict] = None
+        self._reloc_validate_left: int = 0
+
     def _mte_tags_for(self, inp: Input) -> Optional[List[int]]:
         """Uniform initial tags the sandbox is loaded with when MTE is active (else None — leave tag
         memory untouched). The kernel HW, the CE tag memory, and the model's MteTagState all seed
@@ -699,12 +712,94 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             return None
         return [MTE_INITIAL_DEFAULT_TAG] * MTE_TAG_COUNT
 
+    # ------------------------------------------------------------------ relocation-based assembly
+    def _reloc_validate_budget(self) -> int:
+        if self._reloc_validate == "all":
+            return 1 << 30
+        if self._reloc_validate == "none":
+            return 0
+        try:
+            return max(0, int(self._reloc_validate))
+        except ValueError:
+            return 2
+
+    def _build_reloc_template(self) -> None:
+        """Assemble the per-test-case skeleton once and harvest each PAC slot's offset + reference
+        words (MOVK-with-sentinel, AUT*, XPAC*). Left None when relocation does not apply (disabled,
+        or the sealed TC has non-PAC value slots), in which case variants assemble normally."""
+        self._reloc_tmpl = None
+        if not self._reloc_enabled or self._sealed is None:
+            return
+        slots = self._sealed.relocation_slots()
+        if slots is None:
+            return
+        auth_ref, xpac_ref = self._sealed.reference_fills()
+        skeleton = self._assemble_tc(auth_ref)[0]
+        xpac_bytes = self._assemble_tc(xpac_ref)[0]
+        entries = []
+        for movk_loc, op_loc in slots:
+            movk_off = self._sealed.byte_offset_of(movk_loc)
+            op_off = self._sealed.byte_offset_of(op_loc)
+            entries.append({
+                "movk_loc": movk_loc, "op_loc": op_loc,
+                "movk_off": movk_off, "op_off": op_off,
+                "ref_movk_word": read_word32(skeleton, movk_off),
+                "aut_word": read_word32(skeleton, op_off),
+                "xpac_word": read_word32(xpac_bytes, op_off),
+            })
+        self._reloc_tmpl = {"skeleton": skeleton, "slots": entries}
+        self._reloc_validate_left = self._reloc_validate_budget()
+
+    @staticmethod
+    def _movk_imm16_from_inst(inst: Instruction) -> int:
+        m = re.search(r'#0x([0-9a-fA-F]+)', inst.template)
+        if not m:
+            raise GeneratorException(f"cannot parse MOVK immediate from {inst.template!r}")
+        return int(m.group(1), 16) & 0xFFFF
+
+    def _assemble_sealed_bytes(self, tc: TestCase) -> bytes:
+        """Machine code for a sealed fill. Uses the relocation skeleton when available (splice the
+        per-slot signature/auth words instead of re-running the assembler); otherwise assembles fully.
+        A configurable number of fills per TC are checked byte-for-byte against a real assembly — a
+        wrong splice would run a wrong-signed AUT* on hardware and FPAC-fault, so it fails loudly."""
+        if self._reloc_tmpl is None:
+            return self._assemble_tc(tc)[0]
+        relocs: List[Relocation] = []
+        for s in self._reloc_tmpl["slots"]:
+            movk_inst, _ = inst_at(tc, s["movk_loc"])
+            op_inst, _ = inst_at(tc, s["op_loc"])
+            mn = movk_inst.name.lower()
+            if mn == "movk":
+                word = set_movk_imm16(s["ref_movk_word"], self._movk_imm16_from_inst(movk_inst))
+            elif mn == "nop":
+                word = NOP_WORD
+            else:
+                raise GeneratorException(f"unexpected seal value-slot instruction {mn!r}")
+            relocs.append(Relocation(s["movk_off"], word))
+            op_mn = op_inst.name.lower()
+            if op_mn.startswith("aut"):
+                relocs.append(Relocation(s["op_off"], s["aut_word"]))
+            elif op_mn.startswith("xpac"):
+                relocs.append(Relocation(s["op_off"], s["xpac_word"]))
+            else:
+                raise GeneratorException(f"unexpected seal op-slot instruction {op_mn!r}")
+        out = apply_relocations(self._reloc_tmpl["skeleton"], relocs)
+        if self._reloc_validate_left > 0:
+            ref = self._assemble_tc(tc)[0]
+            if ref != out:
+                raise GeneratorException(
+                    "seal relocation produced bytes that differ from a real assembly — refusing to "
+                    "run a possibly wrong-signed test case on hardware")
+            if self._reloc_validate != "all":
+                self._reloc_validate_left -= 1
+        return out
+
     def _seal_trace(self, tc: TestCase, inp: Input) -> ContractExecutionResult:
         """One CE trace of `tc` for `inp` — the trace_fn the sealer resolves over. Owns assembly +
         the CE setup so the sealer never sees the assembler."""
         assert self._sandbox_base is not None, \
             "sandbox base not resolved — read_base_addresses() must run before any seal trace"
-        tc_bytes, _ = self._assemble_tc(tc)
+        tc_bytes = self._assemble_sealed_bytes(tc)
         return self._contract_executor.run(self._make_ce_execution(
             tc_bytes, inp, self._sandbox_base, self._nesting, CONF.model_max_spec_window,
             ExecutionClause.COND, mte_tags=self._mte_tags_for(inp)))
@@ -723,6 +818,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             # key material (else AUTH fails against correct_sig).
             self.local_executor.set_pac_keys(self.local_executor.get_pac_keys())
         self._sealed = self._sealer.seal(self.test_case)
+        self._build_reloc_template()
         log.ensure_flushed()
         return result
 
@@ -760,7 +856,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             log_ce_trace(log, "BASELINE", inp_idx, list(cer))
             log.header(f"VARIANT TC BINARIES  inp={inp_idx}")
             for variant, vtc in variants.items():
-                log_tc_binary(log, variant.name, self._assemble_tc(vtc)[0])
+                log_tc_binary(log, variant.name, self._assemble_sealed_bytes(vtc))
             self._maybe_log_ni_table(log, inp_idx, cer, variants)
             log.ensure_flushed()
 
@@ -786,7 +882,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
 
     def _ni_table_columns(self, variants):
         """(name, bytes) columns for the debug table: this input's baseline and decoy."""
-        return [(variant.name.lower(), self._assemble_tc(tc)[0])
+        return [(variant.name.lower(), self._assemble_sealed_bytes(tc))
                 for variant, tc in variants.items()]
 
 

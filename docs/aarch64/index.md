@@ -83,8 +83,11 @@ pieces, each over its own mechanism.
 
 The fuzzer never talks to the CPU directly: the **CE** gives the *expected* (contract) trace, the
 **kernel module** gives the *actual* (hardware) trace, and the fuzzer compares them. The CE is
-launched once and kept alive to serve many requests; `asm_to_bytes` is a one-shot helper forked per
-call.
+launched once and kept alive to serve many requests. `asm_to_bytes` is a one-shot helper forked per
+call, so it is fork-heavy on the sealed/NI path (one variant per input); two optimizations avoid
+those forks: `Aarch64Generator.in_memory_assemble` **memoizes** by source text (identical assembly is
+served from a cache, not re-forked), and sealed variants are assembled by **relocation** rather than
+re-running the assembler (see §6.2).
 
 ## 3. A fuzzing round
 
@@ -465,6 +468,33 @@ MTE slots); the decoy policy then perturbs only the target's speculative slots.
             |              > PAC-related leak         |
             +----------------------------------------+
 ```
+
+### 6.2 Variant assembly by relocation (throughput)
+
+The sibling variants for one input differ from a shared skeleton only at the sealing slots — the
+`MOVK` carrying the per-input PAC signature and the `AUT*`/`XPAC` that follows it. Re-running the
+external assembler (`asm_to_bytes` → `as` + `objcopy`, three process spawns) for every genuine/decoy
+of every input is the bulk of the non-HW time on the PAC path. `src/aarch64/seal/relocation.py`
+avoids it: a **relocation** is `(offset, type, value)`, and the only type is `WORD32` (overwrite the
+4-byte little-endian word at `offset`). Per test case the executor assembles two reference fills once
+(every PAC slot `MOVK #0` + `AUT`, and + `XPAC`) to obtain the skeleton bytes and, per slot, the
+byte offset plus the harvested `AUT*` / `XPAC` words. Each variant is then produced by splicing: the
+`MOVK` word is the harvested reference with only its 16-bit immediate field rewritten to the
+signature (`set_movk_imm16`), and the op word is the harvested `AUT*` or `XPAC` — **no assembler
+runs per variant**. Because a wrong splice would run a wrong-signed `AUT*` and FPAC-fault the box, a
+configurable number of variants per test case are checked byte-for-byte against a real assembly, and
+any mismatch fails loudly instead of reaching hardware.
+
+Controlled by environment variables:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `REVIZOR_SEAL_RELOC` | `1` | `0` disables relocation (variants assemble normally). |
+| `REVIZOR_SEAL_RELOC_VALIDATE` | `2` | Byte-for-byte validate this many variants per test case (`all` / `none` / integer). |
+
+Relocation only applies when every value slot is a PAC signature (the MTE tag-delta seal is not a
+`WORD32` slot); a sealed TC with MTE slots assembles normally. It composes with — and largely
+supersedes on the sealed path — the `in_memory_assemble` source-text cache (§2).
 
 ## 7. Techniques: triaging a violation
 
