@@ -10,6 +10,18 @@ This document gives you everything you need: the theory behind Revizor, the conc
 htraces, PAC, the seal), the codebase architecture, the task, a measurement plan, and the safety rules
 for this box. Read it fully before touching anything.
 
+> **This task is a dedicated, project-critical goal — treat it as deciding the success or failure of
+> the project.** The PAC-fuzzing throughput is not a nice-to-have: if PAC fuzzing is too slow to cover
+> a meaningful test-case volume, the PAC leak search never reaches statistically useful coverage and
+> the whole PAC effort fails. Give it the weight that implies.
+>
+> **No handwaves. Be thorough — this is extremely important.** Do not guess, do not assert a cause
+> from plausibility, do not stop at "this is probably it." Every claim about where the time goes must
+> be backed by a *number you measured on this box* (a timer, a counter, a profile, a traced kernel
+> event). If you cannot measure something, say so explicitly and say why, rather than papering over it.
+> A ranked suspect list is a starting point to *test*, not a conclusion to *repeat*. Refute or confirm
+> each suspect with evidence, attribute the wall-clock quantitatively, and only then propose a fix.
+
 ---
 
 ## 0. First things first — safety and setup
@@ -158,6 +170,39 @@ measurement, and propose/implement a fix.** Do NOT just theorize — profile.
    amortization.
 5. **Per-input `PAC_SIGN` ioctls** during seal resolution, and **assembler forks** (`asm_to_bytes` /
    `in_memory_assemble`) if any path shells out to an assembler instead of encoding in-memory.
+6. **ICACHE flushes fire far more often on the sealed path — and each one is an SMP-wide IPI
+   broadcast.** This is a strong suspect; work it out fully rather than trusting the sketch below.
+   The mechanism, traced through the kernel module:
+   - **Every** `trace()` (`chardevice.c:281`, one per repetition) calls
+     `load_jit_template()` (`templates_jit.c:611`), which **rebuilds the entire measurement harness**
+     into the JIT buffer via `build_measurement_code()` and re-maps it. Each build flips the buffer
+     RW→RX through `jit_perm_rw()`/`jit_perm_rx()` (`templates_jit.c:477/512/530/562`), and **each of
+     those calls `flush_icache_range()` over the whole `MAX_MEASUREMENT_CODE_SIZE`**
+     (`jit.c:192`/`jit.c:214`).
+   - `load_jit_template()` then adds a loop of `MAX_MEASUREMENT_VIEWS − 1` more `flush_icache_range()`
+     calls over the JIT'd range, one per aliased view (`templates_jit.c:645-649`).
+   - On arm64, a non-local `flush_icache_range()` broadcasts an **IPI to every CPU
+     (`kick_all_cpus_sync`) and waits** — this is the dominant per-flush cost. Note the module already
+     has a cheap `local_icache_flush()` (dc cvau / ic ivau, no IPI — `bpu.c:104-118`) that it uses
+     during branch training, but `load_jit_template()` does **not** use it; it goes through the
+     IPI-broadcasting path.
+   - **The redundancy:** `load_jit_template()` runs on every `trace()`, but `_run_sealed_on_hw`
+     (`aarch64_executor.py:816-828`) calls `trace()` `n_reps` times per `(input, variant)` with
+     **byte-identical** test-case bytes. Reps 2..`n_reps` rebuild and re-flush an *identical* harness
+     for nothing. The JIT output is a pure function of `(test_case bytes, template)` — neither changes
+     across reps.
+   - **Why the sealed path is worse than plain fuzzing:** `trace()` is invoked
+     `n_inputs × n_variants × n_reps` times on the NI path (no boosting, 2 variants — suspects 1 & 3),
+     versus `n_classes × n_reps` on a boosted plain run. Every one of those extra `trace()` calls drags
+     the full rebuild-and-IPI-flush sequence with it, so this suspect *multiplies* suspects 1, 3 and 4.
+   - **Confirm with numbers**, don't assume: count `load_jit_template` invocations per second and
+     total `flush_icache_range` / `kick_all_cpus_sync` calls and cycles on each path
+     (`funccount`/`funclatency`/`bpftrace` on `flush_icache_range`, `__flush_icache_range`,
+     `kick_all_cpus_sync`, or an ftrace function profile), and attribute the delta. If the flush cost
+     is dominant, the fix is to **memoize the JIT'd harness** — skip `load_jit_template()` when neither
+     the loaded test-case bytes nor the template changed since the last build (a dirty flag set on TC
+     write / template set), so the `n_reps` repeats reuse the already-mapped RX harness — and/or route
+     the required flushes through the CPU-pinned `local_icache_flush()` instead of the IPI broadcast.
 
 ### Measurement plan
 
@@ -186,15 +231,22 @@ measurement, and propose/implement a fix.** Do NOT just theorize — profile.
 
 ### What a good result looks like
 
-A phase breakdown that attributes the tc/s drop (e.g. "78% of wall-clock is per-input CE resolve
-because boosting is off; each TC does 2·I CE traces"), plus a concrete, low-risk optimization —
-candidates to evaluate: **cache/reuse the CE resolve** so `trace_test_case_with_taints` and any later
+A phase breakdown **backed by measured numbers** that attributes the tc/s drop (e.g. "78% of
+wall-clock is per-input CE resolve because boosting is off; each TC does 2·I CE traces" — with the
+timer output that proves it), plus a concrete, low-risk optimization — candidates to evaluate:
+**memoize the JIT'd harness** so identical `(test-case, template)` reps skip the rebuild + IPI icache
+flush (suspect 6); **cache/reuse the CE resolve** so `trace_test_case_with_taints` and any later
 re-resolve share one trace per input; **run baseline+decoy in one `trace()`** where the kernel allows
 multiple loaded TCs; **skip the decoy** in phases that don't need it; **contract-class the sealed TCs**
 (inputs whose resolved slot values match share one sealed TC — `ResolvedSealingTestCase.collapse_key`
 already exists for this; the regular-sealed executor uses it, the NI executor may not). Verify any
 change keeps the seal correct (no raw/wrong-signed `AUT*` reaches hardware) and doesn't change which
 violations are found.
+
+**The bar:** a plausible story is not a result. The result is the *measured* attribution — where the
+cycles actually go on this box — and a fix whose effect you *re-measured* (tc/s before vs after). If
+the numbers contradict the ranked suspects above, trust the numbers and say so. Remember the stakes:
+this determines whether PAC fuzzing is viable at all.
 
 ---
 
