@@ -89,6 +89,38 @@ static ssize_t measurement_mode_store(struct kobject *kobj, struct kobj_attribut
 		return -EINVAL;
 	}
 
+	invalidate_jit_cache(); // template drives the built harness; force a rebuild
+	return count;
+}
+
+static ssize_t jit_memoize_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
+	bool value = false;
+	if (kstrtobool(buf, &value)) {
+		return -EINVAL;
+	}
+	jit_memoize_enabled = value;
+	invalidate_jit_cache(); // force one rebuild so the next trace() reflects the new setting
+	return count;
+}
+static ssize_t jit_memoize_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+	return scnprintf(buf, PAGE_SIZE, "%d\n", jit_memoize_enabled);
+}
+
+static ssize_t jit_stats_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+	uint64_t skipped = jit_build_calls - jit_build_done;
+	uint64_t avg_ns = jit_build_done ? jit_build_ns / jit_build_done : 0;
+	return scnprintf(buf, PAGE_SIZE,
+	                 "calls   %llu\n"
+	                 "builds  %llu\n"
+	                 "skipped %llu\n"
+	                 "build_ns_total %llu\n"
+	                 "build_ns_avg   %llu\n",
+	                 jit_build_calls, jit_build_done, skipped, jit_build_ns, avg_ns);
+}
+static ssize_t jit_stats_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
+	jit_build_calls = 0; // any write resets the counters
+	jit_build_done = 0;
+	jit_build_ns = 0;
 	return count;
 }
 
@@ -190,6 +222,8 @@ static struct kobj_attribute enable_view_rotation_attribute = __ATTR(enable_view
 static struct kobj_attribute enable_ssbs_attribute = __ATTR(enable_ssbs, 0644,enable_ssbs_show, enable_ssbs_store);
 static struct kobj_attribute measurement_mode_attribute = __ATTR(measurement_mode, 0644,measurement_mode_show, measurement_mode_store);
 static struct kobj_attribute pin_to_core_attribute = __ATTR(pin_to_core, 0644,pin_to_core_show, pin_to_core_store);
+static struct kobj_attribute jit_memoize_attribute = __ATTR(jit_memoize, 0644, jit_memoize_show, jit_memoize_store);
+static struct kobj_attribute jit_stats_attribute = __ATTR(jit_stats, 0644, jit_stats_show, jit_stats_store);
 
 static ssize_t branch_training_config_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
     set_branch_training_config(buf, count);
@@ -259,6 +293,8 @@ static struct attribute *sysfs_attributes[] = {
 	&enable_ssbs_attribute.attr,
 	&measurement_mode_attribute.attr,
 	&pin_to_core_attribute.attr,
+	&jit_memoize_attribute.attr,
+	&jit_stats_attribute.attr,
 	&branch_training_config_attribute.attr,
 	&enable_branch_training_attribute.attr,
 	NULL, /* need to NULL terminate the list of attributes */

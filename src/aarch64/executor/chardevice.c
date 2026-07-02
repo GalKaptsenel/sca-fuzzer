@@ -217,6 +217,7 @@ static void unload_test_and_update_state(void) {
     	dsb(ish); // make sure all views are synced
 	isb();
 	executor.test_case_length = 0;
+	invalidate_jit_cache(); // harness bytes zeroed; force a rebuild on next trace()
 
 	switch(executor.state) {
 		case TRACED_STATE:
@@ -266,6 +267,7 @@ static ssize_t load_test_and_update_state(const char __user* test, size_t length
 	}
 
 	executor.test_case_length = length;
+	invalidate_jit_cache(); // new test-case bytes; force a rebuild on next trace()
 
 	update_state_after_writing_test();
 

@@ -210,6 +210,8 @@ grouped in the `/sys/executor/system/` subdirectory.
 | `branch_training_config` | rw | `offset:taken,…` (byte offset from the start of the test case; `1`=taken, `0`=not-taken) | Mistraining sequence; writing it also enables training. |
 | `print_sandbox_base` | r | hex pointer | Base of the sandbox `main_region` (input page 0). |
 | `print_code_base` | r | hex pointer | Where the test-case code is loaded, for the selected `measurement_mode`. |
+| `jit_memoize` | rw | `0` / `1` | JIT-harness memoization (default `1`). Each `TRACE` calls `load_jit_template()`, which rebuilds the whole measurement harness and issues `MAX_MEASUREMENT_VIEWS+1` icache flushes — each an SMP-wide `kick_all_cpus_sync` IPI. The build is a pure function of `(test-case bytes, tc_size, measurement_template)`, so when none of those changed since the last build the rebuild+flush is skipped and the already-mapped RX harness is reused. Invalidated on test-case load/unload and `measurement_mode` change; a per-`TRACE` self-check (first TC word at the insert offset) forces a rebuild if the cache is ever stale. Set `0` to force a rebuild every `TRACE` (A/B measurement). |
+| `jit_stats` | rw | counters (write=reset) | Read: `calls`/`builds`/`skipped`/`build_ns_total`/`build_ns_avg` for `load_jit_template()`. Any write resets the counters. |
 
 **`/sys/executor/system/` — read-only capability & identity:**
 

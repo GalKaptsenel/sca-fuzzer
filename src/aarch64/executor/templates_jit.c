@@ -1,6 +1,23 @@
 #include "main.h"
 #include "jit.h"
 #include <linux/random.h>
+#include <linux/ktime.h>
+
+/* JIT-harness memoization state (see templates_jit.h). jit_cache_valid is the
+ * single source of truth: it is only true while the currently-built harness
+ * still matches (test_case bytes, tc_size, template). Every mutation of those
+ * inputs calls invalidate_jit_cache(), so a valid cache guarantees identity. */
+static bool   jit_cache_valid = false;
+static size_t jit_cached_size = 0;
+
+bool     jit_memoize_enabled = true;
+uint64_t jit_build_calls = 0;
+uint64_t jit_build_done  = 0;
+uint64_t jit_build_ns    = 0;
+
+void invalidate_jit_cache(void) {
+	jit_cache_valid = false;
+}
 
 // Note on registers.
 // Some of the registers are reserved for a specific purpose and should never be overwritten.
@@ -609,10 +626,39 @@ void refresh_tc_insert_offsets(void) {
 }
 
 int load_jit_template(size_t tc_size) {
+	ktime_t build_start;
+
 	if(UNSET_TEMPLATE == executor.config.measurement_template) {
 		module_err("Template is not set!\n");
 		return -EINVAL;
 	}
+
+	++jit_build_calls;
+
+	/* Fast path: the harness for (test_case, tc_size, template) is already built
+	 * and mapped. Reuse it and skip the rebuild + MAX_MEASUREMENT_VIEWS+1
+	 * IPI-broadcasting icache flushes. jit_cache_valid implies the built harness
+	 * still matches, so tc_size is guaranteed equal to what we built. Verify the
+	 * first TC word is still present at the insert offset before trusting the
+	 * cache: running a stale harness would, on the PAC path, execute an AUT*
+	 * sealed for the wrong pointer and FPAC-fault. If it ever mismatches, scream
+	 * and fall through to a full rebuild rather than run a wrong harness. */
+	if (jit_memoize_enabled && jit_cache_valid && tc_size >= sizeof(uint32_t)) {
+		size_t off = current_tc_insert_offset_bytes();
+		uint32_t* at = (uint32_t*)((char*)executor.measurement_code_views[0] + off);
+		uint32_t* tc = (uint32_t*)executor.test_case;
+		if (*at == tc[0]) {
+			return jit_cached_size;
+		}
+		module_err("jit cache self-check failed (view@0x%zx=0x%08x != tc[0]=0x%08x); rebuilding\n",
+		           off, *at, tc[0]);
+		jit_cache_valid = false;
+	} else if (jit_memoize_enabled && jit_cache_valid) {
+		/* tc_size < 4: nothing to verify, trust the invalidation contract. */
+		return jit_cached_size;
+	}
+
+	build_start = ktime_get();
 
 	const uint64_t max_size_after_expantion = MAX_MEASUREMENT_CODE_SIZE;
 	uint32_t* destination = (uint32_t*)executor.measurement_code_views[0];
@@ -661,6 +707,10 @@ int load_jit_template(size_t tc_size) {
 		}
 	}
 
+	jit_build_ns += ktime_to_ns(ktime_sub(ktime_get(), build_start));
+	++jit_build_done;
+	jit_cached_size = expanded_size;
+	jit_cache_valid = true;
 	return expanded_size;
 }
 
