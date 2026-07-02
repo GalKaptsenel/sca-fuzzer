@@ -25,6 +25,7 @@
 #include "common_msg_constants.h"
 #include "userapi/executor_input_format.h"
 #include "branch_speculation.h"   /* cond_branch_is_taken / cond_branch_architectural_next */
+#include "addr_xlate.h"           /* kaddr2uaddr_calc / uaddr2kaddr_calc */
 
 /* ---- test infrastructure ------------------------------------------------ */
 
@@ -1102,39 +1103,48 @@ static void test_set_rn_all_registers(void) {
 /* ======================================================================== */
 
 static void test_addr_translation_logic(void) {
-    /*
-     * Self-contained test of kaddr2uaddr / uaddr2kaddr invariants.
-     *
-     * With CONFIG_FLAG_REQ_MEM_BASE_VIRT:
-     *   kaddr2uaddr(kaddr) = sim_mem + (kaddr - kbase)
-     *   uaddr2kaddr(uaddr) = kbase  + (uaddr - sim_mem)
-     *
-     * Without the flag: identity mapping.
-     */
-    uint8_t sim_mem[4096];
-    uintptr_t kbase = 0xFFFF000080000000ULL;
+    uint8_t buf[8192];
+    const uintptr_t sim = (uintptr_t)buf;
 
-    /* kbase → sim_mem[0] */
-    uintptr_t uaddr0 = (uintptr_t)sim_mem + (kbase - kbase);
-    EXPECT_EQ(uaddr0, (uintptr_t)sim_mem);
+    /* a kernel/TTBR1 base (top byte 0xff) and a low base (top byte 0x00) */
+    const uintptr_t kbases[] = { 0xFFFF0000C47F1000ULL, 0x0000000080000000ULL };
+    const uintptr_t offs[]   = { 0, 1, 8, 100, 0x800, 0x1FFF, 0x2000 };
+    /* top bytes a base register can carry: canonical, zero, MTE tags [59:56], arbitrary */
+    const uint8_t   topbytes[] = { 0x00, 0xFF, 0x05, 0x0A, 0x0F, 0x42, 0x80, 0xF3 };
 
-    /* kbase+100 → sim_mem+100 */
-    uintptr_t kaddr1 = kbase + 100;
-    uintptr_t uaddr1 = (uintptr_t)sim_mem + (kaddr1 - kbase);
-    EXPECT_EQ(uaddr1, (uintptr_t)(sim_mem + 100));
+    for (size_t b = 0; b < sizeof(kbases)/sizeof(kbases[0]); ++b) {
+        const uintptr_t kbase = kbases[b];
+        const uint8_t   kbase_top = (uint8_t)(kbase >> 56);
 
-    /* Round-trip kaddr → uaddr → kaddr */
-    uintptr_t kaddr_rt = kbase + (uaddr1 - (uintptr_t)sim_mem);
-    EXPECT_EQ(kaddr_rt, kaddr1);
+        for (size_t o = 0; o < sizeof(offs)/sizeof(offs[0]); ++o) {
+            const uintptr_t off = offs[o];
 
-    /* End boundary: kbase+4096 → sim_mem+4096 */
-    uintptr_t kaddr_end = kbase + 4096;
-    uintptr_t uaddr_end = (uintptr_t)sim_mem + (kaddr_end - kbase);
-    EXPECT_EQ(uaddr_end, (uintptr_t)(sim_mem + 4096));
+            uintptr_t k_canon = kbase + off;                 /* canonical: top byte == kbase's */
+            EXPECT_EQ(kaddr2uaddr_calc(k_canon, kbase, sim), sim + off);
+            EXPECT_EQ(uaddr2kaddr_calc(sim + off, kbase, sim), k_canon);
 
-    /* Identity mapping (flag not set): kaddr == uaddr */
-    uintptr_t any = 0xABCD1234ULL;
-    EXPECT_EQ(any, any);
+            /* uaddr round-trip is always the identity */
+            uintptr_t u = sim + off;
+            EXPECT_EQ(kaddr2uaddr_calc(uaddr2kaddr_calc(u, kbase, sim), kbase, sim), u);
+
+            for (size_t t = 0; t < sizeof(topbytes)/sizeof(topbytes[0]); ++t) {
+                /* canonical base kbase+off, with its top byte replaced by an arbitrary tag */
+                uintptr_t k = ((uintptr_t)topbytes[t] << 56) | ((kbase + off) & CE_TBI_ADDR_MASK);
+
+                /* forward map ignores the top byte (TBI): same uaddr regardless of tag */
+                EXPECT_EQ(kaddr2uaddr_calc(k, kbase, sim), sim + off);
+
+                /* kaddr round-trip rebuilds the top byte from kbase: identity only when it matches */
+                uintptr_t rt = uaddr2kaddr_calc(kaddr2uaddr_calc(k, kbase, sim), kbase, sim);
+                EXPECT_EQ(rt, kbase + off);
+                EXPECT_EQ(rt == k, topbytes[t] == kbase_top);
+            }
+        }
+    }
+
+    /* the FPAC-bug value: offset-cancelled base Rn = 3 under a 0xff-top-byte kbase */
+    uint8_t small[64]; uintptr_t sm = (uintptr_t)small; uintptr_t kb = 0xFFFF0000C47F1000ULL;
+    EXPECT_EQ(uaddr2kaddr_calc(kaddr2uaddr_calc(3, kb, sm), kb, sm), 0xFF00000000000003ULL);
 }
 
 /* ======================================================================== */
@@ -1202,54 +1212,44 @@ static void test_fixup_base_reg_rw(void) {
 
 static void test_fixup_simulate_roundtrip(void) {
     /*
-     * Simulate the full fixup flow using the actual helper functions:
-     *
-     *   base_hook_c: cpu_state_write_base_reg(state, rn, kaddr2uaddr(orig))
-     *   instruction executes (possibly updates Rn for writeback)
-     *   apply_fixups: cpu_state_write_base_reg(state, rn,
-     *                     uaddr2kaddr(cpu_state_read_base_reg(state, rn)))
-     *
-     * kaddr2uaddr/uaddr2kaddr are not linked into test_ce, so we inline the
-     * linear mapping: uaddr = sim_mem + (kaddr - kbase).
-     * The test calls cpu_state_{read,write}_base_reg and get_rn — actual code.
+     * Simulate the fixup flow with the real helpers:
+     *   base_hook_c: uaddr = kaddr2uaddr_calc(orig); write it into Rn
+     *   instruction runs (writeback forms add wb_delta to Rn)
+     *   apply_fixups: Rn = orig + (Rn - uaddr)
+     * The delta restore must reproduce orig + wb_delta EXACTLY, preserving the top byte for a
+     * non-canonical base (the offset-cancel case) where the old uaddr2kaddr revert corrupted it.
      */
     uintptr_t kbase   = 0xFFFF000080000000ULL;
     uint8_t   buf[256];
     uintptr_t sim_mem = (uintptr_t)buf;
 
-    struct { uint32_t inst; uint32_t rn; uintptr_t kaddr; int64_t wb_delta; } cases[] = {
-        { ENC_LDR_X0_X1,   1,  kbase + 0x100, 0  },  /* no writeback */
-        { ENC_LDR_PREIDX,  1,  kbase + 0x100, 8  },  /* pre-index +8 */
-        { ENC_LDR_POSTIDX, 1,  kbase + 0x100, 8  },  /* post-index +8 */
-        { set_rn(ENC_STR_X0_X1, 31), 31, kbase + 0x80, 0  },  /* SP, no wb */
-        { set_rn(ENC_LDR_PREIDX,  31), 31, kbase + 0x80, -16 }, /* SP, pre-index -16 */
+    struct { uint32_t inst; uint32_t rn; uintptr_t orig; int64_t wb_delta; } cases[] = {
+        { ENC_LDR_X0_X1,   1,  kbase + 0x100,         0  },  /* canonical, no writeback */
+        { ENC_LDR_PREIDX,  1,  kbase + 0x100,         8  },  /* pre-index +8 */
+        { ENC_LDR_POSTIDX, 1,  kbase + 0x100,         8  },  /* post-index +8 */
+        { set_rn(ENC_STR_X0_X1, 31), 31, kbase + 0x80, 0  }, /* SP, no writeback */
+        { set_rn(ENC_LDR_PREIDX, 31), 31, kbase + 0x80, -16 }, /* SP, pre-index -16 */
+        { ENC_LDR_X0_X1,   1,  3,                     0  },  /* offset-cancelled base (Rn = base-index) */
+        { ENC_LDR_X0_X1,   1,  0x05000000000008FCULL, 0  },  /* base with an MTE tag in the top byte */
     };
 
     for (size_t i = 0; i < sizeof(cases)/sizeof(cases[0]); ++i) {
-        uint32_t inst  = cases[i].inst;
-        uintptr_t kaddr = cases[i].kaddr;
-        int64_t  delta = cases[i].wb_delta;
-
-        /* verify get_rn agrees with the fixture */
-        EXPECT_EQ(get_rn(inst), cases[i].rn);
+        EXPECT_EQ(get_rn(cases[i].inst), cases[i].rn);
 
         struct cpu_state s;
         memset(&s, 0, sizeof(s));
 
-        /* base_hook_c: write kaddr2uaddr(kaddr) into Rn */
-        uintptr_t uaddr = sim_mem + (kaddr - kbase);
+        uintptr_t uaddr = kaddr2uaddr_calc(cases[i].orig, kbase, sim_mem);
         cpu_state_write_base_reg(&s, cases[i].rn, uaddr);
         EXPECT_EQ(cpu_state_read_base_reg(&s, cases[i].rn), uaddr);
 
-        /* hardware executes the instruction; for writeback, Rn is updated */
-        uintptr_t rn_after = (uintptr_t)((int64_t)uaddr + delta);
-        cpu_state_write_base_reg(&s, cases[i].rn, rn_after);
+        /* hardware executes; writeback forms update Rn */
+        cpu_state_write_base_reg(&s, cases[i].rn, (uintptr_t)((int64_t)uaddr + cases[i].wb_delta));
 
-        /* apply_fixups: read Rn, translate back to kaddr */
-        uintptr_t rn_read   = cpu_state_read_base_reg(&s, cases[i].rn);
-        uintptr_t kaddr_back = kbase + (rn_read - sim_mem);
-        uintptr_t expected  = (uintptr_t)((int64_t)kaddr + delta);
-        EXPECT_EQ(kaddr_back, expected);
+        /* apply_fixups (delta restore) */
+        uintptr_t cur = cpu_state_read_base_reg(&s, cases[i].rn);
+        uintptr_t restored = cases[i].orig + (cur - uaddr);
+        EXPECT_EQ(restored, (uintptr_t)((int64_t)cases[i].orig + cases[i].wb_delta));
     }
 }
 

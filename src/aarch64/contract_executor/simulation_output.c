@@ -1,6 +1,7 @@
 #include "simulation.h"
 #include "simulation_output.h"
 #include "simulation_hook.h"
+#include "addr_xlate.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
@@ -64,26 +65,17 @@ static int64_t signextend(size_t orig_len, size_t dest_len, int64_t value) {
 }
 
 void* kaddr2uaddr(void* kaddr) {
-	void* uaddr = kaddr;
-	if(CONFIG_FLAG_REQ_MEM_BASE_VIRT & simulation.sim_input.hdr.config.flags) {
-		uintptr_t kbase  = simulation.sim_input.hdr.config.requested_mem_base_virt;
-		uintptr_t kaddr_ = (uintptr_t)kaddr;
-		/* kaddr is a sandbox-clamped memory base (the generator masks every base into the sandbox via
-		 * AND/ADD; PC-relative literals, the lone exception, are not routed here), so this linear map
-		 * lands in simulation_memory without a bounds check. TBI: the top-byte tag is not part of the
-		 * address and may hold any value, so mask it from both operands, not assume kbase shares it. */
-		uaddr = (char*)simulation.simulation_memory
-		        + ((kaddr_ & 0x00FFFFFFFFFFFFFFu) - (kbase & 0x00FFFFFFFFFFFFFFu));
-	}
-	return uaddr;
+	if (!(CONFIG_FLAG_REQ_MEM_BASE_VIRT & simulation.sim_input.hdr.config.flags)) __builtin_trap();
+	return (void*)kaddr2uaddr_calc((uintptr_t)kaddr,
+		simulation.sim_input.hdr.config.requested_mem_base_virt,
+		(uintptr_t)simulation.simulation_memory);
 }
 
 void* uaddr2kaddr(void* uaddr) {
-	void* kaddr = uaddr;
-	if(CONFIG_FLAG_REQ_MEM_BASE_VIRT & simulation.sim_input.hdr.config.flags) {
-		kaddr = (char*)simulation.sim_input.hdr.config.requested_mem_base_virt + ((uintptr_t)uaddr - (uintptr_t)simulation.simulation_memory);
-	}
-	return kaddr;
+	if (!(CONFIG_FLAG_REQ_MEM_BASE_VIRT & simulation.sim_input.hdr.config.flags)) __builtin_trap();
+	return (void*)uaddr2kaddr_calc((uintptr_t)uaddr,
+		simulation.sim_input.hdr.config.requested_mem_base_virt,
+		(uintptr_t)simulation.simulation_memory);
 }
 
 

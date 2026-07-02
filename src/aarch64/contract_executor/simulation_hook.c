@@ -29,19 +29,17 @@ void ce_debug_print_last_sim_state(FILE *out) {
 }
 
 /*
- * Post-instruction repairs queued by base_hook_c and applied by the next hook's apply_fixups. A
- * fixup is composable: it may carry a REGISTER fixup (rewrite a base register — revert its
- * kaddr<->uaddr translation and/or correct its MTE tag) and/or a MEMORY fixup (restore bytes a
- * native store clobbered). What to do is decided at log time; apply_fixups just applies it.
+ * Post-instruction repairs queued by base_hook_c, applied by the next hook. Register restore is
+ * delta-based (reg = orig + (current - uaddr)): preserves the exact top byte / MTE tag for a
+ * non-writeback access and the increment for a writeback form.
  */
 typedef struct {
 	void *addr;                  /* instruction address (debug only) */
 	struct {
-		int      apply;      /* rewrite `reg` */
-		uint32_t reg;        /* base register index */
-		int      revert;     /* uaddr -> kaddr */
-		int      retag;      /* overwrite tag bits [59:56] with `tag` */
-		uint8_t  tag;
+		int       apply;
+		uint32_t  reg;
+		uintptr_t orig;      /* exact pre-access value (kaddr, incl MTE tag / TBI top byte) */
+		uintptr_t uaddr;     /* uaddr written for native execution */
 	} reg_fix;
 	struct {
 		void    *uaddr;      /* NULL = none; else restore `size` bytes of `value` here */
@@ -70,14 +68,9 @@ static void apply_fixups(struct cpu_state* state) {
 			memcpy(f->mem_fix.uaddr, &f->mem_fix.value, f->mem_fix.size);
 		}
 		if (f->reg_fix.apply) {
-			uintptr_t v = cpu_state_read_base_reg(state, f->reg_fix.reg);
-			if (f->reg_fix.revert) {
-				v = (uintptr_t)uaddr2kaddr((void*)v);
-			}
-			if (f->reg_fix.retag) {
-				v = (v & ~(0xFull << 56)) | ((uint64_t)f->reg_fix.tag << 56);
-			}
-			cpu_state_write_base_reg(state, f->reg_fix.reg, v);
+			uintptr_t cur = cpu_state_read_base_reg(state, f->reg_fix.reg);
+			cpu_state_write_base_reg(state, f->reg_fix.reg,
+			                         f->reg_fix.orig + (cur - f->reg_fix.uaddr));
 		}
 	}
 	revert_log_fixup();
@@ -208,11 +201,9 @@ void base_hook_c(struct cpu_state* state) {
 		int load_aliases = is_load(inst) &&
 		    (get_rt(inst) == rn || (is_pair_load_store(inst) && get_rt2(inst) == rn));
 		f.reg_fix.apply  = !load_aliases;
-		f.reg_fix.revert = !load_aliases;
 
 		/* MTE-test mode (not SP): give the pointer the accessed cell's tag before the access, as the
-		 * genuine ADDG does, so a store of it writes the tagged value. The cell lookup masks the tag. */
-		uint8_t cell_tag = 0;
+		 * genuine ADDG does, so a store of it writes the tagged value. */
 		int retag = !load_aliases && mte_tagmem_active() && rn != 31;
 		if (retag) {
 			trace_cpu_state_t tcs0 = { 0 };
@@ -220,13 +211,13 @@ void base_hook_c(struct cpu_state* state) {
 			tcs0.sp = state->sp;
 			tcs0.pc = state->pc;
 			mem_access_info_t ea = parse_memory_access_instruction(inst, &tcs0);
-			cell_tag = mte_tagmem_tag_at((uintptr_t)ea.effective_address);
+			uint8_t cell_tag = mte_tagmem_tag_at((uintptr_t)ea.effective_address);
 			kaddr = (kaddr & ~(0xFull << 56)) | ((uintptr_t)cell_tag << 56);
-			f.reg_fix.retag = 1;   /* the revert recovers the canonical kaddr (TBI dropped the tag) */
-			f.reg_fix.tag = cell_tag;
 		}
 
-		cpu_state_write_base_reg(state, rn, (uintptr_t)kaddr2uaddr((void*)kaddr));
+		f.reg_fix.orig  = kaddr;
+		f.reg_fix.uaddr = (uintptr_t)kaddr2uaddr((void*)kaddr);
+		cpu_state_write_base_reg(state, rn, f.reg_fix.uaddr);
 
 		/* A store whose data register aliases the base writes kaddr (the tagged architectural pointer),
 		 * not the uaddr; restore those bytes after the native store. */
