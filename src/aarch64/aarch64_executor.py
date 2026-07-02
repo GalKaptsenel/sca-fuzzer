@@ -790,6 +790,55 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                 for variant, tc in variants.items()]
 
 
+    # ------------------------------------------------------------------ hardware: sealed execution
+    def _run_sealed_on_hw(
+        self,
+        inputs: List[Input],
+        variants_per_input: List[TCVariants],
+        n_reps: int,
+    ) -> List[Dict[NIVariant, HTrace]]:
+        """The single hardware entry point: every TC reaching here is already sealed."""
+        STAT.executor_reruns += n_reps * len(inputs)
+        log = FuzzLogger.get()
+        results: List[Dict[NIVariant, HTrace]] = []
+        for inp_idx, (inp, variants) in enumerate(zip(inputs, variants_per_input)):
+            per_variant: Dict[NIVariant, HTrace] = {}
+            self.local_executor.discard_all_inputs()
+            iid = self.local_executor.allocate_iid()
+            self.local_executor.checkout_region(InputRegion(iid))
+            self.local_executor.write(ExecutorMemory(serialize_input(inp, mte_tags=self._mte_tags_for(inp))))
+
+            entries = self.branch_mistraining_entries(getattr(inp, "_arch_trace", None))
+            self.apply_branch_mistraining(entries)
+            if entries:
+                log_mistraining(log, self._tc_counter, inp_idx, entries, inp._arch_trace)
+
+            for variant, tc in variants.items():
+                log.wp(f"[HW] inp={inp_idx} variant={variant.name}")
+                self._assemble_and_write_test_case(tc)
+                trace_list, pfc_list = [], []
+                for _ in range(n_reps):
+                    self.local_executor.trace()
+                    self.local_executor.checkout_region(InputRegion(iid))
+                    hwm = self.local_executor.hardware_measurement()
+                    trace_list.append(hwm.htrace)
+                    pfc_list.append(hwm.pfcs)
+                ht = HTrace(trace_list=trace_list, perf_counters=np.array(pfc_list))
+                per_variant[variant] = ht
+                log.w(f"  htrace=0x{ht.raw[0]:016x}  n_reps={len(trace_list)}", ch="pac_hw")
+            results.append(per_variant)
+        return results
+
+    def trace_test_case(self, inputs: List[Input], n_reps: int) -> Tuple[List[HTrace], List[TestCase]]:
+        """Run the genuine sealed baseline."""
+        if not inputs or self.test_case is None:
+            return [], []
+        assert self._sealed is not None, "sealed TC not built — load_test_case() not called"
+        self._sandbox_base, _ = self.read_base_addresses()
+        genuine = [{NIVariant.BASELINE: self._sealed.resolve(inp).genuine()} for inp in inputs]
+        results = self._run_sealed_on_hw(inputs, genuine, n_reps)
+        return [r[NIVariant.BASELINE] for r in results], []
+
     # ------------------------------------------------------------------ hardware: compare variants
     def trace_test_case_variants_hw(
         self,
@@ -800,43 +849,10 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         mistraining (shared by all variants — same branch layout). Returns per-input {variant: HTrace}."""
         assert self._last_tc_variants is not None and len(self._last_tc_variants) == len(inputs), \
             "trace_test_case_with_taints() must be called before trace_test_case_variants_hw()"
-        STAT.executor_reruns += n_reps * len(inputs)
-        sandbox_base, _ = self.read_base_addresses()
-        log = FuzzLogger.get()
         if FuzzLogger._VERBOSITY >= 1:
-            self._log_pre_hw_ce_analysis(inputs, sandbox_base, log)
-
-        counter_log = defaultdict(lambda: defaultdict(list))
-        expected_log: Dict[int, int] = {}
-        results: List[Dict[NIVariant, HTrace]] = []
-        for inp_idx, (inp, variants) in enumerate(zip(inputs, self._last_tc_variants)):
-            per_variant: Dict[NIVariant, HTrace] = {}
-            self.local_executor.discard_all_inputs()
-            iid = self.local_executor.allocate_iid()
-            self.local_executor.checkout_region(InputRegion(iid))
-            self.local_executor.write(ExecutorMemory(serialize_input(inp, mte_tags=self._mte_tags_for(inp))))
-
-            entries = self.branch_mistraining_entries(getattr(inp, "_arch_trace", None))
-            self.apply_branch_mistraining(entries)
-            expected_log[inp_idx] = len(entries)
-            if entries:
-                log_mistraining(log, self._tc_counter, inp_idx, entries, inp._arch_trace)
-
-            for variant, tc in variants.items():
-                log.wp(f"[HW] inp={inp_idx} variant={variant.name}")
-                self._assemble_and_write_test_case(tc)
-                trace_list = []
-                for _ in range(n_reps):
-                    self.local_executor.trace()
-                    self.local_executor.checkout_region(InputRegion(iid))
-                    hwm = self.local_executor.hardware_measurement()
-                    trace_list.append(hwm.htrace)
-                    counter_log[variant][inp_idx].append(hwm.pfcs[2])
-                ht = HTrace(trace_list=trace_list)
-                per_variant[variant] = ht
-                log.w(f"  htrace=0x{ht.raw[0]:016x}  n_reps={len(trace_list)}", ch="pac_hw")
-            results.append(per_variant)
-        return results
+            sandbox_base, _ = self.read_base_addresses()
+            self._log_pre_hw_ce_analysis(inputs, sandbox_base, FuzzLogger.get())
+        return self._run_sealed_on_hw(inputs, self._last_tc_variants, n_reps)
 
 
 class Aarch64RegularSealedExecutor(Aarch64NonInterferenceExecutor):
