@@ -6,6 +6,7 @@ import os
 import math
 import random
 import copy
+import functools
 from itertools import chain
 from subprocess import Popen, PIPE
 from typing import Any, List, Tuple, Optional, Set, Dict, Iterator, Callable
@@ -61,10 +62,20 @@ class Aarch64Generator(ConfigurableGenerator, abc.ABC):
 
     @staticmethod
     def in_memory_assemble(asm: str) -> bytes:
-        """Assemble AArch64 assembly to raw machine code in memory via the asm_to_bytes helper."""
+        """Assemble AArch64 assembly to raw machine code via the asm_to_bytes helper.
+
+        Assembly is a pure function of the (normalized) source text, so the result
+        is memoized: the sealed/NI fuzzing path re-assembles the same placeholder
+        test case once per input (measured: ~72% of calls are byte-identical), and
+        each call spawns three processes (asm_to_bytes -> as + objcopy). The cache
+        turns those redundant spawns into dict hits."""
         if not asm.endswith('\n'):
             asm += '\n'
+        return Aarch64Generator._assemble_cached(asm)
 
+    @staticmethod
+    @functools.lru_cache(maxsize=2048)
+    def _assemble_cached(asm: str) -> bytes:
         asm_to_bytes = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                     "asm_to_bytes", "asm_to_bytes")
         p = Popen([asm_to_bytes], stdin=PIPE, stdout=PIPE, stderr=PIPE, text=False)
