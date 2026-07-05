@@ -29,51 +29,102 @@ void ce_debug_print_last_sim_state(FILE *out) {
 }
 
 /*
- * Post-instruction repairs queued by base_hook_c, applied by the next hook. Register restore is
- * delta-based (reg = orig + (current - uaddr)): preserves the exact top byte / MTE tag for a
- * non-writeback access and the increment for a writeback form.
+ * Post-instruction repairs queued by base_hook_c, applied by the next hook. Each entry is ONE action:
+ *   REG - restore a base register: reg = orig + (current - uaddr); preserves the exact top byte / MTE
+ *         tag on a non-writeback access and the writeback increment otherwise.
+ *   MEM - restore `size` bytes of `value` at `uaddr` (undo a native store that wrote the uaddr).
+ * One instruction may queue several (a base-register restore plus one MEM restore per stored element
+ * whose data register aliased the base). Held in a cyclic buffer, drained tail -> head.
  */
+typedef enum { FIXUP_REG = 1, FIXUP_MEM } fixup_kind_t;
+
 typedef struct {
-	void *addr;                  /* instruction address (debug only) */
-	struct {
-		int       apply;
-		uint32_t  reg;
-		uintptr_t orig;      /* exact pre-access value (kaddr, incl MTE tag / TBI top byte) */
-		uintptr_t uaddr;     /* uaddr written for native execution */
-	} reg_fix;
-	struct {
-		void    *uaddr;      /* NULL = none; else restore `size` bytes of `value` here */
-		uint64_t value;
-		uint32_t size;
-	} mem_fix;
+	fixup_kind_t kind;
+	union {
+		struct { uint32_t reg; uintptr_t orig; uintptr_t uaddr; } reg;
+		struct { void *uaddr; uint64_t value; uint32_t size; }    mem;
+	};
 } fixup_t;
 
 #define MAX_FIXUPS 1024
-static fixup_t fixups[MAX_FIXUPS] = { 0 };
-static size_t fixup_count = 0;
+static fixup_t fixups[MAX_FIXUPS];
+static size_t fix_head = 0;   /* next slot to write */
+static size_t fix_tail = 0;   /* next slot to apply */
 
-static void revert_log_fixup(void) {
-	memset(fixups, 0, fixup_count * sizeof(fixups[0]));
-	fixup_count = 0;
+static void push_fixup(fixup_t f) {
+	size_t next = (fix_head + 1) % MAX_FIXUPS;
+	if (next == fix_tail) return;   /* ring full — never reached within one hook window */
+	fixups[fix_head] = f;
+	fix_head = next;
 }
-static void log_fixup(fixup_t f) {
-	if (fixup_count >= MAX_FIXUPS) return;
-	fixups[fixup_count++] = f;
+static void log_reg_fixup(uint32_t reg, uintptr_t orig, uintptr_t uaddr) {
+	fixup_t f = { .kind = FIXUP_REG };
+	f.reg.reg = reg; f.reg.orig = orig; f.reg.uaddr = uaddr;
+	push_fixup(f);
+}
+static void log_mem_fixup(void *uaddr, uint64_t value, uint32_t size) {
+	fixup_t f = { .kind = FIXUP_MEM };
+	f.mem.uaddr = uaddr; f.mem.value = value; f.mem.size = size;
+	push_fixup(f);
 }
 
 static void apply_fixups(struct cpu_state* state) {
-	for (size_t i = 0; i < fixup_count; ++i) {
-		fixup_t* f = &fixups[i];
-		if (NULL != f->mem_fix.uaddr) {
-			memcpy(f->mem_fix.uaddr, &f->mem_fix.value, f->mem_fix.size);
+	while (fix_tail != fix_head) {                 /* drain the ring, wrapping, until empty */
+		fixup_t* f = &fixups[fix_tail];
+		if (FIXUP_MEM == f->kind) {
+			memcpy(f->mem.uaddr, &f->mem.value, f->mem.size);
+		} else if (FIXUP_REG == f->kind) {
+			uintptr_t cur = cpu_state_read_base_reg(state, f->reg.reg);
+			cpu_state_write_base_reg(state, f->reg.reg, f->reg.orig + (cur - f->reg.uaddr));
 		}
-		if (f->reg_fix.apply) {
-			uintptr_t cur = cpu_state_read_base_reg(state, f->reg_fix.reg);
-			cpu_state_write_base_reg(state, f->reg_fix.reg,
-			                         f->reg_fix.orig + (cur - f->reg_fix.uaddr));
-		}
+		fix_tail = (fix_tail + 1) % MAX_FIXUPS;
 	}
-	revert_log_fixup();
+}
+
+/* Sign-extend the low `size` bytes of v to 64 bits. */
+static uint64_t sext_from(uint64_t v, uint32_t size) {
+	uint32_t bits = size * 8;
+	if (bits >= 64) return v;
+	uint64_t m = 1ull << (bits - 1);
+	return (v ^ m) - m;
+}
+
+/* When an atomic store's source register aliases the base (which we set to uaddr for native
+ * execution), the native store wrote a uaddr-derived value. Recompute the value the store WOULD have
+ * written with kaddr, so the mem fixup can restore it. `uea` is the translated (sim-memory) address,
+ * still holding the pre-op value. Returns 1 and sets *out when a fix is needed. Covers SWP, the LSE
+ * arithmetic RMW family (LD/ST<op>), and CAS/CASP element 0. Register 31 is XZR (value 0). */
+static int atomic_kaddr_store_value(uint32_t inst, uint32_t rn, uint64_t kaddr, void* uea,
+                                    uint32_t size, struct cpu_state* state, uint64_t* out) {
+	uint64_t mask = (size >= 8) ? ~0ull : ((1ull << (size * 8)) - 1);
+	uint64_t old = 0; memcpy(&old, uea, size); old &= mask;
+
+	if (is_regular_load_store(inst)) {            /* LSE: SWP / LD|ST<op>, source = Rs[20:16] */
+		uint32_t rs = (inst >> 16) & 0x1F;
+		if (rs != rn || rs == 31) return 0;   /* not aliased, or XZR source */
+		uint64_t s = kaddr & mask;
+		uint32_t o3 = (inst >> 15) & 1, opc = (inst >> 12) & 7;
+		uint64_t v;
+		if (o3 && opc == 0)      v = s;                                              /* SWP    */
+		else switch (opc) {
+			case 0: v = old + s; break;                                         /* LDADD  */
+			case 1: v = old & ~s; break;                                        /* LDCLR  */
+			case 2: v = old ^ s; break;                                         /* LDEOR  */
+			case 3: v = old | s; break;                                         /* LDSET  */
+			case 4: v = sext_from(old,size) > sext_from(s,size) ? old : s; break;/* LDSMAX */
+			case 5: v = sext_from(old,size) < sext_from(s,size) ? old : s; break;/* LDSMIN */
+			case 6: v = old > s ? old : s; break;                               /* LDUMAX */
+			default: v = old < s ? old : s; break;                              /* LDUMIN */
+		}
+		*out = v & mask; return 1;
+	}
+
+	/* CAS / CASP: store Rt (element 0) iff [EA] == Rs. */
+	uint32_t rs = (inst >> 16) & 0x1F, rt = inst & 0x1F;
+	if (rs != rn && rt != rn) return 0;
+	uint64_t rsv = ((rs == rn) ? kaddr : (rs == 31 ? 0 : cpu_state_read_base_reg(state, rs))) & mask;
+	uint64_t rtv = ((rt == rn) ? kaddr : (rt == 31 ? 0 : cpu_state_read_base_reg(state, rt))) & mask;
+	*out = (old == rsv) ? rtv : old; return 1;
 }
 
 static void* inner_hook_aarch64_instructions(struct simulation_code* sc) {
@@ -193,50 +244,47 @@ void base_hook_c(struct cpu_state* state) {
 		uint32_t rn = get_rn(inst);
 		uintptr_t kaddr = cpu_state_read_base_reg(state, rn);
 
-		fixup_t f = { 0 };
-		f.addr = (void*)state->pc;
-		f.reg_fix.reg = rn;
+		trace_cpu_state_t tcs = { 0 };
+		for (uint32_t r = 0; r < 31; ++r) { tcs.gpr[r] = cpu_state_read_base_reg(state, r); }
+		tcs.sp = state->sp; tcs.pc = state->pc;
+		mem_access_info_t mi = parse_memory_access_instruction(inst, &tcs);
 
-		/* A load that writes its result into Rn leaves loaded data there, not a pointer: leave it. */
-		int load_aliases = is_load(inst) &&
-		    (get_rt(inst) == rn || (is_pair_load_store(inst) && get_rt2(inst) == rn));
-		f.reg_fix.apply  = !load_aliases;
+		/* A load that writes its result into Rn (Rt or, for a pair, Rt2) leaves loaded data there,
+		 * not a pointer: don't restore it. */
+		int load_aliases = mi.is_load &&
+		    (mi.target_register == rn || (mi.is_pair && mi.rt2_register == rn));
 
 		/* MTE-test mode (not SP): give the pointer the accessed cell's tag before the access, as the
 		 * genuine ADDG does, so a store of it writes the tagged value. */
-		int retag = !load_aliases && mte_tagmem_active() && rn != 31;
-		if (retag) {
-			trace_cpu_state_t tcs0 = { 0 };
-			for (uint32_t r = 0; r < 31; ++r) { tcs0.gpr[r] = cpu_state_read_base_reg(state, r); }
-			tcs0.sp = state->sp;
-			tcs0.pc = state->pc;
-			mem_access_info_t ea = parse_memory_access_instruction(inst, &tcs0);
-			uint8_t cell_tag = mte_tagmem_tag_at((uintptr_t)ea.effective_address);
+		if (!load_aliases && mte_tagmem_active() && rn != 31) {
+			uint8_t cell_tag = mte_tagmem_tag_at((uintptr_t)mi.effective_address);
 			kaddr = (kaddr & ~(0xFull << 56)) | ((uintptr_t)cell_tag << 56);
 		}
 
-		f.reg_fix.orig  = kaddr;
-		f.reg_fix.uaddr = (uintptr_t)kaddr2uaddr((void*)kaddr);
-		cpu_state_write_base_reg(state, rn, f.reg_fix.uaddr);
+		uintptr_t uaddr = (uintptr_t)kaddr2uaddr((void*)kaddr);
+		cpu_state_write_base_reg(state, rn, uaddr);
+		if (!load_aliases) log_reg_fixup(rn, kaddr, uaddr);
 
-		/* A store whose data register aliases the base writes kaddr (the tagged architectural pointer),
-		 * not the uaddr; restore those bytes after the native store. */
-		if (is_store(inst)) {
-			int pair = is_pair_load_store(inst);
-			int rt_aliases = (get_rt(inst) == rn);
-			int rt2_aliases = (pair && get_rt2(inst) == rn);
-			if (rt_aliases || rt2_aliases) {
-				trace_cpu_state_t tcs = { 0 };
-				for (uint32_t r = 0; r < 31; ++r) { tcs.gpr[r] = cpu_state_read_base_reg(state, r); }
-				tcs.sp = state->sp; tcs.pc = state->pc;
-				mem_access_info_t mi = parse_memory_access_instruction(inst, &tcs);
-				f.mem_fix.value = (uint64_t)kaddr;
-				f.mem_fix.size  = (uint32_t)mi.data_size;
-				f.mem_fix.uaddr = rt_aliases ? (void*)mi.effective_address
-				                             : (void*)(mi.effective_address + mi.data_size);
+		/* A store whose data register aliases the base wrote the uaddr, not the kaddr; restore those
+		 * bytes. Queued per stored element, so every element of a pair (or any wider store) is covered.
+		 * Regular / pair / exclusive stores write Rt / Rt2 directly (reg 31 = XZR, stores 0); atomics
+		 * write a computed value keyed on Rs, so recompute it with kaddr. */
+		if (mi.is_store) {
+			if (mi.is_atomic) {
+				void* uea = kaddr2uaddr((void*)mi.effective_address);
+				uint64_t fixed;
+				if (rn != 31 && atomic_kaddr_store_value(inst, rn, (uint64_t)kaddr, uea,
+				                                         (uint32_t)mi.data_size, state, &fixed))
+					log_mem_fixup(uea, fixed, (uint32_t)mi.data_size);
+			} else {
+				if (mi.target_register == rn && rn != 31)
+					log_mem_fixup(kaddr2uaddr((void*)mi.effective_address),
+					              (uint64_t)kaddr, (uint32_t)mi.data_size);
+				if (mi.is_pair && mi.rt2_register == rn && rn != 31)
+					log_mem_fixup(kaddr2uaddr((void*)(mi.effective_address + mi.data_size)),
+					              (uint64_t)kaddr, (uint32_t)mi.data_size);
 			}
 		}
-		log_fixup(f);
 	}
 }
 

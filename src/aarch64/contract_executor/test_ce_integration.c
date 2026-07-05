@@ -364,6 +364,7 @@ static bool run_ce_full(
     int status;
     waitpid(pid, &status, 0);
 
+
     return ok;
 }
 
@@ -2578,6 +2579,84 @@ static void test_integration_mte_correction_propagates(void) {
     EXPECT_EQ(res.entries[3].cpu.gpr[4] >> 56, (uint64_t)0x5);   /* corrected tag propagated */
 }
 
+/* ============================================================================
+ * Base-register-aliasing stores. A store whose data register aliases the base
+ * must persist the kaddr, not the uaddr the CE injects for native execution.
+ * Each stores a base-derived pointer, reads it back, and checks the kaddr bits.
+ * Regression for the pair second-element bug; covers regular / 64-bit / atomic.
+ * ============================================================================ */
+#define AL_OFF 0x40u
+
+/* Run store `st` then load `ld`; return the load's trace entry (2nd mem access). If `mem_qword` is
+ * non-NULL it preloads 8 bytes at [KBASE+AL_OFF] (for CAS's compare). */
+static instr_trace_entry_t* alias_store_load(uint32_t st, uint32_t ld, const uint64_t* regs,
+                                             const uint64_t* mem_qword, ce_result_t* res) {
+    uint8_t mem[MEM_SIZE]; memset(mem, 0, sizeof(mem));
+    if (mem_qword) memcpy(mem + AL_OFF, mem_qword, 8);
+    uint32_t code[2] = { st, ld };
+    if (!run_ce(code, 2, mem, sizeof(mem), KBASE, 0, 0u, regs, res)) return NULL;
+    return find_mem_entry(res, 1);
+}
+#define AL_FAIL() do { fprintf(stderr, "FAIL %s: run_ce failed\n", __func__); ++g_tests_failed; return; } while (0)
+
+static void test_alias_stp_pair_both_w(void) {          /* STP W1,W1,[X1] — the pair 2nd-element bug */
+    uint64_t regs[REGS_COUNT] = {0}; regs[1] = KBASE + AL_OFF;
+    ce_result_t res; instr_trace_entry_t* ld = alias_store_load(0x29000421u, 0x29401023u, regs, NULL, &res);
+    if (!ld) AL_FAIL();
+    uint64_t exp = (KBASE + AL_OFF) & 0xFFFFFFFFu;
+    EXPECT(ld->metadata.is_pair);
+    EXPECT_EQ(ld->metadata.memory_access.before,  exp);   /* element 0 */
+    EXPECT_EQ(ld->metadata.memory_access2.before, exp);   /* element 1 (was uaddr before the fix) */
+}
+static void test_alias_stp_pair_both_x(void) {          /* STP X1,X1,[X1] — 64-bit both elements */
+    uint64_t regs[REGS_COUNT] = {0}; regs[1] = KBASE + AL_OFF;
+    ce_result_t res; instr_trace_entry_t* ld = alias_store_load(0xa9000421u, 0xa9401023u, regs, NULL, &res);
+    if (!ld) AL_FAIL();
+    EXPECT(ld->metadata.is_pair);
+    EXPECT_EQ(ld->metadata.memory_access.before,  KBASE + AL_OFF);
+    EXPECT_EQ(ld->metadata.memory_access2.before, KBASE + AL_OFF);
+}
+static void test_alias_stp_pair_elem0(void) {           /* STP W1,W0,[X1] — only element 0 aliases */
+    uint64_t regs[REGS_COUNT] = {0}; regs[1] = KBASE + AL_OFF;
+    ce_result_t res; instr_trace_entry_t* ld = alias_store_load(0x29000021u, 0x29401023u, regs, NULL, &res);
+    if (!ld) AL_FAIL();
+    EXPECT_EQ(ld->metadata.memory_access.before,  (KBASE + AL_OFF) & 0xFFFFFFFFu);  /* elem0 = kaddr */
+    EXPECT_EQ(ld->metadata.memory_access2.before, (uint64_t)0);                     /* elem1 = X0   */
+}
+static void test_alias_stp_pair_elem1(void) {           /* STP W0,W1,[X1] — only element 1 aliases */
+    uint64_t regs[REGS_COUNT] = {0}; regs[1] = KBASE + AL_OFF;
+    ce_result_t res; instr_trace_entry_t* ld = alias_store_load(0x29000420u, 0x29401023u, regs, NULL, &res);
+    if (!ld) AL_FAIL();
+    EXPECT_EQ(ld->metadata.memory_access.before,  (uint64_t)0);                     /* elem0 = X0   */
+    EXPECT_EQ(ld->metadata.memory_access2.before, (KBASE + AL_OFF) & 0xFFFFFFFFu);  /* elem1 = kaddr */
+}
+static void test_alias_str_x(void) {                    /* STR X1,[X1] — regular 64-bit */
+    uint64_t regs[REGS_COUNT] = {0}; regs[1] = KBASE + AL_OFF;
+    ce_result_t res; instr_trace_entry_t* ld = alias_store_load(0xf9000021u, 0xf9400023u, regs, NULL, &res);
+    if (!ld) AL_FAIL();
+    EXPECT_EQ(ld->metadata.memory_access.before, KBASE + AL_OFF);
+}
+static void test_alias_str_w(void) {                    /* STR W1,[X1] — regular 32-bit */
+    uint64_t regs[REGS_COUNT] = {0}; regs[1] = KBASE + AL_OFF;
+    ce_result_t res; instr_trace_entry_t* ld = alias_store_load(0xb9000021u, 0xb9400023u, regs, NULL, &res);
+    if (!ld) AL_FAIL();
+    EXPECT_EQ(ld->metadata.memory_access.before, (KBASE + AL_OFF) & 0xFFFFFFFFu);
+}
+static void test_alias_atomic_swp(void) {               /* SWP X1,X0,[X1] — source Rs aliases base */
+    uint64_t regs[REGS_COUNT] = {0}; regs[1] = KBASE + AL_OFF;
+    ce_result_t res; instr_trace_entry_t* ld = alias_store_load(0xf8218020u, 0xf9400023u, regs, NULL, &res);
+    if (!ld) AL_FAIL();
+    EXPECT_EQ(ld->metadata.memory_access.before, KBASE + AL_OFF);
+}
+static void test_alias_atomic_ldadd(void) {             /* LDADD X1,X0,[X1] — [X1]=0 + X1 = kaddr */
+    uint64_t regs[REGS_COUNT] = {0}; regs[1] = KBASE + AL_OFF;
+    ce_result_t res; instr_trace_entry_t* ld = alias_store_load(0xf8210020u, 0xf9400023u, regs, NULL, &res);
+    if (!ld) AL_FAIL();
+    EXPECT_EQ(ld->metadata.memory_access.before, KBASE + AL_OFF);
+}
+/* CAS/CASP: the aliasing fixup covers them in principle, but the CE cannot execute CAS natively
+ * (pre-existing limitation — it crashes regardless of aliasing), so there is nothing to drive yet. */
+
 int main(void) {
     printf("Running CE integration tests (fork+exec)...\n");
 
@@ -2647,6 +2726,16 @@ int main(void) {
     test_integration_mte_subp_preserves_nzcv();
     test_integration_mte_addg();
     test_integration_mte_subg();
+
+    /* base-register-aliasing stores (the pair second-element fixup bug + variations) */
+    test_alias_stp_pair_both_w();
+    test_alias_stp_pair_both_x();
+    test_alias_stp_pair_elem0();
+    test_alias_stp_pair_elem1();
+    test_alias_str_x();
+    test_alias_str_w();
+    test_alias_atomic_swp();
+    test_alias_atomic_ldadd();
 
     // PAC (need /dev/executor; skip without it). sign_then_auth is a matched,
     // non-faulting round-trip — but a failing auth resets FEAT-FPAC silicon, so
