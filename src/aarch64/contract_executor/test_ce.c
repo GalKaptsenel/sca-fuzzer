@@ -1388,17 +1388,10 @@ static void test_sp_rn_index_oob(void) {
 
 static void test_fixup_all_registers_roundtrip(void) {
     /*
-     * For every Rn 0..31 (including SP=31), verify the complete fixup cycle:
-     *   1. start with kaddr in Rn
-     *   2. translate: write uaddr
-     *   3. simulate no-writeback execution (Rn unchanged)
-     *   4. apply_fixups: restore kaddr
-     *   5. simulate writeback +8: Rn = uaddr + 8 after execution
-     *   6. apply_fixups: restore kaddr + 8
-     *   7. verify no neighbouring register was touched in any step
-     *
-     * The kaddr2uaddr/uaddr2kaddr bijection is inlined as the linear mapping
-     * uaddr = sim_mem + (kaddr - kbase), uaddr2kaddr = kbase + (u - sim_mem).
+     * For every Rn 0..31 (including SP=31), verify apply_fixups' delta restore
+     * reg = orig + (cur - uaddr), and that no neighbouring register is touched.
+     * orig carries a non-canonical top byte (an MTE tag) so a regression back to the
+     * kbase-forcing round-trip would clobber it and fail here.
      */
     uintptr_t kbase   = 0xFFFF000080000000ULL;
     uint8_t   buf[8192];
@@ -1408,36 +1401,25 @@ static void test_fixup_all_registers_roundtrip(void) {
         struct cpu_state s;
         memset(&s, 0, sizeof(s));
 
-        uintptr_t kaddr = kbase + 0x100ULL + (uintptr_t)rn * 0x40ULL;
-        uintptr_t uaddr = sim_mem + (kaddr - kbase);
+        uintptr_t orig  = (kbase + 0x100ULL + (uintptr_t)rn * 0x40ULL) | (0x5ULL << 56);
+        uintptr_t uaddr = sim_mem + ((orig & ~(0xFFULL << 56)) - (kbase & ~(0xFFULL << 56)));
 
-        /* --- no-writeback case --- */
-        cpu_state_write_base_reg(&s, rn, kaddr);
-        EXPECT_EQ(cpu_state_read_base_reg(&s, rn), kaddr);
-
-        cpu_state_write_base_reg(&s, rn, uaddr);       /* translate */
-        EXPECT_EQ(cpu_state_read_base_reg(&s, rn), uaddr);
-
-        /* apply_fixups: uaddr2kaddr */
-        uintptr_t v = cpu_state_read_base_reg(&s, rn);
-        cpu_state_write_base_reg(&s, rn, kbase + (v - sim_mem));
-        EXPECT_EQ(cpu_state_read_base_reg(&s, rn), kaddr);
+        /* --- no-writeback case: cur == uaddr --- */
+        cpu_state_write_base_reg(&s, rn, uaddr);
+        uintptr_t cur = cpu_state_read_base_reg(&s, rn);
+        cpu_state_write_base_reg(&s, rn, orig + (cur - uaddr));   /* delta restore */
+        EXPECT_EQ(cpu_state_read_base_reg(&s, rn), orig);
 
         /* neighbouring registers must be untouched */
         if (rn != 0)  { EXPECT_EQ(cpu_state_read_base_reg(&s, 0),  (uintptr_t)0); }
         if (rn != 7)  { EXPECT_EQ(cpu_state_read_base_reg(&s, 7),  (uintptr_t)0); }
         if (rn != 29) { EXPECT_EQ(cpu_state_read_base_reg(&s, 29), (uintptr_t)0); }
 
-        /* --- writeback +8 case --- */
-        cpu_state_write_base_reg(&s, rn, kaddr);
-
-        cpu_state_write_base_reg(&s, rn, uaddr);              /* translate */
-        uintptr_t uaddr_wb = uaddr + 8;                       /* execution updates Rn */
-        cpu_state_write_base_reg(&s, rn, uaddr_wb);
-
-        v = cpu_state_read_base_reg(&s, rn);
-        cpu_state_write_base_reg(&s, rn, kbase + (v - sim_mem)); /* apply_fixups */
-        EXPECT_EQ(cpu_state_read_base_reg(&s, rn), kaddr + 8);
+        /* --- writeback +8 case: cur == uaddr + 8 --- */
+        cpu_state_write_base_reg(&s, rn, uaddr + 8);             /* execution updates Rn */
+        cur = cpu_state_read_base_reg(&s, rn);
+        cpu_state_write_base_reg(&s, rn, orig + (cur - uaddr));   /* delta restore */
+        EXPECT_EQ(cpu_state_read_base_reg(&s, rn), orig + 8);
     }
 }
 

@@ -70,7 +70,6 @@ void destroy_trace_log();
 
 // TODO: TMP
 void* kaddr2uaddr(void*);
-void* uaddr2kaddr(void*);
 
 /* Decoded memory-access description. is_mem == 0 means the instruction is not a (real) memory
  * access and all other fields are unset; a *_register field of (uint32_t)-1 means "not applicable". */

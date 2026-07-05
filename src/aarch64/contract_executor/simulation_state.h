@@ -92,6 +92,10 @@ _Static_assert(offsetof(struct cpu_state, pc)   == 16,  "pc offset wrong");
 _Static_assert(offsetof(struct cpu_state, lr)   == 24,  "lr offset wrong");
 _Static_assert(offsetof(struct cpu_state, gprs) == 32,  "gprs offset wrong");
 
+/* reg-number 31 decodes as SP in a base-register field, XZR as a data operand */
+#define AARCH64_SP_REG  31u
+#define AARCH64_XZR_REG 31u
+
 /*
  * Read / write the base register indexed by an instruction's Rn field.
  *
@@ -100,13 +104,13 @@ _Static_assert(offsetof(struct cpu_state, gprs) == 32,  "gprs offset wrong");
  * descending register order (gpr[0]=x29, gpr[29]=x0).
  */
 static inline uintptr_t cpu_state_read_base_reg(const struct cpu_state *s, uint32_t rn) {
-    if (rn == 31) { return s->sp; }
+    if (rn == AARCH64_SP_REG) { return s->sp; }
     if (rn == 30) { return s->lr; }   /* x30/lr is a separate field, not part of gpr[] */
     return s->gpr[29 - (int)rn];
 }
 
 static inline void cpu_state_write_base_reg(struct cpu_state *s, uint32_t rn, uintptr_t val) {
-    if (rn == 31) { s->sp = val; return; }
+    if (rn == AARCH64_SP_REG) { s->sp = val; return; }
     if (rn == 30) { s->lr = val; return; }   /* x30/lr is a separate field, not part of gpr[] */
     s->gpr[29 - (int)rn] = val;
 }
@@ -117,7 +121,7 @@ static inline void cpu_state_write_base_reg(struct cpu_state *s, uint32_t rn, ui
  * base-register accessor above maps 31 to SP, as memory addressing requires).
  */
 static inline uintptr_t cpu_state_read_gpr_zr(const struct cpu_state *s, uint32_t r) {
-    if (r == 31) { return 0; }
+    if (r == AARCH64_XZR_REG) { return 0; }
     return cpu_state_read_base_reg(s, r);
 }
 

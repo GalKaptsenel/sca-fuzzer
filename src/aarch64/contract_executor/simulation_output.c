@@ -25,13 +25,13 @@ static inline void free_contract_trace(contract_trace_t* trace) {
 	free(trace);
 }
 
-static inline uint64_t read_reg(const trace_cpu_state_t *s, unsigned r) {  /* base register: 31 == SP */
-	if (r == 31) return s->sp;
+static inline uint64_t read_reg(const trace_cpu_state_t *s, unsigned r) {
+	if (r == AARCH64_SP_REG) return s->sp;
 	return s->gpr[r];
 }
 
-static inline uint64_t read_reg_or_zr(const trace_cpu_state_t *s, unsigned r) {  /* data/index: 31 == XZR */
-	if (r == 31) return 0;
+static inline uint64_t read_reg_or_zr(const trace_cpu_state_t *s, unsigned r) {
+	if (r == AARCH64_XZR_REG) return 0;
 	return s->gpr[r];
 }
 
@@ -67,13 +67,6 @@ static int64_t signextend(size_t orig_len, size_t dest_len, int64_t value) {
 void* kaddr2uaddr(void* kaddr) {
 	if (!(CONFIG_FLAG_REQ_MEM_BASE_VIRT & simulation.sim_input.hdr.config.flags)) __builtin_trap();
 	return (void*)kaddr2uaddr_calc((uintptr_t)kaddr,
-		simulation.sim_input.hdr.config.requested_mem_base_virt,
-		(uintptr_t)simulation.simulation_memory);
-}
-
-void* uaddr2kaddr(void* uaddr) {
-	if (!(CONFIG_FLAG_REQ_MEM_BASE_VIRT & simulation.sim_input.hdr.config.flags)) __builtin_trap();
-	return (void*)uaddr2kaddr_calc((uintptr_t)uaddr,
 		simulation.sim_input.hdr.config.requested_mem_base_virt,
 		(uintptr_t)simulation.simulation_memory);
 }

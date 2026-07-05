@@ -396,6 +396,19 @@ static bool run_ce_simple(
     return run_ce(code, n_words, mem, mem_sz, kbase_addr, max_nesting, contract, NULL, result);
 }
 
+/* PAC sign/auth/strip route through /dev/executor (EL1 keys); such tests SKIP without it. */
+static bool executor_dev_present(void) {
+    return access("/dev/executor", R_OK) == 0;
+}
+
+#define SKIP_IF_NO_EXECUTOR() do {                                              \
+    if (!executor_dev_present()) {                                              \
+        printf("SKIP %s: /dev/executor absent (load revizor-executor.ko)\n",   \
+               __func__);                                                       \
+        return;                                                                 \
+    }                                                                          \
+} while (0)
+
 /* Helper: find the Nth memory-access entry (0-indexed). Returns NULL if not found. */
 static instr_trace_entry_t *find_mem_entry(ce_result_t *res, int n) {
     int found = 0;
@@ -976,6 +989,47 @@ static void test_integration_register_offset(void) {
     EXPECT_EQ(e->metadata.memory_access.before,            val);
 }
 
+/* ---- GROUP 17b: register-offset offset-cancel — non-canonical base is preserved (9d8cfdd) --- */
+
+static void test_integration_regoff_noncanonical_base_preserved(void) {
+    /*
+     * The seal's SUB Rn,Rn,Rm leaves X3 a non-canonical small value (3) while EA = X3+X4 stays in
+     * the sandbox. apply_fixups' delta restore must leave X3 == 3; the old kbase-forcing round-trip
+     * gave 0xFF00000000000003, which later corrupted an AUT* context.
+     */
+    uint32_t code[] = {
+        enc_ldr_regoff(0, 3, 4),   /* LDR X0,[X3,X4]; X3=3, EA = KBASE+16 */
+        enc_ldr_reg(1, 29),        /* second entry so X3's restore is observable */
+    };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t val = UINT64_C(0x123456789ABCDEF0);
+    memcpy(mem + 16, &val, 8);
+
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[3] = 3;                 /* X3 = non-canonical base */
+    regs[4] = KBASE + 13;        /* EA = X3 + X4 = KBASE + 16 */
+
+    ce_result_t res;
+    if (!run_ce(code, 2, mem, sizeof(mem), KBASE, 0, 0u, regs, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    instr_trace_entry_t *e0 = find_mem_entry(&res, 0);
+    EXPECT(e0 != NULL);
+    if (!e0) return;
+    EXPECT_EQ(e0->metadata.memory_access.effective_address, KBASE + 16);
+    EXPECT_EQ(e0->metadata.memory_access.before,            val);
+
+    instr_trace_entry_t *e1 = find_mem_entry(&res, 1);
+    EXPECT(e1 != NULL);
+    if (!e1) return;
+    EXPECT_EQ(e1->cpu.gpr[3], (uint64_t)3);   /* preserved, not 0xFF00000000000003 */
+}
+
 /* ---- GROUP 18: load value visible in dest reg of next trace entry ----- */
 
 static void test_integration_load_updates_dest_reg(void) {
@@ -1436,6 +1490,7 @@ static uint32_t enc_autia(int rd, int rn) {
 }
 
 static void test_integration_pac_arch_roundtrip(void) {
+    SKIP_IF_NO_EXECUTOR();
     /*
      * X0 = kbase (the pointer to sign), X29 = kbase (set by main.c).
      * Code: PACIA X0,X29  →  AUTIA X0,X29  →  LDR X1,[X29]
@@ -1486,6 +1541,7 @@ static void test_integration_pac_arch_roundtrip(void) {
 /* ---- GROUP 25: AUTIA on spec path uses XPAC, not real AUT ------------- */
 
 static void test_integration_pac_spec_xpac(void) {
+    SKIP_IF_NO_EXECUTOR();
     /*
      * X0=0, X1=kbase, X29=kbase (main.c), max_nesting=1,
      * ALWAYS_MISPREDICT contract.
@@ -1557,6 +1613,7 @@ static uint32_t enc_paciza(int rd) { return 0xDAC123E0u | (uint32_t)rd; }
 static uint32_t enc_autiza(int rd) { return 0xDAC133E0u | (uint32_t)rd; }
 
 static void test_integration_paciza_autiza_roundtrip(void) {
+    SKIP_IF_NO_EXECUTOR();
     /*
      * PACIZA X0 signs X0=kbase with context=0 (XZR).
      * AUTIZA X0 authenticates on arch path; must recover kbase exactly.
@@ -1624,6 +1681,7 @@ static uint32_t enc_autda(int rd, int rn) {
 }
 
 static void test_integration_pacda_autda_roundtrip(void) {
+    SKIP_IF_NO_EXECUTOR();
     /*
      * PACDA X0,X29 signs with the DA (data-key A) key, context=kbase (X29).
      * AUTDA X0,X29 authenticates on arch path; must recover X0=kbase exactly.
@@ -2420,18 +2478,6 @@ static void test_integration_ldg_base_not_translated(void) {
  * PAC keys are EL1 registers, so the CE routes these through /dev/executor.
  * They run on the VM once revizor-executor.ko is loaded, and SKIP otherwise. */
 
-static bool executor_dev_present(void) {
-    return access("/dev/executor", R_OK) == 0;
-}
-
-#define SKIP_IF_NO_EXECUTOR() do {                                              \
-    if (!executor_dev_present()) {                                              \
-        printf("SKIP %s: /dev/executor absent (load revizor-executor.ko)\n",   \
-               __func__);                                                       \
-        return;                                                                 \
-    }                                                                          \
-} while (0)
-
 static uint32_t enc_pacga(int rd, int rn, int rm) {
     return 0x9AC03000u | ((uint32_t)rm << 16) | ((uint32_t)rn << 5) | (uint32_t)rd;
 }
@@ -2687,6 +2733,7 @@ int main(void) {
     test_integration_non_x29_base();
     test_integration_nzcv_in_cpu_state();
     test_integration_register_offset();
+    test_integration_regoff_noncanonical_base_preserved();
     test_integration_load_updates_dest_reg();
     test_integration_postidx_writeback_cpu_state();
     test_integration_always_mispredict_cbz();
