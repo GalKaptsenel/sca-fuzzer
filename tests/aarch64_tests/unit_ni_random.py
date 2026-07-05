@@ -22,29 +22,30 @@ _ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 from src.config import CONF
 from src.isa_loader import InstructionSet
 from src.aarch64.aarch64_generator import Aarch64RandomGenerator
-from src.aarch64.seal.primitives import inst_at
-from src.aarch64.aarch64_relocations import apply_relocations
+from src.aarch64.aarch64_relocations import (
+    apply_relocations, read_word32, is_movk64, get_movk_imm16, is_xpac, get_addg_tag, NOP_WORD)
 from src.aarch64.seal.pac import _AUTH_TO_PAC, _read_reg
 from src import factory
 from src.util import FuzzLogger
 
 
-def _slot_insts(tc, sealing):
-    return [inst_at(tc, loc)[0] for loc in sealing.slot_locs]
+def _slot_words(ex, variant_bytes, sealing):
+    """The variant's machine words at this sealing's slot positions (offsets from the placeholder
+    layout; relocation only rewrites the words in place, so the offsets are variant-invariant)."""
+    layout = ex._sealed._layout
+    return [read_word32(variant_bytes, layout.instruction_address[i]) for i in sealing.slot_insts]
 
 
-def _pac_kind(insts, correct_sig):
-    if insts[-1].name.lower() in ("xpaci", "xpacd"):
+def _pac_kind(words, correct_sig):
+    if is_xpac(words[-1]):
         return "strip"
-    imm = int(insts[0].template.split("#0x")[1].split(",")[0], 16) if "movk" in insts[0].name.lower() else None
+    imm = get_movk_imm16(words[0]) if is_movk64(words[0]) else None
     target = (correct_sig & 0xFFFF) if correct_sig is not None else None
     return "auth_correct" if imm == target else "auth_forged"
 
 
-def _mte_delta(insts):
-    if insts[0].name.lower() == "nop":
-        return 0
-    return int(insts[0].template.rsplit("#", 1)[1])   # "ADDG r, r, #0, #<delta>"
+def _mte_delta(words):
+    return 0 if words[0] == NOP_WORD else get_addg_tag(words[0])   # ADDG Xd,Xd,#0,#<delta>, or NOP
 
 
 class NiRandomCoverageTest(unittest.TestCase):
@@ -79,7 +80,7 @@ class NiRandomCoverageTest(unittest.TestCase):
         from the placeholder), and verify every genuine AUT* would authenticate without faulting."""
         ex = self.ex
         layout = ex._sealed._layout
-        trace = ex._seal_trace(baseline, inp)
+        trace = ex._ce_trace(baseline, inp)   # baseline is already-relocated bytes; trace them directly
         base = trace[0].cpu.pc
 
         def min_nesting_at(off):
@@ -143,12 +144,12 @@ class NiRandomCoverageTest(unittest.TestCase):
                 self._assert_oracle_matches_genuine(baseline, inp, pac, mte, by_sealing)
 
                 for label, tcv in [("baseline", baseline)] + [("decoy", d) for d in decoys]:
-                    for s in sandbox:                              # clamp is never decoyed
-                        self.assertEqual([i.name.lower() for i in _slot_insts(tcv, s)], ["and", "add"])
+                    for s in sandbox:                              # clamp is never decoyed: identical to baseline
+                        self.assertEqual(_slot_words(ex, tcv, s), _slot_words(ex, baseline, s))
                     for s in pac:
                         r = by_sealing[id(s)]
                         arch = not r.speculative
-                        k = _pac_kind(_slot_insts(tcv, s), r.value)
+                        k = _pac_kind(_slot_words(ex, tcv, s), r.value)
                         cov[f"pac_{'arch' if arch else 'spec'}_{k}"] += 1
                         if arch and k == "auth_forged":
                             arch_violations.append(f"PAC forge on arch slot reg={s.value_reg}")
@@ -156,7 +157,7 @@ class NiRandomCoverageTest(unittest.TestCase):
                         r = by_sealing[id(s)]
                         arch = not r.speculative
                         genuine_delta = (r.value or 0) % 16
-                        wrong = _mte_delta(_slot_insts(tcv, s)) != genuine_delta
+                        wrong = _mte_delta(_slot_words(ex, tcv, s)) != genuine_delta
                         cov[f"mte_{'arch' if arch else 'spec'}_{'wrong' if wrong else 'genuine'}"] += 1
                         if arch and wrong:
                             arch_violations.append(f"MTE wrong-tag on arch slot reg={s.value_reg}")
@@ -164,10 +165,10 @@ class NiRandomCoverageTest(unittest.TestCase):
                 # per-decoy orthogonal combination of speculative PAC forge and MTE wrong-tag
                 for d in decoys:
                     pac_forged = any(by_sealing[id(s)].speculative
-                                     and _pac_kind(_slot_insts(d, s), by_sealing[id(s)].value) == "auth_forged"
+                                     and _pac_kind(_slot_words(ex, d, s), by_sealing[id(s)].value) == "auth_forged"
                                      for s in pac)
                     mte_wrong = any(by_sealing[id(s)].speculative
-                                    and _mte_delta(_slot_insts(d, s)) != (by_sealing[id(s)].value or 0) % 16
+                                    and _mte_delta(_slot_words(ex, d, s)) != (by_sealing[id(s)].value or 0) % 16
                                     for s in mte)
                     cov[f"combo_{'P' if pac_forged else '-'}{'M' if mte_wrong else '-'}"] += 1
 

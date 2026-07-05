@@ -17,8 +17,9 @@ _ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 from src.config import CONF
 from src.isa_loader import InstructionSet
 from src.aarch64.aarch64_generator import Aarch64RandomGenerator
-from src.aarch64.seal.primitives import inst_at
-from src.aarch64.aarch64_relocations import apply_relocations
+from src.aarch64.aarch64_relocations import (
+    apply_relocations, read_word32, is_movk64, get_movk_imm16, is_addg, get_addg_tag, is_xpac,
+    NOP_WORD)
 from src import factory
 
 _BASE = ["BASE-ARITH", "BASE-LOGICAL", "BASE-SHIFT", "BASE-BRANCH", "BASE-MEM-LOAD", "BASE-MEM-STORE"]
@@ -35,17 +36,11 @@ def _value_entries(ex, resolved):
     return [r for r in resolved._entries if id(r.sealing) in value_ids]
 
 
-def _slot_insts(tc, r):
-    return [inst_at(tc, loc)[0] for loc in r.sealing.slot_locs]
-
-
-def _movk_imm(inst) -> int:
-    return int(inst.template.split("#0x")[1].split(",")[0], 16)
-
-
-def _addg_delta(inst) -> int:
-    # template: "ADDG <reg>, <reg>, #0, #<delta>"
-    return int(inst.template.rsplit("#", 1)[1])
+def _slot_words(ex, variant_bytes, r):
+    """The variant's machine words at this entry's slot positions (offsets from the placeholder
+    layout; relocation rewrites words in place, so the offsets are variant-invariant)."""
+    layout = ex._sealed._layout
+    return [read_word32(variant_bytes, layout.instruction_address[i]) for i in r.sealing.slot_insts]
 
 
 class RegularSealedRoutingTest(unittest.TestCase):
@@ -134,30 +129,28 @@ class RegularSealedSealingTest(unittest.TestCase):
         for r in _value_entries(ex, resolved):
             if r.speculative:
                 continue
-            insts = _slot_insts(tc, r)
-            head = insts[0].name.lower()
-            if head == "movk":                                    # PAC: genuine sig or violation
-                if _movk_imm(insts[0]) != (r.value & 0xFFFF if r.value is not None else None):
+            words = _slot_words(ex, tc, r)
+            if is_movk64(words[0]):                               # PAC: genuine sig or violation
+                if get_movk_imm16(words[0]) != (r.value & 0xFFFF if r.value is not None else None):
                     violations.append(f"forged PAC on arch slot reg={r.sealing.value_reg}")
-            elif head == "addg":                                  # MTE: genuine delta or violation
-                if _addg_delta(insts[0]) != ((r.value or 0) % 16):
+            elif is_addg(words[0]):                               # MTE: genuine delta or violation
+                if get_addg_tag(words[0]) != ((r.value or 0) % 16):
                     violations.append(f"forged MTE retag on arch slot reg={r.sealing.value_reg}")
             # nop / xpac heads are arch-safe genuine encodings (strip / no-retag)
 
     def _accumulate_coverage(self, ex, resolved, tc, cov):
         for r in _value_entries(ex, resolved):
-            insts = _slot_insts(tc, r)
-            head = insts[0].name.lower()
+            words = _slot_words(ex, tc, r)
             if not r.speculative:
                 cov["arch_genuine"] += 1
                 continue
-            if head == "nop" and insts[-1].name.lower() in ("xpaci", "xpacd"):
+            if words[0] == NOP_WORD and is_xpac(words[-1]):
                 cov["spec_strip"] += 1
-            elif head == "movk" and _movk_imm(insts[0]) != (r.value & 0xFFFF if r.value is not None else -1):
+            elif is_movk64(words[0]) and get_movk_imm16(words[0]) != (r.value & 0xFFFF if r.value is not None else -1):
                 cov["spec_decoy"] += 1
-            elif head == "addg" and _addg_delta(insts[0]) != ((r.value or 0) % 16):
+            elif is_addg(words[0]) and get_addg_tag(words[0]) != ((r.value or 0) % 16):
                 cov["spec_decoy"] += 1
-            elif head == "addg" or head == "nop":
+            elif is_addg(words[0]) or words[0] == NOP_WORD:
                 # a speculative MTE slot may legitimately resolve to an alt that equals the genuine
                 # encoding (delta 0 -> nop); not counted as a distinct decoy.
                 pass

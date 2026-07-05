@@ -3,7 +3,8 @@ import unittest
 from src.aarch64.aarch64_relocations import (
     RelocType, Relocation, apply_relocations, read_word32,
     get_imm_field, set_imm_field, is_movk64, set_movk_imm16, get_movk_imm16,
-    xpac_word, addg_word, movk_word, aut_word, NOP_WORD)
+    xpac_word, addg_word, movk_word, aut_word, NOP_WORD,
+    is_xpac, is_addg, get_addg_tag)
 from src.aarch64.aarch64_generator import Aarch64Generator
 
 
@@ -76,6 +77,36 @@ class MovkBitSurgeryTest(unittest.TestCase):
         self.assertEqual(get_imm_field(w, 5, 16), 0xBEEF)
         with self.assertRaises(ValueError):
             set_imm_field(0, 5, 16, 0x1_0000)   # does not fit 16 bits
+
+
+class WordClassifyTest(unittest.TestCase):
+    """Word-level slot decoders — the seal/NI tests classify variant bytes with these instead of
+    disassembling to strings, so they must round-trip against the encode-side word builders."""
+
+    def test_is_xpac_recognizes_both_keys_any_rd(self):
+        for rd in (0, 5, 17, 30):
+            self.assertTrue(is_xpac(xpac_word(False, rd)))   # XPACI
+            self.assertTrue(is_xpac(xpac_word(True, rd)))    # XPACD
+        for other in (NOP_WORD, movk_word(0, 0xBEEF, 48), addg_word(3, 7), aut_word("autia", 5, 3)):
+            self.assertFalse(is_xpac(other))
+
+    def test_is_addg_and_tag_roundtrip(self):
+        for rd in (0, 5, 17):
+            for delta in range(16):
+                w = addg_word(rd, delta)
+                self.assertTrue(is_addg(w))
+                self.assertEqual(get_addg_tag(w), delta)
+        for other in (NOP_WORD, movk_word(0, 1, 48), xpac_word(True, 0)):
+            self.assertFalse(is_addg(other))
+
+    def test_get_addg_tag_on_non_addg_raises(self):
+        with self.assertRaises(ValueError):
+            get_addg_tag(NOP_WORD)
+
+    def test_classifiers_are_mutually_exclusive(self):
+        # a movk, an xpac, an addg and a nop are each recognized by exactly one classifier
+        for w in (movk_word(2, 0x1234, 48), xpac_word(False, 2), addg_word(2, 5), NOP_WORD):
+            self.assertEqual(sum((is_movk64(w), is_xpac(w), is_addg(w), w == NOP_WORD)), 1)
 
 
 class ComputedEncodingTest(unittest.TestCase):

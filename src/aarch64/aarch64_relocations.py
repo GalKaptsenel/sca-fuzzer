@@ -45,9 +45,28 @@ def xpac_word(data_key: bool, rd: int) -> int:
     return (0xDAC147E0 if data_key else 0xDAC143E0) | (rd & 0x1F)
 
 
+def is_xpac(word: int) -> bool:
+    """True for XPACI/XPACD Xd (any Rd) — the identifying bits above Rd match either key form."""
+    return (word & ~0x1F) in (0xDAC143E0, 0xDAC147E0)
+
+
+# ADDG: bits[31:22] == 0x246; uimm6 at [21:16], tag uimm4 at [13:10], Xn at [9:5], Xd at [4:0].
+_ADDG_ID = 0x246
+
+
 def addg_word(rd: int, tag_delta: int) -> int:
     """ADDG Xd, Xd, #0, #tag_delta — the seal's MTE retag (uimm6=0, Xn=Xd=rd)."""
     return 0x91800000 | ((tag_delta & 0xF) << 10) | ((rd & 0x1F) << 5) | (rd & 0x1F)
+
+
+def is_addg(word: int) -> bool:
+    return ((word >> 22) & 0x3FF) == _ADDG_ID
+
+
+def get_addg_tag(word: int) -> int:
+    if not is_addg(word):
+        raise ValueError(f"not an ADDG word: 0x{word:08x}")
+    return get_imm_field(word, 10, 4)
 
 
 def movk_word(rd: int, imm16: int, shift: int) -> int:
