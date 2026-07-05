@@ -2,7 +2,13 @@ import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..",
 import unittest
 from src.aarch64.aarch64_relocations import (
     RelocType, Relocation, RelocationPlan, apply_relocations, read_word32,
-    get_imm_field, set_imm_field, is_movk64, set_movk_imm16, get_movk_imm16, NOP_WORD)
+    get_imm_field, set_imm_field, is_movk64, set_movk_imm16, get_movk_imm16,
+    xpac_word, addg_word, NOP_WORD)
+from src.aarch64.aarch64_generator import Aarch64Generator
+
+
+def _asm_word(text: str) -> int:
+    return int.from_bytes(Aarch64Generator.in_memory_assemble(text)[:4], "little")
 
 
 class RelocationMechanismTest(unittest.TestCase):
@@ -70,6 +76,29 @@ class MovkBitSurgeryTest(unittest.TestCase):
         self.assertEqual(get_imm_field(w, 5, 16), 0xBEEF)
         with self.assertRaises(ValueError):
             set_imm_field(0, 5, 16, 0x1_0000)   # does not fit 16 bits
+
+
+class ComputedEncodingTest(unittest.TestCase):
+    """The computed strip/retag words must equal a real assembly — the byte-check the runtime used to
+    do lives here instead, so a wrong encoding can never reach hardware and FPAC-fault the box."""
+
+    def test_xpaci_matches_assembly(self):
+        for rd in (0, 5, 17, 30):
+            self.assertEqual(xpac_word(False, rd), _asm_word(f"xpaci x{rd}"))
+
+    def test_xpacd_matches_assembly(self):
+        for rd in (0, 5, 17, 30):
+            self.assertEqual(xpac_word(True, rd), _asm_word(f"xpacd x{rd}"))
+
+    def test_addg_matches_assembly(self):
+        for rd in (0, 5, 17):
+            for delta in (1, 7, 15):
+                self.assertEqual(addg_word(rd, delta), _asm_word(f"addg x{rd}, x{rd}, #0, #{delta}"))
+
+    def test_movk_sig_matches_assembly(self):
+        for rd in (0, 5, 30):
+            ref = _asm_word(f"movk x{rd}, #0x0, lsl #48")
+            self.assertEqual(set_movk_imm16(ref, 0xBEEF), _asm_word(f"movk x{rd}, #0xbeef, lsl #48"))
 
 
 class RelocationPlanTest(unittest.TestCase):

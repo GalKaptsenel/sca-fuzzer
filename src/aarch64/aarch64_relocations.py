@@ -45,6 +45,16 @@ def get_movk_imm16(word: int) -> int:
     return get_imm_field(word, 5, 16)
 
 
+def xpac_word(data_key: bool, rd: int) -> int:
+    """XPACD Xd (data key) or XPACI Xd (instruction key) — the seal's arch-safe strip op."""
+    return (0xDAC147E0 if data_key else 0xDAC143E0) | (rd & 0x1F)
+
+
+def addg_word(rd: int, tag_delta: int) -> int:
+    """ADDG Xd, Xd, #0, #tag_delta — the seal's MTE retag (uimm6=0, Xn=Xd=rd)."""
+    return 0x91800000 | ((tag_delta & 0xF) << 10) | ((rd & 0x1F) << 5) | (rd & 0x1F)
+
+
 def read_word32(data: bytes, offset: int) -> int:
     if offset < 0 or offset + 4 > len(data):
         raise ValueError(f"read offset {offset} out of range (len {len(data)})")
