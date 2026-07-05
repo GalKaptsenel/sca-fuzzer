@@ -451,7 +451,6 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
     # (baseline, candidate) variant enums whose control-flow divergence is highlighted in the
     # CE-trace comparison.
     _compare_variants: Tuple[str, str] = (NIVariant.BASELINE, NIVariant.decoy_n(0))  # debug only, remove with the logging
-    _n_decoys: int = 1                                  # decoys minted per input (raise to compare more)
 
     def _write_sealed_bytes(self, tc_bytes: bytes) -> None:
         self.local_executor.checkout_region(TestCaseRegion())
@@ -776,11 +775,11 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
 
     def _variants_for(self, resolved: ResolvedSealingTestCase) -> TCVariants:
         """The machine code for each variant this input runs on hardware, built by applying the variant's
-        relocations to the object code: the genuine baseline and `_n_decoys` fresh decoys. The regular
-        subclass overrides which variants to mint."""
+        relocations to the object code: the genuine baseline and `CONF.ni_decoys_per_input` fresh decoys.
+        The regular subclass overrides which variants to mint."""
         oc = resolved.object_code
         variants = {NIVariant.BASELINE: apply_relocations(oc, resolved.genuine())}
-        for i in range(self._n_decoys):
+        for i in range(CONF.ni_decoys_per_input):
             variants[NIVariant.decoy_n(i)] = apply_relocations(oc, resolved.decoy())
         return variants
 

@@ -271,6 +271,7 @@ class FuzzerGeneric(Fuzzer):
         start_nesting: int = 1 #CONF.model_min_nesting if self.model.is_speculative_contract else 1
         end_nesting: int = 1 #CONF.model_max_nesting if self.model.is_speculative_contract else 1
         assert start_nesting <= end_nesting
+        assert len(inputs) * CONF.inputs_per_class >= 2
 
         # Create the tracing arguments
         args = TracingArguments(
@@ -939,6 +940,7 @@ class NoninterferenceFuzzer(FuzzerGeneric):
         start_nesting: int = 1 #CONF.model_min_nesting if self.model.is_speculative_contract else 1
         end_nesting: int = 1 #CONF.model_max_nesting if self.model.is_speculative_contract else 1
         assert start_nesting <= end_nesting
+        assert (1 + CONF.ni_decoys_per_input) * len(inputs) >= 2
 
         # Create the tracing arguments
         args = TracingArguments(

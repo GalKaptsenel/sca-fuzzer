@@ -152,7 +152,7 @@ class Conf:
     # Input Generator
     input_generator: str = 'random'
     """ input_generator: type of the input generator """
-    input_gen_seed: int = 10
+    input_gen_seed: int = 0
     """ input_gen_seed: input generation seed; will use a random seed if set to zero """
     input_gen_entropy_bits: int = 16
     """ input_gen_entropy_bits: entropy of the random values created by the input generator """

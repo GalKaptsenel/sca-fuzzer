@@ -183,7 +183,7 @@ class NiVariantWiringTest(unittest.TestCase):
     """_variants_for wiring (no hardware needed)."""
 
     def test_n_decoys_mints_that_many(self):
-        """_n_decoys controls how many distinct-key decoys _variants_for mints (baseline + N)."""
+        """CONF.ni_decoys_per_input controls how many distinct-key decoys _variants_for mints (baseline + N)."""
         from src.aarch64.aarch64_executor import Aarch64NonInterferenceExecutor, NIVariant
 
         class _FakeResolved:
@@ -192,8 +192,16 @@ class NiVariantWiringTest(unittest.TestCase):
             def decoy(self): return []
 
         ex = Aarch64NonInterferenceExecutor.__new__(Aarch64NonInterferenceExecutor)
-        ex._n_decoys = 4
-        variants = ex._variants_for(_FakeResolved())
+        had = "ni_decoys_per_input" in CONF.__dict__
+        saved = CONF.__dict__.get("ni_decoys_per_input")
+        try:
+            CONF.ni_decoys_per_input = 4
+            variants = ex._variants_for(_FakeResolved())
+        finally:
+            if had:
+                CONF.ni_decoys_per_input = saved
+            else:
+                CONF.__dict__.pop("ni_decoys_per_input", None)
         self.assertEqual(set(variants), {NIVariant.BASELINE, *(NIVariant.decoy_n(i) for i in range(4))})
 
 

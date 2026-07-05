@@ -139,6 +139,11 @@ enable_branch_mistraining: bool = False
 the OPPOSITE direction so its first hardware execution mispredicts. WIP — off by default pending
 hardware confirmation that the training is effective on this core. """
 
+ni_decoys_per_input: int = 1
+""" ni_decoys_per_input: NI decoys compared against the baseline per input (>= 1). Each perturbs a
+random subset of speculative slots, so K gives ~1 - 0.5^K per-slot coverage; all K share the input's
+one resolve. """
+
 instruction_categories: List[str] = ["BASE-ARITH", "BASE-LOGICAL", "BASE-BRANCH-COND"]
 """ instruction_categories: a default list of tested instruction categories """
 
