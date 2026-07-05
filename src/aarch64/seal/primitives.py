@@ -4,7 +4,6 @@ Knows the AArch64 NOP / sandbox-clamp encodings, slot addressing (a slot is a fi
 instructions filled by position), and the offset-cancelling SUBs that pin an effective address to
 its already-clamped base. The concrete sealings + per-input resolution live in sealer.py.
 """
-import copy
 import math
 from typing import Dict, List, Optional, Set, Tuple
 

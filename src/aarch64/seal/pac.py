@@ -6,36 +6,22 @@ build_pac_specs derives the usable PAC/AUT*/XPAC instruction specs (AUT* via Aut
 which guarantees value_reg != ctx_reg).
 """
 import random
-from enum import Enum
 from typing import Dict, Optional, Tuple
 
 from ...config import CONF
 from ...interfaces import Instruction, InstructionSpec, RegisterOperand, ImmediateOperand
-from ..aarch64_kernel import PacKeys
 
 
-class PACKey(Enum):
-    IA = 'ia'
-    IB = 'ib'
-    DA = 'da'
-    DB = 'db'
-    G  = 'g'
-
-SLOT_SIG_POS  = 0   # slot position 0: NOP (stage-1) or MOVK upper-16 signature (TC1/TC2/TC3)
-AUTH_SLOT_POS = 1   # slot position 1: XPAC (stage-1/TC1) or AUTH (TC2/TC3)
-SLOT_SIZE     = 2
-
-_PAC_INFO: Dict[str, Tuple[PACKey, str, str]] = {
-    # pac_mnemonic: (key, auth_mnemonic, xpac_mnemonic)
-    'pacia':  (PACKey.IA, 'autia',  'xpaci'),  'pacib':  (PACKey.IB, 'autib',  'xpaci'),
-    'pacda':  (PACKey.DA, 'autda',  'xpacd'),  'pacdb':  (PACKey.DB, 'autdb',  'xpacd'),
-    'paciza': (PACKey.IA, 'autiza', 'xpaci'),  'pacizb': (PACKey.IB, 'autizb', 'xpaci'),
-    'pacdza': (PACKey.DA, 'autdza', 'xpacd'),  'pacdzb': (PACKey.DB, 'autdzb', 'xpacd'),
+_PAC_INFO: Dict[str, Tuple[str, str]] = {
+    # pac_mnemonic: (auth_mnemonic, xpac_mnemonic)
+    'pacia':  ('autia',  'xpaci'),  'pacib':  ('autib',  'xpaci'),
+    'pacda':  ('autda',  'xpacd'),  'pacdb':  ('autdb',  'xpacd'),
+    'paciza': ('autiza', 'xpaci'),  'pacizb': ('autizb', 'xpaci'),
+    'pacdza': ('autdza', 'xpacd'),  'pacdzb': ('autdzb', 'xpacd'),
 }
 # Reverse maps derived from _PAC_INFO (keyed by auth mnemonic)
-_AUTH_TO_KEY:  Dict[str, PACKey] = {auth: key  for _, (key, auth, _)    in _PAC_INFO.items()}
-_AUTH_TO_XPAC: Dict[str, str]    = {auth: xpac for _, (_,   auth, xpac) in _PAC_INFO.items()}
-_AUTH_TO_PAC:  Dict[str, str]    = {auth: pac  for pac, (_,  auth, _)   in _PAC_INFO.items()}
+_AUTH_TO_XPAC: Dict[str, str] = {auth: xpac for auth, xpac in _PAC_INFO.values()}
+_AUTH_TO_PAC:  Dict[str, str] = {auth: pac  for pac, (auth, _) in _PAC_INFO.items()}
 
 
 class PacSign:

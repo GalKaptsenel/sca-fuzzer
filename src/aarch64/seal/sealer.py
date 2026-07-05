@@ -10,9 +10,9 @@ import copy
 import random
 from typing import Dict, List, Optional, Set, Tuple
 
-from ...interfaces import (Instruction, TestCase, Function, BasicBlock, GeneratorException,
+from ...interfaces import (Instruction, TestCase, BasicBlock, GeneratorException,
                           RegisterOperand, ImmediateOperand)
-from .primitives import (make_nop, fill_slot_at, index_instructions, inst_at, _SANDBOX_MASK,
+from .primitives import (make_nop, index_instructions, inst_at, _SANDBOX_MASK,
                            _SandboxInstrumentationBase)
 from .pac import (PacSign, PacSigner, build_pac_specs, _AUTH_TO_PAC, _AUTH_TO_XPAC, _read_reg)
 from ..aarch64_mte import MteTagState, mte_tag_store_effect, MTE_INITIAL_DEFAULT_TAG

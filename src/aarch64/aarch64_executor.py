@@ -20,7 +20,7 @@ from ..interfaces import (HTrace, Input, TestCase, Executor, HardwareTracingErro
                           InputTaint, GeneratorException)
 from ..config import CONF
 from ..util import Logger, STAT, FuzzLogger
-from .aarch64_target_desc import Aarch64TargetDesc, SANDBOX_BASE_REGISTER
+from .aarch64_target_desc import Aarch64TargetDesc
 from .aarch64_kernel import LocalHWExecutor, TestCaseRegion, InputRegion, ExecutorMemory
 from .aarch64_generator import Pass, Aarch64SandboxPass
 from .seal.pac import PacSigner
