@@ -10,7 +10,7 @@ from enum import Enum
 from typing import Dict, Optional, Tuple
 
 from ...config import CONF
-from ...interfaces import Instruction, InstructionSpec
+from ...interfaces import Instruction, InstructionSpec, RegisterOperand, ImmediateOperand
 from ..aarch64_kernel import PacKeys
 
 
@@ -49,8 +49,11 @@ class PacSign:
 
     # ---- low-level slot builders (single source of PAC slot encodings) ----
     def make_movk(self, reg: str, imm: int, lsl: int) -> Instruction:
-        return Instruction("movk", True, "", False,
-                           template=f"MOVK {reg}, #0x{imm & 0xFFFF:04x}, LSL #{lsl}")
+        imm &= 0xFFFF
+        return (Instruction("movk", True, "", False, template=f"MOVK {reg}, #0x{imm:04x}, LSL #{lsl}")
+                .add_op(RegisterOperand(reg, 64, False, True))
+                .add_op(ImmediateOperand(str(imm), 16))
+                .add_op(ImmediateOperand(str(lsl), 6)))
 
     def make_xpac_inst(self, mnemonic: str, reg: str) -> Instruction:
         inst = self.generator.generate_instruction(self._xpac_specs[mnemonic])

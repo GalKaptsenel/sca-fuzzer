@@ -55,6 +55,23 @@ def addg_word(rd: int, tag_delta: int) -> int:
     return 0x91800000 | ((tag_delta & 0xF) << 10) | ((rd & 0x1F) << 5) | (rd & 0x1F)
 
 
+def movk_word(rd: int, imm16: int, shift: int) -> int:
+    """MOVK Xd, #imm16, LSL #shift (shift in {0, 16, 32, 48})."""
+    return 0xF2800000 | ((shift // 16) << 21) | ((imm16 & 0xFFFF) << 5) | (rd & 0x1F)
+
+
+# AUT* base opcodes (Rd=Rn=0); the Z-variants bake Rn=31, so OR-ing rn=31 there is a no-op.
+_AUT_OPCODES = {
+    "autia": 0xDAC11000, "autib": 0xDAC11400, "autda": 0xDAC11800, "autdb": 0xDAC11C00,
+    "autiza": 0xDAC133E0, "autizb": 0xDAC137E0, "autdza": 0xDAC13BE0, "autdzb": 0xDAC13FE0,
+}
+
+
+def aut_word(mnemonic: str, rd: int, rn: int) -> int:
+    """AUT* over Rd with Rn as context (rn=31 for the Z-variants, which take no context)."""
+    return _AUT_OPCODES[mnemonic] | ((rn & 0x1F) << 5) | (rd & 0x1F)
+
+
 def read_word32(data: bytes, offset: int) -> int:
     if offset < 0 or offset + 4 > len(data):
         raise ValueError(f"read offset {offset} out of range (len {len(data)})")

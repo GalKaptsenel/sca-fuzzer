@@ -17,9 +17,9 @@ _ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 
 from src.config import CONF
 from src.isa_loader import InstructionSet
-from src.aarch64.aarch64_generator import Aarch64RandomGenerator
+from src.aarch64.aarch64_generator import Aarch64RandomGenerator, Aarch64Generator
 from src.aarch64.seal.primitives import index_instructions
-from src.aarch64.seal.sealer import make_sealer
+from src.aarch64.seal.sealer import make_sealer, _encode
 
 
 class SealOrderingTest(unittest.TestCase):
@@ -33,12 +33,26 @@ class SealOrderingTest(unittest.TestCase):
         """Generate (over a few seeds) a sealed TC that has at least one MTE data-access site."""
         for seed in range(12):
             gen = Aarch64RandomGenerator(self.isa, seed)
-            sealer = make_sealer(gen, lambda tc, inp: None, primitives, None)
+            sealer = make_sealer(gen, lambda tc, inp: None, lambda tc: b"", primitives, None)
             path = os.path.join(tempfile.mkdtemp(), "t.asm")
             sealed = sealer.seal(gen.create_test_case(path, disable_assembler=True))
             if sealed._mte:
                 return sealed
         self.fail(f"no MTE data-access site generated in 12 seeds for {primitives}")
+
+    def test_encode_matches_assembly(self):
+        """Box safety: every seal instruction's computed word equals a real assembly of it. A wrong
+        AUT*/MOVK/tag encoding would otherwise reach hardware and FPAC-reset the box."""
+        def asm_word(inst):
+            return int.from_bytes(Aarch64Generator.in_memory_assemble(inst.to_asm_string())[:4], "little")
+        sealed = self._seal_with_mte_sites({"pac", "mte"})
+        sealings = sealed._pac + sealed._mte
+        self.assertTrue(sealings, "no PAC/MTE sealings to check")
+        for s in sealings:
+            for value in (None, 0, 1, 7, 0x1234, 0xBEEF, 0xFFFF):
+                for inst in s.seal(value):
+                    self.assertEqual(_encode(inst), asm_word(inst),
+                                     f"_encode != assembly for {inst.template!r}")
 
     def _assert_mte_immediately_before_access(self, sealed):
         locs = index_instructions(sealed._tc)

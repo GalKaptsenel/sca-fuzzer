@@ -3,7 +3,7 @@ import unittest
 from src.aarch64.aarch64_relocations import (
     RelocType, Relocation, RelocationPlan, apply_relocations, read_word32,
     get_imm_field, set_imm_field, is_movk64, set_movk_imm16, get_movk_imm16,
-    xpac_word, addg_word, NOP_WORD)
+    xpac_word, addg_word, movk_word, aut_word, NOP_WORD)
 from src.aarch64.aarch64_generator import Aarch64Generator
 
 
@@ -99,6 +99,19 @@ class ComputedEncodingTest(unittest.TestCase):
         for rd in (0, 5, 30):
             ref = _asm_word(f"movk x{rd}, #0x0, lsl #48")
             self.assertEqual(set_movk_imm16(ref, 0xBEEF), _asm_word(f"movk x{rd}, #0xbeef, lsl #48"))
+
+    def test_movk_word_matches_assembly(self):
+        for rd in (0, 5, 30):
+            for shift in (0, 16, 32, 48):
+                self.assertEqual(movk_word(rd, 0xBEEF, shift), _asm_word(f"movk x{rd}, #0xbeef, lsl #{shift}"))
+
+    def test_aut_addressed_matches_assembly(self):
+        for mn in ("autia", "autib", "autda", "autdb"):
+            self.assertEqual(aut_word(mn, 5, 3), _asm_word(f"{mn} x5, x3"))
+
+    def test_aut_zero_matches_assembly(self):
+        for mn in ("autiza", "autizb", "autdza", "autdzb"):
+            self.assertEqual(aut_word(mn, 5, 31), _asm_word(f"{mn} x5"))
 
 
 class RelocationPlanTest(unittest.TestCase):

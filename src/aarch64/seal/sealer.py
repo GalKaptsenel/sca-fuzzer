@@ -16,24 +16,46 @@ import copy
 import random
 from typing import Dict, List, Optional, Set, Tuple
 
-from ...interfaces import (Instruction, TestCase, Function, BasicBlock, GeneratorException)
+from ...interfaces import (Instruction, TestCase, Function, BasicBlock, GeneratorException,
+                          RegisterOperand, ImmediateOperand)
 from .primitives import (make_nop, fill_slot_at, index_instructions, inst_at, _SANDBOX_MASK,
                            _SandboxInstrumentationBase)
 from .pac import (PacSign, PacSigner, build_pac_specs, _AUTH_TO_PAC, _AUTH_TO_XPAC, _read_reg)
 from ..aarch64_mte import MteTagState, mte_tag_store_effect, MTE_INITIAL_DEFAULT_TAG
 from ..aarch64_target_desc import SANDBOX_BASE_REGISTER
 from ..aarch64_printer import Aarch64ASMLayout
+from ..aarch64_relocations import (NOP_WORD, xpac_word, addg_word, movk_word, aut_word,
+                                   Relocation, RelocationPlan)
+
+
+def _reg_num(reg: str) -> int:
+    return int(reg[1:])   # seal value registers are x0..x30
+
+
+def _encode(inst: Instruction) -> int:
+    """The 32-bit machine-code word of one seal instruction."""
+    mn = inst.name.lower()
+    if mn == "nop":
+        return NOP_WORD
+    if mn.startswith("xpac"):
+        return xpac_word(mn == "xpacd", _reg_num(inst.operands[0].value))
+    if mn.startswith("aut"):
+        rn = _reg_num(inst.operands[1].value) if len(inst.operands) > 1 else 31
+        return aut_word(mn, _reg_num(inst.operands[0].value), rn)
+    if mn == "movk":
+        return movk_word(_reg_num(inst.operands[0].value),
+                         int(inst.operands[1].value), int(inst.operands[2].value))
+    if mn == "addg":
+        return addg_word(_reg_num(inst.operands[0].value), int(inst.operands[3].value))
+    raise GeneratorException(f"cannot encode seal instruction {inst.name!r}")
 
 
 # ==================================================================================================
 # Sealing — one location; pure seal(value); exposes the facts the resolver reads
 # ==================================================================================================
 class Sealing(abc.ABC):
-    """One sealing site. `seal(value)` returns the instructions for this slot given the runtime value
-    it needs (None -> the arch-safe form). The sealing exposes the read-only facts the resolver needs
-    (its `value_reg`, plus `committed_inst`/`access` where relevant) but never reads a trace or decides
-    genuine/decoy. `slot_insts` are the placeholder instructions inserted here; `slot_locs` their
-    positions in the sealed TC."""
+    """One sealing site. `seal(value)` returns this slot's instructions for a runtime value (None ->
+    the arch-safe placeholder). `slot_insts`/`slot_locs` are the placeholder instructions and positions."""
     value_reg: str
 
     def __init__(self) -> None:
@@ -42,7 +64,7 @@ class Sealing(abc.ABC):
 
     @abc.abstractmethod
     def seal(self, value: Optional[int] = None) -> List[Instruction]:
-        """The instructions sealing this location with `value`; the caller supplies it."""
+        """The instructions sealing this location with `value` (None -> the arch-safe placeholder)."""
 
 
 class SandboxSealing(Sealing):
@@ -106,8 +128,12 @@ class MteSealing(Sealing):
         delta = 0 if value is None else value % 16
         if delta == 0:
             return [make_nop()]
-        return [Instruction("addg", True, "", False,
-                            template=f"ADDG {self.value_reg}, {self.value_reg}, #0, #{delta}")]
+        return [(Instruction("addg", True, "", False,
+                             template=f"ADDG {self.value_reg}, {self.value_reg}, #0, #{delta}")
+                 .add_op(RegisterOperand(self.value_reg, 64, False, True))
+                 .add_op(RegisterOperand(self.value_reg, 64, True, False))
+                 .add_op(ImmediateOperand("0", 6))
+                 .add_op(ImmediateOperand(str(delta), 4)))]
 
 
 # ==================================================================================================
@@ -126,14 +152,13 @@ class _Resolved:
 
 
 class ResolvedSealingTestCase:
-    """One input's resolution. `genuine()` seals every slot with its correct value; `decoy()` perturbs
-    a random non-empty subset of the speculative slots with a failing value and seals the rest correctly.
-    Perturbing a random subset (not all at once) lets successive decoys cover every combination of the
-    eligible slots. Each sealing owns how its value maps to instructions."""
+    """One input's resolution. `genuine()`/`decoy()` return the variant machine code."""
 
-    def __init__(self, sealed_tc: TestCase, entries: List[_Resolved]) -> None:
-        self._tc = sealed_tc
+    def __init__(self, entries: List[_Resolved], object_code: bytes,
+                 offsets: Dict[int, Tuple[int, ...]]) -> None:
         self._entries = entries
+        self._plan = RelocationPlan(object_code, [self._solve_relocations(False, offsets),
+                                                  self._solve_relocations(True, offsets)])
 
     @staticmethod
     def _decoy_subset(eligible: List[_Resolved]) -> set:
@@ -144,20 +169,27 @@ class ResolvedSealingTestCase:
         chosen = {r for r in eligible if random.random() < 0.5}
         return chosen if chosen else {random.choice(eligible)}
 
-    def _fill(self, decoy: bool) -> TestCase:
-        tc = copy.deepcopy(self._tc)
+    @property
+    def plan(self) -> RelocationPlan:
+        return self._plan
+
+    def genuine(self) -> bytes:
+        return self._plan.build(0)
+
+    def decoy(self) -> bytes:
+        return self._plan.build(1)
+
+    def _solve_relocations(self, decoy: bool, offsets: Dict[int, Tuple[int, ...]]) -> List[Relocation]:
         eligible = [r for r in self._entries if r.speculative and r.alts]
         perturb = self._decoy_subset(eligible) if decoy else set()
+        relocs: List[Relocation] = []
         for r in self._entries:
+            offs = offsets.get(id(r.sealing))
+            if offs is None:
+                continue
             value = random.choice(r.alts) if r in perturb else r.value
-            fill_slot_at(tc, r.sealing.slot_locs, r.sealing.seal(value))
-        return tc
-
-    def genuine(self) -> TestCase:
-        return self._fill(decoy=False)
-
-    def decoy(self) -> TestCase:
-        return self._fill(decoy=True)
+            relocs += [Relocation(off, _encode(i)) for off, i in zip(offs, r.sealing.seal(value))]
+        return relocs
 
     @property
     def collapse_key(self) -> Tuple:
@@ -255,6 +287,13 @@ def _resolve_mte(s: MteSealing, cer, layout) -> Tuple[Optional[int], List[int], 
     return delta, alts, spec
 
 
+def _slot_offsets(tc: TestCase, layout, sealings: List["Sealing"]) -> Dict[int, Tuple[int, ...]]:
+    """{id(sealing): its slot byte offsets in the assembled template}. Positions are one-for-one across
+    fills, so an offset taken from the placeholder holds for every variant."""
+    return {id(s): tuple(layout.instruction_address[inst_at(tc, loc)[0]] for loc in s.slot_locs)
+            for s in sealings}
+
+
 # ==================================================================================================
 # SealedTestCase — holds the unresolved sealings; resolve(input) orchestrates value computation
 # ==================================================================================================
@@ -264,10 +303,11 @@ class SealedTestCase:
     sites but never decides value-seal order), then `resolve(input)` computes their values. The
     per-concern subclass owns both the placement order and the resolution."""
 
-    def __init__(self, sealed_tc: TestCase, trace_fn, sandbox_sealings: List[SandboxSealing],
+    def __init__(self, sealed_tc: TestCase, trace_fn, assemble, sandbox_sealings: List[SandboxSealing],
                  data_sites: List) -> None:
         self._tc = sealed_tc
         self._trace_fn = trace_fn
+        self._assemble = assemble                          # tc -> machine code, for the skeleton
         self._sandbox = sandbox_sealings
         self._place(data_sites)                            # subclass inserts its value sealings, in order
         _record_positions(self._tc, self._sealings())      # AFTER every slot is inserted
@@ -287,36 +327,17 @@ class SealedTestCase:
     def _clamp_entries(sandbox_sealings: List[SandboxSealing]) -> List[_Resolved]:
         return [_Resolved(s, None, [], None) for s in sandbox_sealings]   # always seal(None); never decoyed
 
-    # ---- relocation support (see aarch64_relocations.py) ----------------------------------------
-    def byte_offset_of(self, loc) -> int:
-        """Byte offset of the instruction at slot position `loc` in the assembled code. Positions are
-        one-for-one across fills, so an offset taken from the placeholder holds for every variant."""
-        inst, _ = inst_at(self._tc, loc)
-        return self._layout.instruction_address[inst]
-
-    def relocation_slots(self):
-        """Per PAC value slot: (movk_loc, op_loc). Returns None when the sealed TC carries value slots
-        this scheme does not cover (MTE tag deltas), so the caller assembles the whole TC normally
-        rather than relocate a subset. Overridden by the PAC-only sealed TC."""
-        return None
-
-    def reference_fills(self):
-        """(auth_ref_tc, xpac_ref_tc): two deterministic fills for harvesting relocation words — every
-        PAC slot sealed with `MOVK #0` plus AUT (first) and plus XPAC (second). The sentinel immediate
-        is overwritten per input via a WORD32 relocation; the AUT*/XPAC word is selected per fill.
-        Only defined where relocation_slots() is not None."""
-        raise NotImplementedError
 
 
 class PacSealedTestCase(SealedTestCase):
     """Sandbox clamp + a PAC auth per data access, plus a PAC auth per standalone AUT*."""
 
-    def __init__(self, sealed_tc, trace_fn, sandbox_sealings, data_sites, signer, enc, auth_specs) -> None:
+    def __init__(self, sealed_tc, trace_fn, assemble, sandbox_sealings, data_sites, signer, enc, auth_specs) -> None:
         self._signer = signer
         self._enc = enc
         self._auth_specs = auth_specs
         self._pac: List[PacSealing] = []
-        super().__init__(sealed_tc, trace_fn, sandbox_sealings, data_sites)
+        super().__init__(sealed_tc, trace_fn, assemble, sandbox_sealings, data_sites)
 
     def _place(self, data_sites) -> None:
         for inst, bb, mem_reg, offset_subs in data_sites:
@@ -331,34 +352,17 @@ class PacSealedTestCase(SealedTestCase):
     def resolve(self, inp) -> ResolvedSealingTestCase:
         cer = self._trace_fn(self._tc, inp)
         pac = [_Resolved(s, *_resolve_pac(s, cer, self._layout, self._signer)) for s in self._pac]
-        return ResolvedSealingTestCase(self._tc, self._clamp_entries(self._sandbox) + pac)
-
-    def relocation_slots(self):
-        return [(p.slot_locs[0], p.slot_locs[1]) for p in self._pac]
-
-    def _reference_fill(self, op_kind: str) -> TestCase:
-        tc = copy.deepcopy(self._tc)
-        for p in self._pac:
-            movk = p._enc.make_movk(p.value_reg, 0, 48)
-            if op_kind == "auth":
-                auth_mn = p.committed_inst.name.lower()
-                ctx = p.committed_inst.operands[1].value if len(p.committed_inst.operands) > 1 else None
-                op = p._enc.make_auth_inst(auth_mn, p.value_reg, ctx)
-            else:
-                op = p._enc.make_xpac_inst(_AUTH_TO_XPAC[p.committed_inst.name.lower()], p.value_reg)
-            fill_slot_at(tc, p.slot_locs, [movk, op])
-        return tc
-
-    def reference_fills(self):
-        return self._reference_fill("auth"), self._reference_fill("xpac")
+        entries = self._clamp_entries(self._sandbox) + pac
+        object_code = self._assemble(self._tc)
+        return ResolvedSealingTestCase(entries, object_code, _slot_offsets(self._tc, self._layout, self._pac))
 
 
 class MteSealedTestCase(SealedTestCase):
     """Sandbox clamp + an MTE retag per data access — the retag is the last op before the access."""
 
-    def __init__(self, sealed_tc, trace_fn, sandbox_sealings, data_sites) -> None:
+    def __init__(self, sealed_tc, trace_fn, assemble, sandbox_sealings, data_sites) -> None:
         self._mte: List[MteSealing] = []
-        super().__init__(sealed_tc, trace_fn, sandbox_sealings, data_sites)
+        super().__init__(sealed_tc, trace_fn, assemble, sandbox_sealings, data_sites)
 
     def _place(self, data_sites) -> None:
         for inst, bb, mem_reg, offset_subs in data_sites:
@@ -371,10 +375,10 @@ class MteSealedTestCase(SealedTestCase):
 
     def resolve(self, inp) -> ResolvedSealingTestCase:
         cer = self._trace_fn(self._tc, inp)
-        resolved = self._clamp_entries(self._sandbox)
-        for s in self._mte:
-            resolved.append(_Resolved(s, *_resolve_mte(s, cer, self._layout)))
-        return ResolvedSealingTestCase(self._tc, resolved)
+        mte = [_Resolved(s, *_resolve_mte(s, cer, self._layout)) for s in self._mte]
+        entries = self._clamp_entries(self._sandbox) + mte
+        object_code = self._assemble(self._tc)
+        return ResolvedSealingTestCase(entries, object_code, _slot_offsets(self._tc, self._layout, self._mte))
 
 
 class MtePacSealedTestCase(SealedTestCase):
@@ -384,13 +388,13 @@ class MtePacSealedTestCase(SealedTestCase):
     then positionally equivalent to the genuine retag, so the placeholder trace already carries the
     genuine tag at every later AUT*; PAC resolves over that single trace, no genuine-tag re-trace."""
 
-    def __init__(self, sealed_tc, trace_fn, sandbox_sealings, data_sites, signer, enc, auth_specs) -> None:
+    def __init__(self, sealed_tc, trace_fn, assemble, sandbox_sealings, data_sites, signer, enc, auth_specs) -> None:
         self._signer = signer
         self._enc = enc
         self._auth_specs = auth_specs
         self._pac: List[PacSealing] = []
         self._mte: List[MteSealing] = []
-        super().__init__(sealed_tc, trace_fn, sandbox_sealings, data_sites)
+        super().__init__(sealed_tc, trace_fn, assemble, sandbox_sealings, data_sites)
 
     def _place(self, data_sites) -> None:
         for inst, bb, mem_reg, offset_subs in data_sites:
@@ -408,7 +412,10 @@ class MtePacSealedTestCase(SealedTestCase):
         cer = self._trace_fn(self._tc, inp)
         mte = [_Resolved(s, *_resolve_mte(s, cer, self._layout)) for s in self._mte]
         pac = [_Resolved(s, *_resolve_pac(s, cer, self._layout, self._signer)) for s in self._pac]
-        return ResolvedSealingTestCase(self._tc, self._clamp_entries(self._sandbox) + pac + mte)
+        entries = self._clamp_entries(self._sandbox) + pac + mte
+        object_code = self._assemble(self._tc)
+        return ResolvedSealingTestCase(entries, object_code,
+                                       _slot_offsets(self._tc, self._layout, self._pac + self._mte))
 
 
 # ==================================================================================================
@@ -465,9 +472,10 @@ class Sealer:
     SealedTestCase, which owns its value-seal placement order + resolution. The Sealer holds no
     knowledge of slot order itself."""
 
-    def __init__(self, generator, trace_fn, primitives: Set[str], signer) -> None:
+    def __init__(self, generator, trace_fn, assemble, primitives: Set[str], signer) -> None:
         self._walk = SandboxWalk(generator)
         self._trace_fn = trace_fn
+        self._assemble = assemble
         self._primitives = frozenset(primitives)
         self._signer = signer
         self._enc, self._auth_specs = _pac_encoder(generator) if "pac" in self._primitives \
@@ -477,11 +485,11 @@ class Sealer:
         tc = copy.deepcopy(test_case)
         sandbox, data_sites = self._walk.sandbox(tc)
         if self._primitives == frozenset({"mte"}):
-            return MteSealedTestCase(tc, self._trace_fn, sandbox, data_sites)
+            return MteSealedTestCase(tc, self._trace_fn, self._assemble, sandbox, data_sites)
         if self._primitives == frozenset({"pac"}):
-            return PacSealedTestCase(tc, self._trace_fn, sandbox, data_sites,
+            return PacSealedTestCase(tc, self._trace_fn, self._assemble, sandbox, data_sites,
                                      self._signer, self._enc, self._auth_specs)
-        return MtePacSealedTestCase(tc, self._trace_fn, sandbox, data_sites,
+        return MtePacSealedTestCase(tc, self._trace_fn, self._assemble, sandbox, data_sites,
                                     self._signer, self._enc, self._auth_specs)
 
 
@@ -583,11 +591,11 @@ class SandboxWalk:
         return sandbox, data_sites
 
 
-def make_sealer(generator, trace_fn, primitives, signer) -> Sealer:
-    """The Sealer for the active primitives. `trace_fn(tc, input) -> cer` runs a CE trace; `signer` is
-    the kernel PAC signer (a PacSigner over local_executor.pac_sign), used by resolve when 'pac' is
-    active (None otherwise)."""
+def make_sealer(generator, trace_fn, assemble, primitives, signer) -> Sealer:
+    """The Sealer for the active primitives. `trace_fn(tc, input) -> cer` runs a CE trace; `assemble(tc)
+    -> bytes` assembles the object code; `signer` is the kernel PAC signer (a PacSigner over
+    local_executor.pac_sign), used by resolve when 'pac' is active (None otherwise)."""
     prims = frozenset(primitives)
     if prims not in (frozenset({"mte"}), frozenset({"pac"}), frozenset({"pac", "mte"})):
         raise ValueError(f"unsupported seal primitives: {primitives!r}")
-    return Sealer(generator, trace_fn, prims, signer)
+    return Sealer(generator, trace_fn, assemble, prims, signer)
