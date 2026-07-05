@@ -17,10 +17,18 @@ Both groups snapshot and restore the device state they touch so they do not
 leak configuration across tests or into a later fuzzing run.
 """
 import os
+import sys
 import errno
 import fcntl
 import struct
 import unittest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
+from src.aarch64.aarch64_executor_input_encoder import (
+    build_input_init, _pack_sections, SEC_MEMORY_FAULTY, SEC_GPR, MTE_TAG_COUNT, PAC_KEYS_WORDS)
+from src.interfaces import MAIN_AREA_SIZE, FAULTY_AREA_SIZE, GPR_SUBREGION_SIZE
+
+REVISOR_INPUT_MAX_SIZE = 32 * 1024   # mirror of chardevice.c REVISOR_INPUT_MAX_SIZE
 
 SYSFS = "/sys/executor"
 DEVICE = "/dev/executor"
@@ -182,10 +190,13 @@ MEASUREMENT = _IOC(_IOC_READ, 7, 32)
 TRACE = _IOC(_IOC_NONE, 8, 0)
 CLEAR_ALL_INPUTS = _IOC(_IOC_NONE, 9, 0)
 GET_TEST_LENGTH = _IOC(_IOC_READ, 10, 8)
-# struct mte_tag_region_req { u64 sandbox_offset; u64 length; u8 tag; } -> 24 bytes (padded).
-MTE_TAG_REGION = _IOC(_IOC_WRITE, 16, 24)
 # Taggable span = lower_overflow|main|faulty|upper_overflow = 4 * sandbox PAGESIZE (4096 each).
 MTE_TAGGABLE_SPAN = 4 * 4096
+MTE_GRANULE = 16
+MTE_TAG_MAX_GRANULES = MTE_TAGGABLE_SPAN // MTE_GRANULE
+# struct mte_tag_region_req { u64 sandbox_offset; u64 n_granules; u8 tags[MTE_TAG_MAX_GRANULES]; }
+_MTE_REQ_SIZE = 8 + 8 + MTE_TAG_MAX_GRANULES
+MTE_TAG_REGION = _IOC(_IOC_WRITE, 16, _MTE_REQ_SIZE)
 
 # main(4096) + faulty(4096) + 8 register slots * 8 bytes
 USER_CONTROLLED_INPUT_LENGTH = 4096 + 4096 + 8 * 8
@@ -235,22 +246,24 @@ class TestExecutorIoctl(unittest.TestCase):
     def _num_inputs(self):
         return self._ioctl_get_u64(GET_NUM_INPUTS)
 
-    def _tag_region(self, offset, length, tag):
+    def _tag_region(self, sandbox_offset, n_granules, tag):
+        # struct mte_tag_region_req { u64 sandbox_offset; u64 n_granules; u8 tags[MTE_TAG_MAX_GRANULES]; }
         # pass a bytearray so ioctl() returns its status code, not the request buffer
-        req = struct.pack("<QQB", offset, length, tag).ljust(24, b"\x00")
+        tags = (bytes([tag & 0xF]) * max(n_granules, 0)).ljust(MTE_TAG_MAX_GRANULES, b"\x00")[:MTE_TAG_MAX_GRANULES]
+        req = struct.pack("<QQ", sandbox_offset, n_granules) + tags
         return fcntl.ioctl(self.fd, MTE_TAG_REGION, bytearray(req))
 
     # ---- MTE tag-region ioctl bounds (span = lower_overflow|main|faulty|upper_overflow) ------
     def test_mte_tag_region_accepts_full_span(self):
-        self.assertEqual(self._tag_region(0, MTE_TAGGABLE_SPAN, 0xF), 0)
-        self.assertEqual(self._tag_region(3 * 4096, 4096, 0xF), 0)   # the upper_overflow region
+        self.assertEqual(self._tag_region(0, MTE_TAG_MAX_GRANULES, 0xF), 0)             # whole taggable span
+        self.assertEqual(self._tag_region(3 * 4096, 4096 // MTE_GRANULE, 0xF), 0)       # the upper_overflow region
 
     def test_mte_tag_region_rejects_out_of_range(self):
-        for offset, length in ((0, MTE_TAGGABLE_SPAN + 1),
-                               (MTE_TAGGABLE_SPAN, 1),
-                               (MTE_TAGGABLE_SPAN - 1, 2)):
+        for sandbox_offset, n_granules in ((0, MTE_TAG_MAX_GRANULES + 1),   # one granule past the end
+                                           (MTE_TAGGABLE_SPAN, 1),          # offset at the very end
+                                           (MTE_GRANULE // 2, 1)):          # misaligned offset
             with self.assertRaises(OSError):
-                self._tag_region(offset, length, 0xF)
+                self._tag_region(sandbox_offset, n_granules, 0xF)
 
     def test_short_input_write_is_rejected(self):
         a = self._ioctl_get_u64(ALLOCATE_INPUT)
@@ -260,6 +273,56 @@ class TestExecutorIoctl(unittest.TestCase):
                 os.write(self.fd, b"\x00" * (USER_CONTROLLED_INPUT_LENGTH - 1))
         finally:
             self._ioctl_put_u64(FREE_INPUT, a)
+
+    # ---- input wire-format ABI: parse_input_init / revisor_input_header_valid ---------------
+    def _write_input(self, blob):
+        """Allocate a fresh input, checkout, write `blob`, free it (always). Returns os.write's
+        byte count on success; an OSError (e.g. -EINVAL on a malformed init) propagates."""
+        a = self._ioctl_get_u64(ALLOCATE_INPUT)
+        self._ioctl_put_u64(CHECKOUT_INPUT, a)
+        try:
+            return os.write(self.fd, blob)
+        finally:
+            self._ioctl_put_u64(FREE_INPUT, a)
+
+    def _valid_init(self):
+        return build_input_init(bytes(MAIN_AREA_SIZE), bytes(FAULTY_AREA_SIZE), bytes(GPR_SUBREGION_SIZE))
+
+    def test_input_accepts_valid_required_sections(self):
+        blob = self._valid_init()
+        self.assertEqual(self._write_input(blob), len(blob))
+
+    def test_input_accepts_optional_mte_and_pac_sections(self):
+        blob = build_input_init(bytes(MAIN_AREA_SIZE), bytes(FAULTY_AREA_SIZE), bytes(GPR_SUBREGION_SIZE),
+                                mte_tags=[0xA] * MTE_TAG_COUNT, pac_keys=[0] * PAC_KEYS_WORDS)
+        self.assertEqual(self._write_input(blob), len(blob))
+
+    def test_input_rejects_bad_magic(self):
+        ba = bytearray(self._valid_init())
+        ba[0:8] = (0xDEADBEEF).to_bytes(8, "little")      # preamble word 0 = magic
+        with self.assertRaises(OSError):
+            self._write_input(bytes(ba))
+
+    def test_input_rejects_bad_version(self):
+        ba = bytearray(self._valid_init())
+        ba[8:16] = (999).to_bytes(8, "little")            # preamble word 1 = version
+        with self.assertRaises(OSError):
+            self._write_input(bytes(ba))
+
+    def test_input_rejects_wrong_sized_required_section(self):
+        blob = build_input_init(bytes(MAIN_AREA_SIZE - 1), bytes(FAULTY_AREA_SIZE), bytes(GPR_SUBREGION_SIZE))
+        with self.assertRaises(OSError):                  # MAIN one byte short -> mis-sized section
+            self._write_input(blob)
+
+    def test_input_rejects_missing_required_section(self):
+        blob = _pack_sections([(SEC_MEMORY_FAULTY, bytes(FAULTY_AREA_SIZE)),   # no MEMORY_MAIN section
+                               (SEC_GPR, bytes(GPR_SUBREGION_SIZE))])
+        with self.assertRaises(OSError):
+            self._write_input(blob)
+
+    def test_input_rejects_oversize(self):
+        with self.assertRaises(OSError):                  # count > REVISOR_INPUT_MAX_SIZE -> -EINVAL
+            self._write_input(bytes(REVISOR_INPUT_MAX_SIZE + 8))
 
     # ---- input bookkeeping automata -----------------------------------------
     def test_clear_gives_zero_inputs(self):
@@ -346,7 +409,9 @@ class TestExecutorIoctl(unittest.TestCase):
     def test_full_lifecycle_trace_and_measure(self):
         iid = self._ioctl_get_u64(ALLOCATE_INPUT)
         self._ioctl_put_u64(CHECKOUT_INPUT, iid)
-        os.write(self.fd, bytes(USER_CONTROLLED_INPUT_LENGTH))   # all-zero input
+        # all-zero input in the sectioned wire format the kernel now parses (main/faulty/gpr required)
+        os.write(self.fd, build_input_init(bytes(MAIN_AREA_SIZE), bytes(FAULTY_AREA_SIZE),
+                                           bytes(GPR_SUBREGION_SIZE)))
 
         self._ioctl_void(CHECKOUT_TEST)
         os.write(self.fd, NOP * 8)                               # trivial, safe TC
