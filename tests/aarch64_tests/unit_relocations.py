@@ -1,7 +1,7 @@
 import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
 import unittest
 from src.aarch64.aarch64_relocations import (
-    RelocType, Relocation, RelocationPlan, apply_relocations, read_word32,
+    RelocType, Relocation, apply_relocations, read_word32,
     get_imm_field, set_imm_field, is_movk64, set_movk_imm16, get_movk_imm16,
     xpac_word, addg_word, movk_word, aut_word, NOP_WORD)
 from src.aarch64.aarch64_generator import Aarch64Generator
@@ -112,27 +112,6 @@ class ComputedEncodingTest(unittest.TestCase):
     def test_aut_zero_matches_assembly(self):
         for mn in ("autiza", "autizb", "autdza", "autdzb"):
             self.assertEqual(aut_word(mn, 5, 31), _asm_word(f"{mn} x5"))
-
-
-class RelocationPlanTest(unittest.TestCase):
-    def test_build_applies_the_variant(self):
-        plan = RelocationPlan(skeleton=bytes(12),
-                              variants=[[Relocation(0, 0xAAAAAAAA)], [Relocation(8, 0xBBBBBBBB)]])
-        self.assertEqual(read_word32(plan.build(0), 0), 0xAAAAAAAA)
-        self.assertEqual(read_word32(plan.build(1), 8), 0xBBBBBBBB)
-
-    def test_serialization_roundtrip(self):
-        plan = RelocationPlan(skeleton=bytes(range(20)),
-                              variants=[[Relocation(0, 0x11223344), Relocation(8, 0x55667788)],
-                                        [Relocation(4, 0x99AABBCC)]])
-        back = RelocationPlan.from_bytes(plan.to_bytes())
-        self.assertEqual(back.skeleton, plan.skeleton)
-        self.assertEqual(back.variants, plan.variants)
-        self.assertEqual(back.build(0), plan.build(0))
-
-    def test_from_bytes_bad_magic_raises(self):
-        with self.assertRaises(ValueError):
-            RelocationPlan.from_bytes(b"XXXX" + bytes(8))
 
 
 if __name__ == "__main__":

@@ -1,10 +1,5 @@
 """AArch64 machine-code manipulation: rewrite instruction-word immediate fields, and splice fixed
-words into a pre-assembled skeleton (relocation).
-
-A RelocationPlan is one skeleton plus a per-variant edit list — the payload the sealed/NI path (and
-future remote-fuzzing batching) ships instead of N separately-assembled test cases.
-"""
-import struct
+words into a pre-assembled base (relocation)."""
 from enum import Enum
 from typing import List, NamedTuple
 
@@ -107,44 +102,3 @@ def apply_relocations(base: bytes, relocs: List[Relocation]) -> bytes:
         written.append(r.offset)
         out[r.offset:r.offset + 4] = r.value.to_bytes(4, "little")
     return bytes(out)
-
-
-_PLAN_MAGIC = b"RLP1"
-
-
-class RelocationPlan(NamedTuple):
-    skeleton: bytes
-    variants: List[List[Relocation]]
-
-    def build(self, index: int) -> bytes:
-        return apply_relocations(self.skeleton, self.variants[index])
-
-    def to_bytes(self) -> bytes:
-        out = bytearray(_PLAN_MAGIC)
-        out += struct.pack("<II", len(self.skeleton), len(self.variants))
-        out += self.skeleton
-        for relocs in self.variants:
-            out += struct.pack("<I", len(relocs))
-            for r in relocs:
-                out += struct.pack("<IIB", r.offset, r.value, r.rtype.value)
-        return bytes(out)
-
-    @staticmethod
-    def from_bytes(data: bytes) -> "RelocationPlan":
-        if data[:4] != _PLAN_MAGIC:
-            raise ValueError("bad RelocationPlan magic")
-        sk_len, n_variants = struct.unpack_from("<II", data, 4)
-        pos = 12
-        skeleton = data[pos:pos + sk_len]
-        pos += sk_len
-        variants: List[List[Relocation]] = []
-        for _ in range(n_variants):
-            (n_relocs,) = struct.unpack_from("<I", data, pos)
-            pos += 4
-            relocs: List[Relocation] = []
-            for _ in range(n_relocs):
-                offset, value, rtype = struct.unpack_from("<IIB", data, pos)
-                pos += 9
-                relocs.append(Relocation(offset, value, RelocType(rtype)))
-            variants.append(relocs)
-        return RelocationPlan(skeleton, variants)

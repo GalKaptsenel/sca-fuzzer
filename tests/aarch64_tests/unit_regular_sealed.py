@@ -18,6 +18,7 @@ from src.config import CONF
 from src.isa_loader import InstructionSet
 from src.aarch64.aarch64_generator import Aarch64RandomGenerator
 from src.aarch64.seal.primitives import inst_at
+from src.aarch64.aarch64_relocations import apply_relocations
 from src import factory
 
 _BASE = ["BASE-ARITH", "BASE-LOGICAL", "BASE-SHIFT", "BASE-BRANCH", "BASE-MEM-LOAD", "BASE-MEM-STORE"]
@@ -182,7 +183,7 @@ class RegularSealedSealingTest(unittest.TestCase):
             for inp in ig.generate(3):
                 resolved = ex._sealed.resolve(inp)               # fresh per-input resolve
                 for _ in range(8):                               # real rng over many minted decoys
-                    decoy = resolved.decoy()
+                    decoy = apply_relocations(resolved.object_code, resolved.decoy())
                     self._assert_arch_genuine(ex, resolved, decoy, violations)
                     self._accumulate_coverage(ex, resolved, decoy, cov)
         self.assertEqual(violations, [], f"arch slots not genuine: {violations[:5]}")
@@ -217,12 +218,12 @@ class RegularSealedSealingTest(unittest.TestCase):
 
     def test_forced_genuine_or_decoy(self):
         from src.aarch64.aarch64_executor import NIVariant
-        for prob, expected in ((0.0, NIVariant.BASELINE), (1.0, NIVariant.DECOY)):
+        for prob, expected in ((0.0, NIVariant.BASELINE), (1.0, NIVariant.decoy_n(0))):
             ex, gen = self._executor()
             ex._DECOY_PROB = prob                                     # override the per-class coin
             self._seal_a_tc(ex, gen)
-            self.assertTrue(all(next(iter(var)) is expected for var in ex._last_tc_variants),
-                            f"_DECOY_PROB={prob} should make every class {expected.name}")
+            self.assertTrue(all(next(iter(var)) == expected for var in ex._last_tc_variants),
+                            f"_DECOY_PROB={prob} should make every class {expected}")
 
     def test_collapse_key_groups_identical_resolutions(self):
         """The same input resolved twice yields the same collapse_key (the sealing class); a class is

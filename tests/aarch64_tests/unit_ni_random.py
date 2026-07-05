@@ -23,6 +23,7 @@ from src.config import CONF
 from src.isa_loader import InstructionSet
 from src.aarch64.aarch64_generator import Aarch64RandomGenerator
 from src.aarch64.seal.primitives import inst_at
+from src.aarch64.aarch64_relocations import apply_relocations
 from src.aarch64.seal.pac import _AUTH_TO_PAC, _read_reg
 from src import factory
 from src.util import FuzzLogger
@@ -93,7 +94,7 @@ class NiRandomCoverageTest(unittest.TestCase):
             self.assertEqual(min_nesting_at(auth_off(s)) != 0, by_sealing[id(s)].speculative,
                              f"PAC slot reg={s.value_reg}: genuine arch-ness != resolver flag")
         for s in mte:
-            self.assertEqual(min_nesting_at(layout.instruction_address[s.access]) != 0,
+            self.assertEqual(min_nesting_at(layout.instruction_address[s.access_inst]) != 0,
                              by_sealing[id(s)].speculative,
                              f"MTE slot reg={s.value_reg}: genuine arch-ness != resolver flag")
 
@@ -136,8 +137,8 @@ class NiRandomCoverageTest(unittest.TestCase):
             for inp in self.igen.generate(4):
                 resolved = ex._sealed.resolve(inp)
                 by_sealing = {id(r.sealing): r for r in resolved._entries}
-                baseline = resolved.genuine()
-                decoys = [resolved.decoy() for _ in range(6)]
+                baseline = apply_relocations(resolved.object_code, resolved.genuine())
+                decoys = [apply_relocations(resolved.object_code, resolved.decoy()) for _ in range(6)]
 
                 self._assert_oracle_matches_genuine(baseline, inp, pac, mte, by_sealing)
 
@@ -176,6 +177,24 @@ class NiRandomCoverageTest(unittest.TestCase):
             self.assertGreater(cov[key], 0, f"corner case never occurred: {key} (cov={dict(cov)})")
         for combo in ("combo_P-", "combo_-M", "combo_PM"):
             self.assertGreater(cov[combo], 0, f"decoy combination never occurred: {combo} (cov={dict(cov)})")
+
+
+class NiVariantWiringTest(unittest.TestCase):
+    """_variants_for wiring (no hardware needed)."""
+
+    def test_n_decoys_mints_that_many(self):
+        """_n_decoys controls how many distinct-key decoys _variants_for mints (baseline + N)."""
+        from src.aarch64.aarch64_executor import Aarch64NonInterferenceExecutor, NIVariant
+
+        class _FakeResolved:
+            object_code = bytes(16)
+            def genuine(self): return []
+            def decoy(self): return []
+
+        ex = Aarch64NonInterferenceExecutor.__new__(Aarch64NonInterferenceExecutor)
+        ex._n_decoys = 4
+        variants = ex._variants_for(_FakeResolved())
+        self.assertEqual(set(variants), {NIVariant.BASELINE, *(NIVariant.decoy_n(i) for i in range(4))})
 
 
 if __name__ == "__main__":

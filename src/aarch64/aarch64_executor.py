@@ -11,7 +11,6 @@ import os.path
 import numpy as np
 from typing import List, Tuple, Set, Optional, Dict
 from collections import defaultdict
-from enum import Enum, auto
 from pathlib import Path
 
 
@@ -26,6 +25,7 @@ from .aarch64_kernel import LocalHWExecutor, TestCaseRegion, InputRegion, Execut
 from .aarch64_generator import Pass, Aarch64SandboxPass
 from .seal.pac import PacSigner
 from .seal.sealer import make_sealer, SealedTestCase, ResolvedSealingTestCase
+from .aarch64_relocations import apply_relocations
 from .aarch64_contract_executor import (ContractExecution, ContractExecutorService,
                                         ExecutionClause, SUPPORTED_EXECUTION_CLAUSES,
                                         BranchPredictor, EXECUTION_CLAUSE_MAP, SimArch)
@@ -52,18 +52,20 @@ def _ce_memory_regs(inp) -> Tuple[bytes, bytes]:
 
 
 # ==================================================================================================
-# NON-INTERFERENCE: per-input TC variant result containers
-# Used by the non-interference executors; regular-Revizor mode never produces these.
-# Maps variant enum → TestCase.
+# NON-INTERFERENCE: per-input variants, keyed by name (variant name -> machine code / htrace)
 # ==================================================================================================
-TCVariants = Dict[Enum, bytes]
+TCVariants = Dict[str, bytes]
 
 
-class NIVariant(Enum):
-    """The test cases an NI engine compares per input: the all-genuine reference and a decoy
-    instance. Any hardware-trace difference between them is a speculative leak."""
-    BASELINE = auto()  # engine.baseline() — genuine everywhere
-    DECOY    = auto()  # engine.decoys()   — decoys on speculative slots
+class NIVariant:
+    """Per-input variant names compared on hardware. `DECOY` is a template; `decoy_n(i)` names the nth
+    decoy."""
+    BASELINE = "baseline"
+    DECOY = "decoy{i}"
+
+    @staticmethod
+    def decoy_n(i: int) -> str:
+        return NIVariant.DECOY.format(i=i)
 
 
 # ==================================================================================================
@@ -448,7 +450,8 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
 
     # (baseline, candidate) variant enums whose control-flow divergence is highlighted in the
     # CE-trace comparison.
-    _compare_variants: Tuple[Enum, Enum] = (NIVariant.BASELINE, NIVariant.DECOY)
+    _compare_variants: Tuple[str, str] = (NIVariant.BASELINE, NIVariant.decoy_n(0))  # debug only, remove with the logging
+    _n_decoys: int = 1                                  # decoys minted per input (raise to compare more)
 
     def _write_sealed_bytes(self, tc_bytes: bytes) -> None:
         self.local_executor.checkout_region(TestCaseRegion())
@@ -551,7 +554,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
 
         # SEALED trace (from trace_test_case_with_taints) plus one column per variant.
         named_traces: List[Tuple[str, List, int]] = []  # (label, entries, code_base)
-        by_variant: Dict[Enum, Tuple[List, int]] = {}
+        by_variant: Dict[str, Tuple[List, int]] = {}
 
         s1_list = list(sealed_cer) if sealed_cer else []
         s1_base = s1_list[0].cpu.pc if s1_list else 0
@@ -561,7 +564,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             cer = self._run_ce_on_tc(tc, inp, sandbox_base) if tc is not None else None
             entries = cer if cer else []
             base = cer[0].cpu.pc if cer else 0
-            named_traces.append((variant.name, entries, base))
+            named_traces.append((variant, entries, base))
             by_variant[variant] = (entries, base)
 
         labels   = [t[0] for t in named_traces]
@@ -627,21 +630,20 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             if s1_cer:
                 log_ce_trace(log, "SEALED", inp_idx, list(s1_cer))
 
-            variant_cers: Dict[Enum, Optional[List]] = {}
+            variant_cers: Dict[str, Optional[List]] = {}
             for variant, tc in variants.items():
-                vname = variant.name
                 cer = self._run_ce_on_tc(tc, inp, sandbox_base)
                 variant_cers[variant] = cer
                 if cer is not None:
-                    log_ce_trace(log, vname, inp_idx, cer)
+                    log_ce_trace(log, variant, inp_idx, cer)
                 else:
-                    log.w(f"  CE failed for {vname} inp={inp_idx}")
+                    log.w(f"  CE failed for {variant} inp={inp_idx}")
 
                 sorted_pcs, bb_info, pc_to_id, code_base = self._compute_bb_map(cer or [])
-                log_bb_map(log, vname, inp_idx, sorted_pcs, bb_info, pc_to_id, code_base, entry_x7)
+                log_bb_map(log, variant, inp_idx, sorted_pcs, bb_info, pc_to_id, code_base, entry_x7)
 
                 if cer:
-                    log.header(f"AUTH INSTRUCTIONS IN CE: {vname}  inp={inp_idx}")
+                    log.header(f"AUTH INSTRUCTIONS IN CE: {variant}  inp={inp_idx}")
                     for ite in cer:
                         disas = disassemble_instruction(ite.cpu.encoding, ite.cpu.pc) or ""
                         mn = disas.split()[0].lower() if disas else ""
@@ -654,7 +656,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                 baseline, candidate = self._compare_variants
                 base_cer, cand_cer = variant_cers[baseline], variant_cers[candidate]
                 if base_cer and cand_cer and len(base_cer) != len(cand_cer):
-                    log.wp(f"  *** {baseline.name} vs {candidate.name} trace length differs: "
+                    log.wp(f"  *** {baseline} vs {candidate} trace length differs: "
                            f"{len(base_cer)} vs {len(cand_cer)} — control flow divergence!")
                 self._print_ce_trace_comparison(inp_idx, inp, s1_cer, variants, sandbox_base)
 
@@ -751,16 +753,16 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             # taint/ctrace are the GENUINE baseline's CE trace — the machine code that actually runs on
             # hardware — not the placeholder, whose slots behave differently.
             resolved = self._sealed.resolve(inp)
-            cer = self._ce_trace(resolved.genuine(), inp)
+            cer = self._ce_trace(apply_relocations(resolved.object_code, resolved.genuine()), inp)
             ce_traces.append(cer)
 
-            variants = self._mint_variants(resolved)
+            variants = self._variants_for(resolved)
             tc_variants_per_input.append(variants)
 
             log_ce_trace(log, "BASELINE", inp_idx, list(cer))
             log.header(f"VARIANT TC BINARIES  inp={inp_idx}")
             for variant, vtc in variants.items():
-                log_tc_binary(log, variant.name, vtc)
+                log_tc_binary(log, variant, vtc)
             self._maybe_log_ni_table(log, inp_idx, cer, variants)
             log.ensure_flushed()
 
@@ -770,10 +772,15 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         ctraces = [compute_ctrace(cer) for cer in ce_traces]
         return ctraces, taints, ce_traces, tc_variants_per_input
 
-    def _mint_variants(self, resolved: ResolvedSealingTestCase) -> TCVariants:
-        """The variant machine code to run on hardware for the resolved input. NI compares the genuine
-        baseline against a decoy; the regular subclass overrides this."""
-        return {NIVariant.BASELINE: resolved.genuine(), NIVariant.DECOY: resolved.decoy()}
+    def _variants_for(self, resolved: ResolvedSealingTestCase) -> TCVariants:
+        """The machine code for each variant this input runs on hardware, built by applying the variant's
+        relocations to the object code: the genuine baseline and `_n_decoys` fresh decoys. The regular
+        subclass overrides which variants to mint."""
+        oc = resolved.object_code
+        variants = {NIVariant.BASELINE: apply_relocations(oc, resolved.genuine())}
+        for i in range(self._n_decoys):
+            variants[NIVariant.decoy_n(i)] = apply_relocations(oc, resolved.decoy())
+        return variants
 
     def _maybe_log_ni_table(self, log, inp_idx, cer, variants) -> None:
         """DEBUG (env REVIZOR_NI_TABLE): per-variant byte columns for the sealed/baseline/decoy table.
@@ -786,7 +793,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
 
     def _ni_table_columns(self, variants):
         """(name, bytes) columns for the debug table: this input's baseline and decoy."""
-        return [(variant.name.lower(), tc) for variant, tc in variants.items()]
+        return [(variant, tc) for variant, tc in variants.items()]
 
 
     # ------------------------------------------------------------------ hardware: sealed execution
@@ -795,13 +802,13 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         inputs: List[Input],
         variants_per_input: List[TCVariants],
         n_reps: int,
-    ) -> List[Dict[NIVariant, HTrace]]:
+    ) -> List[Dict[str, HTrace]]:
         """The single hardware entry point: every TC reaching here is already sealed."""
         STAT.executor_reruns += n_reps * len(inputs)
         log = FuzzLogger.get()
-        results: List[Dict[NIVariant, HTrace]] = []
+        results: List[Dict[str, HTrace]] = []
         for inp_idx, (inp, variants) in enumerate(zip(inputs, variants_per_input)):
-            per_variant: Dict[NIVariant, HTrace] = {}
+            per_variant: Dict[str, HTrace] = {}
             self.local_executor.discard_all_inputs()
             iid = self.local_executor.allocate_iid()
             self.local_executor.checkout_region(InputRegion(iid))
@@ -813,7 +820,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                 log_mistraining(log, self._tc_counter, inp_idx, entries, inp._arch_trace)
 
             for variant, tc in variants.items():
-                log.wp(f"[HW] inp={inp_idx} variant={variant.name}")
+                log.wp(f"[HW] inp={inp_idx} variant={variant}")
                 self._write_sealed_bytes(tc)
                 trace_list, pfc_list = [], []
                 for _ in range(n_reps):
@@ -833,7 +840,10 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         if not inputs or self.test_case is None:
             return [], []
         assert self._sealed is not None, "sealed TC not built — load_test_case() not called"
-        genuine = [{NIVariant.BASELINE: self._sealed.resolve(inp).genuine()} for inp in inputs]
+        genuine = []
+        for inp in inputs:
+            resolved = self._sealed.resolve(inp)
+            genuine.append({NIVariant.BASELINE: apply_relocations(resolved.object_code, resolved.genuine())})
         results = self._run_sealed_on_hw(inputs, genuine, n_reps)
         return [r[NIVariant.BASELINE] for r in results], []
 
@@ -842,7 +852,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         self,
         inputs: List[Input],
         n_reps: int,
-    ) -> List[Dict[NIVariant, HTrace]]:
+    ) -> List[Dict[str, HTrace]]:
         """Run each input's baseline + decoy variants on hardware with the input's arch-trace
         mistraining (shared by all variants — same branch layout). Returns per-input {variant: HTrace}."""
         assert self._last_tc_variants is not None and len(self._last_tc_variants) == len(inputs), \
@@ -885,16 +895,16 @@ class Aarch64RegularSealedExecutor(Aarch64NonInterferenceExecutor):
         self._tc_by_input = {}
         super().load_test_case(test_case)
 
-    def _mint_variants(self, resolved: ResolvedSealingTestCase) -> TCVariants:
+    def _variants_for(self, resolved: ResolvedSealingTestCase) -> TCVariants:
         """The TC for the resolved input's sealing class — minted once per class with a real-random
         per-class coin (decoy vs all-genuine) and shared by every member, so caveat-4 merges (Ti ==
         Tt) fall out automatically."""
         key = resolved.collapse_key
         if key not in self._class_tc:
             if random.random() < self._DECOY_PROB:
-                self._class_tc[key] = {NIVariant.DECOY: resolved.decoy()}
+                self._class_tc[key] = {NIVariant.decoy_n(0): apply_relocations(resolved.object_code, resolved.decoy())}
             else:
-                self._class_tc[key] = {NIVariant.BASELINE: resolved.genuine()}
+                self._class_tc[key] = {NIVariant.BASELINE: apply_relocations(resolved.object_code, resolved.genuine())}
         return self._class_tc[key]
 
     def trace_test_case_with_taints(self, inputs, nesting):
@@ -908,7 +918,7 @@ class Aarch64RegularSealedExecutor(Aarch64NonInterferenceExecutor):
         by trace_test_case for inputs the last with_taints pass didn't cover (slow-path priming,
         reuse_ctraces). genuine()'s arch slots are always correct (never a forged/failed AUTH)."""
         resolved = self._sealed.resolve(inp)
-        return self._mint_variants(resolved)
+        return self._variants_for(resolved)
 
     def trace_test_case(self, inputs: List[Input], n_reps: int) -> Tuple[List[HTrace], List[TestCase]]:
         """Run each input on its sealing class's one shared TC. Every input maps to its TC here (from

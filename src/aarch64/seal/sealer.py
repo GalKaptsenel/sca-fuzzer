@@ -1,15 +1,9 @@
-"""PAC/MTE sealing as composable per-location sealings (AArch64).
+"""Sealing as composable per-location sealings (AArch64).
 
-Layers:
-  * `Sealing` — one exact location + the compile-time facts it exposes; `seal(value)` returns that
-    slot's instructions for a runtime value (None -> arch-safe). Pure: never reads a trace, never
-    decides genuine/decoy.
-  * `Sealer.seal(tc) -> SealedTestCase` — walks the TC, creates the sealings, inserts their arch-safe
-    placeholders. The sealings are not resolved yet.
-  * `SealedTestCase.resolve(input) -> ResolvedSealingTestCase` — runs the staged CE trace(s) via the
-    injected `trace_fn(tc, input)` and computes each sealing's value (signing / tag classification);
-    the concern-specific subclass owns the staging order. The sealing only supplies the facts.
-  * `ResolvedSealingTestCase` — `genuine()` / `decoy()`, each returning a hardware `TestCase`.
+  * `Sealing` — one location; `seal(value)` returns its slot instructions (None -> arch-safe). Pure.
+  * `Sealer.seal(tc) -> SealedTestCase` — walks the TC, creates sealings, inserts placeholders.
+  * `SealedTestCase.resolve(input) -> ResolvedSealingTestCase` — runs the CE trace(s), computes values.
+  * `ResolvedSealingTestCase` — `object_code` plus `genuine()` / `decoy()` relocations for it.
 """
 import abc
 import copy
@@ -24,8 +18,7 @@ from .pac import (PacSign, PacSigner, build_pac_specs, _AUTH_TO_PAC, _AUTH_TO_XP
 from ..aarch64_mte import MteTagState, mte_tag_store_effect, MTE_INITIAL_DEFAULT_TAG
 from ..aarch64_target_desc import SANDBOX_BASE_REGISTER
 from ..aarch64_printer import Aarch64ASMLayout
-from ..aarch64_relocations import (NOP_WORD, xpac_word, addg_word, movk_word, aut_word,
-                                   Relocation, RelocationPlan)
+from ..aarch64_relocations import (NOP_WORD, xpac_word, addg_word, movk_word, aut_word, Relocation)
 
 
 def _reg_num(reg: str) -> int:
@@ -86,12 +79,9 @@ class SandboxSealing(Sealing):
 
 
 class PacSealing(Sealing):
-    """Authenticate a pointer register. Given a signature, `seal` emits [MOVK sig LSL#48, AUT*], or
-    with low probability `_STRIP_PROB` the arch-safe strip [MOVK sig LSL#48, XPAC*] — same MOVK, the
-    AUT* replaced by XPAC, which yields the same canonical pointer a successful AUTH would, so strip
-    and auth differ only in that last op and agree on the arch path. `seal(None)` (no signature) is the
-    placeholder [NOP, XPAC*]. Mnemonics + context register come from the committed AUT*; encoders are
-    reused from PacSign. `committed_inst` is exposed for the resolver."""
+    """Authenticate a pointer register. `seal(sig)` emits the signature MOVK + the auth (or, prob
+    `_STRIP_PROB`, the arch-safe strip); `seal(None)` is the placeholder. `committed_inst` is exposed
+    for the resolver."""
     _STRIP_PROB = 0.1
 
     def __init__(self, value_reg: str, committed_inst: Instruction, encoder: PacSign) -> None:
@@ -114,14 +104,13 @@ class PacSealing(Sealing):
 
 
 class MteSealing(Sealing):
-    """Retag a pointer register by a 4-bit tag delta: `seal(delta)` = [ADDG reg, reg, #0, #delta]
-    (delta mod 16), or [NOP] when delta is 0/None. Deterministic. `access` is exposed for the resolver
-    (the memory access whose cell tag is the genuine tag for this pointer)."""
+    """Retag a pointer register by a 4-bit delta: `seal(delta)` is the retag, or [NOP] when 0/None.
+    `access_inst` is exposed for the resolver (its accessed cell's tag is the genuine tag)."""
 
-    def __init__(self, value_reg: str, access: Instruction) -> None:
+    def __init__(self, value_reg: str, access_inst: Instruction) -> None:
         super().__init__()
         self.value_reg = value_reg
-        self.access = access
+        self.access_inst = access_inst
         self.slot_insts = self.seal(None)   # seal itself with its placeholder = the slot to fill
 
     def seal(self, value: Optional[int] = None) -> List[Instruction]:
@@ -152,13 +141,16 @@ class _Resolved:
 
 
 class ResolvedSealingTestCase:
-    """One input's resolution. `genuine()`/`decoy()` return the variant machine code."""
+    """One input's resolution. `object_code` is the assembled base; `genuine()`/`decoy()` are the
+    relocations that turn it into a variant (apply with apply_relocations). `genuine()` seals every slot
+    correctly; `decoy()` seals the architectural slots correctly, with no guarantees on the other slots."""
 
     def __init__(self, entries: List[_Resolved], object_code: bytes,
                  offsets: Dict[int, Tuple[int, ...]]) -> None:
         self._entries = entries
-        self._plan = RelocationPlan(object_code, [self._solve_relocations(False, offsets),
-                                                  self._solve_relocations(True, offsets)])
+        self._object_code = object_code
+        self._offsets = offsets
+        self._genuine = self._solve_relocations(False, offsets)
 
     @staticmethod
     def _decoy_subset(eligible: List[_Resolved]) -> set:
@@ -170,14 +162,14 @@ class ResolvedSealingTestCase:
         return chosen if chosen else {random.choice(eligible)}
 
     @property
-    def plan(self) -> RelocationPlan:
-        return self._plan
+    def object_code(self) -> bytes:
+        return self._object_code
 
-    def genuine(self) -> bytes:
-        return self._plan.build(0)
+    def genuine(self) -> List[Relocation]:
+        return self._genuine
 
-    def decoy(self) -> bytes:
-        return self._plan.build(1)
+    def decoy(self) -> List[Relocation]:
+        return self._solve_relocations(True, self._offsets)
 
     def _solve_relocations(self, decoy: bool, offsets: Dict[int, Tuple[int, ...]]) -> List[Relocation]:
         eligible = [r for r in self._entries if r.speculative and r.alts]
@@ -264,8 +256,8 @@ def _resolve_mte(s: MteSealing, cer, layout) -> Tuple[Optional[int], List[int], 
     pointer's own tag at the guarded access; the genuine delta brings the pointer to the cell tag,
     alternatives are every other tag (a mismatch). (value, alts, spec_nesting)."""
     correct_tag, ptr_tag, spec = None, None, None
-    if cer and s.access is not None:
-        access_off, code_base = layout.instruction_address[s.access], cer[0].cpu.pc
+    if cer and s.access_inst is not None:
+        access_off, code_base = layout.instruction_address[s.access_inst], cer[0].cpu.pc
         tags = MteTagState(MTE_INITIAL_DEFAULT_TAG)
         for ite in cer:
             nest = ite.metadata.speculation_nesting
@@ -309,11 +301,11 @@ class SealedTestCase:
         self._trace_fn = trace_fn
         self._assemble = assemble                          # tc -> machine code, for the skeleton
         self._sandbox = sandbox_sealings
-        self._place(data_sites)                            # subclass inserts its value sealings, in order
+        self._insert_slots(data_sites)                            # subclass inserts its value sealings, in order
         _record_positions(self._tc, self._sealings())      # AFTER every slot is inserted
         self._layout = Aarch64ASMLayout(self._tc)
 
-    def _place(self, data_sites: List) -> None:
+    def _insert_slots(self, data_sites: List) -> None:
         """Insert this concern's value sealings around each data-access site."""
         raise NotImplementedError
 
@@ -339,7 +331,7 @@ class PacSealedTestCase(SealedTestCase):
         self._pac: List[PacSealing] = []
         super().__init__(sealed_tc, trace_fn, assemble, sandbox_sealings, data_sites)
 
-    def _place(self, data_sites) -> None:
+    def _insert_slots(self, data_sites) -> None:
         for inst, bb, mem_reg, offset_subs in data_sites:
             s = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc)
             self._pac.append(s)
@@ -364,7 +356,7 @@ class MteSealedTestCase(SealedTestCase):
         self._mte: List[MteSealing] = []
         super().__init__(sealed_tc, trace_fn, assemble, sandbox_sealings, data_sites)
 
-    def _place(self, data_sites) -> None:
+    def _insert_slots(self, data_sites) -> None:
         for inst, bb, mem_reg, offset_subs in data_sites:
             s = MteSealing(mem_reg, inst)
             self._mte.append(s)
@@ -396,7 +388,7 @@ class MtePacSealedTestCase(SealedTestCase):
         self._mte: List[MteSealing] = []
         super().__init__(sealed_tc, trace_fn, assemble, sandbox_sealings, data_sites)
 
-    def _place(self, data_sites) -> None:
+    def _insert_slots(self, data_sites) -> None:
         for inst, bb, mem_reg, offset_subs in data_sites:
             p = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc)
             m = MteSealing(mem_reg, inst)

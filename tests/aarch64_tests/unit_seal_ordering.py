@@ -59,7 +59,7 @@ class SealOrderingTest(unittest.TestCase):
         for m in sealed._mte:
             self.assertEqual(len(m.slot_locs), 1)                 # the MTE slot is one instruction
             fm, bm, im = m.slot_locs[0]
-            fa, ba, ia = locs[id(m.access)]
+            fa, ba, ia = locs[id(m.access_inst)]
             self.assertEqual((fm, bm), (fa, ba), "MTE slot and its access must share a basic block")
             self.assertEqual(im, ia - 1,
                              "MTE retag must be the instruction immediately before its access "

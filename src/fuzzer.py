@@ -917,7 +917,7 @@ class NoninterferenceFuzzer(FuzzerGeneric):
             for j, (var_a, ht_a) in enumerate(variant_list):
                 for var_b, ht_b in variant_list[j + 1:]:
                     if not self.analyser.htraces_are_equivalent(ht_a, ht_b):
-                        log.wp(f"[NI violation] input={idx}: {var_a.name} vs {var_b.name}")
+                        log.wp(f"[NI violation] input={idx}: {var_a} vs {var_b}")
                         m_a = Measurement(input_id=idx, input_=inp, ctrace=ctr, htrace=ht_a)
                         m_b = Measurement(input_id=idx, input_=inp, ctrace=ctr, htrace=ht_b)
                         violations.append(Violation.from_measurements(
