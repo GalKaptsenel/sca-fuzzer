@@ -18,6 +18,7 @@ from collections import defaultdict
 from contextlib import contextmanager
 from functools import wraps
 from ..config import CONF
+from ..util import STAT   # TEMP(perf-metrics): remove with the traces/s instrumentation
 
 if TYPE_CHECKING:
     from .aarch64_connection import Connection
@@ -357,6 +358,7 @@ class LocalHWExecutor(HWExecutor):
             raise ValueError(f'Unsupported region type: {type(region)}')
 
     def hardware_measurement(self) -> HWMeasurement:
+        STAT.num_traces += 1   # TEMP(perf-metrics): remove with the traces/s instrumentation
         measurement = UserMeasurement()
         self._ioctl(REVISOR_MEASUREMENT, measurement)
 
@@ -548,6 +550,7 @@ class RemoteHWExecutor(HWExecutor):
         pfc_list = [int(pfc_value) for _, pfc_value in
               sorted(pfc_matches, key=lambda x: int(x[0]))]
 
+        STAT.num_traces += 1   # TEMP(perf-metrics): remove with the traces/s instrumentation
         return HWMeasurement(htrace=htrace, pfcs=pfc_list)
 
 

@@ -45,6 +45,10 @@ class StatisticsCls:
 
     test_cases: int = 0
     num_inputs: int = 0
+    # TEMP(perf-metrics): remove — traces/s + NI variants-per-input instrumentation
+    num_traces: int = 0        # HW traces collected (one per input x variant x rep) — perf metric
+    tc_variants: int = 0       # NI: total test-case variants run on HW (baseline + decoys)
+    ni_inputs: int = 0         # NI: inputs actually run on HW (denominator for variants-per-input)
     eff_classes: int = 0
     single_entry_classes: int = 0
     violations: int = 0
@@ -76,6 +80,9 @@ class StatisticsCls:
         s = ""
         s += f"Test Cases: {self.test_cases}\n"
         s += f"Inputs per test case: {iptc:.1f}\n"
+        # TEMP(perf-metrics): remove — NI variants-per-input
+        if self.ni_inputs:
+            s += f"Test-case variants per input (NI): {self.tc_variants / self.ni_inputs:.1f}\n"
         s += f"Violations: {self.violations}\n"
         s += "Effectiveness: \n"
         s += f"  Total Cls: {total_clss_per_test_case:.1f}\n"
@@ -96,13 +103,15 @@ class StatisticsCls:
         if self.test_cases == 0:
             return ""
         rate = self.test_cases / elapsed if elapsed > 0 else 0.0
+        # TEMP(perf-metrics): remove — traces/s in the live brief
+        trace_rate = self.num_traces / elapsed if elapsed > 0 else 0.0
         filtered = self.fast_path + self.spec_filter + self.observ_filter
         if self.violations > 0:
             viol = f"{RED}⚠ {self.violations} violations{COL_RESET}"
         else:
             viol = "0 violations"
         return (f"{CONF.executor_mode}  {self.test_cases} tc · "
-                f"{_fmt_duration(elapsed)} · {rate:.2f} tc/s · "
+                f"{_fmt_duration(elapsed)} · {rate:.2f} tc/s · {trace_rate:.1f} traces/s · "
                 f"{filtered} filtered · {viol}")
 
 
@@ -371,7 +380,10 @@ class Logger:
                 print("================================ Statistics ================================"
                       "===\n")
                 print(STAT)
-            print(f"Duration: {(now - self.start_time).total_seconds():.1f}")
+            _dur = (now - self.start_time).total_seconds()
+            print(f"Duration: {_dur:.1f}")
+            # TEMP(perf-metrics): remove — traces/s in the final summary
+            print(f"Traces/s: {STAT.num_traces / _dur:.1f}" if _dur > 0 else "Traces/s: n/a")
             print(datetime.today().strftime('Finished at %H:%M:%S'))
             if self.rerun_command:
                 print(f"\nRe-run this exact session:\n  {self.rerun_command}")

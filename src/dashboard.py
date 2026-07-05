@@ -168,6 +168,7 @@ class Dashboard:
                 return
 
             rate = stat.test_cases / elapsed if elapsed > 0 else 0.0
+            trace_rate = stat.num_traces / elapsed if elapsed > 0 else 0.0  # TEMP(perf-metrics): remove
             filtered = stat.fast_path + stat.spec_filter + stat.observ_filter
             eta = self._eta(stat, elapsed)
             timeout = self.meta.get("timeout", 0)
@@ -201,7 +202,7 @@ class Dashboard:
                 v = stat.violations
                 vstr = f"⚠ {v} violations" if v else "0 violations"
                 line(1, 1, f"{stat.test_cases} tc · {_fmt_dur(elapsed)}{tlimit} · "
-                           f"{rate:.2f} tc/s · {vstr}", C_VIOL if v else 0)
+                           f"{rate:.2f} tc/s · {trace_rate:.1f} traces/s · {vstr}", C_VIOL if v else 0)
                 line(2, 0, " [m] expand  [p]ause  [q]uit ".ljust(w - 1), curses.A_REVERSE)
                 scr.refresh()
                 return
@@ -228,11 +229,16 @@ class Dashboard:
             an = stat.analysed_test_cases
             all_cls = (stat.eff_classes + stat.single_entry_classes) // an if an else 0
             eff_cls = stat.eff_classes // an if an else 0
-            line(y, 1, f"test cases {stat.test_cases:<8} rate {rate:.2f} tc/s")
+            # TEMP(perf-metrics): remove `{trace_rate:.1f} traces/s` and the variants/input line
+            line(y, 1, f"test cases {stat.test_cases:<8} rate {rate:.2f} tc/s   {trace_rate:.1f} traces/s")
             y += 1
             sample_str = str(self.sample_size) if self.sample_size else "—"
             line(y, 1, f"inputs/tc {iptc:<6} classes {eff_cls}/{all_cls} (eff/total)   sample {sample_str}")
             y += 1
+            if stat.ni_inputs:
+                vpi = stat.tc_variants / stat.ni_inputs
+                line(y, 1, f"variants/input (NI) {vpi:.1f}")
+                y += 1
             line(y, 1, f"filtered {filtered}")
             y += 1
             v = stat.violations

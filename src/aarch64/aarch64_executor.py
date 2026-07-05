@@ -807,6 +807,9 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         log = FuzzLogger.get()
         results: List[Dict[str, HTrace]] = []
         for inp_idx, (inp, variants) in enumerate(zip(inputs, variants_per_input)):
+            # TEMP(perf-metrics): remove — NI variants-per-input counters
+            STAT.ni_inputs += 1
+            STAT.tc_variants += len(variants)
             per_variant: Dict[str, HTrace] = {}
             self.local_executor.discard_all_inputs()
             iid = self.local_executor.allocate_iid()
