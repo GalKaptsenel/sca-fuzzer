@@ -415,7 +415,7 @@ The input generator type. Currently, only random input generation is supported.
 
 ```yaml
 Name: input_gen_seed
-Default: 10
+Default: 0
 ```
 
 Seed of the input generator. If set to zero, a random seed will be used for each run.

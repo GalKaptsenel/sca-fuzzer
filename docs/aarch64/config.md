@@ -60,6 +60,16 @@ authentication (`pac`) or memory tagging (`mte`). No default — must be set exp
 that fuzzer.
 
 ```yaml
+Name: ni_decoys_per_input
+Default: 1
+```
+
+Number of decoy test-case variants compared against the genuine baseline per input (`>= 1`). Each
+decoy perturbs a random subset of speculative slots, so `K` decoys give `~1 - 0.5^K` per-slot
+coverage; all `K` share the input's single contract-executor resolve. This broadens coverage on the
+test-case axis without input-boosting.
+
+```yaml
 Name: pac_auth_weight
 Default: 0.2
 ```

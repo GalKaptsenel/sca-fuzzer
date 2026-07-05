@@ -169,10 +169,8 @@ int main() {
 
 		if (0 >= ret) {
 			alarm(0);
-			if(-1 != ret) {
+			if(-1 != ret) {                 // -1 == clean EOF (parent closed the pipe): exit silently
 				fprintf(stderr, "Failed to load input from stdin\n");
-			} else {
-				fprintf(stderr, "EOF reached\n");
 			}
 			goto main_failure;
 		}
