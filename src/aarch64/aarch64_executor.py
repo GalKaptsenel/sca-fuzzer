@@ -783,10 +783,8 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         return variants
 
     def _maybe_log_ni_table(self, log, inp_idx, cer, variants) -> None:
-        """DEBUG (env REVIZOR_NI_TABLE): per-variant byte columns for the sealed/baseline/decoy table.
-        The per-slot Sig/Tag annotation is dropped — it read the old fix points, which no longer exist
-        (the resolved values live inside the sealer's ResolvedSealingTestCase)."""
-        if not os.environ.get("REVIZOR_NI_TABLE"):
+        """Per-variant byte columns for the sealed/baseline/decoy table (only when logging is on)."""
+        if not FuzzLogger.on():
             return
         log_ni_table(log, inp_idx, self._ni_table_columns(variants),
                      list(cer), "", {}, ch="ni_table")
@@ -857,7 +855,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         mistraining (shared by all variants — same branch layout). Returns per-input {variant: HTrace}."""
         assert self._last_tc_variants is not None and len(self._last_tc_variants) == len(inputs), \
             "trace_test_case_with_taints() must be called before trace_test_case_variants_hw()"
-        if FuzzLogger._VERBOSITY >= 1:
+        if FuzzLogger.on():
             sandbox_base, _ = self.read_base_addresses()
             self._log_pre_hw_ce_analysis(inputs, sandbox_base, FuzzLogger.get())
         return self._run_sealed_on_hw(inputs, self._last_tc_variants, n_reps)

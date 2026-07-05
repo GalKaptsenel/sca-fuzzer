@@ -760,6 +760,11 @@ class FuzzLogger:
             cls._instance = cls()
         return cls._instance
 
+    @classmethod
+    def on(cls) -> bool:
+        """Whether logging is enabled — the single seam every log site checks so 'off' does no work."""
+        return cls._VERBOSITY > 0
+
     def __init__(self) -> None:
         import string
         self._null = open(os.devnull, "w")
@@ -768,13 +773,11 @@ class FuzzLogger:
         self._session_dir: Optional[Path] = None
         atexit.register(self.close)
 
-        # Env overrides so a run can turn on logging without editing code: REVIZOR_VERBOSITY=N sets
-        # the level; REVIZOR_NI_TABLE implies >= 1 so the non-interference table is written.
-        env_v = os.environ.get("REVIZOR_VERBOSITY")
+        # TEMPORARY logging kill-switch (default off; the whole logging subsystem is slated for removal).
+        # REVIZOR_LOG=1 -> structured per-component logs; =2 -> + verbose CE-trace comparison tables.
+        env_v = os.environ.get("REVIZOR_LOG")
         if env_v is not None:
             type(self)._VERBOSITY = int(env_v)
-        elif os.environ.get("REVIZOR_NI_TABLE") and self._VERBOSITY == 0:
-            type(self)._VERBOSITY = 1
 
         if self._VERBOSITY == 0:
             return

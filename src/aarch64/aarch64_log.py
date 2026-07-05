@@ -38,6 +38,8 @@ def _fmt_ce_entry(ite, code_base: int) -> str:
 
 
 def log_start_test_case(log: FuzzLogger, tc_counter: int) -> None:
+    if not FuzzLogger.on():
+        return
     sep = "#" * 72
     ts  = datetime.datetime.now().strftime("%H:%M:%S.%f")
     for line in (f"\n{sep}", f"  TEST CASE #{tc_counter}   {ts}", f"{sep}\n"):
@@ -46,6 +48,8 @@ def log_start_test_case(log: FuzzLogger, tc_counter: int) -> None:
 
 
 def log_input(log: FuzzLogger, inp_idx: int, inp, ch: Optional[str] = None) -> None:
+    if not FuzzLogger.on():
+        return
     log.header(f"INPUT  inp={inp_idx}", ch=ch)
     data     = inp.tobytes()
     reg_blob = data[REGISTER_REGION_OFFSET:]
@@ -65,6 +69,8 @@ def log_input(log: FuzzLogger, inp_idx: int, inp, ch: Optional[str] = None) -> N
 
 def log_ce_trace(log: FuzzLogger, label: str, inp_idx: int, cer_list: List,
                  ch: Optional[str] = None) -> None:
+    if not FuzzLogger.on():
+        return
     log.header(f"CE TRACE: {label}  inp={inp_idx}  rows={len(cer_list)}", ch=ch)
     if not cer_list:
         log.w("  <empty>", ch=ch)
@@ -101,6 +107,8 @@ def log_bb_map(log: FuzzLogger, variant_label: str, inp_idx: int,
                sorted_pcs: List[int], bb_info: Dict[int, Dict],
                pc_to_id: Dict[int, int], code_base: int, entry_x7: int,
                ch: Optional[str] = None) -> None:
+    if not FuzzLogger.on():
+        return
     log.header(f"BB MAP: {variant_label}  inp={inp_idx}", ch=ch)
     log.w(f"  x7 before run = 0x{entry_x7:016x}  "
           f"(if panic shows this value, crash is in BB 1 — the entry block)", ch=ch)
@@ -118,6 +126,8 @@ def log_bb_map(log: FuzzLogger, variant_label: str, inp_idx: int,
 
 def log_tc_binary(log: FuzzLogger, label: str, tc_bytes: bytes,
                   ch: Optional[str] = None) -> None:
+    if not FuzzLogger.on():
+        return
     log.header(f"TC BINARY: {label}  ({len(tc_bytes)} bytes)", ch=ch)
     for row_off in range(0, len(tc_bytes), 16):
         chunk    = tc_bytes[row_off: row_off + 16]
@@ -149,6 +159,8 @@ def _flow_tag(nestings: Optional[set]) -> str:
 
 def log_ni_table(log: FuzzLogger, inp_idx: int, columns: List[Tuple[str, bytes]], cer: List,
                  info_label: str, info_by_off: Dict[int, str], ch: str) -> None:
+    if not FuzzLogger.on():
+        return
     """DEBUG: per-instruction table across the NI variants, shared by PAC and MTE. Each row is one
     instruction offset; the columns hold its disassembly in the sealed TC / baseline / decoys;
     `Flow` shows whether the CE executed that offset architecturally and/or speculatively (with
@@ -185,11 +197,15 @@ def log_ni_table(log: FuzzLogger, inp_idx: int, columns: List[Tuple[str, bytes]]
 
 def log_pac_op(log: FuzzLogger, op: str, mnemonic: str,
                ptr: int, ctx: int, result: int) -> None:
+    if not FuzzLogger.on():
+        return
     log.w(f"  PAC {op:<6}  {mnemonic:<10}  ptr=0x{ptr:016x}  "
           f"ctx=0x{ctx:016x}  =>  0x{result:016x}", ch="pac_signing")
 
 
 def log_slot(log: FuzzLogger, inp_idx: int, fp) -> None:
+    if not FuzzLogger.on():
+        return
     cs  = f"0x{fp.correct_sig:04x}" if fp.correct_sig is not None else "None"
     alt = ",".join(f"0x{s:04x}" for s in fp.alt_sigs) or "None"
     log.w(f"  slot={fp.slot_id:2d}  spec_nesting={str(fp.spec_nesting):<6}  "
@@ -199,6 +215,8 @@ def log_slot(log: FuzzLogger, inp_idx: int, fp) -> None:
 def log_mistraining(log: FuzzLogger, tc_counter: int, inp_idx: int,
                     entries: List[Tuple[int, bool]], cer,
                     ch: Optional[str] = None) -> None:
+    if not FuzzLogger.on():
+        return
     """Log branch mistraining config with arch-flow context."""
     log.header(f"MISTRAINING  tc={tc_counter}  inp={inp_idx}  n_branches={len(entries)}", ch=ch)
     if not entries:
