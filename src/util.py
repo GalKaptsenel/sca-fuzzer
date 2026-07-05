@@ -299,6 +299,8 @@ class Logger:
         return True
 
     def fuzzer_start_round(self, round_id):
+        if self.dashboard is not None:
+            self.dashboard.sample_size = CONF.executor_sample_sizes[0]   # each round restarts at the base
         if self.info:
             if STAT.test_cases > self.progress:
                 self.progress += self.one_percent_progress

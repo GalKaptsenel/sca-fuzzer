@@ -940,13 +940,6 @@ class NoninterferenceFuzzer(FuzzerGeneric):
         end_nesting: int = 1 #CONF.model_max_nesting if self.model.is_speculative_contract else 1
         assert start_nesting <= end_nesting
 
-        # Need at least two test executions to compare; boosting/variants supply them, so a single
-        # initial input is fine as long as inputs x inputs_per_class >= 2.
-        assert len(inputs) * CONF.inputs_per_class >= 2
-
-        first_input = inputs[0]
-        inputs = [y for x in inputs for y in (x, first_input)]
-
         # Create the tracing arguments
         args = TracingArguments(
             inputs=inputs,

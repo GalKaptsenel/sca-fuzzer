@@ -691,6 +691,8 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         self._sealed: Optional[SealedTestCase] = None
         self._sandbox_base: Optional[int] = None
         self._nesting: int = CONF.model_max_nesting
+        # TODO(remove): cross-call handoff to trace_test_case_variants_hw. Should be threaded through
+        # the Executor interface (returned from with_taints, passed to variants_hw), not stored here.
         self._last_tc_variants: Optional[List[TCVariants]] = None
         self._last_ce_traces: Optional[List[ContractExecutionResult]] = None
 
