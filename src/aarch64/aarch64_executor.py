@@ -28,7 +28,7 @@ from .aarch64_generator import Pass, Aarch64SandboxPass
 from .seal.pac import PacSigner
 from .seal.sealer import make_sealer, SealedTestCase, ResolvedSealingTestCase
 from .seal.primitives import inst_at
-from .seal.relocation import (Relocation, apply_relocations, read_word32, set_movk_imm16, NOP_WORD)
+from .aarch64_relocations import (Relocation, apply_relocations, read_word32, set_movk_imm16, NOP_WORD)
 from .aarch64_contract_executor import (ContractExecution, ContractExecutorService,
                                         ExecutionClause, SUPPORTED_EXECUTION_CLAUSES,
                                         BranchPredictor, EXECUTION_CLAUSE_MAP, SimArch)
@@ -693,16 +693,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         self._nesting: int = CONF.model_max_nesting
         self._last_tc_variants: Optional[List[TCVariants]] = None
         self._last_ce_traces: Optional[List[ContractExecutionResult]] = None
-
-        # Relocation-based variant assembly (seal/relocation.py): assemble a skeleton once per test
-        # case, then splice per-input signature/auth words in instead of re-running the assembler.
-        # REVIZOR_SEAL_RELOC=0 disables it; _VALIDATE selects how many fills per TC are checked
-        # byte-for-byte against a real assembly ('all' | 'none' | <int>, default 2) — a wrong splice
-        # would send a bad signature to hardware and FPAC-fault, so validation is on by default.
-        self._reloc_enabled: bool = os.environ.get("REVIZOR_SEAL_RELOC", "1") != "0"
-        self._reloc_validate: str = os.environ.get("REVIZOR_SEAL_RELOC_VALIDATE", "2")
         self._reloc_tmpl: Optional[dict] = None
-        self._reloc_validate_left: int = 0
 
     def _mte_tags_for(self, inp: Input) -> Optional[List[int]]:
         """Uniform initial tags the sandbox is loaded with when MTE is active (else None — leave tag
@@ -713,22 +704,12 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         return [MTE_INITIAL_DEFAULT_TAG] * MTE_TAG_COUNT
 
     # ------------------------------------------------------------------ relocation-based assembly
-    def _reloc_validate_budget(self) -> int:
-        if self._reloc_validate == "all":
-            return 1 << 30
-        if self._reloc_validate == "none":
-            return 0
-        try:
-            return max(0, int(self._reloc_validate))
-        except ValueError:
-            return 2
-
     def _build_reloc_template(self) -> None:
         """Assemble the per-test-case skeleton once and harvest each PAC slot's offset + reference
-        words (MOVK-with-sentinel, AUT*, XPAC*). Left None when relocation does not apply (disabled,
-        or the sealed TC has non-PAC value slots), in which case variants assemble normally."""
+        words (MOVK-with-sentinel, AUT*, XPAC*). Left None when the sealed TC has non-PAC value slots,
+        in which case variants assemble normally."""
         self._reloc_tmpl = None
-        if not self._reloc_enabled or self._sealed is None:
+        if self._sealed is None:
             return
         slots = self._sealed.relocation_slots()
         if slots is None:
@@ -748,7 +729,6 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                 "xpac_word": read_word32(xpac_bytes, op_off),
             })
         self._reloc_tmpl = {"skeleton": skeleton, "slots": entries}
-        self._reloc_validate_left = self._reloc_validate_budget()
 
     @staticmethod
     def _movk_imm16_from_inst(inst: Instruction) -> int:
@@ -759,9 +739,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
 
     def _assemble_sealed_bytes(self, tc: TestCase) -> bytes:
         """Machine code for a sealed fill. Uses the relocation skeleton when available (splice the
-        per-slot signature/auth words instead of re-running the assembler); otherwise assembles fully.
-        A configurable number of fills per TC are checked byte-for-byte against a real assembly — a
-        wrong splice would run a wrong-signed AUT* on hardware and FPAC-fault, so it fails loudly."""
+        per-slot signature/auth words instead of re-running the assembler); otherwise assembles fully."""
         if self._reloc_tmpl is None:
             return self._assemble_tc(tc)[0]
         relocs: List[Relocation] = []

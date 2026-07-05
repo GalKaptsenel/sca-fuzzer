@@ -171,86 +171,88 @@ class ResolvedSealingTestCase:
 # ==================================================================================================
 # Resolvers — concern-specific value computation from a CE trace (used by the SealedTestCase)
 # ==================================================================================================
-class _PacResolver:
-    """Computes a PacSealing's value from a trace: sign the pointer that reaches the sealing's XPAC,
-    plus a pool of wrong signatures that fail AUTH. Needs `self._signer`."""
-    _signer: PacSigner
+# Signature forgery pool: how many wrong signatures to offer per PAC slot, and the sampling budget.
+_FORGERY_POOL_SIZE = 6
+_FORGERY_TRIES = 64
 
-    def _resolve_pac(self, s: PacSealing, cer, layout) -> Tuple[Optional[int], List[int], Optional[int]]:
-        correct_sig, alts, spec = None, [], None
-        if not cer or s.committed_inst is None:
-            return correct_sig, alts, spec
-        xpac = next(i for i in s.slot_insts if i.name.lower() in ("xpaci", "xpacd"))
-        xpac_off, code_base = layout.instruction_address[xpac], cer[0].cpu.pc
-        pac_mn = _AUTH_TO_PAC[s.committed_inst.name.lower()]
-        value_reg = s.committed_inst.operands[0].value
-        ctx_reg = s.committed_inst.operands[1].value if len(s.committed_inst.operands) > 1 else None
-        for ite in cer:
-            if ite.cpu.pc - code_base != xpac_off:
-                continue
-            depth = ite.metadata.speculation_nesting
-            if spec is None or depth < spec:
-                spec = depth
-            if correct_sig is not None and depth != 0:   # architectural occurrence is authoritative
-                continue
-            ptr = _read_reg(ite.cpu, value_reg)
-            cval = _read_reg(ite.cpu, ctx_reg) if ctx_reg is not None else 0
-            correct_sig = self._signer.sign16(ptr, cval, pac_mn)
-            alts = self._wrong_sigs(ite.cpu, pac_mn, cval, correct_sig)
-        if correct_sig is not None and not alts:        # reached but no live pool -> random forgeries
-            alts = self._random_sigs(pac_mn)
+
+def _resolve_pac(s: PacSealing, cer, layout, signer: PacSigner
+                 ) -> Tuple[Optional[int], List[int], Optional[int]]:
+    """A PacSealing's value from a trace: sign the pointer that reaches the sealing's XPAC, plus a pool
+    of wrong signatures that fail AUTH. (value, alts, spec_nesting)."""
+    correct_sig, alts, spec = None, [], None
+    if not cer or s.committed_inst is None:
         return correct_sig, alts, spec
+    xpac = next(i for i in s.slot_insts if i.name.lower() in ("xpaci", "xpacd"))
+    xpac_off, code_base = layout.instruction_address[xpac], cer[0].cpu.pc
+    pac_mn = _AUTH_TO_PAC[s.committed_inst.name.lower()]
+    value_reg = s.committed_inst.operands[0].value
+    ctx_reg = s.committed_inst.operands[1].value if len(s.committed_inst.operands) > 1 else None
+    for ite in cer:
+        if ite.cpu.pc - code_base != xpac_off:
+            continue
+        depth = ite.metadata.speculation_nesting
+        if spec is None or depth < spec:
+            spec = depth
+        if correct_sig is not None and depth != 0:   # architectural occurrence is authoritative
+            continue
+        ptr = _read_reg(ite.cpu, value_reg)
+        cval = _read_reg(ite.cpu, ctx_reg) if ctx_reg is not None else 0
+        correct_sig = signer.sign16(ptr, cval, pac_mn)
+        alts = _wrong_sigs(signer, ite.cpu, pac_mn, cval, correct_sig)
+    if correct_sig is not None and not alts:        # reached but no live pool -> random forgeries
+        alts = _random_sigs(signer, pac_mn)
+    return correct_sig, alts, spec
 
-    def _wrong_sigs(self, cpu, mn: str, ctx: int, correct_sig: int, size: int = 6,
-                    tries: int = 64) -> List[int]:
-        mask16, pool = self._signer.field_mask16(mn), []
-        for _ in range(tries):
-            v = cpu.gpr[random.randrange(len(cpu.gpr))] if random.random() < 0.85 \
-                else random.randrange(1 << 64)
-            sig = (correct_sig & ~mask16) | (self._signer.sign16(v, ctx, mn) & mask16)
-            if sig != correct_sig and sig not in pool:
-                pool.append(sig)
-                if len(pool) >= size:
-                    break
-        if not pool:
-            raise GeneratorException(f"no effective PAC forgery in {tries} tries (mask=0x{mask16:04x})")
-        return pool
 
-    def _random_sigs(self, mn: str, size: int = 6) -> List[int]:
-        sigs: set = set()
-        while len(sigs) < size:
-            sigs.add(self._signer.sign16(random.randrange(1 << 64), random.randrange(1 << 64), mn))
-        return list(sigs)
+def _wrong_sigs(signer: PacSigner, cpu, mn: str, ctx: int, correct_sig: int) -> List[int]:
+    mask16, pool = signer.field_mask16(mn), []
+    for _ in range(_FORGERY_TRIES):
+        v = cpu.gpr[random.randrange(len(cpu.gpr))] if random.random() < 0.85 \
+            else random.randrange(1 << 64)
+        sig = (correct_sig & ~mask16) | (signer.sign16(v, ctx, mn) & mask16)
+        if sig != correct_sig and sig not in pool:
+            pool.append(sig)
+            if len(pool) >= _FORGERY_POOL_SIZE:
+                break
+    if not pool:
+        raise GeneratorException(f"no effective PAC forgery in {_FORGERY_TRIES} tries (mask=0x{mask16:04x})")
+    return pool
 
 
-class _MteResolver:
-    """Computes an MteSealing's tag delta from a trace: classify the accessed cell's allocation tag
-    and the pointer's own tag at the guarded access; the genuine delta brings the pointer to the cell
-    tag, alternatives are every other tag (a mismatch)."""
+def _random_sigs(signer: PacSigner, mn: str) -> List[int]:
+    sigs: set = set()
+    while len(sigs) < _FORGERY_POOL_SIZE:
+        sigs.add(signer.sign16(random.randrange(1 << 64), random.randrange(1 << 64), mn))
+    return list(sigs)
 
-    def _resolve_mte(self, s: MteSealing, cer, layout) -> Tuple[Optional[int], List[int], Optional[int]]:
-        correct_tag, ptr_tag, spec = None, None, None
-        if cer and s.access is not None:
-            access_off, code_base = layout.instruction_address[s.access], cer[0].cpu.pc
-            tags = MteTagState(MTE_INITIAL_DEFAULT_TAG)
-            for ite in cer:
-                nest = ite.metadata.speculation_nesting
-                tags.to_depth(nest)
-                store = mte_tag_store_effect(ite)
-                if store is not None:
-                    tags.set(*store)
-                if not ite.metadata.has_memory_access or ite.cpu.pc - code_base != access_off:
-                    continue
-                ea = ite.metadata.memory_access.effective_address
-                if spec is None or nest < spec:
-                    spec = int(nest)
-                if nest == 0 or correct_tag is None:
-                    correct_tag, ptr_tag = tags.tag_at(ea), (ea >> 56) & 0xF
-        if correct_tag is None or ptr_tag is None:
-            return None, [], spec
-        delta = (correct_tag - ptr_tag) % 16
-        alts = [d for d in range(16) if d != delta]   # any other tag -> a tag mismatch on the access
-        return delta, alts, spec
+
+def _resolve_mte(s: MteSealing, cer, layout) -> Tuple[Optional[int], List[int], Optional[int]]:
+    """An MteSealing's tag delta from a trace: classify the accessed cell's allocation tag and the
+    pointer's own tag at the guarded access; the genuine delta brings the pointer to the cell tag,
+    alternatives are every other tag (a mismatch). (value, alts, spec_nesting)."""
+    correct_tag, ptr_tag, spec = None, None, None
+    if cer and s.access is not None:
+        access_off, code_base = layout.instruction_address[s.access], cer[0].cpu.pc
+        tags = MteTagState(MTE_INITIAL_DEFAULT_TAG)
+        for ite in cer:
+            nest = ite.metadata.speculation_nesting
+            tags.to_depth(nest)
+            store = mte_tag_store_effect(ite)
+            if store is not None:
+                tags.set(*store)
+            if not ite.metadata.has_memory_access or ite.cpu.pc - code_base != access_off:
+                continue
+            ea = ite.metadata.memory_access.effective_address
+            if spec is None or nest < spec:
+                spec = int(nest)
+            if nest == 0 or correct_tag is None:
+                correct_tag, ptr_tag = tags.tag_at(ea), (ea >> 56) & 0xF
+    if correct_tag is None or ptr_tag is None:
+        return None, [], spec
+    delta = (correct_tag - ptr_tag) % 16
+    alts = [d for d in range(16) if d != delta]   # any other tag -> a tag mismatch on the access
+    return delta, alts, spec
 
 
 # ==================================================================================================
@@ -285,7 +287,7 @@ class SealedTestCase:
     def _clamp_entries(sandbox_sealings: List[SandboxSealing]) -> List[_Resolved]:
         return [_Resolved(s, None, [], None) for s in sandbox_sealings]   # always seal(None); never decoyed
 
-    # ---- relocation support (see seal/relocation.py) --------------------------------------------
+    # ---- relocation support (see aarch64_relocations.py) ----------------------------------------
     def byte_offset_of(self, loc) -> int:
         """Byte offset of the instruction at slot position `loc` in the assembled code. Positions are
         one-for-one across fills, so an offset taken from the placeholder holds for every variant."""
@@ -306,7 +308,7 @@ class SealedTestCase:
         raise NotImplementedError
 
 
-class PacSealedTestCase(SealedTestCase, _PacResolver):
+class PacSealedTestCase(SealedTestCase):
     """Sandbox clamp + a PAC auth per data access, plus a PAC auth per standalone AUT*."""
 
     def __init__(self, sealed_tc, trace_fn, sandbox_sealings, data_sites, signer, enc, auth_specs) -> None:
@@ -328,7 +330,7 @@ class PacSealedTestCase(SealedTestCase, _PacResolver):
 
     def resolve(self, inp) -> ResolvedSealingTestCase:
         cer = self._trace_fn(self._tc, inp)
-        pac = [_Resolved(s, *self._resolve_pac(s, cer, self._layout)) for s in self._pac]
+        pac = [_Resolved(s, *_resolve_pac(s, cer, self._layout, self._signer)) for s in self._pac]
         return ResolvedSealingTestCase(self._tc, self._clamp_entries(self._sandbox) + pac)
 
     def relocation_slots(self):
@@ -351,7 +353,7 @@ class PacSealedTestCase(SealedTestCase, _PacResolver):
         return self._reference_fill("auth"), self._reference_fill("xpac")
 
 
-class MteSealedTestCase(SealedTestCase, _MteResolver):
+class MteSealedTestCase(SealedTestCase):
     """Sandbox clamp + an MTE retag per data access — the retag is the last op before the access."""
 
     def __init__(self, sealed_tc, trace_fn, sandbox_sealings, data_sites) -> None:
@@ -371,11 +373,11 @@ class MteSealedTestCase(SealedTestCase, _MteResolver):
         cer = self._trace_fn(self._tc, inp)
         resolved = self._clamp_entries(self._sandbox)
         for s in self._mte:
-            resolved.append(_Resolved(s, *self._resolve_mte(s, cer, self._layout)))
+            resolved.append(_Resolved(s, *_resolve_mte(s, cer, self._layout)))
         return ResolvedSealingTestCase(self._tc, resolved)
 
 
-class MtePacSealedTestCase(SealedTestCase, _PacResolver, _MteResolver):
+class MtePacSealedTestCase(SealedTestCase):
     """Sandbox clamp + PAC auth + MTE retag per data access, plus a PAC auth per standalone AUT*.
     The MTE retag (ADDG) is placed LAST — after the offset-cancel SUBs, immediately before the access
     — so no address op runs between the retag and the access. The CE's after-access tag correction is
@@ -404,8 +406,8 @@ class MtePacSealedTestCase(SealedTestCase, _PacResolver, _MteResolver):
 
     def resolve(self, inp) -> ResolvedSealingTestCase:
         cer = self._trace_fn(self._tc, inp)
-        mte = [_Resolved(s, *self._resolve_mte(s, cer, self._layout)) for s in self._mte]
-        pac = [_Resolved(s, *self._resolve_pac(s, cer, self._layout)) for s in self._pac]
+        mte = [_Resolved(s, *_resolve_mte(s, cer, self._layout)) for s in self._mte]
+        pac = [_Resolved(s, *_resolve_pac(s, cer, self._layout, self._signer)) for s in self._pac]
         return ResolvedSealingTestCase(self._tc, self._clamp_entries(self._sandbox) + pac + mte)
 
 

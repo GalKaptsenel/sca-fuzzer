@@ -1,0 +1,123 @@
+"""AArch64 machine-code manipulation: rewrite instruction-word immediate fields, and splice fixed
+words into a pre-assembled skeleton (relocation).
+
+A RelocationPlan is one skeleton plus a per-variant edit list — the payload the sealed/NI path (and
+future remote-fuzzing batching) ships instead of N separately-assembled test cases.
+"""
+import struct
+from enum import Enum
+from typing import List, NamedTuple
+
+
+NOP_WORD = 0xD503201F
+
+
+# ---- instruction-word immediate-field surgery (the encode side of aarch64_disasm.py) ------------
+
+def get_imm_field(word: int, shift: int, width: int) -> int:
+    return (word >> shift) & ((1 << width) - 1)
+
+
+def set_imm_field(word: int, shift: int, width: int, value: int) -> int:
+    mask = (1 << width) - 1
+    if value & ~mask:
+        raise ValueError(f"value 0x{value:x} does not fit {width} bits")
+    return (word & ~(mask << shift)) | (value << shift)
+
+
+# 64-bit MOVK: bits[31:23] == 0x1E5 (opc=11 separates it from MOVZ/MOVN); imm16 at [20:5].
+_MOVK64_ID = 0x1E5
+
+
+def is_movk64(word: int) -> bool:
+    return ((word >> 23) & 0x1FF) == _MOVK64_ID
+
+
+def set_movk_imm16(word: int, imm16: int) -> int:
+    if not is_movk64(word):
+        raise ValueError(f"not a 64-bit MOVK word: 0x{word:08x}")
+    return set_imm_field(word, 5, 16, imm16)
+
+
+def get_movk_imm16(word: int) -> int:
+    if not is_movk64(word):
+        raise ValueError(f"not a 64-bit MOVK word: 0x{word:08x}")
+    return get_imm_field(word, 5, 16)
+
+
+def read_word32(data: bytes, offset: int) -> int:
+    if offset < 0 or offset + 4 > len(data):
+        raise ValueError(f"read offset {offset} out of range (len {len(data)})")
+    return int.from_bytes(data[offset:offset + 4], "little")
+
+
+# ---- relocation: splice fixed little-endian words into a byte skeleton --------------------------
+
+class RelocType(Enum):
+    WORD32 = 1
+
+
+class Relocation(NamedTuple):
+    offset: int
+    value: int
+    rtype: RelocType = RelocType.WORD32
+
+
+def apply_relocations(base: bytes, relocs: List[Relocation]) -> bytes:
+    """`base` with every relocation applied; never mutates `base`. Rejects out-of-range offsets,
+    values wider than the slot, and overlapping edits rather than silently corrupting."""
+    out = bytearray(base)
+    written: List[int] = []
+    for r in relocs:
+        if r.rtype is not RelocType.WORD32:
+            raise ValueError(f"unsupported relocation type {r.rtype}")
+        if r.offset < 0 or r.offset + 4 > len(out):
+            raise ValueError(f"relocation offset {r.offset} out of range (len {len(out)})")
+        if r.value < 0 or r.value > 0xFFFFFFFF:
+            raise ValueError(f"relocation value 0x{r.value:x} does not fit 32 bits")
+        if any(abs(r.offset - w) < 4 for w in written):
+            raise ValueError(f"overlapping relocation at offset {r.offset}")
+        written.append(r.offset)
+        out[r.offset:r.offset + 4] = r.value.to_bytes(4, "little")
+    return bytes(out)
+
+
+_PLAN_MAGIC = b"RLP1"
+
+
+class RelocationPlan(NamedTuple):
+    skeleton: bytes
+    variants: List[List[Relocation]]
+
+    def build(self, index: int) -> bytes:
+        return apply_relocations(self.skeleton, self.variants[index])
+
+    def to_bytes(self) -> bytes:
+        out = bytearray(_PLAN_MAGIC)
+        out += struct.pack("<II", len(self.skeleton), len(self.variants))
+        out += self.skeleton
+        for relocs in self.variants:
+            out += struct.pack("<I", len(relocs))
+            for r in relocs:
+                out += struct.pack("<IIB", r.offset, r.value, r.rtype.value)
+        return bytes(out)
+
+    @staticmethod
+    def from_bytes(data: bytes) -> "RelocationPlan":
+        if data[:4] != _PLAN_MAGIC:
+            raise ValueError("bad RelocationPlan magic")
+        sk_len, n_variants = struct.unpack_from("<II", data, 4)
+        pos = 12
+        skeleton = data[pos:pos + sk_len]
+        pos += sk_len
+        variants: List[List[Relocation]] = []
+        for _ in range(n_variants):
+            (n_relocs,) = struct.unpack_from("<I", data, pos)
+            pos += 4
+            relocs: List[Relocation] = []
+            for _ in range(n_relocs):
+                offset, value, rtype = struct.unpack_from("<IIB", data, pos)
+                pos += 9
+                relocs.append(Relocation(offset, value, RelocType(rtype)))
+            variants.append(relocs)
+        return RelocationPlan(skeleton, variants)

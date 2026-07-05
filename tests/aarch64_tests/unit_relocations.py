@@ -1,8 +1,8 @@
 import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
 import unittest
-from src.aarch64.seal.relocation import (
-    RelocType, Relocation, apply_relocations, read_word32,
-    is_movk64, set_movk_imm16, get_movk_imm16, NOP_WORD)
+from src.aarch64.aarch64_relocations import (
+    RelocType, Relocation, RelocationPlan, apply_relocations, read_word32,
+    get_imm_field, set_imm_field, is_movk64, set_movk_imm16, get_movk_imm16, NOP_WORD)
 
 
 class RelocationMechanismTest(unittest.TestCase):
@@ -30,6 +30,18 @@ class RelocationMechanismTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             apply_relocations(bytes(4), [bad])
 
+    def test_value_too_wide_raises(self):
+        with self.assertRaises(ValueError):
+            apply_relocations(bytes(8), [Relocation(0, 0x1_0000_0000)])
+
+    def test_overlapping_relocations_raise(self):
+        with self.assertRaises(ValueError):
+            apply_relocations(bytes(8), [Relocation(0, 1), Relocation(2, 2)])
+
+    def test_read_word32_out_of_range_raises(self):
+        with self.assertRaises(ValueError):
+            read_word32(bytes(6), 4)
+
 
 class MovkBitSurgeryTest(unittest.TestCase):
     # `MOVK X0, #0x1234, LSL #48` assembles to 0xF2E24680 (imm16=0x1234 in bits [20:5]).
@@ -49,9 +61,36 @@ class MovkBitSurgeryTest(unittest.TestCase):
         self.assertEqual(patched & 0x1F, self.MOVK_X0_1234_LSL48 & 0x1F)
         self.assertEqual((patched >> 21) & 0x3, (self.MOVK_X0_1234_LSL48 >> 21) & 0x3)
 
-    def test_set_on_non_movk_asserts(self):
-        with self.assertRaises(AssertionError):
+    def test_set_on_non_movk_raises(self):
+        with self.assertRaises(ValueError):
             set_movk_imm16(NOP_WORD, 0)
+
+    def test_imm_field_roundtrip_and_width_check(self):
+        w = set_imm_field(0, 5, 16, 0xBEEF)
+        self.assertEqual(get_imm_field(w, 5, 16), 0xBEEF)
+        with self.assertRaises(ValueError):
+            set_imm_field(0, 5, 16, 0x1_0000)   # does not fit 16 bits
+
+
+class RelocationPlanTest(unittest.TestCase):
+    def test_build_applies_the_variant(self):
+        plan = RelocationPlan(skeleton=bytes(12),
+                              variants=[[Relocation(0, 0xAAAAAAAA)], [Relocation(8, 0xBBBBBBBB)]])
+        self.assertEqual(read_word32(plan.build(0), 0), 0xAAAAAAAA)
+        self.assertEqual(read_word32(plan.build(1), 8), 0xBBBBBBBB)
+
+    def test_serialization_roundtrip(self):
+        plan = RelocationPlan(skeleton=bytes(range(20)),
+                              variants=[[Relocation(0, 0x11223344), Relocation(8, 0x55667788)],
+                                        [Relocation(4, 0x99AABBCC)]])
+        back = RelocationPlan.from_bytes(plan.to_bytes())
+        self.assertEqual(back.skeleton, plan.skeleton)
+        self.assertEqual(back.variants, plan.variants)
+        self.assertEqual(back.build(0), plan.build(0))
+
+    def test_from_bytes_bad_magic_raises(self):
+        with self.assertRaises(ValueError):
+            RelocationPlan.from_bytes(b"XXXX" + bytes(8))
 
 
 if __name__ == "__main__":
