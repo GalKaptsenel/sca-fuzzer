@@ -17,3 +17,7 @@ fuzzer: non-interference
 input_generator: aarch64-nzcv
 pac_auth_weight: 0.3
 pac_xpac_weight: 0.2
+logging_modes:
+  - info
+  - stat
+  - dbg_priming
