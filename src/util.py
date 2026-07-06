@@ -93,9 +93,9 @@ class StatisticsCls:
         s += f"  Fast Path: {self.fast_path}\n"
         s += f"  Max Nesting Check: {self.fp_nesting}\n"
         s += f"  Tainting Check: {self.fp_taint_mistakes}\n"
-        s += f"  Early Priming Check: {self.fp_early_priming}\n"
+        s += f"  Priming swap-test (early): {self.fp_early_priming}\n"
         s += f"  Large Sample Check: {self.fp_large_sample}\n"
-        s += f"  Priming Check: {self.fp_priming}\n"
+        s += f"  Priming swap-test: {self.fp_priming}\n"
         s += f"Hardware Tracing Errors: {self.hw_tracing_errors}\n"
         return s
 
@@ -534,6 +534,22 @@ class Logger:
         print(f"\nPriming failed for input {input_id} in place of {current_input_id}")
         print(f"{'HTrace':64} Original|New")
         print(f"{pretty_htrace_pair(htrace_to_reproduce, new_htrace)}")
+
+    def dbg_priming_ni(self, input_id, current_test_id, other_test_id,
+                       slot_htrace, swapped_htrace, reproduced):
+        """NI mirror: log one test-swap — running test `other_test_id` in test `current_test_id`'s
+        slot on `input_id`, and whether it reproduced the slot's htrace (context artifact) or
+        diverged (the htrace follows the test, a genuine violation)."""
+        if not __debug__:
+            return
+        if not self.dbg_priming:
+            return
+        verdict = "reproduced slot (context artifact)" if reproduced \
+            else "DIVERGED (htrace follows the test -> genuine)"
+        print(f"\n[NI priming] input {input_id}: test {other_test_id} in slot of test "
+              f"{current_test_id} -> {verdict}")
+        print(f"{'HTrace':64} Slot|Swapped")
+        print(f"{pretty_htrace_pair(slot_htrace, swapped_htrace)}")
 
     def dbg_executor_raw_traces(self, all_traces, all_pfc):
         if not __debug__:

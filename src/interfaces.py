@@ -891,6 +891,7 @@ class TestCase:
 # Traces
 # ==================================================================================================
 InputID = int
+TestID = int
 
 
 class CTrace:
@@ -967,10 +968,15 @@ class HTrace:
 
 class Measurement(NamedTuple):
     input_id: InputID
+    test_id: TestID
     input_: Input
     ctrace: CTrace
     htrace: HTrace
-    test_case: Optional[TestCase] = None
+    test_case: TestCase
+    # TEMP(enacted-reloc): relocations that turn test_case's object code into the exact enacted
+    # variant; () when the test ran unrelocated. Persisting them reconstructs a randomly-sealed
+    # variant that base+id can't. Temporary until the enacted test is modeled as a first-class object.
+    relocs: tuple
 
 
 class EquivalenceClass:

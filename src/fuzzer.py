@@ -596,8 +596,12 @@ class FuzzerGeneric(Fuzzer):
                     arch_trace.pretty_print()
 
         for m in violation.measurements:
-            if m.test_case is not None:
-                self.generator.printer.print(m.test_case, f"{violation_dir}/{m.test_case.asm_path}")
+            self.generator.printer.print(m.test_case, f"{violation_dir}/{m.test_case.asm_path}")
+            # TEMP(enacted-reloc): dump the exact relocated bytes that ran, so a randomly-sealed
+            # variant is reproducible from the artifact (the asm is identical across variants).
+            if m.relocs:
+                with open(f"{violation_dir}/enacted_test{m.test_id:02}.bin", "wb") as f:
+                    f.write(self.executor.reconstruct_enacted_code(m))
 
         # store the original configuration file
         if CONF._config_path:
@@ -745,7 +749,9 @@ class FuzzerGeneric(Fuzzer):
 
         # check for violations
         analyser = factory.get_analyser()
-        violations = analyser.filter_violations(dummy_inputs, ctraces, htraces, True)
+        # Offline trace-file analysis has no programs; the enacted test is an empty placeholder.
+        placeholder_tcs = [TestCase(0)] * len(ctraces)
+        violations = analyser.filter_violations(dummy_inputs, ctraces, htraces, placeholder_tcs, True)
 
         # print results
         if violations:
@@ -915,12 +921,16 @@ class NoninterferenceFuzzer(FuzzerGeneric):
             variant_list = list(per_variant.items())
             first_htrace = variant_list[0][1] if variant_list else HTrace.get_null()
             htraces.append(first_htrace)
+            base_tc = self.executor.curr_test_case
+            relocs = self.executor.variant_relocs_for(idx)  # TEMP(enacted-reloc): variant -> reloc plan
             for j, (var_a, ht_a) in enumerate(variant_list):
-                for var_b, ht_b in variant_list[j + 1:]:
+                for k, (var_b, ht_b) in enumerate(variant_list[j + 1:], start=j + 1):
                     if not self.analyser.htraces_are_equivalent(ht_a, ht_b):
                         log.wp(f"[NI violation] input={idx}: {var_a} vs {var_b}")
-                        m_a = Measurement(input_id=idx, input_=inp, ctrace=ctr, htrace=ht_a)
-                        m_b = Measurement(input_id=idx, input_=inp, ctrace=ctr, htrace=ht_b)
+                        m_a = Measurement(input_id=idx, test_id=j, input_=inp, ctrace=ctr,
+                                          htrace=ht_a, test_case=base_tc, relocs=relocs[var_a])
+                        m_b = Measurement(input_id=idx, test_id=k, input_=inp, ctrace=ctr,
+                                          htrace=ht_b, test_case=base_tc, relocs=relocs[var_b])
                         violations.append(Violation.from_measurements(
                             ctr, [m_a, m_b], [[m_a], [m_b]], args.inputs))
                         break
@@ -1013,6 +1023,48 @@ class NoninterferenceFuzzer(FuzzerGeneric):
                     return None
 
         return violations[0]
+
+    def _prime_one(self, org_violation: Violation, all_inputs: List[Input]) -> bool:
+        """Priming for the NI paradigm — the exact transpose of the classic test.
+
+        A classic violation lives in one test over many inputs, and the swap exchanges INPUTS at
+        their sequence slots. An NI violation lives in one input over a series of tests (variants);
+        this mirror exchanges TESTS at their slots and asks whether the htrace divergence follows
+        the test (genuine) or the slot/context (false positive). Returns True if it survives.
+        """
+        reps = [hg[0] for hg in org_violation.htrace_groups]
+        input_id = reps[0].input_id
+        inp = all_inputs[input_id]
+        codes = [code for _name, code in self.executor.test_series_for(input_id)]
+        n_reps = len(org_violation.measurements[0].htrace.raw)
+        null_htrace = HTrace.get_null()
+
+        for current in reps:
+            htrace_to_reproduce = current.htrace
+            for other in reps:
+                if other is current:
+                    continue
+                # put the other test into this test's slot, keeping the slot's priming context
+                primer = list(codes)
+                primer[current.test_id] = codes[other.test_id]
+                new_htrace = self.executor.trace_test_series(inp, primer, n_reps)[current.test_id]
+
+                if not new_htrace.raw or new_htrace == null_htrace:
+                    self.LOG.warning("fuzzer", "Tracing error during priming. "
+                                     "Skipping this test case")
+                    return False
+
+                reproduced = self.analyser.htraces_are_equivalent(new_htrace, htrace_to_reproduce)
+                self.LOG.dbg_priming_ni(input_id, current.test_id, other.test_id,
+                                        htrace_to_reproduce, new_htrace, reproduced)
+                if reproduced:
+                    continue
+                # the other test in this slot did not reproduce the slot's htrace: the divergence
+                # follows the test, not the context — a genuine violation
+                return True
+
+        # every swapped test reproduced its slot's htrace: the divergence follows the context
+        return False
 
 class ArchitecturalFuzzer(FuzzerGeneric):
     """

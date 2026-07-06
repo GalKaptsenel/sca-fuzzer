@@ -17,7 +17,7 @@ from pathlib import Path
 from .aarch64_generator import Aarch64Generator
 from .aarch64_printer import Aarch64Printer, Aarch64ASMLayout
 from ..interfaces import (HTrace, Input, TestCase, Executor, HardwareTracingError, CTrace,
-                          InputTaint, GeneratorException)
+                          InputTaint, GeneratorException, Measurement)
 from ..config import CONF
 from ..util import Logger, STAT, FuzzLogger
 from .aarch64_target_desc import Aarch64TargetDesc
@@ -693,7 +693,16 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         # TODO(remove): cross-call handoff to trace_test_case_variants_hw. Should be threaded through
         # the Executor interface (returned from with_taints, passed to variants_hw), not stored here.
         self._last_tc_variants: Optional[List[TCVariants]] = None
+        # TEMP(enacted-reloc): per-input {variant -> reloc plan} recorded for the last with_taints pass,
+        # and the scratch slot _variants_for hands the current plan through.
+        self._last_variant_relocs: Optional[List[Dict[str, tuple]]] = None
+        self._variant_relocs_scratch: Dict[str, tuple] = {}
         self._last_ce_traces: Optional[List[ContractExecutionResult]] = None
+
+    def variant_relocs_for(self, input_id: int) -> Dict[str, tuple]:  # TEMP(enacted-reloc)
+        """The reloc plan per variant last recorded for this input (variant name -> relocs tuple)."""
+        assert self._last_variant_relocs is not None
+        return self._last_variant_relocs[input_id]
 
     def _mte_tags_for(self, inp: Input) -> Optional[List[int]]:
         """Uniform initial tags the sandbox is loaded with when MTE is active (else None — leave tag
@@ -746,6 +755,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         log = FuzzLogger.get()
         ce_traces: List[ContractExecutionResult] = []
         tc_variants_per_input: List[TCVariants] = []
+        relocs_per_input: List[Dict[str, tuple]] = []  # TEMP(enacted-reloc)
 
         for inp_idx, inp in enumerate(inputs):
             log_input(log, inp_idx, inp, ch="ni_flow")
@@ -759,6 +769,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
 
             variants = self._variants_for(resolved)
             tc_variants_per_input.append(variants)
+            relocs_per_input.append(self._variant_relocs_scratch)  # TEMP(enacted-reloc)
 
             log_ce_trace(log, "BASELINE", inp_idx, list(cer))
             log.header(f"VARIANT TC BINARIES  inp={inp_idx}")
@@ -768,6 +779,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             log.ensure_flushed()
 
         self._last_tc_variants = tc_variants_per_input
+        self._last_variant_relocs = relocs_per_input  # TEMP(enacted-reloc)
         self._last_ce_traces = ce_traces
         taints = [compute_taint(cer) for cer in ce_traces]
         ctraces = [compute_ctrace(cer) for cer in ce_traces]
@@ -778,10 +790,13 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         relocations to the object code: the genuine baseline and `CONF.ni_decoys_per_input` fresh decoys.
         The regular subclass overrides which variants to mint."""
         oc = resolved.object_code
-        variants = {NIVariant.BASELINE: apply_relocations(oc, resolved.genuine())}
+        # Solve each variant's relocations once (decoy() is random, so the applied plan is the only
+        # faithful record), then apply. TEMP(enacted-reloc): stash the plans for the caller to record.
+        plans = {NIVariant.BASELINE: tuple(resolved.genuine())}
         for i in range(CONF.ni_decoys_per_input):
-            variants[NIVariant.decoy_n(i)] = apply_relocations(oc, resolved.decoy())
-        return variants
+            plans[NIVariant.decoy_n(i)] = tuple(resolved.decoy())
+        self._variant_relocs_scratch = plans
+        return {name: apply_relocations(oc, list(plan)) for name, plan in plans.items()}
 
     def _maybe_log_ni_table(self, log, inp_idx, cer, variants) -> None:
         """Per-variant byte columns for the sealed/baseline/decoy table (only when logging is on)."""
@@ -864,6 +879,30 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             self._log_pre_hw_ce_analysis(inputs, sandbox_base, FuzzLogger.get())
         return self._run_sealed_on_hw(inputs, self._last_tc_variants, n_reps)
 
+    # -------------------------------------------------------------- priming: one input, many tests
+    def test_series_for(self, input_id: int) -> List[Tuple[str, bytes]]:
+        """The ordered (variant name, sealed code) series last run for this input — its test slots.
+        Slot order matches the test_id recorded on measurements."""
+        assert self._last_tc_variants is not None
+        return list(self._last_tc_variants[input_id].items())
+
+    @staticmethod
+    def _slot_key(slot: int) -> str:
+        return f"slot{slot}"
+
+    def trace_test_series(self, inp: Input, tests: List[bytes], n_reps: int) -> List[HTrace]:
+        """Transpose of trace_test_case: run an ordered series of sealed tests on ONE input as a
+        sequence, returning one htrace per slot. Priming swaps tests between slots and re-runs here."""
+        slotted = {self._slot_key(slot): tc for slot, tc in enumerate(tests)}
+        per_slot = self._run_sealed_on_hw([inp], [slotted], n_reps)[0]
+        return [per_slot[self._slot_key(slot)] for slot in range(len(tests))]
+
+    def reconstruct_enacted_code(self, m: Measurement) -> bytes:  # TEMP(enacted-reloc)
+        """Rebuild the exact machine code that ran for measurement m: re-resolve its input over the
+        current sealed TC (object_code is deterministic) and re-apply the recorded reloc plan."""
+        resolved = self._sealed.resolve(m.input_)
+        return apply_relocations(resolved.object_code, list(m.relocs))
+
 
 class Aarch64RegularSealedExecutor(Aarch64NonInterferenceExecutor):
     """Regular fuzzing with PAC/MTE support.
@@ -890,10 +929,12 @@ class Aarch64RegularSealedExecutor(Aarch64NonInterferenceExecutor):
     def __init__(self, generator: Aarch64Generator, *args, **kwargs):
         super().__init__(generator, *args, **kwargs)
         self._class_tc: Dict[tuple, TCVariants] = {}    # sealing key -> the class's one shared TC
+        self._class_relocs: Dict[tuple, Dict[str, tuple]] = {}  # TEMP(enacted-reloc): class -> reloc plan
         self._tc_by_input: Dict[int, TCVariants] = {}   # id(input) -> its TC (from the last resolve)
 
     def load_test_case(self, test_case: TestCase):
         self._class_tc = {}                             # fresh per-class TCs for each test case
+        self._class_relocs = {}                         # TEMP(enacted-reloc)
         self._tc_by_input = {}
         super().load_test_case(test_case)
 
@@ -904,9 +945,12 @@ class Aarch64RegularSealedExecutor(Aarch64NonInterferenceExecutor):
         key = resolved.collapse_key
         if key not in self._class_tc:
             if random.random() < self._DECOY_PROB:
-                self._class_tc[key] = {NIVariant.decoy_n(0): apply_relocations(resolved.object_code, resolved.decoy())}
+                name, plan = NIVariant.decoy_n(0), tuple(resolved.decoy())
             else:
-                self._class_tc[key] = {NIVariant.BASELINE: apply_relocations(resolved.object_code, resolved.genuine())}
+                name, plan = NIVariant.BASELINE, tuple(resolved.genuine())
+            self._class_tc[key] = {name: apply_relocations(resolved.object_code, list(plan))}
+            self._class_relocs[key] = {name: plan}  # TEMP(enacted-reloc)
+        self._variant_relocs_scratch = self._class_relocs[key]  # TEMP(enacted-reloc)
         return self._class_tc[key]
 
     def trace_test_case_with_taints(self, inputs, nesting):

@@ -8,12 +8,15 @@ from collections import defaultdict, Counter
 from typing import List, Dict
 from scipy import stats  # type: ignore
 
-from .interfaces import HTrace, CTrace, Input, EquivalenceClass, Analyser, Measurement, Violation, TestCase
+from .interfaces import HTrace, CTrace, Input, EquivalenceClass, Analyser, Measurement, Violation, TestCase, \
+    TestID
 from .config import CONF
 from .util import STAT, Logger
 
 
 class EquivalenceAnalyserCommon(Analyser):
+    # Classic paradigm: one test case per round, so every measurement's enacted test is the sole test.
+    SOLE_TEST_ID: TestID = 0
 
     def __init__(self) -> None:
         self.LOG = Logger()
@@ -23,8 +26,8 @@ class EquivalenceAnalyserCommon(Analyser):
                           inputs: List[Input],
                           ctraces: List[CTrace],
                           htraces: List[HTrace],
-                          stats=False,
-			  test_cases=None) -> List[Violation]:
+                          test_cases: List[TestCase],
+                          stats=False) -> List[Violation]:
         """
         Group the measurements by their ctrace (i.e., build equivalence classes of measurements
         w.r.t. their ctrace) and check if all htraces in the same equivalence class are equal.
@@ -64,11 +67,9 @@ class EquivalenceAnalyserCommon(Analyser):
                 continue
 
             # get all measurements in the class
-            if test_cases:
-                measurements = [Measurement(i, inputs[i], ctrace, htraces[i], test_cases[i]) for i in ids]
-            else:
-                measurements = [Measurement(i, inputs[i], ctrace, htraces[i]) for i in ids]
-             
+            measurements = [Measurement(i, self.SOLE_TEST_ID, inputs[i], ctrace, htraces[i],
+                                        test_cases[i], ()) for i in ids]
+
 
             # Build htrace groups
             htrace_groups = self._build_htrace_groups(measurements)
