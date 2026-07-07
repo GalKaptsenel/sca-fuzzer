@@ -321,6 +321,34 @@ void* log_instr_with_speculation_nesting(struct simulation_state* sim_state, uin
 	return NULL;
 }
 
+/* Deferred-log support for the store-bypass clause: a bypassed store's trace entry is pulled out
+ * of the trace and emitted again when its window unwinds, so in trace order it lands AFTER the
+ * loads that read the stale value (which must therefore taint the input) but BEFORE the
+ * architectural continuation (which still sees the committed store). */
+
+/* Pop the last trace entry and return it BY VALUE — the caller keeps a copy, never a pointer into
+ * the trace buffer that later logging would overwrite. Caller invariant: the trace is non-empty. */
+instr_trace_entry_t trace_pop_last(void) {
+	if(NULL == trace_log || 0 == current_log_index) __builtin_trap();
+	--current_log_index;
+	trace_log->entry_count = current_log_index;
+	return *((instr_trace_entry_t*)(trace_log + 1) + current_log_index);
+}
+
+void trace_emit_entry(const instr_trace_entry_t* src) {
+	if(NULL == src || NULL == trace_log) return;
+	size_t idx = current_log_index;
+	if(max_log_index <= idx) {
+		trace_log->truncated = 1;   // signal the reader that the trace is incomplete
+		return;
+	}
+	instr_trace_entry_t* dst = (instr_trace_entry_t*)(trace_log + 1) + idx;
+	*dst = *src;
+	dst->metadata.instr_index = idx;   // renumber to its new trace position (kept monotonic)
+	++current_log_index;
+	trace_log->entry_count = current_log_index;
+}
+
 void* log_instr_hook(struct simulation_state* sim_state) {
 	log_sim_state(sim_state);
 	return NULL;

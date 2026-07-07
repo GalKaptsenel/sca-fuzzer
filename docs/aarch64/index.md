@@ -293,6 +293,16 @@ clauses:
   run the store, then on the next instruction restore the pre-store snapshot so the speculative
   window reads the **stale** value.
 
+  A bypassed store's **trace entry is deferred**: it is pulled out of the trace at bypass time and
+  re-emitted when its window unwinds. Taint is derived from trace order (a byte is must-preserve if
+  it is read before it is written), so the store must be logged *after* the loads that read its
+  stale value — otherwise the store's write would mask them and the bypassed **input byte would not
+  be tainted**, letting boosting mutate it and produce a false-positive violation. Emitting the
+  store post-window instead lets those loads taint the input while post-window loads still see the
+  committed store. Nested bypasses stack (one deferred entry per open window, LIFO), so with two
+  nested stores the trace visits *bypass-both → inner store committed → bypass-only-outer → both
+  committed*, and the inner store is re-emitted before the outer.
+
 Supported clause combinations are validated in both Python and C: `seq` (empty), `cond`, `bpas`,
 `bpu`, and `cond|bpas`; two branch models together (`cond|bpu`) are rejected.
 

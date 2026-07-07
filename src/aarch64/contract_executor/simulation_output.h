@@ -68,6 +68,11 @@ void* log_instr_hook(struct simulation_state* sim_state);
 void* log_instr_with_speculation_nesting(struct simulation_state* sim_state, uint64_t speculation_nesting);
 void destroy_trace_log();
 
+/* Relocate a trace entry (store-bypass clause): pop the last entry by value, and emit a saved copy
+ * at the current trace position. See the definitions for the ordering contract. */
+instr_trace_entry_t trace_pop_last(void);
+void trace_emit_entry(const instr_trace_entry_t* src);
+
 // TODO: TMP
 void* kaddr2uaddr(void*);
 

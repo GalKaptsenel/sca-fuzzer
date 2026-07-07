@@ -1971,6 +1971,84 @@ static void test_integration_bpas_consecutive_stores(void) {
     }
 }
 
+/* ---- bpas trace ORDER: a bypassed store is logged AFTER the load that reads its stale value ----
+ * Regression for the store-bypass taint bug: taint is derived from trace order, so the bypassed
+ * store's entry must sit AFTER the speculative load that read stale (so that load taints the input)
+ * and BEFORE the post-window load (which still sees the committed store). Pre-fix the store was
+ * logged at execution — before the bypassing load — and wrongly masked it. */
+static void test_integration_bpas_store_logged_after_bypassing_load(void) {
+    uint32_t code[] = { enc_str_reg(0, 29), enc_ldr_reg(1, 29) };   /* STR X0,[X29]; LDR X1,[X29] */
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t stale = UINT64_C(0xDEADDEADDEADDEAD);
+    memcpy(mem, &stale, 8);
+    uint64_t newv = UINT64_C(0xBEEFBEEFBEEFBEEF);
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[0] = newv;
+
+    ce_result_t res;
+    bool ok = run_ce(code, 2, mem, sizeof(mem), KBASE, 8, EXEC_CLAUSE_BPAS, regs, &res);
+    EXPECT(ok);
+    if (!ok) return;
+
+    int store_idx = -1, spec_stale_load_idx = -1, post_load_idx = -1;
+    for (int i = 0; i < count_mem_entries(&res); ++i) {
+        instr_trace_entry_t *e = find_mem_entry(&res, i);
+        if (!e) continue;
+        const mem_access_t *ma = &e->metadata.memory_access;
+        if (ma->is_write && ma->after == newv && store_idx < 0)
+            store_idx = i;
+        else if (!ma->is_write && e->metadata.speculation_nesting > 0 && ma->before == stale
+                 && spec_stale_load_idx < 0)
+            spec_stale_load_idx = i;
+        else if (!ma->is_write && e->metadata.speculation_nesting == 0 && ma->before == newv
+                 && post_load_idx < 0)
+            post_load_idx = i;
+    }
+    EXPECT(store_idx >= 0);
+    EXPECT(spec_stale_load_idx >= 0);
+    EXPECT(store_idx > spec_stale_load_idx);   /* store re-emitted AFTER the bypassing load  <-- the fix */
+    if (post_load_idx >= 0) EXPECT(store_idx < post_load_idx);   /* ...but before the committed re-read */
+}
+
+/* ---- bpas trace ORDER, nested: the deepest stale load precedes BOTH store writes ---- */
+static void test_integration_bpas_nested_stores_logged_after_stale_load(void) {
+    uint32_t code[] = { enc_str_reg(0, 29), enc_str_reg(1, 29), enc_ldr_reg(2, 29) };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t orig = UINT64_C(0x0123456789ABCDEF);
+    memcpy(mem, &orig, 8);
+    uint64_t regs[REGS_COUNT] = { 0 };
+    regs[0] = UINT64_C(0x1111111111111111);
+    regs[1] = UINT64_C(0x2222222222222222);
+
+    ce_result_t res;
+    bool ok = run_ce(code, 3, mem, sizeof(mem), KBASE, 8, EXEC_CLAUSE_BPAS, regs, &res);
+    EXPECT(ok);
+    if (!ok) return;
+
+    /* Both bypass windows nest, so the DFS visits: bypass-both (reads ORIG) -> inner window unwinds
+     * (S2 committed) -> bypass-only-outer -> outer window unwinds (S1 committed) -> ... . The deferred
+     * stores must therefore be logged inner-before-outer, both AFTER the load that read the input. */
+    uint64_t v1 = UINT64_C(0x1111111111111111), v2 = UINT64_C(0x2222222222222222);
+    int orig_load_idx = -1, first_write_idx = -1, s2_idx = -1, s1_idx = -1;
+    for (int i = 0; i < count_mem_entries(&res); ++i) {
+        instr_trace_entry_t *e = find_mem_entry(&res, i);
+        if (!e) continue;
+        const mem_access_t *ma = &e->metadata.memory_access;
+        if (ma->is_write && first_write_idx < 0)          first_write_idx = i;
+        if (ma->is_write && ma->after == v2 && s2_idx < 0) s2_idx = i;   /* inner store, emitted first */
+        if (ma->is_write && ma->after == v1 && s1_idx < 0) s1_idx = i;   /* outer store, emitted second */
+        if (!ma->is_write && e->metadata.speculation_nesting > 0 && ma->before == orig
+            && orig_load_idx < 0)                          orig_load_idx = i;
+    }
+    EXPECT(orig_load_idx >= 0);        /* both stores bypassed -> a load reads the pre-both (input) value */
+    EXPECT(s2_idx >= 0);
+    EXPECT(s1_idx >= 0);
+    EXPECT(orig_load_idx < first_write_idx);  /* input read logged before any store masks it  <-- the fix */
+    EXPECT(s2_idx < s1_idx);                  /* inner window unwinds first: S2 emitted before S1 (LIFO) */
+}
+
 /* ---- cond max_nesting cap: depth 2 reachable at cap 2, never exceeds cap 1 ---- */
 static void test_integration_cond_nesting_cap(void) {
     /*
@@ -3001,6 +3079,8 @@ int main(void) {
     test_integration_bpas_store_pair();
     test_integration_bpas_max_nesting_zero();
     test_integration_bpas_consecutive_stores();
+    test_integration_bpas_store_logged_after_bypassing_load();
+    test_integration_bpas_nested_stores_logged_after_stale_load();
     test_integration_cond_bpas_composition();
     test_integration_cond_nesting_cap();
     test_integration_bpas_three_stores_value_set();
