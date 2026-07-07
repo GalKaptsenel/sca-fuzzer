@@ -12,7 +12,7 @@ import uuid
 import functools
 import ctypes
 import time
-from typing import List, Literal, Union, Optional, Type, Callable, Tuple, TYPE_CHECKING
+from typing import List, Literal, Union, Optional, Type, Callable, Tuple, Dict, Any, TYPE_CHECKING
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from contextlib import contextmanager
@@ -23,7 +23,22 @@ from ..util import STAT   # TEMP(perf-metrics): remove with the traces/s instrum
 if TYPE_CHECKING:
     from .aarch64_connection import Connection
 
-op_timings = defaultdict(list)
+# TEMP(op-profiling): ad-hoc per-ioctl timing profiler; remove later (grep this tag).
+# Off by default — set REVIZOR_PROFILE_OPS=1 to collect. It records a running
+# [count, total_seconds] aggregate per op name (not a per-call sample list), so even when enabled a
+# long run (millions of ioctls) can't grow it without bound; the summary only needs count and total.
+_PROFILE_OPS = os.environ.get("REVIZOR_PROFILE_OPS") == "1"
+op_timings: Dict[Any, list] = defaultdict(lambda: [0, 0.0])
+
+
+def _record_op(name, duration: float) -> None:
+    if not _PROFILE_OPS:
+        return
+    agg = op_timings[name]
+    agg[0] += 1
+    agg[1] += duration
+
+
 def profile_by_opcode(func):
 
     @wraps(func)
@@ -33,8 +48,7 @@ def profile_by_opcode(func):
         try:
             return func(*args, **kwargs)
         finally:
-            duration = time.time() - start
-            op_timings[cmd].append(duration)
+            _record_op(cmd, time.time() - start)
 
     return wrapper
 
@@ -44,16 +58,17 @@ def profile_op(name: str):
     try:
         yield
     finally:
-        op_timings[name].append(time.time() - start)
+        _record_op(name, time.time() - start)
 
 
-def print_opcode_summary():
+def print_opcode_summary():   # TEMP(op-profiling): remove later
     if not op_timings:
-        print("No opcode data collected.")
+        print("No opcode data collected." if _PROFILE_OPS
+              else "Op profiling disabled (set REVIZOR_PROFILE_OPS=1 to collect).")
         return
 
-    # Compute total runtime for all opcodes
-    total_runtime = sum(sum(times) for times in op_timings.values())
+    # Compute total runtime for all opcodes (op_timings[op] == [count, total_seconds])
+    total_runtime = sum(total for _, total in op_timings.values())
 
     # Header
     print("\n=== Opcode Profiling Summary ===")
@@ -61,12 +76,10 @@ def print_opcode_summary():
     print("-" * 80)
 
     # Sort opcodes by total runtime descending
-    sorted_ops = sorted(op_timings.items(), key=lambda x: sum(x[1]), reverse=True)
+    sorted_ops = sorted(op_timings.items(), key=lambda x: x[1][1], reverse=True)
 
-    for op, times in sorted_ops:
-        count = len(times)
-        total = sum(times)
-        avg = total / count
+    for op, (count, total) in sorted_ops:
+        avg = total / count if count else 0
         percent = (total / total_runtime) * 100 if total_runtime > 0 else 0
         print(f"{op:<30} | {count:>6} | {avg*1000:>10.3f} | {total*1000:>11.3f} | {percent:>9.2f}%")
 
