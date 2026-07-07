@@ -39,6 +39,7 @@ class InstructionSet(InstructionSetAbstract):
             instruction.name = instruction_node["name"]
             instruction.category = instruction_node["category"]
             instruction.control_flow = instruction_node["control_flow"]
+            instruction.source = instruction_node.get("source", "")
             instruction.template = instruction_node.get("template", None)
             # tags default to the single category (x86 stores its tag there)
             instruction.tags = tuple(instruction_node.get("tags") or [instruction.category])

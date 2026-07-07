@@ -14,12 +14,18 @@ _RELEASES = {
 }
 
 
-def download_xml(release: str = "latest", cache_dir=None, force: bool = False) -> Path:
-    """Stage 1: fetch + cache the ARM A64 ISA XML; return the directory of extracted XML files."""
+def resolve_release(release: str = "latest") -> str:
+    """Resolve "latest" to the concrete pinned release name (and validate an explicit one)."""
     if release == "latest":
         release = max(_RELEASES)
     if release not in _RELEASES:
         raise ExtractionError(f"unknown release {release!r}; known: {sorted(_RELEASES)}")
+    return release
+
+
+def download_xml(release: str = "latest", cache_dir=None, force: bool = False) -> Path:
+    """Stage 1: fetch + cache the ARM A64 ISA XML; return the directory of extracted XML files."""
+    release = resolve_release(release)
     url, stem = _RELEASES[release]
     cache = Path(cache_dir or Path.home() / ".cache" / "arm_isa_xml")
     xml_dir = cache / stem

@@ -26,6 +26,7 @@ import tempfile
 from ..interfaces import OT, OperandSpec, MemorySpec, InstructionSpec
 from .aarch64_target_desc import AArch64MemRole
 from .arm_isa_extractor import pipeline
+from .arm_isa_extractor.download import resolve_release
 from .arm_isa_extractor.models import OperandKind, MemRole, MemAccess
 
 # ---------------------------------------------------------------------------
@@ -601,7 +602,7 @@ def _serialize_operand(op: OperandSpec) -> dict:
 
 def _serialize(spec: InstructionSpec) -> dict:
     return {"name": spec.name, "category": spec.category, "control_flow": spec.control_flow,
-            "template": spec.template, "tags": list(spec.tags),
+            "source": spec.source, "template": spec.template, "tags": list(spec.tags),
             "constraints": [list(c) for c in spec.constraints],
             "operands": [_serialize_operand(o) for o in spec.operands],
             "implicit_operands": [_serialize_operand(o) for o in spec.implicit_operands]}
@@ -629,15 +630,19 @@ def _synthetic_barrier_specs() -> list:
         spec = InstructionSpec(mnem.lower(), "system", False, template=mnem,
                                operands=[], implicit_operands=[], tags=("BASE-BARRIER",))
         spec.constraints = ()
+        spec.source = "manual"
         specs.append(spec)
     return specs
 
 
-def generate(ir_path: str, out_path: str) -> dict:
+def generate(ir_path: str, out_path: str, source: str = None) -> dict:
     """Turn the extractor IR JSON at *ir_path* into Revizor's base.json at *out_path*. Returns
     {encoding_name: error} for encodings not yet representable (a template placeholder with no operand,
     e.g. SME ZA tiles; or an operand name reused with conflicting roles) — reported per encoding (so a
-    skipped encoding doesn't implicate other encodings of the same mnemonic), never a broken spec."""
+    skipped encoding doesn't implicate other encodings of the same mnemonic), never a broken spec.
+    *source* is the provenance stamped on every extracted spec; defaults to the pinned ARM release."""
+    if source is None:
+        source = f"ARM ISA {resolve_release('latest')}"
     ir = json.load(open(ir_path))
     specs, failures = [], {}
     for inst in ir:
@@ -647,8 +652,10 @@ def generate(ir_path: str, out_path: str) -> dict:
             specs.extend(_expand_instruction(inst))
         except (KeyError, ValueError) as e:
             failures[inst["encoding_name"]] = str(e)
+    for s in specs:
+        s.source = source
     have = {s.name for s in specs}
-    specs.extend(s for s in _synthetic_barrier_specs() if s.name not in have)
+    specs.extend(s for s in _synthetic_barrier_specs() if s.name not in have)  # carry "manual"
     json.dump([_serialize(s) for s in specs], open(out_path, "w"), indent=1, sort_keys=True)
     return failures
 

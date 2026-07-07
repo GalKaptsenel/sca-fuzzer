@@ -102,6 +102,7 @@ class InstructionSpec:
     has_mem_operand: bool = False
     has_write: bool = False
     has_magic_value: bool = False
+    source: str = ""   # provenance: "ARM ISA <release>" for extracted specs, "manual" for injected ones
 
     def __init__(self, name: str = "", category: str = "", control_flow: bool = False,
                  datatype: str = "", template: str = "", operands=None,
