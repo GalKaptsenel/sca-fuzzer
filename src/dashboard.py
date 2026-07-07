@@ -33,6 +33,10 @@ def _fmt_dur(seconds: float) -> str:
 
 
 class Dashboard:
+    # Consecutive failed screen updates after which the controlling terminal is
+    # presumed gone (e.g. the tmux/ssh session died). At ~10 Hz this is ~5s.
+    IO_FAIL_LIMIT = 50
+
     def __init__(self, meta: Dict):
         self.meta = meta
         self.start_time: datetime = meta["start_time"]
@@ -47,6 +51,7 @@ class Dashboard:
         self.rerun = meta.get("rerun") or meta.get("cmd", "")   # reproduce command
         self._last_render = 0.0
         self._last_phase = ""
+        self._io_fail = 0                        # consecutive failed screen updates
         self.sample_size = 0                     # current measurement sample size
 
         self._viol_cache: list = []   # [(name, detected_at_seconds)] — this session only
@@ -130,10 +135,25 @@ class Dashboard:
             self._last_phase = phase
 
         # Pausing blocks the caller (the fuzzer loop) here until resumed/quit.
+        self._io_fail = 0
         while self.paused and not self.should_stop:
             self._poll_keys()
-            self._render(stat, elapsed, "PAUSED")
-            curses.napms(100)
+            if self._terminal_lost(self._render(stat, elapsed, "PAUSED")):
+                # The terminal is gone (e.g. tmux/ssh died), so the resume/quit
+                # key can never arrive. Stop gracefully instead of spinning here
+                # forever while holding the executor open. See PID-5537 wedge.
+                self.set_message("terminal lost while paused — stopping")
+                self.should_stop = True
+                break
+            time.sleep(0.1)
+
+    def _terminal_lost(self, render_ok: bool) -> bool:
+        """Track consecutive failed screen updates and report whether the
+        controlling terminal appears gone. A detached-but-live tmux keeps
+        refresh() working, so this stays False there; only a destroyed terminal
+        (write returns EIO) makes _render fail repeatedly."""
+        self._io_fail = 0 if render_ok else self._io_fail + 1
+        return self._io_fail >= self.IO_FAIL_LIMIT
 
     def finish_hold(self, stat, elapsed: float):
         """Keep the dashboard open after fuzzing finishes so the user can scroll
@@ -142,10 +162,12 @@ class Dashboard:
             return
         self.paused = False
         self.set_message("fuzzing finished — press q to exit")
+        self._io_fail = 0
         while not self.should_stop:
             self._poll_keys()
-            self._render(stat, elapsed, "finished")
-            curses.napms(100)
+            if self._terminal_lost(self._render(stat, elapsed, "finished")):
+                break
+            time.sleep(0.1)
 
     def _eta(self, stat, elapsed: float) -> Optional[float]:
         timeout = self.meta.get("timeout", 0)
@@ -157,7 +179,9 @@ class Dashboard:
             return max(0.0, (n - stat.test_cases) / rate) if rate else None
         return None
 
-    def _render(self, stat, elapsed: float, phase: str):
+    def _render(self, stat, elapsed: float, phase: str) -> bool:
+        """Draw one frame. Returns True on success, False if the screen update
+        failed (used to detect a lost terminal — see _terminal_lost)."""
         scr = self.scr
         try:
             h, w = scr.getmaxyx()
@@ -165,7 +189,7 @@ class Dashboard:
             if w < 40:
                 scr.addnstr(0, 0, "term too narrow", max(0, w - 1))
                 scr.refresh()
-                return
+                return True
 
             rate = stat.test_cases / elapsed if elapsed > 0 else 0.0
             trace_rate = stat.num_traces / elapsed if elapsed > 0 else 0.0  # TEMP(perf-metrics): remove
@@ -205,12 +229,12 @@ class Dashboard:
                            f"{rate:.2f} tc/s · {trace_rate:.1f} traces/s · {vstr}", C_VIOL if v else 0)
                 line(2, 0, " [m] expand  [p]ause  [q]uit ".ljust(w - 1), curses.A_REVERSE)
                 scr.refresh()
-                return
+                return True
 
             if h < 14:
                 line(0, 0, "terminal too short — press m to minimize")
                 scr.refresh()
-                return
+                return True
 
             # Header
             title = f" Revizor Fuzzer — {self.meta.get('mode','?')} · {self.meta.get('isa','?')} "
@@ -291,6 +315,7 @@ class Dashboard:
             footer = " [m]inimize  [p]ause  [q]uit  [↑/↓] scroll viols  [s]tats "
             line(footer_row, 0, footer.ljust(w - 1), curses.A_REVERSE)
             scr.refresh()
+            return True
         except curses.error:
-            # Terminal resize / out-of-bounds; skip this frame.
-            pass
+            # Terminal resize / out-of-bounds / lost terminal; skip this frame.
+            return False
