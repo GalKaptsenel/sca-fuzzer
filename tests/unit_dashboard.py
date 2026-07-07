@@ -59,5 +59,45 @@ class TerminalLostCounterTest(unittest.TestCase):
         self.assertEqual(d._render.call_count, Dashboard.IO_FAIL_LIMIT)
 
 
+class PauseTimeoutTest(unittest.TestCase):
+    """ A pause that is never resumed must auto-stop at the cap, even when the
+    terminal keeps working (silent SSH drop → resume key can't arrive). """
+
+    def test_pause_auto_stops_once_the_cap_elapses(self):
+        d = _make_dashboard(paused=True)
+        d._poll_keys = mock.MagicMock()                 # never resumed
+        d._render = mock.MagicMock(return_value=True)    # terminal is fine
+        # monotonic(): pre-loop 'now', pause_start, then a reading past the cap.
+        clock = [0.0, 0.0, Dashboard.PAUSE_TIMEOUT_S + 1]
+        with mock.patch("src.dashboard.time.sleep"), \
+             mock.patch("src.dashboard.time.monotonic", side_effect=clock):
+            d.tick(stat=object(), elapsed=1.0)
+        self.assertTrue(d.should_stop)
+        self.assertEqual(d._render.call_count, 0)        # tripped before rendering
+        self.assertIsNone(d._pause_remaining)            # cleared on exit
+        self.assertTrue(any("auto-stop" in n for n in d.notes))
+
+    def test_countdown_is_exposed_while_paused_then_resumed(self):
+        d = _make_dashboard(paused=True)
+        seen = []
+        # tick() polls once before the loop; resume on the in-loop (2nd) poll.
+        polls = {"n": 0}
+
+        def _poll():
+            polls["n"] += 1
+            if polls["n"] >= 2:
+                d.paused = False
+
+        d._poll_keys = mock.MagicMock(side_effect=_poll)
+        d._render = mock.MagicMock(side_effect=lambda *a: seen.append(d._pause_remaining) or True)
+        clock = [0.0, 0.0, 5.0]   # 5s into the pause when the frame is drawn
+        with mock.patch("src.dashboard.time.sleep"), \
+             mock.patch("src.dashboard.time.monotonic", side_effect=clock):
+            d.tick(stat=object(), elapsed=1.0)
+        self.assertFalse(d.should_stop)                  # resumed, not stopped
+        self.assertEqual(seen, [Dashboard.PAUSE_TIMEOUT_S - 5.0])   # countdown shown
+        self.assertIsNone(d._pause_remaining)            # cleared after resume
+
+
 if __name__ == "__main__":
     unittest.main()

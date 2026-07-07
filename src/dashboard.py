@@ -5,7 +5,8 @@ Activated automatically when stdout is a TTY (see util.Logger). Falls back to th
 plain single-line output otherwise, so piped/backgrounded runs are unaffected.
 
 Controls (applied cooperatively at round boundaries):
-  p  pause / resume the fuzzer
+  p  pause / resume the fuzzer (a pause shows a countdown and auto-stops the
+     fuzzer at zero, so a never-resumed pause can't wedge it holding the device)
   q  stop the fuzzer gracefully (after the current round)
   s  toggle the detailed discard-counter breakdown
   c  toggle the full command line
@@ -37,6 +38,12 @@ class Dashboard:
     # presumed gone (e.g. the tmux/ssh session died). At ~10 Hz this is ~5s.
     IO_FAIL_LIMIT = 50
 
+    # Safety cap on how long the dashboard may stay paused. A pause holds the
+    # executor and makes no progress, so if it is never resumed (e.g. the SSH
+    # connection silently dropped, leaving no way to send the resume key) the
+    # fuzzer auto-stops and releases the device. A live countdown is shown.
+    PAUSE_TIMEOUT_S = 30 * 60
+
     def __init__(self, meta: Dict):
         self.meta = meta
         self.start_time: datetime = meta["start_time"]
@@ -52,6 +59,7 @@ class Dashboard:
         self._last_render = 0.0
         self._last_phase = ""
         self._io_fail = 0                        # consecutive failed screen updates
+        self._pause_remaining: Optional[float] = None   # seconds left before auto-stop
         self.sample_size = 0                     # current measurement sample size
 
         self._viol_cache: list = []   # [(name, detected_at_seconds)] — this session only
@@ -135,9 +143,18 @@ class Dashboard:
             self._last_phase = phase
 
         # Pausing blocks the caller (the fuzzer loop) here until resumed/quit.
+        # A pause holds the executor and makes no progress, so it is capped by a
+        # countdown (shown in the frame) that auto-stops the fuzzer at zero.
         self._io_fail = 0
+        pause_start = time.monotonic()
         while self.paused and not self.should_stop:
             self._poll_keys()
+            self._pause_remaining = max(0.0, self.PAUSE_TIMEOUT_S - (time.monotonic() - pause_start))
+            if self._pause_remaining <= 0:
+                # Never resumed within the cap — release the device and stop.
+                self.set_message(f"paused for {_fmt_dur(self.PAUSE_TIMEOUT_S)} — auto-stopping")
+                self.should_stop = True
+                break
             if self._terminal_lost(self._render(stat, elapsed, "PAUSED")):
                 # The terminal is gone (e.g. tmux/ssh died), so the resume/quit
                 # key can never arrive. Stop gracefully instead of spinning here
@@ -146,6 +163,7 @@ class Dashboard:
                 self.should_stop = True
                 break
             time.sleep(0.1)
+        self._pause_remaining = None
 
     def _terminal_lost(self, render_ok: bool) -> bool:
         """Track consecutive failed screen updates and report whether the
@@ -210,7 +228,12 @@ class Dashboard:
             if phase == "finished":
                 badge, battr = "✓ finished — press q to exit", C_OK
             elif self.paused:
-                badge, battr = "⏸ PAUSED", C_KEY
+                rem = self._pause_remaining
+                if rem is None:
+                    badge, battr = "⏸ PAUSED", C_KEY
+                else:
+                    battr = C_VIOL if rem < 60 else C_KEY
+                    badge = f"⏸ PAUSED — auto-stop in {_fmt_dur(rem)}"
             elif self.should_stop:
                 badge, battr = "■ stopping…", C_VIOL
             else:
@@ -249,6 +272,11 @@ class Dashboard:
             line(y, 1, f"elapsed {_fmt_dur(elapsed)}{tlimit}     ETA {eta_s}")
             line(y, w - 2 - len(badge), badge, battr)
             y += 1
+            if self.paused and self._pause_remaining is not None:
+                rem = self._pause_remaining
+                pattr = C_VIOL if rem < 60 else C_KEY
+                line(y, 1, f"⏸ PAUSED — press p to resume · auto-stop in {_fmt_dur(rem)}", pattr)
+                y += 1
             iptc = stat.num_inputs // stat.test_cases if stat.test_cases else 0
             an = stat.analysed_test_cases
             all_cls = (stat.eff_classes + stat.single_entry_classes) // an if an else 0
