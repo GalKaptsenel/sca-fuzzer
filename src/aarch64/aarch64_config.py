@@ -111,6 +111,10 @@ _option_values = {
             # flags
             "BASE-FLAGS", "BASE-FLAGS-WRITE", "BASE-FLAGS-READ",
     ],
+    'contract_execution_clause': [
+        "seq", "no_speculation", "cond", "conditional_br_misprediction", "bpas", "bpu_neoverse_n3",
+        "barrier",
+    ],
 }
 
 # Options present in the config schema but not (yet) implemented for AArch64.
@@ -165,6 +169,8 @@ supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "l
                                      "stg", "st2g", "stzg", "stz2g",   # MTE tag stores (16B-aligned)
                                      "addg", "subg", "gmi", "subp", "subps",  # MTE tag/pointer arithmetic
                                      "ldg",                            # MTE load allocation tag
+                                     "ssbb", "pssbb",                  # store-bypass barriers (ct-bpas + barrier contract)
+                                     # add "sb", "isb", "dsb" here to fuzz the control-fence barriers (cond/bpu + barrier)
                                      ]
 
 # AArch64-only: relative weights for the PAC non-interference instrumentation

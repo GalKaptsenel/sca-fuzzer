@@ -51,6 +51,52 @@ uint32_t encode_bl(uintptr_t from, uintptr_t to) {
     return 0x94000000 | (imm26 & 0x03FFFFFF);
 }
 
+/* Barrier/hint decode. The DSB/DMB/ISB/SB group is `1101 0101 0000 0011 0011 CRm op2 11111`
+ * (Rt=11111); op2 selects the family and, for DSB, CRm #0/#4 are the SSBB/PSSBB aliases. CSDB lives
+ * in the neighbouring hint group (CRn:CRm = 0011:0010, op2=100). */
+barrier_kind_t barrier_kind(uint32_t instr) {
+	if ((instr & 0xFFFFF01F) == 0xD503301F) {              /* barrier group, Rt=11111 */
+		uint32_t crm = (instr >> 8) & 0xF;
+		uint32_t op2 = (instr >> 5) & 0x7;
+		switch (op2) {
+			case 0b100:                                /* DSB (and its SSBB/PSSBB aliases) */
+				if (crm == 0b0000) return BARRIER_SSBB;    /* DSB #0 */
+				if (crm == 0b0100) return BARRIER_PSSBB;   /* DSB #4 */
+				return BARRIER_DSB;
+			case 0b101: return BARRIER_DMB;
+			case 0b110: return BARRIER_ISB;
+			case 0b111: return BARRIER_SB;
+			default:    return BARRIER_NONE;
+		}
+	}
+	if ((instr & 0xFFFFF01F) == 0xD503201F) {              /* hint group, Rt=11111 */
+		uint32_t crm = (instr >> 8) & 0xF;
+		uint32_t op2 = (instr >> 5) & 0x7;
+		if (crm == 0b0010 && op2 == 0b100) return BARRIER_CSDB;
+	}
+	return BARRIER_NONE;
+}
+
+int barrier_fences_store_bypass(uint32_t instr) {
+	switch (barrier_kind(instr)) {
+		case BARRIER_SSBB:                                 /* dedicated store-bypass barriers */
+		case BARRIER_PSSBB:
+		case BARRIER_DSB:                                  /* prior stores complete => no bypass */
+		case BARRIER_ISB:                                  /* pipeline flush => later loads refetch */
+		case BARRIER_SB:                                   /* speculation barrier */
+			return 1;
+		default:                                           /* DMB (ordering only), CSDB, NONE */
+			return 0;
+	}
+}
+
+int barrier_fences_control(uint32_t instr) {
+	barrier_kind_t k = barrier_kind(instr);
+	if (BARRIER_SB == k || BARRIER_ISB == k) return 1;
+	if (BARRIER_DSB == k) return ((instr >> 8) & 0xF) == 0b1111;   /* only full-system DSB SY */
+	return 0;
+}
+
 branch_type_t classify_branch(uint32_t instr) {
     if ((instr & 0xFF000010) == 0x54000000 && (instr & 0xF) < 0xE) return BRANCH_B_COND;  /* excl. AL/NV */
     if ((instr & 0xFC000000) == 0x14000000) return BRANCH_B;

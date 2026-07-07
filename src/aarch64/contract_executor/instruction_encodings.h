@@ -16,6 +16,30 @@ typedef enum {
     BRANCH_TBNZ
 } branch_type_t;
 
+typedef enum {
+    BARRIER_NONE,
+    BARRIER_DMB,
+    BARRIER_DSB,
+    BARRIER_ISB,
+    BARRIER_SB,
+    BARRIER_SSBB,
+    BARRIER_PSSBB,
+    BARRIER_CSDB
+} barrier_kind_t;
+
+/* Decode the AArch64 barrier/hint at `instr` (see barrier_kind_t). SSBB/PSSBB are the DSB #0/#4
+ * encodings, so they are reported distinctly from a general DSB. */
+barrier_kind_t barrier_kind(uint32_t instr);
+
+/* True iff the barrier provably prevents a later load from speculatively bypassing an earlier store
+ * to the same address (SSBB/PSSBB, and the stronger completion/flush barriers DSB/ISB/SB). */
+int barrier_fences_store_bypass(uint32_t instr);
+
+/* True iff the barrier provably halts speculative *execution* across it, so a mispredicted control
+ * path cannot continue past it (SB, ISB, full-system DSB SY). DSB with a narrower option, DMB and
+ * CSDB do NOT qualify: cutting control speculation for them would be unsound. */
+int barrier_fences_control(uint32_t instr);
+
 branch_type_t classify_branch(uint32_t instr);
 uintptr_t evaluate_cond_target(uintptr_t pc, uint32_t insn);
 uint32_t encode_bl(uintptr_t from, uintptr_t to);

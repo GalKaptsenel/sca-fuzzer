@@ -138,8 +138,14 @@ class InstructionSet(InstructionSetAbstract):
                     components = operand.inner if isinstance(operand, MemorySpec) else [operand]
                     if any(_is_extend(c) for c in components):
                         return False
-            if "aarch64" in CONF.instruction_set and spec.category != "general":
-                return False  # aarch64 currently supports only the "general" category
+            # TEMPORARY: this category gate is x86-era (there category == tag). The clean aarch64
+            # design is a purely tag-based admission (generatable iff it carries a runnable BASE-*/…
+            # tag, no `category` mention), which subsumes this; it needs a get_tags() coverage audit
+            # first. Until then, keep the "general" gate but carve out the runnable "system" barriers
+            # by their BASE-BARRIER tag so SSBB/PSSBB/DSB/… can be generated.
+            if "aarch64" in CONF.instruction_set and spec.category != "general" \
+                    and "BASE-BARRIER" not in spec.tags:
+                return False
 
             if CONF._no_generation:
                 # if we use an existing test case, then instruction filtering is irrelevant

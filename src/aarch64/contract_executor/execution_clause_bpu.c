@@ -70,11 +70,19 @@ static void bpu_on_rollback(struct simulation_state* sim_state,
 	g_predictor->advance(pc, arch_taken, target);
 }
 
+/* A speculation barrier stops the mispredicted path: revert through the oldest open misprediction
+ * window and everything nested in it. bpu_on_rollback then restores predictor history per frame. */
+static uint64_t bpu_on_barrier(struct simulation_state* sim_state) {
+	if (!barrier_fences_control(*(uint32_t*)sim_state->cpu_state.pc)) return SPEC_NO_REVERT;
+	return spec_oldest_frame_of_owner(bpu_index);
+}
+
 const struct execution_clause_descriptor bpu_execution_clause = {
 	.name           = "bpu",
 	.clause_bit     = EXEC_CLAUSE_BPU,
 	.on_init        = bpu_on_init,
 	.on_reset       = bpu_on_reset,
 	.on_instruction = bpu_on_instruction,
+	.on_barrier     = bpu_on_barrier,
 	.on_rollback    = bpu_on_rollback,
 };

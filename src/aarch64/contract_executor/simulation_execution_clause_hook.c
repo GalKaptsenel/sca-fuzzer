@@ -73,6 +73,13 @@ uint64_t spec_nesting(void)     { return mgmt.current_nesting; }
 uint64_t spec_max_nesting(void) { return mgmt.max_nesting; }
 uint64_t spec_memory_size(void) { return mgmt.memory_size; }
 
+uint64_t spec_oldest_frame_of_owner(uint64_t owner) {
+	for(uint64_t i = 0; i < mgmt.stack_top; ++i) {
+		if(mgmt.stack[i].owner == owner) return i;   /* stack is oldest-first */
+	}
+	return SPEC_NO_REVERT;
+}
+
 void spec_push_frame(struct simulation_state* sim_state, uintptr_t return_addr, uint64_t owner) {
 	if(mgmt.stack_top >= sizeof(mgmt.stack)/sizeof(mgmt.stack[0]) ||
 	   mgmt.current_checkpoint_id >= mgmt.max_checkpoints) {
@@ -210,6 +217,27 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 		if(NULL != r) {
 			if(NULL != redirect && redirect != r) __builtin_trap(); // clauses disagree on redirect
 			redirect = r;
+		}
+	}
+
+	/* Runs AFTER on_instruction so a store's window (opened by bpas phase B) is already on the stack
+	 * when the store sits immediately before the barrier. Revert to the oldest id any clause requests:
+	 * it unwinds that window plus everything nested in it, satisfying all requesters at once. */
+	if(clauses & EXEC_CLAUSE_BARRIER) {
+		uint64_t barrier_target = SPEC_NO_REVERT;
+		for(int i = 0; i < n; ++i) {
+			const struct execution_clause_descriptor* ecd = execution_clause_at(i);
+			if(!(ecd->clause_bit & clauses) || NULL == ecd->on_barrier) continue;
+			uint64_t req = ecd->on_barrier(sim_state);
+			if(req < barrier_target) barrier_target = req;
+		}
+		if(SPEC_NO_REVERT != barrier_target) {
+			void* resume = NULL;
+			while(mgmt.stack_top > barrier_target) resume = handle_window_end(sim_state);
+			if(NULL == resume) __builtin_trap();   /* target < stack_top => at least one frame popped */
+			sim_state->cpu_state.pc = (uintptr_t)resume;
+			redirect = resume;
+			rolled_back = 1;
 		}
 	}
 	/* After a rollback the resume PC must be returned even when no clause forked, so the engine

@@ -113,7 +113,13 @@ static uint32_t enc_ldp_signed(int rt, int rt2, int rn) {
     return 0xA9400000u | ((uint32_t)rt2 << 10) | ((uint32_t)rn << 5) | (uint32_t)rt;
 }
 /* NOP */
-static uint32_t enc_nop(void) { return 0xD503201Fu; }
+static uint32_t enc_nop(void)   { return 0xD503201Fu; }
+static uint32_t enc_ssbb(void)   { return 0xD503309Fu; }  /* store-bypass barrier (DSB #0)          */
+static uint32_t enc_dmb_sy(void) { return 0xD5033FBFu; }  /* ordering only — fences no speculation  */
+static uint32_t enc_sb(void)     { return 0xD50330FFu; }  /* full speculation barrier               */
+static uint32_t enc_isb(void)    { return 0xD5033FDFu; }  /* context sync — fences control          */
+static uint32_t enc_dsb_sy(void) { return 0xD5033F9Fu; }  /* full-system DSB — fences control       */
+static uint32_t enc_dsb_ish(void){ return 0xD5033B9Fu; }  /* narrower DSB — store-bypass only        */
 /* LDRB W<rt>, [X<rn>] — unsigned offset 0, 8-bit */
 static uint32_t enc_ldrb(int rt, int rn) {
     return 0x39400000u | ((uint32_t)rn << 5) | (uint32_t)rt;
@@ -2053,6 +2059,252 @@ static bool run_gadget(uint32_t *code, int nw, uint64_t cap, uint64_t clauses,
     return run_ce(code, nw, mem, sizeof(mem), KBASE, cap, clauses, regs, res);
 }
 
+/* ======================================================================== *
+ *  EXEC_CLAUSE_BARRIER: a fencing barrier ends the speculation it stops.
+ * ======================================================================== */
+
+#define STALE UINT64_C(0xDEADDEADDEADDEAD)
+#define NEWV  UINT64_C(0xBEEFBEEFBEEFBEEF)
+
+/* Run `code` with mem[0]=STALE, X0=NEWV, cap 8. */
+static bool run_bypass(uint32_t *code, int nw, uint64_t clauses, ce_result_t *res) {
+    uint8_t mem[MEM_SIZE]; memset(mem, 0, sizeof(mem));
+    memcpy(mem, &(uint64_t){STALE}, 8);
+    uint64_t regs[REGS_COUNT] = { 0 }; regs[0] = NEWV;
+    return run_ce(code, nw, mem, sizeof(mem), KBASE, 8, clauses, regs, res);
+}
+
+static int count_spec_load_value(ce_result_t *res, uint64_t val) {
+    int c = 0;
+    for (int i = 0; i < res->n_entries; ++i) {
+        instr_trace_entry_t *e = &res->entries[i];
+        if (e->metadata.has_memory_access && !e->metadata.memory_access.is_write
+            && e->metadata.speculation_nesting > 0
+            && e->metadata.memory_access.before == val) ++c;
+    }
+    return c;
+}
+
+/* ---- SSBB cuts the store-bypass window (store ADJACENT to the barrier) ---- */
+static void test_integration_barrier_ssbb_cuts_bpas(void) {
+    /* STR X0;SSBB;LDR X1 (all [X29]).  bpas alone ignores SSBB and the load speculatively reads
+     * STALE.  bpas+barrier cuts the bypass at SSBB, so the load only ever sees the committed NEWV. */
+    uint32_t code[] = { enc_str_reg(0, 29), enc_ssbb(), enc_ldr_reg(1, 29) };
+    ce_result_t bpas, barr;
+    bool bpas_ok = run_bypass(code, 3, EXEC_CLAUSE_BPAS, &bpas);
+    bool barr_ok = run_bypass(code, 3, EXEC_CLAUSE_BPAS | EXEC_CLAUSE_BARRIER, &barr);
+    EXPECT(bpas_ok); EXPECT(barr_ok);
+    if (bpas_ok) EXPECT(saw_spec_load_value(&bpas, STALE));           /* SSBB ignored -> bypass */
+    if (barr_ok) {
+        EXPECT(!saw_spec_load_value(&barr, STALE));                  /* window cut at SSBB */
+        EXPECT(saw_load_value(&barr, NEWV));                         /* committed store visible */
+        EXPECT_EQ(trace_max_nesting(&barr), (uint64_t)0);
+    }
+}
+
+/* ---- SSBB cut also works when the window is already open before the barrier ---- */
+static void test_integration_barrier_ssbb_cuts_bpas_nonadjacent(void) {
+    /* A NOP between the store and SSBB means bpas phase B has already pushed the window before the
+     * barrier is reached (the other unwind path than the adjacent case above). */
+    uint32_t code[] = { enc_str_reg(0, 29), enc_nop(), enc_ssbb(), enc_ldr_reg(1, 29) };
+    ce_result_t barr;
+    bool ok = run_bypass(code, 4, EXEC_CLAUSE_BPAS | EXEC_CLAUSE_BARRIER, &barr);
+    EXPECT(ok);
+    if (ok) {
+        EXPECT(!saw_spec_load_value(&barr, STALE));
+        EXPECT(saw_load_value(&barr, NEWV));
+    }
+}
+
+/* ---- DMB is ordering-only: it must NOT cut the store-bypass window ---- */
+static void test_integration_barrier_dmb_no_cut(void) {
+    uint32_t code[] = { enc_str_reg(0, 29), enc_dmb_sy(), enc_ldr_reg(1, 29) };
+    ce_result_t barr;
+    bool ok = run_bypass(code, 3, EXEC_CLAUSE_BPAS | EXEC_CLAUSE_BARRIER, &barr);
+    EXPECT(ok);
+    if (ok) EXPECT(saw_spec_load_value(&barr, STALE));   /* DMB fences nothing -> bypass survives */
+}
+
+/* ---- a store-bypass barrier with no pending store is a no-op ---- */
+static void test_integration_barrier_ssbb_no_store(void) {
+    uint32_t code[] = { enc_ssbb(), enc_ldr_reg(1, 29) };
+    uint8_t mem[MEM_SIZE]; memset(mem, 0, sizeof(mem));
+    memcpy(mem, &(uint64_t){NEWV}, 8);
+    uint64_t regs[REGS_COUNT] = { 0 };
+    ce_result_t res;
+    bool ok = run_ce(code, 2, mem, sizeof(mem), KBASE, 8,
+                     EXEC_CLAUSE_BPAS | EXEC_CLAUSE_BARRIER, regs, &res);
+    EXPECT(ok);
+    if (ok) {
+        EXPECT_EQ(count_mem_entries(&res), 1);              /* just the architectural load */
+        EXPECT_EQ(trace_max_nesting(&res), (uint64_t)0);
+    }
+}
+
+/* ---- one SSBB collapses MULTIPLE nested store-bypass windows (min-id revert) ---- */
+static void test_integration_barrier_ssbb_cuts_nested_bpas(void) {
+    /* STR X0(SV1);STR X1(SV2);SSBB;LDR X2 (all [X29]).  bpas alone speculatively reads the
+     * suffix-bypass values (SV1 and ORIG) as well as SV2; bpas+barrier must revert BOTH windows at
+     * the SSBB, leaving only the fully-committed SV2 with no speculative reads past the barrier. */
+    uint32_t code[] = { enc_str_reg(0, 29), enc_str_reg(1, 29), enc_ssbb(), enc_ldr_reg(2, 29) };
+    uint64_t regs[REGS_COUNT] = { 0 }; regs[0] = SV1; regs[1] = SV2;
+
+    ce_result_t bpas, barr;
+    bool bpas_ok = run_gadget(code, 4, 8, EXEC_CLAUSE_BPAS, regs, &bpas);
+    bool barr_ok = run_gadget(code, 4, 8, EXEC_CLAUSE_BPAS | EXEC_CLAUSE_BARRIER, regs, &barr);
+    EXPECT(bpas_ok); EXPECT(barr_ok);
+    if (bpas_ok) {                                          /* SSBB ignored: full suffix-bypass set */
+        EXPECT(saw_spec_load_value(&bpas, SV1));
+        EXPECT(saw_spec_load_value(&bpas, ORIG));
+    }
+    if (barr_ok) {
+        EXPECT(saw_load_value(&barr, SV2));                /* committed value visible */
+        EXPECT(!saw_spec_load_value(&barr, SV1));          /* no LOAD reads a bypassed value... */
+        EXPECT(!saw_spec_load_value(&barr, ORIG));         /* ...both windows collapsed at the SSBB */
+    }
+}
+
+/* ---- a control barrier with no open misprediction is a no-op (no over-cut) ---- */
+static void test_integration_barrier_sb_no_speculation(void) {
+    /* SB with nothing speculating must not disturb the architectural trace. */
+    uint32_t code[] = { enc_ldr_reg(0, 29), enc_sb(), enc_ldr_unsigned(1, 29, 8) };
+    uint8_t mem[MEM_SIZE]; memset(mem, 0, sizeof(mem));
+    uint64_t v0 = UINT64_C(0x1111111111111111), v8 = UINT64_C(0x2222222222222222);
+    memcpy(mem, &v0, 8); memcpy(mem + 8, &v8, 8);
+    uint64_t regs[REGS_COUNT] = { 0 };
+    ce_result_t res;
+    bool ok = run_ce(code, 3, mem, sizeof(mem), KBASE, 4,
+                     EXEC_CLAUSE_COND | EXEC_CLAUSE_BARRIER, regs, &res);
+    EXPECT(ok);
+    if (ok) {
+        EXPECT_EQ(count_mem_entries(&res), 2);              /* two architectural loads, nothing spec */
+        EXPECT_EQ(trace_max_nesting(&res), (uint64_t)0);
+        EXPECT(saw_load_value(&res, v0)); EXPECT(saw_load_value(&res, v8));
+    }
+}
+
+/* ---- cond+bpas+barrier: SSBB cuts the bypass but leaves the branch mispredict intact ---- */
+static void test_integration_barrier_ssbb_spares_enclosing_branch(void) {
+    /* CBNZ X0,+16 (X0=0 -> arch NOT-taken; ALWAYS_MISPREDICT -> spec TAKEN into the block):
+     *   target: STR X1;SSBB;LDR X2  (all [X29]).  On the speculative (taken) path the store's
+     * bypass window opens and is cut by SSBB, so LDR X2 reads the committed store (NEWV) rather
+     * than STALE — yet the enclosing branch misprediction (nesting>=1) is NOT unwound by the SSBB. */
+    uint32_t code[] = {
+        enc_cbnz(0, +16),            /* spec-taken -> index 4 (target) */
+        enc_ldr_reg(3, 29),          /* arch fall-through load (X0==0 not-taken) */
+        enc_nop(), enc_nop(),
+        enc_str_reg(1, 29),          /* target: STR X1  (spec) */
+        enc_ssbb(),
+        enc_ldr_reg(2, 29),          /* LDR X2 — must see committed NEWV, at nesting>=1 */
+    };
+    uint8_t mem[MEM_SIZE]; memset(mem, 0, sizeof(mem));
+    memcpy(mem, &(uint64_t){STALE}, 8);
+    uint64_t regs[REGS_COUNT] = { 0 }; regs[1] = NEWV;   /* X0=0, X1=NEWV */
+    ce_result_t res;
+    bool ok = run_ce(code, 7, mem, sizeof(mem), KBASE, 4,
+                     EXEC_CLAUSE_COND | EXEC_CLAUSE_BPAS | EXEC_CLAUSE_BARRIER, regs, &res);
+    EXPECT(ok);
+    if (ok) {
+        EXPECT(!saw_spec_load_value(&res, STALE));       /* bypass cut by SSBB */
+        int saw_spec_newv = 0;                           /* committed store read WHILE speculating */
+        for (int i = 0; i < count_mem_entries(&res); ++i) {
+            instr_trace_entry_t *e = find_mem_entry(&res, i);
+            if (e && !e->metadata.memory_access.is_write &&
+                e->metadata.speculation_nesting > 0 &&
+                e->metadata.memory_access.before == NEWV) saw_spec_newv = 1;
+        }
+        EXPECT(saw_spec_newv);                           /* branch window still active past the SSBB */
+    }
+}
+
+/* ---- adjacency: a store AFTER the barrier is NOT fenced by it ---- */
+static void test_integration_barrier_store_after_not_fenced(void) {
+    /* SSBB;STR X0;LDR X1.  The store follows the barrier, so SSBB does not order it; the bypass
+     * window opens and LDR X1 speculatively reads STALE. */
+    uint32_t code[] = { enc_ssbb(), enc_str_reg(0, 29), enc_ldr_reg(1, 29) };
+    ce_result_t res;
+    bool ok = run_bypass(code, 3, EXEC_CLAUSE_BPAS | EXEC_CLAUSE_BARRIER, &res);
+    EXPECT(ok);
+    if (ok) EXPECT(saw_spec_load_value(&res, STALE));   /* later store still bypassable */
+}
+
+/* ---- adjacency: a load BEFORE the barrier keeps its (legit) pre-barrier bypass ---- */
+static void test_integration_barrier_load_before_barrier(void) {
+    /* STR X0;LDR X1;SSBB;LDR X2 (all [X29]).  The pre-barrier load may bypass the store (reads
+     * STALE speculatively); the post-barrier load may not.  So bpas+barrier yields exactly ONE
+     * speculative STALE read, vs TWO when the SSBB is ignored. */
+    uint32_t code[] = { enc_str_reg(0, 29), enc_ldr_reg(1, 29), enc_ssbb(), enc_ldr_reg(2, 29) };
+    ce_result_t bpas, barr;
+    bool bpas_ok = run_bypass(code, 4, EXEC_CLAUSE_BPAS, &bpas);
+    bool barr_ok = run_bypass(code, 4, EXEC_CLAUSE_BPAS | EXEC_CLAUSE_BARRIER, &barr);
+    EXPECT(bpas_ok); EXPECT(barr_ok);
+    if (bpas_ok) EXPECT_EQ(count_spec_load_value(&bpas, STALE), 2);   /* both loads bypass */
+    if (barr_ok) {
+        EXPECT_EQ(count_spec_load_value(&barr, STALE), 1);           /* only the pre-barrier load */
+        EXPECT(saw_load_value(&barr, NEWV));                         /* post-barrier load committed */
+    }
+}
+
+/* ---- adjacency: load BEFORE the barrier, store AFTER it — later store still bypassable ---- */
+static void test_integration_barrier_load_before_store_after(void) {
+    /* LDR X1;SSBB;STR X0;LDR X2 (all [X29]).  The store is AFTER the barrier, so SSBB does not
+     * order it: LDR X2 may still speculatively bypass it and read STALE.  (LDR X1 just reads STALE
+     * architecturally — no earlier store to bypass.) */
+    uint32_t code[] = { enc_ldr_reg(1, 29), enc_ssbb(), enc_str_reg(0, 29), enc_ldr_reg(2, 29) };
+    ce_result_t res;
+    bool ok = run_bypass(code, 4, EXEC_CLAUSE_BPAS | EXEC_CLAUSE_BARRIER, &res);
+    EXPECT(ok);
+    if (ok) EXPECT(saw_spec_load_value(&res, STALE));   /* post-barrier store still bypassable */
+}
+
+/* ---- branch-speculation barriers: ISB and DSB SY cut a mispredict; a narrower DSB ISH does not - */
+static void test_integration_barrier_control_fence_variants(void) {
+    uint8_t mem[MEM_SIZE]; memset(mem, 0, sizeof(mem));
+    uint64_t v0 = UINT64_C(0x1111111111111111);
+    memcpy(mem, &v0, 8);
+    uint64_t regs[REGS_COUNT] = { 0 };   /* X0=0 -> CBZ arch-taken; ALWAYS_MISPREDICT falls through */
+
+    struct { uint32_t barrier; int cuts; } cases[] = {
+        { enc_isb(),     1 },
+        { enc_dsb_sy(),  1 },
+        { enc_dsb_ish(), 0 },
+    };
+    for (unsigned k = 0; k < sizeof(cases) / sizeof(cases[0]); ++k) {
+        uint32_t code[] = { enc_cbz(0, +12), cases[k].barrier, enc_ldr_reg(1, 29),
+                            enc_ldr_unsigned(2, 29, 8) };
+        ce_result_t r;
+        bool ok = run_ce(code, 4, mem, sizeof(mem), KBASE, 1,
+                         EXEC_CLAUSE_COND | EXEC_CLAUSE_BARRIER, regs, &r);
+        EXPECT(ok);
+        if (!ok) continue;
+        if (cases[k].cuts) EXPECT(!saw_spec_load_value(&r, v0));   /* mispredict cut at the barrier */
+        else               EXPECT(saw_spec_load_value(&r, v0));    /* narrower DSB: unsound to cut  */
+    }
+}
+
+/* ---- control-fence granularity: SSBB does NOT cut a branch mispredict, SB does ---- */
+static void test_integration_barrier_control_fence_granularity(void) {
+    /* CBZ X0,+12 (arch TAKEN, X0=0) jumps past the speculative region; ALWAYS_MISPREDICT falls
+     * through to <barrier>;LDR X1 speculatively.  SSBB does not fence control -> the spec load
+     * survives; SB does -> it is cut. */
+    uint8_t mem[MEM_SIZE]; memset(mem, 0, sizeof(mem));
+    uint64_t v0 = UINT64_C(0x1111111111111111);
+    memcpy(mem, &v0, 8);
+    uint64_t regs[REGS_COUNT] = { 0 };   /* X0=0 -> CBZ architecturally taken */
+
+    uint32_t code_ssbb[] = { enc_cbz(0, +12), enc_ssbb(), enc_ldr_reg(1, 29), enc_ldr_unsigned(2, 29, 8) };
+    uint32_t code_sb[]   = { enc_cbz(0, +12), enc_sb(),   enc_ldr_reg(1, 29), enc_ldr_unsigned(2, 29, 8) };
+
+    ce_result_t r_ssbb, r_sb;
+    bool ok_ssbb = run_ce(code_ssbb, 4, mem, sizeof(mem), KBASE, 1,
+                          EXEC_CLAUSE_COND | EXEC_CLAUSE_BARRIER, regs, &r_ssbb);
+    bool ok_sb   = run_ce(code_sb,   4, mem, sizeof(mem), KBASE, 1,
+                          EXEC_CLAUSE_COND | EXEC_CLAUSE_BARRIER, regs, &r_sb);
+    EXPECT(ok_ssbb); EXPECT(ok_sb);
+    if (ok_ssbb) EXPECT(saw_spec_load_value(&r_ssbb, v0));    /* SSBB does not fence control */
+    if (ok_sb)   EXPECT(!saw_spec_load_value(&r_sb, v0));     /* SB cuts the mispredicted path */
+}
+
 /* ---- three stores, same address: full 2^N value set, bounded by the cap ---- */
 static void test_integration_bpas_three_stores_value_set(void) {
     /* STR x0;STR x1;STR x2;LDR x3 (all [x29]).  The end load can read the value of the most
@@ -2752,6 +3004,18 @@ int main(void) {
     test_integration_cond_bpas_composition();
     test_integration_cond_nesting_cap();
     test_integration_bpas_three_stores_value_set();
+    test_integration_barrier_ssbb_cuts_bpas();
+    test_integration_barrier_ssbb_cuts_bpas_nonadjacent();
+    test_integration_barrier_ssbb_cuts_nested_bpas();
+    test_integration_barrier_dmb_no_cut();
+    test_integration_barrier_ssbb_no_store();
+    test_integration_barrier_store_after_not_fenced();
+    test_integration_barrier_load_before_barrier();
+    test_integration_barrier_load_before_store_after();
+    test_integration_barrier_sb_no_speculation();
+    test_integration_barrier_ssbb_spares_enclosing_branch();
+    test_integration_barrier_control_fence_variants();
+    test_integration_barrier_control_fence_granularity();
     test_integration_cond_bpas_branch_before_stores();
     test_integration_cond_bpas_branch_after_stores();
     test_integration_cond_bpas_branch_in_middle();

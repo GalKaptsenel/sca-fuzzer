@@ -79,6 +79,9 @@ EXPLICIT_OPERAND_ONLY = {
     "sdiv", "stp", "tbnz", "tbz", "udiv", "xpaci",
 }
 
+# Barriers with no register/flag operands at all: their reg-access classification is trivially empty.
+NO_OPERAND_BARRIERS = {"ssbb", "pssbb"}
+
 
 class DisasmRegAccessTest(unittest.TestCase):
     def test_no_under_reporting(self):
@@ -96,6 +99,7 @@ class DisasmRegAccessTest(unittest.TestCase):
         for mnemonic in supported_instructions:
             covered = (mnemonic in tested
                        or mnemonic in EXPLICIT_OPERAND_ONLY
+                       or mnemonic in NO_OPERAND_BARRIERS
                        or any(t.startswith(mnemonic) for t in tested))   # "b." <- "b.eq"
             self.assertTrue(covered, f"{mnemonic!r} is generated but has no reg-access test/classification")
 

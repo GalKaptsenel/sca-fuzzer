@@ -305,6 +305,55 @@ static void test_load_store_predicates(void) {
 }
 
 /* ======================================================================== */
+/* ---- GROUP 7b: barrier decode + fence classification ------------------ */
+/* ======================================================================== */
+
+static void test_barrier_kind(void) {
+    EXPECT_EQ(barrier_kind(0xD503309Fu), BARRIER_SSBB);   /* ssbb   (DSB #0) */
+    EXPECT_EQ(barrier_kind(0xD503349Fu), BARRIER_PSSBB);  /* pssbb  (DSB #4) */
+    EXPECT_EQ(barrier_kind(0xD5033F9Fu), BARRIER_DSB);    /* dsb sy */
+    EXPECT_EQ(barrier_kind(0xD5033B9Fu), BARRIER_DSB);    /* dsb ish */
+    EXPECT_EQ(barrier_kind(0xD5033FBFu), BARRIER_DMB);    /* dmb sy */
+    EXPECT_EQ(barrier_kind(0xD5033FDFu), BARRIER_ISB);    /* isb */
+    EXPECT_EQ(barrier_kind(0xD50330FFu), BARRIER_SB);     /* sb */
+    EXPECT_EQ(barrier_kind(0xD503229Fu), BARRIER_CSDB);   /* csdb */
+    EXPECT_EQ(barrier_kind(0xD503201Fu), BARRIER_NONE);   /* nop */
+    EXPECT_EQ(barrier_kind(ENC_LDR_X0_X1), BARRIER_NONE);
+
+    /* negatives: barrier-group encodings that are NOT speculation barriers */
+    EXPECT_EQ(barrier_kind(0xD5033F5Fu), BARRIER_NONE);   /* clrex  (op2=010, unrecognized)   */
+    EXPECT_EQ(barrier_kind(0xD503203Fu), BARRIER_NONE);   /* yield  (hint, not CSDB)          */
+    EXPECT_EQ(barrier_kind(0xD503205Fu), BARRIER_NONE);   /* wfe                              */
+    EXPECT_EQ(barrier_kind(0xD503221Fu), BARRIER_NONE);   /* esb: CRm=0010 like CSDB, op2=000 */
+    EXPECT_EQ(barrier_kind(0xD503225Fu), BARRIER_NONE);   /* tsb csync: CRm=0010, op2=010     */
+    /* Rt must be 11111: an SSBB pattern with Rt=0 is not a barrier */
+    EXPECT_EQ(barrier_kind(0xD5033090u), BARRIER_NONE);
+    /* neither predicate fires on any of the above non-fences */
+    EXPECT(!barrier_fences_store_bypass(0xD5033F5Fu));    /* clrex */
+    EXPECT(!barrier_fences_store_bypass(0xD503221Fu));    /* esb   */
+    EXPECT(!barrier_fences_control(0xD5033F5Fu));
+    EXPECT(!barrier_fences_control(0xD503203Fu));         /* yield */
+
+    /* store-bypass is fenced by SSBB/PSSBB and the stronger DSB/ISB/SB; not by DMB/CSDB */
+    EXPECT(barrier_fences_store_bypass(0xD503309Fu));   /* ssbb */
+    EXPECT(barrier_fences_store_bypass(0xD503349Fu));   /* pssbb */
+    EXPECT(barrier_fences_store_bypass(0xD5033B9Fu));   /* dsb ish */
+    EXPECT(barrier_fences_store_bypass(0xD5033FDFu));   /* isb */
+    EXPECT(barrier_fences_store_bypass(0xD50330FFu));   /* sb */
+    EXPECT(!barrier_fences_store_bypass(0xD5033FBFu));  /* dmb — ordering only */
+    EXPECT(!barrier_fences_store_bypass(0xD503229Fu));  /* csdb */
+
+    /* control speculation is fenced only by SB, ISB, and full-system DSB SY */
+    EXPECT(barrier_fences_control(0xD50330FFu));        /* sb */
+    EXPECT(barrier_fences_control(0xD5033FDFu));        /* isb */
+    EXPECT(barrier_fences_control(0xD5033F9Fu));        /* dsb sy */
+    EXPECT(!barrier_fences_control(0xD5033B9Fu));       /* dsb ish — narrower, unsound to cut */
+    EXPECT(!barrier_fences_control(0xD503309Fu));       /* ssbb — store bypass only */
+    EXPECT(!barrier_fences_control(0xD5033FBFu));       /* dmb */
+    EXPECT(!barrier_fences_control(0xD503229Fu));       /* csdb */
+}
+
+/* ======================================================================== */
 /* ---- GROUP 8: encode_b and encode_bl ---------------------------------- */
 /* ======================================================================== */
 
@@ -1842,6 +1891,7 @@ int main(void) {
     test_access_size();
     test_register_fields();
     test_load_store_predicates();
+    test_barrier_kind();
     test_branch_encoding();
     test_condition_passed();
     test_signextend();

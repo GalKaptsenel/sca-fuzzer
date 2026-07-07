@@ -34,6 +34,7 @@ enum config_flags {
 #define EXEC_CLAUSE_COND  (1u << 0)  /* mispredict every conditional branch                     */
 #define EXEC_CLAUSE_BPAS  (1u << 1)  /* speculatively bypass stores (read stale memory)         */
 #define EXEC_CLAUSE_BPU   (1u << 2)  /* mispredict branches per the selected branch predictor   */
+#define EXEC_CLAUSE_BARRIER (1u << 3)/* honor barriers: cut speculation a fencing barrier stops  */
 /* seq / arch-only == no clauses enabled (execution_clauses == 0). */
 
 /* Branch predictor EXEC_CLAUSE_BPU uses, selected via the input (see branch_predictors.c).

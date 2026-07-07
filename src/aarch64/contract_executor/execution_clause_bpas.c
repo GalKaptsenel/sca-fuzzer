@@ -52,11 +52,21 @@ static void* bpas_on_instruction(struct simulation_state* sim_state) {
 	return NULL;
 }
 
+/* A store-bypass barrier ends the bypass window: a load past it must see the committed store, so
+ * revert through the oldest open bypass window and everything nested in it.
+ * (A load in program order BEFORE the barrier never reads a later store — the CE runs in program
+ * order and never forwards from a future store — so that half of SSBB needs no modeling.) */
+static uint64_t bpas_on_barrier(struct simulation_state* sim_state) {
+	if (!barrier_fences_store_bypass(*(uint32_t*)sim_state->cpu_state.pc)) return SPEC_NO_REVERT;
+	return spec_oldest_frame_of_owner(bpas_index);
+}
+
 const struct execution_clause_descriptor bpas_execution_clause = {
 	.name           = "bpas",
 	.clause_bit     = EXEC_CLAUSE_BPAS,
 	.on_init        = bpas_on_init,
 	.on_reset       = bpas_on_reset,
 	.on_instruction = bpas_on_instruction,
+	.on_barrier     = bpas_on_barrier,
 	.on_rollback    = NULL,
 };

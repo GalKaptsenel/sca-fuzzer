@@ -16,6 +16,11 @@ struct execution_clause_descriptor {
 	/* Per instruction; may speculate (spec_push_frame). Returns a PC to redirect to, or NULL.
 	 * If several enabled clauses redirect on one instruction, they must agree (engine traps). */
 	void* (*on_instruction)(struct simulation_state* sim_state);
+	/* Barrier honoring (called only when EXEC_CLAUSE_BARRIER is also enabled). If the current
+	 * instruction is a barrier that fences this clause's speculation AND this clause has an open
+	 * window, return the id of the oldest such window to revert through; otherwise SPEC_NO_REVERT.
+	 * NULL => this clause is barrier-agnostic. */
+	uint64_t (*on_barrier)(struct simulation_state* sim_state);
 	/* Recover a frame this clause pushed; NULL => engine reloads the frame's checkpoint. */
 	void  (*on_rollback)(struct simulation_state* sim_state,
 	                     const struct execution_checkpoint_desc* frame);

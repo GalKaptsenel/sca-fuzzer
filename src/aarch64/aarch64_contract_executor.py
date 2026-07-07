@@ -37,20 +37,26 @@ class SimVersion(IntEnum):
 
 class ExecutionClause(IntFlag):
     """Composable execution clauses (a bitmask). seq == no clauses (SEQ == 0)."""
-    SEQ  = 0
-    COND = 1   # mispredict conditional branches
-    BPAS = 2   # speculative store bypass
-    BPU  = 4   # mispredict per an injected branch predictor
+    SEQ     = 0
+    COND    = 1   # mispredict conditional branches
+    BPAS    = 2   # speculative store bypass
+    BPU     = 4   # mispredict per an injected branch predictor
+    BARRIER = 8   # honor barriers: cut speculation a fencing barrier stops
 
 
 # The only execution-clause combinations the CE supports. Arbitrary bitmask mixes are not
 # meaningful contracts (e.g. COND|BPU is two conflicting branch models) and are rejected.
+# BARRIER is a modifier: only valid alongside a speculation clause it can cut.
 SUPPORTED_EXECUTION_CLAUSES = frozenset({
     ExecutionClause.SEQ,
     ExecutionClause.COND,
     ExecutionClause.BPAS,
     ExecutionClause.BPU,
     ExecutionClause.COND | ExecutionClause.BPAS,   # cond-bpas
+    ExecutionClause.BPAS | ExecutionClause.BARRIER,
+    ExecutionClause.COND | ExecutionClause.BARRIER,
+    ExecutionClause.BPU  | ExecutionClause.BARRIER,
+    ExecutionClause.COND | ExecutionClause.BPAS | ExecutionClause.BARRIER,
 })
 
 
@@ -68,6 +74,7 @@ EXECUTION_CLAUSE_MAP = {
     "conditional_br_misprediction": (ExecutionClause.COND, BranchPredictor.NONE),
     "bpas":                         (ExecutionClause.BPAS, BranchPredictor.NONE),
     "bpu_neoverse_n3":              (ExecutionClause.BPU,  BranchPredictor.NEOVERSE_N3),
+    "barrier":                      (ExecutionClause.BARRIER, BranchPredictor.NONE),
 }
 
 

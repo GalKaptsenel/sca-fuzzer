@@ -52,6 +52,14 @@ uint64_t spec_nesting(void);      /* current speculation depth                  
 uint64_t spec_max_nesting(void);  /* configured depth cap                         */
 uint64_t spec_memory_size(void);  /* size of the simulated memory image (bytes)   */
 
+/* Sentinel "no revert requested" returned by an on_barrier callback. */
+#define SPEC_NO_REVERT UINT64_MAX
+
+/* Id (stack index) of the oldest open speculation frame owned by `owner`, or SPEC_NO_REVERT if the
+ * clause has no open window. A barrier honoring clause returns this from on_barrier to have the
+ * engine revert (unwind) through that frame and everything nested inside it. */
+uint64_t spec_oldest_frame_of_owner(uint64_t owner);
+
 /* Checkpoint the current state and schedule a rollback to `return_addr` at window end, tagging
  * the frame with `owner` (the pushing clause's registry index) for rollback routing.
  * At rollback the return address is loaded into LR (the harness continues from there). */

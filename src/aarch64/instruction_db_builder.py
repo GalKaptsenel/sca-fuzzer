@@ -617,6 +617,22 @@ def _generatable(inst: dict) -> bool:
     return True
 
 
+# SSBB / PSSBB are encoding aliases of DSB #0 / #4, so ARM's XML never emits them as their own
+# mnemonics and the extractor drops them. Add them explicitly (modeled like SB/CSDB: BASE-BARRIER,
+# no operands) so the generator can emit them for the barrier-honoring contracts.
+_SYNTHETIC_BARRIERS = ("SSBB", "PSSBB")
+
+
+def _synthetic_barrier_specs() -> list:
+    specs = []
+    for mnem in _SYNTHETIC_BARRIERS:
+        spec = InstructionSpec(mnem.lower(), "system", False, template=mnem,
+                               operands=[], implicit_operands=[], tags=("BASE-BARRIER",))
+        spec.constraints = ()
+        specs.append(spec)
+    return specs
+
+
 def generate(ir_path: str, out_path: str) -> dict:
     """Turn the extractor IR JSON at *ir_path* into Revizor's base.json at *out_path*. Returns
     {encoding_name: error} for encodings not yet representable (a template placeholder with no operand,
@@ -631,6 +647,8 @@ def generate(ir_path: str, out_path: str) -> dict:
             specs.extend(_expand_instruction(inst))
         except (KeyError, ValueError) as e:
             failures[inst["encoding_name"]] = str(e)
+    have = {s.name for s in specs}
+    specs.extend(s for s in _synthetic_barrier_specs() if s.name not in have)
     json.dump([_serialize(s) for s in specs], open(out_path, "w"), indent=1, sort_keys=True)
     return failures
 

@@ -31,6 +31,11 @@ int execution_clauses_supported(uint64_t clauses) {
 		case EXEC_CLAUSE_BPAS:
 		case EXEC_CLAUSE_BPU:
 		case EXEC_CLAUSE_COND | EXEC_CLAUSE_BPAS:    /* cond-bpas */
+		/* barrier honoring: only with a speculation clause to cut (never on its own). */
+		case EXEC_CLAUSE_BPAS | EXEC_CLAUSE_BARRIER:
+		case EXEC_CLAUSE_COND | EXEC_CLAUSE_BARRIER:
+		case EXEC_CLAUSE_BPU  | EXEC_CLAUSE_BARRIER:
+		case EXEC_CLAUSE_COND | EXEC_CLAUSE_BPAS | EXEC_CLAUSE_BARRIER:
 			return 1;
 		default:
 			return 0;
