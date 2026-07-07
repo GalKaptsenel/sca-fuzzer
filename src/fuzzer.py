@@ -269,7 +269,7 @@ class FuzzerGeneric(Fuzzer):
         # Define the starting parameters for the current configuration
         n_reps: int = CONF.executor_sample_sizes[0]
         start_nesting: int = 1 #CONF.model_min_nesting if self.model.is_speculative_contract else 1
-        end_nesting: int = 1 #CONF.model_max_nesting if self.model.is_speculative_contract else 1
+        end_nesting: int = CONF.model_max_nesting
         assert start_nesting <= end_nesting
         assert len(inputs) * CONF.inputs_per_class >= 2
 
@@ -948,7 +948,7 @@ class NoninterferenceFuzzer(FuzzerGeneric):
         # Define the starting parameters for the current configuration
         n_reps: int = CONF.executor_sample_sizes[0]
         start_nesting: int = 1 #CONF.model_min_nesting if self.model.is_speculative_contract else 1
-        end_nesting: int = 1 #CONF.model_max_nesting if self.model.is_speculative_contract else 1
+        end_nesting: int = CONF.model_max_nesting
         assert start_nesting <= end_nesting
         assert (1 + CONF.ni_decoys_per_input) * len(inputs) >= 2
 
