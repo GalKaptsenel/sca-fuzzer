@@ -1,0 +1,24 @@
+# ct-bpas + barrier contract: speculative store bypass that HONORS barriers (SSBB/PSSBB, and the
+# stronger DSB SY/ISB/SB for control speculation). SSBB/PSSBB are emitted via BASE-BARRIER; note the
+# generator needs a base.json regenerated after this feature (revizor.py download_spec -a aarch64).
+instruction_set: aarch64
+instruction_categories:
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-BRANCH
+  - BASE-MEM-LOAD
+  - BASE-MEM-STORE
+  - BASE-BARRIER
+min_bb_per_function: 2
+max_bb_per_function: 5
+max_successors_per_bb: 2
+min_successors_per_bb: 1
+fuzzer: basic
+input_generator: aarch64-nzcv
+enable_pre_run_flush: 1
+executor_warmups: 5
+input_gen_seed: 0
+contract_execution_clause:
+  - bpas
+  - barrier
+contract_observation_clause: ct
