@@ -282,8 +282,7 @@ rolls back.
 ```
 
 The speculation engine is built so contracts are **composable**: a run enables a set of independent
-*execution clauses* and the engine runs them together over one instruction stream. The three
-clauses:
+*execution clauses* and the engine runs them together over one instruction stream. The clauses:
 
 - **`cond`** (always-mispredict): at a conditional branch, checkpoint the architectural
   continuation and redirect to the mispredicted path.
@@ -302,6 +301,17 @@ clauses:
   the committed store. Nested bypasses stack (one deferred entry per open window, LIFO), so with two
   nested stores the trace visits *bypass-both → inner store committed → bypass-only-outer → both
   committed*, and the inner store is re-emitted before the outer.
+- **`barrier`** (honor `SSBB`/`PSSBB`): these are store→load *reordering* barriers. A barrier does
+  **not** squash store-bypass speculation — a value already bypassed into a register *before* the
+  barrier stays stale and can still be transmitted *after* it (exactly the Neoverse-N3 behavior).
+  Instead, at the barrier every open bypassed store is committed to live memory (`after` written back
+  at its address, oldest→newest so the last store wins), so loads *past* the barrier see committed
+  values — no forwarding across the barrier — while registers and the speculation itself continue
+  untouched; each window still rolls back to the architectural state at its natural end. The stronger
+  barriers `DSB`/`ISB`/`SB` (which complete prior accesses / flush the pipeline / general speculation
+  barrier) instead **end** the mispredicted path — they squash the open bypass windows. `DMB` (ordering
+  only) fences nothing here. For nested stores the partial-bypass flows over-approximate, which is
+  conservative (the contract predicts more leakage, never less).
 
 **Window-scoped taint.** Every trace entry carries a **`window_id`** — a monotonic id, unique per
 speculative excursion (0 = architectural), that the engine stamps from the innermost open window.

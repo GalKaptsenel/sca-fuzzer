@@ -115,6 +115,7 @@ static uint32_t enc_ldp_signed(int rt, int rt2, int rn) {
 /* NOP */
 static uint32_t enc_nop(void)   { return 0xD503201Fu; }
 static uint32_t enc_ssbb(void)   { return 0xD503309Fu; }  /* store-bypass barrier (DSB #0)          */
+static uint32_t enc_pssbb(void)  { return 0xD503349Fu; }  /* physical store-bypass barrier (DSB #4)  */
 static uint32_t enc_dmb_sy(void) { return 0xD5033FBFu; }  /* ordering only — fences no speculation  */
 static uint32_t enc_sb(void)     { return 0xD50330FFu; }  /* full speculation barrier               */
 static uint32_t enc_isb(void)    { return 0xD5033FDFu; }  /* context sync — fences control          */
@@ -2171,6 +2172,14 @@ static uint64_t trace_max_nesting(ce_result_t *res) {
             m = res->entries[i].metadata.speculation_nesting;
     return m;
 }
+/* true if some SPECULATIVE trace entry holds `val` in GPR `reg` (used to catch a bypassed register). */
+static int saw_spec_reg_value(ce_result_t *res, int reg, uint64_t val) {
+    for (int i = 0; i < res->n_entries; ++i) {
+        instr_trace_entry_t *e = &res->entries[i];
+        if (e->metadata.speculation_nesting > 0 && e->cpu.gpr[reg] == val) return 1;
+    }
+    return 0;
+}
 static int count_loads(ce_result_t *res) {
     int c = 0;
     for (int i = 0; i < res->n_entries; ++i)
@@ -2218,10 +2227,11 @@ static int count_spec_load_value(ce_result_t *res, uint64_t val) {
     return c;
 }
 
-/* ---- SSBB cuts the store-bypass window (store ADJACENT to the barrier) ---- */
-static void test_integration_barrier_ssbb_cuts_bpas(void) {
-    /* STR X0;SSBB;LDR X1 (all [X29]).  bpas alone ignores SSBB and the load speculatively reads
-     * STALE.  bpas+barrier cuts the bypass at SSBB, so the load only ever sees the committed NEWV. */
+/* ---- SSBB commits the store to memory but does NOT squash speculation (store ADJACENT to barrier) -- */
+static void test_integration_barrier_ssbb_commits_no_squash(void) {
+    /* STR X0;SSBB;LDR X1 (all [X29]).  bpas alone ignores SSBB and the load speculatively reads STALE.
+     * bpas+barrier commits the store to memory at the SSBB, so a load PAST the barrier sees the
+     * committed NEWV (no forwarding across the barrier) — but speculation keeps running (not squashed). */
     uint32_t code[] = { enc_str_reg(0, 29), enc_ssbb(), enc_ldr_reg(1, 29) };
     ce_result_t bpas, barr;
     bool bpas_ok = run_bypass(code, 3, EXEC_CLAUSE_BPAS, &bpas);
@@ -2229,23 +2239,24 @@ static void test_integration_barrier_ssbb_cuts_bpas(void) {
     EXPECT(bpas_ok); EXPECT(barr_ok);
     if (bpas_ok) EXPECT(saw_spec_load_value(&bpas, STALE));           /* SSBB ignored -> bypass */
     if (barr_ok) {
-        EXPECT(!saw_spec_load_value(&barr, STALE));                  /* window cut at SSBB */
-        EXPECT(saw_load_value(&barr, NEWV));                         /* committed store visible */
-        EXPECT_EQ(trace_max_nesting(&barr), (uint64_t)0);
+        EXPECT(!saw_spec_load_value(&barr, STALE));                  /* load past barrier: no stale... */
+        EXPECT(saw_load_value(&barr, NEWV));                         /* ...it sees the committed store */
+        EXPECT(trace_max_nesting(&barr) >= (uint64_t)1);            /* speculation NOT squashed */
     }
 }
 
-/* ---- SSBB cut also works when the window is already open before the barrier ---- */
-static void test_integration_barrier_ssbb_cuts_bpas_nonadjacent(void) {
+/* ---- same, when the window is already open before the barrier (NOP between store and SSBB) ---- */
+static void test_integration_barrier_ssbb_commits_no_squash_nonadjacent(void) {
     /* A NOP between the store and SSBB means bpas phase B has already pushed the window before the
-     * barrier is reached (the other unwind path than the adjacent case above). */
+     * barrier is reached (the other code path than the adjacent case above). */
     uint32_t code[] = { enc_str_reg(0, 29), enc_nop(), enc_ssbb(), enc_ldr_reg(1, 29) };
     ce_result_t barr;
     bool ok = run_bypass(code, 4, EXEC_CLAUSE_BPAS | EXEC_CLAUSE_BARRIER, &barr);
     EXPECT(ok);
     if (ok) {
-        EXPECT(!saw_spec_load_value(&barr, STALE));
+        EXPECT(!saw_spec_load_value(&barr, STALE));                  /* load past barrier sees committed */
         EXPECT(saw_load_value(&barr, NEWV));
+        EXPECT(trace_max_nesting(&barr) >= (uint64_t)1);            /* speculation NOT squashed */
     }
 }
 
@@ -2274,26 +2285,67 @@ static void test_integration_barrier_ssbb_no_store(void) {
     }
 }
 
-/* ---- one SSBB collapses MULTIPLE nested store-bypass windows (min-id revert) ---- */
-static void test_integration_barrier_ssbb_cuts_nested_bpas(void) {
-    /* STR X0(SV1);STR X1(SV2);SSBB;LDR X2 (all [X29]).  bpas alone speculatively reads the
-     * suffix-bypass values (SV1 and ORIG) as well as SV2; bpas+barrier must revert BOTH windows at
-     * the SSBB, leaving only the fully-committed SV2 with no speculative reads past the barrier. */
+/* ---- an SSBB commits MULTIPLE open store-bypass windows to memory (no squash) ---- */
+static void test_integration_barrier_ssbb_nested_commits_no_squash(void) {
+    /* STR X0(SV1);STR X1(SV2);SSBB;LDR X2 (all [X29]).  At the SSBB every open bypassed store is
+     * committed to live memory (oldest->newest, last write wins), so a load past the barrier can see
+     * the fully-committed SV2, memory is committed (no fully-stale ORIG read past the barrier), and
+     * speculation is not squashed. (Partial-bypass flows over-approximate for nested stores, which is
+     * conservative for the fuzzer — it predicts more leakage, never less.) */
     uint32_t code[] = { enc_str_reg(0, 29), enc_str_reg(1, 29), enc_ssbb(), enc_ldr_reg(2, 29) };
     uint64_t regs[REGS_COUNT] = { 0 }; regs[0] = SV1; regs[1] = SV2;
 
-    ce_result_t bpas, barr;
-    bool bpas_ok = run_gadget(code, 4, 8, EXEC_CLAUSE_BPAS, regs, &bpas);
-    bool barr_ok = run_gadget(code, 4, 8, EXEC_CLAUSE_BPAS | EXEC_CLAUSE_BARRIER, regs, &barr);
-    EXPECT(bpas_ok); EXPECT(barr_ok);
-    if (bpas_ok) {                                          /* SSBB ignored: full suffix-bypass set */
-        EXPECT(saw_spec_load_value(&bpas, SV1));
-        EXPECT(saw_spec_load_value(&bpas, ORIG));
+    ce_result_t barr;
+    bool ok = run_gadget(code, 4, 8, EXEC_CLAUSE_BPAS | EXEC_CLAUSE_BARRIER, regs, &barr);
+    EXPECT(ok);
+    if (ok) {
+        EXPECT(saw_load_value(&barr, SV2));                /* fully-committed value visible past barrier */
+        EXPECT(!saw_spec_load_value(&barr, ORIG));         /* memory committed -> no fully-stale read */
+        EXPECT(trace_max_nesting(&barr) >= (uint64_t)1);  /* speculation NOT squashed */
     }
+}
+
+/* ---- THE LEAK: a value bypassed into a REGISTER before the SSBB stays stale AFTER it ---- */
+static void test_integration_barrier_ssbb_register_bypass_survives(void) {
+    /* STR X0;LDR X1;SSBB;LDR X2 (all [X29]).  LDR X1 bypasses the store, reading STALE into X1.  The
+     * SSBB commits memory (a re-load past it reads NEWV) but must NOT revert X1: a value already
+     * bypassed into a register survives the barrier and could be transmitted after it (the N3 leak). */
+    uint32_t code[] = { enc_str_reg(0, 29), enc_ldr_reg(1, 29), enc_ssbb(), enc_ldr_reg(2, 29) };
+    ce_result_t bpas, barr;
+    bool bpas_ok = run_bypass(code, 4, EXEC_CLAUSE_BPAS, &bpas);
+    bool barr_ok = run_bypass(code, 4, EXEC_CLAUSE_BPAS | EXEC_CLAUSE_BARRIER, &barr);
+    EXPECT(bpas_ok); EXPECT(barr_ok);
+    if (bpas_ok) EXPECT(saw_spec_reg_value(&bpas, 1, STALE));   /* bpas alone: X1 bypassed to STALE */
     if (barr_ok) {
-        EXPECT(saw_load_value(&barr, SV2));                /* committed value visible */
-        EXPECT(!saw_spec_load_value(&barr, SV1));          /* no LOAD reads a bypassed value... */
-        EXPECT(!saw_spec_load_value(&barr, ORIG));         /* ...both windows collapsed at the SSBB */
+        EXPECT(saw_spec_reg_value(&barr, 1, STALE));           /* X1 keeps the bypassed value past the SSBB */
+        EXPECT(saw_load_value(&barr, NEWV));                   /* but memory is committed: LDR X2 = NEWV */
+        /* (LDR X1, before the barrier, does read STALE — that is the bypass itself.) */
+    }
+}
+
+/* ---- PSSBB behaves like SSBB: commit memory, do not squash speculation ---- */
+static void test_integration_barrier_pssbb_commits_no_squash(void) {
+    uint32_t code[] = { enc_str_reg(0, 29), enc_pssbb(), enc_ldr_reg(1, 29) };
+    ce_result_t barr;
+    bool ok = run_bypass(code, 3, EXEC_CLAUSE_BPAS | EXEC_CLAUSE_BARRIER, &barr);
+    EXPECT(ok);
+    if (ok) {
+        EXPECT(!saw_spec_load_value(&barr, STALE));
+        EXPECT(saw_load_value(&barr, NEWV));
+        EXPECT(trace_max_nesting(&barr) >= (uint64_t)1);      /* speculation NOT squashed */
+    }
+}
+
+/* ---- ISB (pipeline flush) is stronger: it DOES squash the store-bypass window (unlike SSBB) ---- */
+static void test_integration_barrier_isb_squashes_bpas(void) {
+    uint32_t code[] = { enc_str_reg(0, 29), enc_isb(), enc_ldr_reg(1, 29) };
+    ce_result_t barr;
+    bool ok = run_bypass(code, 3, EXEC_CLAUSE_BPAS | EXEC_CLAUSE_BARRIER, &barr);
+    EXPECT(ok);
+    if (ok) {
+        EXPECT(!saw_spec_load_value(&barr, STALE));
+        EXPECT(saw_load_value(&barr, NEWV));
+        EXPECT_EQ(trace_max_nesting(&barr), (uint64_t)0);     /* pipeline flush: speculation squashed */
     }
 }
 
@@ -3140,9 +3192,12 @@ int main(void) {
     test_integration_cond_bpas_composition();
     test_integration_cond_nesting_cap();
     test_integration_bpas_three_stores_value_set();
-    test_integration_barrier_ssbb_cuts_bpas();
-    test_integration_barrier_ssbb_cuts_bpas_nonadjacent();
-    test_integration_barrier_ssbb_cuts_nested_bpas();
+    test_integration_barrier_ssbb_commits_no_squash();
+    test_integration_barrier_ssbb_commits_no_squash_nonadjacent();
+    test_integration_barrier_ssbb_nested_commits_no_squash();
+    test_integration_barrier_ssbb_register_bypass_survives();
+    test_integration_barrier_pssbb_commits_no_squash();
+    test_integration_barrier_isb_squashes_bpas();
     test_integration_barrier_dmb_no_cut();
     test_integration_barrier_ssbb_no_store();
     test_integration_barrier_store_after_not_fenced();

@@ -88,12 +88,40 @@ static void bpas_on_rollback(struct simulation_state* sim_state,
 	spec_reload_checkpoint(sim_state, frame);
 }
 
-/* A store-bypass barrier ends the bypass window: a load past it must see the committed store, so
- * revert through the oldest open bypass window and everything nested in it.
- * (A load in program order BEFORE the barrier never reads a later store — the CE runs in program
- * order and never forwards from a future store — so that half of SSBB needs no modeling.) */
+/* Write a bypassed store's committed value(s) back into live memory: its `after` at its effective
+ * address, pair-aware. (sim_state->memory is simulation_memory, which kaddr2uaddr indexes.) */
+static void bpas_commit_store(const instr_trace_entry_t* store) {
+	const mem_access_t* a = &store->metadata.memory_access;
+	memcpy(kaddr2uaddr((void*)(uintptr_t)a->effective_address), &a->after, (size_t)a->element_size);
+	if (store->metadata.is_pair) {
+		const mem_access_t* b = &store->metadata.memory_access2;
+		memcpy(kaddr2uaddr((void*)(uintptr_t)b->effective_address), &b->after, (size_t)b->element_size);
+	}
+}
+
+/* Barrier handling for store bypass. Two regimes:
+ *
+ *  - SSBB / PSSBB are store->load *reordering* barriers only. They stop a load after the barrier from
+ *    bypassing a store before it, but they do NOT squash speculation: a value already bypassed into a
+ *    register before the barrier stays stale, and it can still be transmitted after the barrier. So we
+ *    commit every open bypassed store into live memory (oldest -> newest, last write wins), so loads
+ *    past the barrier see committed values, while leaving registers and the speculation itself
+ *    untouched. The windows stay open and still roll back to the architectural state at their natural end.
+ *
+ *  - DSB / ISB / SB are stronger (complete prior accesses / flush the pipeline / general speculation
+ *    barrier): they end the mispredicted path, so keep the squash — revert through the oldest open
+ *    bypass window and everything nested in it.
+ *
+ * (A load in program order BEFORE the barrier never reads a later store — the CE runs in program order
+ * and never forwards from a future store — so that half of the barrier needs no modeling.) */
 static uint64_t bpas_on_barrier(struct simulation_state* sim_state) {
-	if (!barrier_fences_store_bypass(*(uint32_t*)sim_state->cpu_state.pc)) return SPEC_NO_REVERT;
+	uint32_t insn = *(uint32_t*)sim_state->cpu_state.pc;
+	barrier_kind_t kind = barrier_kind(insn);
+	if (BARRIER_SSBB == kind || BARRIER_PSSBB == kind) {
+		for (size_t i = 0; i < bpas_deferred_top; ++i) bpas_commit_store(&bpas_deferred[i]);
+		return SPEC_NO_REVERT;
+	}
+	if (!barrier_fences_store_bypass(insn)) return SPEC_NO_REVERT;
 	return spec_oldest_frame_of_owner(bpas_index);
 }
 
