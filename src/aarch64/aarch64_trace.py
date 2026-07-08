@@ -215,24 +215,29 @@ class _TaintTracker:
     def __init__(self) -> None:
         self._written: Dict[int, Set[int]] = {0: set()}  # window id -> offsets written in it
         self._live: List[int] = [0]                      # _live[d] = window id at depth d; 0 = architectural
+        self._synth_id: int = 0                          # decreasing ids for skipped windows (never real)
         self.must_preserve: Set[int] = set()
 
     def enter(self, depth: int, window_id: int) -> None:
         """Move to the (depth, window_id) an instruction executed under, updating the live path."""
-        if depth > len(self._live):
-            raise AssertionError(
-                f"speculation depth jumped to {depth} from {len(self._live) - 1}; "
-                "expected a change of at most +1 (one fork per instruction)")
+        # One instruction can open several windows at once (a bpas phase-B push plus a cond fork), so
+        # nesting may rise by more than 1. The skipped intermediate levels ran no logged instruction and
+        # hence hold no writes; fill them with empty placeholder windows (unique negative ids) so the
+        # live-path union and discard bookkeeping stay well-formed.
+        while len(self._live) < depth:
+            self._synth_id -= 1
+            self._live.append(self._synth_id)
+            self._written[self._synth_id] = set()
         if depth < len(self._live) and self._live[depth] == window_id:
             self._discard(depth + 1)            # same window continues; drop only its unwound children
         else:
             self._discard(depth)                # a new window at this depth: fork or post-unwind sibling
             self._live.append(window_id)
-            self._written.setdefault(window_id, set())
+            self._written[window_id] = set()    # window ids are never reused, so this is always fresh
 
     def _discard(self, from_depth: int) -> None:
         for wid in self._live[from_depth:]:
-            self._written.pop(wid, None)
+            del self._written[wid]              # every live window has an entry; a miss is a real bug
         del self._live[from_depth:]
 
     def on_read(self, offsets: Iterable[int]) -> None:

@@ -96,15 +96,16 @@ def _make_trace(*steps: dict) -> Tuple[List[_ITE], object]:
         if 'window' in step:
             wid = step['window']
             win_stack[depth:] = [wid]
-        elif depth == len(win_stack):
+        elif depth >= len(win_stack):
+            while len(win_stack) < depth:      # multi-fork: skipped intermediate windows (no instr)
+                win_counter += 1
+                win_stack.append(win_counter)
             win_counter += 1
             wid = win_counter
             win_stack.append(wid)
-        elif depth < len(win_stack):
+        else:                                  # depth < len: same window continues or unwind
             del win_stack[depth + 1:]
             wid = win_stack[depth]
-        else:
-            raise ValueError(f"mock depth jumped to {depth} from {len(win_stack) - 1} (max +1)")
         step['_wid'] = wid
 
     for enc, step in enumerate(steps):
@@ -272,12 +273,20 @@ class TestTaintTracker(unittest.TestCase):
         tt.on_read([0])          # 0 was arch-written in window 0 → still live → not preserved
         self.assertNotIn(0, tt.must_preserve)
 
-    def test_depth_jump_raises(self):
-        # A depth increase of more than +1 is impossible (one fork per instruction) → fail loud.
+    def test_multi_fork_depth_jump_fills_empty_windows(self):
+        # One instruction can open several windows at once (bpas phase-B push + cond fork), so nesting
+        # can rise by >1. The skipped level carries no logged instruction (no writes); a read at the
+        # deeper level is still preserved (nothing wrote it) and later use of the skipped level works.
         tt = _TaintTracker()
-        tt.enter(0, 0)
-        with self.assertRaises(AssertionError):
-            tt.enter(2, 5)
+        tt.enter(0, 0); tt.on_write([1])        # arch writes byte 1
+        tt.enter(3, 7)                          # jump 0 -> 3 (windows 1,2 skipped/empty, 3 is real)
+        tt.on_read([1])                         # arch write is on the live path -> not preserved
+        tt.on_read([9])                         # never written on any live window -> preserved
+        self.assertNotIn(1, tt.must_preserve)
+        self.assertIn(9, tt.must_preserve)
+        # unwinding into a previously-skipped level still works (no dangling placeholder)
+        tt.enter(1, 4); tt.on_read([1])
+        self.assertNotIn(1, tt.must_preserve)   # arch (window 0) still on the live path
 
     def test_empty_offsets_noop(self):
         tt = _TaintTracker()
