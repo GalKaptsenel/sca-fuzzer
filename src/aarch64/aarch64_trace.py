@@ -5,7 +5,7 @@ File: AArch64 execution-trace analysis.
 """
 import numpy as np
 import struct
-from typing import Iterable, Iterator, List, Set
+from typing import Dict, Iterable, Iterator, List, Set
 from itertools import chain
 
 from ..interfaces import CTrace, InputTaint
@@ -97,13 +97,13 @@ class CPUState:
 
 
 class InstrMetadata:
-    _STRUCT = struct.Struct("<QQQQ")
+    _STRUCT = struct.Struct("<QQQQQ")
 
     def __init__(self, buf: memoryview, offset: int):
         off = offset
 
         (self.instr_index, self.has_memory_access,
-         self.speculation_nesting, self.is_pair) = self._STRUCT.unpack_from(buf, offset)
+         self.speculation_nesting, self.is_pair, self.window_id) = self._STRUCT.unpack_from(buf, offset)
         off += self._STRUCT.size
 
         self.memory_access = MemAccess(buf, off)
@@ -202,29 +202,45 @@ class _TaintTracker:
     """
     Tracks must-preserve input byte offsets across a DFS-ordered CE execution trace.
 
-    A depth-indexed write stack mirrors speculation nesting: writes at depth D are
-    visible to reads at depth <= D and are discarded when nesting decreases (squashed).
-    Depth-0 writes are architectural and persist for the whole trace.
+    Writes are scoped by speculation *window*, not by raw nesting depth. The live path from
+    the architectural flow (window 0) to the current instruction is `_live`, one window id per
+    depth. A read is masked only by writes made in windows on that live path; a write lands in
+    the innermost live window. When the trace re-forks — including a same-depth re-fork after an
+    unwind, which shares a depth but gets a fresh window id — the unwound sibling drops off the
+    live path and its writes stop masking, so squashed speculation cannot hide an input read.
 
-    Extensible: instantiate one _TaintTracker per input region (GPR, memory, SIMD, …).
+    Instantiate one _TaintTracker per input region (GPR, memory, SIMD, …).
     """
 
     def __init__(self) -> None:
-        self._written: List[Set[int]] = [set()]
+        self._written: Dict[int, Set[int]] = {0: set()}  # window id -> offsets written in it
+        self._live: List[int] = [0]                      # _live[d] = window id at depth d; 0 = architectural
         self.must_preserve: Set[int] = set()
 
-    def set_depth(self, depth: int) -> None:
-        while len(self._written) <= depth:
-            self._written.append(set())
-        while len(self._written) > depth + 1:
-            self._written.pop()
+    def enter(self, depth: int, window_id: int) -> None:
+        """Move to the (depth, window_id) an instruction executed under, updating the live path."""
+        if depth > len(self._live):
+            raise AssertionError(
+                f"speculation depth jumped to {depth} from {len(self._live) - 1}; "
+                "expected a change of at most +1 (one fork per instruction)")
+        if depth < len(self._live) and self._live[depth] == window_id:
+            self._discard(depth + 1)            # same window continues; drop only its unwound children
+        else:
+            self._discard(depth)                # a new window at this depth: fork or post-unwind sibling
+            self._live.append(window_id)
+            self._written.setdefault(window_id, set())
 
-    def on_read(self, offsets: Iterable[int], depth: int) -> None:
-        written = set().union(*self._written[:depth + 1])
+    def _discard(self, from_depth: int) -> None:
+        for wid in self._live[from_depth:]:
+            self._written.pop(wid, None)
+        del self._live[from_depth:]
+
+    def on_read(self, offsets: Iterable[int]) -> None:
+        written = set().union(*(self._written[w] for w in self._live))
         self.must_preserve.update(o for o in offsets if o not in written)
 
-    def on_write(self, offsets: Iterable[int], depth: int) -> None:
-        self._written[depth].update(offsets)
+    def on_write(self, offsets: Iterable[int]) -> None:
+        self._written[self._live[-1]].update(offsets)
 
 
 def compute_taint(cer: ContractExecutionResult) -> InputTaint:
@@ -244,9 +260,8 @@ def compute_taint(cer: ContractExecutionResult) -> InputTaint:
     mem_tracker = _TaintTracker()
 
     for ite in cer:
-        depth = ite.metadata.speculation_nesting
-        gpr_tracker.set_depth(depth)
-        mem_tracker.set_depth(depth)
+        gpr_tracker.enter(ite.metadata.speculation_nesting, ite.metadata.window_id)
+        mem_tracker.enter(ite.metadata.speculation_nesting, ite.metadata.window_id)
 
         for ma in ite.metadata.accesses():
             offsets = [o for o in (ma.effective_address + b - ite.cpu.gpr[_SANDBOX_BASE_GPR]
@@ -254,16 +269,16 @@ def compute_taint(cer: ContractExecutionResult) -> InputTaint:
                        if 0 <= o < mem_size]
             if ma.is_atomic:
                 # read-modify-write: the cell is read (a source) and then written
-                mem_tracker.on_read(offsets, depth)
-                mem_tracker.on_write(offsets, depth)
+                mem_tracker.on_read(offsets)
+                mem_tracker.on_write(offsets)
             elif ma.is_write:
-                mem_tracker.on_write(offsets, depth)
+                mem_tracker.on_write(offsets)
             else:
-                mem_tracker.on_read(offsets, depth)
+                mem_tracker.on_read(offsets)
 
         srcs, dests = decode_reg_accesses(ite.cpu.encoding, ite.cpu.pc)
-        gpr_tracker.on_read(chain.from_iterable(map(map_register_to_offsets, srcs)), depth)
-        gpr_tracker.on_write(chain.from_iterable(map(map_register_to_offsets, dests)), depth)
+        gpr_tracker.on_read(chain.from_iterable(map(map_register_to_offsets, srcs)))
+        gpr_tracker.on_write(chain.from_iterable(map(map_register_to_offsets, dests)))
 
     for offset in gpr_tracker.must_preserve:
         gpr_u8[offset] = True

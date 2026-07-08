@@ -73,6 +73,10 @@ uint64_t spec_nesting(void)     { return mgmt.current_nesting; }
 uint64_t spec_max_nesting(void) { return mgmt.max_nesting; }
 uint64_t spec_memory_size(void) { return mgmt.memory_size; }
 
+uint64_t spec_current_window_id(void) {
+	return (0 == mgmt.stack_top) ? 0 : mgmt.stack[mgmt.stack_top - 1].window_id;
+}
+
 uint64_t spec_oldest_frame_of_owner(uint64_t owner) {
 	for(uint64_t i = 0; i < mgmt.stack_top; ++i) {
 		if(mgmt.stack[i].owner == owner) return i;   /* stack is oldest-first */
@@ -91,6 +95,7 @@ void spec_push_frame(struct simulation_state* sim_state, uintptr_t return_addr, 
 	mgmt.stack[mgmt.stack_top].checkpoint_id = take_checkpoint(sim_state);
 	mgmt.stack[mgmt.stack_top].owner         = owner;
 	mgmt.stack[mgmt.stack_top].start_instr   = mgmt.instr_count;
+	mgmt.stack[mgmt.stack_top].window_id     = ++mgmt.next_window_id;
 	++mgmt.stack_top;
 	++mgmt.current_nesting;
 }
@@ -121,6 +126,7 @@ static void ensure_initialized(void) {
 		__builtin_trap();
 	}
 	mgmt.current_checkpoint_id = 0;
+	mgmt.next_window_id = 0;   /* ids start at 1; 0 is the architectural flow */
 	mgmt.memory_size = simulation.sim_input.mem_size + 0x1000; // + overflow page
 	size_t checkpoints_array_size = mgmt.max_checkpoints * sizeof(struct execution_checkpoint);
 	mgmt.checkpoints_array = malloc(checkpoints_array_size);
@@ -173,7 +179,7 @@ static void* handle_window_end(struct simulation_state* sim_state) {
 }
 
 void* log_instr_execution_cluase_hook(struct simulation_state* sim_state) {
-	log_instr_with_speculation_nesting(sim_state, mgmt.current_nesting);
+	log_instr_with_speculation_nesting(sim_state, mgmt.current_nesting, spec_current_window_id());
 	return NULL;
 }
 

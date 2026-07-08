@@ -1110,6 +1110,61 @@ static void test_integration_postidx_writeback_cpu_state(void) {
     EXPECT_EQ(e1->metadata.memory_access.effective_address, KBASE + 8);
 }
 
+/* ---- GROUP 20c: window_id — unique per speculative excursion ----------- */
+
+static void test_integration_window_id_unique_per_excursion(void) {
+    /*
+     * Two CBZ branches, then an architectural load. With X0=0 both CBZs are TAKEN, so each skips its
+     * own LDR architecturally and mispredicts into a SEPARATE depth-1 window; the trailing LDR X3 runs
+     * architecturally. The two speculative loads share nesting=1 but MUST carry DIFFERENT window ids
+     * (checkpoint slots are reused across excursions; window ids are not). This is what lets the taint
+     * tracker tell a dead sibling flow from the live one. Architectural entries carry window_id 0.
+     */
+    uint32_t code[] = {
+        enc_cbz(0, +8),               /* CBZ X0,+8  taken -> skip LDR X1; window A explores fall-through */
+        enc_ldr_reg(1, 29),           /* LDR X1,[X29]        (speculative only) */
+        enc_cbz(0, +8),               /* CBZ X0,+8  taken -> skip LDR X2; window B explores fall-through */
+        enc_ldr_unsigned(2, 29, 8),   /* LDR X2,[X29,#8]     (speculative only) */
+        enc_ldr_unsigned(3, 29, 16),  /* LDR X3,[X29,#16]    (architectural) */
+    };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+
+    ce_result_t res;
+    if (!run_ce_simple(code, 5, mem, sizeof(mem), KBASE, 1, EXEC_CLAUSE_COND, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    /* Order-independent checks: architectural entries carry window_id 0, speculative entries carry a
+     * non-zero id, and (the fix) two speculative entries at the SAME nesting come from distinct
+     * excursions and so carry DIFFERENT window ids — which a reused checkpoint slot could never show. */
+    int n = count_mem_entries(&res);
+    int arch_seen = 0, arch_window_ok = 1, spec_ids_nonzero = 1, same_depth_distinct = 0;
+    for (int i = 0; i < n; ++i) {
+        instr_trace_entry_t *ei = find_mem_entry(&res, i);
+        if (0 == ei->metadata.speculation_nesting) {
+            arch_seen = 1;
+            if (0 != ei->metadata.window_id) arch_window_ok = 0;
+            continue;
+        }
+        if (0 == ei->metadata.window_id) spec_ids_nonzero = 0;
+        for (int j = i + 1; j < n; ++j) {
+            instr_trace_entry_t *ej = find_mem_entry(&res, j);
+            if (ej->metadata.speculation_nesting == ei->metadata.speculation_nesting &&
+                ej->metadata.window_id != ei->metadata.window_id) {
+                same_depth_distinct = 1;
+            }
+        }
+    }
+
+    EXPECT(arch_seen);                 /* the trailing LDR X3 ran architecturally */
+    EXPECT(arch_window_ok);            /* architectural entries have window_id 0 */
+    EXPECT(spec_ids_nonzero);          /* speculative entries have a non-zero window id */
+    EXPECT(same_depth_distinct);       /* sibling flows at one depth get distinct window ids */
+}
+
 /* ---- GROUP 20: ALWAYS_MISPREDICT CBZ taken — spec NOT-TAKEN first ------ */
 
 static void test_integration_always_mispredict_cbz(void) {
@@ -3067,6 +3122,7 @@ int main(void) {
     test_integration_load_updates_dest_reg();
     test_integration_postidx_writeback_cpu_state();
     test_integration_always_mispredict_cbz();
+    test_integration_window_id_unique_per_excursion();
     test_integration_spec_window_cap();
     test_integration_always_mispredict_cbnz();
     test_integration_tbz_bit32();

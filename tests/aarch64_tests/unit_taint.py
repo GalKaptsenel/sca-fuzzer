@@ -37,6 +37,7 @@ class _Meta:
     memory_access: Optional[_MA] = None
     is_pair: bool = False
     memory_access2: Optional[_MA] = None
+    window_id: int = 0
 
     def accesses(self):
         if not self.has_memory_access:
@@ -65,6 +66,9 @@ def _make_trace(*steps: dict) -> Tuple[List[_ITE], object]:
 
     Each step is a dict with optional keys:
       depth   : int              speculation nesting (default 0)
+      window  : int              window id override; by default ids are auto-assigned from the depth
+                                 transitions (as the CE does). Set this to model a same-depth re-fork
+                                 after a hidden unwind — a new flow that shares a depth but not an id.
       srcs    : List[str]        register source operands
       dests   : List[str]        register destination operands
       mem     : (offset, size, is_write[, before])  memory access relative to sandbox base
@@ -82,6 +86,27 @@ def _make_trace(*steps: dict) -> Tuple[List[_ITE], object]:
     ites: List[_ITE] = []
     patch_map: Dict[int, Tuple[List[str], List[str]]] = {}
 
+    # Mirror the CE's window bookkeeping: a monotonic counter that never decrements, plus a per-depth
+    # stack. Depth+1 opens a fresh window; the same depth continues the same window; an explicit
+    # 'window' forces a distinct id (the hidden-unwind sibling the depth number alone cannot express).
+    win_stack: List[int] = [0]
+    win_counter = 0
+    for step in steps:
+        depth = step.get('depth', 0)
+        if 'window' in step:
+            wid = step['window']
+            win_stack[depth:] = [wid]
+        elif depth == len(win_stack):
+            win_counter += 1
+            wid = win_counter
+            win_stack.append(wid)
+        elif depth < len(win_stack):
+            del win_stack[depth + 1:]
+            wid = win_stack[depth]
+        else:
+            raise ValueError(f"mock depth jumped to {depth} from {len(win_stack) - 1} (max +1)")
+        step['_wid'] = wid
+
     for enc, step in enumerate(steps):
         gprs = [0] * 31
         gprs[29] = SANDBOX_BASE
@@ -89,7 +114,7 @@ def _make_trace(*steps: dict) -> Tuple[List[_ITE], object]:
         mem = step.get('mem')
         ma = _mk_ma(mem) if mem else None
 
-        meta = _Meta(step.get('depth', 0), ma is not None, ma)
+        meta = _Meta(step.get('depth', 0), ma is not None, ma, window_id=step['_wid'])
         mem2 = step.get('mem2')
         if mem2:
             meta.is_pair = True
@@ -167,79 +192,106 @@ class TestTaintTracker(unittest.TestCase):
 
     def test_unread_cell_not_preserved(self):
         tt = _TaintTracker()
-        tt.set_depth(0)
-        tt.on_write([0, 1, 2], depth=0)
+        tt.enter(0, 0)
+        tt.on_write([0, 1, 2])
         self.assertFalse(tt.must_preserve)
 
     def test_read_before_write_preserved(self):
         tt = _TaintTracker()
-        tt.set_depth(0)
-        tt.on_read([5], depth=0)
+        tt.enter(0, 0)
+        tt.on_read([5])
         self.assertIn(5, tt.must_preserve)
 
     def test_two_spec_branches_union_of_reads(self):
-        # Two sequential spec branches from the same arch point.
+        # Two sequential spec branches from the same arch point (distinct window ids).
         # First branch reads 5; second branch reads 8. Both must be preserved.
         tt = _TaintTracker()
-        tt.set_depth(1)
-        tt.on_read([5], depth=1)
-        tt.set_depth(0)           # first spec exits
-        tt.set_depth(1)
-        tt.on_read([8], depth=1)
-        tt.set_depth(0)
+        tt.enter(1, 1)
+        tt.on_read([5])
+        tt.enter(0, 0)            # first spec exits
+        tt.enter(1, 2)           # second branch: same depth, fresh window
+        tt.on_read([8])
+        tt.enter(0, 0)
         self.assertIn(5, tt.must_preserve)
         self.assertIn(8, tt.must_preserve)
 
     def test_second_spec_branch_sees_only_arch_writes(self):
-        # First spec branch writes 5. Second spec branch (new, after exit) reads 5.
+        # First spec branch writes 5. Second spec branch (new window, after exit) reads 5.
         # The first spec's write was squashed — second branch sees only arch writes.
         tt = _TaintTracker()
-        tt.set_depth(1)
-        tt.on_write([5], depth=1)
-        tt.set_depth(0)           # first spec exits, write squashed
-        tt.set_depth(1)           # new fresh spec sub-tree
-        tt.on_read([5], depth=1)  # no arch write or prior spec write of 5 → preserved
+        tt.enter(1, 1)
+        tt.on_write([5])
+        tt.enter(0, 0)           # first spec exits, write squashed
+        tt.enter(1, 2)           # new fresh spec sub-tree (distinct window)
+        tt.on_read([5])          # no arch write or prior spec write of 5 → preserved
         self.assertIn(5, tt.must_preserve)
 
-    def test_deep_nesting_stack_integrity(self):
-        # 0→1→2→3→2→1→0, verify each level's writes are scoped correctly.
+    def test_same_depth_sibling_write_does_not_mask_read(self):
+        # THE FIX: two flows share depth 1 with NO depth dip between them (hidden unwind + re-fork),
+        # but carry distinct window ids. A write in the first flow must NOT mask a read in the second.
         tt = _TaintTracker()
-        tt.set_depth(0); tt.on_write([0], depth=0)
-        tt.set_depth(1); tt.on_write([1], depth=1)
-        tt.set_depth(2); tt.on_write([2], depth=2)
-        tt.set_depth(3); tt.on_write([3], depth=3)
-        # At depth 3: sees 0,1,2,3
-        tt.on_read([0, 1, 2, 3], depth=3)
+        tt.enter(1, 1)
+        tt.on_write([7])         # dead sibling writes 7
+        tt.enter(1, 2)           # re-fork at the same depth — new window, no depth change
+        tt.on_read([7])          # live flow reads the seed value of 7 → must be preserved
+        self.assertIn(7, tt.must_preserve)
+
+    def test_same_depth_same_window_write_masks_read(self):
+        # Control for the above: same depth AND same window id = one continuous flow, so an earlier
+        # write DOES mask the later read (write-before-read on the same path).
+        tt = _TaintTracker()
+        tt.enter(1, 1)
+        tt.on_write([7])
+        tt.enter(1, 1)           # same window continues
+        tt.on_read([7])
+        self.assertNotIn(7, tt.must_preserve)
+
+    def test_deep_nesting_stack_integrity(self):
+        # 0→1→2→3→2→1→0, verify each level's writes are scoped to their window.
+        tt = _TaintTracker()
+        tt.enter(0, 0); tt.on_write([0])
+        tt.enter(1, 1); tt.on_write([1])
+        tt.enter(2, 2); tt.on_write([2])
+        tt.enter(3, 3); tt.on_write([3])
+        # At depth 3: the live path is windows {0,1,2,3} → sees 0,1,2,3
+        tt.on_read([0, 1, 2, 3])
         self.assertFalse(tt.must_preserve)
 
-        tt.set_depth(2)           # depth-3 squashed
-        tt.on_read([3], depth=2)  # 3 was written only at depth-3, now gone → preserved
+        tt.enter(2, 2)            # depth-3 window squashed
+        tt.on_read([3])          # 3 was written only in window 3, now gone → preserved
         self.assertIn(3, tt.must_preserve)
 
-        tt.set_depth(1)           # depth-2 squashed
-        tt.on_read([2], depth=1)  # 2 was written only at depth-2, now gone → preserved
+        tt.enter(1, 1)            # depth-2 window squashed
+        tt.on_read([2])          # 2 was written only in window 2, now gone → preserved
         self.assertIn(2, tt.must_preserve)
 
-        tt.set_depth(0)           # depth-1 squashed
-        tt.on_read([1], depth=0)  # 1 was written only at depth-1, now gone → preserved
+        tt.enter(0, 0)            # depth-1 window squashed
+        tt.on_read([1])          # 1 was written only in window 1, now gone → preserved
         self.assertIn(1, tt.must_preserve)
 
-        tt.on_read([0], depth=0)  # 0 was arch-written at depth-0 → still written → not preserved
+        tt.on_read([0])          # 0 was arch-written in window 0 → still live → not preserved
         self.assertNotIn(0, tt.must_preserve)
+
+    def test_depth_jump_raises(self):
+        # A depth increase of more than +1 is impossible (one fork per instruction) → fail loud.
+        tt = _TaintTracker()
+        tt.enter(0, 0)
+        with self.assertRaises(AssertionError):
+            tt.enter(2, 5)
 
     def test_empty_offsets_noop(self):
         tt = _TaintTracker()
-        tt.set_depth(0)
-        tt.on_read([], depth=0)
-        tt.on_write([], depth=0)
+        tt.enter(0, 0)
+        tt.on_read([])
+        tt.on_write([])
         self.assertFalse(tt.must_preserve)
 
     def test_partial_overlap_preserved(self):
         # Write covers bytes 0-3, read covers bytes 2-5 → bytes 4-5 not written → preserved.
         tt = _TaintTracker()
-        tt.set_depth(0)
-        tt.on_write([0, 1, 2, 3], depth=0)
-        tt.on_read([2, 3, 4, 5], depth=0)
+        tt.enter(0, 0)
+        tt.on_write([0, 1, 2, 3])
+        tt.on_read([2, 3, 4, 5])
         self.assertNotIn(2, tt.must_preserve)
         self.assertNotIn(3, tt.must_preserve)
         self.assertIn(4, tt.must_preserve)
@@ -362,8 +414,9 @@ class TestComputeTaint(unittest.TestCase):
     def test_nested_spec_write_squashed_on_exit(self):
         # Depth-2 writes x5, exits to depth-1, depth-1 reads x5 → squashed → preserved.
         t = _taint(
-            {'depth': 2, 'srcs': [],     'dests': ['x5']},
-            {'depth': 1, 'srcs': ['x5'], 'dests': []},
+            {'depth': 1, 'srcs': [],     'dests': []},       # fork to depth 1
+            {'depth': 2, 'srcs': [],     'dests': ['x5']},   # nested write
+            {'depth': 1, 'srcs': ['x5'], 'dests': []},       # back at depth 1: nested write squashed
         )
         self.assertTrue(_gpr_preserved(t, X5))
 
@@ -471,6 +524,17 @@ class TestComputeTaint(unittest.TestCase):
         )
         self.assertFalse(_gpr_preserved(t, X0))  # written before spec read
         self.assertTrue(_gpr_preserved(t, X1))   # spec read before arch write
+
+    def test_sibling_flow_flag_write_does_not_mask_branch_read(self):
+        # Regression for violation-260707-213240: a dead speculative sibling writes the N flag
+        # (SUBS/ADDS), then execution re-forks at the SAME depth (hidden unwind) and a conditional
+        # branch reads the seed N flag. The flag byte must stay must-preserve — otherwise boosting
+        # flips the branch and groups two architecturally-distinct inputs (false positive).
+        t = _taint(
+            {'depth': 1, 'srcs': ['x1', 'x4'], 'dests': ['N', 'Z', 'C', 'V', 'x2']},  # dead sibling: SUBS writes flags
+            {'depth': 1, 'srcs': ['N'], 'dests': [], 'window': 99},                    # re-fork: B.pl reads seed N
+        )
+        self.assertTrue(_flag_preserved(t, 'N'), "seed N flag must survive the sibling's write")
 
 
 # ===========================================================================

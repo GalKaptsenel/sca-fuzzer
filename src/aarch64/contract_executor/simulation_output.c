@@ -295,6 +295,9 @@ static instr_trace_entry_t* log_sim_state(struct simulation_state* sim_state) {
 	entry->cpu.extra_data_size = 0;
 	// no need to allocate space for extra data, because it is of size 0 for now
 
+	entry->metadata.speculation_nesting = 0;   // overridden by log_instr_with_speculation_nesting
+	entry->metadata.window_id = 0;             // architectural unless the speculation logger sets it
+
 	mem_access_info_t mi = parse_memory_access_instruction(entry->cpu.encoding, &entry->cpu);
 	entry->metadata.has_memory_access = mi.is_mem ? 1 : 0;
 	entry->metadata.is_pair = mi.is_pair ? 1 : 0;
@@ -313,10 +316,11 @@ static instr_trace_entry_t* log_sim_state(struct simulation_state* sim_state) {
 	return entry;
 }
 
-void* log_instr_with_speculation_nesting(struct simulation_state* sim_state, uint64_t speculation_nesting) {
+void* log_instr_with_speculation_nesting(struct simulation_state* sim_state, uint64_t speculation_nesting, uint64_t window_id) {
 	instr_trace_entry_t* entry = log_sim_state(sim_state);
 	if(NULL != entry) {
 		entry->metadata.speculation_nesting = speculation_nesting;
+		entry->metadata.window_id = window_id;
 	}
 	return NULL;
 }

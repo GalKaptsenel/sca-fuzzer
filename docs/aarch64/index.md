@@ -295,13 +295,22 @@ clauses:
 
   A bypassed store's **trace entry is deferred**: it is pulled out of the trace at bypass time and
   re-emitted when its window unwinds. Taint is derived from trace order (a byte is must-preserve if
-  it is read before it is written), so the store must be logged *after* the loads that read its
-  stale value — otherwise the store's write would mask them and the bypassed **input byte would not
-  be tainted**, letting boosting mutate it and produce a false-positive violation. Emitting the
-  store post-window instead lets those loads taint the input while post-window loads still see the
-  committed store. Nested bypasses stack (one deferred entry per open window, LIFO), so with two
+  it is read before it is written on its flow), so the store must be logged *after* the loads that
+  read its stale value — otherwise the store's write would mask them and the bypassed **input byte
+  would not be tainted**, letting boosting mutate it and produce a false-positive violation. Emitting
+  the store post-window instead lets those loads taint the input while post-window loads still see
+  the committed store. Nested bypasses stack (one deferred entry per open window, LIFO), so with two
   nested stores the trace visits *bypass-both → inner store committed → bypass-only-outer → both
   committed*, and the inner store is re-emitted before the outer.
+
+**Window-scoped taint.** Every trace entry carries a **`window_id`** — a monotonic id, unique per
+speculative excursion (0 = architectural), that the engine stamps from the innermost open window.
+Unlike the nesting *depth* (or the checkpoint slot, which is reused LIFO), it is never reused, so a
+same-depth re-fork after an unwind is a *distinct* window. `compute_taint` scopes writes by window:
+a read is masked only by writes made in windows on its live root-to-node path, so a write on a
+squashed sibling flow cannot hide an input read that a later, unrelated flow performs at the same
+depth. Without this, a speculative flag write (e.g. `SUBS` on a mispredicted path) would mask a
+conditional branch's read of the seed flag and boosting would flip the branch — a false positive.
 
 Supported clause combinations are validated in both Python and C: `seq` (empty), `cond`, `bpas`,
 `bpu`, and `cond|bpas`; two branch models together (`cond|bpu`) are rejected.

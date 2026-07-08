@@ -40,6 +40,7 @@ typedef struct {
 	uint64_t has_memory_access;		// boolean: the instruction accesses memory
 	uint64_t speculation_nesting;	// Speculation nesting (0 for no speculation)
 	uint64_t is_pair;		// boolean: LDP/STP — memory_access2 (element 1) is also valid
+	uint64_t window_id;		// unique id of the innermost live window (0 = architectural), never reused
 	mem_access_t memory_access;	// first (or only) access
 	mem_access_t memory_access2;	// second access (pair element 1); valid iff is_pair
 } instr_metadata_t;
@@ -55,17 +56,17 @@ typedef struct {
 	// dynamic array of trace entries
 } contract_trace_t;
 
-/* extra_data is unused (always size 0), so every entry is a fixed 416-byte stride the Python parser
+/* extra_data is unused (always size 0), so every entry is a fixed 424-byte stride the Python parser
  * relies on. Lock the layout: a field/padding change must fail the build, not silently desync. */
 _Static_assert(sizeof(mem_access_t) == 48, "mem_access_t layout changed");
 _Static_assert(sizeof(trace_cpu_state_t) == 288, "trace_cpu_state_t layout changed");
-_Static_assert(sizeof(instr_metadata_t) == 128, "instr_metadata_t layout changed");
-_Static_assert(sizeof(instr_trace_entry_t) == 416, "instr_trace_entry_t stride changed");
+_Static_assert(sizeof(instr_metadata_t) == 136, "instr_metadata_t layout changed");
+_Static_assert(sizeof(instr_trace_entry_t) == 424, "instr_trace_entry_t stride changed");
 _Static_assert(sizeof(contract_trace_t) == 16, "contract_trace_t header changed");
 
 void init_trace_log(size_t test_size);
 void* log_instr_hook(struct simulation_state* sim_state);
-void* log_instr_with_speculation_nesting(struct simulation_state* sim_state, uint64_t speculation_nesting);
+void* log_instr_with_speculation_nesting(struct simulation_state* sim_state, uint64_t speculation_nesting, uint64_t window_id);
 void destroy_trace_log();
 
 /* Relocate a trace entry (store-bypass clause): pop the last entry by value, and emit a saved copy
