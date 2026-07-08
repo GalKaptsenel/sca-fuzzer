@@ -16,7 +16,7 @@
 static uint8_t* bpas_preimage     = NULL;   /* snapshot of memory just before a pending store */
 static size_t   bpas_preimage_cap = 0;
 static int      bpas_pending      = 0;
-static uint64_t bpas_pending_nesting;       /* nesting at which the pending store was seen */
+static uint64_t bpas_pending_window_id;     /* window the pending store was seen in (unique; nesting repeats) */
 static uintptr_t bpas_pending_store_pc;     /* pc of that store (fail-loud check at phase B) */
 static uint64_t bpas_index;
 
@@ -49,10 +49,10 @@ static void bpas_on_reset(void) {
 }
 
 static void* bpas_on_instruction(struct simulation_state* sim_state) {
-	/* Phase B: apply the pending bypass — but only if no rollback has happened since phase A
-	 * (a changed nesting depth means our snapshot belongs to a now-discarded context). */
+	/* Phase B: apply the pending bypass — but only if we are still in the same speculation window as
+	 * phase A (a different window id means a rollback since discarded our snapshot's context). */
 	if (bpas_pending) {
-		if (spec_nesting() == bpas_pending_nesting) {
+		if (spec_current_window_id() == bpas_pending_window_id) {
 			spec_push_frame(sim_state, sim_state->cpu_state.pc, bpas_index); /* post-store = arch return */
 			memcpy(sim_state->memory, bpas_preimage, spec_memory_size());    /* undo store -> stale */
 			/* Relocate the bypassed store's trace entry to this window's unwind (bpas_on_rollback), so
@@ -73,7 +73,7 @@ static void* bpas_on_instruction(struct simulation_state* sim_state) {
 	    && !mte_is_mem_tag_access(insn)) {
 		memcpy(bpas_preimage, sim_state->memory, spec_memory_size());
 		bpas_pending = 1;
-		bpas_pending_nesting = spec_nesting();
+		bpas_pending_window_id = spec_current_window_id();
 		bpas_pending_store_pc = sim_state->cpu_state.pc;
 	}
 	return NULL;

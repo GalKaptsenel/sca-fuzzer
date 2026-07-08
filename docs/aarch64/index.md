@@ -325,6 +325,16 @@ conditional branch's read of the seed flag and boosting would flip the branch �
 Supported clause combinations are validated in both Python and C: `seq` (empty), `cond`, `bpas`,
 `bpu`, and `cond|bpas`; two branch models together (`cond|bpu`) are rejected.
 
+**Speculation bounds.** Two config caps bound the exploration: `max_misspred_branch_nesting` (how many
+windows may be open at once) and `max_misspred_instructions` (a window's instruction budget). The
+budget is counted **per window, on its own path** — instructions executed in a nested window that
+later unwinds are *not* charged to the enclosing window. Counting against a global instruction total
+instead would force-close an outer `bpas` bypass window as soon as a `cond` misprediction ran inside
+it, dropping the store-bypass flow and breaking composition monotonicity — the guarantee that enabling
+more clauses only *adds* observations (`footprint(cond|bpas) ⊇ footprint(bpas)`). The per-instruction
+trace log is sized for this bounded exploration; overflowing it is a **hard error** (the CE aborts
+loudly), never silent truncation.
+
 ### 5.3 Branch-predictor model (reverse-engineered Neoverse-N3)
 
 The `bpu` clause drives branch outcomes with a model of the target core's predictor — a TAGE
@@ -783,7 +793,7 @@ of a **16×u64 little-endian envelope**, then the code, then one input:
 | 3 | `sim_flags` (`HAS_CODE` \| `HAS_INPUT`) |
 | 4 | `config_flags` (which base-address requests are present) |
 | 5 | `max_misspred_branch_nesting` |
-| 6 | `max_misspred_instructions` (unused) |
+| 6 | `max_misspred_instructions` (per-window instruction budget, §5.2) |
 | 7–10 | requested code/mem base phys/virt (optional) |
 | 11 | `execution_clauses` bitmask (§6) |
 | 12 | `branch_predictor` enum |

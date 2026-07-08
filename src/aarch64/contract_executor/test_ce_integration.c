@@ -2201,6 +2201,40 @@ static bool run_gadget(uint32_t *code, int nw, uint64_t cap, uint64_t clauses,
     return run_ce(code, nw, mem, sizeof(mem), KBASE, cap, clauses, regs, res);
 }
 
+/* Same, but with an explicit per-window instruction cap (max_instr). */
+static bool run_gadget_capped(uint32_t *code, int nw, uint64_t nest, uint64_t max_instr,
+                              uint64_t clauses, uint64_t *regs, ce_result_t *res) {
+    uint8_t mem[MEM_SIZE]; memset(mem, 0, sizeof(mem));
+    memcpy(mem, &(uint64_t){ORIG}, 8);
+    return run_ce_full(code, nw, mem, sizeof(mem), KBASE, nest, max_instr, clauses,
+                       BRANCH_PREDICTOR_NONE, regs, NULL, 0, res);
+}
+
+/* Regression: the per-window instruction cap must count each window's OWN path, not the global
+ * instruction counter. A cond misprediction interposed between two bypassed stores must not age out
+ * the enclosing bpas window: both stores stay bypassed and the backbone load reads doubly-stale ORIG.
+ * With the old global counter the long wrong-path excursion prematurely closed the outer window, so
+ * the second store committed and the load read SV1 — a lost store-bypass flow (non-monotone cond+bpas
+ * composition, the root cause of a false violation). */
+static void test_integration_cond_bpas_outer_window_survives_excursion(void) {
+    uint32_t code[] = {
+        enc_str_reg(0, 29),   /* STR x0 -> SV1 (bypassed) */
+        enc_cbz(3, +12),      /* CBZ x3: x3=1 arch falls through; cond mispredicts TAKEN -> idx4 (NOPs) */
+        enc_str_reg(1, 29),   /* STR x1 -> SV2 (bypassed on the backbone iff the window survives) */
+        enc_ldr_reg(4, 29),   /* LDR x4: backbone load — reads doubly-stale ORIG at nest>=2 */
+        enc_nop(), enc_nop(), enc_nop(), enc_nop(), enc_nop(),   /* long mispredicted excursion */
+    };
+    uint64_t regs[REGS_COUNT] = {0}; regs[0]=SV1; regs[1]=SV2; regs[3]=1;
+    ce_result_t r;
+    bool ok = run_gadget_capped(code, 9, 8, 3, EXEC_CLAUSE_COND|EXEC_CLAUSE_BPAS, regs, &r);
+    EXPECT(ok);
+    if (ok) {
+        EXPECT(saw_spec_load_value(&r, ORIG));   /* both stores bypassed -> load reads ORIG speculatively */
+        EXPECT(trace_max_nesting(&r) >= 2);      /* the enclosing window survived to nest the 2nd bypass */
+        EXPECT(saw_load_value(&r, SV2));         /* architecturally both stores applied */
+    }
+}
+
 /* ======================================================================== *
  *  EXEC_CLAUSE_BARRIER: a fencing barrier ends the speculation it stops.
  * ======================================================================== */
@@ -3215,6 +3249,7 @@ int main(void) {
     test_integration_cond_bpas_branches_in_middle();
     test_integration_cond_only_nesting_cap();
     test_integration_cond_bpas_interleaved_nesting_cap();
+    test_integration_cond_bpas_outer_window_survives_excursion();
     test_integration_forks_store_vs_branch_symmetry();
     test_integration_bpas_store_pair_single_fork();
     test_integration_cond_bpas_store_encloses_branch();

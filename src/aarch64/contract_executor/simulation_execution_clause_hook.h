@@ -24,7 +24,7 @@ struct execution_checkpoint_desc {
 	uintptr_t return_addr;
 	uint64_t checkpoint_id;
 	uint64_t owner;          /* execution-clause registry index */
-	uint64_t start_instr;    /* instr_count when this window opened (for the per-window cap) */
+	uint64_t instr_consumed; /* instructions run on THIS window's own path (for the per-window cap) */
 	uint64_t window_id;      /* unique monotonic window id (checkpoint_id is a reused slot) */
 };
 

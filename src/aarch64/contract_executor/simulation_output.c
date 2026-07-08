@@ -242,9 +242,9 @@ static instr_trace_entry_t* log_sim_state(struct simulation_state* sim_state) {
 
 	size_t current_index = current_log_index;
 	if(max_log_index <= current_index) {
-		fprintf(stderr, "Unable to log more instructions, reached maximum log size!\n");
-		trace_log->truncated = 1;   // signal the reader that the trace is incomplete
-		return NULL;
+		fprintf(stderr, "[FATAL] contract trace log full (%zu entries) — exploration exceeded the "
+		        "buffer; increase it in init_trace_log\n", max_log_index);
+		__builtin_trap();
 	}
 
 	instr_trace_entry_t* entry = (instr_trace_entry_t*)(trace_log + 1) + current_index;
@@ -343,8 +343,9 @@ void trace_emit_entry(const instr_trace_entry_t* src) {
 	if(NULL == src || NULL == trace_log) return;
 	size_t idx = current_log_index;
 	if(max_log_index <= idx) {
-		trace_log->truncated = 1;   // signal the reader that the trace is incomplete
-		return;
+		fprintf(stderr, "[FATAL] contract trace log full (%zu entries) while re-emitting a bypassed "
+		        "store; increase it in init_trace_log\n", max_log_index);
+		__builtin_trap();
 	}
 	instr_trace_entry_t* dst = (instr_trace_entry_t*)(trace_log + 1) + idx;
 	*dst = *src;
@@ -360,7 +361,13 @@ void* log_instr_hook(struct simulation_state* sim_state) {
 
 void init_trace_log(size_t test_size) {
 	current_log_index = 0;
-	max_log_index = (test_size / 4) * 128;  // In aarch64, each instruction is 4 bytes. The 128 is done for taking into considiration speculative contracts which may execute an instruction more then once for different flows
+	/* One architectural pass (test_size/4 instructions) plus a bound on speculative re-execution: each
+	 * open window logs up to max_misspred_instructions on its own path and the exploration opens many
+	 * windows, so scale by the nesting budget with fan-out headroom. Allocated once per process, so a
+	 * generous buffer is cheap. A full buffer is a hard error (see log_sim_state), never truncation. */
+	uint64_t nesting = simulation.sim_input.hdr.config.max_misspred_branch_nesting;
+	uint64_t win     = simulation.sim_input.hdr.config.max_misspred_instructions;
+	max_log_index = (test_size / 4) * 128 + (nesting + 1) * win * 32;
 	trace_log = alloc_contract_trace(max_log_index);
 	if (NULL == trace_log) {
 		max_log_index = 0;

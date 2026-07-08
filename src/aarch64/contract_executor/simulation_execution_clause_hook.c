@@ -94,7 +94,7 @@ void spec_push_frame(struct simulation_state* sim_state, uintptr_t return_addr, 
 	mgmt.stack[mgmt.stack_top].return_addr   = return_addr;
 	mgmt.stack[mgmt.stack_top].checkpoint_id = take_checkpoint(sim_state);
 	mgmt.stack[mgmt.stack_top].owner         = owner;
-	mgmt.stack[mgmt.stack_top].start_instr   = mgmt.instr_count;
+	mgmt.stack[mgmt.stack_top].instr_consumed = 0;   /* charged per instruction on this window's path */
 	mgmt.stack[mgmt.stack_top].window_id     = ++mgmt.next_window_id;
 	++mgmt.stack_top;
 	++mgmt.current_nesting;
@@ -202,15 +202,17 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 		rolled_back = 1;
 	}
 
-	/* Per-window instruction cap: end the innermost window once it has run max_misspred_instructions,
-	 * so a wrong-path loop cannot speculate forever (else it spins to the watchdog). One frame per
-	 * hook; a deeper over-cap window unwinds on the next instruction. */
+	/* Per-window instruction cap, counted per window (a global count would close outer windows early). */
 	if(mgmt.current_nesting > 0 && mgmt.max_instr > 0 && mgmt.stack_top > 0 &&
-	   mgmt.instr_count - mgmt.stack[mgmt.stack_top - 1].start_instr > mgmt.max_instr) {
+	   mgmt.stack[mgmt.stack_top - 1].instr_consumed >= mgmt.max_instr) {
 		void* resume = handle_window_end(sim_state);
 		if(NULL == resume) return NULL;
 		sim_state->cpu_state.pc = (uintptr_t)resume;
 		rolled_back = 1;
+	}
+
+	if(mgmt.current_nesting > 0 && mgmt.stack_top > 0) {
+		++mgmt.stack[mgmt.stack_top - 1].instr_consumed;
 	}
 
 	uint64_t clauses = simulation.sim_input.hdr.config.execution_clauses;
