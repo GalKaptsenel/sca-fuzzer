@@ -305,6 +305,11 @@ class SealedTestCase:
         _record_positions(self._tc, self._sealings())      # AFTER every slot is inserted
         self._layout = Aarch64ASMLayout(self._tc)
 
+    @property
+    def object_code(self) -> bytes:
+        """The assembled skeleton (placeholder slots, no resolved values); input-independent."""
+        return self._assemble(self._tc)
+
     def _insert_slots(self, data_sites: List) -> None:
         """Insert this concern's value sealings around each data-access site."""
         raise NotImplementedError
