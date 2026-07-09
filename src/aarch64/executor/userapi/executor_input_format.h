@@ -39,6 +39,12 @@
  *                              byte, low nibble first (granule 2*i in bits 3:0,
  *                              granule 2*i+1 in bits 7:4).
  *                              Length = (MEMORY_INPUT_SIZE/MTE_GRANULE_SIZE + 1)/2.
+ *   REVISOR_SEC_CODE_RELOC     struct revisor_code_reloc_entry[], terminated by an entry
+ *                              with both fields = REVISOR_CODE_RELOC_TERMINATOR. Each entry
+ *                              splices the 32-bit word `value` at byte `offset` of the
+ *                              test-case body; the kernel applies the table before an
+ *                              input's execute and reverts the body to original afterward,
+ *                              so one test case serves many differently-sealed inputs.
  *
  * Included by the kernel module (chardevice.c) and by executor_userland; the parser
  * bodies live in executor/input_format.c.
@@ -66,6 +72,7 @@ enum revisor_input_section_type {
     REVISOR_SEC_SIMD          = 0x04,
     REVISOR_SEC_PAC_KEYS      = 0x05,
     REVISOR_SEC_MTE_TAGS      = 0x06,
+    REVISOR_SEC_CODE_RELOC    = 0x07,
 };
 
 struct revisor_input_header {
@@ -87,6 +94,16 @@ struct revisor_input_section {
 #define REVISOR_INPUT_HEADER_LEN(n_sections)                                   \
     (sizeof(struct revisor_input_header) +                                     \
      (uint64_t)(n_sections) * sizeof(struct revisor_input_section))
+
+/* One WORD32 splice into the test-case body: write little-endian `value` at byte `offset`.
+ * REVISOR_SEC_CODE_RELOC carries an array of these terminated by an all-ones entry. */
+struct revisor_code_reloc_entry {
+    uint32_t offset;
+    uint32_t value;
+};
+
+#define REVISOR_CODE_RELOC_TERMINATOR  ((uint32_t)0xFFFFFFFFul)
+#define REVISOR_INPUT_MAX_CODE_RELOCS  256
 
 /*
  * Validate a fully-copied input_init of exactly `total_len` bytes. Returns 1 if the header

@@ -3,6 +3,7 @@
 
 #include "main.h"
 #include "pac.h"
+#include "userapi/executor_input_format.h"
 
 #define REG_INITIALIZATION_REGION_SIZE_ALIGNED			(4 * KB)
 
@@ -37,6 +38,9 @@ typedef struct Input {
 	bool mte_tags_present;
 	struct pac_keys pac_keys;                /* per-input PAC key override */
 	bool pac_keys_present;
+	/* Relocations applied to the test case before this input executes; the terminator in
+	 * slot 0 means no relocations. */
+	struct revisor_code_reloc_entry code_reloc[REVISOR_INPUT_MAX_CODE_RELOCS + 1];
 } input_t;
 
 struct input_node {

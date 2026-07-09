@@ -26,6 +26,7 @@ SEC_GPR = 0x03
 SEC_SIMD = 0x04
 SEC_PAC_KEYS = 0x05
 SEC_MTE_TAGS = 0x06
+SEC_CODE_RELOC = 0x07
 
 _PREAMBLE_LEN = 6 * 8           # magic, version, header_len, n_sections, flags, total_len
 _SECTION_DESC_LEN = 4 * 8       # type, flags, offset, length
@@ -34,6 +35,8 @@ _ALIGN = 8
 MTE_GRANULE = 16                # bytes per allocation tag (matches kernel MTE_GRANULE_SIZE)
 MTE_TAG_COUNT = (MAIN_AREA_SIZE + FAULTY_AREA_SIZE) // MTE_GRANULE   # tags over the main|faulty span
 PAC_KEYS_WORDS = 10             # = struct pac_keys / ce_pac_keys: 5 keys * {lo,hi}
+CODE_RELOC_TERMINATOR = 0xFFFFFFFF   # matches REVISOR_CODE_RELOC_TERMINATOR
+MAX_CODE_RELOCS = 256                # matches REVISOR_INPUT_MAX_CODE_RELOCS
 # ----------------------------------------------------------------------------------------------
 
 
@@ -102,9 +105,26 @@ def _pack_pac_keys(keys: Sequence[int]) -> bytes:
     return struct.pack(f"<{PAC_KEYS_WORDS}Q", *keys)
 
 
+def _pack_code_reloc(relocs: Sequence) -> bytes:
+    """Pack (offset, value) WORD32 relocations followed by an all-ones terminator (matches struct
+    revisor_code_reloc_entry / REVISOR_CODE_RELOC_TERMINATOR)."""
+    if len(relocs) > MAX_CODE_RELOCS:
+        raise ValueError(f"{len(relocs)} code relocations exceed the {MAX_CODE_RELOCS} cap")
+    out = bytearray()
+    for r in relocs:
+        if 0 != r.offset % 4 or not 0 <= r.offset < CODE_RELOC_TERMINATOR:
+            raise ValueError(f"bad code relocation offset {r.offset}")
+        if not 0 <= r.value <= 0xFFFFFFFF:
+            raise ValueError(f"code relocation value 0x{r.value:x} does not fit 32 bits")
+        out += struct.pack("<II", r.offset, r.value)
+    out += struct.pack("<II", CODE_RELOC_TERMINATOR, CODE_RELOC_TERMINATOR)
+    return bytes(out)
+
+
 def build_input_init(main: bytes, faulty: bytes, gpr: bytes, simd: Optional[bytes] = None,
                      mte_tags: Optional[Sequence[int]] = None,
-                     pac_keys: Optional[Sequence[int]] = None) -> bytes:
+                     pac_keys: Optional[Sequence[int]] = None,
+                     code_reloc: Optional[Sequence] = None) -> bytes:
     """Assemble a input_init from the raw section payloads. `gpr` is the final 64-byte GPR section (flags
     already in PSTATE form); `simd` is the optional 256-byte vector section. Shared by both consumers:
     the device write (serialize_input) and the contract-executor message (ContractExecution.encode)."""
@@ -119,13 +139,16 @@ def build_input_init(main: bytes, faulty: bytes, gpr: bytes, simd: Optional[byte
         sections.append((SEC_MTE_TAGS, _pack_mte_tags(mte_tags)))
     if pac_keys is not None:
         sections.append((SEC_PAC_KEYS, _pack_pac_keys(pac_keys)))
+    if code_reloc is not None:
+        sections.append((SEC_CODE_RELOC, _pack_code_reloc(code_reloc)))
     return _pack_sections(sections)
 
 
 def serialize_input(inp, mte_tags: Optional[Sequence[int]] = None,
-                    pac_keys: Optional[Sequence[int]] = None) -> bytes:
+                    pac_keys: Optional[Sequence[int]] = None,
+                    code_reloc: Optional[Sequence] = None) -> bytes:
     """Serialize `inp` to a device input initialization. main/faulty/gpr/simd are always present;
-    mte_tags and pac_keys are emitted only when supplied (per-input initial state)."""
+    mte_tags, pac_keys and code_reloc are emitted only when supplied (per-input initial state)."""
     frag = _first_fragment(inp)
     main_off = InputFragment.fields["main"][1]
     faulty_off = InputFragment.fields["faulty"][1]
@@ -134,4 +157,4 @@ def serialize_input(inp, mte_tags: Optional[Sequence[int]] = None,
                             frag[faulty_off:faulty_off + FAULTY_AREA_SIZE],
                             _gpr_section(frag),
                             frag[simd_off:simd_off + SIMD_SUBREGION_SIZE],
-                            mte_tags, pac_keys)
+                            mte_tags, pac_keys, code_reloc)

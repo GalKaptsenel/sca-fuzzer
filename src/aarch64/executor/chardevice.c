@@ -555,6 +555,51 @@ static ssize_t do_revisor_read(struct file* File, char __user* user_buffer,
 /* Generous ceiling on a single input initialization; the legitimate input_init is < 10 KB. */
 #define REVISOR_INPUT_MAX_SIZE  (32 * 1024)
 
+/* Parse the NULL-terminated code-relocation table into dst. Structural checks only
+ * (4-alignment, no overlap, within the cap). In order to load tests and inputs in any order,
+ * we defer the check that the relocation offset is within the test-case boundaries to trace time. */
+static int parse_code_relocations(const void* input_init, input_t* dst) {
+	dst->code_reloc[0].offset = REVISOR_CODE_RELOC_TERMINATOR;
+	dst->code_reloc[0].value  = REVISOR_CODE_RELOC_TERMINATOR;
+
+	const struct revisor_input_section* sec =
+		revisor_input_find_section(input_init, REVISOR_SEC_CODE_RELOC);
+	if (NULL == sec) {
+		return 0;
+	}
+	if (0 != (sec->length % sizeof(struct revisor_code_reloc_entry))) {
+		return -EINVAL;
+	}
+
+	const struct revisor_code_reloc_entry* src =
+		(const struct revisor_code_reloc_entry*)((const char*)input_init + sec->offset);
+	uint64_t max_entries = sec->length / sizeof(struct revisor_code_reloc_entry);
+	uint64_t n = 0;
+	while (n < max_entries && REVISOR_CODE_RELOC_TERMINATOR != src[n].offset) {
+		if (REVISOR_INPUT_MAX_CODE_RELOCS <= n) {
+			return -EINVAL;
+		}
+		if (0 != (src[n].offset % sizeof(uint32_t))) {
+			return -EINVAL;
+		}
+		for (uint64_t j = 0; j < n; ++j) {
+			uint32_t d = src[n].offset > src[j].offset
+				? src[n].offset - src[j].offset : src[j].offset - src[n].offset;
+			if (sizeof(uint32_t) > d) {
+				return -EINVAL;
+			}
+		}
+		dst->code_reloc[n] = src[n];
+		++n;
+	}
+	if (n == max_entries) {   /* no terminator within the section */
+		return -EINVAL;
+	}
+	dst->code_reloc[n].offset = REVISOR_CODE_RELOC_TERMINATOR;
+	dst->code_reloc[n].value  = REVISOR_CODE_RELOC_TERMINATOR;
+	return 0;
+}
+
 /* Extract a validated input initialization into the device's input_t. main/faulty/gpr are
  * required and must be exactly sized; mte_tags / pac_keys are optional and set their
  * *_present flag when supplied. Returns 0, or -EINVAL on a missing/mis-sized section. */
@@ -605,7 +650,7 @@ static int parse_input_init(const void* input_init, input_t* dst) {
 		dst->pac_keys_present = true;
 	}
 
-	return 0;
+	return parse_code_relocations(input_init, dst);
 }
 
 static ssize_t copy_input_from_user_and_update_state(const char __user* user_buffer, size_t count) {
