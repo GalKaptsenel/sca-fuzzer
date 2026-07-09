@@ -198,6 +198,11 @@ result: after `TRACE`, `CHECKOUT_INPUT`, then `MEASUREMENT` returns that input's
 Runtime knobs are plain sysfs files under `/sys/executor/`, with read-only capability/identity files
 grouped in the `/sys/executor/system/` subdirectory.
 
+The module creates `/dev/executor` and the `/sys/executor/` tree root-owned, so an unprivileged
+fuzzer run gets `EACCES`. Either run as root, or grant access after each `insmod` with
+`sudo chmod a+rw /dev/executor` and `sudo chmod -R a+rw /sys/executor` (the grant resets on every
+module reload). `LocalHWExecutor` raises a `PermissionError` carrying the exact `chmod` to run.
+
 **`/sys/executor/` — runtime knobs:**
 
 | File | Mode | Accepted value | Meaning |

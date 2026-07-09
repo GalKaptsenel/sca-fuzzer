@@ -12,7 +12,8 @@ import uuid
 import functools
 import ctypes
 import time
-from typing import List, Literal, Union, Optional, Type, Callable, Tuple, Dict, Any, TYPE_CHECKING
+from typing import (
+    List, Literal, Union, Optional, Type, Callable, Tuple, Dict, Any, NoReturn, TYPE_CHECKING)
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from contextlib import contextmanager
@@ -314,6 +315,20 @@ REVISOR_GET_PAC_KEYS = _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_PAC_KEYS_CONSTANT, Pa
 REVISOR_MTE_TAG_REGION = _IOW(REVISOR_IOC_MAGIC, REVISOR_MTE_TAG_REGION_CONSTANT, MteTagRegionReq)
 
 
+def _raise_access_error(path: str, fix_target: str, err: OSError) -> "NoReturn":
+    """Re-raise an EACCES on an executor path with the exact chmod that fixes it.
+
+    The kernel module creates /dev/executor and /sys/executor root-only; an
+    unprivileged fuzzer run needs them opened up (or must run as root). The grant
+    resets whenever the module is reloaded, so it is not a one-time setup step.
+    """
+    recursive = "-R " if os.path.isdir(fix_target) else ""
+    raise PermissionError(
+        f"no access to {path}: {err.strerror}. "
+        f"Fix with:  sudo chmod {recursive}a+rw {fix_target}  "
+        f"(resets on module reload; or run the fuzzer as root)") from err
+
+
 class LocalHWExecutor(HWExecutor):
 
     def __init__(self, device_path: str, sys_executor_path: str):
@@ -322,7 +337,10 @@ class LocalHWExecutor(HWExecutor):
         self.executor_device_path: str = device_path
         self.executor_sysfs: str = sys_executor_path
         self.current_region: ExecutorRegion = TestCaseRegion()
-        self.fd = os.open(self.executor_device_path, os.O_RDWR)
+        try:
+            self.fd = os.open(self.executor_device_path, os.O_RDWR)
+        except PermissionError as e:
+            _raise_access_error(self.executor_device_path, self.executor_device_path, e)
         self._write_sysfs("measurement_mode", CONF.executor_mode.encode())
         self._write_sysfs("pin_to_core", b"0")
         # sysfs parses an int (sscanf %u); emit 1/0 so a bool writes correctly.
@@ -336,13 +354,19 @@ class LocalHWExecutor(HWExecutor):
 
     def _write_sysfs(self, filename: str, value: bytes):
         path = os.path.join(self.executor_sysfs, filename)
-        with open(path, "wb") as f:
-            f.write(value)
+        try:
+            with open(path, "wb") as f:
+                f.write(value)
+        except PermissionError as e:
+            _raise_access_error(path, self.executor_sysfs, e)
 
     def _read_sysfs(self, filename: str) -> str:
         path = os.path.join(self.executor_sysfs, filename)
-        with open(path, "r") as f:
-            return f.read().strip()
+        try:
+            with open(path, "r") as f:
+                return f.read().strip()
+        except PermissionError as e:
+            _raise_access_error(path, self.executor_sysfs, e)
 
     def _ioctl(self, cmd: int, arg=None):
         with profile_op(f'ioctl {decode_ioctl(cmd)["name"]}'):

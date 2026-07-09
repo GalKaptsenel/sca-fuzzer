@@ -36,6 +36,18 @@ MODULE_LOADED = os.path.isdir(SYSFS)
 DEVICE_PRESENT = os.path.exists(DEVICE)
 
 
+def _system_readable() -> bool:
+    """The system/ attributes are root-only; skip (not error) an unprivileged run."""
+    try:
+        with open(f"{SYSFS}/system/pmu_event_counters"):
+            return True
+    except OSError:
+        return False
+
+
+SYSTEM_READABLE = MODULE_LOADED and _system_readable()
+
+
 def _measurement_supported() -> bool:
     try:
         with open(f"{SYSFS}/system/measurement_supported") as f:
@@ -426,7 +438,7 @@ class TestExecutorIoctl(unittest.TestCase):
         self.assertEqual(len(buf), 32)
 
 
-@unittest.skipUnless(MODULE_LOADED, "executor kernel module not loaded (/sys/executor absent)")
+@unittest.skipUnless(SYSTEM_READABLE, "system/ sysfs attrs unreadable (module not loaded or not root)")
 class TestSystemSysfs(unittest.TestCase):
     """system/ subdirectory exposing host capability info."""
 
