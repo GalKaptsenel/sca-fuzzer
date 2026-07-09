@@ -12,22 +12,30 @@ HW_SUPPORTS_MTE ?= $(shell grep -q 'Features.*mte' /proc/cpuinfo 2>/dev/null && 
 HW_SUPPORTS_PAC ?= $(shell grep -q 'Features.*paca' /proc/cpuinfo 2>/dev/null && echo y || echo n)
 
 ifeq ($(HW_SUPPORTS_MTE),y)
-$(info Hardware supports MTE)
+MTE_BANNER := Hardware supports MTE
 ARM_ARCH := armv8.5-a+sve+memtag
 ccflags-y += -DCONFIG_ARM64_MTE_HW=1
 else
-$(info Hardware does NOT support MTE)
+MTE_BANNER := Hardware does NOT support MTE
 ARM_ARCH := armv8.3-a+sve
 ccflags-y += -DCONFIG_ARM64_MTE_HW=0
 endif
 
 ifeq ($(HW_SUPPORTS_PAC),y)
-$(info Hardware supports PAC)
+PAC_BANNER := Hardware supports PAC
 ARM_ARCH := $(ARM_ARCH)+pauth
 ccflags-y += -DCONFIG_ARM64_PAC_HW=1
 else
-$(info Hardware does NOT support PAC)
+PAC_BANNER := Hardware does NOT support PAC
 ccflags-y += -DCONFIG_ARM64_PAC_HW=0
+endif
+
+# $(info) fires on every parse. kbuild parses this file twice (the outer `make` and
+# the `make -C $(KDIR) M=...` re-read), so gate the banner to the kbuild pass only
+# (KBUILD_EXTMOD is set solely then) to print it exactly once for either invocation.
+ifdef KBUILD_EXTMOD
+$(info $(MTE_BANNER))
+$(info $(PAC_BANNER))
 endif
 
 ccflags-y += -march=$(ARM_ARCH)
