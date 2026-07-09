@@ -4,7 +4,7 @@ SPDX-License-Identifier: MIT
 """
 import unittest
 from src.analyser import MergedBitmapAnalyser, SetAnalyser, ChiSquaredAnalyser
-from src.interfaces import Input, HTrace
+from src.interfaces import Input, HTrace, TestCase
 from src.config import CONF
 
 
@@ -14,6 +14,7 @@ class AnalyserTest(unittest.TestCase):
         analyser = MergedBitmapAnalyser()
         dummy_input = Input()
         inputs = [dummy_input] * 4
+        test_cases = [TestCase(0)] * 4  # classic single-test-case round: one sole test
 
         h1 = HTrace([0b1101, 0b1101])
         h2 = HTrace([0b1011, 0b1011])
@@ -22,7 +23,7 @@ class AnalyserTest(unittest.TestCase):
         htraces = [h1, h2, h3, h4]
         ctraces = [1, 1, 2, 2]
 
-        violations = analyser.filter_violations(inputs, ctraces, htraces)
+        violations = analyser.filter_violations(inputs, ctraces, htraces, test_cases)
         self.assertEqual(len(violations), 1)
         self.assertEqual(violations[0].ctrace, 1)
 
@@ -30,6 +31,7 @@ class AnalyserTest(unittest.TestCase):
         analyser = SetAnalyser()
         dummy_input = Input()
         inputs = [dummy_input] * 4
+        test_cases = [TestCase(0)] * 4  # classic single-test-case round: one sole test
 
         h1 = HTrace([1, 2, 2, 1])
         h2 = HTrace([1, 3, 3, 1])
@@ -38,7 +40,7 @@ class AnalyserTest(unittest.TestCase):
         htraces = [h1, h2, h3, h4]
         ctraces = [1, 1, 2, 2]
 
-        violations = analyser.filter_violations(inputs, ctraces, htraces)
+        violations = analyser.filter_violations(inputs, ctraces, htraces, test_cases)
         self.assertEqual(len(violations), 1)
         self.assertEqual(violations[0].ctrace, 1)
 
@@ -46,6 +48,7 @@ class AnalyserTest(unittest.TestCase):
         analyser = ChiSquaredAnalyser()
         dummy_input = Input()
         inputs = [dummy_input] * 4
+        test_cases = [TestCase(0)] * 4  # classic single-test-case round: one sole test
 
         h1 = [1] * CONF.executor_sample_sizes[0]
         h2 = [2] * CONF.executor_sample_sizes[0]
@@ -54,6 +57,6 @@ class AnalyserTest(unittest.TestCase):
         htraces = [HTrace(h1), HTrace(h2), HTrace(h2), HTrace(h2)]
         ctraces = [1, 1, 2, 2]
 
-        violations = analyser.filter_violations(inputs, ctraces, htraces)
+        violations = analyser.filter_violations(inputs, ctraces, htraces, test_cases)
         self.assertEqual(len(violations), 1)
         self.assertEqual(violations[0].ctrace, 1)
