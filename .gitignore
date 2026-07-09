@@ -58,3 +58,7 @@ test_pmu
 # compiled CE/executor test binaries
 src/aarch64/contract_executor/test_mte_tagmem
 src/aarch64/executor/test_pac_auth_verify
+
+# local fuzzing run outputs + scratch
+out_*/
+tmp_dir/

@@ -16,9 +16,11 @@ min_successors_per_bb: 1
 fuzzer: basic
 input_generator: aarch64-nzcv
 enable_pre_run_flush: 1
+enable_speculative_store_bypass: 1
 executor_warmups: 5
 input_gen_seed: 0
 contract_execution_clause:
+  - cond
   - bpas
   - barrier
 contract_observation_clause: ct
