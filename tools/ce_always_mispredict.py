@@ -25,7 +25,7 @@ def _inp(i):  # saved inputs are input_NNNN_nzcv_scheme.bin (old: input_NNNN.bin
     base = f"{D}/input_{i:04d}"
     return next(base + s for s in ("_nzcv_scheme.bin", ".bin") if os.path.exists(base + s))
 inputs = fz.input_gen.load([_inp(a), _inp(b)])
-ctraces, _, traces, _ = ex.trace_test_case_with_taints(inputs, 5)
+ctraces, _, traces = ex.trace_test_case_with_taints(inputs, 5)
 print(f"contract = ALWAYS_MISPREDICT   inputs #{a}, #{b}")
 print(f"ctrace #{a} = {ctraces[0]}")
 print(f"ctrace #{b} = {ctraces[1]}")
