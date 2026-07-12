@@ -225,32 +225,6 @@ static struct kobj_attribute pin_to_core_attribute = __ATTR(pin_to_core, 0644,pi
 static struct kobj_attribute jit_memoize_attribute = __ATTR(jit_memoize, 0644, jit_memoize_show, jit_memoize_store);
 static struct kobj_attribute jit_stats_attribute = __ATTR(jit_stats, 0644, jit_stats_show, jit_stats_store);
 
-static ssize_t branch_training_config_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
-    set_branch_training_config(buf, count);
-    executor.config.enable_branch_training = true;
-    return count;
-}
-
-static ssize_t branch_training_config_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
-    return format_branch_training_config(buf, PAGE_SIZE);
-}
-
-static ssize_t enable_branch_training_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
-    bool value = false;
-    if (kstrtobool(buf, &value)) {
-        return -EINVAL;
-    }
-    executor.config.enable_branch_training = value;
-    return count;
-}
-
-static ssize_t enable_branch_training_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
-    return scnprintf(buf, PAGE_SIZE,"%d\n", executor.config.enable_branch_training ? 1 : 0);
-}
-
-static struct kobj_attribute branch_training_config_attribute = __ATTR(branch_training_config, 0644,branch_training_config_show, branch_training_config_store);
-static struct kobj_attribute enable_branch_training_attribute = __ATTR(enable_branch_training, 0644,enable_branch_training_show, enable_branch_training_store);
-
 /* ---- system/ subdirectory: host info unrelated to the Revizor control knobs ---- */
 
 static ssize_t pmu_event_counters_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
@@ -295,8 +269,6 @@ static struct attribute *sysfs_attributes[] = {
 	&pin_to_core_attribute.attr,
 	&jit_memoize_attribute.attr,
 	&jit_stats_attribute.attr,
-	&branch_training_config_attribute.attr,
-	&enable_branch_training_attribute.attr,
 	NULL, /* need to NULL terminate the list of attributes */
 };
 

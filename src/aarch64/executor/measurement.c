@@ -212,9 +212,7 @@ static int __nocfi run_experiments(void) {
 			measurement_code = invalidate_bpu_entries();
 		}
 		splice_code_relocations(measurement_code, &current_input->input, false);
-		if (executor.config.enable_branch_training) {
-			reapply_branch_training(measurement_code);
-		}
+		apply_input_branch_training(measurement_code, &current_input->input);
 		if (executor.config.phr_flush) {
 			flush_bpu_phr();
 		}

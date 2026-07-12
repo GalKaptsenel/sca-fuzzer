@@ -210,44 +210,4 @@ def log_slot(log: FuzzLogger, inp_idx: int, fp) -> None:
     alt = ",".join(f"0x{s:04x}" for s in fp.alt_sigs) or "None"
     log.w(f"  slot={fp.slot_id:2d}  spec_nesting={str(fp.spec_nesting):<6}  "
           f"correct_sig={cs}  alt_sigs=[{alt}]", ch="pac_signing")
-
-
-def log_mistraining(log: FuzzLogger, tc_counter: int, inp_idx: int,
-                    entries: List[Tuple[int, bool]], cer,
-                    ch: Optional[str] = None) -> None:
-    if not FuzzLogger.on():
-        return
-    """Log branch mistraining config with arch-flow context."""
-    log.header(f"MISTRAINING  tc={tc_counter}  inp={inp_idx}  n_branches={len(entries)}", ch=ch)
-    if not entries:
-        log.w("  <no trainable branches>", ch=ch)
-        return
-
-    # Build offset → (actual_taken, disassembly) from the arch path of the CE trace
-    arch_map: Dict[int, Tuple[bool, str]] = {}
-    if cer and len(cer) > 0:
-        code_base = cer[0].cpu.pc
-        for i, ite in enumerate(cer):
-            if ite.metadata.speculation_nesting != 0:
-                continue
-            if not is_conditional_branch(ite.cpu.encoding):
-                continue
-            if i + 1 >= len(cer):
-                continue
-            taken = (cer[i + 1].cpu.pc != ite.cpu.pc + 4)
-            disas = disassemble_instruction(ite.cpu.encoding, ite.cpu.pc) or "<unk>"
-            arch_map[ite.cpu.pc - code_base] = (taken, disas)
-
-    log.w(f"  {'Offset':>6}  {'Instruction':<28}  {'Arch dir':<14}  Train dir", ch=ch)
-    log.w(f"  {'':-<6}  {'':-<28}  {'':-<14}  ---------", ch=ch)
-    for off, train_taken in entries:
-        actual = arch_map.get(off)
-        disas = actual[1] if actual else "<unknown>"
-        actual_text = ("TAKEN    " if actual and actual[0]
-                       else "NOT-TAKEN" if actual
-                       else "?        ")
-        actual_dir = f"{_C_TAKEN if actual and actual[0] else _C_NTAKEN}{actual_text}{_C_RESET}"
-        train_text = "TAKEN    " if train_taken else "NOT-TAKEN"
-        train_dir  = f"{_C_TAKEN if train_taken else _C_NTAKEN}{train_text}{_C_RESET}"
-        log.w(f"  +{off:04x}   {disas:<28}  {actual_dir}  {train_dir}", ch=ch)
     log.w("", ch=ch)

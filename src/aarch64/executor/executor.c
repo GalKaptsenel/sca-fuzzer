@@ -97,7 +97,6 @@ static void init_executor_defaults(void) {
 	executor.config.measurement_template = MEASUREMENT_TEMPLATE_DEFAULT;
 	executor.config.pinned_cpu_id = CPU_ID_DEFAULT;
 	executor.config.enable_ssbs = 0;
-	executor.config.enable_branch_training = false;
 	executor.config.pac_keys_set = false;
 }
 

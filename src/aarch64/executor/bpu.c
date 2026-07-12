@@ -1,7 +1,5 @@
 #include "main.h"
 
-static branch_training_config_t saved_config = { .count = 0 };
-
 void *invalidate_bpu_entries(void) {
     static size_t current_view = 0;
     size_t idx = current_view % MAX_MEASUREMENT_VIEWS;
@@ -39,65 +37,6 @@ void *load_training_entry_at(uint32_t *view, size_t loc) {
     flush_icache_range((unsigned long)&view[loc],
                        (unsigned long)&view[loc + 3]);
     return &view[loc];
-}
-
-static int parse_branch_training_config(const char *buf, size_t len,
-                                 branch_training_config_t *out) {
-    out->count = 0;
-    const char *p   = buf;
-    const char *end = buf + len;
-
-    while (p < end && out->count < MAX_BRANCH_TRAINING_ENTRIES) {
-        char *next;
-
-        while (p < end && (',' == *p || ' ' == *p || '\n' == *p || '\t' == *p)) {
-            ++p;
-        }
-        if (p >= end || '\0' == *p) {
-            break;
-        }
-
-        unsigned long off = simple_strtoul(p, &next, 10);
-        if (next == p) {
-            break;
-        }
-        p = next;
-
-        while (p < end && ' ' == *p) {
-            ++p;
-        }
-        if (p >= end || ':' != *p) {
-            break;
-        }
-        ++p;
-
-        while (p < end && ' ' == *p) {
-            ++p;
-        }
-        unsigned long dir = simple_strtoul(p, &next, 10);
-        if (next == p) {
-            break;
-        }
-        p = next;
-
-        out->entries[out->count].byte_offset = (uint32_t)off;
-        out->entries[out->count].train_taken  = (0 != dir) ? 1 : 0;
-        ++out->count;
-    }
-
-    return out->count;
-}
-
-int format_branch_training_config(char *buf, size_t size) {
-    int len = 0;
-    for (int i = 0; i < saved_config.count; ++i) {
-        len += scnprintf(buf + len, size - len, "%s%u:%u",
-                         i ? "," : "",
-                         saved_config.entries[i].byte_offset,
-                         saved_config.entries[i].train_taken);
-    }
-    len += scnprintf(buf + len, size - len, "\n");
-    return len;
 }
 
 /*
@@ -256,10 +195,15 @@ static void __nocfi apply_branch_training(void *active_view,
     }
 }
 
-void __nocfi set_branch_training_config(const char *buf, size_t len) {
-    parse_branch_training_config(buf, len, &saved_config);
-}
-
-void __nocfi reapply_branch_training(void *active_view) {
-    apply_branch_training(active_view, &saved_config);
+void __nocfi apply_input_branch_training(void *active_view, const input_t *input) {
+    branch_training_config_t cfg;
+    cfg.count = 0;
+    for (int n = 0;
+         n < REVISOR_INPUT_MAX_BPU_TRAIN
+             && REVISOR_BPU_TRAIN_TERMINATOR != input->bpu_train[n].offset; ++n) {
+        cfg.entries[cfg.count].byte_offset = input->bpu_train[n].offset;
+        cfg.entries[cfg.count].train_taken = (uint8_t)input->bpu_train[n].taken;
+        ++cfg.count;
+    }
+    apply_branch_training(active_view, &cfg);
 }

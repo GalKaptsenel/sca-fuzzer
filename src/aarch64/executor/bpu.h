@@ -48,13 +48,8 @@ void flush_bpu_phr(void);
 /* Write a TAKEN training stub at view[loc..loc+2] and return it as a callable. */
 void *load_training_entry_at(uint32_t *view, size_t loc);
 
-int format_branch_training_config(char *buf, size_t size);
-
-/* Parse and store the active config (empty string clears it); applied per
- * measurement by reapply_branch_training(). */
-void __nocfi set_branch_training_config(const char *buf, size_t len);
-
-/* Re-apply the stored config to active_view (the view for the upcoming run). */
-void __nocfi reapply_branch_training(void *active_view);
+/* Train active_view from this input's BPU-training section (per-input). */
+struct Input;
+void __nocfi apply_input_branch_training(void *active_view, const struct Input *input);
 
 #endif /* ARM64_EXECUTOR_BPU_H */

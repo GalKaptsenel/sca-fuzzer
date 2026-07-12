@@ -184,7 +184,7 @@ build_executables() {
 # -------------------------
 # Python tests that require the loaded kernel module (/dev/executor).
 HW_PY_TESTS="tests.aarch64_tests.unit_pacga tests.aarch64_tests.unit_pac_generation \
-tests.aarch64_tests.unit_pac_mistraining tests.aarch64_tests.unit_mte_random \
+tests.aarch64_tests.unit_bpu_training tests.aarch64_tests.unit_mte_random \
 tests.aarch64_tests.unit_code_base tests.aarch64_tests.unit_pac_generator \
 tests.aarch64_tests.unit_kernel_module"
 

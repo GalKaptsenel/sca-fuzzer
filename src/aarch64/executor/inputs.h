@@ -41,6 +41,9 @@ typedef struct Input {
 	/* Relocations applied to the test case before this input executes; the terminator in
 	 * slot 0 means no relocations. */
 	struct revisor_code_reloc_entry code_reloc[REVISOR_INPUT_MAX_CODE_RELOCS + 1];
+	/* Conditional branches trained to a requested direction before this input executes; the
+	 * terminator in slot 0 means no branch training. */
+	struct revisor_bpu_train_entry bpu_train[REVISOR_INPUT_MAX_BPU_TRAIN + 1];
 } input_t;
 
 struct input_node {

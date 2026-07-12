@@ -1,9 +1,8 @@
 """
-BPU mistraining logic tests.
+Branch training-entry computation tests.
 
-Tests set_branch_mistraining() in isolation: given a mock CE trace, verify that
-the returned (byte_offset, train_direction) entries are correct.  No hardware is
-required; local_executor is replaced by a fake that captures the calls.
+Tests branch_mistraining_entries() in isolation: given a mock CE trace, verify that
+the returned (byte_offset, train_direction) entries are correct. No hardware required.
 
 Invariant under test:
   For each arch-level (nesting==0) conditional branch at index i in the trace:
@@ -15,7 +14,7 @@ Skipped cases:
   - speculation_nesting != 0      (speculative instructions)
   - not a conditional branch      (is_conditional_branch returns False)
   - i+1 >= len(cer)               (no successor — can't determine taken/not-taken)
-  - cer is None or empty          (clear_branch_training called instead)
+  - cer is None or empty          (no entries)
 """
 import os
 import types
@@ -51,27 +50,9 @@ def _ite(pc: int, encoding: int, nesting: int = 0, has_mem: bool = False):
     return ite
 
 
-class _FakeLocalExecutor:
-    def __init__(self):
-        self.last_entries = None
-        self.cleared      = False
-
-    def write_branch_training_config(self, entries):
-        self.last_entries = entries
-        self.cleared      = False
-
-    def clear_branch_training(self):
-        self.cleared      = True
-        self.last_entries = None
-
-
 class _Trainer:
-    """Minimal object that exposes branch mistraining without hardware."""
-    def __init__(self):
-        self.local_executor = _FakeLocalExecutor()
-
+    """Minimal object that exposes branch training-entry computation without hardware."""
     branch_mistraining_entries = Aarch64LocalExecutor.branch_mistraining_entries
-    apply_branch_mistraining   = Aarch64LocalExecutor.apply_branch_mistraining
 
 
 BASE = _query_code_base() if _MODULE_LOADED else 0   # real code base from the kernel module
@@ -122,9 +103,7 @@ class TestMistrainingEntries(unittest.TestCase):
         CONF.enable_branch_mistraining = self._saved_mistrain
 
     def _run(self, cer):
-        entries = self.trainer.branch_mistraining_entries(cer)
-        self.trainer.apply_branch_mistraining(entries)
-        return entries
+        return self.trainer.branch_mistraining_entries(cer)
 
     # -----------------------------------------------------------------------
     # Core taken / not-taken polarity
@@ -257,41 +236,18 @@ class TestMistrainingEntries(unittest.TestCase):
     # Empty / None trace
     # -----------------------------------------------------------------------
 
-    def test_empty_trace_clears_training(self):
-        """cer=[] must call clear_branch_training and return empty list."""
-        entries = self._run([])
-        self.assertEqual(entries, [])
-        self.assertTrue(self.trainer.local_executor.cleared)
+    def test_empty_trace_yields_no_entries(self):
+        self.assertEqual(self._run([]), [])
 
-    def test_none_trace_clears_training(self):
-        """cer=None must call clear_branch_training and return empty list."""
-        entries = self._run(None)
-        self.assertEqual(entries, [])
-        self.assertTrue(self.trainer.local_executor.cleared)
+    def test_none_trace_yields_no_entries(self):
+        self.assertEqual(self._run(None), [])
 
-    # -----------------------------------------------------------------------
-    # Hardware write path
-    # -----------------------------------------------------------------------
-
-    def test_non_empty_entries_written_to_executor(self):
-        """When entries exist, write_branch_training_config must be called with them."""
-        cer = [
-            _ite(BASE + 0, _BCOND_ENC),
-            _ite(BASE + 4, _NOP_ENC),
-        ]
-        entries = self._run(cer)
-        self.assertEqual(self.trainer.local_executor.last_entries, entries)
-        self.assertFalse(self.trainer.local_executor.cleared)
-
-    def test_empty_result_calls_clear_not_write(self):
-        """When no entries (all non-branch), clear_branch_training must be called."""
+    def test_all_non_branch_yields_no_entries(self):
         cer = [
             _ite(BASE + 0, _NOP_ENC),
             _ite(BASE + 4, _NOP_ENC),
         ]
-        self._run(cer)
-        self.assertTrue(self.trainer.local_executor.cleared)
-        self.assertIsNone(self.trainer.local_executor.last_entries)
+        self.assertEqual(self._run(cer), [])
 
 
 if __name__ == '__main__':

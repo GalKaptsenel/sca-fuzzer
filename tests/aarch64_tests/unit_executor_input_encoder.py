@@ -17,6 +17,17 @@ _PREAMBLE = struct.Struct("<6Q")
 _DESC = struct.Struct("<4Q")
 
 
+def _unpack_bpu(payload: bytes):
+    """Mirror the kernel BPU reader: (offset, taken) pairs up to the terminator."""
+    out = []
+    for i in range(0, len(payload), 8):
+        offset, taken = struct.unpack_from("<II", payload, i)
+        if offset == wire.BPU_TRAIN_TERMINATOR:
+            break
+        out.append((offset, taken))
+    return out
+
+
 def _parse(input_init: bytes):
     """A faithful mirror of the kernel reader: validate the preamble + table, return {type: payload}."""
     magic, version, header_len, n_sections, flags, total_len = _PREAMBLE.unpack_from(input_init, 0)
@@ -102,7 +113,7 @@ class InputWireRoundTrip(unittest.TestCase):
         simd = b"\xDD" * SIMD_SUBREGION_SIZE
         tags = [i % 16 for i in range(wire.MTE_TAG_COUNT)]
         keys = list(range(100, 110))
-        _, sections = _parse(wire.build_input_init(main, faulty, gpr, simd, tags, keys))
+        _, sections = _parse(wire.build_input_init(main, faulty, gpr, simd, mte_tags=tags, pac_keys=keys))
 
         self.assertIn(wire.SEC_MTE_TAGS, sections)
         self.assertIn(wire.SEC_PAC_KEYS, sections)
@@ -112,6 +123,28 @@ class InputWireRoundTrip(unittest.TestCase):
         self.assertEqual(sections[wire.SEC_SIMD], simd)
         self.assertEqual(len(sections[wire.SEC_MTE_TAGS]), (wire.MTE_TAG_COUNT + 1) // 2)
         self.assertEqual(struct.unpack("<10Q", sections[wire.SEC_PAC_KEYS]), tuple(keys))
+
+    def test_bpu_training_section_round_trips(self):
+        inp = self._input()
+        entries = [(0, True), (4, False), (128, True)]
+        _, sections = _parse(wire.ExecutorInput(inp, bpu_training=entries).serialize())
+        self.assertIn(wire.SEC_BPU_TRAINING, sections)
+        self.assertEqual(_unpack_bpu(sections[wire.SEC_BPU_TRAINING]),
+                         [(0, 1), (4, 0), (128, 1)])
+
+    def test_bpu_training_absent_when_empty(self):
+        inp = self._input()
+        _, sections = _parse(wire.ExecutorInput(inp).serialize())
+        self.assertNotIn(wire.SEC_BPU_TRAINING, sections)
+
+    def test_bpu_training_over_cap_rejected(self):
+        over = [(4 * i, True) for i in range(wire.MAX_BPU_TRAIN + 1)]
+        with self.assertRaises(ValueError):
+            wire._pack_bpu_training(over)
+
+    def test_bpu_training_unaligned_offset_rejected(self):
+        with self.assertRaises(ValueError):
+            wire._pack_bpu_training([(3, True)])
 
     def test_contract_execution_encode_envelope(self):
         """ContractExecution.encode emits a 16*u64 envelope + code + an input initialization whose

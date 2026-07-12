@@ -600,6 +600,46 @@ static int parse_code_relocations(const void* input_init, input_t* dst) {
 	return 0;
 }
 
+/* Parse the NULL-terminated branch-training table into dst. Structural checks only (4-alignment,
+ * taken in {0,1}, within the cap). The offset-vs-test-case-bounds check is deferred to trace time. */
+static int parse_bpu_training(const void* input_init, input_t* dst) {
+	dst->bpu_train[0].offset = REVISOR_BPU_TRAIN_TERMINATOR;
+	dst->bpu_train[0].taken  = REVISOR_BPU_TRAIN_TERMINATOR;
+
+	const struct revisor_input_section* sec =
+		revisor_input_find_section(input_init, REVISOR_SEC_BPU_TRAINING);
+	if (NULL == sec) {
+		return 0;
+	}
+	if (0 != (sec->length % sizeof(struct revisor_bpu_train_entry))) {
+		return -EINVAL;
+	}
+
+	const struct revisor_bpu_train_entry* src =
+		(const struct revisor_bpu_train_entry*)((const char*)input_init + sec->offset);
+	uint64_t max_entries = sec->length / sizeof(struct revisor_bpu_train_entry);
+	uint64_t n = 0;
+	while (n < max_entries && REVISOR_BPU_TRAIN_TERMINATOR != src[n].offset) {
+		if (REVISOR_INPUT_MAX_BPU_TRAIN <= n) {
+			return -EINVAL;
+		}
+		if (0 != (src[n].offset % sizeof(uint32_t))) {
+			return -EINVAL;
+		}
+		if (1 < src[n].taken) {
+			return -EINVAL;
+		}
+		dst->bpu_train[n] = src[n];
+		++n;
+	}
+	if (n == max_entries) {   /* no terminator within the section */
+		return -EINVAL;
+	}
+	dst->bpu_train[n].offset = REVISOR_BPU_TRAIN_TERMINATOR;
+	dst->bpu_train[n].taken  = REVISOR_BPU_TRAIN_TERMINATOR;
+	return 0;
+}
+
 /* Extract a validated input initialization into the device's input_t. main/faulty/gpr are
  * required and must be exactly sized; mte_tags / pac_keys are optional and set their
  * *_present flag when supplied. Returns 0, or -EINVAL on a missing/mis-sized section. */
@@ -650,7 +690,11 @@ static int parse_input_init(const void* input_init, input_t* dst) {
 		dst->pac_keys_present = true;
 	}
 
-	return parse_code_relocations(input_init, dst);
+	int reloc_err = parse_code_relocations(input_init, dst);
+	if (0 != reloc_err) {
+		return reloc_err;
+	}
+	return parse_bpu_training(input_init, dst);
 }
 
 static ssize_t copy_input_from_user_and_update_state(const char __user* user_buffer, size_t count) {

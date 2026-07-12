@@ -5,7 +5,7 @@ Two groups, both skipped unless the module is loaded:
 
   TestExecutorSysfs  - the /sys/executor sysfs interface: store-handler input
                        validation, read-only show handlers, the legacy combined
-                       flush knob, branch_training_config round-trip.
+                       flush knob.
 
   TestExecutorIoctl  - the /dev/executor ioctl state machine ("automata"):
                        allocate/free/clear bookkeeping, checkout, the
@@ -25,7 +25,8 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
 from src.aarch64.aarch64_executor_input_encoder import (
-    build_input_init, _pack_sections, SEC_MEMORY_FAULTY, SEC_GPR, MTE_TAG_COUNT, PAC_KEYS_WORDS)
+    build_input_init, _pack_sections, SEC_MEMORY_MAIN, SEC_MEMORY_FAULTY, SEC_GPR,
+    SEC_BPU_TRAINING, BPU_TRAIN_TERMINATOR, MAX_BPU_TRAIN, MTE_TAG_COUNT, PAC_KEYS_WORDS)
 from src.interfaces import MAIN_AREA_SIZE, FAULTY_AREA_SIZE, GPR_SUBREGION_SIZE
 
 REVISOR_INPUT_MAX_SIZE = 32 * 1024   # mirror of chardevice.c REVISOR_INPUT_MAX_SIZE
@@ -62,8 +63,7 @@ MEASUREMENT_SUPPORTED = _measurement_supported()
 # =============================================================================
 # sysfs
 # =============================================================================
-_BOOL_KNOBS = ["enable_phr_flush", "enable_view_rotation",
-               "enable_ssbs", "enable_branch_training"]
+_BOOL_KNOBS = ["enable_phr_flush", "enable_view_rotation", "enable_ssbs"]
 
 
 def _spath(name):
@@ -89,8 +89,7 @@ class TestExecutorSysfs(unittest.TestCase):
 
     def setUp(self):
         self._saved = {}
-        snap = (["warmups", "measurement_mode", "enable_pre_run_flush",
-                 "branch_training_config"] + _BOOL_KNOBS)
+        snap = (["warmups", "measurement_mode", "enable_pre_run_flush"] + _BOOL_KNOBS)
         for k in snap:
             try:
                 self._saved[k] = _read(k).strip()
@@ -109,11 +108,6 @@ class TestExecutorSysfs(unittest.TestCase):
         restore("enable_phr_flush")
         restore("enable_view_rotation")
         restore("enable_ssbs")
-        # Restore the training config (empty -> "\n" clears it to 0 entries) BEFORE the
-        # enable flag, since writing the config re-enables training as a side effect.
-        if "branch_training_config" in self._saved:
-            _write_raw("branch_training_config", self._saved["branch_training_config"] or "\n")
-        restore("enable_branch_training")
 
     # ---- warmups: kstrtol, reject negative / non-numeric --------------------
     def test_warmups_accepts_nonneg_int(self):
@@ -171,12 +165,6 @@ class TestExecutorSysfs(unittest.TestCase):
     def test_print_base_is_read_only(self):
         with self.assertRaises(OSError):
             _write_raw("print_sandbox_base", "0")
-
-    # ---- branch_training_config round-trips + auto-enables training ---------
-    def test_branch_training_config_roundtrip(self):
-        _write_raw("branch_training_config", "8:1")
-        self.assertIn("8:1", _read("branch_training_config"))
-        self.assertEqual(_read("enable_branch_training").strip(), "1")
 
 
 # =============================================================================
@@ -335,6 +323,48 @@ class TestExecutorIoctl(unittest.TestCase):
     def test_input_rejects_oversize(self):
         with self.assertRaises(OSError):                  # count > REVISOR_INPUT_MAX_SIZE -> -EINVAL
             self._write_input(bytes(REVISOR_INPUT_MAX_SIZE + 8))
+
+    # ---- per-input BPU training section (parse_bpu_training) --------------------
+    def _init_with_raw_bpu(self, bpu_payload):
+        """A valid required-section input carrying a hand-crafted BPU section (bypasses the
+        Python packer's validation so the kernel's own checks are exercised)."""
+        return _pack_sections([(SEC_MEMORY_MAIN, bytes(MAIN_AREA_SIZE)),
+                               (SEC_MEMORY_FAULTY, bytes(FAULTY_AREA_SIZE)),
+                               (SEC_GPR, bytes(GPR_SUBREGION_SIZE)),
+                               (SEC_BPU_TRAINING, bpu_payload)])
+
+    def test_input_accepts_bpu_training_section(self):
+        blob = build_input_init(bytes(MAIN_AREA_SIZE), bytes(FAULTY_AREA_SIZE), bytes(GPR_SUBREGION_SIZE),
+                                bpu_training=[(0, True), (4, False), (128, True)])
+        self.assertEqual(self._write_input(blob), len(blob))
+
+    def test_input_accepts_bpu_training_at_cap(self):
+        blob = build_input_init(bytes(MAIN_AREA_SIZE), bytes(FAULTY_AREA_SIZE), bytes(GPR_SUBREGION_SIZE),
+                                bpu_training=[(4 * i, i & 1 == 0) for i in range(MAX_BPU_TRAIN)])
+        self.assertEqual(self._write_input(blob), len(blob))
+
+    def _term(self):
+        return struct.pack("<II", BPU_TRAIN_TERMINATOR, BPU_TRAIN_TERMINATOR)
+
+    def test_input_rejects_bpu_unaligned_offset(self):
+        payload = struct.pack("<II", 2, 1) + self._term()          # offset 2 is not 4-aligned
+        with self.assertRaises(OSError):
+            self._write_input(self._init_with_raw_bpu(payload))
+
+    def test_input_rejects_bpu_bad_taken(self):
+        payload = struct.pack("<II", 0, 2) + self._term()          # taken must be 0 or 1
+        with self.assertRaises(OSError):
+            self._write_input(self._init_with_raw_bpu(payload))
+
+    def test_input_rejects_bpu_missing_terminator(self):
+        payload = struct.pack("<II", 0, 1)                         # entry with no terminator word
+        with self.assertRaises(OSError):
+            self._write_input(self._init_with_raw_bpu(payload))
+
+    def test_input_rejects_bpu_missized_section(self):
+        payload = struct.pack("<II", 0, 1) + b"\x00\x00\x00"       # length not a multiple of 8
+        with self.assertRaises(OSError):
+            self._write_input(self._init_with_raw_bpu(payload))
 
     # ---- input bookkeeping automata -----------------------------------------
     def test_clear_gives_zero_inputs(self):

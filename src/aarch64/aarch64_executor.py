@@ -35,7 +35,7 @@ from .aarch64_input_layout import _input_bytes_with_pstate, REGISTER_REGION_OFFS
 from .aarch64_executor_input_encoder import ExecutorInput, MTE_TAG_COUNT
 from .aarch64_mte import MTE_INITIAL_DEFAULT_TAG
 from .aarch64_log import (log_start_test_case, log_input, log_ce_trace, log_bb_map,
-                          log_tc_binary, log_mistraining, log_ni_table)
+                          log_tc_binary, log_ni_table)
 
 # ==================================================================================================
 # Helper functions
@@ -241,17 +241,6 @@ class Aarch64LocalExecutor(Aarch64Executor):
             entries.append((byte_offset, not taken))  # opposite → guaranteed mispredict
         return entries
 
-    def apply_branch_mistraining(self, entries: List[Tuple[int, bool]]) -> None:
-        """Apply a precomputed mistraining config to the device for the next trace.
-
-        An empty list clears any training left over from a previous input, so an input
-        with no branches to train is always measured with a clean predictor state.
-        """
-        if entries:
-            self.local_executor.write_branch_training_config(entries)
-        else:
-            self.local_executor.clear_branch_training()
-
     def load_test_case(self, test_case: TestCase):
         self._tc_counter += 1
         log = FuzzLogger.get()
@@ -303,45 +292,34 @@ class Aarch64LocalExecutor(Aarch64Executor):
             mte_tags=mte_tags,
         )
 
-    def _bpu_mistraining_batch_trace(self, payloads: List[ExecutorMemory], train_entries: List,
-                                     n_reps: int) -> List[HTrace]:
-        """Stage `payloads` grouped by shared mistraining config (the kernel applies one global config
-        per trace and measures every loaded input in that trace), trace n_reps times, and aggregate one
-        HTrace per payload."""
+    def _batch_trace(self, payloads: List[ExecutorMemory], n_reps: int) -> List[HTrace]:
+        """Stage all `payloads` into one trace (each carries its own BPU-training section), repeat
+        n_reps times, and aggregate one HTrace per payload."""
         log = FuzzLogger.get()
         input_to_trace_list = defaultdict(list)
         counter_log = defaultdict(list)
         pfc_log = defaultdict(list)
 
-        groups: Dict[Tuple, List[int]] = defaultdict(list)
-        for idx, entries in enumerate(train_entries):
-            groups[tuple(entries)].append(idx)
-
-        for entries, idxs in groups.items():
-            self.local_executor.discard_all_inputs()
-            iids = []
-            for idx in idxs:
-                iid = self.local_executor.allocate_iid()
+        self.local_executor.discard_all_inputs()
+        iids = []
+        for payload in payloads:
+            iid = self.local_executor.allocate_iid()
+            self.local_executor.checkout_region(InputRegion(iid))
+            self.local_executor.write(payload)
+            iids.append(iid)
+        for _ in range(n_reps):
+            self.local_executor.trace()
+            for idx, iid in enumerate(iids):
                 self.local_executor.checkout_region(InputRegion(iid))
-                self.local_executor.write(payloads[idx])
-                iids.append(iid)
-            self.apply_branch_mistraining(list(entries))
-            for _ in range(n_reps):
-                self.local_executor.trace()
-                for iid, idx in zip(iids, idxs):
-                    self.local_executor.checkout_region(InputRegion(iid))
-                    hwm = self.local_executor.hardware_measurement()
-                    input_to_trace_list[idx].append(hwm.htrace)
-                    pfc_log[idx].append(hwm.pfcs)
-                    counter_log[idx].append(hwm.pfcs[2])
+                hwm = self.local_executor.hardware_measurement()
+                input_to_trace_list[idx].append(hwm.htrace)
+                pfc_log[idx].append(hwm.pfcs)
+                counter_log[idx].append(hwm.pfcs[2])
 
         for idx, vals in counter_log.items():
-            avg_m = sum(vals) / len(vals)
-            exp = len(train_entries[idx])
-            rate = f" = {100 * avg_m / exp:.0f}% of expected" if exp > 0 else ""
-            log.w(f"  input={idx} mispredicts: avg={avg_m:.2f}{rate}  reps={vals}", ch="basic_hw")
-            # pfc[0]=INST_RETIRED, pfc[1]=INST_SPEC; their difference = wrong-path speculation.
-            pf = pfc_log[idx]
+            log.w(f"  input={idx} mispredicts: avg={sum(vals) / len(vals):.2f}  reps={vals}",
+                  ch="basic_hw")
+            pf = pfc_log[idx]   # pfc[0]=INST_RETIRED, pfc[1]=INST_SPEC; diff = wrong-path spec
             ret = sum(p[0] for p in pf) / len(pf)
             spec = sum(p[1] for p in pf) / len(pf)
             log.w(f"  input={idx} spec: retired={ret:.0f} inst_spec={spec:.0f} "
@@ -349,29 +327,24 @@ class Aarch64LocalExecutor(Aarch64Executor):
 
         return self._aggregate_htraces(len(payloads), n_reps, input_to_trace_list, pfc_log)
 
+    def _bpu_entries(self, inp: Input) -> Tuple[Tuple[int, bool], ...]:
+        """Per-input branch training from the input's CE trace (empty when unavailable)."""
+        return tuple(self.branch_mistraining_entries(getattr(inp, "_arch_trace", None)))
+
     def as_executor_input(self, inp: Input) -> ExecutorInput:
         """Convert one arch input into its kernel input file — the fuzzer's boost seam."""
-        return ExecutorInput(inp)
+        return ExecutorInput(inp, bpu_training=self._bpu_entries(inp))
 
     def trace_test_case(self, exec_inputs: List[ExecutorInput],
                         n_reps: int) -> Tuple[List[HTrace], List[TestCase]]:
         """Collect hardware traces for the loaded test case over `exec_inputs` — one upload, many
-        inputs, batched by mistraining config."""
+        inputs."""
         if not exec_inputs or self.test_case is None:
             return [], []
         STAT.executor_reruns += n_reps * len(exec_inputs)
-
         reported = self._write_modified_test_case("sandboxed_test_case", [Aarch64SandboxPass()])
-        log = FuzzLogger.get()
-        train_entries = [self.branch_mistraining_entries(getattr(ei, "_arch_trace", None))
-                         for ei in exec_inputs]
-        for idx, entries in enumerate(train_entries):
-            if entries:
-                log_mistraining(log, self._tc_counter, idx, entries, exec_inputs[idx]._arch_trace,
-                                ch="basic_hw")
-
         payloads = [ExecutorMemory(ei.serialize()) for ei in exec_inputs]
-        return self._bpu_mistraining_batch_trace(payloads, train_entries, n_reps), [reported] * len(exec_inputs)
+        return self._batch_trace(payloads, n_reps), [reported] * len(exec_inputs)
 
     def _aggregate_htraces(self, n_inputs: int, n_reps: int,
                            input_to_trace_list: Dict[int, List[int]],
@@ -638,7 +611,8 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         priming build the identical set."""
         resolved = self._resolve(inp)
         tags = self._mte_tags_for(inp)
-        return {name: ExecutorInput(inp, code_reloc=plan, mte_tags=tags)
+        bpu = self._bpu_entries(inp)
+        return {name: ExecutorInput(inp, code_reloc=plan, mte_tags=tags, bpu_training=bpu)
                 for name, plan in self._variants_for(resolved).items()}
 
     def sealing_class_of(self, inp: Input) -> tuple:
@@ -682,12 +656,11 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         """Extend an arch input to its baseline kernel input file — genuine relocations here; the regular
         subclass overrides to the input's sealing-class plan."""
         return ExecutorInput(inp, code_reloc=self._resolve(inp).genuine(),
-                             mte_tags=self._mte_tags_for(inp))
+                             mte_tags=self._mte_tags_for(inp), bpu_training=self._bpu_entries(inp))
 
     def _trace_exec_inputs(self, exec_inputs: List[ExecutorInput], n_reps: int) -> List[HTrace]:
         """Upload the skeleton, then trace each kernel input file — the kernel splices that input's
-        code-relocation table into the shared skeleton before it runs and reverts afterwards — batched
-        by the input's mistraining."""
+        code-relocation table into the shared skeleton before it runs and reverts afterwards."""
         if not exec_inputs:
             return []
         assert self._sealed is not None, "sealed TC not built — load_test_case() not called"
@@ -696,14 +669,8 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             sandbox_base, _ = self.read_base_addresses()
             self._log_pre_hw_ce_analysis(exec_inputs, sandbox_base, FuzzLogger.get())
         self._upload_skeleton()
-        log = FuzzLogger.get()
-        train_entries = [self.branch_mistraining_entries(getattr(ei.input_, "_arch_trace", None))
-                         for ei in exec_inputs]
-        for idx, entries in enumerate(train_entries):
-            if entries:
-                log_mistraining(log, self._tc_counter, idx, entries, exec_inputs[idx].input_._arch_trace)
         payloads = [ExecutorMemory(ei.serialize()) for ei in exec_inputs]
-        return self._bpu_mistraining_batch_trace(payloads, train_entries, n_reps)
+        return self._batch_trace(payloads, n_reps)
 
     def reconstruct_enacted_code(self, ei: ExecutorInput) -> bytes:  # TEMP(enacted-reloc)
         """Rebuild the exact machine code that ran for a boosted variant: re-resolve its arch input
@@ -742,4 +709,5 @@ class Aarch64RegularSealedExecutor(Aarch64NonInterferenceExecutor):
         resolved = self._resolve(inp)
         rng = random.Random(hash((resolved.collapse_key, self._sealed.salt)))
         plan = resolved.decoy(rng) if rng.random() < self._DECOY_PROB else resolved.genuine()
-        return ExecutorInput(inp, code_reloc=plan, mte_tags=self._mte_tags_for(inp))
+        return ExecutorInput(inp, code_reloc=plan, mte_tags=self._mte_tags_for(inp),
+                             bpu_training=self._bpu_entries(inp))

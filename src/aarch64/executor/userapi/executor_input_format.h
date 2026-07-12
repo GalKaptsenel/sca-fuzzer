@@ -45,6 +45,10 @@
  *                              test-case body; the kernel applies the table before an
  *                              input's execute and reverts the body to original afterward,
  *                              so one test case serves many differently-sealed inputs.
+ *   REVISOR_SEC_BPU_TRAINING   struct revisor_bpu_train_entry[], terminated by an all-ones
+ *                              entry. Each entry trains the conditional branch at `offset`
+ *                              toward `taken` before this input's execute, so the per-input
+ *                              branch training travels with the input rather than a global config.
  *
  * Included by the kernel module (chardevice.c) and by executor_userland; the parser
  * bodies live in executor/input_format.c.
@@ -73,6 +77,7 @@ enum revisor_input_section_type {
     REVISOR_SEC_PAC_KEYS      = 0x05,
     REVISOR_SEC_MTE_TAGS      = 0x06,
     REVISOR_SEC_CODE_RELOC    = 0x07,
+    REVISOR_SEC_BPU_TRAINING  = 0x08,
 };
 
 struct revisor_input_header {
@@ -104,6 +109,17 @@ struct revisor_code_reloc_entry {
 
 #define REVISOR_CODE_RELOC_TERMINATOR  ((uint32_t)0xFFFFFFFFul)
 #define REVISOR_INPUT_MAX_CODE_RELOCS  256
+
+/* One branch to train: saturate the base predictor for the conditional branch at byte `offset`
+ * of the test-case body toward `taken` (1 = TAKEN, 0 = NOT-TAKEN) before this input runs.
+ * REVISOR_SEC_BPU_TRAINING carries an array of these terminated by an all-ones entry. */
+struct revisor_bpu_train_entry {
+    uint32_t offset;
+    uint32_t taken;
+};
+
+#define REVISOR_BPU_TRAIN_TERMINATOR   ((uint32_t)0xFFFFFFFFul)
+#define REVISOR_INPUT_MAX_BPU_TRAIN    64
 
 /*
  * Validate a fully-copied input_init of exactly `total_len` bytes. Returns 1 if the header

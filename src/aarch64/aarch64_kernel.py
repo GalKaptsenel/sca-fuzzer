@@ -345,7 +345,6 @@ class LocalHWExecutor(HWExecutor):
         self._write_sysfs("pin_to_core", b"0")
         # sysfs parses an int (sscanf %u); emit 1/0 so a bool writes correctly.
         self._write_sysfs("enable_pre_run_flush", str(int(CONF.enable_pre_run_flush)).encode())
-        self._write_sysfs("enable_branch_training", str(int(CONF.enable_branch_mistraining)).encode())
         self._write_sysfs("enable_ssbs", str(int(CONF.enable_speculative_store_bypass)).encode())
         self._write_sysfs("warmups", str(CONF.executor_warmups).encode())
         self.discard_all_inputs()
@@ -485,14 +484,6 @@ class LocalHWExecutor(HWExecutor):
     def code_base(self) -> int:
         return int(self._read_sysfs('print_code_base'), 16)
 
-    def write_branch_training_config(self, entries: list) -> None:
-        """entries: list of (byte_offset: int, train_taken: bool)"""
-        payload = ",".join(f"{off}:{1 if taken else 0}" for off, taken in entries)
-        self._write_sysfs("branch_training_config", payload.encode())
-
-    def clear_branch_training(self) -> None:
-        self._write_sysfs("enable_branch_training", b"0")
-
 
 def retry(max_times: int = 1,
           retry_on: Union[Type[BaseException], Tuple[Type[BaseException], ...]] = Exception,
@@ -548,7 +539,6 @@ class RemoteHWExecutor(HWExecutor):
             ("measurement_mode", CONF.executor_mode),
             ("pin_to_core", 0),
             ("enable_pre_run_flush", int(CONF.enable_pre_run_flush)),
-            ("enable_branch_training", int(CONF.enable_branch_mistraining)),
             ("enable_ssbs", int(CONF.enable_speculative_store_bypass)),
             ("warmups", CONF.executor_warmups),
         ):
