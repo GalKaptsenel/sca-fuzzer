@@ -168,11 +168,15 @@ supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "l
                                      # add "sb", "isb", "dsb" here to fuzz the control-fence barriers (cond/bpu + barrier)
                                      ]
 
-# AArch64-only: relative weights for the PAC non-interference instrumentation
-# (stage 1). AUT* and XPAC* strips are inserted with these weights, normalized
-# against each other; signing is the unweighted baseline.
-pac_auth_weight: float = 0.2
-pac_xpac_weight: float = 0.2
+# AArch64-only: PAC seal probabilities (live seal path, PAC-only mode).
+# pac_seal_prob: probability that an eligible memory access is PAC-sealed
+#   (authenticated) at all. < 1 leaves some accesses unsealed (a raw,
+#   sandbox-clamped pointer, no AUT*). Decided once per test case.
+# pac_strip_prob: probability that a sealed slot renders as the arch-safe XPAC*
+#   strip instead of a real AUT*. A strip never poisons under speculation; an
+#   AUT* against the decoy signature does.
+pac_seal_prob: float = 1.0
+pac_strip_prob: float = 0.0
 
 instruction_blocklist: List[str] = [
     # Crash/stall hazards: must never be generated regardless of enabled categories.

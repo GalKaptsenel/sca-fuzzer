@@ -56,6 +56,8 @@ class NiRandomCoverageTest(unittest.TestCase):
         try:
             from src.aarch64.aarch64_kernel import PacKeys
             CONF.load(os.path.join(_ROOT, "config_pac_mte.yml"))
+            cls._saved_strip_prob = CONF.pac_strip_prob
+            CONF.pac_strip_prob = 0.1   # exercise the spec-strip corner case (0.0 by default)
             from src.aarch64.aarch64_executor import Aarch64NonInterferenceExecutor
             isa = InstructionSet(os.path.join(_ROOT, "base.json"), CONF.instruction_categories)
             cls.gen = Aarch64RandomGenerator(isa, random.randrange(1 << 32))
@@ -74,6 +76,8 @@ class NiRandomCoverageTest(unittest.TestCase):
         # the pinned deterministic keys outlive this module in the kernel; revert to live
         if hasattr(cls, "ex"):
             cls.ex.local_executor.clear_pac_keys()
+        if hasattr(cls, "_saved_strip_prob"):
+            CONF.pac_strip_prob = cls._saved_strip_prob
 
     def _assert_oracle_matches_genuine(self, baseline, inp, pac, mte, by_sealing):
         """Independent oracle: classify each slot from the GENUINE trace (the resolver's flag comes

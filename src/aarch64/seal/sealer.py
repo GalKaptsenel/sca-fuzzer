@@ -10,6 +10,7 @@ import copy
 import random
 from typing import Dict, List, Optional, Set, Tuple
 
+from ...config import CONF
 from ...interfaces import (Instruction, TestCase, BasicBlock, GeneratorException,
                           RegisterOperand, ImmediateOperand)
 from .primitives import (make_nop, index_instructions, inst_at, _SANDBOX_MASK,
@@ -81,9 +82,8 @@ class SandboxSealing(Sealing):
 
 class PacSealing(Sealing):
     """Authenticate a pointer register. `seal(sig)` emits the signature MOVK + the auth (or, prob
-    `_STRIP_PROB`, the arch-safe strip); `seal(None)` is the placeholder. `committed_inst` is exposed
-    for the resolver."""
-    _STRIP_PROB = 0.1
+    `CONF.pac_strip_prob`, the arch-safe strip); `seal(None)` is the placeholder. `committed_inst` is
+    exposed for the resolver."""
 
     def __init__(self, value_reg: str, committed_inst: Instruction, encoder: PacSign) -> None:
         super().__init__()
@@ -99,7 +99,7 @@ class PacSealing(Sealing):
         if value is None:
             return [make_nop(), xpac]
         movk = self._enc.make_movk(self.value_reg, value, 48)
-        if rng.random() < self._STRIP_PROB:
+        if rng.random() < CONF.pac_strip_prob:
             return [movk, xpac]
         return [movk, self._enc.make_auth_inst(auth_mn, self.value_reg, ctx_reg)]
 
@@ -341,7 +341,15 @@ class PacSealedTestCase(SealedTestCase):
         super().__init__(sealed_tc, trace_fn, assemble, sandbox_sealings, data_sites)
 
     def _insert_slots(self, data_sites) -> None:
+        # Per test case (seeded by the salt so every input shares one skeleton), each access is sealed
+        # with probability CONF.pac_seal_prob. A skipped access still gets its offset cancellation
+        # (offset_subs is sandbox safety, not seal machinery: it pulls base+offset back into the clamped
+        # region), just no AUT* — leaving a raw, sandbox-clamped, unauthenticated pointer.
+        rng = random.Random(self._salt)
         for inst, bb, mem_reg, offset_subs in data_sites:
+            if rng.random() >= CONF.pac_seal_prob:
+                _insert(bb, inst, offset_subs)
+                continue
             s = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc)
             self._pac.append(s)
             _insert(bb, inst, s.slot_insts, offset_subs)   # auth the base, then cancel the offset

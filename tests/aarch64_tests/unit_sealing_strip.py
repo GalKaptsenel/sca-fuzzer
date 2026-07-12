@@ -1,7 +1,7 @@
 """Each Sealing decides for itself how to render its slot (the strip policy lives in the sealing, not
 in ResolvedSealingTestCase). Verifies:
   - PacSealing.seal(sig) emits [MOVK, AUT*], or [MOVK, XPAC*] (strip) with probability
-    ~PacSealing._STRIP_PROB; seal(None) is [NOP, XPAC*].
+    ~CONF.pac_strip_prob; seal(None) is [NOP, XPAC*].
   - SandboxSealing.seal never strips (always [AND, ADD], value-independent).
   - MteSealing.seal never emits XPAC ([NOP] for 0/None, [ADDG] otherwise).
 No kernel module needed — seal() only emits instructions.
@@ -45,14 +45,19 @@ class SealingStripPolicyTest(unittest.TestCase):
 
     def test_pac_seal_sig_strips_at_policy_rate(self):
         ps = self._pac_sealing()
-        rng = random.Random(0)
-        n = 4000
-        strips = sum(1 for _ in range(n) if _names(ps.seal(0x1234, rng))[-1] in ("xpaci", "xpacd"))
-        rate = strips / n
-        # both branches must occur, and the strip rate must track PacSealing._STRIP_PROB
-        self.assertGreater(strips, 0)
-        self.assertLess(strips, n)
-        self.assertAlmostEqual(rate, PacSealing._STRIP_PROB, delta=0.05)
+        saved = CONF.pac_strip_prob
+        try:
+            CONF.pac_strip_prob = 0.1
+            rng = random.Random(0)
+            n = 4000
+            strips = sum(1 for _ in range(n) if _names(ps.seal(0x1234, rng))[-1] in ("xpaci", "xpacd"))
+            rate = strips / n
+            # both branches must occur, and the strip rate must track CONF.pac_strip_prob
+            self.assertGreater(strips, 0)
+            self.assertLess(strips, n)
+            self.assertAlmostEqual(rate, CONF.pac_strip_prob, delta=0.05)
+        finally:
+            CONF.pac_strip_prob = saved
 
     def test_pac_seal_sig_is_movk_then_auth_or_xpac(self):
         ps = self._pac_sealing()

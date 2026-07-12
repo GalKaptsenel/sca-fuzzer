@@ -227,6 +227,61 @@ class RegularSealedSealingTest(unittest.TestCase):
                 if prob == 0.0:
                     self.assertEqual(plan, resolved.genuine(), "prob 0 must be genuine everywhere")
 
+    def test_pac_seal_prob_matches_seal_rate_and_stays_sandbox_safe(self):
+        """pac_seal_prob is the probability that an eligible memory access is PAC-sealed (standalone
+        AUT* seals are arch-safety, not gated). Two properties:
+          * the observed seal rate over many data-access sites tracks pac_seal_prob;
+          * a skipped access keeps its offset cancellation, so an unsealed (clamp-only) TC still
+            traces on the CE without escaping the sandbox.
+        For a TC, sites and standalone seals are salt-independent: p=1.0 seals every access
+        (n_all = sites + standalone) and p=0.0 seals none (n_none = standalone), so sites = n_all -
+        n_none and the sealed-data count at p is len(_pac) - n_none."""
+        P = 0.5
+        saved = CONF.pac_seal_prob
+        saved_cats = CONF.instruction_categories
+        try:
+            CONF.instruction_categories = ["PAC"] + _BASE   # pure-PAC -> PacSealedTestCase
+            isa = InstructionSet(os.path.join(_ROOT, "base.json"), CONF.instruction_categories)
+            gen = Aarch64RandomGenerator(isa, random.randrange(1 << 32))
+            ex = factory.get_executor(generator=gen)
+            k = self.PacKeys()
+            k.apia_lo = k.apib_lo = k.apda_lo = k.apdb_lo = k.apga_lo = 0x1122334455667788
+            k.apia_hi = k.apib_hi = k.apda_hi = k.apdb_hi = k.apga_hi = 0x8877665544332211
+            ex.local_executor.set_pac_keys(k); type(self)._last_ex = ex
+            self.assertEqual(ex._primitives, {"pac"})
+            ig = factory.get_input_generator(random.randrange(1 << 32)); tmp = tempfile.mkdtemp()
+
+            total_sites = sealed = 0
+            traced_unsealed = False
+            for _ in range(8 * 12):
+                if total_sites >= 120:
+                    break
+                try:
+                    tc = gen.create_test_case(os.path.join(tmp, "t.asm"), disable_assembler=True)
+                except Exception:
+                    continue
+                CONF.pac_seal_prob = 1.0; ex.load_test_case(tc); n_all = len(ex._sealed._pac)
+                CONF.pac_seal_prob = 0.0; ex.load_test_case(tc); n_none = len(ex._sealed._pac)
+                sites = n_all - n_none
+                if sites == 0:
+                    continue
+                if not traced_unsealed:   # CONF is 0.0 -> fully unsealed; must still stay in-sandbox
+                    ex.trace_test_case_with_taints(ig.generate(2), CONF.model_max_nesting)
+                    traced_unsealed = True
+                CONF.pac_seal_prob = P; ex.load_test_case(tc)
+                sealed += len(ex._sealed._pac) - n_none
+                total_sites += sites
+
+            if total_sites < 80:
+                self.skipTest(f"too few data-access sites ({total_sites}) for a rate check")
+            rate = sealed / total_sites
+            self.assertAlmostEqual(rate, P, delta=0.15,
+                                   msg=f"seal rate {rate:.3f} over {total_sites} sites != {P}")
+            self.assertTrue(traced_unsealed)
+        finally:
+            CONF.pac_seal_prob = saved
+            CONF.instruction_categories = saved_cats
+
     def test_collapse_key_groups_identical_resolutions(self):
         """The same input resolved twice yields the same collapse_key (the sealing class); a class is
         minted once and shared. Sanity: a single input maps to exactly one class TC."""
