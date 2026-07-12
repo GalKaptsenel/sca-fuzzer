@@ -238,8 +238,8 @@ class FuzzerGeneric(Fuzzer):
 
     def _supports_fast_boosting(self) -> bool:
         """Whether the fast path may reuse the initial inputs' contract traces for their boosted
-        variants without re-tracing them. Subclasses that need every boosted input re-traced (e.g.
-        the PAC/MTE sealing fuzzer, which maps each input to a per-class sealed TC) return False."""
+        variants without re-tracing them. Boosting only mutates untainted cells, so a boosted input
+        shares its class original's contract trace."""
         return CONF.enable_fast_path_model
 
     def fuzzing_round(self,
@@ -698,6 +698,9 @@ class FuzzerGeneric(Fuzzer):
 
     # ==============================================================================================
     # Single-stage interfaces
+    def _save_input(self, input_: Input, path: str) -> None:
+        input_.save(path)
+
     def generate_test_batch(self, program_generator_seed: int, num_test_cases: int, num_inputs: int,
                             permit_overwrite: bool):
         self.LOG.fuzzer_start(0, datetime.today())
@@ -722,7 +725,7 @@ class FuzzerGeneric(Fuzzer):
             program_gen.create_test_case(test_case_dir + "/" + "program.asm", True)
             inputs = input_gen.generate(num_inputs)
             for j, input_ in enumerate(inputs):
-                input_.save(f"{test_case_dir}/input{j}.bin")
+                self._save_input(input_, f"{test_case_dir}/input{j}.bin")
 
         self.LOG.fuzzer_finish()
 

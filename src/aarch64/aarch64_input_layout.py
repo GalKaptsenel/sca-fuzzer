@@ -51,6 +51,14 @@ class NZCVScheme:
         return pstate
 
     @classmethod
+    def from_pstate(cls, pstate: int) -> int:
+        """Inverse of to_pstate: ARM PSTATE -> per-flag slot (bit 0 of bytes 0-3, mirrored to 4-7)."""
+        raw = 0
+        for byte_off, pstate_bit in cls._LAYOUT.values():
+            raw |= ((pstate >> pstate_bit) & 1) << (byte_off * 8)
+        return raw | (raw << 32)
+
+    @classmethod
     def make_random(cls, rng) -> int:
         """Generate a random NZCV slot: bit 0 of bytes 0-3 is random, bytes 4-7 mirror."""
         val = 0

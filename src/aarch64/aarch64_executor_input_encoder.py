@@ -13,6 +13,8 @@ import struct
 from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
 
+import numpy as np
+
 from ..interfaces import (Input, InputFragment, MAIN_AREA_SIZE, FAULTY_AREA_SIZE, GPR_SUBREGION_SIZE,
                           SIMD_SUBREGION_SIZE)
 from .aarch64_input_layout import NZCVScheme
@@ -191,7 +193,9 @@ class ExecutorInput:
     # Delegate the arch-input surface the fuzzer/artifact-store touches, so an ExecutorInput is
     # interchangeable with an arch Input in generic code (no isinstance seams).
     def save(self, path: str) -> None:
-        self.input_.save(path)
+        """The complete kernel input: loads verbatim into /dev/executor and round-trips via deserialize()."""
+        with open(path, "wb") as f:
+            f.write(self.serialize())
 
     def tobytes(self) -> bytes:
         return self.input_.tobytes()
@@ -206,3 +210,69 @@ class ExecutorInput:
     @property
     def seed(self) -> int:
         return self.input_.seed
+
+
+def _unpack_terminated_pairs(payload: bytes, terminator: int):
+    for i in range(0, len(payload), 8):
+        a, b = struct.unpack_from("<II", payload, i)
+        if terminator == a:
+            return
+        yield a, b
+
+
+def _unpack_mte_tags(payload: bytes) -> List[int]:
+    tags = []
+    for byte in payload:
+        tags.append(byte & 0xF)
+        tags.append(byte >> 4)
+    return tags[:MTE_TAG_COUNT]
+
+
+def _arch_input_from_sections(sections: dict) -> Input:
+    frag = bytearray(InputFragment.itemsize)   # padding stays zero
+    main_off = InputFragment.fields["main"][1]
+    faulty_off = InputFragment.fields["faulty"][1]
+    gpr_off = InputFragment.fields["gpr"][1]
+    simd_off = InputFragment.fields["simd"][1]
+    frag[main_off:main_off + MAIN_AREA_SIZE] = sections[SEC_MEMORY_MAIN]
+    frag[faulty_off:faulty_off + FAULTY_AREA_SIZE] = sections[SEC_MEMORY_FAULTY]
+
+    gpr = bytearray(sections[SEC_GPR])
+    slot = NZCVScheme.SLOT_IDX
+    pstate = int.from_bytes(gpr[slot * 8:slot * 8 + 8], "little")
+    gpr[slot * 8:slot * 8 + 8] = NZCVScheme.from_pstate(pstate).to_bytes(8, "little")
+    frag[gpr_off:gpr_off + GPR_SUBREGION_SIZE] = gpr
+
+    if SEC_SIMD in sections:
+        frag[simd_off:simd_off + SIMD_SUBREGION_SIZE] = sections[SEC_SIMD]
+
+    inp = Input(1)
+    inp.linear_view(0)[:] = np.frombuffer(bytes(frag), dtype=np.uint64)
+    return inp
+
+
+def deserialize(blob: bytes) -> ExecutorInput:
+    """Inverse of ExecutorInput.serialize: rebuild the ExecutorInput (arch input + every section)."""
+    magic, version, _header_len, n, _flags, _total_len = struct.unpack_from("<6Q", blob, 0)
+    if INPUT_MAGIC != magic:
+        raise ValueError("not a wire input file (bad magic)")
+    if INPUT_VERSION != version:
+        raise ValueError(f"unsupported wire input version {version}")
+
+    sections = {}
+    for i in range(n):
+        type_, _sf, off, length = struct.unpack_from("<4Q", blob, _PREAMBLE_LEN + i * _SECTION_DESC_LEN)
+        sections[type_] = blob[off:off + length]
+
+    code_reloc = tuple(Relocation(off, val)
+                       for off, val in _unpack_terminated_pairs(sections.get(SEC_CODE_RELOC, b""),
+                                                                CODE_RELOC_TERMINATOR))
+    bpu_training = tuple((off, bool(taken))
+                         for off, taken in _unpack_terminated_pairs(sections.get(SEC_BPU_TRAINING, b""),
+                                                                    BPU_TRAIN_TERMINATOR))
+    mte_tags = _unpack_mte_tags(sections[SEC_MTE_TAGS]) if SEC_MTE_TAGS in sections else None
+    pac_keys = (list(struct.unpack(f"<{PAC_KEYS_WORDS}Q", sections[SEC_PAC_KEYS]))
+                if SEC_PAC_KEYS in sections else None)
+
+    return ExecutorInput(_arch_input_from_sections(sections), code_reloc=code_reloc,
+                         mte_tags=mte_tags, pac_keys=pac_keys, bpu_training=bpu_training)

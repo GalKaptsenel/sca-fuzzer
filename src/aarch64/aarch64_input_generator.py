@@ -3,7 +3,9 @@ File: AArch64 input generator — per-flag NZCV randomisation of the flags slot.
 """
 import numpy as np
 from ..input_generator import NumpyRandomInputGenerator
+from ..interfaces import Input
 from .aarch64_input_layout import NZCVScheme
+from . import aarch64_executor_input_encoder as wire
 
 
 class AArch64InputGenerator(NumpyRandomInputGenerator):
@@ -22,3 +24,7 @@ class AArch64InputGenerator(NumpyRandomInputGenerator):
         for i in range(len(input_)):
             input_[i]['gpr'][NZCVScheme.SLOT_IDX] = NZCVScheme.make_random(nzcv_rng)
         return input_, next_state
+
+    def _load_one(self, input_path: str) -> Input:
+        with open(input_path, "rb") as f:
+            return wire.deserialize(f.read()).input_

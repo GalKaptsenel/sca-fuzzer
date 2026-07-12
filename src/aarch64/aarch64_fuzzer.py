@@ -52,6 +52,11 @@ class Aarch64Fuzzer(FuzzerGeneric):
         boosted, ctraces = super()._boost_inputs(inputs, nesting)
         return list(map(self.executor.as_executor_input, boosted)), ctraces
 
+    def _save_input(self, input_, path: str) -> None:
+        # Persist the wire input so it loads verbatim into /dev/executor (no seal — offline generate).
+        from .aarch64_executor_input_encoder import ExecutorInput
+        ExecutorInput(input_).save(path)
+
     def filter(self, test_case: TestCase, inputs: List[Input]) -> bool:
         """
         This function implements a multi-stage algorithm that gradually filters out
@@ -120,12 +125,3 @@ class Aarch64Fuzzer(FuzzerGeneric):
                     return True
 
             return False
-
-    def _supports_fast_boosting(self) -> bool:
-        # When factory.get_executor selected the PAC/MTE sealing executor, every input is re-resolved
-        # to its per-class sealed test case, so fast boosting (which skips re-tracing boosted inputs)
-        # would save nothing and skip the per-input contract-trace verification. Disable it then.
-        from .aarch64_executor import Aarch64RegularSealedExecutor
-        if isinstance(self.executor, Aarch64RegularSealedExecutor):
-            return False
-        return CONF.enable_fast_path_model

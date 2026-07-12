@@ -120,18 +120,18 @@ class NumpyRandomInputGenerator(InputGenerator):
         inputs = []
         for input_path in input_paths:
             print(f"Loading input: {input_path}")
-            input_ = Input(self.n_actors)
-
-            # check that the file is not corrupted
-            size = os.path.getsize(input_path)
-            expected = input_.itemsize * self.n_actors
-            if size != expected:
-                self.LOG.error(f"Incorrect size of input `{input_path}` "
-                               f"({size} B, expected {expected} B)")
-
-            input_.load(input_path)
-            inputs.append(input_)
+            inputs.append(self._load_one(input_path))
             self._state += 1
 
         self._boosting_state = self._state
         return inputs
+
+    def _load_one(self, input_path: str) -> Input:
+        input_ = Input(self.n_actors)
+        size = os.path.getsize(input_path)
+        expected = input_.itemsize * self.n_actors
+        if size != expected:
+            self.LOG.error(f"Incorrect size of input `{input_path}` "
+                           f"({size} B, expected {expected} B)")
+        input_.load(input_path)
+        return input_

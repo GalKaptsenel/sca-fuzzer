@@ -65,9 +65,9 @@ def _fuzzer():
 
 
 def _ensure_input(fz):
-    """Generate one input and persist it so all processes trace identical bytes."""
+    """Generate one input and persist it (wire format) so all processes trace identical bytes."""
     if not os.path.exists(_INPUT_BIN):
-        fz.input_gen.generate(1)[0].save(_INPUT_BIN)
+        fz._save_input(fz.input_gen.generate(1)[0], _INPUT_BIN)
 
 
 def _trace_metadata():

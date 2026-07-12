@@ -7,11 +7,33 @@ in src/aarch64/executor/userapi/executor_input_format.h: a 6*u64 preamble, a 4*u
 import struct
 import unittest
 
+import numpy as np
 import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
 from src.interfaces import (Input, InputFragment, MAIN_AREA_SIZE, FAULTY_AREA_SIZE,
                             GPR_SUBREGION_SIZE, SIMD_SUBREGION_SIZE)
 from src.aarch64.aarch64_input_layout import NZCVScheme
+from src.aarch64.aarch64_relocations import Relocation
+from src.aarch64.aarch64_input_generator import AArch64InputGenerator
 from src.aarch64 import aarch64_executor_input_encoder as wire
+
+
+def _rand_relocs(rng, n):
+    offs = rng.choice(np.arange(0, 4 * (n + 8), 4), size=n, replace=False)
+    return tuple(Relocation(int(o), int(rng.integers(0, 1 << 32))) for o in offs)
+
+
+def _rand_bpu(rng, n):
+    offs = rng.choice(np.arange(0, 4 * (n + 8), 4), size=n, replace=False)
+    return tuple((int(o), bool(rng.integers(0, 2))) for o in offs)
+
+
+def _rand_mte(rng):
+    return [int(rng.integers(0, 16)) for _ in range(wire.MTE_TAG_COUNT)]
+
+
+def _rand_pac(rng):
+    return [int(rng.integers(0, 1 << 32)) | (int(rng.integers(0, 1 << 32)) << 32)
+            for _ in range(wire.PAC_KEYS_WORDS)]
 
 _PREAMBLE = struct.Struct("<6Q")
 _DESC = struct.Struct("<4Q")
@@ -145,6 +167,89 @@ class InputWireRoundTrip(unittest.TestCase):
     def test_bpu_training_unaligned_offset_rejected(self):
         with self.assertRaises(ValueError):
             wire._pack_bpu_training([(3, True)])
+
+    def _input_with_valid_nzcv(self, seed: int) -> Input:
+        inp = self._input()
+        gpr0 = (MAIN_AREA_SIZE + FAULTY_AREA_SIZE) // 8
+        inp.view("uint64")[gpr0 + NZCVScheme.SLOT_IDX] = NZCVScheme.make_random(np.random.default_rng(seed))
+        return inp
+
+    def test_wire_round_trip_all_sections(self):
+        ei = wire.ExecutorInput(self._input_with_valid_nzcv(3),
+                                code_reloc=(Relocation(0, 0xdeadbeef), Relocation(8, 0x1234)),
+                                mte_tags=[i % 16 for i in range(wire.MTE_TAG_COUNT)],
+                                pac_keys=list(range(100, 110)),
+                                bpu_training=((0, True), (4, False)))
+        back = wire.deserialize(ei.serialize())
+        self.assertEqual(back.input_.tobytes(), ei.input_.tobytes())
+        self.assertEqual(back.code_reloc, ei.code_reloc)
+        self.assertEqual(back.mte_tags, ei.mte_tags)
+        self.assertEqual(back.pac_keys, ei.pac_keys)
+        self.assertEqual(back.bpu_training, ei.bpu_training)
+        self.assertEqual(back.serialize(), ei.serialize())
+
+    def test_wire_round_trip_no_optional_sections(self):
+        ei = wire.ExecutorInput(self._input_with_valid_nzcv(4))
+        back = wire.deserialize(ei.serialize())
+        self.assertEqual(back.input_.tobytes(), ei.input_.tobytes())
+        self.assertEqual(back.code_reloc, ())
+        self.assertIsNone(back.mte_tags)
+        self.assertIsNone(back.pac_keys)
+        self.assertEqual(back.bpu_training, ())
+
+    def test_deserialize_rejects_bad_magic(self):
+        blob = bytearray(wire.ExecutorInput(self._input_with_valid_nzcv(5)).serialize())
+        blob[0:8] = (0xDEADBEEF).to_bytes(8, "little")
+        with self.assertRaises(ValueError):
+            wire.deserialize(bytes(blob))
+
+    def test_round_trip_real_random_inputs(self):
+        for inp in AArch64InputGenerator(20250712).generate(8):
+            ei = wire.ExecutorInput(inp)
+            back = wire.deserialize(ei.serialize())
+            self.assertEqual(back.input_.tobytes(), inp.tobytes())
+            self.assertEqual(back.serialize(), ei.serialize())
+
+    def test_round_trip_random_relocations(self):
+        rng = np.random.default_rng(1)
+        inp = AArch64InputGenerator(1).generate(1)[0]
+        for n in (0, 1, 5, wire.MAX_CODE_RELOCS):
+            relocs = _rand_relocs(rng, n)
+            back = wire.deserialize(wire.ExecutorInput(inp, code_reloc=relocs).serialize())
+            self.assertEqual(back.code_reloc, relocs)
+
+    def test_round_trip_random_mte_tags(self):
+        rng = np.random.default_rng(2)
+        inp = AArch64InputGenerator(2).generate(1)[0]
+        for _ in range(5):
+            tags = _rand_mte(rng)
+            back = wire.deserialize(wire.ExecutorInput(inp, mte_tags=tags).serialize())
+            self.assertEqual(back.mte_tags, tags)
+
+    def test_round_trip_random_mistraining(self):
+        rng = np.random.default_rng(3)
+        inp = AArch64InputGenerator(3).generate(1)[0]
+        for n in (0, 1, 10, wire.MAX_BPU_TRAIN):
+            bpu = _rand_bpu(rng, n)
+            back = wire.deserialize(wire.ExecutorInput(inp, bpu_training=bpu).serialize())
+            self.assertEqual(back.bpu_training, bpu)
+
+    def test_round_trip_random_all_sections_fuzz(self):
+        for seed in range(25):
+            rng = np.random.default_rng(1000 + seed)
+            inp = AArch64InputGenerator(seed).generate(1)[0]
+            ei = wire.ExecutorInput(inp,
+                                    code_reloc=_rand_relocs(rng, int(rng.integers(0, 12))),
+                                    mte_tags=_rand_mte(rng),
+                                    pac_keys=_rand_pac(rng),
+                                    bpu_training=_rand_bpu(rng, int(rng.integers(0, 12))))
+            back = wire.deserialize(ei.serialize())
+            self.assertEqual(back.input_.tobytes(), ei.input_.tobytes())
+            self.assertEqual(back.code_reloc, ei.code_reloc)
+            self.assertEqual(back.mte_tags, ei.mte_tags)
+            self.assertEqual(back.pac_keys, ei.pac_keys)
+            self.assertEqual(back.bpu_training, ei.bpu_training)
+            self.assertEqual(back.serialize(), ei.serialize())
 
     def test_contract_execution_encode_envelope(self):
         """ContractExecution.encode emits a 16*u64 envelope + code + an input initialization whose
