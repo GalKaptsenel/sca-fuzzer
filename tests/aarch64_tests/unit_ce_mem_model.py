@@ -75,7 +75,7 @@ def _trace_metadata():
     fz = _fuzzer()
     _ensure_input(fz)
     inputs = _load_tc_and_inputs(fz)
-    _, _, traces, _ = fz.executor.trace_test_case_with_taints(inputs, 5)
+    _, _, traces = fz.executor.trace_test_case_with_taints(inputs, 5)
     return traces[0]
 
 

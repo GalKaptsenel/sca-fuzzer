@@ -10,11 +10,13 @@ The input initialization = a 6*u64 little-endian preamble, a section table (4*u6
 the section payloads (each 8-byte aligned). Sections are located by type, not offset.
 """
 import struct
+from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
 
-from ..interfaces import (InputFragment, MAIN_AREA_SIZE, FAULTY_AREA_SIZE, GPR_SUBREGION_SIZE,
+from ..interfaces import (Input, InputFragment, MAIN_AREA_SIZE, FAULTY_AREA_SIZE, GPR_SUBREGION_SIZE,
                           SIMD_SUBREGION_SIZE)
 from .aarch64_input_layout import NZCVScheme
+from .aarch64_relocations import Relocation
 
 # --- mirror of executor_input_format.h --------------------------------------------------------
 INPUT_MAGIC = 0x49525A5652      # "RVZRI" magic (matches REVISOR_INPUT_MAGIC)
@@ -127,7 +129,7 @@ def build_input_init(main: bytes, faulty: bytes, gpr: bytes, simd: Optional[byte
                      code_reloc: Optional[Sequence] = None) -> bytes:
     """Assemble a input_init from the raw section payloads. `gpr` is the final 64-byte GPR section (flags
     already in PSTATE form); `simd` is the optional 256-byte vector section. Shared by both consumers:
-    the device write (serialize_input) and the contract-executor message (ContractExecution.encode)."""
+    the device write (ExecutorInput.serialize) and the contract-executor message (ContractExecution.encode)."""
     sections: List[Tuple[int, bytes]] = [
         (SEC_MEMORY_MAIN, main),
         (SEC_MEMORY_FAULTY, faulty),
@@ -144,17 +146,22 @@ def build_input_init(main: bytes, faulty: bytes, gpr: bytes, simd: Optional[byte
     return _pack_sections(sections)
 
 
-def serialize_input(inp, mte_tags: Optional[Sequence[int]] = None,
-                    pac_keys: Optional[Sequence[int]] = None,
-                    code_reloc: Optional[Sequence] = None) -> bytes:
-    """Serialize `inp` to a device input initialization. main/faulty/gpr/simd are always present;
-    mte_tags, pac_keys and code_reloc are emitted only when supplied (per-input initial state)."""
-    frag = _first_fragment(inp)
-    main_off = InputFragment.fields["main"][1]
-    faulty_off = InputFragment.fields["faulty"][1]
-    simd_off = InputFragment.fields["simd"][1]
-    return build_input_init(frag[main_off:main_off + MAIN_AREA_SIZE],
-                            frag[faulty_off:faulty_off + FAULTY_AREA_SIZE],
-                            _gpr_section(frag),
-                            frag[simd_off:simd_off + SIMD_SUBREGION_SIZE],
-                            mte_tags, pac_keys, code_reloc)
+@dataclass(frozen=True)
+class ExecutorInput:
+    """The kernel input file: an architectural `Input` plus the executor-only wire sections."""
+    input_: Input
+    code_reloc: Tuple[Relocation, ...] = ()
+    mte_tags: Optional[Sequence[int]] = None
+    pac_keys: Optional[Sequence[int]] = None
+
+    def serialize(self) -> bytes:
+        frag = _first_fragment(self.input_)
+        main_off = InputFragment.fields["main"][1]
+        faulty_off = InputFragment.fields["faulty"][1]
+        simd_off = InputFragment.fields["simd"][1]
+        return build_input_init(frag[main_off:main_off + MAIN_AREA_SIZE],
+                                frag[faulty_off:faulty_off + FAULTY_AREA_SIZE],
+                                _gpr_section(frag),
+                                frag[simd_off:simd_off + SIMD_SUBREGION_SIZE],
+                                self.mte_tags, self.pac_keys,
+                                self.code_reloc if self.code_reloc else None)

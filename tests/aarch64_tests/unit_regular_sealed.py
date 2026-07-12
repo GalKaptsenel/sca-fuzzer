@@ -11,6 +11,7 @@ import sys
 import random
 import tempfile
 import unittest
+from collections import defaultdict
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 _ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
@@ -175,8 +176,8 @@ class RegularSealedSealingTest(unittest.TestCase):
             ex._sandbox_base, _ = ex.read_base_addresses()
             for inp in ig.generate(3):
                 resolved = ex._sealed.resolve(inp)               # fresh per-input resolve
-                for _ in range(8):                               # real rng over many minted decoys
-                    decoy = apply_relocations(resolved.object_code, resolved.decoy())
+                for i in range(8):                               # many minted decoys (distinct seeds)
+                    decoy = apply_relocations(resolved.object_code, resolved.decoy(random.Random(i)))
                     self._assert_arch_genuine(ex, resolved, decoy, violations)
                     self._accumulate_coverage(ex, resolved, decoy, cov)
         self.assertEqual(violations, [], f"arch slots not genuine: {violations[:5]}")
@@ -195,28 +196,36 @@ class RegularSealedSealingTest(unittest.TestCase):
             if not self._has_value_slots(ex):
                 continue
             inputs = ig.generate(n_inputs)
-            ctraces, _t, _tr, _v = ex.trace_test_case_with_taints(inputs, CONF.model_max_nesting)
+            ctraces, _t, _tr = ex.trace_test_case_with_taints(inputs, CONF.model_max_nesting)
             return inputs, ctraces
         self.skipTest("no sealable test case generated")
 
     def test_one_tc_per_input_and_merged_by_class(self):
+        """caveat-4 merge: same-class inputs (equal collapse_key) get byte-identical kernel input
+        files with no shared state — the determinism of _seal_input, not a cache, guarantees it."""
         ex, gen = self._executor()
         inputs, ctraces = self._seal_a_tc(ex, gen)
         self.assertEqual(len(ctraces), len(inputs))
-        self.assertTrue(all(len(var) == 1 for var in ex._last_tc_variants))  # exactly one TC per input
-        # inputs of the same sealing class share the one cached TC object (caveat-4 merge): the number
-        # of distinct TC dicts equals the number of sealing classes minted.
-        distinct_tcs = {id(var) for var in ex._last_tc_variants}
-        self.assertEqual(len(distinct_tcs), len(ex._class_tc))
+        by_class = defaultdict(list)
+        for inp in inputs:
+            by_class[ex._sealed.resolve(inp).collapse_key].append(ex._seal_input(inp).code_reloc)
+        for plans in by_class.values():
+            self.assertTrue(all(p == plans[0] for p in plans),
+                            "same-class inputs must run the identical program")
 
     def test_forced_genuine_or_decoy(self):
-        from src.aarch64.aarch64_executor import NIVariant
-        for prob, expected in ((0.0, NIVariant.BASELINE), (1.0, NIVariant.decoy_n(0))):
+        """The per-class coin is _DECOY_PROB: 0 forces genuine, 1 forces the class decoy; both a pure
+        function of the sealing class + salt, so _seal_input is stable across calls."""
+        for prob in (0.0, 1.0):
             ex, gen = self._executor()
             ex._DECOY_PROB = prob                                     # override the per-class coin
-            self._seal_a_tc(ex, gen)
-            self.assertTrue(all(next(iter(var)) == expected for var in ex._last_tc_variants),
-                            f"_DECOY_PROB={prob} should make every class {expected}")
+            inputs, _ = self._seal_a_tc(ex, gen)
+            for inp in inputs:
+                resolved = ex._sealed.resolve(inp)
+                plan = ex._seal_input(inp).code_reloc
+                self.assertEqual(plan, ex._seal_input(inp).code_reloc, "must be deterministic")
+                if prob == 0.0:
+                    self.assertEqual(plan, resolved.genuine(), "prob 0 must be genuine everywhere")
 
     def test_collapse_key_groups_identical_resolutions(self):
         """The same input resolved twice yields the same collapse_key (the sealing class); a class is

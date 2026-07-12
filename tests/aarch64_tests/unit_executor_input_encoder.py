@@ -50,7 +50,7 @@ class InputWireRoundTrip(unittest.TestCase):
 
     def test_required_sections_round_trip(self):
         inp = self._input()
-        flags, sections = _parse(wire.serialize_input(inp))
+        flags, sections = _parse(wire.ExecutorInput(inp).serialize())
         self.assertEqual(flags, 0)
         self.assertEqual(set(sections),
                          {wire.SEC_MEMORY_MAIN, wire.SEC_MEMORY_FAULTY, wire.SEC_GPR, wire.SEC_SIMD})
@@ -72,14 +72,14 @@ class InputWireRoundTrip(unittest.TestCase):
         for byte_off, _ in NZCVScheme._LAYOUT.values():
             known |= 1 << (byte_off * 8)
         raw[gpr0 + NZCVScheme.SLOT_IDX] = known
-        _, sections = _parse(wire.serialize_input(inp))
+        _, sections = _parse(wire.ExecutorInput(inp).serialize())
         flags_slot = struct.unpack_from("<Q", sections[wire.SEC_GPR], NZCVScheme.SLOT_IDX * 8)[0]
         self.assertEqual(flags_slot, NZCVScheme.to_pstate(known))
 
     def test_mte_tags_section_packs_two_per_byte(self):
         inp = self._input()
         tags = [(i % 16) for i in range(wire.MTE_TAG_COUNT)]
-        _, sections = _parse(wire.serialize_input(inp, mte_tags=tags))
+        _, sections = _parse(wire.ExecutorInput(inp, mte_tags=tags).serialize())
         self.assertIn(wire.SEC_MTE_TAGS, sections)
         packed = sections[wire.SEC_MTE_TAGS]
         self.assertEqual(len(packed), (wire.MTE_TAG_COUNT + 1) // 2)
@@ -93,7 +93,7 @@ class InputWireRoundTrip(unittest.TestCase):
     def test_mte_tags_wrong_count_rejected(self):
         inp = self._input()
         with self.assertRaises(ValueError):
-            wire.serialize_input(inp, mte_tags=[0, 1, 2])
+            wire.ExecutorInput(inp, mte_tags=[0, 1, 2]).serialize()
 
     def test_build_input_init_all_sections(self):
         main = b"\xAA" * MAIN_AREA_SIZE

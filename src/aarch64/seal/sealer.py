@@ -56,8 +56,9 @@ class Sealing(abc.ABC):
         self.slot_locs: List = []
 
     @abc.abstractmethod
-    def seal(self, value: Optional[int] = None) -> List[Instruction]:
-        """The instructions sealing this location with `value` (None -> the arch-safe placeholder)."""
+    def seal(self, value: Optional[int], rng: Optional[random.Random]) -> List[Instruction]:
+        """The instructions sealing this location with `value` (None -> the arch-safe placeholder).
+        `rng` seeds any render choice; None only for the placeholder, which has none."""
 
 
 class SandboxSealing(Sealing):
@@ -69,9 +70,9 @@ class SandboxSealing(Sealing):
         self.value_reg = value_reg
         self._mask = mask
         self._base_reg = base_reg
-        self.slot_insts = self.seal(None)   # seal itself with its placeholder = the slot to fill
+        self.slot_insts = self.seal(None, None)   # seal itself with its placeholder = the slot to fill
 
-    def seal(self, value: Optional[int] = None) -> List[Instruction]:
+    def seal(self, value: Optional[int], rng: Optional[random.Random]) -> List[Instruction]:
         return [Instruction("and", True, "", False,
                             template=f"AND {self.value_reg}, {self.value_reg}, {self._mask}"),
                 Instruction("add", True, "", False,
@@ -89,16 +90,16 @@ class PacSealing(Sealing):
         self.value_reg = value_reg
         self.committed_inst = committed_inst
         self._enc = encoder
-        self.slot_insts = self.seal(None)   # seal itself with its placeholder = the slot to fill
+        self.slot_insts = self.seal(None, None)   # seal itself with its placeholder = the slot to fill
 
-    def seal(self, value: Optional[int] = None) -> List[Instruction]:
+    def seal(self, value: Optional[int], rng: Optional[random.Random]) -> List[Instruction]:
         auth_mn = self.committed_inst.name.lower()
         ctx_reg = self.committed_inst.operands[1].value if len(self.committed_inst.operands) > 1 else None
         xpac = self._enc.make_xpac_inst(_AUTH_TO_XPAC[auth_mn], self.value_reg)
         if value is None:
             return [make_nop(), xpac]
         movk = self._enc.make_movk(self.value_reg, value, 48)
-        if random.random() < self._STRIP_PROB:
+        if rng.random() < self._STRIP_PROB:
             return [movk, xpac]
         return [movk, self._enc.make_auth_inst(auth_mn, self.value_reg, ctx_reg)]
 
@@ -111,9 +112,9 @@ class MteSealing(Sealing):
         super().__init__()
         self.value_reg = value_reg
         self.access_inst = access_inst
-        self.slot_insts = self.seal(None)   # seal itself with its placeholder = the slot to fill
+        self.slot_insts = self.seal(None, None)   # seal itself with its placeholder = the slot to fill
 
-    def seal(self, value: Optional[int] = None) -> List[Instruction]:
+    def seal(self, value: Optional[int], rng: Optional[random.Random]) -> List[Instruction]:
         delta = 0 if value is None else value % 16
         if delta == 0:
             return [make_nop()]
@@ -146,42 +147,47 @@ class ResolvedSealingTestCase:
     correctly; `decoy()` seals the architectural slots correctly, with no guarantees on the other slots."""
 
     def __init__(self, entries: List[_Resolved], object_code: bytes,
-                 offsets: Dict[int, Tuple[int, ...]]) -> None:
+                 offsets: Dict[int, Tuple[int, ...]], salt: int) -> None:
         self._entries = entries
         self._object_code = object_code
         self._offsets = offsets
-        self._genuine = self._solve_relocations(False, offsets)
+        self._salt = salt
+        genuine_rng = random.Random(hash((self.collapse_key, salt)))   # class-invariant render choices
+        self._genuine = self._solve_relocations(offsets, genuine_rng, decoy=False)
 
     @staticmethod
-    def _decoy_subset(eligible: List[_Resolved]) -> set:
-        """A random non-empty subset of the decoy-eligible slots to perturb (empty when none are
-        eligible). Each independent coin makes every combination reachable over many draws."""
+    def _decoy_subset(eligible: List[_Resolved], rng: random.Random) -> set:
+        """A non-empty subset of the decoy-eligible slots to perturb (empty when none are eligible)."""
         if not eligible:
             return set()
-        chosen = {r for r in eligible if random.random() < 0.5}
-        return chosen if chosen else {random.choice(eligible)}
+        chosen = {r for r in eligible if rng.random() < 0.5}
+        return chosen if chosen else {rng.choice(eligible)}
 
     @property
     def object_code(self) -> bytes:
         return self._object_code
 
-    def genuine(self) -> List[Relocation]:
+    def genuine(self) -> Tuple[Relocation, ...]:
         return self._genuine
 
-    def decoy(self) -> List[Relocation]:
-        return self._solve_relocations(True, self._offsets)
+    def decoy(self, rng: random.Random) -> Tuple[Relocation, ...]:
+        """The decoy relocations for one variant. `rng` (the caller seeds it from the sealing class,
+        salt, and variant index) drives every choice, so the variant is a pure function of that seed:
+        it reproduces across trace passes, and same-class inputs run the identical program."""
+        return self._solve_relocations(self._offsets, rng, decoy=True)
 
-    def _solve_relocations(self, decoy: bool, offsets: Dict[int, Tuple[int, ...]]) -> List[Relocation]:
+    def _solve_relocations(self, offsets: Dict[int, Tuple[int, ...]],
+                           rng: random.Random, decoy: bool) -> Tuple[Relocation, ...]:
         eligible = [r for r in self._entries if r.speculative and r.alts]
-        perturb = self._decoy_subset(eligible) if decoy else set()
+        perturb = self._decoy_subset(eligible, rng) if decoy else set()
         relocs: List[Relocation] = []
         for r in self._entries:
             offs = offsets.get(id(r.sealing))
             if offs is None:
                 continue
-            value = random.choice(r.alts) if r in perturb else r.value
-            relocs += [Relocation(off, _encode(i)) for off, i in zip(offs, r.sealing.seal(value))]
-        return relocs
+            value = rng.choice(r.alts) if r in perturb else r.value
+            relocs += [Relocation(off, _encode(i)) for off, i in zip(offs, r.sealing.seal(value, rng))]
+        return tuple(relocs)
 
     @property
     def collapse_key(self) -> Tuple:
@@ -200,7 +206,7 @@ _FORGERY_POOL_SIZE = 6
 _FORGERY_TRIES = 64
 
 
-def _resolve_pac(s: PacSealing, cer, layout, signer: PacSigner
+def _resolve_pac(s: PacSealing, cer, layout, signer: PacSigner, salt: int
                  ) -> Tuple[Optional[int], List[int], Optional[int]]:
     """A PacSealing's value from a trace: sign the pointer that reaches the sealing's XPAC, plus a pool
     of wrong signatures that fail AUTH. (value, alts, spec_nesting)."""
@@ -223,32 +229,25 @@ def _resolve_pac(s: PacSealing, cer, layout, signer: PacSigner
         ptr = _read_reg(ite.cpu, value_reg)
         cval = _read_reg(ite.cpu, ctx_reg) if ctx_reg is not None else 0
         correct_sig = signer.sign16(ptr, cval, pac_mn)
-        alts = _wrong_sigs(signer, ite.cpu, pac_mn, cval, correct_sig)
-    if correct_sig is not None and not alts:        # reached but no live pool -> random forgeries
-        alts = _random_sigs(signer, pac_mn)
+        alts = _wrong_sigs(correct_sig, signer.field_mask16(pac_mn), salt)
     return correct_sig, alts, spec
 
 
-def _wrong_sigs(signer: PacSigner, cpu, mn: str, ctx: int, correct_sig: int) -> List[int]:
-    mask16, pool = signer.field_mask16(mn), []
+def _wrong_sigs(correct_sig: int, mask16: int, salt: int) -> List[int]:
+    """A deterministic pool of wrong signatures: the correct signature with only its PAC field bits
+    perturbed (so each is a genuine AUTH failure). Seeded by (correct_sig, mask, salt), so every member
+    of a sealing class forges identically."""
+    rng = random.Random(hash((correct_sig, mask16, salt)))
+    pool: List[int] = []
     for _ in range(_FORGERY_TRIES):
-        v = cpu.gpr[random.randrange(len(cpu.gpr))] if random.random() < 0.85 \
-            else random.randrange(1 << 64)
-        sig = (correct_sig & ~mask16) | (signer.sign16(v, ctx, mn) & mask16)
+        sig = (correct_sig & ~mask16) | (rng.randrange(1 << 64) & mask16)
         if sig != correct_sig and sig not in pool:
             pool.append(sig)
             if len(pool) >= _FORGERY_POOL_SIZE:
                 break
     if not pool:
-        raise GeneratorException(f"no effective PAC forgery in {_FORGERY_TRIES} tries (mask=0x{mask16:04x})")
+        raise GeneratorException(f"no PAC forgery for field mask 0x{mask16:04x}")
     return pool
-
-
-def _random_sigs(signer: PacSigner, mn: str) -> List[int]:
-    sigs: set = set()
-    while len(sigs) < _FORGERY_POOL_SIZE:
-        sigs.add(signer.sign16(random.randrange(1 << 64), random.randrange(1 << 64), mn))
-    return list(sigs)
 
 
 def _resolve_mte(s: MteSealing, cer, layout) -> Tuple[Optional[int], List[int], Optional[int]]:
@@ -301,9 +300,14 @@ class SealedTestCase:
         self._trace_fn = trace_fn
         self._assemble = assemble                          # tc -> machine code, for the skeleton
         self._sandbox = sandbox_sealings
+        self._salt = random.randrange(1 << 64)             # per-test-case; seeds deterministic forgery
         self._insert_slots(data_sites)                            # subclass inserts its value sealings, in order
         _record_positions(self._tc, self._sealings())      # AFTER every slot is inserted
         self._layout = Aarch64ASMLayout(self._tc)
+
+    @property
+    def salt(self) -> int:
+        return self._salt
 
     @property
     def object_code(self) -> bytes:
@@ -348,10 +352,11 @@ class PacSealedTestCase(SealedTestCase):
 
     def resolve(self, inp) -> ResolvedSealingTestCase:
         cer = self._trace_fn(self._tc, inp)
-        pac = [_Resolved(s, *_resolve_pac(s, cer, self._layout, self._signer)) for s in self._pac]
+        pac = [_Resolved(s, *_resolve_pac(s, cer, self._layout, self._signer, self._salt)) for s in self._pac]
         entries = self._clamp_entries(self._sandbox) + pac
         object_code = self._assemble(self._tc)
-        return ResolvedSealingTestCase(entries, object_code, _slot_offsets(self._tc, self._layout, self._pac))
+        return ResolvedSealingTestCase(entries, object_code,
+                                       _slot_offsets(self._tc, self._layout, self._pac), self._salt)
 
 
 class MteSealedTestCase(SealedTestCase):
@@ -375,7 +380,8 @@ class MteSealedTestCase(SealedTestCase):
         mte = [_Resolved(s, *_resolve_mte(s, cer, self._layout)) for s in self._mte]
         entries = self._clamp_entries(self._sandbox) + mte
         object_code = self._assemble(self._tc)
-        return ResolvedSealingTestCase(entries, object_code, _slot_offsets(self._tc, self._layout, self._mte))
+        return ResolvedSealingTestCase(entries, object_code,
+                                       _slot_offsets(self._tc, self._layout, self._mte), self._salt)
 
 
 class MtePacSealedTestCase(SealedTestCase):
@@ -408,11 +414,11 @@ class MtePacSealedTestCase(SealedTestCase):
     def resolve(self, inp) -> ResolvedSealingTestCase:
         cer = self._trace_fn(self._tc, inp)
         mte = [_Resolved(s, *_resolve_mte(s, cer, self._layout)) for s in self._mte]
-        pac = [_Resolved(s, *_resolve_pac(s, cer, self._layout, self._signer)) for s in self._pac]
+        pac = [_Resolved(s, *_resolve_pac(s, cer, self._layout, self._signer, self._salt)) for s in self._pac]
         entries = self._clamp_entries(self._sandbox) + pac + mte
         object_code = self._assemble(self._tc)
         return ResolvedSealingTestCase(entries, object_code,
-                                       _slot_offsets(self._tc, self._layout, self._pac + self._mte))
+                                       _slot_offsets(self._tc, self._layout, self._pac + self._mte), self._salt)
 
 
 # ==================================================================================================

@@ -9,7 +9,7 @@ import random
 import os.path
 
 import numpy as np
-from typing import List, Tuple, Set, Optional, Dict
+from typing import List, Tuple, Set, Optional, Dict, Sequence, Union
 from collections import defaultdict
 from pathlib import Path
 
@@ -29,10 +29,10 @@ from .aarch64_relocations import apply_relocations, Relocation
 from .aarch64_contract_executor import (ContractExecution, ContractExecutorService,
                                         ExecutionClause, SUPPORTED_EXECUTION_CLAUSES,
                                         BranchPredictor, EXECUTION_CLAUSE_MAP, SimArch)
-from .aarch64_disasm import disassemble_instruction, decode_reg_accesses, is_conditional_branch
+from .aarch64_disasm import disassemble_instruction, is_conditional_branch
 from .aarch64_trace import compute_ctrace, compute_taint, ContractExecutionResult
 from .aarch64_input_layout import _input_bytes_with_pstate, REGISTER_REGION_OFFSET
-from .aarch64_executor_input_encoder import serialize_input, MTE_TAG_COUNT
+from .aarch64_executor_input_encoder import ExecutorInput, MTE_TAG_COUNT
 from .aarch64_mte import MTE_INITIAL_DEFAULT_TAG
 from .aarch64_log import (log_start_test_case, log_input, log_ce_trace, log_bb_map,
                           log_tc_binary, log_mistraining, log_ni_table)
@@ -363,7 +363,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
             if entries:
                 log_mistraining(log, self._tc_counter, idx, entries, inputs[idx]._arch_trace, ch="basic_hw")
 
-        payloads = [ExecutorMemory(serialize_input(i)) for i in inputs]
+        payloads = [ExecutorMemory(ExecutorInput(i).serialize()) for i in inputs]
         return self._bpu_mistraining_batch_trace(payloads, train_entries, n_reps), [reported] * len(inputs)
 
     def _aggregate_htraces(self, n_inputs: int, n_reps: int,
@@ -378,15 +378,11 @@ class Aarch64LocalExecutor(Aarch64Executor):
             results.append(HTrace(trace_list=trace_list, perf_counters=np.array(pfc_log[idx])))
         return results
 
-    def trace_test_case_with_taints(self, inputs: List[Input], nesting: int) -> Tuple[List[CTrace], List[InputTaint], List[ContractExecutionResult], List]:
-        """
-        Sandbox the test case, run CE per input, and return cache-set CTraces and input
-        taints. No TC variants are produced here.
-
-        :return: (ctraces, taints, ce_traces, [])  — tc_variants is always empty here
-        """
+    def trace_test_case_with_taints(self, inputs: List[Input], nesting: int) -> Tuple[List[CTrace], List[InputTaint], List[ContractExecutionResult]]:
+        """Sandbox the test case, run CE per input, and return cache-set CTraces, input taints, and the
+        CE traces (the last feed per-input BPU mistraining)."""
         if not inputs or self.test_case is None:
-            return [], [], [], []
+            return [], [], []
 
         patched = copy.deepcopy(self.test_case)
         pass_on_test_case(patched, [Aarch64SandboxPass()])
@@ -418,7 +414,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
         taints = [compute_taint(cer) for cer in traces]
         ctraces = [compute_ctrace(cer) for cer in traces]
 
-        return ctraces, taints, traces, []
+        return ctraces, taints, traces
 
 
 # ==================================================================================================
@@ -434,19 +430,11 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
     step here; the orchestration is primitive-agnostic. (Below: generic CE/BB-map/comparison helpers,
     then the lifecycle.)"""
 
-    # (baseline, candidate) variant enums whose control-flow divergence is highlighted in the
-    # CE-trace comparison.
-    _compare_variants: Tuple[str, str] = (NIVariant.BASELINE, NIVariant.decoy_n(0))  # debug only, remove with the logging
-
     def _upload_skeleton(self) -> None:
         """Upload the placeholder skeleton object code once; each input then carries its own code
         relocations, which the kernel splices in before that input runs."""
         self.local_executor.checkout_region(TestCaseRegion())
         self.local_executor.write(self._sealed.object_code)
-
-    def _sealed_payload(self, inp: Input, plan) -> ExecutorMemory:
-        """A device input carrying its variant's relocation table for the kernel to apply."""
-        return ExecutorMemory(serialize_input(inp, mte_tags=self._mte_tags_for(inp), code_reloc=list(plan)))
 
     def _run_ce_on_tc(self, tc_bytes: bytes, inp: Input, sandbox_base: int) -> Optional[List]:
         """Run CE on the machine code *tc_bytes* for *inp*; return trace entries or None on failure."""
@@ -500,156 +488,35 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         pc_to_id: Dict[int, int] = {pc: i + 1 for i, pc in enumerate(sorted_pcs)}
         return sorted_pcs, bb_info, pc_to_id, code_base
 
-    def _print_ce_trace_comparison(
-        self,
-        inp_idx: int,
-        inp: Input,
-        sealed_cer: ContractExecutionResult,
-        tc_variants: Dict,
-        sandbox_base: int,
-    ) -> None:
-        """Print a side-by-side CE trace table: sealed vs TC1/TC2/TC3.
-
-        Columns: SEALED | TC1 STRIP | TC2 CORRECT | TC3 WRONG
-        Each row: [nesting]+offset  disas  src-reg=value...  EA=addr (if mem)
-        Rows where TC3 diverges from TC1 in control-flow are marked with  <<<
-        Output goes to the FuzzLogger "pac_comparison" channel.
-        """
-        if FuzzLogger._VERBOSITY < 2:  # nothing is logged below this verbosity; skip the CE runs
-            return
-
-        def _fmt_regs(ite) -> str:
-            srcs, _ = decode_reg_accesses(ite.cpu.encoding, ite.cpu.pc)
-            parts = []
-            for r in srcs[:3]:
-                rl = r.lower()
-                if rl == 'sp':
-                    parts.append(f"sp={ite.cpu.sp:016x}")
-                elif rl.startswith('x') and rl[1:].isdigit():
-                    n = int(rl[1:])
-                    if 0 <= n <= 30:
-                        parts.append(f"x{n}={ite.cpu.gpr[n]:016x}")
-            return " ".join(parts)
-
-        def _fmt_entry(ite, base: int) -> str:
-            if ite is None:
-                return "<end>"
-            disas = disassemble_instruction(ite.cpu.encoding, ite.cpu.pc) or "<unk>"
-            offset = ite.cpu.pc - base
-            nest = ite.metadata.speculation_nesting
-            regs = _fmt_regs(ite)
-            ea = (f"  EA={ite.metadata.memory_access.effective_address:016x}"
-                  if ite.metadata.has_memory_access else "")
-            # keep disas at fixed width so regs align across rows
-            return f"[{nest}]+{offset:04x}  {disas:<26}  {regs}{ea}"
-
-        # SEALED trace (from trace_test_case_with_taints) plus one column per variant.
-        named_traces: List[Tuple[str, List, int]] = []  # (label, entries, code_base)
-        by_variant: Dict[str, Tuple[List, int]] = {}
-
-        s1_list = list(sealed_cer) if sealed_cer else []
-        s1_base = s1_list[0].cpu.pc if s1_list else 0
-        named_traces.append(("SEALED", s1_list, s1_base))
-
-        for variant, tc in tc_variants.items():
-            cer = self._run_ce_on_tc(tc, inp, sandbox_base) if tc is not None else None
-            entries = cer if cer else []
-            base = cer[0].cpu.pc if cer else 0
-            named_traces.append((variant, entries, base))
-            by_variant[variant] = (entries, base)
-
-        labels   = [t[0] for t in named_traces]
-        traces   = [t[1] for t in named_traces]
-        bases    = [t[2] for t in named_traces]
-        n_rows   = max((len(t) for t in traces), default=0)
-
-        COL_W = 75
-        header = f"  {'ROW':>4}  | " + " | ".join(f"{lbl:<{COL_W}}" for lbl in labels)
-        sep    = "-" * len(header)
-
-        # Divergence is marked between the baseline and candidate variants.
-        baseline, candidate = self._compare_variants
-        base_entries, base_code = by_variant[baseline]
-        cand_entries, cand_code = by_variant[candidate]
-
-        out_lines = [
-            "",
-            "=" * 80,
-            f"  CE Trace Comparison — inp={inp_idx}",
-            "=" * 80,
-            header,
-            sep,
-        ]
-
-        for row in range(n_rows):
-            cells = [
-                _fmt_entry(tr[row] if row < len(tr) else None, base)
-                for tr, base in zip(traces, bases)
-            ]
-
-            # Mark rows where the last variant's PC-offset diverges from the first.
-            be = base_entries[row] if row < len(base_entries) else None
-            ce = cand_entries[row] if row < len(cand_entries) else None
-            if (be is None) != (ce is None):
-                flag = "  <<<"
-            elif be is not None and ce is not None:
-                flag = "  <<<" if (be.cpu.pc - base_code) != (ce.cpu.pc - cand_code) else ""
-            else:
-                flag = ""
-
-            out_lines.append(
-                f"  {row:>4}  | " + " | ".join(f"{c:<{COL_W}}" for c in cells) + flag
-            )
-
-        log = FuzzLogger.get()
-        for line in out_lines:
-            log.w(line, ch="pac_comparison")
-        log.ensure_flushed()
-
-    def _log_pre_hw_ce_analysis(self, inputs: List[Input], sandbox_base: int, log) -> None:
-        """Diagnostic pre-HW pass: run CE on every variant for every input and log the CE
-        traces, BB maps, and AUTH instructions, flushing to disk before any HW runs."""
+    def _log_pre_hw_ce_analysis(self, exec_inputs: List[ExecutorInput], sandbox_base: int, log) -> None:
+        """Diagnostic pre-HW pass: run CE on each kernel input file's enacted code and log the CE
+        trace, BB map, and AUTH instructions, flushing to disk before any HW runs."""
         auth_mnemonics = {'autia', 'autib', 'autda', 'autdb',
                           'autiza', 'autizb', 'autdza', 'autdzb'}
-        ce_traces = self._last_ce_traces or ([None] * len(inputs))
-
-        for inp_idx, (inp, variants) in enumerate(zip(inputs, self._last_tc_variants)):
+        for idx, ei in enumerate(exec_inputs):
+            inp = ei.input_
             entry_x7 = int.from_bytes(inp.tobytes()[7 * 8: 8 * 8], "little")
-            log.header(f"PRE-HW ANALYSIS  inp={inp_idx}")
+            log.header(f"PRE-HW ANALYSIS  variant={idx}")
 
-            s1_cer = ce_traces[inp_idx]
-            if s1_cer:
-                log_ce_trace(log, "SEALED", inp_idx, list(s1_cer))
+            tc = apply_relocations(self._sealed.object_code, list(ei.code_reloc))
+            cer = self._run_ce_on_tc(tc, inp, sandbox_base)
+            if cer is not None:
+                log_ce_trace(log, f"v{idx}", idx, cer)
+            else:
+                log.w(f"  CE failed for variant={idx}")
 
-            variant_cers: Dict[str, Optional[List]] = {}
-            for variant, tc in variants.items():
-                cer = self._run_ce_on_tc(tc, inp, sandbox_base)
-                variant_cers[variant] = cer
-                if cer is not None:
-                    log_ce_trace(log, variant, inp_idx, cer)
-                else:
-                    log.w(f"  CE failed for {variant} inp={inp_idx}")
+            sorted_pcs, bb_info, pc_to_id, code_base = self._compute_bb_map(cer or [])
+            log_bb_map(log, f"v{idx}", idx, sorted_pcs, bb_info, pc_to_id, code_base, entry_x7)
 
-                sorted_pcs, bb_info, pc_to_id, code_base = self._compute_bb_map(cer or [])
-                log_bb_map(log, variant, inp_idx, sorted_pcs, bb_info, pc_to_id, code_base, entry_x7)
-
-                if cer:
-                    log.header(f"AUTH INSTRUCTIONS IN CE: {variant}  inp={inp_idx}")
-                    for ite in cer:
-                        disas = disassemble_instruction(ite.cpu.encoding, ite.cpu.pc) or ""
-                        mn = disas.split()[0].lower() if disas else ""
-                        if mn in auth_mnemonics:
-                            nest = ite.metadata.speculation_nesting
-                            tag = "ARCH" if nest == 0 else f"SPEC({nest})"
-                            log.wp(f"  {tag}  {disas}  pc=0x{ite.cpu.pc:016x}")
-
-            if FuzzLogger._VERBOSITY >= 2:
-                baseline, candidate = self._compare_variants
-                base_cer, cand_cer = variant_cers[baseline], variant_cers[candidate]
-                if base_cer and cand_cer and len(base_cer) != len(cand_cer):
-                    log.wp(f"  *** {baseline} vs {candidate} trace length differs: "
-                           f"{len(base_cer)} vs {len(cand_cer)} — control flow divergence!")
-                self._print_ce_trace_comparison(inp_idx, inp, s1_cer, variants, sandbox_base)
+            if cer:
+                log.header(f"AUTH INSTRUCTIONS IN CE: variant={idx}")
+                for ite in cer:
+                    disas = disassemble_instruction(ite.cpu.encoding, ite.cpu.pc) or ""
+                    mn = disas.split()[0].lower() if disas else ""
+                    if mn in auth_mnemonics:
+                        nest = ite.metadata.speculation_nesting
+                        tag = "ARCH" if nest == 0 else f"SPEC({nest})"
+                        log.wp(f"  {tag}  {disas}  pc=0x{ite.cpu.pc:016x}")
 
         log.ensure_flushed()
         log.wp("[HW PHASE] All pre-HW logging complete — starting hardware execution")
@@ -681,16 +548,14 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         # sealer's resolve uses (captured per with_taints call).
         self._sealed: Optional[SealedTestCase] = None
         self._sandbox_base: Optional[int] = None
-        self._nesting: int = CONF.model_max_nesting
-        # TODO(remove): cross-call handoff to trace_test_case_variants_hw. Should be threaded through
-        # the Executor interface (returned from with_taints, passed to variants_hw), not stored here.
-        self._last_tc_variants: Optional[List[Dict[str, Tuple[Relocation, ...]]]] = None
-        self._last_ce_traces: Optional[List[ContractExecutionResult]] = None
+        # Memo of the pure resolve, keyed by input. Reset per test case.
+        self._resolve_cache: Dict[bytes, ResolvedSealingTestCase] = {}
 
-    def variant_relocs_for(self, input_id: int) -> Dict[str, tuple]:
-        """The reloc plan per variant last recorded for this input (variant name -> relocs tuple)."""
-        assert self._last_tc_variants is not None
-        return self._last_tc_variants[input_id]
+    def _resolve(self, inp: Input) -> ResolvedSealingTestCase:
+        key = inp.tobytes()
+        if key not in self._resolve_cache:
+            self._resolve_cache[key] = self._sealed.resolve(inp)
+        return self._resolve_cache[key]
 
     def _mte_tags_for(self, inp: Input) -> Optional[List[int]]:
         """Uniform initial tags the sandbox is loaded with when MTE is active (else None — leave tag
@@ -701,11 +566,13 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         return [MTE_INITIAL_DEFAULT_TAG] * MTE_TAG_COUNT
 
     def _ce_trace(self, tc_bytes: bytes, inp: Input) -> ContractExecutionResult:
-        """One CE trace of the machine code `tc_bytes` for `inp`."""
+        """One CE trace of the machine code `tc_bytes` for `inp`. Sealing always traces at max
+        speculation depth: a shallower pass would classify deep-speculative slots as unreached and
+        under-decoy them, missing leaks."""
         if self._sandbox_base is None:
             self._sandbox_base, _ = self.read_base_addresses()
         return self._contract_executor.run(self._make_ce_execution(
-            tc_bytes, inp, self._sandbox_base, self._nesting, CONF.model_max_spec_window,
+            tc_bytes, inp, self._sandbox_base, CONF.model_max_nesting, CONF.model_max_spec_window,
             ExecutionClause.COND, mte_tags=self._mte_tags_for(inp)))
 
     def _seal_trace(self, tc: TestCase, inp: Input) -> ContractExecutionResult:
@@ -726,6 +593,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             # key material (else AUTH fails against correct_sig).
             self.local_executor.set_pac_keys(self.local_executor.get_pac_keys())
         self._sealed = self._sealer.seal(self.test_case)
+        self._resolve_cache = {}
         log.ensure_flushed()
         return result
 
@@ -733,128 +601,101 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         self,
         inputs: List[Input],
         nesting: int,
-    ) -> Tuple[List[CTrace], List[InputTaint], List[ContractExecutionResult],
-               List[Dict[str, Tuple[Relocation, ...]]]]:
+    ) -> Tuple[List[CTrace], List[InputTaint], List[ContractExecutionResult]]:
+        """CE pass: ctraces + taints from each input's genuine baseline."""
         if not inputs or self.test_case is None:
-            return [], [], [], []
+            return [], [], []
         assert self._sealed is not None, "sealed TC not built — load_test_case() not called"
-
-        self._nesting = nesting
 
         log = FuzzLogger.get()
         ce_traces: List[ContractExecutionResult] = []
-        tc_variants_per_input: List[Dict[str, Tuple[Relocation, ...]]] = []
-
         for inp_idx, inp in enumerate(inputs):
             log_input(log, inp_idx, inp, ch="ni_flow")
             log.ensure_flushed()
 
-            # taint/ctrace are the GENUINE baseline's CE trace — the machine code that actually runs on
-            # hardware — not the placeholder, whose slots behave differently.
-            resolved = self._sealed.resolve(inp)
+            resolved = self._resolve(inp)
             cer = self._ce_trace(apply_relocations(resolved.object_code, resolved.genuine()), inp)
             ce_traces.append(cer)
 
-            variants = self._variants_for(resolved)
-            tc_variants_per_input.append(variants)
-
             log_ce_trace(log, "BASELINE", inp_idx, list(cer))
-            log.header(f"VARIANT TC BINARIES  inp={inp_idx}")
-            for variant, plan in variants.items():
-                log_tc_binary(log, variant, apply_relocations(resolved.object_code, list(plan)))
-            self._maybe_log_ni_table(log, inp_idx, cer, variants, resolved.object_code)
+            if FuzzLogger.on():
+                self._log_variant_binaries(log, inp_idx, cer, resolved)
             log.ensure_flushed()
 
-        self._last_tc_variants = tc_variants_per_input
-        self._last_ce_traces = ce_traces
         taints = [compute_taint(cer) for cer in ce_traces]
         ctraces = [compute_ctrace(cer) for cer in ce_traces]
-        return ctraces, taints, ce_traces, tc_variants_per_input
+        return ctraces, taints, ce_traces
+
+    def variants_for_input(self, inp: Input) -> Dict[str, ExecutorInput]:
+        """One kernel input file per variant of `inp`. Deterministic, so the CE pass, the HW pass, and
+        priming build the identical set."""
+        resolved = self._resolve(inp)
+        tags = self._mte_tags_for(inp)
+        return {name: ExecutorInput(inp, code_reloc=plan, mte_tags=tags)
+                for name, plan in self._variants_for(resolved).items()}
 
     def _variants_for(self, resolved: ResolvedSealingTestCase) -> Dict[str, Tuple[Relocation, ...]]:
-        """The relocation plan for each variant this input runs on hardware — the genuine baseline and
-        `CONF.ni_decoys_per_input` fresh decoys — carried to the kernel as the input's code-relocation
-        table. The regular subclass overrides which to mint."""
-        plans = {NIVariant.BASELINE: tuple(resolved.genuine())}
-        for i in range(CONF.ni_decoys_per_input):
-            plans[NIVariant.decoy_n(i)] = tuple(resolved.decoy())
+        """One boosting class: the genuine baseline plus `CONF.inputs_per_class - 1` decoys."""
+        plans = {NIVariant.BASELINE: resolved.genuine()}
+        for i in range(CONF.inputs_per_class - 1):
+            rng = random.Random(hash((resolved.collapse_key, self._sealed.salt, i)))
+            plans[NIVariant.decoy_n(i)] = resolved.decoy(rng)
         return plans
 
-    def _maybe_log_ni_table(self, log, inp_idx, cer, variants, object_code) -> None:
-        """Per-variant byte columns for the sealed/baseline/decoy table (only when logging is on)."""
-        if not FuzzLogger.on():
-            return
-        columns = [(variant, apply_relocations(object_code, list(plan))) for variant, plan in variants.items()]
+    def _log_variant_binaries(self, log, inp_idx, cer,
+                              resolved: ResolvedSealingTestCase) -> None:
+        columns = [(name, apply_relocations(resolved.object_code, list(plan)))
+                   for name, plan in self._variants_for(resolved).items()]
+        log.header(f"VARIANT TC BINARIES  inp={inp_idx}")
+        for name, code in columns:
+            log_tc_binary(log, name, code)
         log_ni_table(log, inp_idx, columns, list(cer), "", {}, ch="ni_table")
 
 
     # ------------------------------------------------------------------ hardware: sealed execution
-    def trace_test_case(self, inputs: List[Input], n_reps: int) -> Tuple[List[HTrace], List[TestCase]]:
-        """Run the genuine sealed baseline: the skeleton uploaded once, each input carrying its genuine
-        relocation table for the kernel to splice in before that input runs."""
+    def trace_test_case(self, inputs: List[Union[Input, ExecutorInput]],
+                        n_reps: int) -> Tuple[List[HTrace], List[TestCase]]:
+        """Trace each element on the shared skeleton, its code-relocation table spliced in by the kernel.
+        A plain arch `Input` is extended to its baseline kernel input file; an `ExecutorInput` (the NI
+        fuzzer's flat variant list) runs verbatim. Returns one htrace per element plus the machine code
+        each ran, in order."""
         if not inputs or self.test_case is None:
             return [], []
-        assert self._sealed is not None, "sealed TC not built — load_test_case() not called"
-        STAT.executor_reruns += n_reps * len(inputs)
-        self._upload_skeleton()
-        log = FuzzLogger.get()
-        train_entries = [self.branch_mistraining_entries(getattr(i, "_arch_trace", None)) for i in inputs]
-        for idx, entries in enumerate(train_entries):
-            if entries:
-                log_mistraining(log, self._tc_counter, idx, entries, inputs[idx]._arch_trace)
-        payloads = [self._sealed_payload(inp, self._sealed.resolve(inp).genuine()) for inp in inputs]
-        return self._bpu_mistraining_batch_trace(payloads, train_entries, n_reps), []
+        exec_inputs = [i if isinstance(i, ExecutorInput) else self._seal_input(i) for i in inputs]
+        tcs = [apply_relocations(self._sealed.object_code, list(ei.code_reloc)) for ei in exec_inputs]
+        return self._trace_exec_inputs(exec_inputs, n_reps), tcs
 
-    # ------------------------------------------------------------------ hardware: compare variants
-    def trace_test_case_variants_hw(self, inputs: List[Input], n_reps: int) -> List[Dict[str, HTrace]]:
-        """Run each input's baseline + decoy variants: the skeleton once, each (input, variant) staged as
-        its own kernel input carrying that variant's relocation table, batched by the input's mistraining
-        (shared across its variants). Returns per-input {variant: HTrace}."""
-        assert self._last_tc_variants is not None and len(self._last_tc_variants) == len(inputs), \
-            "trace_test_case_with_taints() must be called before trace_test_case_variants_hw()"
+    def _seal_input(self, inp: Input) -> ExecutorInput:
+        """Extend an arch input to its baseline kernel input file — genuine relocations here; the regular
+        subclass overrides to the input's sealing-class plan."""
+        return ExecutorInput(inp, code_reloc=self._resolve(inp).genuine(),
+                             mte_tags=self._mte_tags_for(inp))
+
+    def _trace_exec_inputs(self, exec_inputs: List[ExecutorInput], n_reps: int) -> List[HTrace]:
+        """Upload the skeleton, then trace each kernel input file — the kernel splices that input's
+        code-relocation table into the shared skeleton before it runs and reverts afterwards — batched
+        by the input's mistraining."""
+        if not exec_inputs:
+            return []
+        assert self._sealed is not None, "sealed TC not built — load_test_case() not called"
+        STAT.executor_reruns += n_reps * len(exec_inputs)
         if FuzzLogger.on():
             sandbox_base, _ = self.read_base_addresses()
-            self._log_pre_hw_ce_analysis(inputs, sandbox_base, FuzzLogger.get())
+            self._log_pre_hw_ce_analysis(exec_inputs, sandbox_base, FuzzLogger.get())
         self._upload_skeleton()
         log = FuzzLogger.get()
-        payloads: List[ExecutorMemory] = []
-        train_entries: List = []
-        index: List[Tuple[int, str]] = []
-        for inp_idx, (inp, variants) in enumerate(zip(inputs, self._last_tc_variants)):
-            STAT.ni_inputs += 1
-            STAT.tc_variants += len(variants)
-            entries = self.branch_mistraining_entries(getattr(inp, "_arch_trace", None))
+        train_entries = [self.branch_mistraining_entries(getattr(ei.input_, "_arch_trace", None))
+                         for ei in exec_inputs]
+        for idx, entries in enumerate(train_entries):
             if entries:
-                log_mistraining(log, self._tc_counter, inp_idx, entries, inp._arch_trace)
-            for variant, plan in variants.items():
-                payloads.append(self._sealed_payload(inp, plan))
-                train_entries.append(entries)
-                index.append((inp_idx, variant))
-        htraces = self._bpu_mistraining_batch_trace(payloads, train_entries, n_reps)
-        results: List[Dict[str, HTrace]] = [dict() for _ in inputs]
-        for ht, (inp_idx, variant) in zip(htraces, index):
-            results[inp_idx][variant] = ht
-        return results
-
-    # -------------------------------------------------------------- priming: one input, many tests
-    def test_series_for(self, input_id: int) -> List[Tuple[str, Tuple[Relocation, ...]]]:
-        """The ordered (variant name, reloc plan) series last run for this input — its test slots.
-        Slot order matches the test_id recorded on measurements."""
-        assert self._last_tc_variants is not None
-        return list(self._last_tc_variants[input_id].items())
-
-    def trace_test_series(self, inp: Input, tests: List[Tuple[Relocation, ...]], n_reps: int) -> List[HTrace]:
-        """Transpose of trace_test_case: run an ordered series of variant relocation plans on ONE input,
-        returning one htrace per slot in order. Priming swaps plans between slots and re-runs here."""
-        self._upload_skeleton()
-        entries = self.branch_mistraining_entries(getattr(inp, "_arch_trace", None))
-        payloads = [self._sealed_payload(inp, plan) for plan in tests]
-        return self._bpu_mistraining_batch_trace(payloads, [entries] * len(tests), n_reps)
+                log_mistraining(log, self._tc_counter, idx, entries, exec_inputs[idx].input_._arch_trace)
+        payloads = [ExecutorMemory(ei.serialize()) for ei in exec_inputs]
+        return self._bpu_mistraining_batch_trace(payloads, train_entries, n_reps)
 
     def reconstruct_enacted_code(self, m: Measurement) -> bytes:  # TEMP(enacted-reloc)
         """Rebuild the exact machine code that ran for measurement m: re-resolve its input over the
         current sealed TC (object_code is deterministic) and re-apply the recorded reloc plan."""
-        resolved = self._sealed.resolve(m.input_)
+        resolved = self._resolve(m.input_)
         return apply_relocations(resolved.object_code, list(m.relocs))
 
 
@@ -863,78 +704,29 @@ class Aarch64RegularSealedExecutor(Aarch64NonInterferenceExecutor):
 
     Reuses the NI seal/resolve pipeline. Inputs are grouped into *sealing classes* — identical
     resolved (correct_sig, correct_tag, spec_nesting) across all fix points — and each class runs ONE
-    sealed TC, minted once (with the real rng) and shared by every member. The form is a per-class
-    coin flip:
+    sealed form, chosen deterministically from the class + per-test-case salt (so every member renders
+    it identically). The form is a per-class coin flip:
       - decoy: genuine on every architectural slot, decoyed (wrong signature / retag) on the
         speculative slots — exposes the speculative PAC/MTE leak.
       - genuine: genuine everywhere.
     Either way the architectural slots are always correct, so the TC is arch-safe (no failed AUTH at
     EL1, no tag fault), and the representative's arch AUT*/tag match every member's pointer.
 
-    Sharing one TC per class gives, for free, a consistent decoy decision at each slot across all the
-    class's inputs (they run the identical program); an input never runs another class's TC. The seal
-    slots are register-only, so sealing differences between classes never enter the cache htrace,
-    leaving the standard regular by-contract-trace leak comparison valid. (A contract trace fixes the
-    accessed addresses, hence the pointers, hence the signatures/tags — so a contract-trace class is
-    contained in a sealing class and likewise shares one TC.)"""
+    One form per class gives, for free, a consistent decoy decision at each slot across all the class's
+    inputs (they run the identical program); an input never runs another class's form. The seal slots
+    are register-only, so sealing differences between classes never enter the cache htrace, leaving the
+    standard regular by-contract-trace leak comparison valid. (A contract trace fixes the accessed
+    addresses, hence the pointers, hence the signatures/tags — so a contract-trace class is contained
+    in a sealing class and likewise shares one form.)"""
 
     _DECOY_PROB = 0.5   # per sealing class: probability of the speculative-decoy form vs all-genuine
 
-    def __init__(self, generator: Aarch64Generator, *args, **kwargs):
-        super().__init__(generator, *args, **kwargs)
-        self._class_tc: Dict[tuple, Dict[str, Tuple[Relocation, ...]]] = {}   # sealing key -> the class's shared reloc plan
-        self._tc_by_input: Dict[int, Dict[str, Tuple[Relocation, ...]]] = {}  # id(input) -> its class plan (last resolve)
-
-    def load_test_case(self, test_case: TestCase):
-        self._class_tc = {}                             # fresh per-class plans for each test case
-        self._tc_by_input = {}
-        super().load_test_case(test_case)
-
-    def _variants_for(self, resolved: ResolvedSealingTestCase) -> Dict[str, Tuple[Relocation, ...]]:
-        """The reloc plan for the resolved input's sealing class — minted once per class with a
-        real-random per-class coin (decoy vs all-genuine) and shared by every member, so caveat-4
-        merges (Ti == Tt) fall out automatically."""
-        key = resolved.collapse_key
-        if key not in self._class_tc:
-            if random.random() < self._DECOY_PROB:
-                name, plan = NIVariant.decoy_n(0), tuple(resolved.decoy())
-            else:
-                name, plan = NIVariant.BASELINE, tuple(resolved.genuine())
-            self._class_tc[key] = {name: plan}
-        return self._class_tc[key]
-
-    def trace_test_case_with_taints(self, inputs, nesting):
-        result = super().trace_test_case_with_taints(inputs, nesting)
-        # remember each input's TC so trace_test_case can find it without re-resolving
-        self._tc_by_input = {id(inp): var for inp, var in zip(inputs, self._last_tc_variants)}
-        return result
-
-    def _resolve_input_tc(self, inp: Input) -> Dict[str, Tuple[Relocation, ...]]:
-        """Resolve one input over the placeholder sealed TC and return its sealing class's TC. Used
-        by trace_test_case for inputs the last with_taints pass didn't cover (slow-path priming,
-        reuse_ctraces). genuine()'s arch slots are always correct (never a forged/failed AUTH)."""
-        resolved = self._sealed.resolve(inp)
-        return self._variants_for(resolved)
-
-    def trace_test_case(self, inputs: List[Input], n_reps: int) -> Tuple[List[HTrace], List[TestCase]]:
-        """Run each input on its sealing class's shared reloc plan: the skeleton uploaded once, each
-        input carrying its class's relocation table, batched by mistraining. Every input maps to its
-        plan here (from the with_taints cache, else re-resolved), so this is correct for any input list
-        the slow path passes (priming subsets, reuse_ctraces, larger samples)."""
-        if not inputs or self.test_case is None:
-            return [], []
-        STAT.executor_reruns += n_reps * len(inputs)
-        self._upload_skeleton()
-        log = FuzzLogger.get()
-        per_input_tcs: List[TestCase] = []
-        payloads: List[ExecutorMemory] = []
-        train_entries: List = []
-        for idx, inp in enumerate(inputs):
-            plan = next(iter((self._tc_by_input.get(id(inp)) or self._resolve_input_tc(inp)).values()))
-            payloads.append(self._sealed_payload(inp, plan))
-            per_input_tcs.append(apply_relocations(self._sealed.object_code, list(plan)))
-            entries = self.branch_mistraining_entries(getattr(inp, "_arch_trace", None))
-            train_entries.append(entries)
-            if entries:
-                log_mistraining(log, self._tc_counter, idx, entries, inp._arch_trace)
-        return self._bpu_mistraining_batch_trace(payloads, train_entries, n_reps), per_input_tcs
+    def _seal_input(self, inp: Input) -> ExecutorInput:
+        """Extend an arch input to its sealing class's kernel input file. The decoy-vs-genuine coin and
+        the decoy itself are a pure function of the sealing class + per-test-case salt, so every member
+        of a class runs the identical program (caveat-4 merges fall out); genuine()'s arch slots are
+        always correct (never a forged AUTH)."""
+        resolved = self._resolve(inp)
+        rng = random.Random(hash((resolved.collapse_key, self._sealed.salt)))
+        plan = resolved.decoy(rng) if rng.random() < self._DECOY_PROB else resolved.genuine()
+        return ExecutorInput(inp, code_reloc=plan, mte_tags=self._mte_tags_for(inp))

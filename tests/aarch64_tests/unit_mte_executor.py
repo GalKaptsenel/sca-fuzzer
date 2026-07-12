@@ -13,6 +13,8 @@ class SandboxedCeCrashTest(unittest.TestCase):
         ex = Aarch64NonInterferenceExecutor.__new__(Aarch64NonInterferenceExecutor)
         ex.test_case = mock.Mock()
         ex._sealed = mock.Mock()
+        ex._resolve_cache = {}
+        ex._nesting = 0
         # resolve() runs a CE trace internally (via the sealer's trace_fn); a crash there must
         # propagate, not be swallowed.
         ex._sealed.resolve.side_effect = RuntimeError("CE crashed")

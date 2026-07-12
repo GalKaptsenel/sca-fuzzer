@@ -41,13 +41,13 @@ class SealingStripPolicyTest(unittest.TestCase):
     def test_pac_seal_none_always_strips(self):
         ps = self._pac_sealing()
         for _ in range(64):
-            self.assertEqual(_names(ps.seal(None)), ["nop", "xpaci"])
+            self.assertEqual(_names(ps.seal(None, None)), ["nop", "xpaci"])
 
     def test_pac_seal_sig_strips_at_policy_rate(self):
         ps = self._pac_sealing()
-        random.seed(0)
+        rng = random.Random(0)
         n = 4000
-        strips = sum(1 for _ in range(n) if _names(ps.seal(0x1234))[-1] in ("xpaci", "xpacd"))
+        strips = sum(1 for _ in range(n) if _names(ps.seal(0x1234, rng))[-1] in ("xpaci", "xpacd"))
         rate = strips / n
         # both branches must occur, and the strip rate must track PacSealing._STRIP_PROB
         self.assertGreater(strips, 0)
@@ -56,9 +56,9 @@ class SealingStripPolicyTest(unittest.TestCase):
 
     def test_pac_seal_sig_is_movk_then_auth_or_xpac(self):
         ps = self._pac_sealing()
-        random.seed(1)
+        rng = random.Random(1)
         for _ in range(200):
-            out = _names(ps.seal(0x1234))
+            out = _names(ps.seal(0x1234, rng))
             self.assertEqual(out[0], "movk")             # the signature is always loaded
             if out[-1] not in ("xpaci", "xpacd"):        # not a strip -> a real auth
                 self.assertEqual(out, ["movk", "autia"])
@@ -66,14 +66,14 @@ class SealingStripPolicyTest(unittest.TestCase):
     def test_sandbox_never_strips(self):
         sb = SandboxSealing("x0", "#0x1fff", "x29")
         for v in (None, 0, 0x1234):
-            self.assertEqual(_names(sb.seal(v)), ["and", "add"])
+            self.assertEqual(_names(sb.seal(v, None)), ["and", "add"])
 
     def test_mte_never_xpac(self):
         access = Instruction("ldr", True, "", False)
         mte = MteSealing("x0", access)
-        self.assertEqual(_names(mte.seal(None)), ["nop"])
-        self.assertEqual(_names(mte.seal(0)), ["nop"])
-        self.assertEqual(_names(mte.seal(5)), ["addg"])
+        self.assertEqual(_names(mte.seal(None, None)), ["nop"])
+        self.assertEqual(_names(mte.seal(0, None)), ["nop"])
+        self.assertEqual(_names(mte.seal(5, None)), ["addg"])
 
 
 if __name__ == "__main__":

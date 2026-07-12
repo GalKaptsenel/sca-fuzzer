@@ -139,7 +139,8 @@ class NiRandomCoverageTest(unittest.TestCase):
                 resolved = ex._sealed.resolve(inp)
                 by_sealing = {id(r.sealing): r for r in resolved._entries}
                 baseline = apply_relocations(resolved.object_code, resolved.genuine())
-                decoys = [apply_relocations(resolved.object_code, resolved.decoy()) for _ in range(6)]
+                decoys = [apply_relocations(resolved.object_code, resolved.decoy(random.Random(i)))
+                          for i in range(6)]
 
                 self._assert_oracle_matches_genuine(baseline, inp, pac, mte, by_sealing)
 
@@ -183,26 +184,27 @@ class NiRandomCoverageTest(unittest.TestCase):
 class NiVariantWiringTest(unittest.TestCase):
     """_variants_for wiring (no hardware needed)."""
 
-    def test_n_decoys_mints_that_many(self):
-        """CONF.ni_decoys_per_input controls how many distinct-key decoys _variants_for mints (baseline + N)."""
+    def test_boosting_class_size(self):
+        """CONF.inputs_per_class sets the class size: baseline + (inputs_per_class - 1) decoys."""
         from src.aarch64.aarch64_executor import Aarch64NonInterferenceExecutor, NIVariant
 
         class _FakeResolved:
             object_code = bytes(16)
-            def genuine(self): return []
-            def decoy(self): return []
+            collapse_key = ()
+            def genuine(self): return ()
+            def decoy(self, rng): return ()
+
+        class _FakeSealed:
+            salt = 0
 
         ex = Aarch64NonInterferenceExecutor.__new__(Aarch64NonInterferenceExecutor)
-        had = "ni_decoys_per_input" in CONF.__dict__
-        saved = CONF.__dict__.get("ni_decoys_per_input")
+        ex._sealed = _FakeSealed()
+        saved = CONF.inputs_per_class
         try:
-            CONF.ni_decoys_per_input = 4
+            CONF.inputs_per_class = 5
             variants = ex._variants_for(_FakeResolved())
         finally:
-            if had:
-                CONF.ni_decoys_per_input = saved
-            else:
-                CONF.__dict__.pop("ni_decoys_per_input", None)
+            CONF.inputs_per_class = saved
         self.assertEqual(set(variants), {NIVariant.BASELINE, *(NIVariant.decoy_n(i) for i in range(4))})
 
 

@@ -9,6 +9,7 @@ needed.
 """
 import os
 import sys
+import random
 import tempfile
 import unittest
 
@@ -48,9 +49,10 @@ class SealOrderingTest(unittest.TestCase):
         sealed = self._seal_with_mte_sites({"pac", "mte"})
         sealings = sealed._pac + sealed._mte
         self.assertTrue(sealings, "no PAC/MTE sealings to check")
+        rng = random.Random(0)
         for s in sealings:
             for value in (None, 0, 1, 7, 0x1234, 0xBEEF, 0xFFFF):
-                for inst in s.seal(value):
+                for inst in s.seal(value, rng):
                     self.assertEqual(_encode(inst), asm_word(inst),
                                      f"_encode != assembly for {inst.template!r}")
 
