@@ -2,6 +2,14 @@
 #include "pmu.h"
 
 static inline int setup_environment(void) {
+    // TEMP(pmuless-debug): a PMU-less VM can't program the counters (config_pfc returns -ENODEV).
+    // Skip it and run the test-case body end-to-end with PMU reads NOP'd (jit_read64_pmu); the
+    // resulting htrace is meaningless. Logged once. Revert on real hardware.
+    if (!pmu_measurement_supported()) {
+        pr_warn_once("executor: PMU measurement unsupported; running test cases with PMU reads NOP'd (debug only)\n");
+        return 0;
+    }
+
     int err = config_pfc();
     if (0 != err) {
         return err;
@@ -216,7 +224,11 @@ static int __nocfi run_experiments(void) {
 		if (executor.config.phr_flush) {
 			flush_bpu_phr();
 		}
-		config_pfc();
+		// TEMP(pmuless-debug): config_pfc no-ops (-ENODEV) on a PMU-less VM; skip the per-input call
+		// to avoid flooding dmesg. Revert on real hardware.
+		if (pmu_measurement_supported()) {
+			config_pfc();
+		}
 
 		struct pac_keys saved_hw_keys;
 		uint64_t saved_sctlr = 0;

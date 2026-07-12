@@ -2,6 +2,7 @@
 
 #include "jit.h"
 #include "main.h"
+#include "pmu.h"   // TEMP(pmuless-debug): pmu_measurement_supported() for the NOP-out in jit_read64_pmu
 #include <linux/kernel.h>
 #include <linux/printk.h>
 #include <linux/set_memory.h>
@@ -1052,6 +1053,13 @@ void jit_mrs_nzcv(jit_t* jit, uint8_t Rt) {
 
 // MRS <Xt=Rt>, PMEVCNTR<pmu>_EL0   (read performance event counter `pmu`)
 void jit_read64_pmu(jit_t* jit, uint8_t pmu, uint8_t Rt) {
+	// TEMP(pmuless-debug): a PMU-less VM has no PMEVCNTR<n>_EL0 (the read is UNDEFINED and would
+	// fault at EL1). Emit a NOP instead so the emitted measurement template still runs the test-case
+	// body end-to-end on this box; the resulting htrace/pfc is meaningless. Revert on real hardware.
+	if (!pmu_measurement_supported()) {
+		jit_nop(jit);
+		return;
+	}
 	jit_mrs(jit, 1, 3, 14, 8 | ((pmu >> 3) & 3), pmu & 7, Rt);
 }
 
