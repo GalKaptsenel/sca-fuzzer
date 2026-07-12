@@ -585,12 +585,9 @@ class FuzzerGeneric(Fuzzer):
                     inp._arch_trace = tr
                     inp._arch_trace_stale = False
 
-        from .aarch64.aarch64_executor_input_encoder import ExecutorInput
         for i, input_ in enumerate(violation.input_sequence):
-            # An NI seal-variant is an ExecutorInput wrapping the arch input; save the arch input.
-            arch = input_.input_ if isinstance(input_, ExecutorInput) else input_
-            arch.save(f"{violation_dir}/input_{i:04}{self.input_artifact_tag}.bin")
-            arch_trace = getattr(arch, "_arch_trace", None)
+            input_.save(f"{violation_dir}/input_{i:04}{self.input_artifact_tag}.bin")
+            arch_trace = getattr(input_, "_arch_trace", None)
             if arch_trace is None:
                 continue  # only the AArch64 executor records a CE arch trace
             from .aarch64.aarch64_trace import show_context
@@ -604,7 +601,8 @@ class FuzzerGeneric(Fuzzer):
             self.generator.printer.print(m.test_case, f"{violation_dir}/{m.test_case.asm_path}")
             # TEMP(enacted-reloc): dump the exact relocated bytes that ran, so a randomly-sealed
             # variant is reproducible from the artifact (the asm is identical across variants).
-            if isinstance(m.input_, ExecutorInput):
+            from .aarch64.aarch64_executor_input_encoder import ExecutorInput
+            if isinstance(m.input_, ExecutorInput) and m.input_.code_reloc:
                 with open(f"{violation_dir}/enacted_test{m.input_id:04}.bin", "wb") as f:
                     f.write(self.executor.reconstruct_enacted_code(m.input_))
 

@@ -98,7 +98,8 @@ class PrintCodeBaseTest(unittest.TestCase):
         ex.load_test_case(tc)
         inputs = ig.generate(3)
 
-        htraces, _ = ex.trace_test_case(inputs, 2)  # raises if the self-check fails
+        exec_inputs = list(map(ex.as_executor_input, inputs))
+        htraces, _ = ex.trace_test_case(exec_inputs, 2)  # raises if the self-check fails
         self.assertEqual(len(htraces), len(inputs))
 
 

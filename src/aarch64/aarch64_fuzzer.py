@@ -47,6 +47,11 @@ class Aarch64Fuzzer(FuzzerGeneric):
     # PSTATE form the kernel expects (see debugging/to_executor_input.py).
     input_artifact_tag: str = "_nzcv_scheme"
 
+    def _boost_inputs(self, inputs, nesting):
+        # The aarch64 fuzzer's input unit is the ExecutorInput; convert once boosting is done.
+        boosted, ctraces = super()._boost_inputs(inputs, nesting)
+        return list(map(self.executor.as_executor_input, boosted)), ctraces
+
     def filter(self, test_case: TestCase, inputs: List[Input]) -> bool:
         """
         This function implements a multi-stage algorithm that gradually filters out
@@ -68,7 +73,8 @@ class Aarch64Fuzzer(FuzzerGeneric):
             # Collect hardware traces for the test case
             try:
                 self.executor.load_test_case(test_case)
-                org_htraces, _ = self.executor.trace_test_case(inputs, reps)
+                exec_inputs = list(map(self.executor.as_executor_input, inputs))
+                org_htraces, _ = self.executor.trace_test_case(exec_inputs, reps)
             except HardwareTracingError as e:
                 STAT.hw_tracing_errors += 1
                 self.LOG.warning("fuzzer", f"hardware tracing failed, filtering test case: {e}")
@@ -99,7 +105,8 @@ class Aarch64Fuzzer(FuzzerGeneric):
                 fenced_test_case = create_fenced_test_case(test_case)
                 try:
                     self.executor.load_test_case(fenced_test_case)
-                    fenced_htraces, _ = self.executor.trace_test_case(inputs, reps)
+                    exec_inputs = list(map(self.executor.as_executor_input, inputs))
+                    fenced_htraces, _ = self.executor.trace_test_case(exec_inputs, reps)
                 except HardwareTracingError:
                     return True
 

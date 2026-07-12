@@ -101,22 +101,13 @@ class NiRefactorVerifyTest(unittest.TestCase):
             self.assertEqual(a[name].code_reloc, b[name].code_reloc,
                              f"variant {name} not reproducible — priming would diverge")
 
-    def test_trace_test_case_dispatches_by_type(self):
+    def test_as_executor_input_seals_to_baseline(self):
+        # the boost seam: an arch input becomes its (genuine) sealed kernel input file
         inp = self._input()
-        variant = next(iter(self.ex.variants_for_input(inp).values()))   # a pre-built ExecutorInput
-        seen = {}
-
-        def fake(exec_inputs, n_reps):
-            seen["ei"] = list(exec_inputs)
-            return [None] * len(exec_inputs)
-
-        with mock.patch.object(self.ex, "_trace_exec_inputs", side_effect=fake):
-            self.ex.trace_test_case([inp, variant], 1)
-        got = seen["ei"]
-        self.assertIs(got[1], variant, "a pre-built ExecutorInput passes through verbatim")
-        self.assertIsInstance(got[0], self.ExecutorInput)
-        self.assertEqual(got[0].code_reloc, self.ex._resolve(inp).genuine(),
-                         "a plain Input is sealed to its genuine baseline")
+        ei = self.ex.as_executor_input(inp)
+        self.assertIsInstance(ei, self.ExecutorInput)
+        self.assertIs(ei.input_, inp)
+        self.assertEqual(ei.code_reloc, self.ex._resolve(inp).genuine())
 
     def test_reconstruct_enacted_code(self):
         inp = self._input()

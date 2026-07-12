@@ -9,7 +9,7 @@ import random
 import os.path
 
 import numpy as np
-from typing import List, Tuple, Set, Optional, Dict, Sequence, Union
+from typing import List, Tuple, Set, Optional, Dict, Sequence
 from collections import defaultdict
 from pathlib import Path
 
@@ -349,22 +349,29 @@ class Aarch64LocalExecutor(Aarch64Executor):
 
         return self._aggregate_htraces(len(payloads), n_reps, input_to_trace_list, pfc_log)
 
-    def trace_test_case(self, inputs: List[Input], n_reps: int) -> Tuple[List[HTrace], List[TestCase]]:
-        """Collect hardware traces for the loaded test case over `inputs` — one upload, many inputs,
-        batched by mistraining config."""
-        if not inputs or self.test_case is None:
+    def as_executor_input(self, inp: Input) -> ExecutorInput:
+        """Convert one arch input into its kernel input file — the fuzzer's boost seam."""
+        return ExecutorInput(inp)
+
+    def trace_test_case(self, exec_inputs: List[ExecutorInput],
+                        n_reps: int) -> Tuple[List[HTrace], List[TestCase]]:
+        """Collect hardware traces for the loaded test case over `exec_inputs` — one upload, many
+        inputs, batched by mistraining config."""
+        if not exec_inputs or self.test_case is None:
             return [], []
-        STAT.executor_reruns += n_reps * len(inputs)
+        STAT.executor_reruns += n_reps * len(exec_inputs)
 
         reported = self._write_modified_test_case("sandboxed_test_case", [Aarch64SandboxPass()])
         log = FuzzLogger.get()
-        train_entries = [self.branch_mistraining_entries(getattr(i, "_arch_trace", None)) for i in inputs]
+        train_entries = [self.branch_mistraining_entries(getattr(ei, "_arch_trace", None))
+                         for ei in exec_inputs]
         for idx, entries in enumerate(train_entries):
             if entries:
-                log_mistraining(log, self._tc_counter, idx, entries, inputs[idx]._arch_trace, ch="basic_hw")
+                log_mistraining(log, self._tc_counter, idx, entries, exec_inputs[idx]._arch_trace,
+                                ch="basic_hw")
 
-        payloads = [ExecutorMemory(ExecutorInput(i).serialize()) for i in inputs]
-        return self._bpu_mistraining_batch_trace(payloads, train_entries, n_reps), [reported] * len(inputs)
+        payloads = [ExecutorMemory(ei.serialize()) for ei in exec_inputs]
+        return self._bpu_mistraining_batch_trace(payloads, train_entries, n_reps), [reported] * len(exec_inputs)
 
     def _aggregate_htraces(self, n_inputs: int, n_reps: int,
                            input_to_trace_list: Dict[int, List[int]],
@@ -658,17 +665,18 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
 
 
     # ------------------------------------------------------------------ hardware: sealed execution
-    def trace_test_case(self, inputs: List[Union[Input, ExecutorInput]],
+    def trace_test_case(self, exec_inputs: List[ExecutorInput],
                         n_reps: int) -> Tuple[List[HTrace], List[TestCase]]:
-        """Trace each element on the shared skeleton, its code-relocation table spliced in by the kernel.
-        A plain arch `Input` is extended to its baseline kernel input file; an `ExecutorInput` (the NI
-        fuzzer's flat variant list) runs verbatim. Returns one htrace per element plus the machine code
-        each ran, in order."""
-        if not inputs or self.test_case is None:
+        """Trace each kernel input file on the shared skeleton (its code-relocation table spliced in by
+        the kernel); returns one htrace per element plus the machine code each ran, in order."""
+        if not exec_inputs or self.test_case is None:
             return [], []
-        exec_inputs = [i if isinstance(i, ExecutorInput) else self._seal_input(i) for i in inputs]
         tcs = [apply_relocations(self._sealed.object_code, list(ei.code_reloc)) for ei in exec_inputs]
         return self._trace_exec_inputs(exec_inputs, n_reps), tcs
+
+    def as_executor_input(self, inp: Input) -> ExecutorInput:
+        """Convert one arch input into its sealed kernel input file — the regular fuzzer's boost seam."""
+        return self._seal_input(inp)
 
     def _seal_input(self, inp: Input) -> ExecutorInput:
         """Extend an arch input to its baseline kernel input file — genuine relocations here; the regular

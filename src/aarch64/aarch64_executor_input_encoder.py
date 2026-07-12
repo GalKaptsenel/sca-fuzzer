@@ -165,3 +165,16 @@ class ExecutorInput:
                                 frag[simd_off:simd_off + SIMD_SUBREGION_SIZE],
                                 self.mte_tags, self.pac_keys,
                                 self.code_reloc if self.code_reloc else None)
+
+    # Delegate the arch-input surface the fuzzer/artifact-store touches, so an ExecutorInput is
+    # interchangeable with an arch Input in generic code (no isinstance seams).
+    def save(self, path: str) -> None:
+        self.input_.save(path)
+
+    @property
+    def _arch_trace(self):
+        return getattr(self.input_, "_arch_trace", None)
+
+    @property
+    def seed(self) -> int:
+        return self.input_.seed
