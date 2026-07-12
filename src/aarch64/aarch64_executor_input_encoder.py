@@ -193,6 +193,12 @@ class ExecutorInput:
     def save(self, path: str) -> None:
         self.input_.save(path)
 
+    def tobytes(self) -> bytes:
+        return self.input_.tobytes()
+
+    def set_arch_trace(self, trace) -> None:
+        self.input_.set_arch_trace(trace)
+
     @property
     def _arch_trace(self):
         return getattr(self.input_, "_arch_trace", None)

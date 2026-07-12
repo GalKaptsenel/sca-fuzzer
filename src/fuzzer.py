@@ -383,7 +383,7 @@ class FuzzerGeneric(Fuzzer):
             # compute ctraces separately for every boosted input
             ctraces, taints, traces = self.executor.trace_test_case_with_taints(args.inputs, args.model_nesting)
             for i, tr in zip(args.inputs, traces):
-                i._arch_trace = tr
+                i.set_arch_trace(tr)
             if expected_ctraces != ctraces:
                 self._log_ctrace_mismatch(expected_ctraces, ctraces, traces, args.inputs,
                                           len(args.ctraces))

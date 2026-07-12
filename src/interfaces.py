@@ -310,6 +310,9 @@ class Input(np.ndarray):
     def linear_view(self, actor_id) -> np.ndarray:
         return self[actor_id:actor_id+1].view(np.uint64)
 
+    def set_arch_trace(self, trace) -> None:
+        self._arch_trace = trace
+
     def save(self, path: str) -> None:
         with open(path, 'wb') as f:
             f.write(self.tobytes())
