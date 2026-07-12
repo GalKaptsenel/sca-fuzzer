@@ -642,11 +642,13 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
     def trace_test_case(self, exec_inputs: List[ExecutorInput],
                         n_reps: int) -> Tuple[List[HTrace], List[TestCase]]:
         """Trace each kernel input file on the shared skeleton (its code-relocation table spliced in by
-        the kernel); returns one htrace per element plus the machine code each ran, in order."""
+        the kernel); returns one htrace per element plus the loaded TestCase per element (as the base
+        executor does, so the artifact store can print each measurement's asm). The exact machine code a
+        boosted variant ran differs per seal, but that is recorded separately via
+        reconstruct_enacted_code(); Measurement.test_case must stay a TestCase, not bytes."""
         if not exec_inputs or self.test_case is None:
             return [], []
-        tcs = [apply_relocations(self._sealed.object_code, list(ei.code_reloc)) for ei in exec_inputs]
-        return self._trace_exec_inputs(exec_inputs, n_reps), tcs
+        return self._trace_exec_inputs(exec_inputs, n_reps), [self.test_case] * len(exec_inputs)
 
     def as_executor_input(self, inp: Input) -> ExecutorInput:
         """Convert one arch input into its sealed kernel input file — the regular fuzzer's boost seam."""
