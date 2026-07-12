@@ -295,14 +295,6 @@ class FuzzerGeneric(Fuzzer):
 
         # 1. Fast path: Collect traces with minimal nesting and repetitions
         args.inputs, args.ctraces = self._boost_inputs(inputs, start_nesting)
-        # Boosted inputs share their class original's arch path but are not the same input. Borrow
-        # the original's trace for the run, but flag it stale (it was not generated for this input)
-        # so recompute_artifact_traces can replace it with the boosted input's own trace on store.
-        n_orig = len(inputs)
-        for i in range(n_orig, len(args.inputs)):
-            args.inputs[i]._arch_trace = inputs[(i - n_orig) % n_orig]._arch_trace
-            args.inputs[i]._arch_trace_stale = True
-
         violations, args.ctraces, htraces = self._collect_traces(args)
         if not violations:
             STAT.fast_path += 1
@@ -542,6 +534,13 @@ class FuzzerGeneric(Fuzzer):
         for _ in range(CONF.inputs_per_class - 1):
             boosted_inputs += self.input_gen.extend_equivalence_classes(inputs, taints)
 
+        # A boosted input has no arch trace of its own yet; borrow its class original's for
+        # mistraining, flagged stale so recompute_artifact_traces can replace it on store.
+        n_orig = len(inputs)
+        for i in range(n_orig, len(boosted_inputs)):
+            boosted_inputs[i]._arch_trace = inputs[(i - n_orig) % n_orig]._arch_trace
+            boosted_inputs[i]._arch_trace_stale = True
+
         assert len(inputs) == len(ctraces)
         return boosted_inputs, ctraces
 
@@ -586,9 +585,12 @@ class FuzzerGeneric(Fuzzer):
                     inp._arch_trace = tr
                     inp._arch_trace_stale = False
 
+        from .aarch64.aarch64_executor_input_encoder import ExecutorInput
         for i, input_ in enumerate(violation.input_sequence):
-            input_.save(f"{violation_dir}/input_{i:04}{self.input_artifact_tag}.bin")
-            arch_trace = getattr(input_, "_arch_trace", None)
+            # An NI seal-variant is an ExecutorInput wrapping the arch input; save the arch input.
+            arch = input_.input_ if isinstance(input_, ExecutorInput) else input_
+            arch.save(f"{violation_dir}/input_{i:04}{self.input_artifact_tag}.bin")
+            arch_trace = getattr(arch, "_arch_trace", None)
             if arch_trace is None:
                 continue  # only the AArch64 executor records a CE arch trace
             from .aarch64.aarch64_trace import show_context
@@ -602,9 +604,9 @@ class FuzzerGeneric(Fuzzer):
             self.generator.printer.print(m.test_case, f"{violation_dir}/{m.test_case.asm_path}")
             # TEMP(enacted-reloc): dump the exact relocated bytes that ran, so a randomly-sealed
             # variant is reproducible from the artifact (the asm is identical across variants).
-            if m.relocs:
-                with open(f"{violation_dir}/enacted_test{m.test_id:02}.bin", "wb") as f:
-                    f.write(self.executor.reconstruct_enacted_code(m))
+            if isinstance(m.input_, ExecutorInput):
+                with open(f"{violation_dir}/enacted_test{m.input_id:04}.bin", "wb") as f:
+                    f.write(self.executor.reconstruct_enacted_code(m.input_))
 
         # store the original configuration file
         if CONF._config_path:
@@ -773,38 +775,34 @@ class FuzzerGeneric(Fuzzer):
                 return [violation]
         return []
 
-    def _prime_series(self, reps, sequence: list, slot_of, n_reps: int) -> bool:
-        """Shared priming core. For each measurement's slot, swap every other measurement's element
-        into that slot and re-trace: if some swap fails to reproduce the slot's htrace, the divergence
-        follows the element (a genuine violation); if every swap reproduces it, it follows the slot (a
-        false positive). Returns True if the violation survives."""
+    def _prime_one(self, org_violation: Violation, all_inputs: List[Input]) -> bool:
+        """Swap each pair of violating inputs at their sequence slots and re-trace. If some swap fails
+        to reproduce the slot's htrace, the divergence follows the input (a genuine violation); if
+        every swap reproduces it, it follows the slot (a false positive). Returns True if it survives.
+        (NI is the same test with seal-variants as the inputs.)"""
+        violation = copy.copy(org_violation)
+        reps = [hg[0] for hg in violation.htrace_groups]
+        n_reps = len(violation.measurements[0].htrace.raw)
         null_htrace = HTrace.get_null()
         for current in reps:
             htrace_to_reproduce = current.htrace
             for other in reps:
                 if other is current:
                     continue
-                primer = list(sequence)
-                primer[slot_of(current)] = sequence[slot_of(other)]
+                primer = list(all_inputs)
+                primer[current.input_id] = all_inputs[other.input_id]
                 htraces, _ = self.executor.trace_test_case(primer, n_reps)
-                new_htrace = htraces[slot_of(current)]
+                new_htrace = htraces[current.input_id]
                 if not new_htrace.raw or new_htrace == null_htrace:
                     self.LOG.warning("fuzzer", "Tracing error during priming. "
                                      "Skipping this test case")
                     return False
                 if self.analyser.htraces_are_equivalent(new_htrace, htrace_to_reproduce):
                     continue
-                self.LOG.dbg_priming_fail(slot_of(other), slot_of(current),
+                self.LOG.dbg_priming_fail(other.input_id, current.input_id,
                                           htrace_to_reproduce, new_htrace)
                 return True
         return False
-
-    def _prime_one(self, org_violation: Violation, all_inputs: List[Input]) -> bool:
-        """Prime the inputs that caused the violation — swap inputs at their sequence slots."""
-        violation = copy.copy(org_violation)
-        reps = [hg[0] for hg in violation.htrace_groups]
-        n_reps = len(violation.measurements[0].htrace.raw)
-        return self._prime_series(reps, all_inputs, lambda m: m.input_id, n_reps)
 
     def is_architectural_mismatch(self, test_case: TestCase, violation: Violation) -> bool:
         """
@@ -867,173 +865,24 @@ class NoninterferenceFuzzer(FuzzerGeneric):
         self.analyser = factory.get_analyser()
         self.asm_parser = factory.get_asm_parser(self.generator)
 
-    def _collect_traces(
-            self, args: TracingArguments) -> Tuple[List[Violation], List[CTrace], List[HTrace]]:
-        """
-        Collect contract and hardware traces for the given inputs and check for violations.
+    def _supports_fast_boosting(self) -> bool:
+        return True    # variants share the baseline ctrace; they are never re-resolved as arch inputs
 
-        Depending on the flags, the function can reuse contract traces, merge new hardware traces
-        with the existing ones, and update the ignore list of the executor.
+    def _boost_inputs(self, inputs: List[Input], nesting) -> Tuple[List[Input], List[CTrace]]:
+        """NI boosting: vary the seal, not the input data. Each input's class is filled with its seal
+        variants, keyed by a composite (ctrace, sealing class) ctrace so only same-signature variants
+        collide."""
+        ctraces, taints, traces = self.executor.trace_test_case_with_taints(inputs, nesting)
+        for inp, tr in zip(inputs, traces):
+            inp._arch_trace = tr
+        variants = [self.executor.variants_for_input(inp) for inp in inputs]
+        class_ctraces = [CTrace(ctr.raw + [hash(self.executor.sealing_class_of(inp)) & 0xFFFFFFFF])
+                         for inp, ctr in zip(inputs, ctraces)]
+        # round-major (all baselines, then all decoy0s, ...) so the base fast-boost replication of the
+        # per-input ctraces lines up with the boosted list
+        boosted = [vpi[name] for name in variants[0] for vpi in variants]
+        return boosted, class_ctraces
 
-        :param args: Container for the arguments of the function:
-           - args.inputs: the inputs to be tested
-           - args.n_reps: the number of repetitions to be used for hardware tracing
-           - args.model_nesting: the nesting level to be used for contract tracing
-           - args.reuse_ctraces: the contract traces to be reused for the given inputs
-           - args.record_stats: whether to record statistics about the traces
-           - args.fast_boosting: whether to assume that boosted inputs will have
-               the same contract trace as the original inputs
-           - args.update_ignore_list: whether to update the ignore list of the executor
-           - args.added_htraces: additional hardware traces to be added to the existing ones
-        :return: a tuple of violations, contract traces, and hardware traces
-        """
-        log = FuzzLogger.get()
-
-        # CE pass: ctraces + arch traces for mistraining
-        ctraces, taints, traces = self.executor.trace_test_case_with_taints(
-            args.inputs, args.model_nesting)
-        for i, tr in zip(args.inputs, traces):
-            i._arch_trace = tr
-        assert len(ctraces) == len(args.inputs)
-
-        # HW pass: build each input's variant kernel input files, trace them all, regroup per input
-        variants_by_input: List[dict] = []
-        flat: List = []
-        index: List = []
-        for inp_idx, inp in enumerate(args.inputs):
-            variants = self.executor.variants_for_input(inp)
-            variants_by_input.append(variants)
-            STAT.ni_inputs += 1
-            STAT.tc_variants += len(variants)
-            for variant, ei in variants.items():
-                flat.append(ei)
-                index.append((inp_idx, variant))
-        try:
-            flat_htraces, _ = self.executor.trace_test_case(flat, args.n_reps)
-        except HardwareTracingError:
-            return [], [], []
-
-        hw_per_input: List[dict] = [dict() for _ in args.inputs]
-        for ht, (inp_idx, variant) in zip(flat_htraces, index):
-            hw_per_input[inp_idx][variant] = ht
-
-        violations: List[Violation] = []
-        htraces: List[HTrace] = []
-        for idx, (inp, ctr, per_variant) in enumerate(zip(args.inputs, ctraces, hw_per_input)):
-            variant_list = list(per_variant.items())
-            first_htrace = variant_list[0][1] if variant_list else HTrace.get_null()
-            htraces.append(first_htrace)
-            base_tc = self.executor.curr_test_case
-            plans = variants_by_input[idx]   # variant -> its ExecutorInput (carries the reloc plan)
-            for j, (var_a, ht_a) in enumerate(variant_list):
-                for k, (var_b, ht_b) in enumerate(variant_list[j + 1:], start=j + 1):
-                    if not self.analyser.htraces_are_equivalent(ht_a, ht_b):
-                        log.wp(f"[NI violation] input={idx}: {var_a} vs {var_b}")
-                        m_a = Measurement(input_id=idx, test_id=j, input_=inp, ctrace=ctr,
-                                          htrace=ht_a, test_case=base_tc, relocs=plans[var_a].code_reloc)
-                        m_b = Measurement(input_id=idx, test_id=k, input_=inp, ctrace=ctr,
-                                          htrace=ht_b, test_case=base_tc, relocs=plans[var_b].code_reloc)
-                        violations.append(Violation.from_measurements(
-                            ctr, [m_a, m_b], [[m_a], [m_b]], args.inputs))
-                        break
-
-        return violations, ctraces, htraces
-
-    def fuzzing_round(self,
-                      test_case: TestCase,
-                      inputs: List[Input],
-                      _: List[int] = []) -> Optional[Violation]:
-
-        htraces: List[HTrace] = []
-        violations: List[Violation] = []
-
-        # Define the starting parameters for the current configuration
-        n_reps: int = CONF.executor_sample_sizes[0]
-        start_nesting: int = CONF.model_max_nesting   # always trace at max speculation depth
-        end_nesting: int = CONF.model_max_nesting
-        assert start_nesting <= end_nesting
-        assert CONF.inputs_per_class * len(inputs) >= 2
-
-        # Create the tracing arguments
-        args = TracingArguments(
-            inputs=inputs,
-            n_reps=n_reps,
-            model_nesting=start_nesting,
-            ctraces=[],
-            record_stats=True,
-            fast_boosting=CONF.enable_fast_path_model,
-            update_ignore_list=True,
-            reuse_ctraces=False,
-            added_htraces=[])
-
-        self.executor.load_test_case(test_case)
-
-        violations, args.ctraces, htraces = self._collect_traces(args)
-        if not violations:
-            STAT.fast_path += 1
-            return None
-
-        self.reference_htraces = htraces  # we use the fast path traces as a reference
-        args.record_stats = False  # we record stats only in the fast path
-
-        # 2. Slow path: Go through potential sources of false violations in the fast path,
-        #    and check them one at a time, starting with the most likely ones
-        self.LOG.fuzzer_slow_path()
-
-        # 2.1 FP might appear because the model did not go deep enough into nested speculation.
-        #     To remove such FPs, we re-run the model tracing with max nesting. As taints depend on
-        #     contract traces, we also have to re-boost the inputs, and re-collect hardware traces
-        #     for the new inputs
-        if start_nesting != end_nesting:
-            args.model_nesting = end_nesting
-            args.inputs, args.ctraces = self._boost_inputs(inputs, end_nesting)
-            violations, args.ctraces, htraces = self._collect_traces(args)
-            if not violations:
-                STAT.fp_nesting += 1
-                return None
-
-        # At this point, we can be confident in contract traces, so we can start reusing them
-        args.reuse_ctraces = True
-
-        # 2.3 FP might appear because of interference between inputs. To remove such FPs, we
-        #     use the priming test where we swap inputs that caused the violation with each other
-        if CONF.enable_priming:
-            violations = self._priming(violations, args.inputs)
-            if not violations:
-                STAT.fp_early_priming += 1
-                return None
-
-        # 2.4 FP might appear because we experienced noise. Retry the experiment with a larger
-        #     sample size to reduce the impact of noise
-        for n_reps in CONF.executor_sample_sizes[1:]:
-            self.LOG.fuzzer_sample_size_increase(n_reps)
-            args.n_reps = n_reps
-            args.n_reps -= len(htraces[0].raw)  # subtract the number of repetitions already done
-            args.added_htraces = htraces
-
-            violations, _, htraces = self._collect_traces(args)
-            if not violations:
-                STAT.fp_large_sample += 1
-                return None
-
-            # 2.4.2 Priming might have failed because the sample size was too small, causing
-            #     non-deterministic results. Retry the priming test with the largest sample size
-            if CONF.enable_priming:
-                violations = self._priming(violations, args.inputs)
-                if not violations:
-                    STAT.fp_priming += 1
-                    return None
-
-        return violations[0]
-
-    def _prime_one(self, org_violation: Violation, all_inputs: List[Input]) -> bool:
-        """Priming for the NI paradigm — the transpose of the classic test: the shared core swaps
-        TESTS (this input's variants) at their slots instead of inputs at theirs."""
-        reps = [hg[0] for hg in org_violation.htrace_groups]
-        inp = all_inputs[reps[0].input_id]
-        variants = list(self.executor.variants_for_input(inp).values())
-        n_reps = len(org_violation.measurements[0].htrace.raw)
-        return self._prime_series(reps, variants, lambda m: m.test_id, n_reps)
 
 class ArchitecturalFuzzer(FuzzerGeneric):
     """

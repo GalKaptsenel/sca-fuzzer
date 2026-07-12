@@ -219,7 +219,7 @@ class X86ArchDiffFuzzer(FuzzerGeneric):
     def _build_dummy_ecls(self) -> Violation:
         inputs = [Input()]
         ctrace = CTrace.get_null()
-        measurements = [Measurement(0, 0, inputs[0], ctrace, HTrace([0]), TestCase(0), ())]
+        measurements = [Measurement(0, inputs[0], ctrace, HTrace([0]), TestCase(0), ())]
         violation = Violation.from_measurements(ctrace, measurements, [], inputs)
         return violation
 

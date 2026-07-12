@@ -119,16 +119,13 @@ class NiRefactorVerifyTest(unittest.TestCase):
                          "a plain Input is sealed to its genuine baseline")
 
     def test_reconstruct_enacted_code(self):
-        from src.interfaces import Measurement
         inp = self._input()
         _name, ei = next(iter(self.ex.variants_for_input(inp).items()))
-        m = Measurement(input_id=0, test_id=0, input_=inp, ctrace=None, htrace=None,
-                        test_case=None, relocs=ei.code_reloc)
-        rebuilt = self.ex.reconstruct_enacted_code(m)
+        rebuilt = self.ex.reconstruct_enacted_code(ei)
         expected = apply_relocations(self.ex._sealed.object_code, list(ei.code_reloc))
-        self.assertEqual(rebuilt, expected, "enacted code must reproduce from the recorded relocs")
+        self.assertEqual(rebuilt, expected, "enacted code reproduces from the ExecutorInput")
 
-    # -------- NI fuzzer _collect_traces: real-CE variants, mocked HW htraces --------
+    # -------- NI boosting collapses onto the base engine: real-CE variants, mocked HW htraces --------
     def _fuzzer(self):
         from src.fuzzer import NoninterferenceFuzzer
         CONF.analyser = "sets"                       # deterministic set comparison for this test
@@ -138,87 +135,46 @@ class NiRefactorVerifyTest(unittest.TestCase):
         fz.LOG = mock.Mock()
         return fz
 
-    def _args(self, inputs):
+    def _boosted_args(self, fz, inputs):
         from src.fuzzer import TracingArguments
-        return TracingArguments(inputs=inputs, n_reps=4, model_nesting=CONF.model_max_nesting,
-                                ctraces=[], record_stats=False, fast_boosting=False,
+        boosted, ctraces = fz._boost_inputs(inputs, CONF.model_max_nesting)
+        args = TracingArguments(inputs=boosted, n_reps=4, model_nesting=CONF.model_max_nesting,
+                                ctraces=ctraces, record_stats=False, fast_boosting=True,
                                 update_ignore_list=False, reuse_ctraces=False, added_htraces=[])
+        return boosted, args
 
-    def test_collect_traces_flags_intra_input_divergence(self):
-        from src.interfaces import HTrace
+    def test_boost_fills_class_with_seal_variants(self):
         fz = self._fuzzer()
         inputs = self.igen.generate(1)
-        variants = list(self.ex.variants_for_input(inputs[0]).items())
-        if len(variants) < 2:
-            self.skipTest("input has no decoy-eligible slot (baseline only)")
+        boosted, ctraces = fz._boost_inputs(inputs, CONF.model_max_nesting)
+        self.assertEqual(len(boosted), CONF.inputs_per_class * len(inputs))   # class filled by seal
+        self.assertTrue(all(isinstance(b, self.ExecutorInput) for b in boosted))
+        self.assertEqual(len(ctraces), len(inputs))                          # one composite per input
 
-        # baseline (flat index 0) diverges from the rest -> exactly one NI violation on input 0
-        def fake(flat, n_reps):
-            return [HTrace([1] * 4) if i == 0 else HTrace([0] * 4) for i in range(len(flat))], []
+    def test_boost_and_detect_divergence(self):
+        from src.interfaces import HTrace
+        fz = self._fuzzer()
+        boosted, args = self._boosted_args(fz, self.igen.generate(1))
 
+        # baseline (flat 0) diverges from the rest -> a violation, carrying the ExecutorInput variants
+        def fake(flat, n):
+            return ([HTrace([1] * 4) if i == 0 else HTrace([0] * 4) for i in range(len(flat))],
+                    [None] * len(flat))
         with mock.patch.object(self.ex, "trace_test_case", side_effect=fake):
-            violations, _ctraces, _htraces = fz._collect_traces(self._args(inputs))
+            violations, _c, _h = fz._collect_traces(args)
+        self.assertTrue(violations, "baseline vs decoy divergence must be a violation")
+        self.assertTrue(all(isinstance(m.input_, self.ExecutorInput)
+                            for v in violations for m in v.measurements))
 
-        self.assertEqual(len(violations), 1)
-        ms = violations[0].measurements
-        self.assertEqual({m.input_id for m in ms}, {0})
-        plans = {name: ei.code_reloc for name, ei in variants}
-        for m in ms:                                   # test_id indexes the variant slot order
-            self.assertEqual(m.relocs, plans[variants[m.test_id][0]],
-                             "measurement relocs must be the enacted variant's plan")
-
-    def test_collect_traces_no_violation_when_variants_agree(self):
+    def test_boost_no_violation_when_variants_agree(self):
         from src.interfaces import HTrace
         fz = self._fuzzer()
-        inputs = self.igen.generate(1)
+        _boosted, args = self._boosted_args(fz, self.igen.generate(1))
         with mock.patch.object(self.ex, "trace_test_case",
-                               side_effect=lambda flat, n: ([HTrace([0] * 4)] * len(flat), [])):
-            violations, _c, _h = fz._collect_traces(self._args(inputs))
+                               side_effect=lambda flat, n: ([HTrace([0] * 4)] * len(flat),
+                                                            [None] * len(flat))):
+            violations, _c, _h = fz._collect_traces(args)
         self.assertEqual(violations, [], "identical variant htraces must not violate")
-
-    # -------- NI priming (_prime_one): the test-vs-context transpose --------
-    def _two_variant_violation(self, H0, H1):
-        from src.interfaces import Measurement, Violation, CTrace
-        inp = self._input()
-        variants = list(self.ex.variants_for_input(inp).items())
-        if len(variants) < 2:
-            self.skipTest("input has no decoy-eligible slot (baseline only)")
-        m0 = Measurement(input_id=0, test_id=0, input_=inp, ctrace=CTrace.get_null(), htrace=H0,
-                         test_case=None, relocs=variants[0][1].code_reloc)
-        m1 = Measurement(input_id=0, test_id=1, input_=inp, ctrace=CTrace.get_null(), htrace=H1,
-                         test_case=None, relocs=variants[1][1].code_reloc)
-        viol = Violation.from_measurements(CTrace.get_null(), [m0, m1], [[m0], [m1]], [inp])
-        return inp, variants, viol
-
-    def test_priming_genuine_survives(self):
-        from src.interfaces import HTrace
-        fz = self._fuzzer()
-        H0, H1 = HTrace([0] * 4), HTrace([1] * 4)
-        inp, variants, viol = self._two_variant_violation(H0, H1)
-        base_plan = variants[0][1].code_reloc
-
-        # htrace follows the TEST (the occupant): swapping a variant into a slot changes that slot's
-        # htrace -> divergence is real -> priming must keep the violation.
-        def follows_test(primer, n_reps):
-            return [H0 if ei.code_reloc == base_plan else H1 for ei in primer], []
-
-        with mock.patch.object(self.ex, "trace_test_case", side_effect=follows_test):
-            self.assertTrue(fz._prime_one(viol, [inp]),
-                            "test-following divergence must survive priming")
-
-    def test_priming_context_is_false_positive(self):
-        from src.interfaces import HTrace
-        fz = self._fuzzer()
-        H0, H1 = HTrace([0] * 4), HTrace([1] * 4)
-        inp, variants, viol = self._two_variant_violation(H0, H1)
-
-        # htrace follows the SLOT regardless of occupant -> divergence is context, not the seal -> FP.
-        def follows_slot(primer, n_reps):
-            return [H0 if i == 0 else H1 for i in range(len(primer))], []
-
-        with mock.patch.object(self.ex, "trace_test_case", side_effect=follows_slot):
-            self.assertFalse(fz._prime_one(viol, [inp]),
-                             "context-following divergence must be filtered as a false positive")
 
 
 if __name__ == "__main__":

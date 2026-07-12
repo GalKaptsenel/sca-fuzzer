@@ -969,7 +969,6 @@ class HTrace:
 
 class Measurement(NamedTuple):
     input_id: InputID
-    test_id: TestID
     input_: Input
     ctrace: CTrace
     htrace: HTrace

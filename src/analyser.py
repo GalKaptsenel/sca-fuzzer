@@ -8,16 +8,12 @@ from collections import defaultdict, Counter
 from typing import List, Dict
 from scipy import stats  # type: ignore
 
-from .interfaces import HTrace, CTrace, Input, EquivalenceClass, Analyser, Measurement, Violation, TestCase, \
-    TestID
+from .interfaces import HTrace, CTrace, Input, EquivalenceClass, Analyser, Measurement, Violation, TestCase
 from .config import CONF
 from .util import STAT, Logger
 
 
 class EquivalenceAnalyserCommon(Analyser):
-    # Classic paradigm: one test case per round, so every measurement's enacted test is the sole test.
-    SOLE_TEST_ID: TestID = 0
-
     def __init__(self) -> None:
         self.LOG = Logger()
         super().__init__()
@@ -67,8 +63,8 @@ class EquivalenceAnalyserCommon(Analyser):
                 continue
 
             # get all measurements in the class
-            measurements = [Measurement(i, self.SOLE_TEST_ID, inputs[i], ctrace, htraces[i],
-                                        test_cases[i], ()) for i in ids]
+            measurements = [Measurement(i, inputs[i], ctrace, htraces[i], test_cases[i], ())
+                            for i in ids]
 
 
             # Build htrace groups

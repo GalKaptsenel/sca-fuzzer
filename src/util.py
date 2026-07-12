@@ -535,22 +535,6 @@ class Logger:
         print(f"{'HTrace':64} Original|New")
         print(f"{pretty_htrace_pair(htrace_to_reproduce, new_htrace)}")
 
-    def dbg_priming_ni(self, input_id, current_test_id, other_test_id,
-                       slot_htrace, swapped_htrace, reproduced):
-        """NI mirror: log one test-swap — running test `other_test_id` in test `current_test_id`'s
-        slot on `input_id`, and whether it reproduced the slot's htrace (context artifact) or
-        diverged (the htrace follows the test, a genuine violation)."""
-        if not __debug__:
-            return
-        if not self.dbg_priming:
-            return
-        verdict = "reproduced slot (context artifact)" if reproduced \
-            else "DIVERGED (htrace follows the test -> genuine)"
-        print(f"\n[NI priming] input {input_id}: test {other_test_id} in slot of test "
-              f"{current_test_id} -> {verdict}")
-        print(f"{'HTrace':64} Slot|Swapped")
-        print(f"{pretty_htrace_pair(slot_htrace, swapped_htrace)}")
-
     def dbg_executor_raw_traces(self, all_traces, all_pfc):
         if not __debug__:
             return

@@ -634,6 +634,11 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         return {name: ExecutorInput(inp, code_reloc=plan, mte_tags=tags)
                 for name, plan in self._variants_for(resolved).items()}
 
+    def sealing_class_of(self, inp: Input) -> tuple:
+        """The input's sealing class (its resolved per-slot signatures/tags). Variants collide only
+        when this agrees, not just the ctrace."""
+        return self._resolve(inp).collapse_key
+
     def _variants_for(self, resolved: ResolvedSealingTestCase) -> Dict[str, Tuple[Relocation, ...]]:
         """One boosting class: the genuine baseline plus `CONF.inputs_per_class - 1` decoys."""
         plans = {NIVariant.BASELINE: resolved.genuine()}
@@ -692,11 +697,11 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         payloads = [ExecutorMemory(ei.serialize()) for ei in exec_inputs]
         return self._bpu_mistraining_batch_trace(payloads, train_entries, n_reps)
 
-    def reconstruct_enacted_code(self, m: Measurement) -> bytes:  # TEMP(enacted-reloc)
-        """Rebuild the exact machine code that ran for measurement m: re-resolve its input over the
-        current sealed TC (object_code is deterministic) and re-apply the recorded reloc plan."""
-        resolved = self._resolve(m.input_)
-        return apply_relocations(resolved.object_code, list(m.relocs))
+    def reconstruct_enacted_code(self, ei: ExecutorInput) -> bytes:  # TEMP(enacted-reloc)
+        """Rebuild the exact machine code that ran for a boosted variant: re-resolve its arch input
+        over the current sealed TC (object_code is deterministic) and re-apply its relocations."""
+        resolved = self._resolve(ei.input_)
+        return apply_relocations(resolved.object_code, list(ei.code_reloc))
 
 
 class Aarch64RegularSealedExecutor(Aarch64NonInterferenceExecutor):
