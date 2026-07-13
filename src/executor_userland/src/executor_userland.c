@@ -1,6 +1,7 @@
 #include <executor_ioctl.h>
 #include <executor_pac_api.h>
 #include <executor_user_api.h>
+#include <executor_batch_format.h>
 #include <executor_utils.h>
 
 static unsigned long int_to_cmd[] = {
@@ -127,6 +128,73 @@ read_file_cleanup_free_memory:
 	free(*buffer);
 read_file_failure:
 	return -1;
+}
+
+static int write_all_fd(int fd, const uint8_t* buf, size_t size) {
+	size_t total = 0;
+	while (total < size) {
+		ssize_t n = write(fd, buf + total, size - total);
+		if (0 > n) {
+			perror("Error writing");
+			return -1;
+		}
+		total += (size_t)n;
+	}
+	return 0;
+}
+
+/* Read a whole stream (e.g. stdin, which has no stat size) into a growable buffer. */
+static int read_all_fd(int fd, char** buffer, size_t* size) {
+	size_t cap = 1 << 20;
+	size_t len = 0;
+	char* buf = malloc(cap);
+	if (NULL == buf) {
+		return -1;
+	}
+	for (;;) {
+		if (len == cap) {
+			cap *= 2;
+			char* grown = realloc(buf, cap);
+			if (NULL == grown) {
+				free(buf);
+				return -1;
+			}
+			buf = grown;
+		}
+		ssize_t n = read(fd, buf + len, cap - len);
+		if (0 > n) {
+			perror("Error reading");
+			free(buf);
+			return -1;
+		}
+		if (0 == n) {
+			break;
+		}
+		len += (size_t)n;
+	}
+	*buffer = buf;
+	*size = len;
+	return 0;
+}
+
+/* "-" streams the payload over stdin/stdout (one round-trip, no temp files); else a file. */
+static int read_batch_input(const char* name, char** buffer, size_t* size) {
+	return (0 == strcmp("-", name)) ? read_all_fd(STDIN_FILENO, buffer, size)
+	                                : read_file(name, buffer, size);
+}
+
+static int write_batch_output(const char* name, const uint8_t* buf, size_t size) {
+	if (0 == strcmp("-", name)) {
+		return write_all_fd(STDOUT_FILENO, buf, size);
+	}
+	int fd = open(name, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	if (0 > fd) {
+		fprintf(stderr, "Error opening file %s\n", name);
+		return -1;
+	}
+	int rc = write_all_fd(fd, buf, size);
+	close(fd);
+	return rc;
 }
 
 static int handle_returned_uint64(int fd, int command, const char* prompt) {
@@ -433,7 +501,170 @@ static int serve_numerical_operation(int fd, int argc, char** argv) {
 	return err;
 }
 
+/* ---- batch: measure a whole super-batch in one invocation (executor_batch_format.h) ---------- */
+
+#define BATCH_RESULT_WORDS (1 + NUM_PFC)   /* htrace + pfc[NUM_PFC] per (input, rep) */
+
+static uint64_t rd_u64(const uint8_t* p) { uint64_t v; memcpy(&v, p, sizeof(v)); return v; }
+static void wr_u64(uint8_t* p, uint64_t v) { memcpy(p, &v, sizeof(v)); }
+
+/* Load one unit's test case and inputs, trace it n_reps times, and write this unit's results —
+ * [input][rep] { htrace, pfc[NUM_PFC] } — into `out`. Fails fast (returns -1) on any device error. */
+static int batch_run_unit(int fd, const uint8_t* tc, uint64_t tc_len,
+                          const uint8_t** inputs, const uint64_t* input_lens, uint64_t n_inputs,
+                          uint64_t n_reps, uint8_t* out) {
+	if (0 > ioctl(fd, REVISOR_CHECKOUT_TEST) || (ssize_t)tc_len != write(fd, tc, tc_len)) {
+		return -1;
+	}
+	if (0 > ioctl(fd, REVISOR_CLEAR_ALL_INPUTS)) {
+		return -1;
+	}
+
+	uint64_t* iids = malloc(n_inputs * sizeof(uint64_t));
+	if (NULL == iids && 0 != n_inputs) {
+		return -1;
+	}
+	for (uint64_t i = 0; i < n_inputs; ++i) {
+		uint64_t iid = 0;
+		if (0 > ioctl(fd, REVISOR_ALLOCATE_INPUT, &iid) ||
+		    0 > ioctl(fd, REVISOR_CHECKOUT_INPUT, &iid) ||
+		    (ssize_t)input_lens[i] != write(fd, inputs[i], input_lens[i])) {
+			free(iids);
+			return -1;
+		}
+		iids[i] = iid;
+	}
+
+	for (uint64_t r = 0; r < n_reps; ++r) {
+		if (0 > ioctl(fd, REVISOR_TRACE)) {
+			free(iids);
+			return -1;
+		}
+		for (uint64_t i = 0; i < n_inputs; ++i) {
+			user_measurement_t m = { 0 };
+			if (0 > ioctl(fd, REVISOR_CHECKOUT_INPUT, &iids[i]) ||
+			    0 > ioctl(fd, REVISOR_MEASUREMENT, &m)) {
+				free(iids);
+				return -1;
+			}
+			uint8_t* slot = out + (i * n_reps + r) * BATCH_RESULT_WORDS * sizeof(uint64_t);
+			wr_u64(slot, m.htrace[0]);
+			for (int k = 0; k < NUM_PFC; ++k) {
+				wr_u64(slot + (1 + k) * sizeof(uint64_t), m.pfc[k]);
+			}
+		}
+	}
+	free(iids);
+	return 0;
+}
+
+static int serve_batch_command(int fd, const char* in_file, const char* out_file) {
+	char* req = NULL;
+	size_t req_size = 0;
+	if (0 > read_batch_input(in_file, &req, &req_size)) {
+		return EXIT_FAILURE;
+	}
+	const uint8_t* p = (const uint8_t*)req;
+
+	int err = EXIT_FAILURE;
+	uint64_t* tc_len = NULL;
+	uint64_t* n_inputs = NULL;
+	uint64_t* input_len = NULL;
+	uint8_t* res = NULL;
+
+	if (req_size < 4 * sizeof(uint64_t) ||
+	    REVISOR_BATCH_REQUEST_MAGIC != rd_u64(p) ||
+	    REVISOR_BATCH_VERSION != rd_u64(p + 8)) {
+		fprintf(stderr, "batch: bad request header\n");
+		goto out;
+	}
+	uint64_t n_units = rd_u64(p + 16);
+	uint64_t n_reps  = rd_u64(p + 24);
+	size_t off = 4 * sizeof(uint64_t);
+
+	tc_len = malloc(n_units * sizeof(uint64_t));
+	n_inputs = malloc(n_units * sizeof(uint64_t));
+	if ((NULL == tc_len || NULL == n_inputs) && 0 != n_units) {
+		goto out;
+	}
+	uint64_t total_inputs = 0;
+	for (uint64_t u = 0; u < n_units; ++u) {
+		tc_len[u] = rd_u64(p + off);
+		n_inputs[u] = rd_u64(p + off + 8);
+		off += 2 * sizeof(uint64_t);
+		total_inputs += n_inputs[u];
+	}
+
+	input_len = malloc(total_inputs * sizeof(uint64_t));
+	if (NULL == input_len && 0 != total_inputs) {
+		goto out;
+	}
+	for (uint64_t j = 0; j < total_inputs; ++j) {
+		input_len[j] = rd_u64(p + off);
+		off += sizeof(uint64_t);
+	}
+
+	size_t res_size = 4 * sizeof(uint64_t) + n_units * sizeof(uint64_t) +
+	                  total_inputs * n_reps * BATCH_RESULT_WORDS * sizeof(uint64_t);
+	res = malloc(res_size);
+	if (NULL == res) {
+		goto out;
+	}
+	wr_u64(res, REVISOR_BATCH_RESPONSE_MAGIC);
+	wr_u64(res + 8, REVISOR_BATCH_VERSION);
+	wr_u64(res + 16, n_units);
+	wr_u64(res + 24, n_reps);
+	for (uint64_t u = 0; u < n_units; ++u) {
+		wr_u64(res + 4 * sizeof(uint64_t) + u * sizeof(uint64_t), n_inputs[u]);
+	}
+	uint8_t* res_meas = res + 4 * sizeof(uint64_t) + n_units * sizeof(uint64_t);
+
+	size_t input_idx = 0;
+	size_t meas_off = 0;
+	for (uint64_t u = 0; u < n_units; ++u) {
+		const uint8_t* tc = p + off;
+		off += tc_len[u];
+		const uint8_t** inputs = malloc(n_inputs[u] * sizeof(uint8_t*));
+		if (NULL == inputs && 0 != n_inputs[u]) {
+			goto out;
+		}
+		for (uint64_t i = 0; i < n_inputs[u]; ++i) {
+			inputs[i] = p + off;
+			off += input_len[input_idx + i];
+		}
+		int rc = batch_run_unit(fd, tc, tc_len[u], inputs, input_len + input_idx,
+		                        n_inputs[u], n_reps, res_meas + meas_off);
+		free(inputs);
+		if (0 != rc) {
+			fprintf(stderr, "batch: unit %lu measurement failed\n", u);
+			goto out;
+		}
+		meas_off += n_inputs[u] * n_reps * BATCH_RESULT_WORDS * sizeof(uint64_t);
+		input_idx += n_inputs[u];
+	}
+
+	if (0 == write_batch_output(out_file, res, res_size)) {
+		err = EXIT_SUCCESS;
+	}
+
+out:
+	free(res);
+	free(input_len);
+	free(n_inputs);
+	free(tc_len);
+	free(req);
+	return err;
+}
+
 static int serve_operation(int fd, int argc, char** argv) {
+	if (0 == strcmp("batch", argv[2])) {
+		if (5 > argc) {
+			printf("Usage: <device> batch <request-file> <result-file>\n");
+			return EXIT_FAILURE;
+		}
+		return serve_batch_command(fd, argv[3], argv[4]);
+	}
+
 	bool is_write = (0 == strcmp("w", argv[2]));
 	bool is_read = (0 == strcmp("r", argv[2]));
 
@@ -459,7 +690,7 @@ int main(int argc, char** argv) {
 	}
 
 	device = argv[1];
-	printf("Device: %s\n", device);
+	fprintf(stderr, "Device: %s\n", device);
 	fd = open(device, O_RDWR);
 	if (0 > fd) {
 		perror("Error opening device");

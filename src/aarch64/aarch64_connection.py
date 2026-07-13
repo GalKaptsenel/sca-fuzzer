@@ -1,7 +1,10 @@
 """
 File: AArch64 remote-execution transports (SSH/ADB) for driving the executor on a remote device.
 """
+import os
 import shlex
+import shutil
+import subprocess
 
 from ppadb.client import Client as AdbClient
 import paramiko
@@ -16,6 +19,10 @@ class Connection:
     def shell(self, command: str, privileged = False) -> str:
         raise NotImplementedError
 
+    def run(self, command: str, stdin: bytes, privileged = False) -> bytes:
+        """Run `command`, feeding `stdin` and returning stdout as raw bytes (for streamed batches)."""
+        raise NotImplementedError
+
     def push(self, src, dst):
         raise NotImplementedError
 
@@ -24,6 +31,39 @@ class Connection:
 
     def is_file_present(self, filename: str) -> bool:
         raise NotImplementedError
+
+
+class LocalConnection(Connection):
+    """Drives the executor utilities on this machine via subprocess — no SSH. push/pull are copies."""
+
+    def __init__(self):
+        super().__init__()
+        self._sudo = [] if 0 == os.geteuid() else ["sudo"]
+
+    def _argv(self, command: str, privileged: bool):
+        return (self._sudo if privileged else []) + ["bash", "-c", command]
+
+    def shell(self, command: str, privileged = False) -> str:
+        return self.run(command, b"", privileged).decode().strip()
+
+    def run(self, command: str, stdin: bytes, privileged = False) -> bytes:
+        p = subprocess.run(self._argv(command, privileged), input=stdin,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if 0 != p.returncode:
+            raise IOError(f"local command failed (rc={p.returncode}): {command}\n"
+                          f"{p.stderr.decode(errors='replace')}")
+        return p.stdout
+
+    def push(self, src, dst):
+        if os.path.abspath(src) != os.path.abspath(dst):
+            shutil.copy(src, dst)
+
+    def pull(self, src, dst):
+        if os.path.abspath(src) != os.path.abspath(dst):
+            shutil.copy(src, dst)
+
+    def is_file_present(self, filename: str) -> bool:
+        return os.path.exists(filename)
 
 
 class SSHConnection(Connection):
@@ -67,6 +107,20 @@ class SSHConnection(Connection):
         rc = stdout.channel.recv_exit_status()
         if 0 != rc:
             raise IOError(f'remote command failed (rc={rc}): {cmd}\n{err}')
+        return out
+
+    def run(self, command: str, stdin: bytes, privileged = False) -> bytes:
+        if privileged:
+            command = f'sudo bash -c {shlex.quote(command)}'
+        remote_in, remote_out, remote_err = self.client.exec_command(command)
+        remote_in.write(stdin)
+        remote_in.flush()
+        remote_in.channel.shutdown_write()
+        out = remote_out.read()
+        rc = remote_out.channel.recv_exit_status()
+        if 0 != rc:
+            raise IOError(f'remote command failed (rc={rc}): {command}\n'
+                          f'{remote_err.read().decode(errors="replace")}')
         return out
 
     def push(self, src, dst):

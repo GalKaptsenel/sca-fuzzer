@@ -246,14 +246,20 @@ static ssize_t cpu_info_show(struct kobject *kobj, struct kobj_attribute *attr, 
 	                 info.cpu_id, info.midr_el1, info.mpidr_el1, info.ctr_el0);
 }
 
+static ssize_t abi_version_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+	return scnprintf(buf, PAGE_SIZE, "%u\n", REVISOR_EXECUTOR_ABI_VERSION);
+}
+
 static struct kobj_attribute pmu_event_counters_attribute = __ATTR(pmu_event_counters, 0444, pmu_event_counters_show, NULL);
 static struct kobj_attribute measurement_supported_attribute = __ATTR(measurement_supported, 0444, measurement_supported_show, NULL);
 static struct kobj_attribute cpu_info_attribute = __ATTR(cpu_info, 0444, cpu_info_show, NULL);
+static struct kobj_attribute abi_version_attribute = __ATTR(abi_version, 0444, abi_version_show, NULL);
 
 static struct attribute *system_attributes[] = {
 	&pmu_event_counters_attribute.attr,
 	&measurement_supported_attribute.attr,
 	&cpu_info_attribute.attr,
+	&abi_version_attribute.attr,
 	NULL,
 };
 

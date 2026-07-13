@@ -15,7 +15,10 @@ import time
 from typing import (
     List, Literal, Union, Optional, Type, Callable, Tuple, Dict, Any, NoReturn, TYPE_CHECKING)
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from collections import defaultdict
+
+from .aarch64_batch import TraceUnit, HWMeasurement, encode_request, decode_response
 from contextlib import contextmanager
 from functools import wraps
 from ..config import CONF
@@ -114,43 +117,24 @@ class ExecutorMemory(bytes):
         return int.from_bytes(self[offset:offset+size], byteorder=byteorder, signed=False)
 
 
-class HWMeasurement:
-    def __init__(self, htrace: int, pfcs: List[int]):
-        self.htrace = htrace
-        self.pfcs = pfcs
+@dataclass(frozen=True)
+class TargetInfo:
+    """Static target addresses the generation side needs (e.g. the sandbox base to seal against)."""
+    sandbox_base: int
+    code_base: int
 
 
 class HWExecutor(ABC):
-    @abstractmethod
-    def trace(self):
-        raise NotImplementedError()
+    """The device backend the fuzzer measures through: report the target's addresses and measure a
+    batch of (test case, inputs) units. Local (/dev/executor) or remote (over a Connection)."""
 
     @abstractmethod
-    def checkout_region(self, region: ExecutorRegion):
-        raise NotImplementedError()
-
-    @abstractmethod
-    def hardware_measurement(self) -> HWMeasurement:
-        raise NotImplementedError()
-
-    @property
-    def contents(self) -> ExecutorMemory:
-        raise NotImplementedError()
-
-    @contents.deleter
-    def contents(self) -> None:
+    def target_info(self) -> TargetInfo:
         raise NotImplementedError()
 
     @abstractmethod
-    def number_of_inputs(self) -> int:
-        raise NotImplementedError()
-
-    @abstractmethod
-    def discard_all_inputs(self) -> None:
-        raise NotImplementedError()
-
-    @abstractmethod
-    def allocate_iid(self) -> int:
+    def run_batch(self, units: List[TraceUnit], n_reps: int) -> List[List[List[HWMeasurement]]]:
+        """Measure each unit's inputs `n_reps` times; returns unit -> input -> repetition."""
         raise NotImplementedError()
 
 
@@ -379,9 +363,7 @@ class LocalHWExecutor(HWExecutor):
         self._ioctl(REVISOR_MEASUREMENT, measurement)
 
         htrace = measurement.htrace[0]
-        pfcs = list(measurement.pfc)
-
-        return HWMeasurement(htrace=htrace, pfcs=pfcs)
+        return HWMeasurement(htrace=htrace, pfcs=tuple(measurement.pfc))
 
     @property
     def contents(self) -> ExecutorMemory:
@@ -445,6 +427,30 @@ class LocalHWExecutor(HWExecutor):
     def code_base(self) -> int:
         return int(self._read_sysfs('print_code_base'), 16)
 
+    def target_info(self) -> TargetInfo:
+        return TargetInfo(sandbox_base=self.sandbox_base, code_base=self.code_base)
+
+    def run_batch(self, units: List[TraceUnit], n_reps: int) -> List[List[List[HWMeasurement]]]:
+        results = []
+        for unit in units:
+            self.checkout_region(TestCaseRegion())
+            self.write(unit.test_case)
+            self.discard_all_inputs()
+            iids = []
+            for inp in unit.inputs:
+                iid = self.allocate_iid()
+                self.checkout_region(InputRegion(iid))
+                self.write(inp)
+                iids.append(iid)
+            per_input: List[List[HWMeasurement]] = [[] for _ in unit.inputs]
+            for _ in range(n_reps):
+                self.trace()
+                for idx, iid in enumerate(iids):
+                    self.checkout_region(InputRegion(iid))
+                    per_input[idx].append(self.hardware_measurement())
+            results.append(per_input)
+        return results
+
 
 def retry(max_times: int = 1,
           retry_on: Union[Type[BaseException], Tuple[Type[BaseException], ...]] = Exception,
@@ -476,26 +482,49 @@ def retry(max_times: int = 1,
     return decorator
 
 
+# Local artifacts shipped to the device machine so it runs exactly this codebase.
+_LOCAL_USERLAND = os.path.join(os.path.dirname(__file__), "..", "executor_userland", "executor_userland")
+_LOCAL_MODULE = os.path.join(os.path.dirname(__file__), "executor", "revizor-executor.ko")
+
+def _abi_version_from_header() -> int:
+    header = os.path.join(os.path.dirname(__file__), "executor", "userapi", "executor_user_api.h")
+    with open(header) as f:
+        match = re.search(r"#define\s+REVISOR_EXECUTOR_ABI_VERSION\s+\(?(\d+)\)?", f.read())
+    return int(match.group(1))
+
+
+EXECUTOR_ABI_VERSION = _abi_version_from_header()
+
+
+@dataclass(frozen=True)
+class RemoteExecutorConfig:
+    """The executor's paths on the device machine (the transport is a separate `Connection`)."""
+    device: str
+    sysfs: str
+    module: str
+    userland: str
+
+
 class RemoteHWExecutor(HWExecutor):
+    """A device backend reached over a `Connection` (SSH/ADB, or local subprocess). Each measurement
+    window crosses as one streamed super-batch (stdin -> `executor_userland batch` -> stdout)."""
     _RETRIES = 5
 
-    def __init__(self, connection: Connection, userland_application_path: str,
-              device_path: str, sys_executor_path: str, module_path: str
-            ):
-        self.connection: Connection = connection
-        self.userland_application_path: str = userland_application_path
-        self.executor_device_path: str = device_path
+    def __init__(self, connection: Connection, config: RemoteExecutorConfig):
+        self._conn = connection
+        self._cfg = config
+        self._info: Optional[TargetInfo] = None   # queried once, cached for the campaign
+        self._ensure_ready()
 
-        self.executor_sysfs: str = sys_executor_path
-        self.current_region: ExecutorRegion = TestCaseRegion()
-
-        if not self.connection.is_file_present(self.executor_device_path):
-            if not self.connection.is_file_present(module_path):
-                self.connection.push('revizor-executor.ko', module_path)
-            self.connection.shell(f'insmod {module_path}', privileged=True)
-
-        # Same config knobs as LocalHWExecutor.__init__ (sysfs parses %u, so emit 1/0 for booleans).
-        sysfs = self.executor_sysfs
+    def _ensure_ready(self) -> None:
+        conn, cfg = self._conn, self._cfg
+        # Ship our binaries so the device runs this exact codebase, then load the module if absent.
+        conn.push(_LOCAL_USERLAND, cfg.userland)
+        if not conn.is_file_present(cfg.device):
+            if not conn.is_file_present(cfg.module):
+                conn.push(_LOCAL_MODULE, cfg.module)
+            conn.shell(f"insmod {cfg.module}", privileged=True)
+        self._check_abi_version()
         for name, value in (
             ("measurement_mode", CONF.executor_mode),
             ("pin_to_core", 0),
@@ -503,113 +532,25 @@ class RemoteHWExecutor(HWExecutor):
             ("enable_ssbs", int(CONF.enable_speculative_store_bypass)),
             ("warmups", CONF.executor_warmups),
         ):
-            self.connection.shell(f'echo "{value}" > {sysfs}/{name}', privileged=True)
+            conn.shell(f'echo "{value}" > {cfg.sysfs}/{name}', privileged=True)
 
-        if not self.connection.is_file_present(self.userland_application_path):
-            self.connection.push('executor_userland', userland_application_path)
+    def _check_abi_version(self) -> None:
+        reported = self._conn.shell(f"cat {self._cfg.sysfs}/system/abi_version", privileged=True)
+        if int(reported) != EXECUTOR_ABI_VERSION:
+            raise RuntimeError(f"device executor ABI version {reported.strip()} != "
+                               f"expected {EXECUTOR_ABI_VERSION}; reload the module on the device")
 
-        # Discard any previous contents in the executor memory
-        self.discard_all_inputs()
-        self.checkout_region(TestCaseRegion())
-        del self.contents
-
-    def trace(self) -> None:
-        self._query_executor(REVISOR_TRACE_CONSTANT)
-
-    def checkout_region(self, region: ExecutorRegion):
-        self.current_region = region
-        if isinstance(region, TestCaseRegion):
-            self._query_executor(REVISOR_CHECKOUT_TEST_CONSTANT)
-        elif isinstance(region, InputRegion):
-            self._query_executor(REVISOR_CHECKOUT_INPUT_CONSTANT, region.iid)
-        else:
-            raise ValueError(f'Unsupported region type: {type(region)}')
+    def target_info(self) -> TargetInfo:
+        if self._info is None:
+            sandbox = self._conn.shell(f"cat {self._cfg.sysfs}/print_sandbox_base", privileged=True)
+            code = self._conn.shell(f"cat {self._cfg.sysfs}/print_code_base", privileged=True)
+            self._info = TargetInfo(sandbox_base=int(sandbox, 16), code_base=int(code, 16))
+        return self._info
 
     @retry(max_times=_RETRIES, retry_on=IOError, backoff=0.5)
-    def hardware_measurement(self) -> HWMeasurement:
-        result = self._query_executor(REVISOR_MEASUREMENT_CONSTANT)
-        htrace_match = re.search(r"htrace .: ([01]+)", result)
-        pfc_matches = re.findall(r"pfc (\d+): (\d+)", result)
-
-        if htrace_match is None or not pfc_matches:
-            raise RuntimeError('Could not parse measurements from executor output')
-
-        htrace = int(htrace_match.group(1), 2)
-        pfc_list = [int(pfc_value) for _, pfc_value in
-              sorted(pfc_matches, key=lambda x: int(x[0]))]
-
-        STAT.num_traces += 1   # TEMP(perf-metrics): remove with the traces/s instrumentation
-        return HWMeasurement(htrace=htrace, pfcs=pfc_list)
-
-
-    @property
-    def contents(self) -> ExecutorMemory:
-        filename = f'{uuid.uuid4().hex}.bin'
-        remote_filename = f'remote_{filename}'
-
-        with profile_op('read'):
-            self.connection.shell(
-                    f'{self.userland_application_path} {self.executor_device_path} r {remote_filename}',
-                    privileged=True)
-
-        self.connection.pull(remote_filename, filename)
-        self.connection.shell(f'rm {remote_filename}')
-
-        with open(filename, "rb") as f:   # executor memory is binary — text mode would corrupt it
-            return ExecutorMemory(f.read())
-
-    def write_file(self, filename: str) -> None:
-        with profile_op('write'):
-            self.connection.shell(f'{self.userland_application_path} {self.executor_device_path} w {filename}', privileged=True)
-
-
-    @profile_by_opcode
-    def _query_executor(self, qid: int, *args) -> str:
-        return self.connection.shell(f'{self.userland_application_path} {self.executor_device_path} {qid} {" ".join(str(arg) for arg in args)}', privileged=True)
-
-    @contents.deleter
-    def contents(self) -> None:
-        if isinstance(self.current_region, TestCaseRegion):
-            self._query_executor(REVISOR_UNLOAD_TEST_CONSTANT)
-        elif isinstance(self.current_region, InputRegion):
-            self._query_executor(REVISOR_FREE_INPUT_CONSTANT, self.current_region.iid)
-        else:
-            raise ValueError(f'Unsupported region type: {type(self.current_region)}')
-
-    @retry(max_times=_RETRIES, retry_on=IOError, backoff=0.5)
-    def number_of_inputs(self) -> int:
-        result = self._query_executor(REVISOR_GET_NUMBER_OF_INPUTS_CONSTANT)
-        number_of_inputs_match = re.search(r"Number Of Inputs: (\d+)", result)
-        if number_of_inputs_match is None:
-            raise RuntimeError("Could not find number of inputs")
-        return int(number_of_inputs_match.group(1))
-
-    def discard_all_inputs(self) -> None:
-        self._query_executor(REVISOR_CLEAR_ALL_INPUTS_CONSTANT)
-
-    @property
-    @retry(max_times=_RETRIES, retry_on=IOError, backoff=0.5)
-    def test_length(self) -> int:
-        result = self._query_executor(REVISOR_GET_TEST_LENGTH_CONSTANT)
-        test_length_match = re.search(r"Test Length: (\d+)", result)
-        if test_length_match is None:
-            raise RuntimeError("Could not find test length")
-        return int(test_length_match.group(1))
-
-    @retry(max_times=_RETRIES, retry_on=IOError, backoff=0.5)
-    def allocate_iid(self) -> int:
-        result = self._query_executor(REVISOR_ALLOCATE_INPUT_CONSTANT)
-        iid_matching = re.search(r"Allocated Input ID: (\d+)", result)
-        if iid_matching is None:
-            raise RuntimeError("Could not find allocated input ID")
-        return int(iid_matching.group(1))
-
-    @property
-    def sandbox_base(self) -> int:
-        base = self.connection.shell(f'cat {self.executor_sysfs}/print_sandbox_base', privileged=True)
-        return int(base, 16)
-
-    @property
-    def code_base(self) -> int:
-        base = self.connection.shell(f'cat {self.executor_sysfs}/print_code_base', privileged=True)
-        return int(base, 16)
+    def run_batch(self, units: List[TraceUnit], n_reps: int) -> List[List[List[HWMeasurement]]]:
+        request = encode_request(units, n_reps)
+        cmd = f"{self._cfg.userland} {self._cfg.device} batch - -"
+        with profile_op("batch"):
+            response = self._conn.run(cmd, request, privileged=True)
+        return decode_response(response)
