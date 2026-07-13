@@ -516,29 +516,27 @@ MTE slots); the decoy policy then perturbs only the target's speculative slots.
 ### 6.2 Variant assembly by relocation (throughput)
 
 The sibling variants for one input differ from a shared skeleton only at the sealing slots — the
-`MOVK` carrying the per-input PAC signature and the `AUT*`/`XPAC` that follows it. Re-running the
-external assembler (`asm_to_bytes` → `as` + `objcopy`, three process spawns) for every genuine/decoy
-of every input is the bulk of the non-HW time on the PAC path. `src/aarch64/seal/relocation.py`
-avoids it: a **relocation** is `(offset, type, value)`, and the only type is `WORD32` (overwrite the
-4-byte little-endian word at `offset`). Per test case the executor assembles two reference fills once
-(every PAC slot `MOVK #0` + `AUT`, and + `XPAC`) to obtain the skeleton bytes and, per slot, the
-byte offset plus the harvested `AUT*` / `XPAC` words. Each variant is then produced by splicing: the
-`MOVK` word is the harvested reference with only its 16-bit immediate field rewritten to the
-signature (`set_movk_imm16`), and the op word is the harvested `AUT*` or `XPAC` — **no assembler
-runs per variant**. Because a wrong splice would run a wrong-signed `AUT*` and FPAC-fault the box, a
-configurable number of variants per test case are checked byte-for-byte against a real assembly, and
-any mismatch fails loudly instead of reaching hardware.
+`MOVK` carrying the per-input PAC signature, the `AUT*`/`XPAC` that follows it, and the MTE `ADDG`
+retag. Re-assembling and re-loading a full test case per variant would be the bulk of the non-HW
+time on the sealed path. Instead the skeleton is loaded **once** and each input carries a small
+**code-relocation table** that patches only those slots.
 
-Controlled by environment variables:
+A **relocation** is `(offset, value)` of type `WORD32`: overwrite the 4-byte little-endian word at
+`offset` of the test-case body. The Python resolver renders each slot's word directly —
+`set_movk_imm16` rewrites the 16-bit signature into the harvested `MOVK`, and the op word is the
+harvested `AUT*` / `XPAC` / `ADDG` — so **no assembler runs per variant** (`aarch64_relocations.py`).
+The resolver emits a `RelocationPlan`; the encoder packs it into the REIF `CODE_RELOC` section
+(§9.4).
 
-| Variable | Default | Meaning |
-|---|---|---|
-| `REVIZOR_SEAL_RELOC` | `1` | `0` disables relocation (variants assemble normally). |
-| `REVIZOR_SEAL_RELOC_VALIDATE` | `2` | Byte-for-byte validate this many variants per test case (`all` / `none` / integer). |
-
-Relocation only applies when every value slot is a PAC signature (the MTE tag-delta seal is not a
-`WORD32` slot); a sealed TC with MTE slots assembles normally. It composes with — and largely
-supersedes on the sealed path — the `in_memory_assemble` source-text cache (§2).
+The patch is applied **in the kernel**, not in Python. Immediately before an input executes, the
+kernel splices that input's relocations into the shared body on the pinned CPU (with local i-cache
+maintenance), runs it, then **reverts** the body to the pristine test case — so one loaded test case
+serves many differently-sealed inputs, and there is no per-variant assemble *or* per-variant device
+load. Unlike PAC/`XPAC` slots, the MTE tag-delta seal is now just another `WORD32` (the `ADDG`
+word), so MTE and PAC variants relocate through the same path. Relocation offsets are bounds-checked
+against the loaded test case at trace time; a bad splice would run a wrong-signed `AUT*` and
+FPAC-fault the box, so correctness is covered by the encoder/round-trip tests rather than a hot-path
+check. It composes with the `in_memory_assemble` source-text cache (§2).
 
 ## 7. Techniques: triaging a violation
 
@@ -750,17 +748,25 @@ The sandbox finds the `BASE` component **by role** and confines it (`AND base,#m
 cancelling every other component so the effective address stays `x29 + (base & mask)`; it iterates
 every memory operand, so multi-access instructions are all confined.
 
-### 9.4 Executor input wire format
+### 9.4 Executor input file (REIF)
 
-One input written to `/dev/executor` is a self-describing blob (`executor_input_format.h`; the kernel
-validates it strictly and locates sections **by type**, never by a hardcoded offset). Every field is
-little-endian `u64`. The layout is a fixed preamble, a section table, then the payloads.
+One input is a **REIF** file — the Revizor Extensible Input File (`executor_input_format.h`; full
+spec in [`docs/reif_input_format.md`](../reif_input_format.md)). It is self-describing: the kernel
+validates it strictly and locates sections **by type**, never by a hardcoded offset, so new
+per-input state is added without a layout break. Every field is little-endian `u64`; the layout is a
+fixed preamble, a section table, then the payloads.
+
+The **same bytes** serve both roles. On the wire they are written to `/dev/executor`. On disk they
+are saved with the **`.reif`** extension, and a `.reif` file is complete and executor-ready — it
+loads verbatim into the device (flags already in PSTATE form, every section self-located) or back
+into Python via `ExecutorInput.deserialize()` for a `reproduce` run. There is no separate "convert
+before executing" step.
 
 **Preamble** — `struct revisor_input_header` (48 bytes):
 
 | Field | Meaning |
 |---|---|
-| `magic` | `RVZRI` sentinel |
+| `magic` | `RVZRI` sentinel (`0x49525A5652`) |
 | `version` | format version (1) |
 | `header_len` | `48 + 32·n_sections` — offset of the first payload |
 | `n_sections` | number of section descriptors |
@@ -768,7 +774,7 @@ little-endian `u64`. The layout is a fixed preamble, a section table, then the p
 | `total_len` | total byte count (equals the bytes written to the device) |
 
 **Section table** — `n_sections` × `struct revisor_input_section` (32 bytes each):
-`{type, flags, offset, length}`, `offset`/`length` locating the payload within the blob.
+`{type, flags, offset, length}`, `offset`/`length` locating the payload within the file.
 
 **Section payloads** (unknown types are skipped):
 
@@ -776,14 +782,17 @@ little-endian `u64`. The layout is a fixed preamble, a section table, then the p
 |---|---|
 | `MEMORY_MAIN` (1) | sandbox `main_region` bytes |
 | `MEMORY_FAULTY` (2) | sandbox `faulty_region` bytes |
-| `GPR` (3) | `registers_t` = x0..x5, `flags` (ARM PSTATE, NZCV in bits 31:28), sp |
+| `GPR` (3) | `registers_t` = x0..x5, the flags register (ARM PSTATE, NZCV in bits 31:28), sp |
 | `SIMD` (4) | v0..v7 (256 B; reserved, not yet loaded) |
 | `PAC_KEYS` (5) | per-input PAC keys |
 | `MTE_TAGS` (6) | one 4-bit tag per 16-byte granule of main‖faulty, packed two per byte (granule 2i in bits 3:0, 2i+1 in bits 7:4) |
+| `CODE_RELOC` (7) | per-input code-relocation table — `WORD32` patches spliced into the shared test-case body by the kernel, then reverted (§6.2) |
+| `BPU_TRAINING` (8) | per-input branch-training entries (`enable_branch_mistraining`, off by default) |
 
+`MEMORY_MAIN`/`MEMORY_FAULTY`/`GPR` are required; the rest are optional (absent ⇒ kernel default).
 The `GPR` section carries the flags **already** in PSTATE form — the writer reconstructs the per-flag
-NZCV encoding (§8.2) before packing. `PAC_KEYS` and `MTE_TAGS` are the optional per-input state the
-non-interference scheme (§6.1) uses.
+NZCV encoding (§8.2) before packing. `PAC_KEYS`/`MTE_TAGS`/`CODE_RELOC` are the per-input state the
+non-interference seal (§6.1, §6.2) uses.
 
 ### 9.5 Contract-executor request format
 
@@ -807,7 +816,7 @@ of a **16×u64 little-endian envelope**, then the code, then one input:
 | 15 | reserved |
 
 followed by `code_size` bytes of machine code, then an `input_init_size`-byte **input in exactly the
-wire format of §9.4**. The CE reads the `GPR` slots from that input (plus the `PAC_KEYS` / `MTE_TAGS`
+REIF format of §9.4**. The CE reads the `GPR` slots from that input (plus the `PAC_KEYS` / `MTE_TAGS`
 sections in PAC/MTE runs). The response carries the per-instruction trace of §5.1.
 
 ## 10. Instruction taxonomy

@@ -77,7 +77,7 @@ python3 tests/unit_saturating_bp.py
 `tests/unit_saturating_bp.py` (BPU model — **63 tests**, the new speculative-PHR + bimodal + N3 specifics),
 and under `tests/aarch64_tests/`: `unit_isa_downloader`, `unit_isa_extractor`, `unit_minimizer`,
 `unit_mistraining_gate`, `unit_ni_factory`, `unit_nzcv`, `unit_pac_generation`, `unit_pac_mistraining`,
-`unit_sandbox`, `unit_taint`, `unit_to_executor_input`, `unit_executor`, `unit_asm_parser`,
+`unit_sandbox`, `unit_taint`, `unit_executor`, `unit_asm_parser`,
 `unit_asm_parser_cache`, `unit_mte_executor`, `unit_kernel_retry`, `unit_kernel_local`,
 `unit_patch_pass`, `unit_mte_generator`, `unit_mte_taint`, **`unit_connection`** (SSH/ADB mocked),
 **`unit_target_desc`** (branch/call classification, B.al/B.nv), **`unit_disasm_reg_access`** (needs

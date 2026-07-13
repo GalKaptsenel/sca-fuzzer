@@ -52,4 +52,5 @@ nav:
     - Executor-related Topics:
       - Register Allocation: registers.md
       - Memory Layout: sandbox.md
+      - Input File Format (REIF): reif_input_format.md
   # - Trophies: trophies.md

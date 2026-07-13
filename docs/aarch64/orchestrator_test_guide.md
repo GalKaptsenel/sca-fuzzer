@@ -63,7 +63,7 @@ then. So:
 **Pure-Python tests that must pass anywhere** (no HW): `unit_saturating_bp`, and under
 `tests/aarch64_tests/`: `unit_isa_downloader`, `unit_isa_extractor`, `unit_minimizer`,
 `unit_mistraining_gate`, `unit_ni_factory`, `unit_nzcv`, `unit_pac_generation`, `unit_pac_mistraining`,
-`unit_sandbox`, `unit_taint`, `unit_to_executor_input`, `unit_executor`, `unit_asm_parser`,
+`unit_sandbox`, `unit_taint`, `unit_executor`, `unit_asm_parser`,
 `unit_asm_parser_cache`, `unit_mte_executor`, `unit_kernel_retry`, `unit_kernel_local`,
 `unit_patch_pass`, `unit_mte_generator`, `unit_mte_taint`, `unit_connection`, `unit_target_desc`,
 `unit_disasm_reg_access`, `unit_stream_ipc`; plus top-level `unit_arch_isolation`, `unit_config`,

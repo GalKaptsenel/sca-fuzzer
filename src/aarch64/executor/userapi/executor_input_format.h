@@ -2,12 +2,12 @@
 #define EXECUTOR_INPUT_FORMAT_H
 
 /*
- * /dev/executor input wire format — the authoritative, self-describing
- * structure of one input initialization written to the device. Any writer (the fuzzer, the
- * executor_userland tool, a test) MUST produce exactly this; the kernel parses and
- * validates strictly against it and rejects anything that does not conform.
+ * REIF (Revizor Extensible Input File) — the authoritative, self-describing
+ * structure of one input written to /dev/executor (and, when saved, a ".reif" file). Any writer
+ * MUST produce exactly this; the kernel parses and validates strictly against it and rejects
+ * anything that does not conform.
  *
- * Layout of one input_init:
+ * Layout of one REIF file:
  *
  *     struct revisor_input_header     (48 bytes, fixed preamble)
  *     struct revisor_input_section[n] (32 bytes each, the section table)
@@ -22,7 +22,7 @@
  *     there are no struct-packing or width rules to get wrong across writers.)
  *   - The preamble is 48 bytes and each descriptor is 32 bytes, so everything is
  *     naturally 8-byte aligned. Payloads start at `header_len`.
- *   - `total_len` is the exact total byte count of the input_init and equals the number of
+ *   - `total_len` is the exact total byte count of the REIF file and equals the number of
  *     bytes written to the device.
  *
  * Section payload contents the kernel expects (sizes from sandbox.h / inputs.h):
@@ -86,13 +86,13 @@ struct revisor_input_header {
     uint64_t header_len;  /* 48 + 32*n_sections; offset of the first payload */
     uint64_t n_sections;
     uint64_t flags;       /* reserved */
-    uint64_t total_len;    /* total bytes of this input_init */
+    uint64_t total_len;    /* total bytes of this REIF file */
 };
 
 struct revisor_input_section {
     uint64_t type;        /* enum revisor_input_section_type */
     uint64_t flags;       /* reserved per-section, 0 for now */
-    uint64_t offset;      /* payload offset from the start of the input_init */
+    uint64_t offset;      /* payload offset from the start of the REIF file */
     uint64_t length;      /* payload length in bytes */
 };
 

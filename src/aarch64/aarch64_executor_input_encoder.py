@@ -1,13 +1,13 @@
-"""Serialize an input into the /dev/executor input wire format.
+"""Serialize an input into REIF, the Revizor Extensible Input File format.
 
 This is the Python writer for the format the kernel module defines and documents in
-src/aarch64/executor/userapi/executor_input_format.h. The kernel structure is the
-source of truth; this module's only job is to convert "the input as the fuzzer sees
-it" (an `Input` ndarray) into exactly that wire layout. The constants below mirror
-the header and MUST be kept in sync with it.
+src/aarch64/executor/userapi/executor_input_format.h (see also docs/reif_input_format.md).
+The kernel structure is the source of truth; this module's only job is to convert "the input
+as the fuzzer sees it" (an `Input` ndarray) into exactly that layout. The constants below
+mirror the header and MUST be kept in sync with it.
 
-The input initialization = a 6*u64 little-endian preamble, a section table (4*u64 per entry), then
-the section payloads (each 8-byte aligned). Sections are located by type, not offset.
+A REIF file = a 6*u64 little-endian preamble, a section table (4*u64 per entry), then the section
+payloads (each 8-byte aligned). Sections are located by type, not offset.
 """
 import struct
 from dataclasses import dataclass
@@ -48,7 +48,7 @@ MAX_BPU_TRAIN = 64                   # matches REVISOR_INPUT_MAX_BPU_TRAIN
 
 
 def _pack_sections(sections: List[Tuple[int, bytes]]) -> bytes:
-    """Assemble (type, payload) pairs into one input initialization: preamble, table, 8-aligned payloads."""
+    """Assemble (type, payload) pairs into one REIF file: preamble, table, 8-aligned payloads."""
     n = len(sections)
     header_len = _PREAMBLE_LEN + n * _SECTION_DESC_LEN
 
@@ -147,7 +147,7 @@ def build_input_init(main: bytes, faulty: bytes, gpr: bytes, simd: Optional[byte
                      pac_keys: Optional[Sequence[int]] = None,
                      code_reloc: Optional[Sequence] = None,
                      bpu_training: Optional[Sequence] = None) -> bytes:
-    """Assemble a input_init from the raw section payloads. `gpr` is the final 64-byte GPR section (flags
+    """Assemble a REIF file from the raw section payloads. `gpr` is the final 64-byte GPR section (flags
     already in PSTATE form); `simd` is the optional 256-byte vector section. Shared by both consumers:
     the device write (ExecutorInput.serialize) and the contract-executor message (ContractExecution.encode)."""
     sections: List[Tuple[int, bytes]] = [
@@ -170,7 +170,8 @@ def build_input_init(main: bytes, faulty: bytes, gpr: bytes, simd: Optional[byte
 
 @dataclass(frozen=True)
 class ExecutorInput:
-    """The kernel input file: an architectural `Input` plus the executor-only wire sections."""
+    """One REIF input: an architectural `Input` plus the executor-only sections (relocations, MTE
+    tags, PAC keys, branch training)."""
     input_: Input
     code_reloc: Tuple[Relocation, ...] = ()
     mte_tags: Optional[Sequence[int]] = None
@@ -255,9 +256,9 @@ def deserialize(blob: bytes) -> ExecutorInput:
     """Inverse of ExecutorInput.serialize: rebuild the ExecutorInput (arch input + every section)."""
     magic, version, _header_len, n, _flags, _total_len = struct.unpack_from("<6Q", blob, 0)
     if INPUT_MAGIC != magic:
-        raise ValueError("not a wire input file (bad magic)")
+        raise ValueError("not a REIF input file (bad magic)")
     if INPUT_VERSION != version:
-        raise ValueError(f"unsupported wire input version {version}")
+        raise ValueError(f"unsupported REIF input version {version}")
 
     sections = {}
     for i in range(n):

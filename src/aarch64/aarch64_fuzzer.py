@@ -43,9 +43,8 @@ def create_fenced_test_case(test_case: TestCase) -> TestCase:
 class Aarch64Fuzzer(FuzzerGeneric):
     executor: Aarch64Executor
 
-    # AArch64 saves inputs with NZCV in the per-flag NZCVScheme encoding, not the
-    # PSTATE form the kernel expects (see debugging/to_executor_input.py).
-    input_artifact_tag: str = "_nzcv_scheme"
+    # AArch64 saves inputs as the executor-ready REIF container (flags already in PSTATE form).
+    input_file_extension: str = "reif"
 
     def _boost_inputs(self, inputs, nesting):
         # The aarch64 fuzzer's input unit is the ExecutorInput; convert once boosting is done.
@@ -53,7 +52,6 @@ class Aarch64Fuzzer(FuzzerGeneric):
         return list(map(self.executor.as_executor_input, boosted)), ctraces
 
     def _save_input(self, input_, path: str) -> None:
-        # Persist the wire input so it loads verbatim into /dev/executor (no seal — offline generate).
         from .aarch64_executor_input_encoder import ExecutorInput
         ExecutorInput(input_).save(path)
 

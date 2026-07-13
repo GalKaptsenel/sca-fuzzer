@@ -57,9 +57,8 @@ class FuzzerGeneric(Fuzzer):
     instruction_set: InstructionSet
     existing_test_case: str
 
-    # Tag appended to saved input filenames to note their on-disk encoding.
-    # Overridden per-architecture (e.g. AArch64 stores NZCV in per-flag form).
-    input_artifact_tag: str = ""
+    # Extension for saved input files: raw `Input` dump (".bin"), or the REIF container on AArch64.
+    input_file_extension: str = "bin"
     input_paths: List[str]
     generation_function: Callable[[str], TestCase]
 
@@ -586,7 +585,7 @@ class FuzzerGeneric(Fuzzer):
                     inp._arch_trace_stale = False
 
         for i, input_ in enumerate(violation.input_sequence):
-            input_.save(f"{violation_dir}/input_{i:04}{self.input_artifact_tag}.bin")
+            input_.save(f"{violation_dir}/input_{i:04}.{self.input_file_extension}")
             arch_trace = getattr(input_, "_arch_trace", None)
             if arch_trace is None:
                 continue  # only the AArch64 executor records a CE arch trace
@@ -725,7 +724,7 @@ class FuzzerGeneric(Fuzzer):
             program_gen.create_test_case(test_case_dir + "/" + "program.asm", True)
             inputs = input_gen.generate(num_inputs)
             for j, input_ in enumerate(inputs):
-                self._save_input(input_, f"{test_case_dir}/input{j}.bin")
+                self._save_input(input_, f"{test_case_dir}/input{j}.{self.input_file_extension}")
 
         self.LOG.fuzzer_finish()
 

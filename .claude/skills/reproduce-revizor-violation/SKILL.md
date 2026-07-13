@@ -55,8 +55,11 @@ for i in list(range(LOW+1))+[OTHER]:   # 0..LOW plus the other violating input
     _reconstruct_pstate(memoryview(raw)[REGISTER_REGION_OFFSET:].cast('Q'))
     open(f"/tmp/exp/in{i}.bin","wb").write(bytes(raw))
 PY
-# (equivalently: src/aarch64/debugging/to_executor_input.py <saved.bin> /tmp/exp/inN.bin)
 ```
+> NOTE: this Step-1 conversion assumes the OLD flat `.bin` input dump. Newer runs save inputs as
+> REIF (`input_NNNN.reif`, see docs/reif_input_format.md) — a section-addressed, already-PSTATE,
+> executor-ready file that you `EU w` verbatim (no `_reconstruct_pstate`, no byte-offset math). This
+> skill's format notes below still describe the old dump and need a REIF migration.
 
 ## Step 2 — reload the module and set the regime
 ```
