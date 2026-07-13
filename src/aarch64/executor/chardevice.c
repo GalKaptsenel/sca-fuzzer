@@ -357,7 +357,7 @@ static long handle_pac_sign(void __user *arg)
 		return -EINVAL;
 	}
 
-	req.result = pac_run_op_with_keys(op, req.ptr, req.ctx, true, &req.keys);
+	req.result = pac_run_op_with_keys(op, req.ptr, req.ctx, &req.keys);
 	return copy_to_user_with_access_check(arg, &req, sizeof(req)) ? -EFAULT : 0;
 }
 
@@ -395,7 +395,7 @@ static long handle_pac_auth(void __user *arg)
 		return -EINVAL;
 	}
 
-	req.result = pac_auth_with_keys(op, req.ptr, req.ctx, true, &req.keys);
+	req.result = pac_auth_with_keys(op, req.ptr, req.ctx, &req.keys);
 	return copy_to_user_with_access_check(arg, &req, sizeof(req)) ? -EFAULT : 0;
 }
 

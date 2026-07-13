@@ -225,14 +225,10 @@ static uint64_t pac_run_op(enum pac_op op, uint64_t ptr, uint64_t mod) {
  * before the window ends.
  */
 uint64_t pac_run_op_with_keys(enum pac_op op, uint64_t ptr, uint64_t mod,
-                              bool keys_set, const struct pac_keys *exec_keys) {
+                              const struct pac_keys *exec_keys) {
 	struct pac_keys saved_keys;
 	uint64_t saved_sctlr, result;
 	unsigned long flags;
-
-	if (!keys_set) {
-		return pac_run_op(op, ptr, mod);
-	}
 
 	local_irq_save(flags);
 	preempt_disable();
@@ -296,35 +292,31 @@ static uint64_t pac_auth_verify_core(enum pac_op op, uint64_t ptr, uint64_t mod,
  * EL1 (synchronous FPAC fault -> hard reset). Verifies first (pac_auth_verify_core) inside the same
  * one-op key window as pac_run_op_with_keys, and warns when a fault was suppressed. */
 uint64_t pac_auth_with_keys(enum pac_op op, uint64_t ptr, uint64_t mod,
-                            bool keys_set, const struct pac_keys *exec_keys) {
+                            const struct pac_keys *exec_keys) {
 	struct pac_keys saved_keys;
 	uint64_t saved_sctlr, result;
 	unsigned long flags;
 	bool would_fault = false;
 
-	if (!keys_set) {
-		result = pac_auth_verify_core(op, ptr, mod, &would_fault);
-	} else {
-		local_irq_save(flags);
-		preempt_disable();
+	local_irq_save(flags);
+	preempt_disable();
 
-		pac_save_keys(&saved_keys);
-		pac_load_keys(exec_keys);
-		saved_sctlr = pac_enable_all_keys();
+	pac_save_keys(&saved_keys);
+	pac_load_keys(exec_keys);
+	saved_sctlr = pac_enable_all_keys();
 
-		result = pac_auth_verify_core(op, ptr, mod, &would_fault);
+	result = pac_auth_verify_core(op, ptr, mod, &would_fault);
 
-		pac_restore_sctlr(saved_sctlr);
-		pac_load_keys(&saved_keys);
+	pac_restore_sctlr(saved_sctlr);
+	pac_load_keys(&saved_keys);
 
-		preempt_enable();
-		local_irq_restore(flags);
-	}
+	preempt_enable();
+	local_irq_restore(flags);
 
 	if (would_fault) {
-		pr_warn("revizor: PAC AUTH would FPAC (op=%d ptr=%#llx ctx=%#llx keys_set=%d) -- suppressed, returned canonical %#llx\n",
-		        op, (unsigned long long)ptr, (unsigned long long)mod, keys_set,
-		        (unsigned long long)result);
+		module_warn("PAC AUTH would FPAC (op=%d ptr=%#llx ctx=%#llx) -- suppressed, returned canonical %#llx\n",
+		            op, (unsigned long long)ptr, (unsigned long long)mod,
+		            (unsigned long long)result);
 	}
 	return result;
 }
@@ -359,13 +351,13 @@ void pac_save_keys(struct pac_keys *out)	{ (void)out; }
 void pac_load_keys(const struct pac_keys *keys)	{ (void)keys; }
 
 uint64_t pac_run_op_with_keys(enum pac_op op, uint64_t ptr, uint64_t mod,
-                              bool keys_set, const struct pac_keys *exec_keys) {
-	(void)op; (void)mod; (void)keys_set; (void)exec_keys; return ptr;
+                              const struct pac_keys *exec_keys) {
+	(void)op; (void)mod; (void)exec_keys; return ptr;
 }
 
 uint64_t pac_auth_with_keys(enum pac_op op, uint64_t ptr, uint64_t mod,
-                            bool keys_set, const struct pac_keys *exec_keys) {
-	(void)op; (void)mod; (void)keys_set; (void)exec_keys; return ptr;
+                            const struct pac_keys *exec_keys) {
+	(void)op; (void)mod; (void)exec_keys; return ptr;
 }
 
 #endif
