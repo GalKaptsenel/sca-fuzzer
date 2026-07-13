@@ -23,11 +23,8 @@
 #define REVISOR_TRACE_CONSTANT                  8
 #define REVISOR_CLEAR_ALL_INPUTS_CONSTANT       9
 #define REVISOR_GET_TEST_LENGTH_CONSTANT        10
-/* PAC ioctls (keys travel per-request in struct pac_sign_req; the kernel keeps no key state). */
 #define REVISOR_PAC_SIGN_CONSTANT               11
 #define REVISOR_PAC_AUTH_CONSTANT               12
 #define REVISOR_PAC_XPAC_CONSTANT               13
-/* MTE ioctls. */
-#define REVISOR_MTE_TAG_REGION_CONSTANT         14
 
 #endif // EXECUTOR_IOCTL_NR_H

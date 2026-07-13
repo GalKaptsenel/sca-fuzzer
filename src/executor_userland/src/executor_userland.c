@@ -1,6 +1,5 @@
 #include <executor_ioctl.h>
 #include <executor_pac_api.h>
-#include <executor_mte_api.h>
 #include <executor_user_api.h>
 #include <executor_utils.h>
 
@@ -18,8 +17,7 @@ static unsigned long int_to_cmd[] = {
 	REVISOR_GET_TEST_LENGTH,
 	REVISOR_PAC_SIGN,
 	REVISOR_PAC_AUTH,
-	REVISOR_PAC_XPAC,
-	REVISOR_MTE_TAG_REGION
+	REVISOR_PAC_XPAC
 };
 
 #define MAX_COMMAND_NUMBER ((int)(sizeof(int_to_cmd) / sizeof(int_to_cmd[0])) - 1)
@@ -306,31 +304,6 @@ static bool is_pac_command(int command) {
 	}
 }
 
-/* 16 MTE_TAG_REGION  <sandbox_offset> <tag0> [tag1 ...]  — one 4-bit tag per 16B granule,
- * starting at sandbox_offset bytes from lower_overflow. */
-static int serve_mte_command(int fd, int command, int argc, char** argv) {
-	if (5 > argc) {
-		printf("Usage: <command> <sandbox_offset> <tag0> [tag1 ...]\n");
-		return -2;
-	}
-	uint64_t n = (uint64_t)(argc - 4);
-	if (n > MTE_TAG_MAX_GRANULES) {
-		printf("too many granules: %lu (max %d)\n", n, MTE_TAG_MAX_GRANULES);
-		return -2;
-	}
-	struct mte_tag_region_req req = { 0 };
-	req.sandbox_offset = strtoull(argv[3], NULL, 0);
-	req.n_granules = n;
-	for (uint64_t i = 0; i < n; ++i) {
-		req.tags[i] = (uint8_t)(strtoul(argv[4 + i], NULL, 0) & 0xF);
-	}
-	int result = ioctl(fd, command, &req);
-	if (0 <= result) {
-		printf("tagged %lu granule(s) at offset 0x%lx\n", n, req.sandbox_offset);
-	}
-	return result;
-}
-
 /*
  * PAC ioctls carry structs, so they take their own arguments. Sign/auth carry the keys with the
  * request (the kernel keeps no key state); XPAC is key-independent:
@@ -441,8 +414,6 @@ static int serve_numerical_operation(int fd, int argc, char** argv) {
 
 	if (is_pac_command(command)) {
 		result = serve_pac_command(fd, command, argc, argv);
-	} else if (REVISOR_MTE_TAG_REGION_CONSTANT == _IOC_NR(command)) {
-		result = serve_mte_command(fd, command, argc, argv);
 	} else if (3 < argc) {
 		result = serve_numerical_command_with_argument(fd, command, strtoull(argv[3], NULL, 0));
 	} else {

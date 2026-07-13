@@ -190,13 +190,6 @@ MEASUREMENT = _IOC(_IOC_READ, 7, 32)
 TRACE = _IOC(_IOC_NONE, 8, 0)
 CLEAR_ALL_INPUTS = _IOC(_IOC_NONE, 9, 0)
 GET_TEST_LENGTH = _IOC(_IOC_READ, 10, 8)
-# Taggable span = lower_overflow|main|faulty|upper_overflow = 4 * sandbox PAGESIZE (4096 each).
-MTE_TAGGABLE_SPAN = 4 * 4096
-MTE_GRANULE = 16
-MTE_TAG_MAX_GRANULES = MTE_TAGGABLE_SPAN // MTE_GRANULE
-# struct mte_tag_region_req { u64 sandbox_offset; u64 n_granules; u8 tags[MTE_TAG_MAX_GRANULES]; }
-_MTE_REQ_SIZE = 8 + 8 + MTE_TAG_MAX_GRANULES
-MTE_TAG_REGION = _IOC(_IOC_WRITE, 16, _MTE_REQ_SIZE)
 
 # main(4096) + faulty(4096) + 8 register slots * 8 bytes
 USER_CONTROLLED_INPUT_LENGTH = 4096 + 4096 + 8 * 8
@@ -245,25 +238,6 @@ class TestExecutorIoctl(unittest.TestCase):
 
     def _num_inputs(self):
         return self._ioctl_get_u64(GET_NUM_INPUTS)
-
-    def _tag_region(self, sandbox_offset, n_granules, tag):
-        # struct mte_tag_region_req { u64 sandbox_offset; u64 n_granules; u8 tags[MTE_TAG_MAX_GRANULES]; }
-        # pass a bytearray so ioctl() returns its status code, not the request buffer
-        tags = (bytes([tag & 0xF]) * max(n_granules, 0)).ljust(MTE_TAG_MAX_GRANULES, b"\x00")[:MTE_TAG_MAX_GRANULES]
-        req = struct.pack("<QQ", sandbox_offset, n_granules) + tags
-        return fcntl.ioctl(self.fd, MTE_TAG_REGION, bytearray(req))
-
-    # ---- MTE tag-region ioctl bounds (span = lower_overflow|main|faulty|upper_overflow) ------
-    def test_mte_tag_region_accepts_full_span(self):
-        self.assertEqual(self._tag_region(0, MTE_TAG_MAX_GRANULES, 0xF), 0)             # whole taggable span
-        self.assertEqual(self._tag_region(3 * 4096, 4096 // MTE_GRANULE, 0xF), 0)       # the upper_overflow region
-
-    def test_mte_tag_region_rejects_out_of_range(self):
-        for sandbox_offset, n_granules in ((0, MTE_TAG_MAX_GRANULES + 1),   # one granule past the end
-                                           (MTE_TAGGABLE_SPAN, 1),          # offset at the very end
-                                           (MTE_GRANULE // 2, 1)):          # misaligned offset
-            with self.assertRaises(OSError):
-                self._tag_region(sandbox_offset, n_granules, 0xF)
 
     def test_short_input_write_is_rejected(self):
         a = self._ioctl_get_u64(ALLOCATE_INPUT)

@@ -109,12 +109,11 @@ section is omitted entirely. Up to `REVISOR_INPUT_MAX_BPU_TRAIN` (64) entries.
 
 On a PAC run every input carries the key set its baked signatures were signed under. The keys are
 generated deterministically **by the input generator** (one campaign-wide set per run seed), so a
-run — and every saved `.reif` — is reproducible and self-contained. The kernel keeps **no PAC-key
-state of its own**: it uses each input's `PAC_KEYS` when running that input, and the sign/auth ioctls
-(`REVISOR_PAC_SIGN` / `_AUTH`) carry the keys in the request. There is no executor-level "configured
-keys" and no live-key fallback, so no key can leak from one test or campaign into the next. The keys
-are campaign-wide (not per-input) because a regular-sealed *sealing class* runs one shared signature
-set for all its members, which only verifies if the members share keys.
+run — and every saved `.reif` — is reproducible and self-contained. The kernel uses each input's
+`PAC_KEYS` when running that input, and the sign/auth ioctls (`REVISOR_PAC_SIGN` / `_AUTH`) carry the
+keys in the request; there is no set/get-keys ioctl and no live-key fallback. The keys are
+campaign-wide (not per-input) because a regular-sealed *sealing class* runs one shared signature set
+for all its members, which only verifies if the members share keys.
 
 ## Compatibility
 

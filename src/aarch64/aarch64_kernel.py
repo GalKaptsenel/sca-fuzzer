@@ -191,19 +191,6 @@ REVISOR_GET_TEST_LENGTH_CONSTANT    = 10
 REVISOR_PAC_SIGN_CONSTANT           = 11
 REVISOR_PAC_AUTH_CONSTANT           = 12
 REVISOR_PAC_XPAC_CONSTANT           = 13
-REVISOR_MTE_TAG_REGION_CONSTANT     = 14
-
-# Mirror of userapi/executor_mte_api.h — keep in sync with that header.
-_UAPI_PAGESIZE = 4096
-MTE_TAG_MAX_GRANULES = (2 * _UAPI_PAGESIZE + _UAPI_PAGESIZE + _UAPI_PAGESIZE) // 16
-
-
-class MteTagRegionReq(ctypes.Structure):
-    _fields_ = [
-        ("sandbox_offset", ctypes.c_uint64),
-        ("n_granules",     ctypes.c_uint64),
-        ("tags",           ctypes.c_uint8 * MTE_TAG_MAX_GRANULES),
-    ]
 
 class PacKeys(ctypes.Structure):
     """The five PAC keys (instruction A/B, data A/B, generic), each {lo,hi} — 80 bytes / 10 words."""
@@ -247,7 +234,6 @@ IOCTL_NR_TO_NAME = {
     11: "REVISOR_PAC_SIGN",
     12: "REVISOR_PAC_AUTH",
     13: "REVISOR_PAC_XPAC",
-    14: "REVISOR_MTE_TAG_REGION",
 }
 
 
@@ -307,7 +293,6 @@ REVISOR_GET_TEST_LENGTH = _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_TEST_LENGTH_CONSTA
 REVISOR_PAC_SIGN = _IOWR(REVISOR_IOC_MAGIC, REVISOR_PAC_SIGN_CONSTANT,  PacSignReq)
 REVISOR_PAC_AUTH = _IOWR(REVISOR_IOC_MAGIC, REVISOR_PAC_AUTH_CONSTANT,  PacSignReq)
 REVISOR_PAC_XPAC = _IOWR(REVISOR_IOC_MAGIC, REVISOR_PAC_XPAC_CONSTANT,  PacSignReq)
-REVISOR_MTE_TAG_REGION = _IOW(REVISOR_IOC_MAGIC, REVISOR_MTE_TAG_REGION_CONSTANT, MteTagRegionReq)
 
 
 def _raise_access_error(path: str, fix_target: str, err: OSError) -> "NoReturn":
@@ -451,16 +436,6 @@ class LocalHWExecutor(HWExecutor):
     def pac_xpac(self, ptr: int, mnemonic: str) -> int:
         # Strips the PAC field (never faults, key-independent); mnemonic is "xpaci" or "xpacd".
         return self._pac_op(REVISOR_PAC_XPAC, ptr, 0, mnemonic, None)
-
-    def mte_tag_sandbox_region(self, sandbox_offset: int, tags: List[int]) -> None:
-        """Tag len(tags) consecutive granules with the given 4-bit `tags`. `sandbox_offset` is
-        relative to the start of the tagged span: lower_overflow | main | faulty | upper_overflow."""
-        req = MteTagRegionReq()
-        req.sandbox_offset = sandbox_offset
-        req.n_granules = len(tags)
-        for i, t in enumerate(tags):
-            req.tags[i] = t & 0xF
-        self._ioctl(REVISOR_MTE_TAG_REGION, req)
 
     @property
     def sandbox_base(self) -> int:

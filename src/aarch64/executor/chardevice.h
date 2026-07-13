@@ -10,9 +10,6 @@
 /* Self-describing per-input wire format parsed by copy_input_from_user. */
 #include "userapi/executor_input_format.h"
 
-/* REVISOR_MTE_TAG_REGION (16) + struct mte_tag_region_req. */
-#include "userapi/executor_mte_api.h"
-
 #define REVISOR_CHECKOUT_TEST      	    _IO(REVISOR_IOC_MAGIC, REVISOR_CHECKOUT_TEST_CONSTANT)                   // Can read test case and write test case
 #define REVISOR_UNLOAD_TEST    		    _IO(REVISOR_IOC_MAGIC, REVISOR_UNLOAD_TEST_CONSTANT)
 #define REVISOR_GET_NUMBER_OF_INPUTS   	_IOR(REVISOR_IOC_MAGIC, REVISOR_GET_NUMBER_OF_INPUTS_CONSTANT, uint64_t)
@@ -25,7 +22,6 @@
 #define REVISOR_GET_TEST_LENGTH		    _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_TEST_LENGTH_CONSTANT, uint64_t)
 /* REVISOR_PAC_SIGN (11), REVISOR_PAC_AUTH (12), REVISOR_PAC_XPAC (13)
  * — defined in userapi/executor_pac_api.h */
-/* REVISOR_MTE_TAG_REGION (14) — defined in userapi/executor_mte_api.h */
 
 #define REVISOR_DEVICE_NAME		        kernel_module_name
 #define REVISOR_DEVICE_CLASS_NAME	    "revisor_device_class"

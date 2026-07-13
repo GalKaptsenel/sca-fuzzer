@@ -452,28 +452,6 @@ static long do_revisor_ioctl(struct file* file, unsigned int cmd, unsigned long 
 			result = get_test_length((void __user*)arg);
 			break;
 
-		case REVISOR_MTE_TAG_REGION_CONSTANT: {
-			struct mte_tag_region_req req;
-			if (copy_from_user_with_access_check(&req, (void __user *)arg, sizeof(req))) {
-				return -EFAULT;
-			}
-			/* sandbox_offset is relative to lower_overflow; the taggable span is the contiguous
-			 * block lower_overflow|main|faulty|upper_overflow (eviction is the P+P region and is
-			 * left untagged). */
-			_Static_assert(MTE_TAGGABLE_BYTES ==
-			               2 * OVERFLOW_REGION_SIZE + MAIN_REGION_SIZE + FAULTY_REGION_SIZE,
-			               "UAPI taggable span diverged from the sandbox layout");
-			const u64 span_bytes = req.n_granules * MTE_GRANULE_SIZE;
-			if ((req.sandbox_offset & (MTE_GRANULE_SIZE - 1)) != 0 ||
-			    req.n_granules > MTE_TAG_MAX_GRANULES ||
-			    req.sandbox_offset > MTE_TAGGABLE_BYTES - span_bytes) {
-				return -EINVAL;
-			}
-			mte_apply_sandbox_tags(executor.sandbox->lower_overflow + req.sandbox_offset,
-			                       req.tags, req.n_granules);
-			return 0;
-		}
-
 		case REVISOR_PAC_SIGN_CONSTANT:
 			return handle_pac_sign((void __user *)arg);
 

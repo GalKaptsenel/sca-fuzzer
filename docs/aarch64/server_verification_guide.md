@@ -264,12 +264,10 @@ to verify a fix:
 ---
 
 ## 7. Appendix — ioctl / wire reference (for building probes)
-- **ioctls 1–16** (magic `'r'`): 1 CHECKOUT_TEST, 2 UNLOAD_TEST, 3 GET_NUMBER_OF_INPUTS,
+- **ioctls 1–13** (magic `'r'`): 1 CHECKOUT_TEST, 2 UNLOAD_TEST, 3 GET_NUMBER_OF_INPUTS,
   4 CHECKOUT_INPUT, 5 ALLOCATE_INPUT, 6 FREE_INPUT, 7 MEASUREMENT, 8 TRACE, 9 CLEAR_ALL_INPUTS,
-  10 GET_TEST_LENGTH, 11 SET_PAC_KEYS, 12 GET_PAC_KEYS, 13 PAC_SIGN, 14 PAC_AUTH, 15 PAC_XPAC,
-  16 MTE_TAG_REGION.
-- `MteTagRegionReq = {sandbox_offset:u64, length:u64, tag:u8}`; sandbox span order:
-  `lower_overflow | main | faulty | upper_overflow`.
+  10 GET_TEST_LENGTH, 11 PAC_SIGN, 12 PAC_AUTH, 13 PAC_XPAC. PAC keys travel per-request in
+  `pac_sign_req`; MTE tags travel in the input's `MTE_TAGS` section — neither has a keys/tag ioctl.
 - `UserMeasurement = htrace:u64 + pfc:u64×3`.
 - CE wire: inner header 120 bytes; outer frame `<II>` = (length:u32, type:u32), payload magic `RVZR`.
   Section flags `HAS_CODE=1 / HAS_REGS=2 / HAS_MEMORY=4`. Execution clauses `SEQ=0 / COND=1 / BPAS=2 /
