@@ -109,18 +109,8 @@ class RegularSealedSealingTest(unittest.TestCase):
     def _executor(self):
         gen = Aarch64RandomGenerator(self.isa, random.randrange(1 << 32))
         ex = factory.get_executor(generator=gen)
-        k = self.PacKeys()
-        k.apia_lo = k.apib_lo = k.apda_lo = k.apdb_lo = k.apga_lo = 0x1122334455667788
-        k.apia_hi = k.apib_hi = k.apda_hi = k.apdb_hi = k.apga_hi = 0x8877665544332211
-        ex.local_executor.set_pac_keys(k)
         type(self)._last_ex = ex
         return ex, gen
-
-    @classmethod
-    def tearDownClass(cls):
-        # the pinned deterministic keys outlive this module in the kernel; revert to live
-        if getattr(cls, "_last_ex", None) is not None:
-            cls._last_ex.local_executor.clear_pac_keys()
 
     def _has_value_slots(self, ex) -> bool:
         return bool(getattr(ex._sealed, "_pac", []) or getattr(ex._sealed, "_mte", []))
@@ -244,10 +234,7 @@ class RegularSealedSealingTest(unittest.TestCase):
             isa = InstructionSet(os.path.join(_ROOT, "base.json"), CONF.instruction_categories)
             gen = Aarch64RandomGenerator(isa, random.randrange(1 << 32))
             ex = factory.get_executor(generator=gen)
-            k = self.PacKeys()
-            k.apia_lo = k.apib_lo = k.apda_lo = k.apdb_lo = k.apga_lo = 0x1122334455667788
-            k.apia_hi = k.apib_hi = k.apda_hi = k.apdb_hi = k.apga_hi = 0x8877665544332211
-            ex.local_executor.set_pac_keys(k); type(self)._last_ex = ex
+            type(self)._last_ex = ex
             self.assertEqual(ex._primitives, {"pac"})
             ig = factory.get_input_generator(random.randrange(1 << 32)); tmp = tempfile.mkdtemp()
 

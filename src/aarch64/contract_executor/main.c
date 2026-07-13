@@ -239,6 +239,9 @@ int main() {
 		mte_tagmem_init((uintptr_t)kernel_sandbox_base, simulation.sim_input.mte_tags,
 		                simulation.sim_input.mte_tag_count);
 
+		/* The keys the plugin signs/auths under travel with the input; the kernel keeps none. */
+		pac_keys_init(simulation.sim_input.pac_keys, simulation.sim_input.pac_keys_present);
+
 		g_iter_phase = 2; /* simulation */
 		CE_INSTALL_CRASH_HANDLERS(); /* reinstall in case Python code (TAGE) overrode them */
 

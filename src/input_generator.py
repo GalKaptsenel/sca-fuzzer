@@ -84,6 +84,13 @@ class NumpyRandomInputGenerator(InputGenerator):
     def reset_boosting_state(self) -> None:
         self._boosting_state = self._state
 
+    def random_words(self, count: int, salt: int) -> List[int]:
+        """`count` deterministic 64-bit words from the generator seed, salted so independent draws
+        don't collide."""
+        rng = np.random.default_rng(seed=self._state ^ salt)
+        return [int(w) for w in rng.integers(0, np.iinfo(np.uint64).max, size=count,
+                                             dtype=np.uint64, endpoint=True)]
+
     def extend_equivalence_classes(self, inputs: List[Input],
                                    taints: List[InputTaint]) -> List[Input]:
         """

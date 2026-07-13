@@ -59,7 +59,7 @@ offset 0   ┌──────────────────────
 | `0x02` | `MEMORY_FAULTY` | sandbox `faulty_region` bytes |
 | `0x03` | `GPR` | `registers_t` = x0..x5, the flags register (NZCV), sp. The flags slot holds the **ARM PSTATE** value (NZCV in bits 31:28), loaded verbatim — the writer converts from the per-flag `NZCVScheme` before packing. |
 | `0x04` | `SIMD` | v0..v7 (256 B; reserved, not yet loaded) |
-| `0x05` | `PAC_KEYS` | `struct pac_keys` (5 keys × {lo,hi} = 10×u64); present ⇒ per-input key override |
+| `0x05` | `PAC_KEYS` | `struct pac_keys` (5 keys × {lo,hi} = 10×u64) — the keys this input's signatures were signed under (see below) |
 | `0x06` | `MTE_TAGS` | one 4-bit allocation tag per 16-byte granule of the main‖faulty span, packed two per byte, low nibble first (granule 2·i in bits 3:0, 2·i+1 in bits 7:4) |
 | `0x07` | `CODE_RELOC` | the per-input **relocation table** (see below) |
 | `0x08` | `BPU_TRAINING` | per-input branch-training entries (see below) |
@@ -104,6 +104,17 @@ Each entry trains the conditional branch at byte `offset` of the body toward `ta
 0 = NOT-TAKEN) before this input executes, so per-input branch training travels **with the input**
 rather than as global config. Gated by `enable_branch_mistraining` (off by default); when off, the
 section is omitted entirely. Up to `REVISOR_INPUT_MAX_BPU_TRAIN` (64) entries.
+
+## PAC keys (`PAC_KEYS`)
+
+On a PAC run every input carries the key set its baked signatures were signed under. The keys are
+generated deterministically **by the input generator** (one campaign-wide set per run seed), so a
+run — and every saved `.reif` — is reproducible and self-contained. The kernel keeps **no PAC-key
+state of its own**: it uses each input's `PAC_KEYS` when running that input, and the sign/auth ioctls
+(`REVISOR_PAC_SIGN` / `_AUTH`) carry the keys in the request. There is no executor-level "configured
+keys" and no live-key fallback, so no key can leak from one test or campaign into the next. The keys
+are campaign-wide (not per-input) because a regular-sealed *sealing class* runs one shared signature
+set for all its members, which only verifies if the members share keys.
 
 ## Compatibility
 

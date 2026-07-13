@@ -16,8 +16,6 @@ static unsigned long int_to_cmd[] = {
 	REVISOR_TRACE,
 	REVISOR_CLEAR_ALL_INPUTS,
 	REVISOR_GET_TEST_LENGTH,
-	REVISOR_SET_PAC_KEYS,
-	REVISOR_GET_PAC_KEYS,
 	REVISOR_PAC_SIGN,
 	REVISOR_PAC_AUTH,
 	REVISOR_PAC_XPAC,
@@ -283,18 +281,22 @@ static int serve_numerical_command_with_argument(int fd, int command, uint64_t a
 	return result;
 }
 
-static void print_pac_keys(const struct pac_keys* k) {
-	printf("\tAPIA %016lx:%016lx\n", k->apia_hi, k->apia_lo);
-	printf("\tAPIB %016lx:%016lx\n", k->apib_hi, k->apib_lo);
-	printf("\tAPDA %016lx:%016lx\n", k->apda_hi, k->apda_lo);
-	printf("\tAPDB %016lx:%016lx\n", k->apdb_hi, k->apdb_lo);
-	printf("\tAPGA %016lx:%016lx\n", k->apga_hi, k->apga_lo);
+/* Fill `keys` from 10 hex words at argv[base..base+9] (apia_lo apia_hi ... apga_lo apga_hi). */
+static void parse_pac_keys(char** argv, int base, struct pac_keys* keys) {
+	keys->apia_lo = strtoull(argv[base + 0], NULL, 0);
+	keys->apia_hi = strtoull(argv[base + 1], NULL, 0);
+	keys->apib_lo = strtoull(argv[base + 2], NULL, 0);
+	keys->apib_hi = strtoull(argv[base + 3], NULL, 0);
+	keys->apda_lo = strtoull(argv[base + 4], NULL, 0);
+	keys->apda_hi = strtoull(argv[base + 5], NULL, 0);
+	keys->apdb_lo = strtoull(argv[base + 6], NULL, 0);
+	keys->apdb_hi = strtoull(argv[base + 7], NULL, 0);
+	keys->apga_lo = strtoull(argv[base + 8], NULL, 0);
+	keys->apga_hi = strtoull(argv[base + 9], NULL, 0);
 }
 
 static bool is_pac_command(int command) {
 	switch (_IOC_NR(command)) {
-		case REVISOR_SET_PAC_KEYS_CONSTANT:
-		case REVISOR_GET_PAC_KEYS_CONSTANT:
 		case REVISOR_PAC_SIGN_CONSTANT:
 		case REVISOR_PAC_AUTH_CONSTANT:
 		case REVISOR_PAC_XPAC_CONSTANT:
@@ -330,56 +332,28 @@ static int serve_mte_command(int fd, int command, int argc, char** argv) {
 }
 
 /*
- * PAC ioctls carry structs, so they take their own arguments:
- *   11 SET_PAC_KEYS  <10 hex words> | (none) to revert to live keys
- *   12 GET_PAC_KEYS
- *   13 PAC_SIGN      <mnemonic> <ptr> <ctx>
- *   14 PAC_AUTH      <mnemonic> <ptr> <ctx> [--force]  (default: XPAC-strip only;
- *                                             --force issues a real AUT* -- a wrong
- *                                             signature faults FEAT-FPAC silicon)
- *   15 PAC_XPAC      <mnemonic> <ptr>
+ * PAC ioctls carry structs, so they take their own arguments. Sign/auth carry the keys with the
+ * request (the kernel keeps no key state); XPAC is key-independent:
+ *   11 PAC_SIGN  <mnemonic> <ptr> <ctx> <10 hex keys>
+ *   12 PAC_AUTH  <mnemonic> <ptr> <ctx> [--force] <10 hex keys>  (default: XPAC-strip only;
+ *                                        --force issues a real AUT* -- a wrong signature faults
+ *                                        FEAT-FPAC silicon)
+ *   13 PAC_XPAC  <mnemonic> <ptr>
+ * The 10 keys are: apia_lo apia_hi apib_lo apib_hi apda_lo apda_hi apdb_lo apdb_hi apga_lo apga_hi
  */
 static int serve_pac_command(int fd, int command, int argc, char** argv) {
 	switch (_IOC_NR(command)) {
-		case REVISOR_GET_PAC_KEYS_CONSTANT: {
-			struct pac_keys keys = { 0 };
-			int result = ioctl(fd, command, &keys);
-			if (0 <= result) {
-				printf("PAC keys (hi:lo):\n");
-				print_pac_keys(&keys);
-			}
-			return result;
-		}
-
-		case REVISOR_SET_PAC_KEYS_CONSTANT: {
-			if (3 == argc) {
-				printf("Reverting to the live kernel PAC keys\n");
-				return ioctl(fd, command, NULL);
-			}
-			if (13 != argc) {
-				printf("SET_PAC_KEYS needs 0 args (revert) or 10 hex words: "
-				       "apia_lo apia_hi apib_lo apib_hi apda_lo apda_hi apdb_lo apdb_hi apga_lo apga_hi\n");
-				return -2;
-			}
-			struct pac_keys keys = {
-				.apia_lo = strtoull(argv[3],  NULL, 0), .apia_hi = strtoull(argv[4],  NULL, 0),
-				.apib_lo = strtoull(argv[5],  NULL, 0), .apib_hi = strtoull(argv[6],  NULL, 0),
-				.apda_lo = strtoull(argv[7],  NULL, 0), .apda_hi = strtoull(argv[8],  NULL, 0),
-				.apdb_lo = strtoull(argv[9],  NULL, 0), .apdb_hi = strtoull(argv[10], NULL, 0),
-				.apga_lo = strtoull(argv[11], NULL, 0), .apga_hi = strtoull(argv[12], NULL, 0),
-			};
-			return ioctl(fd, command, &keys);
-		}
-
 		case REVISOR_PAC_SIGN_CONSTANT: {
-			if (6 != argc) {
-				printf("Usage: <command> <mnemonic> <ptr> <ctx>\n");
+			if (16 != argc) {
+				printf("Usage: <command> <mnemonic> <ptr> <ctx> <10 hex keys>\n");
 				return -2;
 			}
 			struct pac_sign_req req = { 0 };
 			strncpy(req.mnemonic, argv[3], sizeof(req.mnemonic) - 1);
 			req.ptr = strtoull(argv[4], NULL, 0);
 			req.ctx = strtoull(argv[5], NULL, 0);
+			parse_pac_keys(argv, 6, &req.keys);
+			req.keys_present = 1;
 			int result = ioctl(fd, command, &req);
 			if (0 <= result) {
 				printf("%s(0x%016lx, ctx=0x%016lx) = 0x%016lx\n",
@@ -392,14 +366,17 @@ static int serve_pac_command(int fd, int command, int argc, char** argv) {
 			// A wrong signature makes a real AUT* FPAC-reset the box. Without --force, strip the
 			// pointer with XPAC instead (the canonical value a successful AUT* would yield) --
 			// non-faulting; issue the real AUT* only when explicitly forced.
-			bool forced = (7 == argc) && (0 == strcmp(argv[6], "--force"));
-			if (6 != argc && !forced) {
-				printf("Usage: <command> <mnemonic> <ptr> <ctx> [--force]\n");
+			bool forced = (17 == argc) && (0 == strcmp(argv[6], "--force"));
+			int keys_base = forced ? 7 : 6;
+			if (16 != argc && !forced) {
+				printf("Usage: <command> <mnemonic> <ptr> <ctx> [--force] <10 hex keys>\n");
 				return -2;
 			}
 			struct pac_sign_req req = { 0 };
 			req.ptr = strtoull(argv[4], NULL, 0);
 			req.ctx = strtoull(argv[5], NULL, 0);
+			parse_pac_keys(argv, keys_base, &req.keys);
+			req.keys_present = 1;
 			if (!forced) {
 				const char* xpac_m = (0 == strncmp(argv[3], "auti", 4)) ? "xpaci"
 				                   : (0 == strncmp(argv[3], "autd", 4)) ? "xpacd" : NULL;

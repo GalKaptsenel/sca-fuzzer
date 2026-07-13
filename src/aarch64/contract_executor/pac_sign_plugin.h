@@ -10,6 +10,12 @@
 void pac_sign_plugin_init(void);
 
 /*
+ * Seed the keys every kernel sign/auth runs under from the current input's PAC_KEYS section
+ * (`present` false when the input carries none). The kernel keeps no key state of its own.
+ */
+void pac_keys_init(const uint64_t* keys, bool present);
+
+/*
  * Must be called at process shutdown to close the device fd.
  */
 void pac_sign_plugin_cleanup(void);

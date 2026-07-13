@@ -78,12 +78,13 @@ class PacSigner:
     SIGN, never AUTH (a failed AUTH at EL1 resets the box). `field_mask16` characterizes which top-16
     bits SIGN sets (the PAC field), so a forgery confined to them provably fails AUTH."""
 
-    def __init__(self, pac_sign):
-        self._pac_sign = pac_sign       # local_executor.pac_sign(ptr, ctx, mnemonic) -> signed 64-bit
+    def __init__(self, pac_sign, keys):
+        self._pac_sign = pac_sign       # local_executor.pac_sign(ptr, ctx, mnemonic, keys) -> signed 64-bit
+        self._keys = keys               # the campaign PAC keys every sign runs under
         self._mask_cache: Dict[str, int] = {}
 
     def sign16(self, ptr: int, ctx: int, mn: str) -> int:
-        return (self._pac_sign(ptr, ctx, mn) >> 48) & 0xFFFF
+        return (self._pac_sign(ptr, ctx, mn, self._keys) >> 48) & 0xFFFF
 
     def field_mask16(self, mn: str, samples: int = 64) -> int:
         m = self._mask_cache.get(mn)
@@ -91,7 +92,7 @@ class PacSigner:
             mask = 0
             for _ in range(samples):
                 v = random.randrange(1 << 48)
-                mask |= self._pac_sign(v, random.randrange(1 << 64), mn) ^ v
+                mask |= self._pac_sign(v, random.randrange(1 << 64), mn, self._keys) ^ v
             m = (mask >> 48) & 0xFFFF
             assert m and not (m & 0x80), f"implausible PAC-field mask 0x{m:04x}"
             self._mask_cache[mn] = m

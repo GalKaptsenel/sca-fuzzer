@@ -62,10 +62,6 @@ class NiRandomCoverageTest(unittest.TestCase):
             isa = InstructionSet(os.path.join(_ROOT, "base.json"), CONF.instruction_categories)
             cls.gen = Aarch64RandomGenerator(isa, random.randrange(1 << 32))
             cls.ex = Aarch64NonInterferenceExecutor(cls.gen)
-            k = PacKeys()
-            k.apia_lo = k.apib_lo = k.apda_lo = k.apdb_lo = k.apga_lo = 0x1122334455667788
-            k.apia_hi = k.apib_hi = k.apda_hi = k.apdb_hi = k.apga_hi = 0x8877665544332211
-            cls.ex.local_executor.set_pac_keys(k)
             cls.igen = factory.get_input_generator(random.randrange(1 << 32))
             cls.tmp = tempfile.mkdtemp()
         except Exception as e:
@@ -73,9 +69,6 @@ class NiRandomCoverageTest(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        # the pinned deterministic keys outlive this module in the kernel; revert to live
-        if hasattr(cls, "ex"):
-            cls.ex.local_executor.clear_pac_keys()
         if hasattr(cls, "_saved_strip_prob"):
             CONF.pac_strip_prob = cls._saved_strip_prob
 

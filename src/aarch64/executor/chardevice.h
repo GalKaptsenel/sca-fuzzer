@@ -23,9 +23,9 @@
 #define REVISOR_TRACE			        _IO(REVISOR_IOC_MAGIC, REVISOR_TRACE_CONSTANT)
 #define REVISOR_CLEAR_ALL_INPUTS	    _IO(REVISOR_IOC_MAGIC, REVISOR_CLEAR_ALL_INPUTS_CONSTANT)
 #define REVISOR_GET_TEST_LENGTH		    _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_TEST_LENGTH_CONSTANT, uint64_t)
-/* REVISOR_SET_PAC_KEYS (11), REVISOR_GET_PAC_KEYS (12), REVISOR_PAC_SIGN (13), REVISOR_PAC_AUTH (14),
- * REVISOR_PAC_XPAC (15) — defined in userapi/executor_pac_api.h */
-/* REVISOR_MTE_TAG_REGION (16) — defined in userapi/executor_mte_api.h */
+/* REVISOR_PAC_SIGN (11), REVISOR_PAC_AUTH (12), REVISOR_PAC_XPAC (13)
+ * — defined in userapi/executor_pac_api.h */
+/* REVISOR_MTE_TAG_REGION (14) — defined in userapi/executor_mte_api.h */
 
 #define REVISOR_DEVICE_NAME		        kernel_module_name
 #define REVISOR_DEVICE_CLASS_NAME	    "revisor_device_class"

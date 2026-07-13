@@ -188,12 +188,10 @@ REVISOR_MEASUREMENT_CONSTANT        = 7
 REVISOR_TRACE_CONSTANT              = 8
 REVISOR_CLEAR_ALL_INPUTS_CONSTANT   = 9
 REVISOR_GET_TEST_LENGTH_CONSTANT    = 10
-REVISOR_SET_PAC_KEYS_CONSTANT       = 11
-REVISOR_GET_PAC_KEYS_CONSTANT       = 12
-REVISOR_PAC_SIGN_CONSTANT           = 13
-REVISOR_PAC_AUTH_CONSTANT           = 14
-REVISOR_PAC_XPAC_CONSTANT           = 15
-REVISOR_MTE_TAG_REGION_CONSTANT     = 16
+REVISOR_PAC_SIGN_CONSTANT           = 11
+REVISOR_PAC_AUTH_CONSTANT           = 12
+REVISOR_PAC_XPAC_CONSTANT           = 13
+REVISOR_MTE_TAG_REGION_CONSTANT     = 14
 
 # Mirror of userapi/executor_mte_api.h — keep in sync with that header.
 _UAPI_PAGESIZE = 4096
@@ -207,19 +205,8 @@ class MteTagRegionReq(ctypes.Structure):
         ("tags",           ctypes.c_uint8 * MTE_TAG_MAX_GRANULES),
     ]
 
-class PacSignReq(ctypes.Structure):
-    _fields_ = [
-        ("ptr",      ctypes.c_uint64),
-        ("ctx",      ctypes.c_uint64),
-        ("mnemonic", ctypes.c_char * 16),
-        ("result",   ctypes.c_uint64),
-    ]
-
-
 class PacKeys(ctypes.Structure):
-    """The five PAC keys (instruction A/B, data A/B, generic), each {lo,hi}, in the canonical order
-    shared by the kernel ioctl (struct pac_keys), the CE/UAPI (struct ce_pac_keys), and the input-init
-    PAC_KEYS wire section. The fixed field set is what guarantees exactly 80 bytes / 10 words."""
+    """The five PAC keys (instruction A/B, data A/B, generic), each {lo,hi} — 80 bytes / 10 words."""
     _fields_ = [
         ("apia_lo", ctypes.c_uint64), ("apia_hi", ctypes.c_uint64),
         ("apib_lo", ctypes.c_uint64), ("apib_hi", ctypes.c_uint64),
@@ -234,6 +221,18 @@ class PacKeys(ctypes.Structure):
 
 assert ctypes.sizeof(PacKeys) == 80
 
+
+class PacSignReq(ctypes.Structure):
+    """Sign/auth carry their keys with the request; the kernel keeps no key state of its own."""
+    _fields_ = [
+        ("ptr",          ctypes.c_uint64),
+        ("ctx",          ctypes.c_uint64),
+        ("mnemonic",     ctypes.c_char * 16),
+        ("result",       ctypes.c_uint64),
+        ("keys_present", ctypes.c_uint64),
+        ("keys",         PacKeys),
+    ]
+
 IOCTL_NR_TO_NAME = {
     1: "REVISOR_CHECKOUT_TEST",
     2: "REVISOR_UNLOAD_TEST",
@@ -245,12 +244,10 @@ IOCTL_NR_TO_NAME = {
     8: "REVISOR_TRACE",
     9: "REVISOR_CLEAR_ALL_INPUTS",
     10: "REVISOR_GET_TEST_LENGTH",
-    11: "REVISOR_SET_PAC_KEYS",
-    12: "REVISOR_GET_PAC_KEYS",
-    13: "REVISOR_PAC_SIGN",
-    14: "REVISOR_PAC_AUTH",
-    15: "REVISOR_PAC_XPAC",
-    16: "REVISOR_MTE_TAG_REGION",
+    11: "REVISOR_PAC_SIGN",
+    12: "REVISOR_PAC_AUTH",
+    13: "REVISOR_PAC_XPAC",
+    14: "REVISOR_MTE_TAG_REGION",
 }
 
 
@@ -310,8 +307,6 @@ REVISOR_GET_TEST_LENGTH = _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_TEST_LENGTH_CONSTA
 REVISOR_PAC_SIGN = _IOWR(REVISOR_IOC_MAGIC, REVISOR_PAC_SIGN_CONSTANT,  PacSignReq)
 REVISOR_PAC_AUTH = _IOWR(REVISOR_IOC_MAGIC, REVISOR_PAC_AUTH_CONSTANT,  PacSignReq)
 REVISOR_PAC_XPAC = _IOWR(REVISOR_IOC_MAGIC, REVISOR_PAC_XPAC_CONSTANT,  PacSignReq)
-REVISOR_SET_PAC_KEYS = _IOW(REVISOR_IOC_MAGIC, REVISOR_SET_PAC_KEYS_CONSTANT, PacKeys)
-REVISOR_GET_PAC_KEYS = _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_PAC_KEYS_CONSTANT, PacKeys)
 REVISOR_MTE_TAG_REGION = _IOW(REVISOR_IOC_MAGIC, REVISOR_MTE_TAG_REGION_CONSTANT, MteTagRegionReq)
 
 
@@ -435,36 +430,27 @@ class LocalHWExecutor(HWExecutor):
     def allocate_iid(self) -> int:
         return self._ioctl(REVISOR_ALLOCATE_INPUT)
 
-    def _pac_op(self, cmd: int, ptr: int, ctx: int, mnemonic: str) -> int:
+    def _pac_op(self, cmd: int, ptr: int, ctx: int, mnemonic: str, keys: Optional[PacKeys]) -> int:
         req = PacSignReq()
         req.ptr = ptr & 0xFFFFFFFFFFFFFFFF
         req.ctx = ctx & 0xFFFFFFFFFFFFFFFF
         req.mnemonic = mnemonic.encode()[:15]
         req.result = 0
+        if keys is not None:
+            req.keys = keys
+            req.keys_present = 1
         self._ioctl(cmd, req)
         return req.result
 
-    def pac_sign(self, ptr: int, ctx: int, mnemonic: str) -> int:
-        return self._pac_op(REVISOR_PAC_SIGN, ptr, ctx, mnemonic)
+    def pac_sign(self, ptr: int, ctx: int, mnemonic: str, keys: PacKeys) -> int:
+        return self._pac_op(REVISOR_PAC_SIGN, ptr, ctx, mnemonic, keys)
 
-    def pac_auth(self, ptr: int, ctx: int, mnemonic: str) -> int:
-        return self._pac_op(REVISOR_PAC_AUTH, ptr, ctx, mnemonic)
+    def pac_auth(self, ptr: int, ctx: int, mnemonic: str, keys: PacKeys) -> int:
+        return self._pac_op(REVISOR_PAC_AUTH, ptr, ctx, mnemonic, keys)
 
-    def pac_xpac(self, ptr: int, mnemonic: str = "xpaci") -> int:
-        # Strips the PAC field (never faults); mnemonic is "xpaci" or "xpacd".
-        return self._pac_op(REVISOR_PAC_XPAC, ptr, 0, mnemonic)
-
-    def get_pac_keys(self) -> PacKeys:
-        keys = PacKeys()
-        self._ioctl(REVISOR_GET_PAC_KEYS, keys)
-        return keys
-
-    def set_pac_keys(self, keys: PacKeys) -> None:
-        self._ioctl(REVISOR_SET_PAC_KEYS, keys)
-
-    def clear_pac_keys(self) -> None:
-        # revert the executor to the live hardware keys (NULL argument to the kernel)
-        self._fcntl.ioctl(self.fd, REVISOR_SET_PAC_KEYS, 0)
+    def pac_xpac(self, ptr: int, mnemonic: str) -> int:
+        # Strips the PAC field (never faults, key-independent); mnemonic is "xpaci" or "xpacd".
+        return self._pac_op(REVISOR_PAC_XPAC, ptr, 0, mnemonic, None)
 
     def mte_tag_sandbox_region(self, sandbox_offset: int, tags: List[int]) -> None:
         """Tag len(tags) consecutive granules with the given 4-bit `tags`. `sandbox_offset` is

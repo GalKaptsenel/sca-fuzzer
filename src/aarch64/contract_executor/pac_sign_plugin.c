@@ -142,6 +142,19 @@ static const char *auth_mnemonic(auth_type_t atype)
 
 static int g_executor_fd = -1;
 
+/* The keys every kernel sign/auth runs under, seeded per input from its PAC_KEYS section. The
+ * kernel keeps no key state of its own, so they must travel with each request. */
+static struct pac_keys g_pac_keys;
+static bool g_pac_keys_present = false;
+
+void pac_keys_init(const uint64_t* keys, bool present)
+{
+    g_pac_keys_present = present;
+    if (present) {
+        memcpy(&g_pac_keys, keys, sizeof(g_pac_keys));
+    }
+}
+
 void pac_sign_plugin_init(void)
 {
     /* The executor device is opened lazily on the first PAC instruction (see
@@ -198,7 +211,8 @@ static uint64_t kernel_pac_sign(pac_type_t ptype, uint64_t ptr, uint64_t ctx)
         fprintf(stderr, "[CE FATAL] kernel_pac_sign: unrecognised pac_type_t %d\n", ptype);
         abort();
     }
-    struct pac_sign_req req = { .ptr = ptr, .ctx = ctx, .result = 0 };
+    struct pac_sign_req req = { .ptr = ptr, .ctx = ctx, .result = 0,
+                                .keys = g_pac_keys, .keys_present = g_pac_keys_present };
     strncpy(req.mnemonic, m, sizeof(req.mnemonic) - 1);
     if (ioctl(pac_executor_fd(), REVISOR_PAC_SIGN, &req) < 0) {
         perror("[CE FATAL] pac_sign_plugin: REVISOR_PAC_SIGN failed");
@@ -271,7 +285,8 @@ void *pac_sign_hook(struct simulation_state *sim_state)
         uint32_t rm = (inst >> 16) & 0x1F;
         uint64_t xn = read_xreg(&sim_state->cpu_state, rn);
         uint64_t xm = read_xreg(&sim_state->cpu_state, rm);
-        struct pac_sign_req req = { .ptr = xn, .ctx = xm, .result = 0 };
+        struct pac_sign_req req = { .ptr = xn, .ctx = xm, .result = 0,
+                                    .keys = g_pac_keys, .keys_present = g_pac_keys_present };
         strncpy(req.mnemonic, "pacga", sizeof(req.mnemonic) - 1);
         if (ioctl(pac_executor_fd(), REVISOR_PAC_SIGN, &req) < 0) {
             perror("[CE FATAL] pac_sign_hook: REVISOR_PAC_SIGN(pacga) failed");

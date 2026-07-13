@@ -21,7 +21,7 @@ from ..interfaces import (HTrace, Input, TestCase, Executor, HardwareTracingErro
 from ..config import CONF
 from ..util import Logger, STAT, FuzzLogger
 from .aarch64_target_desc import Aarch64TargetDesc
-from .aarch64_kernel import LocalHWExecutor, TestCaseRegion, InputRegion, ExecutorMemory
+from .aarch64_kernel import LocalHWExecutor, TestCaseRegion, InputRegion, ExecutorMemory, PacKeys
 from .aarch64_generator import Pass, Aarch64SandboxPass
 from .seal.pac import PacSigner
 from .seal.sealer import make_sealer, SealedTestCase, ResolvedSealingTestCase
@@ -280,7 +280,8 @@ class Aarch64LocalExecutor(Aarch64Executor):
     def _make_ce_execution(self, tc_bytes: bytes, inp: Input, sandbox_base: int, nesting: int,
                            max_mispred_instructions: int, ct: ExecutionClause,
                            bp: BranchPredictor = BranchPredictor.NONE,
-                           mte_tags: Optional[List[int]] = None) -> ContractExecution:
+                           mte_tags: Optional[List[int]] = None,
+                           pac_keys: Optional[PacKeys] = None) -> ContractExecution:
         tc_memory, tc_regs = _ce_memory_regs(inp)
         return ContractExecution(
             tc_bytes, tc_memory, tc_regs, SimArch.RVZR_ARCH_AARCH64,
@@ -290,6 +291,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
             execution_clauses=ct,
             branch_predictor=bp,
             mte_tags=mte_tags,
+            pac_keys=pac_keys,
         )
 
     def _batch_trace(self, payloads: List[ExecutorMemory], n_reps: int) -> List[HTrace]:
@@ -516,8 +518,14 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             raise GeneratorException(
                 "non-interference fuzzing needs a PAC or MTE instruction category enabled")
 
+        # The campaign PAC keys, generated once by the input generator, embedded in every PAC input
+        # and passed with every sign request — the kernel keeps no key state of its own.
+        self._pac_keys: Optional[PacKeys] = self._campaign_pac_keys() if "pac" in self._primitives \
+            else None
+
         # PAC signing capability (kernel SIGN only — never AUTH; a failed AUTH at EL1 resets the box).
-        signer = PacSigner(self.local_executor.pac_sign) if "pac" in self._primitives else None
+        signer = PacSigner(self.local_executor.pac_sign, self._pac_keys) \
+            if "pac" in self._primitives else None
 
         # The sealer owns all sealing + resolution; it traces via _seal_trace and assembles object
         # code via _assemble_tc.
@@ -545,6 +553,20 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             return None
         return [MTE_INITIAL_DEFAULT_TAG] * MTE_TAG_COUNT
 
+    def _campaign_pac_keys(self) -> PacKeys:
+        """The deterministic per-campaign PAC keys, generated once by the input generator (seeded from
+        the config), shared by every input so a sealing class's one shared signature set verifies."""
+        from .. import factory
+        return PacKeys(*factory.get_input_generator(CONF.input_gen_seed).generate_pac_keys())
+
+    def _pac_keys_words(self) -> Optional[List[int]]:
+        """The campaign PAC keys as the 10-word PAC_KEYS section (else None when PAC is inactive), so
+        every input carries the keys its baked signatures were signed under."""
+        if "pac" not in self._primitives:
+            return None
+        assert self._pac_keys is not None
+        return self._pac_keys.words()
+
     def _ce_trace(self, tc_bytes: bytes, inp: Input) -> ContractExecutionResult:
         """One CE trace of the machine code `tc_bytes` for `inp`. Sealing always traces at max
         speculation depth: a shallower pass would classify deep-speculative slots as unreached and
@@ -553,7 +575,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             self._sandbox_base, _ = self.read_base_addresses()
         return self._contract_executor.run(self._make_ce_execution(
             tc_bytes, inp, self._sandbox_base, CONF.model_max_nesting, CONF.model_max_spec_window,
-            ExecutionClause.COND, mte_tags=self._mte_tags_for(inp)))
+            ExecutionClause.COND, mte_tags=self._mte_tags_for(inp), pac_keys=self._pac_keys))
 
     def _seal_trace(self, tc: TestCase, inp: Input) -> ContractExecutionResult:
         """The sealer's trace_fn: assemble the placeholder TC and run one CE trace."""
@@ -568,10 +590,6 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         log.register("pac_hw",      "ni/hw.log",       min_verbosity=1)
         result = super().load_test_case(test_case)
         log_start_test_case(log, self._tc_counter)
-        if "pac" in self._primitives:
-            # Pin PAC keys so this process's pac_sign and the CE subprocess's auth share the same
-            # key material (else AUTH fails against correct_sig).
-            self.local_executor.set_pac_keys(self.local_executor.get_pac_keys())
         self._sealed = self._sealer.seal(self.test_case)
         self._resolve_cache = {}
         log.ensure_flushed()
@@ -612,7 +630,9 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         resolved = self._resolve(inp)
         tags = self._mte_tags_for(inp)
         bpu = self._bpu_entries(inp)
-        return {name: ExecutorInput(inp, code_reloc=plan, mte_tags=tags, bpu_training=bpu)
+        keys = self._pac_keys_words()
+        return {name: ExecutorInput(inp, code_reloc=plan, mte_tags=tags, pac_keys=keys,
+                                    bpu_training=bpu)
                 for name, plan in self._variants_for(resolved).items()}
 
     def sealing_class_of(self, inp: Input) -> tuple:
@@ -658,7 +678,8 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         """Extend an arch input to its baseline kernel input file — genuine relocations here; the regular
         subclass overrides to the input's sealing-class plan."""
         return ExecutorInput(inp, code_reloc=self._resolve(inp).genuine(),
-                             mte_tags=self._mte_tags_for(inp), bpu_training=self._bpu_entries(inp))
+                             mte_tags=self._mte_tags_for(inp), pac_keys=self._pac_keys_words(),
+                             bpu_training=self._bpu_entries(inp))
 
     def _trace_exec_inputs(self, exec_inputs: List[ExecutorInput], n_reps: int) -> List[HTrace]:
         """Upload the skeleton, then trace each kernel input file — the kernel splices that input's
@@ -712,4 +733,4 @@ class Aarch64RegularSealedExecutor(Aarch64NonInterferenceExecutor):
         rng = random.Random(hash((resolved.collapse_key, self._sealed.salt)))
         plan = resolved.decoy(rng) if rng.random() < self._DECOY_PROB else resolved.genuine()
         return ExecutorInput(inp, code_reloc=plan, mte_tags=self._mte_tags_for(inp),
-                             bpu_training=self._bpu_entries(inp))
+                             pac_keys=self._pac_keys_words(), bpu_training=self._bpu_entries(inp))

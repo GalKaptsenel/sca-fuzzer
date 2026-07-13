@@ -23,17 +23,12 @@ class SealedExecutorFixture:
         if not os.path.exists("/dev/executor"):
             raise unittest.SkipTest("kernel module not loaded — /dev/executor missing")
         try:
-            from src.aarch64.aarch64_kernel import PacKeys
             from src.aarch64.aarch64_executor import Aarch64NonInterferenceExecutor, ExecutorInput
             CONF.load(os.path.join(_ROOT, "config_pac_mte.yml"))
             cls.ExecutorInput = ExecutorInput
             isa = InstructionSet(os.path.join(_ROOT, "base.json"), CONF.instruction_categories)
             cls.gen = Aarch64RandomGenerator(isa, random.randrange(1 << 32))
             cls.ex = Aarch64NonInterferenceExecutor(cls.gen)
-            k = PacKeys()
-            k.apia_lo = k.apib_lo = k.apda_lo = k.apdb_lo = k.apga_lo = 0x1122334455667788
-            k.apia_hi = k.apib_hi = k.apda_hi = k.apdb_hi = k.apga_hi = 0x8877665544332211
-            cls.ex.local_executor.set_pac_keys(k)
             cls.igen = factory.get_input_generator(random.randrange(1 << 32))
             cls.tmp = tempfile.mkdtemp()
             cls._load_sealable_tc()

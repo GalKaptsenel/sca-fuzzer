@@ -220,14 +220,10 @@ static int __nocfi run_experiments(void) {
 
 		struct pac_keys saved_hw_keys;
 		uint64_t saved_sctlr = 0;
-		// PAC key precedence: per-input keys > ioctl-swapped keys > live hardware keys.
-		bool use_exec_keys = current_input->input.pac_keys_present ||
-		                     executor.config.pac_keys_set;
-		const struct pac_keys* exec_keys = current_input->input.pac_keys_present
-			? &current_input->input.pac_keys : &executor.config.pac_keys;
+		bool use_exec_keys = current_input->input.pac_keys_present;
 		if (use_exec_keys) {
 			pac_save_keys(&saved_hw_keys);
-			pac_load_keys(exec_keys);
+			pac_load_keys(&current_input->input.pac_keys);
 			saved_sctlr = pac_enable_all_keys();
 		}
 

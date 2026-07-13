@@ -353,10 +353,11 @@ static long handle_pac_sign(void __user *arg)
 	if (PAC_OP_INVALID == op) {
 		return -EINVAL;
 	}
+	if (!req.keys_present) {
+		return -EINVAL;
+	}
 
-	req.result = pac_run_op_with_keys(op, req.ptr, req.ctx,
-	                                  executor.config.pac_keys_set,
-	                                  &executor.config.pac_keys);
+	req.result = pac_run_op_with_keys(op, req.ptr, req.ctx, true, &req.keys);
 	return copy_to_user_with_access_check(arg, &req, sizeof(req)) ? -EFAULT : 0;
 }
 
@@ -390,10 +391,11 @@ static long handle_pac_auth(void __user *arg)
 	if (PAC_OP_INVALID == op) {
 		return -EINVAL;
 	}
+	if (!req.keys_present) {
+		return -EINVAL;
+	}
 
-	req.result = pac_auth_with_keys(op, req.ptr, req.ctx,
-	                                executor.config.pac_keys_set,
-	                                &executor.config.pac_keys);
+	req.result = pac_auth_with_keys(op, req.ptr, req.ctx, true, &req.keys);
 	return copy_to_user_with_access_check(arg, &req, sizeof(req)) ? -EFAULT : 0;
 }
 
@@ -449,32 +451,6 @@ static long do_revisor_ioctl(struct file* file, unsigned int cmd, unsigned long 
 		case REVISOR_GET_TEST_LENGTH_CONSTANT:
 			result = get_test_length((void __user*)arg);
 			break;
-
-		case REVISOR_SET_PAC_KEYS_CONSTANT: {
-			/* A NULL argument clears the configured keys, so the executor
-			 * falls back to the live hardware keys. */
-			if (0 == arg) {
-				executor.config.pac_keys_set = false;
-				return 0;
-			}
-			if (copy_from_user_with_access_check(&executor.config.pac_keys,
-			    (void __user *)arg, sizeof(struct pac_keys))) {
-				return -EFAULT;
-			}
-			executor.config.pac_keys_set = true;
-			return 0;
-		}
-
-		case REVISOR_GET_PAC_KEYS_CONSTANT: {
-			struct pac_keys keys;
-			if (executor.config.pac_keys_set) {
-				keys = executor.config.pac_keys;
-			} else {
-				pac_save_keys(&keys);
-			}
-			return copy_to_user_with_access_check((void __user *)arg, &keys, sizeof(keys))
-				? -EFAULT : 0;
-		}
 
 		case REVISOR_MTE_TAG_REGION_CONSTANT: {
 			struct mte_tag_region_req req;

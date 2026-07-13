@@ -37,8 +37,6 @@ typedef struct executor_config {
 	char view_rotation;    /* independent: rotate measurement view (invalidate_bpu_entries) */
 	enum Templates measurement_template;
 	int pinned_cpu_id;
-	struct pac_keys pac_keys;
-	bool pac_keys_set;
 	char enable_ssbs;
 } executor_config_t;
 

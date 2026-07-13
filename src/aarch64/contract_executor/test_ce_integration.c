@@ -202,10 +202,19 @@ static size_t build_ce_input(
     size_t code_sz  = n_words * 4;
     size_t regs_sz  = sizeof(regs);
 
-    /* input initialization: main = mem, empty faulty, gpr = regs, and (optionally) MTE tags. */
-    const uint64_t n_sec = (NULL != mte_tags) ? 4 : 3;
+    /* A fixed key set carried in every input's PAC_KEYS section; a PAC test's sign/auth run under it
+     * (the kernel keeps no key state). Harmless for non-PAC tests — the CE parses but never uses it. */
+    static const uint64_t pac_keys[10] = {
+        0x1122334455667788ULL, 0x8877665544332211ULL, 0x1122334455667788ULL, 0x8877665544332211ULL,
+        0x1122334455667788ULL, 0x8877665544332211ULL, 0x1122334455667788ULL, 0x8877665544332211ULL,
+        0x1122334455667788ULL, 0x8877665544332211ULL,
+    };
+    const size_t pac_len = sizeof(pac_keys);
+
+    /* input initialization: main = mem, empty faulty, gpr = regs, PAC keys, and (optionally) MTE tags. */
+    const uint64_t n_sec = 4 + (NULL != mte_tags ? 1 : 0);
     size_t init_hdr = sizeof(struct revisor_input_header) + n_sec * sizeof(struct revisor_input_section);
-    size_t init_len = init_hdr + mem_sz + regs_sz + ((NULL != mte_tags) ? mte_len : 0);
+    size_t init_len = init_hdr + mem_sz + regs_sz + pac_len + ((NULL != mte_tags) ? mte_len : 0);
     size_t payload  = sizeof(struct input_header) + code_sz + init_len;
 
     if (bufsz < sizeof(struct header) + payload) return 0;
@@ -247,6 +256,8 @@ static size_t build_ce_input(
     tab[i].type = REVISOR_SEC_MEMORY_FAULTY; tab[i].flags = 0; tab[i].offset = off; tab[i].length = 0; i++;
     tab[i].type = REVISOR_SEC_GPR;           tab[i].flags = 0; tab[i].offset = off; tab[i].length = regs_sz;
     memcpy(init + off, regs, regs_sz); off += regs_sz; i++;
+    tab[i].type = REVISOR_SEC_PAC_KEYS;      tab[i].flags = 0; tab[i].offset = off; tab[i].length = pac_len;
+    memcpy(init + off, pac_keys, pac_len); off += pac_len; i++;
     if (NULL != mte_tags) {
         tab[i].type = REVISOR_SEC_MTE_TAGS;  tab[i].flags = 0; tab[i].offset = off; tab[i].length = mte_len;
         memcpy(init + off, mte_tags, mte_len); off += mte_len; i++;

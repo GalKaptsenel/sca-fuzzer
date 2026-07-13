@@ -20,8 +20,8 @@
 
 /*
  * PAC key set. Userspace mirror of the kernel's struct pac_keys (executor/pac.h); defined here only
- * for userspace so it does not clash with the kernel definition. The SET/GET_PAC_KEYS macros below
- * are the single source for both environments (kernel uses its own struct pac_keys).
+ * for userspace so it does not clash with the kernel definition. Keys are carried per-request in
+ * struct pac_sign_req and per-input in the REIF PAC_KEYS section — the kernel stores none of its own.
  */
 #ifndef __KERNEL__
 struct pac_keys {
@@ -34,24 +34,23 @@ struct pac_keys {
 _Static_assert(sizeof(struct pac_keys) == 80, "pac_keys ABI: 5 keys * {lo,hi} = 80 bytes");
 #endif
 
-#define REVISOR_GET_PAC_KEYS _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_PAC_KEYS_CONSTANT, struct pac_keys)
-/* Pass a struct pac_keys to pin the exec keys; pass NULL to revert to the live kernel keys. */
-#define REVISOR_SET_PAC_KEYS _IOW(REVISOR_IOC_MAGIC, REVISOR_SET_PAC_KEYS_CONSTANT, struct pac_keys)
-
 /*
  * REVISOR_PAC_SIGN / REVISOR_PAC_AUTH
  *
- * Execute a PAC sign or auth instruction at EL1 with the live kernel key
- * registers.  If executor.config.pac_keys_set is true the kernel loads the
- * configured exec keys before the instruction and restores afterwards,
- * matching the pac_load_keys / pac_restore pattern used during TC execution.
+ * Execute a PAC sign or auth instruction at EL1 under the request's `keys`, loaded for this one
+ * instruction and restored afterwards. The keys travel with the request; the kernel keeps no
+ * PAC-key state of its own, so nothing can leak across tests or campaigns. keys_present MUST be set
+ * for sign/auth — a request without it is rejected (-EINVAL), never signed under a default. XPAC is
+ * key-independent and ignores both fields.
  *
- * ptr      : raw pointer to sign, or signed pointer to authenticate.
- * ctx      : context/modifier (ignored for zero-context *IZ* / *DZ* variants).
- * mnemonic : NUL-terminated — one of:
- *              sign: pacia pacib pacda pacdb paciza pacizb pacdza pacdzb
- *              auth: autia autib autda autdb autiza autizb autdza autdzb
- * result   : filled in by the kernel on return.
+ * ptr          : raw pointer to sign, or signed pointer to authenticate.
+ * ctx          : context/modifier (ignored for zero-context *IZ* / *DZ* variants).
+ * mnemonic     : NUL-terminated — one of:
+ *                  sign: pacia pacib pacda pacdb paciza pacizb pacdza pacdzb
+ *                  auth: autia autib autda autdb autiza autizb autdza autdzb
+ * result       : filled in by the kernel on return.
+ * keys_present : nonzero iff `keys` is valid; required for sign/auth.
+ * keys         : the key set to sign/auth under.
  *
  * AUTH note: on FEAT_FPAC hardware a failed AUTH at EL1 triggers a synchronous
  * exception (kernel oops).  Only call PAC_AUTH with a correctly-signed pointer.
@@ -61,6 +60,8 @@ struct pac_sign_req {
     uint64_t ctx;
     char     mnemonic[16];
     uint64_t result;
+    uint64_t keys_present;
+    struct pac_keys keys;
 };
 
 #define REVISOR_PAC_SIGN  _IOWR(REVISOR_IOC_MAGIC, REVISOR_PAC_SIGN_CONSTANT, struct pac_sign_req)
