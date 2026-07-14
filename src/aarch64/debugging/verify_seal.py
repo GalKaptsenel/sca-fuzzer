@@ -34,7 +34,6 @@ gen = Aarch64RandomGenerator(isa, random.randrange(1 << 32))
 ex = Aarch64NonInterferenceExecutor(gen)
 PAC_KEYS = ex._pac_keys   # the executor's campaign keys — the seal signs under these
 igen = factory.get_input_generator(random.randrange(1 << 32))
-LE = ex.local_executor
 os.makedirs("/tmp/_verify_seal", exist_ok=True)
 
 
@@ -152,7 +151,6 @@ for case in range(NCASES):
 
     # ---- run enacted genuine on the executor (PAC only; MTE needs MTE HW) ----
     if KIND == "pac":
-        LE.discard_all_inputs()
         try:
             ex.trace_test_case([ex.as_executor_input(inp)], 1)
             ran_ok += 1

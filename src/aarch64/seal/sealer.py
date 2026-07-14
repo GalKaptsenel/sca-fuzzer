@@ -455,8 +455,7 @@ class _Addressing(_SandboxInstrumentationBase):
 
 
 def _pac_encoder(generator):
-    """The PacSign slot encoder + the AUT* spec table. The kernel signer is NOT built here — it wraps
-    `local_executor.pac_sign` and is passed to make_sealer (a PacSigner over the seal would be wrong)."""
+    """The PacSign slot encoder + the AUT* spec table."""
     _, auth_specs, xpac_specs = build_pac_specs(generator)
     return PacSign(generator, auth_specs, xpac_specs), auth_specs
 
@@ -604,8 +603,8 @@ class SandboxWalk:
 
 def make_sealer(generator, trace_fn, assemble, primitives, signer) -> Sealer:
     """The Sealer for the active primitives. `trace_fn(tc, input) -> cer` runs a CE trace; `assemble(tc)
-    -> bytes` assembles the object code; `signer` is the kernel PAC signer (a PacSigner over
-    local_executor.pac_sign), used by resolve when 'pac' is active (None otherwise)."""
+    -> bytes` assembles the object code; `signer` is the PAC signer used by resolve when 'pac' is
+    active (None otherwise)."""
     prims = frozenset(primitives)
     if prims not in (frozenset({"mte"}), frozenset({"pac"}), frozenset({"pac", "mte"})):
         raise ValueError(f"unsupported seal primitives: {primitives!r}")

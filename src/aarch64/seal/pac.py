@@ -79,7 +79,7 @@ class PacSigner:
     bits SIGN sets (the PAC field), so a forgery confined to them provably fails AUTH."""
 
     def __init__(self, pac_sign, keys):
-        self._pac_sign = pac_sign       # local_executor.pac_sign(ptr, ctx, mnemonic, keys) -> signed 64-bit
+        self._pac_sign = pac_sign       # pac_sign(ptr, ctx, mnemonic, keys) -> signed 64-bit
         self._keys = keys               # the campaign PAC keys every sign runs under
         self._mask_cache: Dict[str, int] = {}
 

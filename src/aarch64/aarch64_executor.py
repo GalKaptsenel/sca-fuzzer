@@ -9,8 +9,7 @@ import random
 import os.path
 
 import numpy as np
-from typing import List, Tuple, Set, Optional, Dict, Sequence
-from collections import defaultdict
+from typing import List, Tuple, Set, Optional, Dict
 from pathlib import Path
 
 
@@ -21,7 +20,8 @@ from ..interfaces import (HTrace, Input, TestCase, Executor, HardwareTracingErro
 from ..config import CONF
 from ..util import Logger, STAT, FuzzLogger
 from .aarch64_target_desc import Aarch64TargetDesc
-from .aarch64_kernel import LocalHWExecutor, TestCaseRegion, InputRegion, ExecutorMemory, PacKeys
+from .aarch64_kernel import (LocalHWExecutor, HWExecutor, PacKeys, TraceUnit, HWMeasurement,
+                             make_hw_executor)
 from .aarch64_generator import Pass, Aarch64SandboxPass
 from .seal.pac import PacSigner
 from .seal.sealer import make_sealer, SealedTestCase, ResolvedSealingTestCase
@@ -186,7 +186,10 @@ class Aarch64LocalExecutor(Aarch64Executor):
         self.test_case: Optional[TestCase] = None
         self._tc_counter: int = 0
         self._sandboxed_cache = None
-        self.local_executor = LocalHWExecutor('/dev/executor', '/sys/executor')
+        self.device: HWExecutor = make_hw_executor()
+        # Local module used only for PAC SIGN (never measurement); reuse the device when it is local.
+        self._sign_hw: Optional[LocalHWExecutor] = \
+            self.device if isinstance(self.device, LocalHWExecutor) else None
 
         if self.target_desc.cpu_desc.vendor.lower() != "aarch64":
             self.LOG.error(
@@ -203,7 +206,16 @@ class Aarch64LocalExecutor(Aarch64Executor):
         This function is used to synchronize the memory layout between the executor and the model
         :return: a tuple (sandbox_base, code_base)
         """
-        return self.local_executor.sandbox_base, self.local_executor.code_base
+        info = self.device.target_info()
+        return info.sandbox_base, info.code_base
+
+    def _local_executor(self) -> LocalHWExecutor:
+        """The local /dev/executor handle used for PAC signing (never measurement). Reuses the
+        measurement device when it is already local, else opens a local one lazily — signing needs
+        no PMU, so it works even when measurements run on a remote device."""
+        if self._sign_hw is None:
+            self._sign_hw = LocalHWExecutor("/dev/executor", "/sys/executor")
+        return self._sign_hw
 
     def branch_mistraining_entries(self, cer) -> List[Tuple[int, bool]]:
         """Compute the per-branch mistraining config from a CE trace, without touching the device.
@@ -256,20 +268,17 @@ class Aarch64LocalExecutor(Aarch64Executor):
     def _write_test_case(self, test_case: TestCase) -> None:
         self.test_case = test_case
 
-    def _write_modified_test_case(self, label: str, passes: List[Pass]):
+    def _sandboxed_tc(self) -> Tuple[bytes, TestCase]:
+        """Assemble the sandboxed test case once (cached); returns (machine code, patched TestCase).
+        No device I/O — the bytes travel to the device as the measurement unit's test case."""
         if self._sandboxed_cache is None:
             patched = copy.deepcopy(self.test_case)
-            pass_on_test_case(patched, passes)
+            pass_on_test_case(patched, [Aarch64SandboxPass()])
             tc_bytes = self._assemble_tc(patched)[0]
             patched.asm_path, patched.obj_path, patched.bin_path = \
-                f"{label}.asm", f"{label}.o", f"{label}.bin"
+                "sandboxed_test_case.asm", "sandboxed_test_case.o", "sandboxed_test_case.bin"
             self._sandboxed_cache = (tc_bytes, patched)
-
-        tc_bytes, patched = self._sandboxed_cache
-        self.local_executor.checkout_region(TestCaseRegion())
-        self.local_executor.write(tc_bytes)
-
-        return patched
+        return self._sandboxed_cache
 
     def _assemble_tc(self, tc: TestCase) -> Tuple[bytes, Aarch64ASMLayout]:
         """Assemble a TestCase to binary; return (bytes, layout)."""
@@ -294,40 +303,28 @@ class Aarch64LocalExecutor(Aarch64Executor):
             pac_keys=pac_keys,
         )
 
-    def _batch_trace(self, payloads: List[ExecutorMemory], n_reps: int) -> List[HTrace]:
-        """Stage all `payloads` into one trace (each carries its own BPU-training section), repeat
-        n_reps times, and aggregate one HTrace per payload."""
+    def _measure(self, tc_bytes: bytes, exec_inputs: List[ExecutorInput],
+                 n_reps: int) -> List[HTrace]:
+        """Measure one unit (the test case plus all its inputs) on the device backend, repeated
+        n_reps times, and aggregate one HTrace per input."""
+        unit = TraceUnit(test_case=bytes(tc_bytes),
+                         inputs=tuple(ei.serialize() for ei in exec_inputs))
+        per_input = self.device.run_batch([unit], n_reps)[0]
+        self._log_hw_counters(per_input)
+        return self._aggregate_measurements(per_input)
+
+    def _log_hw_counters(self, per_input: List[List[HWMeasurement]]) -> None:
+        """Per-input PMU summary on the basic_hw channel (mispredicts + wrong-path speculation)."""
         log = FuzzLogger.get()
-        input_to_trace_list = defaultdict(list)
-        counter_log = defaultdict(list)
-        pfc_log = defaultdict(list)
-
-        self.local_executor.discard_all_inputs()
-        iids = []
-        for payload in payloads:
-            iid = self.local_executor.allocate_iid()
-            self.local_executor.checkout_region(InputRegion(iid))
-            self.local_executor.write(payload)
-            iids.append(iid)
-        for _ in range(n_reps):
-            self.local_executor.trace()
-            for idx, iid in enumerate(iids):
-                self.local_executor.checkout_region(InputRegion(iid))
-                hwm = self.local_executor.hardware_measurement()
-                input_to_trace_list[idx].append(hwm.htrace)
-                pfc_log[idx].append(hwm.pfcs)
-                counter_log[idx].append(hwm.pfcs[2])
-
-        for idx, vals in counter_log.items():
-            log.w(f"  input={idx} mispredicts: avg={sum(vals) / len(vals):.2f}  reps={vals}",
-                  ch="basic_hw")
-            pf = pfc_log[idx]   # pfc[0]=INST_RETIRED, pfc[1]=INST_SPEC; diff = wrong-path spec
-            ret = sum(p[0] for p in pf) / len(pf)
-            spec = sum(p[1] for p in pf) / len(pf)
+        for idx, reps in enumerate(per_input):
+            mispredicts = [m.pfcs[2] for m in reps]
+            log.w(f"  input={idx} mispredicts: avg={sum(mispredicts) / len(mispredicts):.2f}  "
+                  f"reps={mispredicts}", ch="basic_hw")
+            # pfc[0]=INST_RETIRED, pfc[1]=INST_SPEC; diff = wrong-path speculation
+            ret = sum(m.pfcs[0] for m in reps) / len(reps)
+            spec = sum(m.pfcs[1] for m in reps) / len(reps)
             log.w(f"  input={idx} spec: retired={ret:.0f} inst_spec={spec:.0f} "
                   f"wrongpath={spec - ret:.1f}", ch="basic_hw")
-
-        return self._aggregate_htraces(len(payloads), n_reps, input_to_trace_list, pfc_log)
 
     def _bpu_entries(self, inp: Input) -> Tuple[Tuple[int, bool], ...]:
         """Per-input branch training from the input's CE trace (empty when unavailable)."""
@@ -344,20 +341,17 @@ class Aarch64LocalExecutor(Aarch64Executor):
         if not exec_inputs or self.test_case is None:
             return [], []
         STAT.executor_reruns += n_reps * len(exec_inputs)
-        reported = self._write_modified_test_case("sandboxed_test_case", [Aarch64SandboxPass()])
-        payloads = [ExecutorMemory(ei.serialize()) for ei in exec_inputs]
-        return self._batch_trace(payloads, n_reps), [reported] * len(exec_inputs)
+        tc_bytes, reported = self._sandboxed_tc()
+        return self._measure(tc_bytes, exec_inputs, n_reps), [reported] * len(exec_inputs)
 
-    def _aggregate_htraces(self, n_inputs: int, n_reps: int,
-                           input_to_trace_list: Dict[int, List[int]],
-                           pfc_log: Dict[int, List]) -> List[HTrace]:
+    def _aggregate_measurements(self, per_input: List[List[HWMeasurement]]) -> List[HTrace]:
         results = []
-        for idx in range(n_inputs):
-            assert len(input_to_trace_list[idx]) == n_reps, \
-                f"input {idx}: collected {len(input_to_trace_list[idx])} traces, expected {n_reps}"
+        for idx, reps in enumerate(per_input):
+            assert reps, f"input {idx}: no measurements collected"
             # ignored (priming) inputs run but are excluded from analysis: report a zero htrace
-            trace_list = [0] * n_reps if idx in self.ignore_list else input_to_trace_list[idx]
-            results.append(HTrace(trace_list=trace_list, perf_counters=np.array(pfc_log[idx])))
+            trace_list = [0] * len(reps) if idx in self.ignore_list else [m.htrace for m in reps]
+            results.append(HTrace(trace_list=trace_list,
+                                  perf_counters=np.array([list(m.pfcs) for m in reps])))
         return results
 
     def trace_test_case_with_taints(self, inputs: List[Input], nesting: int) -> Tuple[List[CTrace], List[InputTaint], List[ContractExecutionResult]]:
@@ -411,12 +405,6 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
     baseline vs decoy TC variants on hardware. Adding a primitive means adding its seal + its fill
     step here; the orchestration is primitive-agnostic. (Below: generic CE/BB-map/comparison helpers,
     then the lifecycle.)"""
-
-    def _upload_skeleton(self) -> None:
-        """Upload the placeholder skeleton object code once; each input then carries its own code
-        relocations, which the kernel splices in before that input runs."""
-        self.local_executor.checkout_region(TestCaseRegion())
-        self.local_executor.write(self._sealed.object_code)
 
     def _run_ce_on_tc(self, tc_bytes: bytes, inp: Input, sandbox_base: int) -> Optional[List]:
         """Run CE on the machine code *tc_bytes* for *inp*; return trace entries or None on failure."""
@@ -524,7 +512,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             else None
 
         # PAC signing capability (kernel SIGN only — never AUTH; a failed AUTH at EL1 resets the box).
-        signer = PacSigner(self.local_executor.pac_sign, self._pac_keys) \
+        signer = PacSigner(self._local_executor().pac_sign, self._pac_keys) \
             if "pac" in self._primitives else None
 
         # The sealer owns all sealing + resolution; it traces via _seal_trace and assembles object
@@ -682,8 +670,9 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                              bpu_training=self._bpu_entries(inp))
 
     def _trace_exec_inputs(self, exec_inputs: List[ExecutorInput], n_reps: int) -> List[HTrace]:
-        """Upload the skeleton, then trace each kernel input file — the kernel splices that input's
-        code-relocation table into the shared skeleton before it runs and reverts afterwards."""
+        """Trace each kernel input file on the shared skeleton — the skeleton is the unit's test case,
+        and the kernel splices that input's code-relocation table into it before it runs, reverting
+        afterwards."""
         if not exec_inputs:
             return []
         assert self._sealed is not None, "sealed TC not built — load_test_case() not called"
@@ -691,9 +680,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         if FuzzLogger.on():
             sandbox_base, _ = self.read_base_addresses()
             self._log_pre_hw_ce_analysis(exec_inputs, sandbox_base, FuzzLogger.get())
-        self._upload_skeleton()
-        payloads = [ExecutorMemory(ei.serialize()) for ei in exec_inputs]
-        return self._batch_trace(payloads, n_reps)
+        return self._measure(self._sealed.object_code, exec_inputs, n_reps)
 
     def reconstruct_enacted_code(self, ei: ExecutorInput) -> bytes:  # TEMP(enacted-reloc)
         """Rebuild the exact machine code that ran for a boosted variant: re-resolve its arch input

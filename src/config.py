@@ -210,6 +210,33 @@ class Conf:
     analog is clearing SSBD in IA32_SPEC_CTRL. """
 
     # ==============================================================================================
+    # Remote executor: measure on a separate device machine
+    executor_remote: bool = False
+    """ executor_remote: when True, run hardware measurements on a remote device over a
+    Connection instead of this machine's /dev/executor (generate/model/seal stay local). """
+    executor_remote_transport: str = 'ssh'
+    """ executor_remote_transport: how to reach the device machine: 'ssh', 'adb', or 'local'
+    (subprocess on this machine, no SSH). """
+    executor_remote_host: str = '127.0.0.1'
+    """ executor_remote_host: device-machine host (ssh/adb transports). """
+    executor_remote_port: int = 22
+    """ executor_remote_port: device-machine port (ssh: 22, adb: 5037). """
+    executor_remote_user: str = ''
+    """ executor_remote_user: ssh username (empty = paramiko default). """
+    executor_remote_key: str = ''
+    """ executor_remote_key: ssh private-key path (empty = agent/default keys). """
+    executor_remote_serial: str = ''
+    """ executor_remote_serial: adb device serial (empty = first device). """
+    executor_remote_device: str = '/dev/executor'
+    """ executor_remote_device: executor char-device path on the device machine. """
+    executor_remote_sysfs: str = '/sys/executor'
+    """ executor_remote_sysfs: executor sysfs root on the device machine. """
+    executor_remote_module: str = '/tmp/revizor-executor.ko'
+    """ executor_remote_module: where the kernel module is staged on the device machine. """
+    executor_remote_userland: str = '/tmp/executor_userland'
+    """ executor_remote_userland: where the userland batch driver is staged on the device machine. """
+
+    # ==============================================================================================
     # Analyser
 
     analyser: str = 'chi2'

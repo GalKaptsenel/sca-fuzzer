@@ -554,3 +554,33 @@ class RemoteHWExecutor(HWExecutor):
         with profile_op("batch"):
             response = self._conn.run(cmd, request, privileged=True)
         return decode_response(response)
+
+
+def _make_remote_connection() -> "Connection":
+    """Build the transport to the device machine from CONF.executor_remote_*."""
+    from .aarch64_connection import LocalConnection, SSHConnection, ADBConnection
+    transport = CONF.executor_remote_transport
+    if transport == "local":
+        return LocalConnection()
+    if transport == "ssh":
+        return SSHConnection(host=CONF.executor_remote_host, port=CONF.executor_remote_port,
+                             username=CONF.executor_remote_user or None, password=None,
+                             key_filename=CONF.executor_remote_key or None)
+    if transport == "adb":
+        return ADBConnection(host=CONF.executor_remote_host, port=CONF.executor_remote_port,
+                             serial=CONF.executor_remote_serial or None)
+    raise ValueError(f"unknown executor_remote_transport {transport!r} "
+                     "(expected 'local', 'ssh', or 'adb')")
+
+
+def make_hw_executor() -> HWExecutor:
+    """The AArch64 hardware-measurement backend selected by CONF: the local /dev/executor, or a remote
+    device driven over a Connection. Returned to the AArch64 executor as `self.device`; x86 is
+    unrelated (it drives its own module directly)."""
+    if not CONF.executor_remote:
+        return LocalHWExecutor("/dev/executor", "/sys/executor")
+    config = RemoteExecutorConfig(device=CONF.executor_remote_device,
+                                  sysfs=CONF.executor_remote_sysfs,
+                                  module=CONF.executor_remote_module,
+                                  userland=CONF.executor_remote_userland)
+    return RemoteHWExecutor(_make_remote_connection(), config)

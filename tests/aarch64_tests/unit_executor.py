@@ -6,6 +6,7 @@ import unittest
 
 import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
 from src.aarch64.aarch64_executor import Aarch64LocalExecutor
+from src.aarch64.aarch64_kernel import HWMeasurement
 
 
 class IgnoreListZeroingTest(unittest.TestCase):
@@ -20,10 +21,10 @@ class IgnoreListZeroingTest(unittest.TestCase):
     def test_ignored_input_htrace_is_zeroed(self):
         executor = self._executor({1})
         n_reps = 3
-        traces = {0: [11, 11, 11], 1: [22, 22, 22], 2: [33, 33, 33]}
-        pfc = {i: [[1, 2, 3]] * n_reps for i in range(3)}
+        per_input = [[HWMeasurement(htrace=h, pfcs=(1, 2, 3)) for _ in range(n_reps)]
+                     for h in (11, 22, 33)]
 
-        htraces = executor._aggregate_htraces(3, n_reps, traces, pfc)
+        htraces = executor._aggregate_measurements(per_input)
 
         self.assertEqual(htraces[0].raw, [11, 11, 11])
         self.assertEqual(htraces[1].raw, [0, 0, 0], "ignored input htrace was not zeroed")
