@@ -537,6 +537,7 @@ class RemoteHWExecutor(HWExecutor):
         conn, cfg = self._conn, self._cfg
         # Ship our binaries so the device runs this exact codebase, then load the module if absent.
         conn.push(_LOCAL_USERLAND, cfg.userland)
+        conn.shell(f"chmod +x {cfg.userland}", privileged=True)   # SFTP push drops the exec bit
         if not conn.is_file_present(cfg.device):
             if not conn.is_file_present(cfg.module):
                 conn.push(_LOCAL_MODULE, cfg.module)
