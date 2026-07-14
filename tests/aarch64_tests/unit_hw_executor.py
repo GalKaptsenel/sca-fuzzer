@@ -221,6 +221,78 @@ class TraceBatchTest(unittest.TestCase):
             ex.trace_batch([TraceUnit(b"TC", (b"x",))], 1)
 
 
+class RemoteSetupTest(unittest.TestCase):
+    """RemoteHWExecutor._ensure_ready ships + chmods the userland, loads the module only when the
+    device is absent, checks the ABI, and sets the sysfs knobs; target_info/cpu_midr query once and
+    cache. The Connection is mocked (no device, no SSH)."""
+
+    def _conn(self, device_present=True, module_present=True, abi=None, midr="0x410fd8e0"):
+        cfg = k.RemoteExecutorConfig(device="/dev/executor", sysfs="/sys/executor",
+                                     module="/tmp/m.ko", userland="/tmp/u")
+        abi = k.EXECUTOR_ABI_VERSION if abi is None else abi
+        conn = mock.Mock()
+        conn.is_file_present.side_effect = lambda p: {cfg.device: device_present,
+                                                      cfg.module: module_present}.get(p, False)
+
+        def shell(cmd, privileged=False):
+            if "abi_version" in cmd:
+                return str(abi)
+            if "print_sandbox_base" in cmd:
+                return "0x1000"
+            if "print_code_base" in cmd:
+                return "0x2000"
+            if "cpu_info" in cmd:
+                return f"MIDR_EL1    : {midr}"
+            return ""
+        conn.shell.side_effect = shell
+        return conn, cfg
+
+    @staticmethod
+    def _cmds(conn):
+        return [c.args[0] for c in conn.shell.call_args_list]
+
+    def test_pushes_then_chmods_userland(self):
+        conn, cfg = self._conn()
+        k.RemoteHWExecutor(conn, cfg)
+        conn.push.assert_any_call(k._LOCAL_USERLAND, cfg.userland)
+        self.assertIn(f"chmod +x {cfg.userland}", self._cmds(conn))
+
+    def test_skips_insmod_when_device_present(self):
+        conn, cfg = self._conn(device_present=True)
+        k.RemoteHWExecutor(conn, cfg)
+        self.assertFalse(any("insmod" in c for c in self._cmds(conn)))
+
+    def test_loads_module_when_device_absent(self):
+        conn, cfg = self._conn(device_present=False, module_present=False)
+        k.RemoteHWExecutor(conn, cfg)
+        conn.push.assert_any_call(k._LOCAL_MODULE, cfg.module)
+        self.assertIn(f"insmod {cfg.module}", self._cmds(conn))
+
+    def test_abi_mismatch_raises(self):
+        conn, cfg = self._conn(abi=k.EXECUTOR_ABI_VERSION + 1)
+        with self.assertRaises(RuntimeError):
+            k.RemoteHWExecutor(conn, cfg)
+
+    def test_sets_sysfs_knobs(self):
+        conn, cfg = self._conn()
+        k.RemoteHWExecutor(conn, cfg)
+        cmds = self._cmds(conn)
+        self.assertTrue(any(f"{cfg.sysfs}/measurement_mode" in c for c in cmds))
+        self.assertTrue(any(f"{cfg.sysfs}/warmups" in c for c in cmds))
+
+    def test_target_info_and_cpu_midr_query_once_and_cache(self):
+        conn, cfg = self._conn(midr="0x410fd8e0")
+        ex = k.RemoteHWExecutor(conn, cfg)          # setup does NOT query base or cpu_info
+        ti1, ti2 = ex.target_info(), ex.target_info()
+        self.assertEqual((ti1.sandbox_base, ti1.code_base), (0x1000, 0x2000))
+        self.assertIs(ti1, ti2)
+        self.assertEqual(ex.cpu_midr(), 0x410fd8e0)
+        self.assertEqual(ex.cpu_midr(), 0x410fd8e0)
+        cmds = self._cmds(conn)
+        self.assertEqual(sum("print_sandbox_base" in c for c in cmds), 1)
+        self.assertEqual(sum("cpu_info" in c for c in cmds), 1)
+
+
 class BackendTransparencyTest(unittest.TestCase):
     """Local and Remote are interchangeable because the executor measures ONLY through the HWExecutor
     interface (target_info + run_batch) — never a backend-specific method."""
