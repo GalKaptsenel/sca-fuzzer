@@ -217,6 +217,18 @@ class Aarch64LocalExecutor(Aarch64Executor):
             self._sign_hw = LocalHWExecutor("/dev/executor", "/sys/executor")
         return self._sign_hw
 
+    def _assert_sign_cpu_matches_device(self) -> None:
+        """PAC signatures baked locally must authenticate on the measurement device; QARMA/PAC is
+        implementation-defined, so a separate sign backend and device must share MIDR_EL1."""
+        sign_hw = self._local_executor()
+        if sign_hw is self.device:
+            return
+        local, remote = sign_hw.cpu_midr(), self.device.cpu_midr()
+        if local != remote:
+            raise GeneratorException(
+                f"PAC signing CPU MIDR_EL1 0x{local:016x} != measurement device 0x{remote:016x}; "
+                "baked PAC signatures would not authenticate on the device")
+
     def branch_mistraining_entries(self, cer) -> List[Tuple[int, bool]]:
         """Compute the per-branch mistraining config from a CE trace, without touching the device.
 
@@ -532,8 +544,10 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             else None
 
         # PAC signing capability (kernel SIGN only — never AUTH; a failed AUTH at EL1 resets the box).
-        signer = PacSigner(self._local_executor().pac_sign, self._pac_keys) \
-            if "pac" in self._primitives else None
+        signer = None
+        if "pac" in self._primitives:
+            self._assert_sign_cpu_matches_device()
+            signer = PacSigner(self._local_executor().pac_sign, self._pac_keys)
 
         # The sealer owns all sealing + resolution; it traces via _seal_trace and assembles object
         # code via _assemble_tc.

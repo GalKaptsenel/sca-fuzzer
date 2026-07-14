@@ -98,6 +98,48 @@ class SignBackendSplitTest(unittest.TestCase):
         self.assertIs(second, first)
 
 
+class MidrParseTest(unittest.TestCase):
+    _CPU_INFO = ("CPU ID      : 0\n"
+                 "MIDR_EL1    : 0x00000000410fd8e0\n"
+                 "MPIDR_EL1   : 0x0000000080000000\n"
+                 "CTR_EL0     : 0x00000000b444c004\n")
+
+    def test_parses_midr(self):
+        self.assertEqual(k._parse_midr_el1(self._CPU_INFO), 0x410fd8e0)
+
+    def test_missing_midr_raises(self):
+        with self.assertRaises(ValueError):
+            k._parse_midr_el1("CPU ID      : 0\n")
+
+
+class SignCpuMatchTest(unittest.TestCase):
+    """The PAC sign backend and the measurement device must share MIDR_EL1 when they are different
+    backends; a no-op when one backend both signs and measures."""
+
+    def _executor(self, sign_midr, device_midr):
+        ex = Aarch64LocalExecutor.__new__(Aarch64LocalExecutor)
+        ex.device = mock.Mock()
+        ex.device.cpu_midr.return_value = device_midr
+        ex._sign_hw = mock.Mock()               # a distinct local sign backend (remote measurement)
+        ex._sign_hw.cpu_midr.return_value = sign_midr
+        return ex
+
+    def test_matching_midr_passes(self):
+        self._executor(0xABC, 0xABC)._assert_sign_cpu_matches_device()   # no raise
+
+    def test_mismatched_midr_raises(self):
+        from src.interfaces import GeneratorException
+        with self.assertRaises(GeneratorException):
+            self._executor(0xAAA, 0xBBB)._assert_sign_cpu_matches_device()
+
+    def test_same_backend_is_a_noop(self):
+        ex = Aarch64LocalExecutor.__new__(Aarch64LocalExecutor)
+        ex.device = mock.Mock()
+        ex._sign_hw = ex.device                 # local measurement: one backend signs and measures
+        ex._assert_sign_cpu_matches_device()
+        ex.device.cpu_midr.assert_not_called()  # never even queried
+
+
 class MeasureRoutingTest(unittest.TestCase):
     def _executor(self, ignore_list, tc_bytes=b"TESTCASE"):
         ex = Aarch64LocalExecutor.__new__(Aarch64LocalExecutor)
@@ -186,7 +228,8 @@ class BackendTransparencyTest(unittest.TestCase):
     def test_both_backends_implement_the_interface(self):
         self.assertTrue(issubclass(k.LocalHWExecutor, k.HWExecutor))
         self.assertTrue(issubclass(k.RemoteHWExecutor, k.HWExecutor))
-        self.assertEqual(k.HWExecutor.__abstractmethods__, frozenset({"target_info", "run_batch"}))
+        self.assertEqual(k.HWExecutor.__abstractmethods__,
+                         frozenset({"target_info", "run_batch", "cpu_midr"}))
 
     def test_measurement_path_uses_interface_only(self):
         # autospec of the ABC exposes ONLY target_info/run_batch; if the executor reached for a

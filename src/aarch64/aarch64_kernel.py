@@ -124,6 +124,14 @@ class TargetInfo:
     code_base: int
 
 
+def _parse_midr_el1(cpu_info: str) -> int:
+    """Pull MIDR_EL1 out of the module's `system/cpu_info` sysfs text."""
+    for line in cpu_info.splitlines():
+        if line.strip().startswith("MIDR_EL1"):
+            return int(line.split(":", 1)[1].strip(), 16)
+    raise ValueError(f"no MIDR_EL1 in cpu_info:\n{cpu_info}")
+
+
 class HWExecutor(ABC):
     """The device backend the fuzzer measures through: report the target's addresses and measure a
     batch of (test case, inputs) units. Local (/dev/executor) or remote (over a Connection)."""
@@ -135,6 +143,11 @@ class HWExecutor(ABC):
     @abstractmethod
     def run_batch(self, units: List[TraceUnit], n_reps: int) -> List[List[List[HWMeasurement]]]:
         """Measure each unit's inputs `n_reps` times; returns unit -> input -> repetition."""
+        raise NotImplementedError()
+
+    @abstractmethod
+    def cpu_midr(self) -> int:
+        """MIDR_EL1 of the measuring core — its implementation identity (hence its PAC/QARMA)."""
         raise NotImplementedError()
 
 
@@ -430,6 +443,9 @@ class LocalHWExecutor(HWExecutor):
     def target_info(self) -> TargetInfo:
         return TargetInfo(sandbox_base=self.sandbox_base, code_base=self.code_base)
 
+    def cpu_midr(self) -> int:
+        return _parse_midr_el1(self._read_sysfs("system/cpu_info"))
+
     def run_batch(self, units: List[TraceUnit], n_reps: int) -> List[List[List[HWMeasurement]]]:
         results = []
         for unit in units:
@@ -514,6 +530,7 @@ class RemoteHWExecutor(HWExecutor):
         self._conn = connection
         self._cfg = config
         self._info: Optional[TargetInfo] = None   # queried once, cached for the campaign
+        self._midr: Optional[int] = None
         self._ensure_ready()
 
     def _ensure_ready(self) -> None:
@@ -539,6 +556,12 @@ class RemoteHWExecutor(HWExecutor):
         if int(reported) != EXECUTOR_ABI_VERSION:
             raise RuntimeError(f"device executor ABI version {reported.strip()} != "
                                f"expected {EXECUTOR_ABI_VERSION}; reload the module on the device")
+
+    def cpu_midr(self) -> int:
+        if self._midr is None:
+            info = self._conn.shell(f"cat {self._cfg.sysfs}/system/cpu_info", privileged=True)
+            self._midr = _parse_midr_el1(info)
+        return self._midr
 
     def target_info(self) -> TargetInfo:
         if self._info is None:
