@@ -99,21 +99,25 @@ class SignBackendSplitTest(unittest.TestCase):
 
 
 class MeasureRoutingTest(unittest.TestCase):
-    def _executor(self, ignore_list):
+    def _executor(self, ignore_list, tc_bytes=b"TESTCASE"):
         ex = Aarch64LocalExecutor.__new__(Aarch64LocalExecutor)
         ex.ignore_list = set(ignore_list)
         ex._log_hw_counters = lambda per_input: None
+        ex._current_tc_bytes = lambda: tc_bytes
         ex.device = mock.Mock()
         return ex
 
+    def _input(self, blob):
+        inp = mock.Mock()
+        inp.serialize.return_value = blob
+        return inp
+
     def test_measure_ships_one_unit_and_aggregates_per_input(self):
         ex = self._executor([])
-        inp = mock.Mock()
-        inp.serialize.return_value = b"INPUT"
         ex.device.run_batch.return_value = \
             [[[HWMeasurement(7, (1, 2, 3)), HWMeasurement(9, (1, 2, 3))]]]
 
-        htraces = ex._measure(b"TESTCASE", [inp], 2)
+        htraces = ex._measure([self._input(b"INPUT")], 2)
 
         (units, n_reps), _ = ex.device.run_batch.call_args
         self.assertEqual(n_reps, 2)
@@ -123,12 +127,56 @@ class MeasureRoutingTest(unittest.TestCase):
 
     def test_ignored_input_is_zeroed_through_measure(self):
         ex = self._executor([0])
-        inp = mock.Mock()
-        inp.serialize.return_value = b"I"
         ex.device.run_batch.return_value = [[[HWMeasurement(5, (0, 0, 0))]]]
 
-        htraces = ex._measure(b"TC", [inp], 1)
+        htraces = ex._measure([self._input(b"I")], 1)
         self.assertEqual(htraces[0].raw, [0])
+
+
+class TraceBatchTest(unittest.TestCase):
+    """trace_batch measures many make_trace_unit units in one run_batch and returns per-unit htraces."""
+
+    def _executor(self):
+        ex = Aarch64LocalExecutor.__new__(Aarch64LocalExecutor)
+        ex.ignore_list = set()
+        ex._log_hw_counters = lambda per_input: None
+        ex.device = mock.Mock()
+        return ex
+
+    def _unit(self, ex, tc_bytes, input_blobs):
+        ex._current_tc_bytes = lambda: tc_bytes
+        inputs = []
+        for blob in input_blobs:
+            inp = mock.Mock()
+            inp.serialize.return_value = blob
+            inputs.append(inp)
+        return ex.make_trace_unit(inputs)
+
+    def test_one_run_batch_for_all_units_preserving_order(self):
+        ex = self._executor()
+        units = [self._unit(ex, b"TC0", [b"a", b"b"]), self._unit(ex, b"TC1", [b"c"])]
+        self.assertEqual(units, [TraceUnit(b"TC0", (b"a", b"b")), TraceUnit(b"TC1", (b"c",))])
+        ex.device.run_batch.return_value = [
+            [[HWMeasurement(1, (0, 0, 0))], [HWMeasurement(2, (0, 0, 0))]],
+            [[HWMeasurement(3, (0, 0, 0))]],
+        ]
+
+        per_unit = ex.trace_batch(units, 1)
+
+        ex.device.run_batch.assert_called_once_with(units, 1)   # exactly one super-batch
+        htraces = [[h.raw for h in job] for job in per_unit]
+        self.assertEqual(htraces, [[[1], [2]], [[3]]])
+
+    def test_empty_batch_makes_no_device_call(self):
+        ex = self._executor()
+        self.assertEqual(ex.trace_batch([], 5), [])
+        ex.device.run_batch.assert_not_called()
+
+    def test_rejects_nonempty_ignore_list(self):
+        ex = self._executor()
+        ex.ignore_list = {0}
+        with self.assertRaises(AssertionError):
+            ex.trace_batch([TraceUnit(b"TC", (b"x",))], 1)
 
 
 class BackendTransparencyTest(unittest.TestCase):
@@ -146,6 +194,7 @@ class BackendTransparencyTest(unittest.TestCase):
         ex = Aarch64LocalExecutor.__new__(Aarch64LocalExecutor)
         ex.ignore_list = set()
         ex._log_hw_counters = lambda per_input: None
+        ex._current_tc_bytes = lambda: b"TC"
         ex.device = mock.create_autospec(k.HWExecutor, instance=True)
         ex.device.target_info.return_value = TargetInfo(sandbox_base=0x1000, code_base=0x2000)
         ex.device.run_batch.return_value = [[[HWMeasurement(3, (0, 0, 0))]]]
@@ -153,7 +202,7 @@ class BackendTransparencyTest(unittest.TestCase):
         self.assertEqual(ex.read_base_addresses(), (0x1000, 0x2000))
         inp = mock.Mock()
         inp.serialize.return_value = b"X"
-        htraces = ex._measure(b"TC", [inp], 1)
+        htraces = ex._measure([inp], 1)
         self.assertEqual(htraces[0].raw, [3])
 
 

@@ -150,53 +150,99 @@ class FuzzerGeneric(Fuzzer):
         self.LOG.fuzzer_start(num_test_cases, start_time, timeout, self.work_dir, rerun_cmd)
         self.LOG.inform("fuzzer", f"seeds — program:{prog_seed} input:{input_seed}")
 
-        for i in range(num_test_cases):
-            self.LOG.fuzzer_start_round(i)
+        # Bulk tier: pack a window of test cases' fast paths into one device super-batch. Needs
+        # fast-path boosting and an executor that supports it; otherwise window=1 keeps the classic
+        # per-test-case flow.
+        windowed = (CONF.superbatch_size > 1 and hasattr(self.executor, "trace_batch")
+                    and self._supports_fast_boosting())
+        window_size = CONF.superbatch_size if windowed else 1
 
+        i = 0
+        while i < num_test_cases:
             # interactive stop request (dashboard 'q')
             if self.LOG.fuzzer_should_stop():
                 break
-
             # terminate the fuzzer if the timeout has expired
-            if timeout:
-                now = datetime.today()
-                if (now - start_time).total_seconds() > timeout:
-                    self.LOG.fuzzer_timeout()
-                    break
+            if timeout and (datetime.today() - start_time).total_seconds() > timeout:
+                self.LOG.fuzzer_timeout()
+                break
 
-            # Generate a test case
-            test_case: TestCase = self.generation_function(self.existing_test_case)
-            self.input_gen.n_actors = len(test_case.actors)
-            STAT.test_cases += 1
+            # Fill a window with useful test cases (generation + filtering are per test case)
+            window: List[Tuple[TestCase, List[Input]]] = []
+            while len(window) < window_size and i < num_test_cases:
+                self.LOG.fuzzer_start_round(i)
+                i += 1
+                prepared = self._prepare_test_case(num_inputs)
+                if prepared is not None:
+                    window.append(prepared)
 
-            # Prepare inputs
-            inputs: List[Input]
-            if self.input_paths:
-                inputs = self.input_gen.load(self.input_paths)
-            else:
-                inputs = self.input_gen.generate(num_inputs)
-            STAT.num_inputs += len(inputs) * CONF.inputs_per_class
+            # Bulk tier flags the candidates (non-candidates finish here); classic mode passes all
+            # test cases straight through.
+            candidates = self._bulk_filter_candidates(window) if windowed else window
 
-            # Check if the test case is useful
-            if self.filter(test_case, inputs):
-                continue
-
-
-            # Fuzz the test case
-            violation = self.fuzzing_round(test_case, inputs)
-
-            if violation:
-                vdir = None
-                if save_violations:
-                    vdir = self._store_violation_artifact(test_case, violation, self.work_dir)
-                STAT.violations += 1
-                name = os.path.basename(vdir) if vdir else f"violation #{STAT.violations}"
-                self.LOG.fuzzer_report_violation(name)
-                if not nonstop:
-                    break
+            # Candidate tier: the full per-test-case pipeline
+            for test_case, inputs in candidates:
+                violation = self.fuzzing_round(test_case, inputs)
+                if violation:
+                    self._record_violation(test_case, violation, save_violations)
+                    if not nonstop:
+                        self.LOG.fuzzer_finish()
+                        return True
 
         self.LOG.fuzzer_finish()
         return STAT.violations > 0
+
+    def _prepare_test_case(self, num_inputs: int) -> Optional[Tuple[TestCase, List[Input]]]:
+        """Generate a test case and its inputs; return None if the test case is filtered out."""
+        test_case: TestCase = self.generation_function(self.existing_test_case)
+        self.input_gen.n_actors = len(test_case.actors)
+        STAT.test_cases += 1
+        inputs = self.input_gen.load(self.input_paths) if self.input_paths \
+            else self.input_gen.generate(num_inputs)
+        STAT.num_inputs += len(inputs) * CONF.inputs_per_class
+        if self.filter(test_case, inputs):
+            return None
+        return test_case, inputs
+
+    def _record_violation(self, test_case: TestCase, violation: Violation,
+                          save_violations: bool) -> None:
+        vdir = self._store_violation_artifact(test_case, violation, self.work_dir) \
+            if save_violations else None
+        STAT.violations += 1
+        name = os.path.basename(vdir) if vdir else f"violation #{STAT.violations}"
+        self.LOG.fuzzer_report_violation(name)
+
+    def _bulk_filter_candidates(
+            self, window: List[Tuple[TestCase, List[Input]]]
+    ) -> List[Tuple[TestCase, List[Input]]]:
+        """Bulk tier: measure every test case's fast path in ONE device super-batch, and return the
+        subset that produced a fast-path candidate. Non-candidates finish here, exactly as the
+        classic fast path finishes a clean test case."""
+        if not window:
+            return []
+        speculative = any(c != "seq" for c in CONF.contract_execution_clause)
+        start_nesting = CONF.model_min_nesting if speculative else 1
+        n_reps = CONF.executor_sample_sizes[0]
+
+        units = []
+        contexts = []
+        for test_case, inputs in window:
+            self.executor.load_test_case(test_case)
+            boosted, ctraces = self._boost_inputs(inputs, start_nesting)
+            units.append(self.executor.make_trace_unit(boosted))
+            contexts.append((test_case, inputs, boosted, ctraces * CONF.inputs_per_class))
+
+        htraces_per_tc = self.executor.trace_batch(units, n_reps)
+
+        candidates: List[Tuple[TestCase, List[Input]]] = []
+        for (test_case, inputs, boosted, ctraces), htraces in zip(contexts, htraces_per_tc):
+            violations = self.analyser.filter_violations(
+                boosted, ctraces, htraces, stats=True, test_cases=[test_case] * len(boosted))
+            if violations:
+                candidates.append((test_case, inputs))
+            else:
+                STAT.fast_path += 1
+        return candidates
 
     @staticmethod
     def _argv_after(*flags):

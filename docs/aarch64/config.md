@@ -82,3 +82,19 @@ Default: 0.2
 ```
 
 Relative weight of XPAC-strip insertions in the PAC non-interference stage-1 instrumentation.
+
+```yaml
+Name: pac_seal_prob
+Default: 1.0
+```
+
+Probability that an eligible memory access is PAC-sealed (authenticated) at all. Values `< 1` leave
+some accesses as a raw, sandbox-clamped pointer with no AUT*. Decided once per test case.
+
+```yaml
+Name: pac_strip_prob
+Default: 0.0
+```
+
+Probability that a sealed slot renders as the arch-safe XPAC* strip instead of a real AUT*. A strip
+never poisons under speculation, whereas an AUT* against the decoy signature does.

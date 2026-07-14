@@ -303,13 +303,10 @@ class Aarch64LocalExecutor(Aarch64Executor):
             pac_keys=pac_keys,
         )
 
-    def _measure(self, tc_bytes: bytes, exec_inputs: List[ExecutorInput],
-                 n_reps: int) -> List[HTrace]:
-        """Measure one unit (the test case plus all its inputs) on the device backend, repeated
-        n_reps times, and aggregate one HTrace per input."""
-        unit = TraceUnit(test_case=bytes(tc_bytes),
-                         inputs=tuple(ei.serialize() for ei in exec_inputs))
-        per_input = self.device.run_batch([unit], n_reps)[0]
+    def _measure(self, exec_inputs: List[ExecutorInput], n_reps: int) -> List[HTrace]:
+        """Measure the currently loaded test case over `exec_inputs`, repeated n_reps times, and
+        aggregate one HTrace per input."""
+        per_input = self.device.run_batch([self.make_trace_unit(exec_inputs)], n_reps)[0]
         self._log_hw_counters(per_input)
         return self._aggregate_measurements(per_input)
 
@@ -341,8 +338,8 @@ class Aarch64LocalExecutor(Aarch64Executor):
         if not exec_inputs or self.test_case is None:
             return [], []
         STAT.executor_reruns += n_reps * len(exec_inputs)
-        tc_bytes, reported = self._sandboxed_tc()
-        return self._measure(tc_bytes, exec_inputs, n_reps), [reported] * len(exec_inputs)
+        reported = self._sandboxed_tc()[1]
+        return self._measure(exec_inputs, n_reps), [reported] * len(exec_inputs)
 
     def _aggregate_measurements(self, per_input: List[List[HWMeasurement]]) -> List[HTrace]:
         results = []
@@ -353,6 +350,29 @@ class Aarch64LocalExecutor(Aarch64Executor):
             results.append(HTrace(trace_list=trace_list,
                                   perf_counters=np.array([list(m.pfcs) for m in reps])))
         return results
+
+    def _current_tc_bytes(self) -> bytes:
+        """Machine code of the currently loaded test case."""
+        return self._sandboxed_tc()[0]
+
+    def make_trace_unit(self, exec_inputs: List[ExecutorInput]) -> TraceUnit:
+        """One self-contained super-batch unit for the currently loaded test case and its inputs. A
+        campaign window collects these across successive loads, then measures them in one trace_batch."""
+        return TraceUnit(test_case=bytes(self._current_tc_bytes()),
+                         inputs=tuple(ei.serialize() for ei in exec_inputs))
+
+    def trace_batch(self, units: List[TraceUnit], n_reps: int) -> List[List[HTrace]]:
+        """Measure many units (from make_trace_unit) in ONE device super-batch — the throughput path
+        for a campaign window. LocalHWExecutor loops the units in-process; RemoteHWExecutor ships them
+        as a single streamed transfer. One htrace list per unit, order preserved."""
+        assert not self.ignore_list, "trace_batch runs in the bulk tier, before any ignore list is set"
+        if not units:
+            return []
+        STAT.executor_reruns += n_reps * sum(len(u.inputs) for u in units)
+        per_unit = self.device.run_batch(units, n_reps)
+        for per_input in per_unit:
+            self._log_hw_counters(per_input)
+        return [self._aggregate_measurements(per_input) for per_input in per_unit]
 
     def trace_test_case_with_taints(self, inputs: List[Input], nesting: int) -> Tuple[List[CTrace], List[InputTaint], List[ContractExecutionResult]]:
         """Sandbox the test case, run CE per input, and return cache-set CTraces, input taints, and the
@@ -669,6 +689,10 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                              mte_tags=self._mte_tags_for(inp), pac_keys=self._pac_keys_words(),
                              bpu_training=self._bpu_entries(inp))
 
+    def _current_tc_bytes(self) -> bytes:
+        assert self._sealed is not None, "sealed TC not built — load_test_case() not called"
+        return self._sealed.object_code
+
     def _trace_exec_inputs(self, exec_inputs: List[ExecutorInput], n_reps: int) -> List[HTrace]:
         """Trace each kernel input file on the shared skeleton — the skeleton is the unit's test case,
         and the kernel splices that input's code-relocation table into it before it runs, reverting
@@ -680,7 +704,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         if FuzzLogger.on():
             sandbox_base, _ = self.read_base_addresses()
             self._log_pre_hw_ce_analysis(exec_inputs, sandbox_base, FuzzLogger.get())
-        return self._measure(self._sealed.object_code, exec_inputs, n_reps)
+        return self._measure(exec_inputs, n_reps)
 
     def reconstruct_enacted_code(self, ei: ExecutorInput) -> bytes:  # TEMP(enacted-reloc)
         """Rebuild the exact machine code that ran for a boosted variant: re-resolve its arch input

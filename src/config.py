@@ -194,6 +194,9 @@ class Conf:
     sample sizes """
     executor_filtering_repetitions: int = 10
     """ executor_filtering_repetitions: number of repetitions while filtering test cases """
+    superbatch_size: int = 1
+    """ superbatch_size: number of test cases whose fast-path measurement is packed into one device
+    super-batch. 1 = per-test-case behavior; >1 measures a window in a single transfer. """
     executor_taskset: int = 0
     """ executor_taskset: id of the CPU core on which the executor is running test cases """
     enable_pre_run_flush: bool = True
@@ -234,7 +237,7 @@ class Conf:
     executor_remote_module: str = '/tmp/revizor-executor.ko'
     """ executor_remote_module: where the kernel module is staged on the device machine. """
     executor_remote_userland: str = '/tmp/executor_userland'
-    """ executor_remote_userland: where the userland batch driver is staged on the device machine. """
+    """ executor_remote_userland: where the userland batch driver is staged on the device. """
 
     # ==============================================================================================
     # Analyser

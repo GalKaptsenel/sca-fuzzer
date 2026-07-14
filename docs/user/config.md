@@ -578,6 +578,52 @@ Default: 0
 The ID of the CPU core on which the executor is running test cases.
 
 ```yaml
+Name: superbatch_size
+Default: 1
+```
+
+Number of test cases whose fast-path measurement is packed into one device super-batch (the bulk
+tier). `1` keeps the classic per-test-case flow; values `>1` measure a whole window of test cases in
+a single transfer, which is a large win when the device is remote. Only test cases the bulk tier
+flags fall through to the full per-test-case pipeline. Requires an executor that supports batched
+tracing and fast-path model boosting (AArch64).
+
+```yaml
+Name: executor_remote
+Default: False
+```
+
+When enabled, hardware measurements run on a separate device machine reached over a connection,
+while generation, modeling, and sealing stay local. Supported on AArch64 only.
+
+```yaml
+Name: executor_remote_transport
+Default: ssh
+```
+
+How to reach the device machine: `ssh`, `adb`, or `local` (drive the executor utilities via a local
+subprocess, without SSH).
+
+```yaml
+Name: executor_remote_host
+Default: 127.0.0.1
+```
+
+Device-machine host for the `ssh`/`adb` transports.
+
+```yaml
+Name: executor_remote_port
+Default: 22
+```
+
+Device-machine port (22 for `ssh`, 5037 for `adb`).
+
+The remaining remote-executor options set the credentials and where the executor artifacts live on
+the device machine: `executor_remote_user`, `executor_remote_key`, `executor_remote_serial`,
+`executor_remote_device`, `executor_remote_sysfs`, `executor_remote_module`, and
+`executor_remote_userland`.
+
+```yaml
 Name: enable_pre_run_flush
 Default: True
 ```
