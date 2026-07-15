@@ -452,6 +452,24 @@ static int count_mem_entries(const ce_result_t *res) {
     return c;
 }
 
+/* Helper: count speculative (nesting > 0) trace entries. */
+static int count_spec_entries(const ce_result_t *res) {
+    int c = 0;
+    for (int i = 0; i < res->n_entries; ++i) {
+        if (res->entries[i].metadata.speculation_nesting > 0) ++c;
+    }
+    return c;
+}
+
+/* Helper: does any memory access in the trace touch effective address `ea`? */
+static int mem_ea_present(const ce_result_t *res, uint64_t ea) {
+    for (int i = 0; i < res->n_entries; ++i) {
+        if (res->entries[i].metadata.has_memory_access &&
+            res->entries[i].metadata.memory_access.effective_address == ea) return 1;
+    }
+    return 0;
+}
+
 /* ---- GROUP 1: Simple LDR X0, [X29] ------------------------------------ */
 
 static void test_integration_ldr_base(void) {
@@ -3415,6 +3433,110 @@ static void test_integration_sls_barrier_cut(void) {
     EXPECT_EQ(ma1->metadata.speculation_nesting,             (uint64_t)0);
 }
 
+static void test_integration_sls_nottaken_conditional_no_add(void) {
+    /* Only a conditional branch, no unconditional B. At a NOT-taken conditional pc+4 is already the
+     * architectural path, so sls abstains: it adds nothing over cond ([sls|cond] == [cond]), and alone
+     * it speculates nothing. */
+    uint32_t code[] = {
+        enc_cbnz(0, +8),             /* X0=0 -> CBNZ (branch if nonzero) NOT taken -> falls through */
+        enc_ldr_reg(1, 29),
+        enc_ldr_unsigned(2, 29, 8),
+    };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+
+    ce_result_t cond_res, both_res, sls_res;
+    if (!run_ce_simple(code, 3, mem, sizeof(mem), KBASE, 1, EXEC_CLAUSE_COND, &cond_res) ||
+        !run_ce_simple(code, 3, mem, sizeof(mem), KBASE, 1, EXEC_CLAUSE_SLS | EXEC_CLAUSE_COND, &both_res) ||
+        !run_ce_simple(code, 3, mem, sizeof(mem), KBASE, 1, EXEC_CLAUSE_SLS, &sls_res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    EXPECT_EQ(count_mem_entries(&both_res), count_mem_entries(&cond_res));
+    int n = count_mem_entries(&cond_res);
+    for (int i = 0; i < n; ++i) {
+        instr_trace_entry_t *c = find_mem_entry(&cond_res, i);
+        instr_trace_entry_t *b = find_mem_entry(&both_res, i);
+        EXPECT(c != NULL); EXPECT(b != NULL);
+        if (!c || !b) return;
+        EXPECT_EQ(b->metadata.memory_access.effective_address, c->metadata.memory_access.effective_address);
+        EXPECT_EQ(b->metadata.speculation_nesting,             c->metadata.speculation_nesting);
+    }
+    EXPECT_EQ(count_spec_entries(&sls_res), 0);   /* sls abstained: no straight-line speculation */
+}
+
+static void test_integration_sls_cond_adds_past_uncond(void) {
+    /*
+     * cond is active AND there is an unconditional B:
+     *   [0] CBZ X0,+8   (X0=0 taken -> [2])
+     *   [1] LDR ,[X29,#24]   kbase+24 : cond's misprediction (not-taken) explores this in BOTH contracts
+     *   [2] B +8        (-> [4])
+     *   [3] LDR ,[X29,#8]    kbase+8  : reached only by straight-line speculation past the B
+     *   [4] LDR ,[X29]       kbase    : the B target
+     * cond never forks an unconditional branch, so kbase+8 appears under [sls|cond] but not [cond];
+     * kbase+24 (the conditional's speculative load) appears under both, confirming cond is active.
+     */
+    uint32_t code[] = {
+        enc_cbz(0, +8),
+        enc_ldr_unsigned(1, 29, 24),
+        enc_b(+8),
+        enc_ldr_unsigned(2, 29, 8),
+        enc_ldr_reg(3, 29),
+    };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+
+    ce_result_t cond_res, both_res;
+    if (!run_ce_simple(code, 5, mem, sizeof(mem), KBASE, 4, EXEC_CLAUSE_COND, &cond_res) ||
+        !run_ce_simple(code, 5, mem, sizeof(mem), KBASE, 4, EXEC_CLAUSE_SLS | EXEC_CLAUSE_COND, &both_res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    EXPECT(mem_ea_present(&cond_res, KBASE + 24));   /* cond active in both */
+    EXPECT(mem_ea_present(&both_res, KBASE + 24));
+    EXPECT(!mem_ea_present(&cond_res, KBASE + 8));   /* straight-line flow past the B: only sls */
+    EXPECT(mem_ea_present(&both_res, KBASE + 8));
+}
+
+static void test_integration_sls_exact_entry_count(void) {
+    /* B +12 jumps to LDR X3 ([3]). Under sls the straight-line window runs the three loads
+     * speculatively; then the architectural path re-runs the B target — exactly four memory accesses:
+     *   [0] LDR X1 kbase     nesting=1
+     *   [1] LDR X2 kbase+8   nesting=1
+     *   [2] LDR X3 kbase+16  nesting=1
+     *   [3] LDR X3 kbase+16  nesting=0   (architectural, at the B target) */
+    uint32_t code[] = {
+        enc_b(+12),
+        enc_ldr_reg(1, 29),
+        enc_ldr_unsigned(2, 29, 8),
+        enc_ldr_unsigned(3, 29, 16),
+    };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+
+    ce_result_t res;
+    if (!run_ce_simple(code, 4, mem, sizeof(mem), KBASE, 1, EXEC_CLAUSE_SLS, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    EXPECT_EQ(count_mem_entries(&res), 4);
+    const uint64_t ea[4]  = { KBASE, KBASE + 8, KBASE + 16, KBASE + 16 };
+    const uint64_t nst[4] = { 1, 1, 1, 0 };
+    for (int i = 0; i < 4; ++i) {
+        instr_trace_entry_t *m = find_mem_entry(&res, i);
+        EXPECT(m != NULL);
+        if (!m) return;
+        EXPECT_EQ(m->metadata.memory_access.effective_address, ea[i]);
+        EXPECT_EQ(m->metadata.speculation_nesting,             nst[i]);
+    }
+}
+
 int main(void) {
     printf("Running CE integration tests (fork+exec)...\n");
 
@@ -3504,6 +3626,9 @@ int main(void) {
     test_integration_sls_seq_no_window();
     test_integration_sls_cond_dedup();
     test_integration_sls_barrier_cut();
+    test_integration_sls_nottaken_conditional_no_add();
+    test_integration_sls_cond_adds_past_uncond();
+    test_integration_sls_exact_entry_count();
 
     test_integration_ldg_base_not_translated();
     test_integration_mte_subps_equal_tagged_pointers();
