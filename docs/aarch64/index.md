@@ -452,6 +452,11 @@ The execution clause decides which leak class shows up as a violation — anythi
 | `cond` | architectural + conditional-branch misprediction | branch bypass (v1) is now in-contract; only store bypass (v4) remains a violation |
 | `bpas` | architectural + speculative store bypass | used to model / confirm v4 |
 | `bpu` | architectural + predictor-driven misprediction | like `cond`, but only mispredicted branches fork |
+| `sls` | architectural + straight-line speculation (sequential fetch past a branch) | straight-line-speculation leaks are now in-contract |
+
+Clauses compose (the config takes a list, e.g. `[sls, cond]`); `sls` combines with `cond`/`bpas`/`barrier`.
+To fuzz for straight-line speculation, generate with `unreachable_bb_probability > 0` under `[seq]` (the
+unreachable code is a violation if speculated) and confirm against `[sls]` (where it is in-contract).
 
 The **observation clause** (`contract_observation_clause`) is likewise configurable, mirroring the
 x86 tracer set: `l1d` (default — the union of L1 data-cache sets touched), `pc` (the control-flow /

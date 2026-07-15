@@ -245,6 +245,23 @@ have the necessary instructions to satisfy it, or if a certain number of success
 for correctness
 
 ```yaml
+Name: unreachable_bb_probability
+Default: 0.0
+```
+
+Probability of splicing an architecturally-unreachable flow of basic blocks right after each non-last
+basic block. Such a flow is reached only by straight-line speculation past the preceding branch, so it
+is used to fuzz for straight-line-speculation leaks. 0 disables it.
+
+```yaml
+Name: max_unreachable_flow_length
+Default: 1
+```
+
+Maximum number of basic blocks in an injected unreachable flow (the actual length is drawn between 1
+and this value).
+
+```yaml
 Name: register_allowlist
 Default: []
 Options: (any register names)
