@@ -28,6 +28,7 @@ SRCS = \
   execution_clause_cond.c \
   execution_clause_bpu.c \
   execution_clause_bpas.c \
+  execution_clause_sls.c \
   branch_predictors.c \
   neoverse_n3_bpu.c \
   utils.c \
@@ -42,16 +43,19 @@ all: contract_executor
 # Build + run every C test suite. The binaries resolve paths from their own location, so this works
 # from any cwd. test_ce_integration forks ./contract_executor, so that target is built too; this
 # requires an AArch64 host (contract_executor embeds base_hook.S + python-embed).
-test: test_ce test_ce_integration test_mte_tagmem contract_executor
+test: test_ce test_ce_integration test_mte_tagmem test_sibling_windows contract_executor
 	./test_ce
 	./test_ce_integration
 	./test_mte_tagmem
+	./test_sibling_windows
 
-# Host-portable subset for CI on a non-AArch64 runner: only the self-contained suites (test_ce and
-# test_mte_tagmem build and run anywhere; test_ce_integration needs the AArch64 contract_executor).
-test-ci: test_ce test_mte_tagmem
+# Host-portable subset for CI on a non-AArch64 runner: only the self-contained suites (test_ce,
+# test_mte_tagmem and test_sibling_windows build and run anywhere; test_ce_integration needs the
+# AArch64 contract_executor).
+test-ci: test_ce test_mte_tagmem test_sibling_windows
 	./test_ce
 	./test_mte_tagmem
+	./test_sibling_windows
 
 # Target
 contract_executor: $(SRCS) $(HDRS)
@@ -70,6 +74,11 @@ MTE_TEST_SRCS = mte_tag_plugin.c test_mte_tagmem.c
 test_mte_tagmem: $(MTE_TEST_SRCS) $(HDRS)
 	$(CC) $(CFLAGS) -I. $(MTE_TEST_SRCS) -o $@
 
+# Speculation-engine sibling-window unit test: the real engine + stubbed externals + a synthetic clause.
+SIBLING_TEST_SRCS = simulation_execution_clause_hook.c test_sibling_windows.c
+test_sibling_windows: $(SIBLING_TEST_SRCS) $(HDRS)
+	$(CC) $(CFLAGS) -I. $(SIBLING_TEST_SRCS) -o $@
+
 clean:
-	rm -f contract_executor test_ce test_ce_integration test_mte_tagmem
+	rm -f contract_executor test_ce test_ce_integration test_mte_tagmem test_sibling_windows
 

@@ -41,6 +41,7 @@ class ExecutionClause(IntFlag):
     BPAS    = 2   # speculative store bypass
     BPU     = 4   # mispredict per an injected branch predictor
     BARRIER = 8   # honor barriers: cut speculation a fencing barrier stops
+    SLS     = 16  # straight-line speculation: explore pc+4 past a branch
 
 
 # The only execution-clause combinations the CE supports. Arbitrary bitmask mixes are not
@@ -56,6 +57,16 @@ SUPPORTED_EXECUTION_CLAUSES = frozenset({
     ExecutionClause.COND | ExecutionClause.BARRIER,
     ExecutionClause.BPU  | ExecutionClause.BARRIER,
     ExecutionClause.COND | ExecutionClause.BPAS | ExecutionClause.BARRIER,
+    # sls composes with cond/bpas/barrier (not bpu: its predictor history isn't checkpointed
+    # across a foreign speculation window yet).
+    ExecutionClause.SLS,
+    ExecutionClause.SLS | ExecutionClause.COND,
+    ExecutionClause.SLS | ExecutionClause.BPAS,
+    ExecutionClause.SLS | ExecutionClause.BARRIER,
+    ExecutionClause.SLS | ExecutionClause.COND | ExecutionClause.BPAS,
+    ExecutionClause.SLS | ExecutionClause.COND | ExecutionClause.BARRIER,
+    ExecutionClause.SLS | ExecutionClause.BPAS | ExecutionClause.BARRIER,
+    ExecutionClause.SLS | ExecutionClause.COND | ExecutionClause.BPAS | ExecutionClause.BARRIER,
 })
 
 
@@ -74,6 +85,7 @@ EXECUTION_CLAUSE_MAP = {
     "bpas":                         (ExecutionClause.BPAS, BranchPredictor.NONE),
     "bpu_neoverse_n3":              (ExecutionClause.BPU,  BranchPredictor.NEOVERSE_N3),
     "barrier":                      (ExecutionClause.BARRIER, BranchPredictor.NONE),
+    "sls":                          (ExecutionClause.SLS,  BranchPredictor.NONE),
 }
 
 

@@ -20,10 +20,10 @@ static void bpu_on_reset(void) {
 	if (g_predictor->reset) g_predictor->reset();
 }
 
-static void* bpu_on_instruction(struct simulation_state* sim_state) {
+static void bpu_on_instruction(struct simulation_state* sim_state) {
 	uintptr_t pc = sim_state->cpu_state.pc;
 	uint32_t insn = *(uint32_t*)pc;
-	if (!is_conditional_branch(insn)) return NULL;
+	if (!is_conditional_branch(insn)) return;
 
 	uintptr_t target = evaluate_cond_target(pc, insn);
 	int arch_taken = cond_branch_is_taken(&sim_state->cpu_state);
@@ -49,7 +49,7 @@ static void* bpu_on_instruction(struct simulation_state* sim_state) {
 		g_predictor->advance(pc, arch_taken, target);
 	}
 
-	return branch_speculate(sim_state, mispredict, bpu_index);
+	if (mispredict) branch_speculate(sim_state, bpu_index);
 }
 
 /* Recover the speculative history when a misprediction window unwinds. on_rollback replaces the

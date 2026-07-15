@@ -40,6 +40,8 @@ violations_*/
 src/aarch64/contract_executor/contract_executor
 src/aarch64/contract_executor/test_ce
 src/aarch64/contract_executor/test_ce_integration
+src/aarch64/contract_executor/test_mte_tagmem
+src/aarch64/contract_executor/test_sibling_windows
 src/aarch64/asm_to_bytes/asm_to_bytes
 src/executor_userland/executor_userland
 test_pac_ioctls

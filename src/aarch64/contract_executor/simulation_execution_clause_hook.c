@@ -11,6 +11,11 @@ static struct execution_mgmt mgmt = { 0 };
 static int initialized = 0;
 static int clauses_inited = 0;
 
+/* Speculative windows requested by the clauses on the current instruction, opened after dispatch. */
+struct window_request { uintptr_t entry_pc; uintptr_t return_addr; uint64_t owner; };
+static struct window_request pending_windows[MAX_PENDING_WINDOWS];
+static int pending_window_count;
+
 static uint64_t take_checkpoint(struct simulation_state* sim_state) {
 	if(mgmt.current_checkpoint_id >= mgmt.max_checkpoints) {
 		__builtin_trap();
@@ -96,8 +101,40 @@ void spec_push_frame(struct simulation_state* sim_state, uintptr_t return_addr, 
 	mgmt.stack[mgmt.stack_top].owner         = owner;
 	mgmt.stack[mgmt.stack_top].instr_consumed = 0;   /* charged per instruction on this window's path */
 	mgmt.stack[mgmt.stack_top].window_id     = ++mgmt.next_window_id;
+	mgmt.stack[mgmt.stack_top].sibling_count  = 0;   /* a plain frame pops on end; resolve_pending_windows sets siblings */
+	mgmt.stack[mgmt.stack_top].sibling_cursor = 0;
 	++mgmt.stack_top;
 	++mgmt.current_nesting;
+}
+
+void spec_request_window(uintptr_t entry_pc, uintptr_t return_addr, uint64_t owner) {
+	for(int i = 0; i < pending_window_count; ++i) {
+		if(pending_windows[i].entry_pc == entry_pc && pending_windows[i].return_addr == return_addr) return;
+	}
+	if(pending_window_count >= MAX_PENDING_WINDOWS) __builtin_trap();
+	pending_windows[pending_window_count].entry_pc    = entry_pc;
+	pending_windows[pending_window_count].return_addr = return_addr;
+	pending_windows[pending_window_count].owner       = owner;
+	++pending_window_count;
+}
+
+/* Open the windows the clauses requested and return the PC to continue from. All requested entries
+ * share one checkpoint and are explored one after another (handle_window_end walks the cursor), then
+ * execution resumes at their common architectural continuation. A two-way branch has a single
+ * non-architectural direction, so cond/sls coalesce to one entry; >1 entry only arises when a clause
+ * requests several targets at once (e.g. an indirect-branch predictor). */
+static void* resolve_pending_windows(struct simulation_state* sim_state) {
+	if(0 == pending_window_count) return NULL;
+	uintptr_t return_addr = pending_windows[0].return_addr;
+	for(int i = 1; i < pending_window_count; ++i) {
+		if(pending_windows[i].return_addr != return_addr) __builtin_trap();  /* siblings must share the arch continuation */
+	}
+	spec_push_frame(sim_state, return_addr, pending_windows[0].owner);
+	struct execution_checkpoint_desc* frame = &mgmt.stack[mgmt.stack_top - 1];
+	for(int i = 0; i < pending_window_count; ++i) frame->sibling_entries[i] = pending_windows[i].entry_pc;
+	frame->sibling_count  = pending_window_count;
+	frame->sibling_cursor = 0;
+	return (void*)pending_windows[0].entry_pc;
 }
 
 static void init_clauses_once(void) {
@@ -156,6 +193,17 @@ static void* handle_window_end(struct simulation_state* sim_state) {
 		return NULL;
 	}
 	if(0 == mgmt.stack_top) __builtin_trap();
+
+	/* More sibling entries to explore off this frame's checkpoint: rewind to it and dive the next one,
+	 * keeping the frame (same nesting, checkpoint and window) with a fresh per-window instruction budget. */
+	struct execution_checkpoint_desc* top = &mgmt.stack[mgmt.stack_top - 1];
+	if(top->sibling_cursor + 1 < top->sibling_count) {
+		reload_checkpoint(sim_state, top->checkpoint_id);
+		++top->sibling_cursor;
+		top->instr_consumed = 0;
+		return (void*)top->sibling_entries[top->sibling_cursor];
+	}
+
 	--mgmt.stack_top;
 	struct execution_checkpoint_desc* frame = &mgmt.stack[mgmt.stack_top];
 	mgmt.current_nesting = frame->nesting;
@@ -216,17 +264,15 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 	}
 
 	uint64_t clauses = simulation.sim_input.hdr.config.execution_clauses;
-	void* redirect = NULL;
+	pending_window_count = 0;
 	int n = execution_clause_count();
 	for(int i = 0; i < n; ++i) {
 		const struct execution_clause_descriptor* ecd = execution_clause_at(i);
-		if(!(ecd->clause_bit & clauses)) continue;
-		void* r = ecd->on_instruction(sim_state);
-		if(NULL != r) {
-			if(NULL != redirect && redirect != r) __builtin_trap(); // clauses disagree on redirect
-			redirect = r;
-		}
+		if(ecd->clause_bit & clauses) ecd->on_instruction(sim_state);
 	}
+
+	/* Dive whatever window the clauses requested; an instruction with no request runs architecturally. */
+	void* redirect = resolve_pending_windows(sim_state);
 
 	/* Runs AFTER on_instruction so a store's window (opened by bpas phase B) is already on the stack
 	 * when the store sits immediately before the barrier. Revert to the oldest id any clause requests:
@@ -241,7 +287,10 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 		}
 		if(SPEC_NO_REVERT != barrier_target) {
 			void* resume = NULL;
-			while(mgmt.stack_top > barrier_target) resume = handle_window_end(sim_state);
+			while(mgmt.stack_top > barrier_target) {
+				mgmt.stack[mgmt.stack_top - 1].sibling_count = 0;  /* squash the window incl. unexplored siblings */
+				resume = handle_window_end(sim_state);
+			}
 			if(NULL == resume) __builtin_trap();   /* target < stack_top => at least one frame popped */
 			sim_state->cpu_state.pc = (uintptr_t)resume;
 			redirect = resume;

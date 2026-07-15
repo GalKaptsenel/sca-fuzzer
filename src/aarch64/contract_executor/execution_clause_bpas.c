@@ -48,7 +48,7 @@ static void bpas_on_reset(void) {
 	}
 }
 
-static void* bpas_on_instruction(struct simulation_state* sim_state) {
+static void bpas_on_instruction(struct simulation_state* sim_state) {
 	/* Phase B: apply the pending bypass — but only if we are still in the same speculation window as
 	 * phase A (a different window id means a rollback since discarded our snapshot's context). */
 	if (bpas_pending) {
@@ -76,7 +76,6 @@ static void* bpas_on_instruction(struct simulation_state* sim_state) {
 		bpas_pending_window_id = spec_current_window_id();
 		bpas_pending_store_pc = sim_state->cpu_state.pc;
 	}
-	return NULL;
 }
 
 /* Window unwind: emit the bypassed store now — after the stale loads (already logged), before the

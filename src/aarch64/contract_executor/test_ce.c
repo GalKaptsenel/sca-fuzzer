@@ -56,6 +56,7 @@ static int g_tests_failed = 0;
  * stub those entry points (we never call branch_speculate here). */
 struct simulation_state;
 void     spec_push_frame(struct simulation_state* s, uintptr_t r, uint64_t o) { (void)s; (void)r; (void)o; }
+void     spec_request_window(uintptr_t e, uintptr_t r, uint64_t o) { (void)e; (void)r; (void)o; }
 uint64_t spec_nesting(void)     { return 0; }
 uint64_t spec_max_nesting(void) { return 0; }
 
@@ -1880,6 +1881,19 @@ static void test_cond_branch_is_taken_target_is_next_insn(void) {
     EXPECT(evaluate_cond_target(s.pc, insn8) != cond_branch_architectural_next(&s));
 }
 
+static void test_decode_b_target(void) {
+    uintptr_t pc = 0x400000;
+    uint32_t fwd = encode_b(pc, pc + 8);
+    EXPECT_EQ(classify_branch(fwd), BRANCH_B);
+    EXPECT_EQ(decode_b_target(pc, fwd), (uintptr_t)(pc + 8));
+
+    uint32_t back = encode_b(pc, pc - 16);          /* negative offset -> sign extension */
+    EXPECT_EQ(decode_b_target(pc, back), (uintptr_t)(pc - 16));
+
+    uint32_t next = encode_b(pc, pc + 4);
+    EXPECT_EQ(decode_b_target(pc, next), (uintptr_t)(pc + 4));
+}
+
 int main(void) {
     printf("Running CE unit tests...\n");
 
@@ -1938,6 +1952,7 @@ int main(void) {
 
     /* Group 42: real branch resolver (regression for the target==pc+4 direction bug) */
     test_cond_branch_is_taken_target_is_next_insn();
+    test_decode_b_target();
 
     printf("\n%d tests, %d failed\n", g_tests_run, g_tests_failed);
     return g_tests_failed ? 1 : 0;

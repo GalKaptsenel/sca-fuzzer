@@ -134,6 +134,12 @@ uintptr_t evaluate_cond_target(uintptr_t pc, uint32_t insn) {
 	return 0;
 }
 
+uintptr_t decode_b_target(uintptr_t pc, uint32_t insn) {
+	int32_t imm26 = insn & 0x03FFFFFF;
+	if (imm26 & 0x02000000) imm26 |= 0xFC000000;   // sign extend 26-bit
+	return pc + (imm26 * 4);   // *4 not <<2: imm26 is signed, so a left shift would be UB
+}
+
 inline int is_memory_access(uint32_t inst) { return ((inst >> 25) & 0x7) == 0b100; }
 inline int is_regular_load_store(uint32_t inst) { return ((inst >> 27) & 0x7) == 0b111; }
 inline int is_pair_load_store(uint32_t inst) { return ((inst >> 27) & 0x7) == 0b101; }

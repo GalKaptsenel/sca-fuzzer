@@ -89,11 +89,8 @@ int is_conditional_branch(uint32_t insn) {
 	}
 }
 
-void* branch_speculate(struct simulation_state* sim_state, int mispredict, uint64_t owner) {
+void branch_speculate(struct simulation_state* sim_state, uint64_t owner) {
+	if (spec_nesting() >= spec_max_nesting()) return;
 	uintptr_t arch_next = cond_branch_architectural_next(&sim_state->cpu_state);
-	if (!mispredict || spec_nesting() >= spec_max_nesting()) {
-		return (void*)arch_next;
-	}
-	spec_push_frame(sim_state, arch_next, owner);
-	return (void*)cond_branch_mispredicted_next(&sim_state->cpu_state);
+	spec_request_window(cond_branch_mispredicted_next(&sim_state->cpu_state), arch_next, owner);
 }

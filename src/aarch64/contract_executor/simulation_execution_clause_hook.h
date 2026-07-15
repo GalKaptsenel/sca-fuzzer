@@ -17,6 +17,9 @@ struct execution_checkpoint {
 	uint8_t* tags;     /* MTE tag-memory snapshot, or NULL when not in MTE-test mode */
 };
 
+/* Max speculative entry PCs a single instruction's clauses may request (see spec_request_window). */
+#define MAX_PENDING_WINDOWS 8
+
 /* A pushed speculation frame: where/how to resume when the window unwinds. `owner` is the
  * index of the execution clause that pushed it, so the engine can route rollback back to it. */
 struct execution_checkpoint_desc {
@@ -26,6 +29,11 @@ struct execution_checkpoint_desc {
 	uint64_t owner;          /* execution-clause registry index */
 	uint64_t instr_consumed; /* instructions run on THIS window's own path (for the per-window cap) */
 	uint64_t window_id;      /* unique monotonic window id (checkpoint_id is a reused slot) */
+	/* Entry PCs explored one after another off this single checkpoint (>1 only for a clause that
+	 * requests several targets at once, e.g. an indirect-branch predictor). `cursor` is the running one. */
+	uintptr_t sibling_entries[MAX_PENDING_WINDOWS];
+	int sibling_count;
+	int sibling_cursor;
 };
 
 struct execution_mgmt {
@@ -67,6 +75,11 @@ uint64_t spec_oldest_frame_of_owner(uint64_t owner);
  * the frame with `owner` (the pushing clause's registry index) for rollback routing.
  * At rollback the return address is loaded into LR (the harness continues from there). */
 void spec_push_frame(struct simulation_state* sim_state, uintptr_t return_addr, uint64_t owner);
+
+/* Request a speculative window explored from `entry_pc`, resuming at `return_addr` when it ends.
+ * Gathered per instruction and deduplicated by (entry_pc, return_addr) so clauses wanting the same
+ * window coalesce instead of double-pushing (e.g. cond and sls both at pc+4 on a taken branch). */
+void spec_request_window(uintptr_t entry_pc, uintptr_t return_addr, uint64_t owner);
 
 /* Reload the architectural checkpoint a frame captured (cpu_state + memory), restoring state to the
  * branch that pushed it. Exposed so a clause's on_rollback can restore the base state before applying

@@ -113,7 +113,7 @@ _option_values = {
     ],
     'contract_execution_clause': [
         "seq", "no_speculation", "cond", "conditional_br_misprediction", "bpas", "bpu_neoverse_n3",
-        "barrier",
+        "barrier", "sls",
     ],
 }
 

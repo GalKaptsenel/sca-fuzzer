@@ -141,6 +141,10 @@ static uint32_t enc_strb(int rt, int rn) {
 static uint32_t enc_ldr_regoff(int rt, int rn, int rm) {
     return 0xF8606800u | ((uint32_t)rm << 16) | ((uint32_t)rn << 5) | (uint32_t)rt;
 }
+/* B <label> — unconditional direct, signed byte offset from this instruction (multiple of 4) */
+static uint32_t enc_b(int offset) {
+    return 0x14000000u | ((uint32_t)(offset / 4) & 0x03FFFFFFu);
+}
 /* B.<cond> <label> — label is signed byte offset from this instruction (multiple of 4) */
 static uint32_t enc_b_cond(uint32_t cond, int offset) {
     uint32_t imm19 = (uint32_t)(offset / 4) & 0x7FFFFu;
@@ -3185,6 +3189,232 @@ static void test_alias_atomic_ldadd(void) {             /* LDADD X1,X0,[X1] — 
 /* CAS/CASP: the aliasing fixup covers them in principle, but the CE cannot execute CAS natively
  * (pre-existing limitation — it crashes regardless of aliasing), so there is nothing to drive yet. */
 
+/* ---- GROUP 40: SLS — straight-line speculation ------------------------- */
+
+static void test_integration_sls_past_unconditional_b(void) {
+    /*
+     * Code: B +8; LDR X1,[X29]; LDR X2,[X29,#8]
+     * B +8 architecturally jumps over LDR X1 to LDR X2. Under SLS the frontend keeps fetching pc+4,
+     * so the unreachable LDR X1 (and the following LDR X2) run speculatively; then execution resumes
+     * at the branch target LDR X2 architecturally.
+     *   [0] LDR X1  nesting=1   EA=kbase      (straight-line — architecturally unreachable)
+     *   [1] LDR X2  nesting=1   EA=kbase+8    (still on the SLS path)
+     *   [2] LDR X2  nesting=0   EA=kbase+8    (arch, after the window resumes at the B target)
+     */
+    uint32_t code[] = {
+        enc_b(+8),
+        enc_ldr_reg(1, 29),
+        enc_ldr_unsigned(2, 29, 8),
+    };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t v0 = UINT64_C(0x1111111111111111);
+    uint64_t v8 = UINT64_C(0x2222222222222222);
+    memcpy(mem,     &v0, 8);
+    memcpy(mem + 8, &v8, 8);
+
+    ce_result_t res;
+    if (!run_ce_simple(code, 3, mem, sizeof(mem), KBASE, 1, EXEC_CLAUSE_SLS, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    EXPECT_EQ(count_mem_entries(&res), 3);
+    instr_trace_entry_t *ma0 = find_mem_entry(&res, 0);
+    instr_trace_entry_t *ma1 = find_mem_entry(&res, 1);
+    instr_trace_entry_t *ma2 = find_mem_entry(&res, 2);
+    EXPECT(ma0 != NULL); EXPECT(ma1 != NULL); EXPECT(ma2 != NULL);
+    if (!ma0 || !ma1 || !ma2) return;
+
+    EXPECT_EQ(ma0->metadata.memory_access.effective_address, KBASE);
+    EXPECT_EQ(ma0->metadata.memory_access.before,            v0);
+    EXPECT_EQ(ma0->metadata.speculation_nesting,             (uint64_t)1);
+
+    EXPECT_EQ(ma1->metadata.memory_access.effective_address, KBASE + 8);
+    EXPECT_EQ(ma1->metadata.memory_access.before,            v8);
+    EXPECT_EQ(ma1->metadata.speculation_nesting,             (uint64_t)1);
+
+    EXPECT_EQ(ma2->metadata.memory_access.effective_address, KBASE + 8);
+    EXPECT_EQ(ma2->metadata.memory_access.before,            v8);
+    EXPECT_EQ(ma2->metadata.speculation_nesting,             (uint64_t)0);
+}
+
+static void test_integration_sls_conditional_branch(void) {
+    /*
+     * Code: CBZ X0,+8; LDR X1,[X29]; LDR X2,[X29,#8]   (X0=0 -> arch TAKEN, skip LDR X1)
+     * SLS alone (no cond): at the taken branch the frontend still fetches pc+4, so it explores the
+     * not-taken fall-through (LDR X1) speculatively, then resumes at the taken target LDR X2.
+     *   [0] LDR X1  nesting=1   EA=kbase      (straight-line fall-through)
+     *   [1] LDR X2  nesting=1   EA=kbase+8    (still on the SLS path)
+     *   [2] LDR X2  nesting=0   EA=kbase+8    (arch taken)
+     */
+    uint32_t code[] = {
+        enc_cbz(0, +8),
+        enc_ldr_reg(1, 29),
+        enc_ldr_unsigned(2, 29, 8),
+    };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t v0 = UINT64_C(0x1111111111111111);
+    uint64_t v8 = UINT64_C(0x2222222222222222);
+    memcpy(mem,     &v0, 8);
+    memcpy(mem + 8, &v8, 8);
+
+    ce_result_t res;
+    if (!run_ce_simple(code, 3, mem, sizeof(mem), KBASE, 1, EXEC_CLAUSE_SLS, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    EXPECT_EQ(count_mem_entries(&res), 3);
+    instr_trace_entry_t *ma0 = find_mem_entry(&res, 0);
+    instr_trace_entry_t *ma1 = find_mem_entry(&res, 1);
+    instr_trace_entry_t *ma2 = find_mem_entry(&res, 2);
+    EXPECT(ma0 != NULL); EXPECT(ma1 != NULL); EXPECT(ma2 != NULL);
+    if (!ma0 || !ma1 || !ma2) return;
+
+    EXPECT_EQ(ma0->metadata.memory_access.effective_address, KBASE);
+    EXPECT_EQ(ma0->metadata.speculation_nesting,             (uint64_t)1);
+    EXPECT_EQ(ma1->metadata.memory_access.effective_address, KBASE + 8);
+    EXPECT_EQ(ma1->metadata.speculation_nesting,             (uint64_t)1);
+    EXPECT_EQ(ma2->metadata.memory_access.effective_address, KBASE + 8);
+    EXPECT_EQ(ma2->metadata.speculation_nesting,             (uint64_t)0);
+}
+
+static void test_integration_sls_conditional_not_taken_no_window(void) {
+    /* Same code with X0!=0 -> CBZ NOT taken, so pc+4 IS the architectural path: SLS must add nothing
+     * (it only speculates when the straight-line target differs from the arch successor). Both loads
+     * run architecturally. */
+    uint32_t code[] = {
+        enc_cbz(0, +8),
+        enc_ldr_reg(1, 29),
+        enc_ldr_unsigned(2, 29, 8),
+    };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t regs[8] = {0}; regs[0] = 1;   /* X0=1 -> CBZ not taken */
+
+    ce_result_t res;
+    if (!run_ce(code, 3, mem, sizeof(mem), KBASE, 1, EXEC_CLAUSE_SLS, regs, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    EXPECT_EQ(count_mem_entries(&res), 2);
+    instr_trace_entry_t *ma0 = find_mem_entry(&res, 0);
+    instr_trace_entry_t *ma1 = find_mem_entry(&res, 1);
+    EXPECT(ma0 != NULL); EXPECT(ma1 != NULL);
+    if (!ma0 || !ma1) return;
+    EXPECT_EQ(ma0->metadata.speculation_nesting, (uint64_t)0);
+    EXPECT_EQ(ma1->metadata.speculation_nesting, (uint64_t)0);
+}
+
+static void test_integration_sls_seq_no_window(void) {
+    /* Same code under SEQ: the B is taken, the unreachable LDR X1 never runs — no straight-line
+     * speculation. Only the architectural LDR X2 appears. */
+    uint32_t code[] = {
+        enc_b(+8),
+        enc_ldr_reg(1, 29),
+        enc_ldr_unsigned(2, 29, 8),
+    };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t v8 = UINT64_C(0x2222222222222222);
+    memcpy(mem + 8, &v8, 8);
+
+    ce_result_t res;
+    if (!run_ce_simple(code, 3, mem, sizeof(mem), KBASE, 1, /*seq=*/0, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    EXPECT_EQ(count_mem_entries(&res), 1);
+    instr_trace_entry_t *ma0 = find_mem_entry(&res, 0);
+    EXPECT(ma0 != NULL);
+    if (!ma0) return;
+    EXPECT_EQ(ma0->metadata.memory_access.effective_address, KBASE + 8);
+    EXPECT_EQ(ma0->metadata.speculation_nesting,             (uint64_t)0);
+}
+
+static void test_integration_sls_cond_dedup(void) {
+    /* At a conditional branch, cond mispredicts to the non-architectural side (pc+4 when taken) and
+     * sls would explore pc+4 too — they request the SAME window and coalesce to one. So SLS|COND must
+     * produce exactly the trace COND alone does (no double-fork). */
+    uint32_t code[] = {
+        enc_cbz(0, +8),              /* X0==0 -> arch TAKEN (skip LDR X1) */
+        enc_ldr_reg(1, 29),
+        enc_ldr_unsigned(2, 29, 8),
+    };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t v0 = UINT64_C(0x1111111111111111);
+    uint64_t v8 = UINT64_C(0x2222222222222222);
+    memcpy(mem,     &v0, 8);
+    memcpy(mem + 8, &v8, 8);
+
+    ce_result_t cond_res, both_res;
+    if (!run_ce_simple(code, 3, mem, sizeof(mem), KBASE, 1, EXEC_CLAUSE_COND, &cond_res) ||
+        !run_ce_simple(code, 3, mem, sizeof(mem), KBASE, 1, EXEC_CLAUSE_SLS | EXEC_CLAUSE_COND, &both_res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    EXPECT_EQ(count_mem_entries(&both_res), count_mem_entries(&cond_res));
+    int n = count_mem_entries(&cond_res);
+    for (int i = 0; i < n; ++i) {
+        instr_trace_entry_t *c = find_mem_entry(&cond_res, i);
+        instr_trace_entry_t *b = find_mem_entry(&both_res, i);
+        EXPECT(c != NULL); EXPECT(b != NULL);
+        if (!c || !b) return;
+        EXPECT_EQ(b->metadata.memory_access.effective_address, c->metadata.memory_access.effective_address);
+        EXPECT_EQ(b->metadata.speculation_nesting,             c->metadata.speculation_nesting);
+    }
+}
+
+static void test_integration_sls_barrier_cut(void) {
+    /*
+     * Code: B +12; LDR X1,[X29]; SB; LDR X2,[X29,#8]
+     * SLS explores the straight-line path from LDR X1; the SB is a control-fence barrier, so
+     * SLS|BARRIER squashes the window there before it reaches LDR X2 speculatively.
+     *   [0] LDR X1  nesting=1   (straight-line, before the fence)
+     *   [1] LDR X2  nesting=0   (architectural, after the window is cut)
+     */
+    uint32_t code[] = {
+        enc_b(+12),
+        enc_ldr_reg(1, 29),
+        enc_sb(),
+        enc_ldr_unsigned(2, 29, 8),
+    };
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t v0 = UINT64_C(0x1111111111111111);
+    uint64_t v8 = UINT64_C(0x2222222222222222);
+    memcpy(mem,     &v0, 8);
+    memcpy(mem + 8, &v8, 8);
+
+    ce_result_t res;
+    if (!run_ce_simple(code, 4, mem, sizeof(mem), KBASE, 1, EXEC_CLAUSE_SLS | EXEC_CLAUSE_BARRIER, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    EXPECT_EQ(count_mem_entries(&res), 2);
+    instr_trace_entry_t *ma0 = find_mem_entry(&res, 0);
+    instr_trace_entry_t *ma1 = find_mem_entry(&res, 1);
+    EXPECT(ma0 != NULL); EXPECT(ma1 != NULL);
+    if (!ma0 || !ma1) return;
+    EXPECT_EQ(ma0->metadata.memory_access.effective_address, KBASE);
+    EXPECT_EQ(ma0->metadata.speculation_nesting,             (uint64_t)1);
+    EXPECT_EQ(ma1->metadata.memory_access.effective_address, KBASE + 8);
+    EXPECT_EQ(ma1->metadata.speculation_nesting,             (uint64_t)0);
+}
+
 int main(void) {
     printf("Running CE integration tests (fork+exec)...\n");
 
@@ -3267,6 +3497,13 @@ int main(void) {
     test_integration_unsupported_clauses_rejected();
     test_integration_bpu_input_selected_predictor();
     test_integration_bpu_without_predictor_traps();
+
+    test_integration_sls_past_unconditional_b();
+    test_integration_sls_conditional_branch();
+    test_integration_sls_conditional_not_taken_no_window();
+    test_integration_sls_seq_no_window();
+    test_integration_sls_cond_dedup();
+    test_integration_sls_barrier_cut();
 
     test_integration_ldg_base_not_translated();
     test_integration_mte_subps_equal_tagged_pointers();

@@ -8,9 +8,9 @@ static uint64_t cond_index;
 static void cond_on_init(uint64_t index) { cond_index = index; }
 
 /* Conditional-branch misprediction: at every conditional branch, take the mispredicted path. */
-static void* cond_on_instruction(struct simulation_state* sim_state) {
-	if (!is_conditional_branch(*(uint32_t*)sim_state->cpu_state.pc)) return NULL;
-	return branch_speculate(sim_state, /*mispredict=*/1, cond_index);
+static void cond_on_instruction(struct simulation_state* sim_state) {
+	if (!is_conditional_branch(*(uint32_t*)sim_state->cpu_state.pc)) return;
+	branch_speculate(sim_state, cond_index);
 }
 
 /* A speculation barrier stops the mispredicted path: revert through the oldest open misprediction

@@ -19,9 +19,8 @@ uintptr_t cond_branch_architectural_next(const struct cpu_state* state);
  * read directly from the condition/register test — correct even when the taken-target is pc+4. */
 bool cond_branch_is_taken(const struct cpu_state* state);
 
-/* Drive the fork: if `mispredict` (and depth allows), checkpoint (owned by `owner`) + schedule
- * the architectural successor for rollback and return the mispredicted target; otherwise return
- * the architectural next PC. Returns the PC the simulator should continue from. */
-void* branch_speculate(struct simulation_state* sim_state, int mispredict, uint64_t owner);
+/* Open a misprediction window for the conditional branch at `sim_state->pc` (depth permitting):
+ * explore the mispredicted target, resuming at the architectural successor; owned by `owner`. */
+void branch_speculate(struct simulation_state* sim_state, uint64_t owner);
 
 #endif // BRANCH_SPECULATION_H

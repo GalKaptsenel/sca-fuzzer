@@ -13,9 +13,9 @@ struct execution_clause_descriptor {
 	uint32_t    clause_bit;                            /* EXEC_CLAUSE_* that enables this clause */
 	void  (*on_init)(uint64_t index);                  /* CE-start: record index, one-time setup */
 	void  (*on_reset)(void);                           /* per-simulation (re)init                 */
-	/* Per instruction; may speculate (spec_push_frame). Returns a PC to redirect to, or NULL.
-	 * If several enabled clauses redirect on one instruction, they must agree (engine traps). */
-	void* (*on_instruction)(struct simulation_state* sim_state);
+	/* Per instruction. To speculate, request a window (spec_request_window) or open one directly
+	 * (spec_push_frame); otherwise do nothing and the instruction runs architecturally. */
+	void (*on_instruction)(struct simulation_state* sim_state);
 	/* Barrier honoring (called only when EXEC_CLAUSE_BARRIER is also enabled). If the current
 	 * instruction is a barrier that fences this clause's speculation AND this clause has an open
 	 * window, return the id of the oldest such window to revert through; otherwise SPEC_NO_REVERT.
