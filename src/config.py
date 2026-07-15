@@ -134,6 +134,11 @@ class Conf:
     Note: this config option is a *hint*; it could be ignored if the instruction set does not
     have the necessary instructions to satisfy it, or if a certain number of successor is required
     for correctness """
+    unreachable_bb_probability: float = 0.0
+    """ unreachable_bb_probability: probability of inserting an architecturally-unreachable flow of
+    basic blocks right after a non-last basic block; 0 disables """
+    max_unreachable_flow_length: int = 1
+    """ max_unreachable_flow_length: max basic blocks in an injected unreachable flow (drawn 1..max) """
     register_allowlist: List[str] = []
     """ register_allowlist: list of registers that CAN be used for generating programs;
      has higher priority than register_blocklist.

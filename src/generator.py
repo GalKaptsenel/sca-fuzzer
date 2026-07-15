@@ -424,31 +424,8 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
         func_name = label.removeprefix(".function_")
         nodes = [BasicBlock(f".bb_{func_name}.{i}") for i in range(node_count)]
 
-        # Connect BBs into a graph
-        for i in range(node_count):
-            current_bb = nodes[i]
-
-            # the last node has only one successor - exit
-            if i == node_count - 1:
-                current_bb.successors = [func.exit]
-                break
-
-            # the rest of the node have a random number of successors
-            successor_count = random.randint(min_successors, max_successors)
-            if successor_count + i > node_count:
-                # the number is adjusted to the position when close to the end
-                successor_count = node_count - i
-
-            # one of the targets (the first successor) is always the next node - to avoid dead code
-            current_bb.successors.append(nodes[i + 1])
-
-            # all other successors are random, selected from next nodes
-            options = nodes[i + 2:]
-            options.append(func.exit)
-            for j in range(1, successor_count):
-                target = random.choice(options)
-                options.remove(target)
-                current_bb.successors.append(target)
+        # Connect BBs into a graph, with func.exit as the sink
+        self._wire_dag(nodes, func.exit, min_successors, max_successors)
 
         # Function returns are not yet supported
         # hence all functions end with an unconditional jump to the exit
@@ -456,9 +433,50 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
             self.get_unconditional_jump_instruction().add_op(LabelOperand(parent.exit.name))
         ]
 
-        # Finalize the function
-        func.extend(nodes)
+        # Finalize the function, splicing any unreachable flows into the block order
+        func.extend(self._with_unreachable_flows(func_name, nodes, min_successors, max_successors))
         return func
+
+    def _wire_dag(self, blocks: List[BasicBlock], exit_target: BasicBlock,
+                  min_successors: int, max_successors: int):
+        """Connect `blocks` into a forward DAG whose sink is `exit_target`. The first successor of
+        each block is always the next one (no dead code); extra successors are drawn from later
+        blocks and the sink."""
+        n = len(blocks)
+        for i in range(n):
+            if i == n - 1:
+                blocks[i].successors = [exit_target]
+                continue
+            successor_count = random.randint(min_successors, max_successors)
+            if successor_count + i > n:
+                successor_count = n - i
+            blocks[i].successors.append(blocks[i + 1])
+            options = blocks[i + 2:] + [exit_target]
+            for _ in range(1, successor_count):
+                target = random.choice(options)
+                options.remove(target)
+                blocks[i].successors.append(target)
+
+    def _with_unreachable_flows(self, func_name: str, nodes: List[BasicBlock],
+                                min_successors: int, max_successors: int) -> List[BasicBlock]:
+        # Each non-last BB ends in an unconditional branch, so a flow spliced right after it is reached
+        # only by straight-line speculation past that branch — architecturally unreachable.
+        ordered: List[BasicBlock] = []
+        for i, bb in enumerate(nodes):
+            ordered.append(bb)
+            if i == len(nodes) - 1 or random.random() >= CONF.unreachable_bb_probability:
+                continue
+            ordered.extend(
+                self._make_unreachable_flow(func_name, i, nodes[i + 1], min_successors, max_successors))
+        return ordered
+
+    def _make_unreachable_flow(self, func_name: str, parent_idx: int, live_target: BasicBlock,
+                               min_successors: int, max_successors: int) -> List[BasicBlock]:
+        length = random.randint(1, CONF.max_unreachable_flow_length)
+        blocks = [BasicBlock(f".bb_{func_name}.{parent_idx}_u{j}") for j in range(length)]
+        # A random sub-DAG (with internal branches when max_successors allows), rejoining live code.
+        self._wire_dag(blocks, live_target, min_successors, max_successors)
+        return blocks
 
     def generate_instruction(self, spec: InstructionSpec) -> Instruction:
         return spec.generate(self)
