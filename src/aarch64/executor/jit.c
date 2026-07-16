@@ -902,6 +902,14 @@ void jit_blr64(jit_t* jit, int rn) {
 }
 
 // LSR <Xd>, <Xn>, #<shift>
+void jit_rbit64(jit_t* jit, int rd, int rn) {
+	uint32_t insn = 0xdac00000;
+	JIT_ASSERT(0 <= rd && rd <= 31);
+	JIT_ASSERT(0 <= rn && rn <= 31);
+	insn |= rd;
+	insn |= (rn << 5);
+	emit(jit, insn);
+}
 void jit_lsr64(jit_t* jit, int rd, int rn, int shift) {
 	uint32_t insn = 0xd340fc00;
 	JIT_ASSERT(0 <= rd && rd <= 31);

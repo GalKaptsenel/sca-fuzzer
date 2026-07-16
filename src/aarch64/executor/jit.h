@@ -152,6 +152,7 @@ void jit_blr64(jit_t* jit, int rn);
 void jit_lsr64(jit_t* jit, int rd, int rn, int shift);
 void jit_lsl64(jit_t* jit, int rd, int rn, int shift);
 void jit_lslr64(jit_t* jit, int rd, int rn, int rm);
+void jit_rbit64(jit_t* jit, int rd, int rn);
 void jit_lsrr64(jit_t* jit, int rd, int rn, int rm);
 void jit_ror64(jit_t* jit, int rd, int rs, int shift);
 void jit_udiv64(jit_t* jit, int rd, int rn, int rm);

@@ -1,6 +1,5 @@
 #include "main.h"
 #include "jit.h"
-#include <linux/random.h>
 #include <linux/ktime.h>
 
 /* JIT-harness memoization state (see templates_jit.h). jit_cache_valid is the
@@ -155,59 +154,10 @@ static int probe_pfcs_end(jit_t* jit, int pmu1_reg, int pmu2_reg, int pmu3_reg, 
 	return 0;
 }
 
-static void shuffle(int *arr, int n) {
-	for (int i = n - 1; 0 < i; --i) {
-		int j = get_random_u32() % (i + 1);
-
-		int tmp = arr[i];
-		arr[i] = arr[j];
-		arr[j] = tmp;
-	}
-}
-
-static void get_index_order(int* arr, int n) {
-	for(int i = 0; i < n; ++i) {
-		arr[i] = i;
-	}
-	shuffle(arr, n);
-}
-
-static int load_indexes_to_reg(jit_t* jit, uint64_t reg, uint64_t i0, uint64_t i1, uint64_t i2, uint64_t i3, uint64_t i4, uint64_t i5, uint64_t i6, uint64_t i7) {
-	int index_num_size_in_bits = 8;
-
-	uint64_t to_load = 0;
-	to_load ^= i0;
-	to_load <<= index_num_size_in_bits;
-	to_load ^= i1;
-	to_load <<= index_num_size_in_bits;
-	to_load ^= i2;
-	to_load <<= index_num_size_in_bits;
-	to_load ^= i3;
-	to_load <<= index_num_size_in_bits;
-	to_load ^= i4;
-	to_load <<= index_num_size_in_bits;
-	to_load ^= i5;
-	to_load <<= index_num_size_in_bits;
-	to_load ^= i6;
-	to_load <<= index_num_size_in_bits;
-	to_load ^= i7;
-
-	jit_li64(jit, reg, to_load);
-	return 0;
-}
-
-/* Two prime variants selected at build time for the BPU-training experiment:
- *   PRIME_SINGLE_LOOP=1 : ONE pass, ONE loop branch (512 stores).
- *   PRIME_SINGLE_LOOP=0 : ORIGINAL associativity-structured prime, `reps`
- *                         passes, THREE nested loop branches (256 off x 2 way). */
-#ifndef PRIME_SINGLE_LOOP
-#define PRIME_SINGLE_LOOP 1
-#endif
-
-#if PRIME_SINGLE_LOOP
-static int prime(jit_t* jit, int base_reg, int off_reg, int tmp_reg, int assoc_reg, int counter_reg, int reps) {
+/* Prime: fill the whole eviction region with stores, `reps` passes. Linear sweep --
+ * priming fills every set, so no anti-prefetch scrambling (unlike probe/reload). */
+static int prime(jit_t* jit, int base_reg, int off_reg, int tmp_reg, int counter_reg, int reps) {
 	const int nlines = EVICT_REGION_SIZE / 64;
-	(void)assoc_reg;
 
 	adjust_reg(jit, base_reg, tmp_reg, BASE_REGION, EVICTION_REGION);
 	jit_isb(jit);
@@ -237,224 +187,149 @@ static int prime(jit_t* jit, int base_reg, int off_reg, int tmp_reg, int assoc_r
 	adjust_reg(jit, base_reg, tmp_reg, EVICTION_REGION, BASE_REGION);
 	return 0;
 }
-#else
-static int prime(jit_t* jit, int base_reg, int off_reg, int tmp_reg, int assoc_reg, int counter_reg, int reps) {
-	adjust_reg(jit, base_reg, tmp_reg, BASE_REGION, EVICTION_REGION);
+
+/* Flush main + faulty regions + the single overflow line past faulty out of L1D. */
+static int flush(jit_t* jit, int base_reg, int tmp1, int tmp2, int tmp3) {
+	const int cnt = tmp2, addr = tmp3;
+
+	adjust_reg(jit, base_reg, tmp1, BASE_REGION, MAIN_REGION);
 	jit_isb(jit);
 	jit_dsb_sy(jit);
-
-	jit_mov64(jit, counter_reg, reps);
-	uint8_t* prime_outer = jit_get_cur(jit);
-	jit_mov64(jit, off_reg, L1D_CONFLICT_DISTANCE);
-
-	uint8_t* prime_inner = jit_get_cur(jit);
-	jit_sub64(jit, off_reg, off_reg, 64);
-	jit_addr64(jit, tmp_reg, base_reg, off_reg);
-	jit_mov64(jit, assoc_reg, L1D_ASSOCIATIVITY);
-
-	uint8_t* prime_inner_assoc = jit_get_cur(jit);
+	jit_mov64(jit, cnt, 0);
+	uint8_t* main_loop = jit_get_cur(jit);
+	jit_lsl64(jit, addr, cnt, 6);
+	jit_addr64(jit, addr, base_reg, addr);
 	jit_isb(jit);
 	jit_dsb_sy(jit);
-	jit_str64(jit, counter_reg, tmp_reg);
+	jit_dc(jit, addr, DC_CIVAC);
 	jit_isb(jit);
 	jit_dsb_sy(jit);
-	jit_add64(jit, tmp_reg, tmp_reg, L1D_CONFLICT_DISTANCE);
-	jit_sub64(jit, assoc_reg, assoc_reg, 1);
-	jit_cbnz64(jit, assoc_reg, prime_inner_assoc);
+	jit_add64(jit, cnt, cnt, 1);
+	jit_sub64(jit, tmp1, cnt, NINDEXES);
+	jit_cbnz64(jit, tmp1, main_loop);
 
+	adjust_reg(jit, base_reg, tmp1, MAIN_REGION, FAULTY_REGION);
 	jit_isb(jit);
 	jit_dsb_sy(jit);
-	jit_cbnz64(jit, off_reg, prime_inner);
-
-	jit_sub64(jit, counter_reg, counter_reg, 1);
-	jit_cbnz64(jit, counter_reg, prime_outer);
-
+	jit_mov64(jit, cnt, 0);
+	uint8_t* faulty_loop = jit_get_cur(jit);
+	jit_lsl64(jit, addr, cnt, 6);
+	jit_addr64(jit, addr, base_reg, addr);
 	jit_isb(jit);
 	jit_dsb_sy(jit);
-	adjust_reg(jit, base_reg, tmp_reg, EVICTION_REGION, BASE_REGION);
-	return 0;
-}
-#endif
-
-static int flush(jit_t* jit, int base_reg, int tmp) {
-	int indexes[NINDEXES] = { 0 };
-
-	adjust_reg(jit, base_reg, tmp, BASE_REGION, MAIN_REGION);
+	jit_dc(jit, addr, DC_CIVAC);
+	jit_isb(jit);
+	jit_dsb_sy(jit);
+	jit_add64(jit, cnt, cnt, 1);
+	jit_sub64(jit, tmp1, cnt, NINDEXES);
+	jit_cbnz64(jit, tmp1, faulty_loop);
 
 	jit_isb(jit);
 	jit_dsb_sy(jit);
 
-	get_index_order(indexes, NINDEXES);
-	for(int nindex = 0; nindex < NINDEXES; ++nindex) {
-		jit_mov64(jit, tmp, indexes[nindex]);
-		jit_lsl64(jit, tmp, tmp, 6);
-		jit_addr64(jit, tmp, tmp, base_reg);
-		jit_isb(jit);
-		jit_dsb_sy(jit);
-		jit_dc(jit, tmp, DC_CIVAC);
-		jit_isb(jit);
-		jit_dsb_sy(jit);
-	}
-
-	adjust_reg(jit, base_reg, tmp, MAIN_REGION, FAULTY_REGION);
-
-	jit_isb(jit);
-	jit_dsb_sy(jit);
-
-	get_index_order(indexes, NINDEXES);
-	for(int nindex = 0; nindex < NINDEXES; ++nindex) {
-		jit_mov64(jit, tmp, indexes[nindex]);
-		jit_lsl64(jit, tmp, tmp, 6);
-		jit_addr64(jit, tmp, tmp, base_reg);
-		jit_isb(jit);
-		jit_dsb_sy(jit);
-		jit_dc(jit, tmp, DC_CIVAC);
-		jit_isb(jit);
-		jit_dsb_sy(jit);
-	}
-
-	jit_isb(jit);
-	jit_dsb_sy(jit);
-
-	adjust_reg(jit, base_reg, tmp, FAULTY_REGION, UPPER_OVERFLOW_REGION);
+	/* single overflow line past faulty: catches a multi-byte access whose masked
+	 * base sits in the last line of faulty and spills one line over */
+	adjust_reg(jit, base_reg, tmp1, FAULTY_REGION, UPPER_OVERFLOW_REGION);
 	jit_isb(jit);
 	jit_dsb_sy(jit);
 	jit_dc(jit, base_reg, DC_CIVAC);
 	jit_isb(jit);
 	jit_dsb_sy(jit);
-	adjust_reg(jit, base_reg, tmp, UPPER_OVERFLOW_REGION, BASE_REGION);
+	adjust_reg(jit, base_reg, tmp1, UPPER_OVERFLOW_REGION, BASE_REGION);
 	return 0;
 }
 
+/* Probe the eviction region; set bit `set` iff evicted by the test (timed load slow).
+ * Loop walks sets in rbit (bitrev6) order -- no constant stride for the prefetcher. */
 static int probe(jit_t* jit, int base_reg, int tmp1, int tmp2, int tmp3, int index_reg, int destination_reg) {
-	const int l1d_size = L1D_SIZE;
 	const int zero_reg = 31;
-	const int aggregate_chunks = l1d_size / 4096;
-	const int indexes_per_iteration = 8;
-	const int index_size_in_bits = 8;
-
-	int indexes[NINDEXES] = { 0 };
-	get_index_order(indexes, NINDEXES);
+	const int aggregate_chunks = L1D_SIZE / 4096;
+	const int cnt = tmp3, idx = index_reg, off = tmp1, t_pre = tmp2, t_post = tmp1;
 
 	jit_isb(jit);
 	jit_dsb_sy(jit);
-
 	adjust_reg(jit, base_reg, tmp1, BASE_REGION, EVICTION_REGION);
 	jit_eor64(jit, destination_reg, destination_reg, destination_reg);
 
-
-	for(int i = 0; i < 8; ++i) {
-		load_indexes_to_reg(jit, index_reg, indexes[i*indexes_per_iteration], indexes[i*indexes_per_iteration + 1], indexes[i*indexes_per_iteration + 2], indexes[i*indexes_per_iteration + 3],
-					indexes[i*indexes_per_iteration + 4], indexes[i*indexes_per_iteration + 5], indexes[i*indexes_per_iteration + 6], indexes[i*indexes_per_iteration + 7]);
-
-		for(int j = 0; j < 8; ++j) {
-			jit_ubfx64(jit, tmp1, index_reg, j*index_size_in_bits, index_size_in_bits);
-			jit_lsl64(jit, tmp1, tmp1, 6);
-			
-			jit_isb(jit);
-			jit_dsb_sy(jit);
-			jit_read64_pmu(jit, 0, tmp3);
-			jit_isb(jit);
-			jit_dsb_sy(jit);
-
-			for(int k = 0; k < aggregate_chunks; ++k) {
-				jit_ldr64shift0(jit, zero_reg, base_reg, tmp1);
-				jit_add64(jit, tmp1, tmp1, 4096);
-			}
-
-			jit_isb(jit);
-			jit_dsb_sy(jit);
-			jit_read64_pmu(jit, 0, tmp2);
-			jit_isb(jit);
-			jit_dsb_sy(jit);
-			jit_subr64(jit, tmp2, tmp2, tmp3);
-			jit_cbz32(jit, tmp2, jit_get_cur(jit) + 4 * 5);
-			jit_ubfx64(jit, tmp1, index_reg, j*index_size_in_bits, index_size_in_bits);
-			jit_mov64(jit, tmp2, 1);
-			jit_lslr64(jit, tmp2, tmp2, tmp1);
-			jit_orr64(jit, destination_reg, destination_reg, tmp2);
-		}
-	}
+	jit_mov64(jit, cnt, 0);
+	uint8_t* loop = jit_get_cur(jit);
+	jit_rbit64(jit, idx, cnt);            /* idx = rbit(cnt) ... */
+	jit_lsr64(jit, idx, idx, 58);         /* ... >> 58 = bitrev6(cnt) in [0,63] */
+	jit_lsl64(jit, off, idx, 6);          /* byte offset of that set */
 
 	jit_isb(jit);
 	jit_dsb_sy(jit);
+	jit_read64_pmu(jit, 0, t_pre);
+	jit_isb(jit);
+	jit_dsb_sy(jit);
+	for (int k = 0; k < aggregate_chunks; ++k) {   /* one line per 4K page mapping to this set */
+		jit_ldr64shift0(jit, zero_reg, base_reg, off);
+		jit_add64(jit, off, off, 4096);
+	}
+	jit_isb(jit);
+	jit_dsb_sy(jit);
+	jit_read64_pmu(jit, 0, t_post);       /* t_post aliases tmp1: off is dead after the loads */
+	jit_isb(jit);
+	jit_dsb_sy(jit);
+	jit_subr64(jit, t_post, t_post, t_pre);           /* cycle delta */
+	jit_cbz32(jit, t_post, jit_get_cur(jit) + 4 * 4); /* fast (still primed) -> skip the 3-insn bit set */
+	jit_mov64(jit, t_pre, 1);             /* t_pre free after the delta */
+	jit_lslr64(jit, t_pre, t_pre, idx);
+	jit_orr64(jit, destination_reg, destination_reg, t_pre);
+	jit_add64(jit, cnt, cnt, 1);
+	jit_sub64(jit, tmp1, cnt, NINDEXES);
+	jit_cbnz64(jit, tmp1, loop);
 
+	jit_isb(jit);
+	jit_dsb_sy(jit);
 	adjust_reg(jit, base_reg, tmp1, EVICTION_REGION, BASE_REGION);
 	return 0;
 }
 
-static int reload(jit_t* jit, int base_reg, int tmp1, int tmp2, int index_reg, int destination_reg) {
+/* Reload main + faulty (+ overflow line); set bit `set` iff resident (timed load hit).
+ * Loop walks sets in rbit (bitrev6) order -- no constant stride for the prefetcher. */
+static int reload(jit_t* jit, int base_reg, int tmp1, int tmp2, int tmp3, int index_reg, int destination_reg) {
 	const int zero_reg = 31;
-	const int index_size_in_bits = 8;
-	const int indexes_per_iteration = 8;
-	int indexes[NINDEXES] = { 0 };
+	const int cnt = tmp3, idx = index_reg, off = tmp1, t_pre = tmp2, t_post = tmp1;
+	const enum template_regions region_from[2] = { BASE_REGION, MAIN_REGION };
+	const enum template_regions region_to[2]   = { MAIN_REGION, FAULTY_REGION };
 
-	adjust_reg(jit, base_reg, tmp1, BASE_REGION, MAIN_REGION);
 	jit_eor64(jit, destination_reg, destination_reg, destination_reg);
 
-	jit_isb(jit);
-	jit_dsb_sy(jit);
-
-	get_index_order(indexes, NINDEXES);
-	for(int i = 0; i < 8; ++i) {
-		load_indexes_to_reg(jit, index_reg, indexes[i*indexes_per_iteration], indexes[i*indexes_per_iteration + 1], indexes[i*indexes_per_iteration + 2], indexes[i*indexes_per_iteration + 3],
-					indexes[i*indexes_per_iteration + 4], indexes[i*indexes_per_iteration + 5], indexes[i*indexes_per_iteration + 6], indexes[i*indexes_per_iteration + 7]);
-
-		for(int j = 0; j < indexes_per_iteration; ++j) {
-
-			jit_ubfx64(jit, tmp1, index_reg, j*index_size_in_bits, index_size_in_bits);
-			jit_lsl64(jit, tmp1, tmp1, 6);
-
-			jit_isb(jit);
-			jit_dsb_sy(jit);
-			jit_read64_pmu(jit, 0, tmp2);
-			jit_isb(jit);
-			jit_dsb_sy(jit);
-			jit_ldr64shift0(jit, zero_reg, base_reg, tmp1);
-			jit_isb(jit);
-			jit_dsb_sy(jit);
-			jit_read64_pmu(jit, 0, tmp1);
-			jit_isb(jit);
-			jit_dsb_sy(jit);
-			jit_subr64(jit, tmp1, tmp1, tmp2);
-			jit_cbnz64(jit, tmp1, jit_get_cur(jit) + 4 * 5);
-			jit_mov64(jit, tmp2, 1);
-			jit_ubfx64(jit, tmp1, index_reg, j*index_size_in_bits, index_size_in_bits);
-			jit_lslr64(jit, tmp2, tmp2, tmp1);
-			jit_orr64(jit, destination_reg, destination_reg, tmp2);
-		}
+	for (int r = 0; r < 2; ++r) {
+		adjust_reg(jit, base_reg, tmp1, region_from[r], region_to[r]);
+		jit_isb(jit);
+		jit_dsb_sy(jit);
+		jit_mov64(jit, cnt, 0);
+		uint8_t* loop = jit_get_cur(jit);
+		jit_rbit64(jit, idx, cnt);            /* idx = rbit(cnt) ... */
+		jit_lsr64(jit, idx, idx, 58);         /* ... >> 58 = bitrev6(cnt) in [0,63] */
+		jit_lsl64(jit, off, idx, 6);          /* byte offset of that set */
+		jit_isb(jit);
+		jit_dsb_sy(jit);
+		jit_read64_pmu(jit, 0, t_pre);
+		jit_isb(jit);
+		jit_dsb_sy(jit);
+		jit_ldr64shift0(jit, zero_reg, base_reg, off);
+		jit_isb(jit);
+		jit_dsb_sy(jit);
+		jit_read64_pmu(jit, 0, t_post);       /* t_post aliases tmp1: off is dead after the load */
+		jit_isb(jit);
+		jit_dsb_sy(jit);
+		jit_subr64(jit, t_post, t_post, t_pre);           /* cycle delta */
+		jit_cbnz64(jit, t_post, jit_get_cur(jit) + 4 * 4); /* miss -> skip the 3-insn bit set */
+		jit_mov64(jit, t_pre, 1);             /* t_pre free after the delta */
+		jit_lslr64(jit, t_pre, t_pre, idx);
+		jit_orr64(jit, destination_reg, destination_reg, t_pre);
+		jit_add64(jit, cnt, cnt, 1);
+		jit_sub64(jit, tmp1, cnt, NINDEXES);
+		jit_cbnz64(jit, tmp1, loop);
 	}
 
-	adjust_reg(jit, base_reg, tmp1, MAIN_REGION, FAULTY_REGION);
-
 	jit_isb(jit);
 	jit_dsb_sy(jit);
 
-	get_index_order(indexes, NINDEXES);
-	for(int nindex = 0; nindex < NINDEXES; ++nindex) {
-		jit_mov64(jit, tmp1, indexes[nindex]);
-		jit_lsl64(jit, tmp1, tmp1, 6);
-		jit_isb(jit);
-		jit_dsb_sy(jit);
-		jit_read64_pmu(jit, 0, tmp2);
-		jit_isb(jit);
-		jit_dsb_sy(jit);
-		jit_ldr64shift0(jit, zero_reg, base_reg, tmp1);
-		jit_isb(jit);
-		jit_dsb_sy(jit);
-		jit_read64_pmu(jit, 0, tmp1);
-		jit_isb(jit);
-		jit_dsb_sy(jit);
-		jit_subr64(jit, tmp1, tmp1, tmp2);
-		jit_cbnz64(jit, tmp1, jit_get_cur(jit) + 4 * 3);
-		jit_mov64(jit, tmp2, 1);
-		jit_orr64_shift(jit, destination_reg, destination_reg, tmp2, LSL, indexes[nindex]);
-	}
-
-
-	jit_isb(jit);
-	jit_dsb_sy(jit);
-
+	/* single overflow line past faulty -> bit 0 */
 	adjust_reg(jit, base_reg, tmp1, FAULTY_REGION, UPPER_OVERFLOW_REGION);
 	jit_mov64(jit, tmp1, 0);
 	jit_isb(jit);
@@ -499,7 +374,7 @@ static size_t prime_probe_method(jit_t* jit, uint32_t* tc, size_t tc_size, size_
 #ifndef PRIME_REPS
 #define PRIME_REPS 4
 #endif
-	prime(jit, base_reg, tmp_reg1, tmp_reg2, tmp_reg3, tmp_reg4, PRIME_REPS);
+	prime(jit, base_reg, tmp_reg1, tmp_reg2, tmp_reg3, PRIME_REPS);
 
 	adjust_reg(jit, base_reg, tmp_reg1, BASE_REGION, MAIN_REGION);
 
@@ -542,6 +417,7 @@ static size_t flush_reload_method(jit_t* jit, uint32_t* tc, size_t tc_size, size
 	int tmp_reg1 = 16;
 	int tmp_reg2 = 17;
 	int tmp_reg3 = 18;
+	int tmp_reg4 = 19;
 
 	uintptr_t start = (uintptr_t)jit_get_cur(jit);
 	jit_perm_rw(jit);
@@ -549,7 +425,7 @@ static size_t flush_reload_method(jit_t* jit, uint32_t* tc, size_t tc_size, size
 	prologue(jit, base_reg, tmp_reg1);
 	set_registers_from_input(jit, base_reg, tmp_reg1);
 
-	flush(jit, base_reg, tmp_reg1);
+	flush(jit, base_reg, tmp_reg1, tmp_reg2, tmp_reg3);
 
 	adjust_reg(jit, base_reg, tmp_reg1, BASE_REGION, MAIN_REGION);
 
@@ -572,7 +448,7 @@ static size_t flush_reload_method(jit_t* jit, uint32_t* tc, size_t tc_size, size
 
 	adjust_reg(jit, base_reg, tmp_reg1, MAIN_REGION, BASE_REGION);
 
-	reload(jit, base_reg, tmp_reg1, tmp_reg2, tmp_reg3, hw_trace_reg);
+	reload(jit, base_reg, tmp_reg1, tmp_reg2, tmp_reg3, tmp_reg4, hw_trace_reg);
 
 	epilogue(jit, base_reg, hw_trace_reg, pmu1_reg, pmu2_reg, pmu3_reg, tmp_reg1);
 	jit_ret(jit, 30);
