@@ -1,0 +1,64 @@
+
+INFO: [input_gen] Setting input seed to: 2719772084
+Loading input: violations_fr/violation-260716-181940/input_0009.reif
+### All measurements: 1 input per super-batch, 100 reps, 3 trials.
+
+=== A: CROSS-CORE (demand faulty+0x000, prefetch expected [2,3,4,5,6]) ===
+  cpu0 A510 (in-order)               [2, 3, 4, 5, 6]            stable
+  cpu4 A715 (OoO)                    []                         stable
+  cpu8 X3 (OoO)                      []                         stable
+
+=== B: DATA-INDEPENDENCE (address FIXED at faulty+0x000; memory CONTENTS varied) ===
+  all zeros                          [2, 3, 4, 5, 6]            stable
+  all ones                           [2, 3, 4, 5, 6]            stable
+  pattern 0x5a..                     [2, 3, 4, 5, 6]            stable
+  value = a sandbox offset           [2, 3, 4, 5, 6]            stable
+
+=== C: FAULTY demand sets 0..15 ALONE (does the 'set>=8 never prefetches' cutoff hold?) ===
+  faulty set 0  (V=0x1000)           [2, 3, 4, 5, 6]            stable
+  faulty set 1  (V=0x1040)           [13, 17, 25]               *** UNSTABLE ***
+    trial 2                          [13]
+    trial 3                          [7, 13]
+  faulty set 2  (V=0x1080)           [18, 26, 34, 42, 50]       stable
+  faulty set 3  (V=0x10c0)           [19, 27, 35, 43, 51]       stable
+  faulty set 4  (V=0x1100)           [20, 28, 36, 44, 52]       stable
+  faulty set 5  (V=0x1140)           [21, 29, 37, 45, 53]       stable
+  faulty set 6  (V=0x1180)           [22, 30, 38, 46, 54]       stable
+  faulty set 7  (V=0x11c0)           [39, 47, 55]               stable
+  faulty set 8  (V=0x1200)           []                         stable
+  faulty set 9  (V=0x1240)           []                         stable
+  faulty set 10 (V=0x1280)           []                         stable
+  faulty set 11 (V=0x12c0)           []                         stable
+  faulty set 12 (V=0x1300)           []                         stable
+  faulty set 13 (V=0x1340)           []                         stable
+  faulty set 14 (V=0x1380)           []                         stable
+  faulty set 15 (V=0x13c0)           []                         stable
+
+=== D: MAIN demand sets 0..7 ALONE (contaminated batches said 'main never streams') ===
+  main set 0  (V=0x0000)             [2, 3, 4, 5, 6]            stable
+  main set 1  (V=0x0040)             [7, 9, 13]                 *** UNSTABLE ***
+    trial 2                          [7, 13]
+    trial 3                          [13]
+  main set 2  (V=0x0080)             [18, 26, 34, 42, 50]       stable
+  main set 3  (V=0x00c0)             [19, 27, 35, 43, 51]       stable
+  main set 4  (V=0x0100)             [20, 28, 36, 44, 52]       stable
+  main set 5  (V=0x0140)             [21, 29, 37, 45, 53]       stable
+  main set 6  (V=0x0180)             [22, 30, 38, 46, 54]       stable
+  main set 7  (V=0x01c0)             [39, 47, 55]               stable
+
+=== E: PAGE DISAMBIGUATION (demand faulty+0x080 = set 2 -> prefetch [18,26,34,42,50]) ===
+    set 18 == faulty+0x480 OR main+0x480 (the two pages alias onto the same 64 sets).
+  no extra flush                     [18, 26, 34, 42, 50]       stable
+  flush faulty+0x480 (set 18)        [26, 34, 42, 50]           stable
+  flush main+0x480   (set 18)        [18, 26, 34, 42, 50]       stable
+
+=== F: FLUSH vs NO-FLUSH, ALONE (the headline claim) ===
+  --- V=0x1000 (demand set 0)
+    without dc civac                 [2, 3, 4, 5, 6]            stable
+    with dc civac                    [2, 3, 4, 5, 6]            stable
+  --- V=0x1080 (demand set 2)
+    without dc civac                 [18, 26, 34, 42, 50]       stable
+    with dc civac                    [18, 26, 34, 42, 50]       stable
+  --- V=0x10c0 (demand set 3)
+    without dc civac                 [19, 27, 35, 43, 51]       stable
+    with dc civac                    [19, 27, 35, 43, 51]       stable

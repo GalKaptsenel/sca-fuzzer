@@ -61,7 +61,11 @@ across all V (the first load `ldr`@set23 and its ±8 A510 artifacts) and are exc
 | 0x1020 | faulty | 0 | [2, 3, 4, 5, 6] | [2, 3, 4, 5, 6] |
 | 0x1030 | faulty | 0 | [2, 3, 4, 5, 6] | [2, 3, 4, 5, 6] |
 
-## Main region — demand sets 0..15 (V = set*0x40)  [no streaming]
+## Main region — demand sets 0..15 (V = set*0x40)  [no streaming] — **RETRACTED: BATCH-CONTAMINATED**
+**This table is WRONG.** Measured alone (`verify_claims.py`, 3 trials, stable), main prefetches IDENTICALLY to
+faulty: set 0 -> [2,3,4,5,6]; set 2 -> [18,26,34,42,50]; set 3 -> [19,27,35,43,51]; set 4 -> [20,28,36,44,52];
+set 5 -> [21,29,37,45,53]; set 6 -> [22,30,38,46,54]; set 7 -> [39,47,55]. Set 1 is unstable on BOTH pages.
+Kept below only as the record of the contaminated measurement.
 | V (offset) | region | demand set | lit sets (>0.5, ex. bg 15/23/31) | prefetched Δset from demand |
 |---|---|---|---|---|
 | 0x0000 | main | 0 | [] | [] |
@@ -129,6 +133,10 @@ Each bit XORed into the faulty page's leaf PTE only during the measured run (sav
 Consistent with the identical-PTE finding: the main-vs-faulty behavior is positional/contention, not attributes.
 
 ## Interpretation
+**SUPERSEDED IN PART (2026-07-17, `verify_claims.py`, single-input):** the "main-vs-faulty" bullets below are
+WRONG — measured alone, **main and faulty behave identically** at every demand set 0-7; the asymmetry was batch
+contamination. The trigger-zone / stride / A510-only / address-driven bullets are CONFIRMED alone.
+
 - The cached block **tracks the demand address** (Δset shifts +1 with the demand for sets 1-6) ⇒ a **hardware
   prefetcher**, not an architectural artifact.
 - Fixed footprint: demand set 0 → sets 2-6; demand sets 1-6 → demand+{16,24,32,40,48} sets (= +1KB, +1.5KB, +2KB,
