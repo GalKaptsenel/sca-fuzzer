@@ -188,6 +188,14 @@ boosting deliberately groups related inputs — precisely the condition that cre
 
 ## Prior work (literature search, 2026-07-17)
 
+- **A510 TRM §8.5** (101604_0102_21_en, p76) lists the conditions that end a prefetch stream, including
+  verbatim: *"A data cache maintenance operation is committed."* This does **not** contradict our result —
+  ending a *stream* is not invalidating *lines already fetched* — but it sharpens the framing two ways.
+  (i) A defender reading the TRM would reasonably conclude `DC CIVAC` stops the prefetcher; it does, the stream
+  ends, yet the 5 already-installed lines stay resident and those are what leak. (ii) Our `flush()` issues 256
+  CMOs before **every** run, which per §8.5 should end all streams — yet contamination still crosses inputs. So
+  the contamination is **learned state** (tables/offsets), not live streams. ARM never states that a CMO clears
+  the prefetcher's learned tables, only that streams "end"; that gap is unspecified in every retrieved doc.
 - **ARM erratum 2077160** (SDEN-1873361, Category C) is the closest vendor prior art: *"causing the cache clean
   and invalidate to not clean and invalidate the line brought in by the hardware prefetch."* **It does not
   explain our result**: it requires a change in cacheability (break-before-make) and is **fixed in r0p3**,
