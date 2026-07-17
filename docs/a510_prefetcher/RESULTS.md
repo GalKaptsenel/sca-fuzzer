@@ -314,6 +314,29 @@ code touches EXACTLY ONE line (faulty+0x000, set 0) and five untouched lines lig
   +16,+24,+32,+40,+48 (stride 8). #9's access lands exactly at set 0. Unexplained.
 - `x1=0x1040` (demand set 1) is **UNSTABLE** across runs ([13] / [13,17,25] / [17,25,33,41,49]) — do not trust it.
 
+### *** EXP4 — VERDICT: #9 and #28 are IDENTICAL when measured ALONE (2026-07-17, 300 reps) ***
+`alone_9_28.py`. Each counterexample measured ALONE in its own super-batch (identical empty predecessor
+context), vs the original 29-input batch the violation was found in:
+
+|  | #9 block2-6 | #9 lit | #28 block2-6 | #28 lit | identical? |
+|---|---|---|---|---|---|
+| ALONE trial 1 | 0.99 | [0,2,3,4,5,6,15,23,31] | 0.91 | [0,2,3,4,5,6,15,23,31] | **YES** |
+| ALONE trial 2 | 0.96 | [0,2,3,4,5,6,15,23,31] | 0.91 | [0,2,3,4,5,6,15,23,31] | **YES** |
+| ALONE trial 3 | 0.99 | [0,2,3,4,5,6,15,23,31] | 0.91 | [0,2,3,4,5,6,15,23,31] | **YES** |
+| GROUPED (29)  | 0.89 | [0,2,3,4,5,6,15,23,31] | 0.37 | [0,15,23,31]           | no |
+
+=> **violation-260716-181940 is a FALSE POSITIVE.** The inputs are architecturally AND
+micro-architecturally equivalent. #28 collapses from 0.91 alone to 0.34-0.37 grouped; that collapse IS the
+violation. #9 barely moves (0.99 -> 0.89) because its predecessors happen not to suppress it.
+
+Mechanism = **predecessor/batch context** (EXP3): A510 prefetcher training carries across inputs within one
+super-batch. This was the original day-one hypothesis ("#9 and #28, due to their predecessors, have different
+prefetcher behaviour"), dismissed in favour of walk-position and page-attribute models that HW refuted.
+
+**Implication beyond this violation:** every htrace the fuzzer compares comes from a multi-input super-batch,
+so the confound applies to ALL of them. Boosting deliberately groups related inputs -- exactly the condition
+that creates it. Priming does NOT catch it: re-measuring inside a batch reproduces the contamination.
+
 ### *** EXP3 — BATCH NEIGHBOURS CONTAMINATE THE RESULT (2026-07-17, 100 reps) — supersedes EXP1-main ***
 `scripts/isolate.py`. The same address, measured ALONE in its own super-batch vs GROUPED with other inputs:
 
@@ -377,10 +400,9 @@ cache residency — not an F+R walk artifact.** This also resolves the main-vs-f
 htrace (main and faulty share the same 64 sets, OR'd): flushing the **faulty** address darkens the set, so the
 resident lines are in faulty.
 
-### Status of the violation
-The "harness artifact / false positive" verdict is **RETRACTED and UNRESOLVED**. What is established: the lit
-sets are real prefetches; the footprint is demand-address-driven; the main-vs-faulty asymmetry survives a
-position-neutral harness. What is NOT established: why main and faulty differ, and therefore whether
-violation-260716-181940 is a genuine leak or a prefetcher-geometry artifact.
+### Status of the violation — RESOLVED: FALSE POSITIVE (see EXP4)
+Cause = predecessor/batch contamination of the L1 prefetcher, NOT a leak and NOT the F+R walk. Measured alone,
+the two counterexamples are identical (3/3 trials). The main-vs-faulty asymmetry that motivated the earlier
+"unexplained" status was itself the same confound (EXP3) and does not exist when inputs are measured alone.
 
 (The TEMP(lmfu) flush/reload extension is EXPERIMENTAL — revert before normal fuzzing.)
