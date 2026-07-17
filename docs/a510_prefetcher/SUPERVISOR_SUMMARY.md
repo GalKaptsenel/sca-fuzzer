@@ -48,6 +48,15 @@ fixed offset from A, in the same page. Nothing in the victim touched them; only 
 installed them. Flushing A does not disturb them at all (experiment F). An attacker probing after the
 victim's flush recovers the demand set from the survivors alone.
 
+**Do not overclaim this.** A prefetched line is just a cache line: `DC CIVAC` works by address and carves out
+no exception for how the line arrived. Our own knockout (§9) proves it — naming `faulty+0x080` evicts set 2
+normally. So flush-survival is **architecturally unremarkable**: flushing A leaves lines at A+1KB because you
+did not flush A+1KB. Confirmed by grep of the full TRM: of the five co-occurrences of "maintenance" and
+"prefetch", four are PMU event definitions and the fifth is §8.5's stream-end bullet; ARM says nothing about
+flushing prefetched lines because there is nothing to say. **The contribution is therefore NOT the flush — it
+is that the defender cannot know which addresses to flush**: the offsets, the 512 B trigger zone, and
+`prfm` firing the prefetcher are all undocumented.
+
 **The point is scrubbing completeness, not a flush bug.** `DC CIVAC` does exactly what it is specified to do
 — one line, by VA. The problem is that the defender would have to also flush 5 further addresses whose offsets
 ARM does not document (and which we had to measure). Scrubbing built on flushing "the line I touched" is
