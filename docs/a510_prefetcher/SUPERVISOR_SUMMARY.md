@@ -68,9 +68,23 @@ Victim (x1 comes from the input, so the demand address is input-driven; the vict
 
     and x1, x1, #0x1fff ; add x0, x29, x1 ; ldr x3, [x0] ; dc civac, x0 ; dsb ish ; isb
 
-### 1. A single access is enough — no training, no speculation
-One load in a 6-instruction test case triggers the prefetch. No loop, no repetition, no warm-up, no branch
-mistraining, no speculative window. (Contrast Spectre-style gadgets, which require a mistrained predictor.)
+### 1. A single access is enough — no training  **[NOT ESTABLISHED — see caveat]**
+The victim is one load in a 6-instruction test case: no loop, no branch mistraining, no speculative window.
+
+**CAVEAT (do not state this as a finding).** The test case is executed **~100 reps back-to-back plus warmup
+rounds, all at the SAME address**, so the prefetcher sees that address ~100+ times in quick succession. TRM
+§8.5 says the engine *"looks for cache line fetches with regular or repetitive patterns"* — i.e. the repetition
+across reps could be doing the training, and a one-access *test case* does not demonstrate a one-access
+*trigger*. A true first-touch test (an address never accessed before, measured once) has NOT been done, and is
+hard here: prefetcher state demonstrably persists across runs (see Methodology) and no CPUECTLR bit disables
+the A510 L1 stride prefetcher to force a clean slate.
+
+Partial defence, not decisive: demand set 8 never prefetches even over 100 identical reps (if repetition alone
+built a stream, set 8 should eventually stream too — it does not, stably), so repetition cannot be the whole
+mechanism and the trigger zone is real. The §2 `prfm` result also stands independent of the training story.
+
+What IS established: no *branch* mistraining and no speculative window are needed (see the speculation test:
+a load behind a branch that skips it leaves nothing, even with the branch trained the wrong way).
 
 ### 2. Any access type triggers it — including a store
 Replacing the trigger instruction in place (F+R block strength):
