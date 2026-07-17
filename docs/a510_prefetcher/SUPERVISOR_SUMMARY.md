@@ -141,7 +141,23 @@ Two robust structural facts:
 - **Five lines per trigger**, at +1 KB…+3 KB with a 512 B stride. Demand set 0 is the exception, using a
   tighter +128 B…+384 B / 64 B stride — **unexplained**.
 
-### 6. It stays inside the demand's own page — NOT the next page (experiment E)
+### 6. Page containment — **CLAIM WITHDRAWN; this test proves something narrower**
+**ARM documents the OPPOSITE as possible.** TRM §8.5, p76, verbatim: *"The prefetcher is based on virtual
+addresses. **It can therefore cross page boundaries** as long as the new page is still cacheable and has read
+permission."* There is no region/granule limit anywhere in the doc.
+
+**And our same-page result is arithmetically forced, not discovered.** The trigger zone is demand sets 0-7 and
+the targets are +1 KB…+3 KB: demand set 7 sits at page offset 0x1c0, and +48 sets lands at 0xdc0 — still
+inside the page. **Every target of every triggering demand stays in-page by construction.** We never tested a
+crossing and, with these parameters, cannot: the only demands whose targets would cross are at set >= 8, and
+those do not prefetch at all.
+
+What experiment E DOES establish (still useful): it disambiguates the htrace aliasing — main and faulty share
+the same 64 sets, and flushing the **faulty** address is what darkens the set, so the resident lines are in
+faulty alongside the demand. That is a measurement-validity result, **not** a statement about page-crossing
+policy.
+
+(original experiment E, retained as the aliasing disambiguation:)
 Demand `faulty+0x080` (set 2) → prefetches sets [18,26,34,42,50]. Set 18 could be `faulty+0x480` (same page)
 or `main+0x480` (the other page) — they alias. Flushing one and not the other decides it:
 
@@ -151,8 +167,8 @@ or `main+0x480` (the other page) — they alias. Flushing one and not the other 
 | **faulty+0x480** (set 18) | **[26, 34, 42, 50]** — set 18 darkened | stable |
 | **main+0x480** (set 18) | [18, 26, 34, 42, 50] — unchanged | stable |
 
-The prefetched lines live in **faulty, alongside the demand**: same page, forward within it. (Also the
-conventional design — prefetchers do not cross a 4 KB boundary.)
+The prefetched lines live in **faulty, alongside the demand**. Note this only disambiguates *which page holds
+the line*; it is not evidence about page-crossing policy (see above — ARM says crossing is permitted).
 
 ### 7. Which address bits matter
 - **bits [5:0]: no effect** — `0x1000`/`0x1001`/`0x1020` all give `[2,3,4,5,6]` (same 64 B line).
