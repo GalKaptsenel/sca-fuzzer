@@ -89,38 +89,43 @@ def pin(core):
     conn.shell(f'echo {core} > {sysfs}/pin_to_core', privileged=True)
 
 
-print(f"### All measurements: 1 input per super-batch, {REPS} reps, {N_TRIALS} trials.\n")
+def main():
+    print(f"### All measurements: 1 input per super-batch, {REPS} reps, {N_TRIALS} trials.\n")
 
-print("=== A: CROSS-CORE (demand faulty+0x000, prefetch expected [2,3,4,5,6]) ===")
-for core, name in ((0, 'cpu0 A510 (in-order)'), (4, 'cpu4 A715 (OoO)'), (8, 'cpu8 X3 (OoO)')):
-    pin(core)
-    show(name, trials(0x1000))
-pin(0)
+    print("=== A: CROSS-CORE (demand faulty+0x000, prefetch expected [2,3,4,5,6]) ===")
+    for core, name in ((0, 'cpu0 A510 (in-order)'), (4, 'cpu4 A715 (OoO)'), (8, 'cpu8 X3 (OoO)')):
+        pin(core)
+        show(name, trials(0x1000))
+    pin(0)
 
-print("\n=== B: DATA-INDEPENDENCE (address FIXED at faulty+0x000; memory CONTENTS varied) ===")
-for fill, name in ((0x0000000000000000, 'all zeros'),
-                   (0xffffffffffffffff, 'all ones'),
-                   (0x5a5a5a5a5a5a5a5a, 'pattern 0x5a..'),
-                   (0x0000000000001080, 'value = a sandbox offset')):
-    show(name, trials(0x1000, fill=fill))
+    print("\n=== B: DATA-INDEPENDENCE (address FIXED at faulty+0x000; memory CONTENTS varied) ===")
+    for fill, name in ((0x0000000000000000, 'all zeros'),
+                       (0xffffffffffffffff, 'all ones'),
+                       (0x5a5a5a5a5a5a5a5a, 'pattern 0x5a..'),
+                       (0x0000000000001080, 'value = a sandbox offset')):
+        show(name, trials(0x1000, fill=fill))
 
-print("\n=== C: FAULTY demand sets 0..15 ALONE (does the 'set>=8 never prefetches' cutoff hold?) ===")
-for s in range(16):
-    show(f'faulty set {s:<2} (V={0x1000 + s*0x40:#06x})', trials(0x1000 + s * 0x40))
+    print("\n=== C: FAULTY demand sets 0..15 ALONE (does the 'set>=8 never prefetches' cutoff hold?) ===")
+    for s in range(16):
+        show(f'faulty set {s:<2} (V={0x1000 + s*0x40:#06x})', trials(0x1000 + s * 0x40))
 
-print("\n=== D: MAIN demand sets 0..7 ALONE (contaminated batches said 'main never streams') ===")
-for s in range(8):
-    show(f'main set {s:<2} (V={s*0x40:#06x})', trials(s * 0x40))
+    print("\n=== D: MAIN demand sets 0..7 ALONE (contaminated batches said 'main never streams') ===")
+    for s in range(8):
+        show(f'main set {s:<2} (V={s*0x40:#06x})', trials(s * 0x40))
 
-print("\n=== E: PAGE DISAMBIGUATION (demand faulty+0x080 = set 2 -> prefetch [18,26,34,42,50]) ===")
-print("    set 18 == faulty+0x480 OR main+0x480 (the two pages alias onto the same 64 sets).")
-show('no extra flush',                 trials(0x1080))
-show('flush faulty+0x480 (set 18)',    trials(0x1080, extra_flushes=(0x1480,)))
-show('flush main+0x480   (set 18)',    trials(0x1080, extra_flushes=(0x0480,)))
+    print("\n=== E: PAGE DISAMBIGUATION (demand faulty+0x080 = set 2 -> prefetch [18,26,34,42,50]) ===")
+    print("    set 18 == faulty+0x480 OR main+0x480 (the two pages alias onto the same 64 sets).")
+    show('no extra flush',                 trials(0x1080))
+    show('flush faulty+0x480 (set 18)',    trials(0x1080, extra_flushes=(0x1480,)))
+    show('flush main+0x480   (set 18)',    trials(0x1080, extra_flushes=(0x0480,)))
 
-print("\n=== F: FLUSH vs NO-FLUSH, ALONE (the headline claim) ===")
-for V in (0x1000, 0x1080, 0x10c0):
-    d = (V // 64) % 64
-    print(f"  --- V={V:#06x} (demand set {d})")
-    show('  without dc civac', trials(V, flush_demand=False))
-    show('  with dc civac',    trials(V, flush_demand=True))
+    print("\n=== F: FLUSH vs NO-FLUSH, ALONE (the headline claim) ===")
+    for V in (0x1000, 0x1080, 0x10c0):
+        d = (V // 64) % 64
+        print(f"  --- V={V:#06x} (demand set {d})")
+        show('  without dc civac', trials(V, flush_demand=False))
+        show('  with dc civac',    trials(V, flush_demand=True))
+
+
+if __name__ == '__main__':
+    main()

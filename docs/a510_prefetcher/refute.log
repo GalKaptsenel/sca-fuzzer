@@ -1,0 +1,60 @@
+
+INFO: [input_gen] Setting input seed to: 3438802987
+Loading input: violations_fr/violation-260716-181940/input_0009.reif
+### 1 input/batch, 100 reps, 3 trials. demand set INCLUDED in lit.
+
+=== H1 REFUTATION: is it a RACE (prefetch lands after the flush) rather than survival? ===
+    If a long delay before the flush still leaves the prefetched lines, it is NOT a race.
+  ldr; dc civac                  (baseline)    [18, 26, 34, 42, 50]           demand_freq=0.00 stable
+  ldr; dsb; isb; 400 nops; dc civac            [18, 26, 34, 42, 50]           demand_freq=0.00 stable
+  ldr; dsb; isb; 400 nops (NO flush)           [2, 18, 26, 34, 42, 50]        demand_freq=1.00 stable
+
+=== H2 REFUTATION: does the F+R reload walk itself create the lines? ===
+  NO memory access at all (control)            []                             demand_freq=0.00 stable
+  dc civac only, never accessed (control)      []                             demand_freq=0.00 stable
+  ldr OUTSIDE trigger zone (set 8)             []                             demand_freq=0.00 stable
+  ldr at set 2 (positive control)              [18, 26, 34, 42, 50]           demand_freq=0.00 stable
+
+=== H3: does the flush actually remove the demand line? (demand_freq must go to 0) ===
+  ldr, no flush                                [2, 18, 26, 34, 42, 50]        demand_freq=1.00 stable
+  ldr, flush                                   [18, 26, 34, 42, 50]           demand_freq=0.00 stable
+
+=== G: ACCESS-TYPE MATRIX (all with dc civac of the demand line) ===
+  --- demand 0x1000 (set 0)
+      ldr  x3,[x0]   64-bit load               [2, 3, 4, 5, 6]                demand_freq=0.00 stable
+      ldr  w3,[x0]   32-bit load               [2, 3, 4, 5, 6]                demand_freq=0.00 stable
+      ldrh w3,[x0]   16-bit load               [2, 3, 4, 5, 6]                demand_freq=0.00 stable
+      ldrb w3,[x0]    8-bit load               [2, 3, 4, 5, 6]                demand_freq=0.00 stable
+      ldur x3,[x0]   unscaled                  [2, 3, 4, 5, 6]                demand_freq=0.00 stable
+      ldp  x3,x4,[x0] pair load                [2, 3, 4, 5, 6]                demand_freq=0.00 stable
+      str  x3,[x0]   64-bit store              [2, 3, 4, 5, 6]                demand_freq=0.00 stable
+      strb w3,[x0]    8-bit store              [2, 3, 4, 5, 6]                demand_freq=0.00 stable
+      stp  x3,x4,[x0] pair store               [2, 3, 4, 5, 6]                demand_freq=0.00 stable
+      prfm pldl1keep  SW prefetch              [2, 3, 4, 5, 6]                demand_freq=0.00 stable
+      ldar x3,[x0]   acquire load              [2, 3, 4, 5, 6]                demand_freq=0.00 stable
+  --- demand 0x1080 (set 2)
+      ldr  x3,[x0]   64-bit load               [18, 26, 34, 42, 50]           demand_freq=0.00 stable
+      ldr  w3,[x0]   32-bit load               [18, 26, 34, 42, 50]           demand_freq=0.00 stable
+      ldrh w3,[x0]   16-bit load               [18, 26, 34, 42, 50]           demand_freq=0.00 stable
+      ldrb w3,[x0]    8-bit load               [18, 26, 34, 42, 50]           demand_freq=0.00 stable
+      ldur x3,[x0]   unscaled                  [18, 26, 34, 42, 50]           demand_freq=0.00 stable
+      ldp  x3,x4,[x0] pair load                [18, 26, 34, 42, 50]           demand_freq=0.00 stable
+      str  x3,[x0]   64-bit store              [18, 26, 34, 42, 50]           demand_freq=0.00 stable
+      strb w3,[x0]    8-bit store              [18, 26, 34, 42, 50]           demand_freq=0.00 stable
+      stp  x3,x4,[x0] pair store               [18, 26, 34, 42, 50]           demand_freq=0.00 stable
+      prfm pldl1keep  SW prefetch              [18, 26, 34, 42, 50]           demand_freq=0.00 stable
+      ldar x3,[x0]   acquire load              [18, 26, 34, 42, 50]           demand_freq=0.00 stable
+
+=== J: MULTIPLE BITS SET in the demand offset ===
+      V=0x1000 bits[11:6]=0x00 set=0           [2, 3, 4, 5, 6]                demand_freq=0.00 stable
+      V=0x1040 bits[11:6]=0x01 set=1           [7, 13]                        demand_freq=0.00 stable
+      V=0x1080 bits[11:6]=0x02 set=2           [18, 26, 34, 42, 50]           demand_freq=0.00 stable
+      V=0x10c0 bits[11:6]=0x03 set=3           [19, 27, 35, 43, 51]           demand_freq=0.00 stable
+      V=0x1140 bits[11:6]=0x05 set=5           [21, 29, 37, 45, 53]           demand_freq=0.00 stable
+      V=0x1180 bits[11:6]=0x06 set=6           [22, 30, 38, 46, 54]           demand_freq=0.00 stable
+      V=0x11c0 bits[11:6]=0x07 set=7           [39, 47, 55]                   demand_freq=0.00 stable
+      V=0x1240 bits[11:6]=0x09 set=9           []                             demand_freq=0.00 stable
+      V=0x1480 bits[11:6]=0x12 set=18          []                             demand_freq=0.00 stable
+      V=0x1840 bits[11:6]=0x21 set=33          []                             demand_freq=0.00 stable
+      V=0x10c1 bits[11:6]=0x03 set=3           [19, 27, 35, 43, 51]           demand_freq=0.00 stable
+      V=0x10ff bits[11:6]=0x03 set=3           [4, 19, 20, 27, 28, 35, 36, 43, 44, 51, 52] demand_freq=0.00 stable
