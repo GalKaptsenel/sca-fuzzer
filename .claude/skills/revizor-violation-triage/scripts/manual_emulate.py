@@ -44,11 +44,11 @@ def main(VD):
     report = open(os.path.join(VD, 'report.txt')).read()
     cex = list(dict.fromkeys(re.findall(r'^Input #(\d+)\s*$', report, re.M)))[:2]
     tc = ap.parse_file(os.path.join(VD, 'generated.asm')); ex.load_test_case(tc)
-    def _inp(i):  # saved inputs are input_NNNN_nzcv_scheme.bin (old: input_NNNN.bin)
+    def _inp(i):  # REIF (current) first, then the legacy flat dumps
         b = os.path.join(VD, f'input_{int(i):04d}')
-        return next(b + s for s in ('_nzcv_scheme.bin', '.bin') if os.path.exists(b + s))
+        return next(b + s for s in ('.reif', '_nzcv_scheme.bin', '.bin') if os.path.exists(b + s))
     inp = ig.load([_inp(i) for i in cex])
-    _, _, cer, _ = ex.trace_test_case_with_taints(inp, 5)
+    _, _, cer = ex.trace_test_case_with_taints(inp, 5)
 
     def collect(c):
         arch, spec, seen = [], [], set()

@@ -75,15 +75,15 @@ def main(vdir):
     tc = ap.parse_file(os.path.join(vdir, 'generated.asm'))
     ex.load_test_case(tc)
 
-    def _inp(i):  # saved inputs are now input_NNNN_nzcv_scheme.bin (old: input_NNNN.bin)
+    def _inp(i):  # REIF (current) first, then the legacy flat dumps
         base = os.path.join(vdir, f'input_{int(i):04d}')
-        for suffix in ('_nzcv_scheme.bin', '.bin'):
+        for suffix in ('.reif', '_nzcv_scheme.bin', '.bin'):
             if os.path.exists(base + suffix):
                 return base + suffix
         raise FileNotFoundError(f'no input file for #{i} in {vdir}')
     inputs = ig.load([_inp(i) for i in cex])
 
-    ctr, _, cer, _ = ex.trace_test_case_with_taints(inputs, 5)
+    _, _, cer = ex.trace_test_case_with_taints(inputs, 5)
 
     # arch vs speculative cache lines per input
     def split_lines(c):
@@ -96,10 +96,12 @@ def main(vdir):
     a0, s0 = split_lines(cer[0])
     a1, s1 = split_lines(cer[1])
 
-    # CE divergent HW bits (string is bit-reversed: pos = 63 - set)
+    # CE divergent HW bits (string is bit-reversed: pos = 63 - set). The CE prediction is the set of
+    # *speculative* cache lines that differ between the two inputs — the memory-access split above,
+    # NOT the raw ctrace (which, under the `ct` observation, is PCs + full addresses, meaningless mod 64).
     def to_bits(lines):
         return set(63 - ((l + K) % 64) for l in lines)
-    ce_div = to_bits(set(ctr[0].raw) ^ set(ctr[1].raw))
+    ce_div = to_bits(s0 ^ s1)
 
     fa, fb = per_bit_freq(report, cex[0]), per_bit_freq(report, cex[1])
     hw_div = sorted(b for b in range(64) if fa and fb and abs(fa[b] - fb[b]) > FREQ_DIVERGENCE_THRESHOLD)
