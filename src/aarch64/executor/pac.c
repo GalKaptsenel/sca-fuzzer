@@ -4,6 +4,20 @@
 #include <linux/preempt.h>
 #include <linux/string.h>
 
+/* SCTLR_EL1 pointer-auth key-enable bits; android14-5.15 GKI headers don't expose them. */
+#ifndef SCTLR_EL1_EnIA
+#define SCTLR_EL1_EnIA (UL(1) << 31)
+#endif
+#ifndef SCTLR_EL1_EnIB
+#define SCTLR_EL1_EnIB (UL(1) << 30)
+#endif
+#ifndef SCTLR_EL1_EnDA
+#define SCTLR_EL1_EnDA (UL(1) << 27)
+#endif
+#ifndef SCTLR_EL1_EnDB
+#define SCTLR_EL1_EnDB (UL(1) << 13)
+#endif
+
 /* Mnemonic -> op maps: pure lookups with no PAC hardware, so always compiled. */
 enum pac_op pac_sign_op_from_mnemonic(const char *m) {
 	if (!strcmp(m, "pacia"))  return PAC_OP_PACIA;

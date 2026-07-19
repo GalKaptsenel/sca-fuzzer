@@ -13,7 +13,7 @@ static void* base_va = NULL;
 /* All views alias the SAME physical pages: allocate one set of CODE_PAGES pages
  * and repeat them across the vmap region, so writing the test case once is
  * visible at every view VA. */
-static int create_view_mappings(void** buffer, size_t view_count, set_memory_t set_memory_x) {
+static int __nocfi create_view_mappings(void** buffer, size_t view_count, set_memory_t set_memory_x) {
 	int i = 0, ret = 0;
 
 	for (i = 0; i < CODE_PAGES; ++i) {
@@ -69,7 +69,7 @@ free_phys:
 	return ret;
 }
 
-static void destroy_view_mappings(void** buffer, size_t view_count, set_memory_t set_memory_nx) {
+static void __nocfi destroy_view_mappings(void** buffer, size_t view_count, set_memory_t set_memory_nx) {
 	if (NULL != base_va) {
 		set_memory_nx((unsigned long)base_va, VIEW_REGION_PAGES);
 		vunmap(base_va);
@@ -101,7 +101,6 @@ static void init_executor_defaults(void) {
 
 int __nocfi initialize_executor(set_memory_t set_memory_x) {
 	int err = 0;
-	enable_mte_tag_checking();
 
 	init_executor_defaults();
 
@@ -139,8 +138,6 @@ int __nocfi initialize_executor(set_memory_t set_memory_x) {
 	executor.tracing_error = 0;
 	executor.state = CONFIGURATION_STATE;
 	executor.checkout_region = REGION_DEFAULT;
-
-	initialize_sandbox(executor.sandbox);
 
 	return 0;
 

@@ -60,8 +60,8 @@ static int executor_lock_acquire(const char* who) {
 				   executor_lock_owner, EXECUTOR_LOCK_DEADLOCK_MS);
 			return -EIO;
 		}
-		if (mutex_lock_killable(&executor_lock)) {
-			return -EINTR;   /* killable: a stuck device never produces unkillable waiters */
+		if (mutex_lock_interruptible(&executor_lock)) {
+			return -EINTR;   /* interruptible: a stuck device never produces unkillable waiters */
 		}
 	}
 

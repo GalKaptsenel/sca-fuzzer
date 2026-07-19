@@ -205,85 +205,26 @@ void page_walk_explorer(void *addr) {
 	decode_pte(*pte);
 }
 
-static pte_t* get_pte(void *addr) {
-	pgd_t *pgd = NULL;
-	p4d_t *p4d = NULL;
-	pud_t *pud = NULL;
-	pmd_t *pmd = NULL;
-	pte_t *pte = NULL;
+/* Leaf descriptor mapping `addr`, at whatever level: a PUD/PMD block or a PTE. Block and page
+ * descriptors share the PTE_ATTRINDX layout, so this is for read-only attribute inspection only. */
+static pte_t* get_leaf_entry(void *addr) {
 	size_t vaddr = (size_t)addr;
+	pgd_t *pgd; p4d_t *p4d; pud_t *pud; pmd_t *pmd;
 
 	if (NULL == init_mm_ptr) { return NULL; }
-
 	pgd = pgd_offset(init_mm_ptr, vaddr);
-	if (pgd_none(*pgd) || pgd_bad(*pgd)) {
-		module_err("Invalid PGD\n");
-		return NULL;
-	}
-
-
+	if (pgd_none(*pgd) || pgd_bad(*pgd)) { return NULL; }
 	p4d = p4d_offset(pgd, vaddr);
-	if (p4d_none(*p4d) || p4d_bad(*p4d)) {
-		module_err("Invalid P4D\n");
-		return NULL;
-	}
-
+	if (p4d_none(*p4d) || p4d_bad(*p4d)) { return NULL; }
 	pud = pud_offset(p4d, vaddr);
-	if (pud_none(*pud) || pud_bad(*pud)) {
-		module_err("Invalid PUD\n");
-		return NULL;
-	}
-
+	if (pud_none(*pud)) { return NULL; }
+	if (pud_sect(*pud)) { return (pte_t*)pud; }
+	if (pud_bad(*pud)) { return NULL; }
 	pmd = pmd_offset(pud, vaddr);
-	if (pmd_none(*pmd) || pmd_bad(*pmd)) {
-		module_err("Invalid PMD\n");
-		return NULL;
-	}
-
-	if (!(pmd_val(*pmd) & PTE_VALID)) {
-		module_err("PMD not present\n");
-		return NULL;
-	}
-
-	pte = pte_offset_kernel(pmd, vaddr);
-	if (NULL == pte) {
-		module_err("Invalid PTE\n");
-		return NULL;
-	}
-
-	return pte;
-}
-
-static inline pte_t pte_clear_flags_custom(pte_t pte, unsigned long flags) {
-	return __pte(pte_val(pte) & ~flags);
-}
-
-void disable_mte_for_region(void* start, size_t size) {
-	size_t end = (size_t)start + size;
-	size_t addr = (size_t)start;
-	pte_t *pte = NULL;
-
-	if (!ensure_init_mm()) {
-		module_err("init_mm unavailable (kallsyms lookup failed)\n");
-		return;
-	}
-	
-	for (; addr < end; addr += PAGE_SIZE) {
-
-		pte = get_pte((void*)addr);
-
-		if (NULL == pte) {
-			continue;
-		}
-	
-		// Reset the memory attribute index to MAIR index 0 (MT_NORMAL):
-		// untagged, Normal cacheable. Removes MTE tag-checking for the region
-		// without changing its cacheability.
-		*pte = pte_clear_flags_custom(*pte, PTE_ATTRINDX_MASK);
-
-		// Ensure the update takes effect
-		flush_tlb_kernel_range(addr, addr + PAGE_SIZE);
-	}
+	if (pmd_none(*pmd)) { return NULL; }
+	if (pmd_sect(*pmd)) { return (pte_t*)pmd; }
+	if (pmd_bad(*pmd)) { return NULL; }
+	return pte_offset_kernel(pmd, vaddr);
 }
 
 // Whether every page in [start, start+size) is mapped with MAIR attribute index `attrindx`.
@@ -297,11 +238,48 @@ bool pte_region_attr_is(void* start, size_t size, unsigned int attrindx) {
 	}
 
 	for (; addr < end; addr += PAGE_SIZE) {
-		pte_t *pte = get_pte((void*)addr);
+		pte_t *pte = get_leaf_entry((void*)addr);
 		if (NULL == pte || (pte_val(*pte) & PTE_ATTRINDX_MASK) != PTE_ATTRINDX(attrindx)) {
 			return false;
 		}
 	}
+	return true;
+}
+
+/* Raw leaf descriptor for `va` (0 if unmapped) — read-only attribute inspection. */
+uint64_t leaf_pte_val(void *va) {
+	pte_t *pte;
+	if (!ensure_init_mm()) { return 0; }
+	pte = get_leaf_entry(va);
+	return NULL == pte ? 0 : (uint64_t)pte_val(*pte);
+}
+
+/* True only when `va` is mapped at 4K PTE granularity (never a block) — a guard so a PTE write can
+ * never accidentally touch a 2MB/1GB block covering unrelated memory. */
+static bool is_4k_pte_leaf(void *va) {
+	size_t v = (size_t)va;
+	pgd_t *pgd; p4d_t *p4d; pud_t *pud; pmd_t *pmd;
+	if (NULL == init_mm_ptr) { return false; }
+	pgd = pgd_offset(init_mm_ptr, v); if (pgd_none(*pgd) || pgd_bad(*pgd)) { return false; }
+	p4d = p4d_offset(pgd, v);         if (p4d_none(*p4d) || p4d_bad(*p4d)) { return false; }
+	pud = pud_offset(p4d, v);         if (pud_none(*pud) || pud_sect(*pud) || pud_bad(*pud)) { return false; }
+	pmd = pmd_offset(pud, v);         if (pmd_none(*pmd) || pmd_sect(*pmd) || pmd_bad(*pmd)) { return false; }
+	return true;
+}
+
+/* Overwrite the 4K leaf PTE for `va` with `newval`, invalidating the TLB for that page. Refuses (and
+ * returns false) unless `va` is 4K-mapped. On success `*old_out` holds the prior descriptor so the
+ * caller can restore it. Inner-shareable TLBI so all CPUs see the change. */
+bool write_leaf_pte(void *va, uint64_t newval, uint64_t *old_out) {
+	pte_t *pte;
+	if (!ensure_init_mm() || !is_4k_pte_leaf(va)) { return false; }
+	pte = get_leaf_entry(va);
+	if (NULL == pte) { return false; }
+	*old_out = (uint64_t)pte_val(*pte);
+	WRITE_ONCE(*pte, __pte(newval));
+	asm volatile("dsb ishst" ::: "memory");
+	asm volatile("tlbi vaae1is, %0" :: "r"(((uint64_t)va) >> 12) : "memory");
+	asm volatile("dsb ish\n isb" ::: "memory");
 	return true;
 }
 

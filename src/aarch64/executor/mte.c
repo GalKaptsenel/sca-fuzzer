@@ -1,5 +1,17 @@
 #include "main.h"
 
+/* android14-5.15 GKI names the EL1 tag-check field SCTLR_ELx_TCF_* and exposes no EL1 ATA (bit 43)
+ * macro; newer kernels use SCTLR_EL1_TCF_*. */
+#ifndef SCTLR_EL1_TCF_MASK
+#define SCTLR_EL1_TCF_MASK SCTLR_ELx_TCF_MASK
+#endif
+#ifndef SCTLR_EL1_TCF_SYNC
+#define SCTLR_EL1_TCF_SYNC SCTLR_ELx_TCF_SYNC
+#endif
+#ifndef SCTLR_EL1_ATA
+#define SCTLR_EL1_ATA (UL(1) << 43)
+#endif
+
 /* Allocate a physically-contiguous region from the linear map (Normal-Tagged on
  * CONFIG_ARM64_MTE), so STG tagging and tag checks apply to it. get_order returns a 2^order
  * block aligned to its own size, so a caller whose size >= its alignment need (e.g. the sandbox
@@ -29,17 +41,6 @@ static inline void *tag_ptr(void *p, u8 tag) {
     return (void *)(((u64)p & 0x00FFFFFFFFFFFFFFULL) | ((u64)(tag & 0xF) << 56));
 }
 
-
-void mte_randomly_tag_region(const void* ptr, uint64_t length) {
-	uint64_t loc = 0;
-
-	for (; loc < length; loc += MTE_GRANULE_SIZE) {
-		uintptr_t current_ptr = (uintptr_t)ptr + loc;
-		uint8_t tag = MTE_INITIAL_DEFAULT_TAG;
-		const void* tagged_ptr = tag_ptr((void*)current_ptr, tag);
-		stg(tagged_ptr);
-	}
-}
 
 void mte_init_sandbox_tags(const void* base, uint64_t length, uint8_t tag) {
 	uint64_t loc = 0;
@@ -78,26 +79,21 @@ uint8_t disable_TCO_bit(void) {
 	return set_TCO_bit(0);
 }
 
-static inline void mte_set_sync(void) {
-    // ATA (bit 43) enables allocation-tag access; TCF (bits [41:40]) = 0b01 = synchronous faults.
-    sysreg_clear_set(sctlr_el1, SCTLR_EL1_TCF_MASK, SCTLR_EL1_ATA | SCTLR_EL1_TCF_SYNC);
-    isb();
-}
-static inline void mte_set_sync_callback(void* a) {
-	(void)a;
-	disable_TCO_bit();
-	enable_TCMA1_bit();   // tag-0 exemption must hold on every CPU that runs test cases, not just init
-	mte_set_sync();
+void mte_set_sync(void) {
+	// ATA (bit 43) enables allocation-tag access; TCF (bits [41:40]) = 0b01 = synchronous faults.
+	sysreg_clear_set(sctlr_el1, SCTLR_EL1_TCF_MASK, SCTLR_EL1_ATA | SCTLR_EL1_TCF_SYNC);
+	isb();
 }
 
-void enable_mte_tag_checking(void) {
-	int cpu;
-	for_each_online_cpu(cpu) {
-		int err = execute_on_pinned_cpu(cpu, mte_set_sync_callback, NULL);
-		if (0 != err) {
-			module_err("MTE: failed to program tag checking on CPU %d (err=%d)\n", cpu, err);
-		}
-	}
+void mte_save_control(struct mte_control_state* state) {
+	state->sctlr_el1 = read_sysreg(sctlr_el1);
+	state->tcr_el1 = read_TCR_EL1();
+}
+
+void mte_restore_control(const struct mte_control_state* state) {
+	write_sysreg(state->sctlr_el1, sctlr_el1);
+	write_TCR_EL1(state->tcr_el1);
+	isb();
 }
 
 bool mte_region_is_tagged(const void *ptr, size_t size) {
@@ -107,8 +103,6 @@ bool mte_region_is_tagged(const void *ptr, size_t size) {
 #else	// Non-MTE hardware: all stubs
 
 static inline void stg(const void* ptr)				{ (void)ptr; }
-
-void mte_randomly_tag_region(const void* ptr, uint64_t length)	{ (void)ptr; (void)length; }
 
 void mte_init_sandbox_tags(const void* base, uint64_t length, uint8_t tag) { (void)base; (void)length; (void)tag; }
 
@@ -121,8 +115,6 @@ uint8_t disable_TCMA1_bit(void)					{ return 0; }
 uint8_t enable_TCO_bit(void)					{ return 0; }
 
 uint8_t disable_TCO_bit(void)					{ return 0; }
-
-void enable_mte_tag_checking(void)				{ }
 
 bool mte_region_is_tagged(const void *ptr, size_t size)		{ (void)ptr; (void)size; return true; }
 

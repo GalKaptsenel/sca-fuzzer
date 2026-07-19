@@ -189,53 +189,40 @@ static int prime(jit_t* jit, int base_reg, int off_reg, int tmp_reg, int counter
 }
 
 /* Flush main + faulty regions + the single overflow line past faulty out of L1D. */
+/* DC CIVAC every one of NINDEXES lines of the region base_reg currently points at. */
+static void flush_one_region(jit_t* jit, int base_reg, int cnt, int addr, int cmp) {
+	jit_isb(jit);
+	jit_dsb_sy(jit);
+	jit_mov64(jit, cnt, 0);
+	uint8_t* loop = jit_get_cur(jit);
+	jit_lsl64(jit, addr, cnt, 6);
+	jit_addr64(jit, addr, base_reg, addr);
+	jit_isb(jit);
+	jit_dsb_sy(jit);
+	jit_dc(jit, addr, DC_CIVAC);
+	jit_isb(jit);
+	jit_dsb_sy(jit);
+	jit_add64(jit, cnt, cnt, 1);
+	jit_sub64(jit, cmp, cnt, NINDEXES);
+	jit_cbnz64(jit, cmp, loop);
+}
+
 static int flush(jit_t* jit, int base_reg, int tmp1, int tmp2, int tmp3) {
 	const int cnt = tmp2, addr = tmp3;
 
-	adjust_reg(jit, base_reg, tmp1, BASE_REGION, MAIN_REGION);
-	jit_isb(jit);
-	jit_dsb_sy(jit);
-	jit_mov64(jit, cnt, 0);
-	uint8_t* main_loop = jit_get_cur(jit);
-	jit_lsl64(jit, addr, cnt, 6);
-	jit_addr64(jit, addr, base_reg, addr);
-	jit_isb(jit);
-	jit_dsb_sy(jit);
-	jit_dc(jit, addr, DC_CIVAC);
-	jit_isb(jit);
-	jit_dsb_sy(jit);
-	jit_add64(jit, cnt, cnt, 1);
-	jit_sub64(jit, tmp1, cnt, NINDEXES);
-	jit_cbnz64(jit, tmp1, main_loop);
-
+	/* TEMP(lmfu): evict all four sandbox pages -- lower_overflow, main, faulty, upper_overflow. */
+	adjust_reg(jit, base_reg, tmp1, BASE_REGION, LOWER_OVERFLOW_REGION);
+	flush_one_region(jit, base_reg, cnt, addr, tmp1);
+	adjust_reg(jit, base_reg, tmp1, LOWER_OVERFLOW_REGION, MAIN_REGION);
+	flush_one_region(jit, base_reg, cnt, addr, tmp1);
 	adjust_reg(jit, base_reg, tmp1, MAIN_REGION, FAULTY_REGION);
-	jit_isb(jit);
-	jit_dsb_sy(jit);
-	jit_mov64(jit, cnt, 0);
-	uint8_t* faulty_loop = jit_get_cur(jit);
-	jit_lsl64(jit, addr, cnt, 6);
-	jit_addr64(jit, addr, base_reg, addr);
-	jit_isb(jit);
-	jit_dsb_sy(jit);
-	jit_dc(jit, addr, DC_CIVAC);
-	jit_isb(jit);
-	jit_dsb_sy(jit);
-	jit_add64(jit, cnt, cnt, 1);
-	jit_sub64(jit, tmp1, cnt, NINDEXES);
-	jit_cbnz64(jit, tmp1, faulty_loop);
-
-	jit_isb(jit);
-	jit_dsb_sy(jit);
-
-	/* single overflow line past faulty: catches a multi-byte access whose masked
-	 * base sits in the last line of faulty and spills one line over */
+	flush_one_region(jit, base_reg, cnt, addr, tmp1);
 	adjust_reg(jit, base_reg, tmp1, FAULTY_REGION, UPPER_OVERFLOW_REGION);
-	jit_isb(jit);
-	jit_dsb_sy(jit);
-	jit_dc(jit, base_reg, DC_CIVAC);
-	jit_isb(jit);
-	jit_dsb_sy(jit);
+	flush_one_region(jit, base_reg, cnt, addr, tmp1);
 	adjust_reg(jit, base_reg, tmp1, UPPER_OVERFLOW_REGION, BASE_REGION);
+
+	jit_isb(jit);
+	jit_dsb_sy(jit);
 	return 0;
 }
 
@@ -291,12 +278,16 @@ static int probe(jit_t* jit, int base_reg, int tmp1, int tmp2, int tmp3, int ind
 static int reload(jit_t* jit, int base_reg, int tmp1, int tmp2, int tmp3, int index_reg, int destination_reg) {
 	const int zero_reg = 31;
 	const int cnt = tmp3, idx = index_reg, off = tmp1, t_pre = tmp2, t_post = tmp1;
-	const enum template_regions region_from[2] = { BASE_REGION, MAIN_REGION };
-	const enum template_regions region_to[2]   = { MAIN_REGION, FAULTY_REGION };
+	/* TEMP(lmfu): walk all four sandbox pages lower_overflow -> main -> faulty -> upper_overflow, so
+	 * main and faulty each sit mid-walk with a neighbour on both sides, but record hit bits into the
+	 * htrace ONLY for main and faulty. */
+	const enum template_regions region_from[4] = { BASE_REGION, LOWER_OVERFLOW_REGION, MAIN_REGION, FAULTY_REGION };
+	const enum template_regions region_to[4]   = { LOWER_OVERFLOW_REGION, MAIN_REGION, FAULTY_REGION, UPPER_OVERFLOW_REGION };
 
 	jit_eor64(jit, destination_reg, destination_reg, destination_reg);
 
-	for (int r = 0; r < 2; ++r) {
+	for (int r = 0; r < 4; ++r) {
+		bool record = (MAIN_REGION == region_to[r]) || (FAULTY_REGION == region_to[r]);
 		adjust_reg(jit, base_reg, tmp1, region_from[r], region_to[r]);
 		jit_isb(jit);
 		jit_dsb_sy(jit);
@@ -317,10 +308,12 @@ static int reload(jit_t* jit, int base_reg, int tmp1, int tmp2, int tmp3, int in
 		jit_isb(jit);
 		jit_dsb_sy(jit);
 		jit_subr64(jit, t_post, t_post, t_pre);           /* cycle delta */
-		jit_cbnz64(jit, t_post, jit_get_cur(jit) + 4 * 4); /* miss -> skip the 3-insn bit set */
-		jit_mov64(jit, t_pre, 1);             /* t_pre free after the delta */
-		jit_lslr64(jit, t_pre, t_pre, idx);
-		jit_orr64(jit, destination_reg, destination_reg, t_pre);
+		if (record) {
+			jit_cbnz64(jit, t_post, jit_get_cur(jit) + 4 * 4); /* miss -> skip the 3-insn bit set */
+			jit_mov64(jit, t_pre, 1);             /* t_pre free after the delta */
+			jit_lslr64(jit, t_pre, t_pre, idx);
+			jit_orr64(jit, destination_reg, destination_reg, t_pre);
+		}
 		jit_add64(jit, cnt, cnt, 1);
 		jit_sub64(jit, tmp1, cnt, NINDEXES);
 		jit_cbnz64(jit, tmp1, loop);
@@ -328,25 +321,7 @@ static int reload(jit_t* jit, int base_reg, int tmp1, int tmp2, int tmp3, int in
 
 	jit_isb(jit);
 	jit_dsb_sy(jit);
-
-	/* single overflow line past faulty -> bit 0 */
-	adjust_reg(jit, base_reg, tmp1, FAULTY_REGION, UPPER_OVERFLOW_REGION);
-	jit_mov64(jit, tmp1, 0);
-	jit_isb(jit);
-	jit_dsb_sy(jit);
-	jit_read64_pmu(jit, 0, tmp2);
-	jit_isb(jit);
-	jit_dsb_sy(jit);
-	jit_ldr64shift0(jit, zero_reg, base_reg, tmp1);
-	jit_isb(jit);
-	jit_dsb_sy(jit);
-	jit_read64_pmu(jit, 0, tmp1);
-	jit_isb(jit);
-	jit_dsb_sy(jit);
-	jit_subr64(jit, tmp1, tmp1, tmp2);
-	jit_cbnz64(jit, tmp1, jit_get_cur(jit) + 4 * 3);
-	jit_mov64(jit, tmp2, 1);
-	jit_orr64_shift(jit, destination_reg, destination_reg, tmp2, LSL, 0);
+	/* loop ended at UPPER_OVERFLOW (region_to[3]) -> restore base_reg to BASE for the epilogue. */
 	adjust_reg(jit, base_reg, tmp1, UPPER_OVERFLOW_REGION, BASE_REGION);
 	return 0;
 }
@@ -483,7 +458,7 @@ static ssize_t build_measurement_code(jit_t* jit, enum Templates t, uint32_t* tc
 /* (Re)compute tc_insert_offset_bytes_by_template[] for every template.  Each
  * builder is run once into view[0] with an empty test case; the recorded offset
  * is independent of the test-case bytes. */
-void refresh_tc_insert_offsets(void) {
+void __nocfi refresh_tc_insert_offsets(void) {
 	memset(tc_insert_offset_bytes_by_template, 0,
 	       sizeof(tc_insert_offset_bytes_by_template));
 
@@ -501,7 +476,7 @@ void refresh_tc_insert_offsets(void) {
 	                 MAX_MEASUREMENT_CODE_SIZE >> PAGE_SHIFT);
 }
 
-int load_jit_template(size_t tc_size) {
+int __nocfi load_jit_template(size_t tc_size) {
 	ktime_t build_start;
 
 	if(UNSET_TEMPLATE == executor.config.measurement_template) {

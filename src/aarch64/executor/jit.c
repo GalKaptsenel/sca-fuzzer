@@ -178,7 +178,7 @@ uint8_t* jit_align(jit_t* jit, size_t alignment, ssize_t offset) {
 }
 
 // remap the JIT buffer as RW + non-executable, for code generation
-int jit_perm_rw(jit_t* jit) {
+int __nocfi jit_perm_rw(jit_t* jit) {
 	if (NULL == jit || NULL == jit->base) {
 		return -EINVAL;
 	}
@@ -195,7 +195,7 @@ int jit_perm_rw(jit_t* jit) {
 }
 
 // remap the JIT buffer as RX + read-only, for execution (flushes icache)
-int jit_perm_rx(jit_t* jit) {
+int __nocfi jit_perm_rx(jit_t* jit) {
 	if (NULL == jit || NULL == jit->base) {
 		return -EINVAL;
 	}
