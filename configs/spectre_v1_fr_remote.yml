@@ -1,0 +1,52 @@
+# Spectre-v1 detection config — Flush+Reload.
+#
+# Same idea as configs/spectre_v1_pp.yml (BPU flush OFF so the guarding branch
+# mispredicts; arch-only contract), but using the Flush+Reload channel.
+#
+# Run:
+#   python revizor.py fuzz -s base.json -c configs/spectre_v1_fr.yml -n 200 -i 50 --save-violations .
+#
+# Note: Flush+Reload is markedly less sensitive than Prime+Probe to the
+# store-based leak gadgets Spectre-v1 tends to produce here (observed ~8x fewer
+# positive runs for the same gadget), so it may need more test cases/inputs to
+# trigger a violation. Prefer spectre_v1_pp.yml for a quicker confirmation.
+instruction_set: aarch64
+instruction_categories:
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-BITFIELD
+  - BASE-CONDSEL
+  - BASE-BRANCH
+  - BASE-MEM-LOAD
+  - BASE-MEM-STORE
+min_bb_per_function: 2
+max_bb_per_function: 5
+max_successors_per_bb: 2
+min_successors_per_bb: 1
+fuzzer: basic
+input_generator: aarch64-nzcv
+executor_warmups: 5
+input_gen_seed: 0
+
+# Flush+Reload, arch-only contract, BPU flush OFF so the branch mispredicts.
+executor_mode: F+R
+contract_execution_clause:
+  - seq
+enable_pre_run_flush: 0
+
+# Branch mistraining must stay OFF: it currently trains toward the architectural direction
+# and would suppress the natural misprediction this relies on (see CONF.enable_branch_mistraining).
+enable_branch_mistraining: false
+
+# --- drive measurement on the physical Pixel 8 over adb ---
+executor_remote: true
+executor_remote_transport: adb
+executor_remote_host: 127.0.0.1
+executor_remote_port: 5037
+executor_remote_device: /dev/executor
+executor_remote_sysfs: /sys/executor
+executor_remote_userland: /data/local/tmp/executor_userland
+executor_remote_module: /data/local/tmp/revizor-executor.ko
+superbatch_size: 100
+enable_fast_path_model: true

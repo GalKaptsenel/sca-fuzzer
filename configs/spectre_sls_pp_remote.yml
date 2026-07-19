@@ -1,0 +1,57 @@
+# Straight-line-speculation (SLS) detection config — Prime+Probe.
+#
+# Finds an SLS leak: the generator splices architecturally-unreachable basic-block flows after
+# non-last BBs (unreachable_bb_probability), reachable only by straight-line speculation past the
+# preceding unconditional branch. A CPU that fetches past the branch executes that dead code
+# speculatively and can leak through it.
+#
+# The contract is `cond` (NOT `seq`): conditional-branch misprediction is therefore IN-contract, so an
+# ordinary Spectre-v1 leak in the main flow is permitted and does NOT fire. `cond` does not model
+# straight-line speculation past unconditional branches, so the unreachable flow stays outside the
+# contract — any hardware leak from it is a violation. This isolates SLS from v1.
+#
+# Run:
+#   python revizor.py fuzz -s base.json -c configs/spectre_sls_pp.yml -n 100 -i 50 --save-violations .
+instruction_set: aarch64
+instruction_categories:
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-BITFIELD
+  - BASE-CONDSEL
+  - BASE-BRANCH
+  - BASE-MEM-LOAD
+  - BASE-MEM-STORE
+min_bb_per_function: 2
+max_bb_per_function: 5
+max_successors_per_bb: 2
+min_successors_per_bb: 1
+fuzzer: basic
+input_generator: aarch64-nzcv
+executor_warmups: 5
+input_gen_seed: 0
+
+# Inject unreachable flows for the branches to speculate past.
+unreachable_bb_probability: 0.5
+max_unreachable_flow_length: 3
+
+# Prime+Probe; cond contract absorbs conditional-branch misprediction (v1), leaving SLS as the only
+# out-of-contract leak. BPU flush OFF so branches behave naturally.
+executor_mode: P+P
+contract_execution_clause:
+  - cond
+enable_pre_run_flush: 0
+
+# Branch mistraining must stay OFF: it trains toward the architectural direction and would perturb the
+# natural branch behaviour (see CONF.enable_branch_mistraining).
+enable_branch_mistraining: false
+
+# --- drive measurement on the physical Pixel 8 over adb ---
+executor_remote: true
+executor_remote_transport: adb
+executor_remote_host: 127.0.0.1
+executor_remote_port: 5037
+executor_remote_device: /dev/executor
+executor_remote_sysfs: /sys/executor
+executor_remote_userland: /data/local/tmp/executor_userland
+executor_remote_module: /data/local/tmp/revizor-executor.ko

@@ -4,6 +4,7 @@ File: AArch64 remote-execution transports (SSH/ADB) for driving the executor on 
 import os
 import shlex
 import shutil
+import socket
 import subprocess
 
 from ppadb.client import Client as AdbClient
@@ -164,7 +165,15 @@ class ADBConnection(Connection):
                 raise IOError(f'No ADB device with serial {serial!r}')
         else:
             self.device = self.client.devices()[0]
-
+        self.serial = self.device.serial
+        # The batch runs without su (su's PTY corrupts binary), so the shell domain must open the
+        # device directly — which needs SELinux permissive. Relax it only when it is actually
+        # enforcing, and verify it took rather than failing silently.
+        if self.shell("getenforce", privileged=True).strip() == "Enforcing":
+            self.shell("setenforce 0", privileged=True)
+            mode = self.shell("getenforce", privileged=True).strip()
+            if mode != "Permissive":
+                raise IOError(f"the non-su batch needs SELinux permissive, but getenforce is {mode!r}")
 
     def shell(self, cmd: str, privileged = False) -> str:
         # adb shell does not surface the remote exit status, so append it and check it
@@ -179,6 +188,31 @@ class ADBConnection(Connection):
         if 0 != rc:
             raise IOError(f'ADB shell command failed (rc={rc}): {cmd!r}\n{out[:idx]}')
         return out[:idx]
+
+    def run(self, command: str, stdin: bytes, privileged = False) -> bytes:
+        """Stream `stdin` to `command` and return its raw stdout over adb's exec: service — no PTY and
+        no device files, so the batch request/response crosses in one streamed round-trip."""
+        cmd = f"su -c '{command}'" if privileged else command
+        s = socket.create_connection((self.host, self.port), timeout=600)
+        s.settimeout(600)
+        try:
+            def service(request: str) -> None:
+                s.sendall(f"{len(request):04x}{request}".encode())
+                status = s.recv(4)
+                if status != b"OKAY":
+                    raise IOError(f"adb rejected {request!r}: {status!r} {s.recv(4096)!r}")
+            service(f"host:transport:{self.serial}")
+            service(f"exec:{cmd}")
+            s.sendall(stdin)
+            chunks = []
+            while True:
+                chunk = s.recv(1 << 16)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+            return b"".join(chunks)
+        finally:
+            s.close()
 
     def push(self, src, dst):
         return self.device.push(src, dst)

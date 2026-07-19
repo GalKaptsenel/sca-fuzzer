@@ -1,0 +1,29 @@
+# MTE non-interference fuzzing. The NI executor auto-detects MTE from the MTE* categories and seals
+# every memory access with [Sandbox, MteTag]; decoys retag speculative slots.
+instruction_set: aarch64
+instruction_categories:
+  - MTE
+  - MTE-TAG-MEM
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-BITFIELD
+  - BASE-CONDSEL
+  - BASE-BRANCH
+  - BASE-MEM-LOAD
+  - BASE-MEM-STORE
+min_bb_per_function: 5
+max_bb_per_function: 5
+max_successors_per_bb: 2
+min_successors_per_bb: 1
+fuzzer: non-interference
+input_generator: aarch64-nzcv
+
+executor_remote: true
+executor_remote_transport: adb
+executor_remote_host: 127.0.0.1
+executor_remote_port: 5037
+executor_remote_device: /dev/executor
+executor_remote_sysfs: /sys/executor
+executor_remote_userland: /data/local/tmp/executor_userland
+executor_remote_module: /data/local/tmp/revizor-executor.ko

@@ -144,43 +144,62 @@ static int write_all_fd(int fd, const uint8_t* buf, size_t size) {
 }
 
 /* Read a whole stream (e.g. stdin, which has no stat size) into a growable buffer. */
-static int read_all_fd(int fd, char** buffer, size_t* size) {
-	size_t cap = 1 << 20;
-	size_t len = 0;
-	char* buf = malloc(cap);
-	if (NULL == buf) {
-		return -1;
+static uint64_t rd_u64(const uint8_t* p);   /* defined with the batch handlers below */
+
+static int read_n_fd(int fd, void* buf, size_t n) {
+	size_t got = 0;
+	while (got < n) {
+		ssize_t r = read(fd, (char*)buf + got, n - got);
+		if (0 > r) { perror("Error reading"); return -1; }
+		if (0 == r) { return -1; }   /* premature EOF */
+		got += (size_t)r;
 	}
-	for (;;) {
-		if (len == cap) {
-			cap *= 2;
-			char* grown = realloc(buf, cap);
-			if (NULL == grown) {
-				free(buf);
-				return -1;
-			}
-			buf = grown;
-		}
-		ssize_t n = read(fd, buf + len, cap - len);
-		if (0 > n) {
-			perror("Error reading");
-			free(buf);
-			return -1;
-		}
-		if (0 == n) {
-			break;
-		}
-		len += (size_t)n;
-	}
-	*buffer = buf;
-	*size = len;
 	return 0;
 }
 
-/* "-" streams the payload over stdin/stdout (one round-trip, no temp files); else a file. */
+static int append_read(int fd, char** buf, size_t* off, size_t n) {
+	char* grown = realloc(*buf, *off + n);
+	if (NULL == grown) { return -1; }
+	*buf = grown;
+	if (0 > read_n_fd(fd, *buf + *off, n)) { return -1; }
+	*off += n;
+	return 0;
+}
+
+static int read_batch_stream(int fd, char** buffer, size_t* size) {
+	const size_t HDR = 4 * sizeof(uint64_t), DESC = 2 * sizeof(uint64_t), LEN = sizeof(uint64_t);
+	char* buf = NULL;
+	size_t off = 0;
+	if (0 > append_read(fd, &buf, &off, HDR)) { goto fail; }
+	uint64_t n_units = rd_u64((uint8_t*)buf + 2 * sizeof(uint64_t));
+	size_t descs_at = off;
+	if (0 > append_read(fd, &buf, &off, n_units * DESC)) { goto fail; }
+	uint64_t total_inputs = 0, total_bodies = 0;
+	for (uint64_t u = 0; u < n_units; ++u) {
+		total_bodies += rd_u64((uint8_t*)buf + descs_at + u * DESC);
+		total_inputs += rd_u64((uint8_t*)buf + descs_at + u * DESC + sizeof(uint64_t));
+	}
+	size_t lens_at = off;
+	if (0 > append_read(fd, &buf, &off, total_inputs * LEN)) { goto fail; }
+	for (uint64_t i = 0; i < total_inputs; ++i) {
+		total_bodies += rd_u64((uint8_t*)buf + lens_at + i * LEN);
+	}
+	if (0 > append_read(fd, &buf, &off, total_bodies)) { goto fail; }
+	*buffer = buf;
+	*size = off;
+	return 0;
+fail:
+	free(buf);
+	return -1;
+}
+
+/* Read the batch request from stdin ("-") or a file. */
 static int read_batch_input(const char* name, char** buffer, size_t* size) {
-	return (0 == strcmp("-", name)) ? read_all_fd(STDIN_FILENO, buffer, size)
-	                                : read_file(name, buffer, size);
+	int fd = (0 == strcmp("-", name)) ? STDIN_FILENO : open(name, O_RDONLY);
+	if (0 > fd) { fprintf(stderr, "batch: cannot open %s\n", name); return -1; }
+	int rc = read_batch_stream(fd, buffer, size);
+	if (STDIN_FILENO != fd) { close(fd); }
+	return rc;
 }
 
 static int write_batch_output(const char* name, const uint8_t* buf, size_t size) {
@@ -690,7 +709,6 @@ int main(int argc, char** argv) {
 	}
 
 	device = argv[1];
-	fprintf(stderr, "Device: %s\n", device);
 	fd = open(device, O_RDWR);
 	if (0 > fd) {
 		perror("Error opening device");

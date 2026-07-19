@@ -542,6 +542,7 @@ class RemoteHWExecutor(HWExecutor):
             if not conn.is_file_present(cfg.module):
                 conn.push(_LOCAL_MODULE, cfg.module)
             conn.shell(f"insmod {cfg.module}", privileged=True)
+        conn.shell(f"chmod 666 {cfg.device}", privileged=True)   # batch runs without su (avoids a PTY)
         self._check_abi_version()
         for name, value in (
             ("measurement_mode", CONF.executor_mode),
@@ -576,7 +577,7 @@ class RemoteHWExecutor(HWExecutor):
         request = encode_request(units, n_reps)
         cmd = f"{self._cfg.userland} {self._cfg.device} batch - -"
         with profile_op("batch"):
-            response = self._conn.run(cmd, request, privileged=True)
+            response = self._conn.run(cmd, request, privileged=False)
         return decode_response(response)
 
 
