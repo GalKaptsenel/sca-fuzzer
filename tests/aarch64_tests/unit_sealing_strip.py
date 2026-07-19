@@ -30,7 +30,7 @@ class SealingStripPolicyTest(unittest.TestCase):
         isa = InstructionSet(os.path.join(_ROOT, "base.json"), CONF.instruction_categories)
         gen = Aarch64RandomGenerator(isa, 0x1234)
         _, auth_specs, xpac_specs = build_pac_specs(gen)
-        cls.enc = PacSign(gen, auth_specs, xpac_specs)
+        cls.enc = PacSign(gen, auth_specs, xpac_specs, 0xFFFF << 48)
 
     def _pac_sealing(self, value_reg="x0", ctx_reg="x1") -> PacSealing:
         inst = Instruction("autia", True, "", False)

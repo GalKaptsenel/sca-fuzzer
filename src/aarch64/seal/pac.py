@@ -6,7 +6,7 @@ build_pac_specs derives the usable PAC/AUT*/XPAC instruction specs (AUT* via Aut
 which guarantees value_reg != ctx_reg).
 """
 import random
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from ...config import CONF
 from ...interfaces import Instruction, InstructionSpec, RegisterOperand, ImmediateOperand
@@ -28,10 +28,16 @@ class PacSign:
     """Builds PAC slot encodings — the MOVK-signature + AUT*/XPAC* instructions. The single source of
     PAC slot instruction encoders, used by the sealer's PacSealing."""
 
-    def __init__(self, generator, auth_specs: Dict, xpac_specs: Dict):
-        self.generator = generator
+    def __init__(self, generator, auth_specs: Dict, xpac_specs: Dict, pac_bits_mask: int):
+        self._generator = generator
         self._auth_specs = auth_specs
         self._xpac_specs = xpac_specs
+        # one MOVK per 16-bit window the PAC field spans; a narrow-VA field reaches below bit 48.
+        self._movk_shifts = tuple(s for s in (0, 16, 32, 48) if pac_bits_mask & (0xFFFF << s))
+
+    @property
+    def n_sig_movks(self) -> int:
+        return len(self._movk_shifts)
 
     # ---- low-level slot builders (single source of PAC slot encodings) ----
     def make_movk(self, reg: str, imm: int, lsl: int) -> Instruction:
@@ -41,13 +47,18 @@ class PacSign:
                 .add_op(ImmediateOperand(str(imm), 16))
                 .add_op(ImmediateOperand(str(lsl), 6)))
 
+    def make_sig_movks(self, reg: str, signed: int) -> List[Instruction]:
+        """The MOVKs that turn the unsigned pointer already in `reg` into `signed`: one per PAC-field
+        window, each writing that window's 16 bits of the signed value."""
+        return [self.make_movk(reg, (signed >> s) & 0xFFFF, s) for s in self._movk_shifts]
+
     def make_xpac_inst(self, mnemonic: str, reg: str) -> Instruction:
-        inst = self.generator.generate_instruction(self._xpac_specs[mnemonic])
+        inst = self._generator.generate_instruction(self._xpac_specs[mnemonic])
         inst.operands[0].value = reg
         return inst
 
     def make_auth_inst(self, mnemonic: str, reg: str, ctx_reg: Optional[str]) -> Instruction:
-        inst = self.generator.generate_instruction(self._auth_specs[mnemonic])
+        inst = self._generator.generate_instruction(self._auth_specs[mnemonic])
         inst.operands[0].value = reg
         if ctx_reg is not None and len(inst.operands) > 1:
             inst.operands[1].value = ctx_reg
@@ -56,10 +67,10 @@ class PacSign:
     def _pick_mem_auth(self, value_reg: str) -> Instruction:
         """A random AUT* over value_reg with ctx_reg != value_reg — the authentication chosen for a
         memory pointer that has no generator-emitted AUT* of its own."""
-        norm = self.generator.target_desc.reg_normalized
+        norm = self._generator.target_desc.reg_normalized
         norm_base = norm.get(value_reg, value_reg)
         for _ in range(20):
-            inst = self.generator.generate_instruction(self._auth_specs[random.choice(list(self._auth_specs))])
+            inst = self._generator.generate_instruction(self._auth_specs[random.choice(list(self._auth_specs))])
             inst.operands[0].value = value_reg
             if len(inst.operands) < 2 or \
                     norm.get(inst.operands[1].value, inst.operands[1].value) != norm_base:
@@ -75,26 +86,26 @@ def _read_reg(cpu, reg: Optional[str]) -> Optional[int]:
 
 class PacSigner:
     """The kernel PAC signing capability — the only PAC code that touches the hardware keys. Pure
-    SIGN, never AUTH (a failed AUTH at EL1 resets the box). `field_mask16` characterizes which top-16
-    bits SIGN sets (the PAC field), so a forgery confined to them provably fails AUTH."""
+    SIGN, never AUTH (a failed AUTH at EL1 resets the box). `field_mask` characterizes which bits SIGN
+    sets (the PAC field), so a forgery confined to them provably fails AUTH."""
 
     def __init__(self, pac_sign, keys):
         self._pac_sign = pac_sign       # pac_sign(ptr, ctx, mnemonic, keys) -> signed 64-bit
         self._keys = keys               # the campaign PAC keys every sign runs under
         self._mask_cache: Dict[str, int] = {}
 
-    def sign16(self, ptr: int, ctx: int, mn: str) -> int:
-        return (self._pac_sign(ptr, ctx, mn, self._keys) >> 48) & 0xFFFF
+    def sign(self, ptr: int, ctx: int, mn: str) -> int:
+        return self._pac_sign(ptr, ctx, mn, self._keys)
 
-    def field_mask16(self, mn: str, samples: int = 64) -> int:
+    def field_mask(self, mn: str, samples: int = 64) -> int:
         m = self._mask_cache.get(mn)
         if m is None:
             mask = 0
             for _ in range(samples):
                 v = random.randrange(1 << 48)
                 mask |= self._pac_sign(v, random.randrange(1 << 64), mn, self._keys) ^ v
-            m = (mask >> 48) & 0xFFFF
-            assert m and not (m & 0x80), f"implausible PAC-field mask 0x{m:04x}"
+            assert mask and (mask >> 55) == 0, f"implausible PAC-field mask 0x{mask:016x}"
+            m = mask
             self._mask_cache[mn] = m
         return m
 

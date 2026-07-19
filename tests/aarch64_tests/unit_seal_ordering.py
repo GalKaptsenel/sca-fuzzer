@@ -23,6 +23,14 @@ from src.aarch64.seal.primitives import index_instructions
 from src.aarch64.seal.sealer import make_sealer, _encode
 
 
+class _MaskSigner:
+    """Minimal signer for ordering/encoding tests (never signs): supplies a PAC field mask that reaches
+    below bit 48, so the emitter produces the multi-MOVK slot this test then orders and encodes."""
+
+    def field_mask(self, mn):
+        return (0x7F << 48) | (0xFF << 40)
+
+
 class SealOrderingTest(unittest.TestCase):
 
     @classmethod
@@ -34,7 +42,7 @@ class SealOrderingTest(unittest.TestCase):
         """Generate (over a few seeds) a sealed TC that has at least one MTE data-access site."""
         for seed in range(12):
             gen = Aarch64RandomGenerator(self.isa, seed)
-            sealer = make_sealer(gen, lambda tc, inp: None, lambda tc: b"", primitives, None)
+            sealer = make_sealer(gen, lambda tc, inp: None, lambda tc: b"", primitives, _MaskSigner())
             path = os.path.join(tempfile.mkdtemp(), "t.asm")
             sealed = sealer.seal(gen.create_test_case(path, disable_assembler=True))
             if sealed._mte:

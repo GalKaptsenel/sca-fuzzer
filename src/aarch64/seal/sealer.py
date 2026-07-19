@@ -97,11 +97,11 @@ class PacSealing(Sealing):
         ctx_reg = self.committed_inst.operands[1].value if len(self.committed_inst.operands) > 1 else None
         xpac = self._enc.make_xpac_inst(_AUTH_TO_XPAC[auth_mn], self.value_reg)
         if value is None:
-            return [make_nop(), xpac]
-        movk = self._enc.make_movk(self.value_reg, value, 48)
+            return [make_nop() for _ in range(self._enc.n_sig_movks)] + [xpac]
+        movks = self._enc.make_sig_movks(self.value_reg, value)
         if rng.random() < CONF.pac_strip_prob:
-            return [movk, xpac]
-        return [movk, self._enc.make_auth_inst(auth_mn, self.value_reg, ctx_reg)]
+            return movks + [xpac]
+        return movks + [self._enc.make_auth_inst(auth_mn, self.value_reg, ctx_reg)]
 
 
 class MteSealing(Sealing):
@@ -228,25 +228,25 @@ def _resolve_pac(s: PacSealing, cer, layout, signer: PacSigner, salt: int
             continue
         ptr = _read_reg(ite.cpu, value_reg)
         cval = _read_reg(ite.cpu, ctx_reg) if ctx_reg is not None else 0
-        correct_sig = signer.sign16(ptr, cval, pac_mn)
-        alts = _wrong_sigs(correct_sig, signer.field_mask16(pac_mn), salt)
+        correct_sig = signer.sign(ptr, cval, pac_mn)
+        alts = _wrong_sigs(correct_sig, signer.field_mask(pac_mn), salt)
     return correct_sig, alts, spec
 
 
-def _wrong_sigs(correct_sig: int, mask16: int, salt: int) -> List[int]:
+def _wrong_sigs(correct_sig: int, mask: int, salt: int) -> List[int]:
     """A deterministic pool of wrong signatures: the correct signature with only its PAC field bits
     perturbed (so each is a genuine AUTH failure). Seeded by (correct_sig, mask, salt), so every member
     of a sealing class forges identically."""
-    rng = random.Random(hash((correct_sig, mask16, salt)))
+    rng = random.Random(hash((correct_sig, mask, salt)))
     pool: List[int] = []
     for _ in range(_FORGERY_TRIES):
-        sig = (correct_sig & ~mask16) | (rng.randrange(1 << 64) & mask16)
+        sig = (correct_sig & ~mask) | (rng.randrange(1 << 64) & mask)
         if sig != correct_sig and sig not in pool:
             pool.append(sig)
             if len(pool) >= _FORGERY_POOL_SIZE:
                 break
     if not pool:
-        raise GeneratorException(f"no PAC forgery for field mask 0x{mask16:04x}")
+        raise GeneratorException(f"no PAC forgery for field mask 0x{mask:016x}")
     return pool
 
 
@@ -454,10 +454,14 @@ class _Addressing(_SandboxInstrumentationBase):
         return None
 
 
-def _pac_encoder(generator):
+# The PAC field position depends on the VA/TCR config, not the key, so any sign mnemonic reveals it.
+_PROBE_PAC_MN = "pacia"
+
+
+def _pac_encoder(generator, field_mask):
     """The PacSign slot encoder + the AUT* spec table."""
     _, auth_specs, xpac_specs = build_pac_specs(generator)
-    return PacSign(generator, auth_specs, xpac_specs), auth_specs
+    return PacSign(generator, auth_specs, xpac_specs, field_mask), auth_specs
 
 
 def _seal_auths(tc: TestCase, enc: PacSign, auth_specs, pac: List) -> None:
@@ -488,8 +492,10 @@ class Sealer:
         self._assemble = assemble
         self._primitives = frozenset(primitives)
         self._signer = signer
-        self._enc, self._auth_specs = _pac_encoder(generator) if "pac" in self._primitives \
-            else (None, None)
+        if "pac" in self._primitives:
+            self._enc, self._auth_specs = _pac_encoder(generator, signer.field_mask(_PROBE_PAC_MN))
+        else:
+            self._enc, self._auth_specs = None, None
 
     def seal(self, test_case: TestCase) -> SealedTestCase:
         tc = copy.deepcopy(test_case)

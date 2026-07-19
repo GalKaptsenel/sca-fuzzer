@@ -107,7 +107,7 @@ class NiRandomCoverageTest(unittest.TestCase):
             inst = s.committed_inst
             ptr = _read_reg(ent.cpu, inst.operands[0].value)
             ctx = _read_reg(ent.cpu, inst.operands[1].value) if len(inst.operands) > 1 else 0
-            self.assertEqual(ex._sealed._signer.sign16(ptr, ctx, _AUTH_TO_PAC[inst.name.lower()]), r.value,
+            self.assertEqual(ex._sealed._signer.sign(ptr, ctx, _AUTH_TO_PAC[inst.name.lower()]), r.value,
                              f"genuine {inst.name} {inst.operands[0].value}: re-sign over genuine "
                              f"state != resolved sig (would FPAC)")
 

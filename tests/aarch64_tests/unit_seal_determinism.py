@@ -70,7 +70,7 @@ class SealResolutionDeterminismTest(unittest.TestCase):
         isa = InstructionSet(os.path.join(_ROOT, "base.json"), CONF.instruction_categories)
         gen = Aarch64RandomGenerator(isa, 0x1234)
         _, auth_specs, xpac_specs = build_pac_specs(gen)
-        cls.enc = PacSign(gen, auth_specs, xpac_specs)
+        cls.enc = PacSign(gen, auth_specs, xpac_specs, 0xFFFF << 48)
 
     def _pac_sealing(self) -> PacSealing:
         inst = Instruction("autia", True, "", False)
@@ -82,7 +82,9 @@ class SealResolutionDeterminismTest(unittest.TestCase):
         """A synthetic one-slot resolution: a speculative (decoy-eligible) PAC entry with a forgery
         pool, so decoy() can perturb it. No CE / kernel needed."""
         ps = self._pac_sealing()
-        entry = _Resolved(ps, _CORRECT, [0x1111, 0x2222, 0x3333, 0x4444], spec_nesting=5)
+        # wrong signatures differ in the PAC field window (bits [63:48]), like a real forgery pool
+        alts = [0x1111 << 48, 0x2222 << 48, 0x3333 << 48, 0x4444 << 48]
+        entry = _Resolved(ps, _CORRECT, alts, spec_nesting=5)
         offsets = {id(ps): (0, 4)}                 # seal() emits two words (MOVK + AUTH/XPAC)
         return ResolvedSealingTestCase([entry], bytes(16), offsets, salt)
 
@@ -112,6 +114,46 @@ class SealResolutionDeterminismTest(unittest.TestCase):
         # genuine seals the correct value on every slot: the loaded signature is _CORRECT's field
         r = self._resolved(salt=0x55)
         self.assertTrue(r.genuine(), "expected at least one genuine relocation")
+
+
+class PacFieldWindowTest(unittest.TestCase):
+    """PacSign deduces its MOVK windows from the PAC field mask, and the emitter produces one MOVK per
+    window — so a field reaching below bit 48 (a narrow-VA core) emits more than one."""
+
+    @classmethod
+    def setUpClass(cls):
+        CONF.load(os.path.join(_ROOT, "config_pac_mte_basic.yml"))
+        isa = InstructionSet(os.path.join(_ROOT, "base.json"), CONF.instruction_categories)
+        cls.gen = Aarch64RandomGenerator(isa, 0x1234)
+        _, cls.auth_specs, cls.xpac_specs = build_pac_specs(cls.gen)
+
+    def _sealing(self, pac_bits_mask):
+        enc = PacSign(self.gen, self.auth_specs, self.xpac_specs, pac_bits_mask)
+        inst = Instruction("autia", True, "", False)
+        inst.operands = [RegisterOperand("x0", 64, True, True), RegisterOperand("x1", 64, True, False)]
+        return PacSealing("x0", inst, enc)
+
+    def test_window_count_from_mask(self):
+        for mask, n in ((0x7F << 48, 1), ((0x7F << 48) | (0xFF << 40), 2),
+                        ((0x7F << 48) | (0xFFFF << 24), 3)):
+            enc = PacSign(self.gen, self.auth_specs, self.xpac_specs, mask)
+            self.assertEqual(enc.n_sig_movks, n)
+
+    def test_one_window_slot_and_fill(self):
+        ps = self._sealing(0x7F << 48)                                    # 48-bit VA: PAC in top window
+        self.assertEqual([i.name.lower() for i in ps.seal(None, None)], ["nop", "xpaci"])
+        signed = 0x0022000012345678
+        movks = [i for i in ps.seal(signed, random.Random(0)) if i.name.lower() == "movk"]
+        self.assertEqual([(int(m.operands[2].value), int(m.operands[1].value)) for m in movks],
+                         [(48, (signed >> 48) & 0xFFFF)])
+
+    def test_two_window_slot_and_fill(self):
+        ps = self._sealing((0x7F << 48) | (0xFF << 40))                   # narrow VA: field reaches below 48
+        self.assertEqual([i.name.lower() for i in ps.seal(None, None)], ["nop", "nop", "xpaci"])
+        signed = 0x0022c20012345678
+        movks = [i for i in ps.seal(signed, random.Random(0)) if i.name.lower() == "movk"]
+        self.assertEqual({int(m.operands[2].value): int(m.operands[1].value) for m in movks},
+                         {32: (signed >> 32) & 0xFFFF, 48: (signed >> 48) & 0xFFFF})
 
 
 if __name__ == "__main__":
