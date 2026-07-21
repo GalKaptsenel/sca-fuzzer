@@ -9,6 +9,9 @@ description: Drive the Revizor kernel executor (/dev/executor) by hand with the 
 test case and inputs, run the measurement harness, and read back hardware traces **without** the
 Python fuzzer — the right tool for manual experiments and violation reproduction.
 
+Build the artifacts you `w`-write here — the test-case body and REIF input files — from a `.asm` file
+and a JSON spec with the **craft-executor-inputs** skill.
+
 ## Locating the binary (no static paths)
 Resolve it relative to the repo, never hard-code an absolute path:
 ```
