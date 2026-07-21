@@ -84,8 +84,10 @@ static ssize_t measurement_mode_store(struct kobject *kobj, struct kobj_attribut
 		executor.config.measurement_template = PRIME_AND_PROBE_TEMPLATE;
 	} else if (sysfs_streq(buf, "F+R")) {
 		executor.config.measurement_template = FLUSH_AND_RELOAD_TEMPLATE;
+	} else if (sysfs_streq(buf, "P+R")) {
+		executor.config.measurement_template = PRIME_AND_RELOAD_TEMPLATE;
 	} else {
-		module_err("Invalid measurement mode '%s'; expected 'P+P' or 'F+R'\n", buf);
+		module_err("Invalid measurement mode '%s'; expected 'P+P', 'F+R' or 'P+R'\n", buf);
 		return -EINVAL;
 	}
 
@@ -133,6 +135,9 @@ static ssize_t measurement_mode_show(struct kobject *kobj, struct kobj_attribute
 			break;
 		case PRIME_AND_PROBE_TEMPLATE:
 			result = scnprintf(buf, PAGE_SIZE,"Prime and Probe (P+P)\n");
+			break;
+		case PRIME_AND_RELOAD_TEMPLATE:
+			result = scnprintf(buf, PAGE_SIZE,"Prime and Reload (P+R)\n");
 			break;
 		default:
 			result = scnprintf(buf, PAGE_SIZE,"Measurement mode is unset!\n");

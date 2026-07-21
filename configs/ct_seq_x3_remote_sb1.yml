@@ -1,0 +1,54 @@
+# CT-SEQ contract fuzzing on the Pixel 8 X3 core (remote, Prime+Probe).
+#
+# Contract = CT-SEQ: the attacker observes constant-time leakage (load/store ADDRESSES + PC,
+# contract_observation_clause: ct) under a sequential, non-speculative model (contract_execution_clause:
+# seq). Any hardware leak beyond that -- e.g. a speculatively-executed load landing in a cache set the
+# sequential contract never touches -- is a violation.
+#
+# NOTE: aarch64's default observation clause is `l1d`, so `ct` MUST be set explicitly here.
+# The measurement is pinned to the big out-of-order X3 (cpu8; A510=0-3, A715=4-7, X3=8).
+#
+# Run:
+#   python revizor.py fuzz -s base.json -c configs/ct_seq_x3_remote.yml -n 100 -i 50 --save-violations .
+instruction_set: aarch64
+instruction_categories:
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-BITFIELD
+  - BASE-CONDSEL
+  - BASE-BRANCH
+  - BASE-MEM-LOAD
+  - BASE-MEM-STORE
+min_bb_per_function: 2
+max_bb_per_function: 5
+max_successors_per_bb: 2
+min_successors_per_bb: 1
+fuzzer: basic
+input_generator: aarch64-nzcv
+executor_warmups: 5
+input_gen_seed: 0
+
+# CT-SEQ contract: constant-time observation + sequential (arch-only) execution.
+contract_observation_clause: ct
+contract_execution_clause:
+  - seq
+executor_mode: P+P
+enable_pre_run_flush: 0
+
+# Branch mistraining must stay OFF: it currently trains toward the architectural direction
+# and would suppress the natural misprediction this relies on (see CONF.enable_branch_mistraining).
+enable_branch_mistraining: false
+
+# --- drive measurement on the physical Pixel 8 X3 core over adb ---
+executor_remote: true
+executor_remote_transport: adb
+executor_remote_host: 127.0.0.1
+executor_remote_port: 5037
+executor_remote_device: /dev/executor
+executor_remote_sysfs: /sys/executor
+executor_remote_userland: /data/local/tmp/executor_userland
+executor_remote_module: /data/local/tmp/revizor-executor.ko
+executor_pinned_core: 8
+superbatch_size: 1
+enable_fast_path_model: true

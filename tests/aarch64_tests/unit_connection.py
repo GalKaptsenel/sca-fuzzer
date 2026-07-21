@@ -75,9 +75,16 @@ class SSHRunStreamingTest(unittest.TestCase):
 
 class ADBSerialTest(unittest.TestCase):
     @staticmethod
+    def _device(serial):
+        d = mock.Mock(serial=serial)
+        # __init__ probes SELinux via shell("getenforce"); return a valid marker-terminated line.
+        d.shell.return_value = "Permissive\n__RVZR_RC__0"
+        return d
+
+    @staticmethod
     def _client(serials):
         client = mock.Mock()
-        client.devices.return_value = [mock.Mock(serial=s) for s in serials]
+        client.devices.return_value = [ADBSerialTest._device(s) for s in serials]
         return client
 
     def test_missing_serial_raises(self):

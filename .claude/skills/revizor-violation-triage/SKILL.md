@@ -1,93 +1,102 @@
 ---
 name: revizor-violation-triage
-description: Triage an AArch64 Revizor violation to decide GENUINE Spectre-style leak vs measurement noise, by comparing the contract executor's speculative (wrong-path) cache lines against the hardware htrace — WITHOUT re-running the test on HW (which trains the BPU and hides the leak). Use when a violation-* dir or a "Mismatching CTraces"/violation report needs classification.
+description: Triage an AArch64 Revizor violation to classify it as a GENUINE Spectre leak (and which variant) vs measurement noise, by running the contract executor (CE) locally under a configurable set of speculation contracts and comparing its speculative cache sets to the hardware htrace. Works for REIF and legacy bin inputs, and for both local and remote HW runs (the CE always runs locally). Use when a violation-* dir / report needs classification, BEFORE any hardware re-measurement.
 ---
 
-# Revizor violation triage (genuine Spectre-v1 vs noise)
+# Revizor violation triage (contract-level classification)
 
-## Core principle
-A Revizor violation = two inputs that are **architecturally equivalent** (same contract trace under the run's contract) but have **different hardware traces**. To confirm it is a genuine speculative leak (not noise):
+A violation = two (or more) inputs that are **contract-equivalent** (identical contract trace under the
+run's contract) yet have **different hardware traces**. Triage decides whether that HW difference is a
+real speculative leak — and which Spectre variant — using only the **CE (local userland subprocess)**,
+without re-running on hardware. Classify here first; confirm on HW with **revizor-violation-verify**.
 
-1. Confirm the inputs are **arch-equivalent** (identical nest=0 cache lines in the CE).
-2. Confirm their **speculative (nest>0) cache lines DIFFER** in the CE (run the CE under `ALWAYS_MISPREDICT`).
-3. Confirm the **CE's speculative divergence explains the observed HW htrace divergence** (bit-for-bit).
+## The three checks
+1. **seq AGREE** — under the sequential (non-speculative) contract the inputs produce the *same* trace
+   (the violation premise; if it fails they were never contract-equivalent — or your base is wrong).
+2. **a speculative clause DISAGREES** — under some `contract_execution_clause` their traces diverge.
+   *Which* clause first splits them names the variant.
+3. **the CE's speculative-divergent sets match the observed htrace difference**.
 
-If all three hold → **genuine Spectre-v1**. If the HW shows no stable divergence, or the CE shows no speculative divergence → **noise**.
+seq✓ + one-clause✓ + sets-match✓ → **genuine** (that variant). Checks 1–2 pass but sets don't match →
+likely noise → escalate to HW verification.
 
-> **v4 (store-bypass) triage:** the same three-step logic applies, but the speculative divergence is
-> not branch-driven — run the CE under the **`bpas`** contract (`contract_execution_clause=['bpas']`,
-> `ExecutionClause.BPAS`) instead of `cond`, and confirm the divergence vanishes with `enable_speculative_store_bypass=0`.
-> See **`reproduce-spectre-v4`** for the full v4 argument and **`reproduce-violation-manual`** /
-> **`executor-userland`** for replaying the pair on hardware.
+## ⚠️ CRITICAL: use the REAL sandbox base
+`ct` records **absolute addresses** (`base + offset`); sandbox masking makes address collisions
+**base-dependent**. A wrong/placeholder base gives *spurious seq DISAGREE*. Always pass the run's real
+base and sanity-check that the CE seq hash equals `report.txt`'s `Contract trace (hash)`:
+```python
+base = int(open("/sys/executor/print_sandbox_base").read(), 16)   # remote: read over the connection
+# or, from a live executor (local or remote): base, _ = executor.read_base_addresses()
+```
+(The line→bin mapping is base-independent since the base is page-aligned; the hash/agreement is not.)
 
-## CRITICAL anti-pattern (do NOT do this)
-**Do NOT "confirm noise" by re-running the same test on HW many times (high reps/warmups).** Repetition *trains the branch predictor* to predict the branch correctly, which **removes the misprediction that causes the leak** — so a genuine Spectre-v1 will look like clean/identical htraces after training. Repeated-measurement stability is the WRONG tool here. Use the CE's speculative trace + the violation report's *already-captured* htrace distribution instead.
+## General contract set (configurable — not just seq/cond)
+The CE accepts any `ExecutionClause` combination in `SUPPORTED_EXECUTION_CLAUSES`
+(`aarch64_contract_executor.py`). Triage a **list** so the skill generalizes to any leak type:
+```python
+from src.aarch64.aarch64_contract_executor import ExecutionClause as E
+CONTRACTS = [("seq", E.SEQ, 0), ("cond", E.COND, 5), ("bpas", E.BPAS, 5),
+             ("cond-bpas", E.COND|E.BPAS, 5), ("bpu", E.BPU, 5), ("barrier", E.BARRIER, 5),
+             ("sls", E.SLS, 5)]        # add/remove to match the campaign's contract + hypotheses
+```
+`seq` runs at nest 0; speculative clauses at nest ≥ 5 (some leaks are several speculated instructions
+deep — sweep nest 1/5/30; nest 1 alone often misses it).
 
-## Method
+## Method (REIF inputs, current API)
+```python
+import sys; sys.path.insert(0, "<repo>")
+from src.config import CONF; CONF.load(f"{VD}/reproduce.yaml")
+from src.factory import get_input_generator
+from src.aarch64.aarch64_generator import Aarch64Generator
+from src.aarch64.aarch64_contract_executor import ContractExecution, ContractExecutorService, ExecutionClause, SimArch
+from src.aarch64.aarch64_trace import compute_ctrace
+from src.aarch64.aarch64_executor import _ce_memory_regs
 
-### 1. Get the counterexample pair
-From `violation-*/report.txt`, the `## Counterexample Inputs` section lists `Input #A` and `Input #B` (indices into the boosted input set). The saved `input_AAAA_nzcv_scheme.bin` files (older runs: `input_AAAA.bin`) are those boosted inputs.
+tc_bytes = Aarch64Generator.in_memory_assemble(open(f"{VD}/sandboxed_test_case.asm").read())
+inA, inB = get_input_generator(0).load([f"{VD}/input_{A:04d}.reif", f"{VD}/input_{B:04d}.reif"])
+ce = ContractExecutorService("<repo>/src/aarch64/contract_executor/contract_executor")
+def ctrace(inp, clause, nest, base):
+    mem, regs = _ce_memory_regs(inp)
+    ex = ContractExecution(tc_bytes, mem, regs, SimArch.RVZR_ARCH_AARCH64, nest,
+                           CONF.model_max_spec_window, req_mem_base_virt=base, execution_clauses=clause)
+    return compute_ctrace(ce.run(ex))         # .hash_ = agreement key; .raw = addresses
+```
+- Counterexample `A`,`B`: `report.txt` → `## Counterexample Inputs`. Files `input_{A:04d}.reif`.
+- Divergent sets for a disagreeing clause: `{(v>>6)&63 for v in ctrace(...).raw}`, symmetric difference.
+- Observed htrace diff: parse **every** `<pattern> [count]` line per input in `report.txt`, per-bit
+  frequency, bits with large `|freq_A − freq_B|` (never just the dominant pattern).
 
-### 2. CE arch vs speculative cache lines
-Run the CE under **ALWAYS_MISPREDICT** (`CONF.contract_execution_clause=['cond']`) on the pair. For each input, split memory accesses by `speculation_nesting`:
-- `nest==0` → architectural lines; cache line = `(EA - x29) // 64 % 64`.
-- `nest>0`  → speculative (wrong-path) lines.
-Genuine leak signature: **arch lines identical, speculative lines differ** (a data-dependent wrong-path access).
+**Tool:** `scripts/ce_full.py <violation-dir> <A> <B>` — runs the CONTRACTS list, prints AGREE/DISAGREE +
+divergent sets, flags which match the htrace diff. Pass the real base.
 
-### 3. Map CE lines → HW htrace bits
-- `K = (sandbox_base // 64) % 64` (read via `executor.read_base_addresses()`; usually 0 since the sandbox is 64-aligned at `…0000`).
-- HW set index = `(line + K) % 64`.
-- **Two different representations — do not confuse them (this caused a wrong "MISSING" verdict once):**
-  - The **raw htrace integer** (`HTrace.raw`, list of 64-bit ints from `trace_test_case`): **bit b == cache set b directly (IDENTITY map).** Expected raw bit for a CE line `l` is just `(l + K) % 64`.
-  - The **printed htrace string** in `report.txt` (the `^.^…` patterns): **bit-REVERSED**, string position = `63 - HW_set`.
-  - So: working from `HTrace.raw` → identity; working from `report.txt` strings (as `triage_violation.py` does) → `63 - set`. Both are self-consistent; just stay in one space.
+## Local vs remote
+The CE is a **local** subprocess in both cases — triage code is identical. Only the *base* differs in
+where you read it (local `/sys/executor` vs over the SSH/ADB connection). Do NOT build a remote
+HWExecutor just to triage — that reconfigures the device (pin/mode) and can corrupt a running campaign;
+read the base once, or reuse the value in `report.txt`/logs.
 
-### 4. Per-bit HW divergence from the report (NOT re-measurement)
-Parse the **full** htrace distribution per input from `report.txt` (every `<pattern> [count]` line, not just the top one), compute per-bit set-frequency, and find bits where `|freq_A - freq_B| > 0.3` (stably divergent). Using only the single dominant pattern is too coarse and gives false "doesn't fit" results.
+## Verdict
+| result | meaning |
+|---|---|
+| seq AGREE, cond DISAGREE, bpas AGREE, sets match htrace | genuine **Spectre-v1** (branch) |
+| seq AGREE, bpas DISAGREE, cond AGREE, sets match htrace | genuine **Spectre-v4**; confirm it vanishes with `enable_speculative_store_bypass=0` |
+| seq AGREE, only cond-bpas / bpu / sls DISAGREE | that combined/other speculation is required |
+| seq AGREE, a clause DISAGREES, sets ≠ htrace-diff | contract says leakable, HW shows other sets → **likely noise** → verify |
+| seq DISAGREE | not contract-equivalent — **recheck the base first** |
 
-### 5. Verdict
-- HW-divergent bits **⊆ CE speculative-divergent bits** (and non-empty) → **GENUINE**.
-- HW-divergent bits with **no stable divergence** → **noise**.
-- HW-divergent bit **not in CE set** → **investigate**: deeper speculative nesting than explored, or a CE modeling gap (e.g., the known STP-2nd-element / pair / signed-load gaps).
+## Do NOT confirm noise by naive high-rep single-input re-measurement
+Re-running the *same* input alone many times trains the BPU to predict correctly and **hides**
+Spectre-v1. The contract check here is training-free. For HW, use the controlled-batch protocol in
+**revizor-violation-verify** (fixed preceding context, swap only the leaking slot), never isolated repetition.
 
-## Tool
-`scripts/triage_violation.py <violation-dir>` — runs steps 1–5 and prints the per-bit verdict. It loads the TC + the counterexample inputs, runs the CE under ALWAYS_MISPREDICT, maps lines→bits, parses the report's per-bit frequencies, and classifies.
+## Manual CE emulation (hand cross-validation)
+Each `ContractExecutionResult` entry `ite`: `ite.cpu.gpr[0..30]`/`sp`/`nzcv`/`pc`/`encoding` (disasm via
+`aarch64_disasm.disassemble_instruction`), `ite.metadata.speculation_nesting` (0=arch, >0=wrong-path),
+`.memory_access.effective_address`/`.is_write`/`.element_size`/`.before`/`.after` (loaded value = the
+"secret"). Sandbox masking `EA = x29 + (reg & 0x1fff)`, set `= ((EA−x29)//64)%64`. Arch (nest 0) sets
+identical between the pair; the speculative dependent-load set is the divergence and must equal the
+HW-divergent sets.
 
-## Manual CE emulation (conscious cross-validation of a violation)
-When you need to *prove* a violation by hand (not just trust the script), step through the CE's own trace and re-derive every address yourself. Authoritative per-instruction fields on each `ContractExecutionResult` entry `ite`:
-- `ite.cpu.gpr[0..30]` (x30 = lr), `ite.cpu.sp`, `ite.cpu.nzcv`, `ite.cpu.pc`, `ite.cpu.encoding` (raw 32-bit — feed to `aarch64_disasm.disassemble_instruction(encoding, pc)` to get the exact instr, including immediates that confirm the source asm).
-- `ite.metadata.has_memory_access`, `.speculation_nesting` (0 = architectural, >0 = wrong-path), `.instr_index`, `.memory_access` with `.effective_address`, `.is_write`, `.element_size`, and crucially **`.before` / `.after`** = the memory value loaded/stored (this is how you read the "secret" a gadget leaks).
-- Sandbox masking: every memory base register is rewritten to `addr = x29 + (reg & 0x1fff)` (main 0x000–0xFFF, faulty 0x1000–0x1FFF; the original immediate/index is neutralized); hand-check `set == ((EA - x29) // 64) % 64`.
-
-### NZCV initialization methodology (DO NOT skip when emulating)
-Flags are NOT stored as a PSTATE word in the input — they use a **per-flag byte encoding** in GPR slot 6 (`NZCVScheme` in `aarch64_input_layout.py`):
-- Register region starts at input byte `0x2000`; slot i = x{i} for i<6, **slot 6 (byte 0x2030) = NZCV**, slot 7 = sp. Each slot is 8 bytes; the low 32 bits are mirrored into the high 32 (Revizor duplication).
-- Within slot 6: **bit 0 of byte 0 = N, byte 1 = Z, byte 2 = C, byte 3 = V** (bytes 4–7 mirror 0–3). So slot `01 01 01 01` ⇒ N=Z=C=V=1; `00 01 01 00` ⇒ N=0,Z=1,C=1,V=0.
-- Just before execution `_reconstruct_pstate` converts that slot to ARM PSTATE: `pstate = N<<31 | Z<<30 | C<<29 | V<<28`, and `set_registers_from_input` does `msr nzcv, x6`. To emulate by hand you MUST do this reconstruction — read the four bytes, build PSTATE, then evaluate conditions (`HI = C&!Z`, `PL = !N`, `NE = !Z`, …).
-- Per-flag bytes give byte-granular taint separation (N→byte48, Z→49, C→50, V→51). The prime/probe harness must never clobber NZCV between init and the TC (use CBNZ/CBZ + SUB/ADD, never `subs/cmp/b.cond`); see memory `feedback_harness_no_flag_clobber`. A wrong NZCV init flips conditional-select/branch outcomes and silently changes the traced path.
-
-Procedure: dump **both** paths for **both** counterexample inputs.
-- **Architectural (nest 0)**: the set sequence must be **identical** between the two inputs (store *values* may differ — that's fine and expected, it proves the inputs really differ in memory yet share the arch cache footprint). If arch sets differ, the inputs are NOT contract-equivalent → not a real violation.
-- **Speculative (nest>0)**: find the gadget — a load whose *address* comes from a previously-loaded value. The first load reads the SAME address in both inputs (the secret location) but `.before` differs; the dependent load's `(secret & 0x1fff)` becomes its address → different cache set per input. Those sets must equal the HW-divergent bits.
-`scripts/manual_emulate.py <violation-dir>` dumps exactly this (disasm + set + loaded value for every mem access, both paths, with a per-line `hand==CE` check).
-
-## Validate the P+P channel itself BEFORE trusting any violation
-A noisy prime produces garbage htraces and false violations. Verify the channel with `scripts/check_pp_correctness.py` (loads a TC, N=200 reps, arch-only `seq`):
-- **No false negatives**: every CE architectural line must appear as a hot htrace bit with frequency ~1.0.
-- **Noise metrics**: spurious hot bits (set ≥50% but not architectural), extra evictions/rep, dominant-pattern stability, distinct-patterns/N. A clean channel ≈ 0 spurious, ~1 distinct pattern, stability ≈ 1.0.
-
-## PITFALL — the P+P prime trains the BPU and HIDES Spectre-v1
-The kernel `prime()` in `templates_jit.c` runs many store-loop iterations with conditional branches; that **trains the BPU to predict correctly and suppresses the very misprediction the leak needs** → P+P reports 0 Spectre-v1 even when F+R finds them. Confirmed: original prime (32 passes × 3 nested branch sites, 16384 stores) → **0** in P+P; a lean **single-loop** prime found a GENUINE Spectre-v1 in P+P (see memory `project_pp_prime_bpu_training`).
-- Build-time knobs (added to `templates_jit.c`): `-DPRIME_SINGLE_LOOP=1` (one linear pass per rep, 1 inner branch) vs `=0` (original); `-DPRIME_REPS=N`. Build: `make KDIR=… KCFLAGS="-DPRIME_SINGLE_LOOP=1 -DPRIME_REPS=8"`.
-- **Cleanliness depends on re-priming PASSES, not loop structure**: knee at **4 passes** (single-loop ×4 == original ×32 in cleanliness). 1 pass is far too noisy.
-- F+R (uses `flush`, not `prime`) does not have this problem — it's the reliable Spectre-v1 detector.
-
-## PITFALL — non-deterministic test-case generation (confounds A/B runs)
-`Generator.update_seed()` reads `self._state` (set from `program_generator_seed` **at construction**), NOT a later `CONF.program_generator_seed` assignment, and `_state==0` → a *random* seed each run. For a reproducible TC in a script, set `gen._state = SEED` directly **before** `create_test_case(...)`. `create_test_case(path)` takes an asm-file PATH, not a seed.
-
-## Gotchas / environment
-- Activate your Revizor Python venv (the one created by the installer); `chmod 777 /dev/executor` after insmod.
-- The CE binary must be rebuilt after any `contract_executor/*.c|*.h` change (`make -C src/aarch64/contract_executor`; the Makefile now tracks header deps). Kernel module: `make KDIR=/usr/src/linux-headers-6.12.90+deb13-cloud-arm64`.
-- Module reload can leave `refcnt` stuck if a `contract_executor` subprocess was SIGKILLed while holding `/dev/executor` (orphaned holder) → `rmmod` fails, only a reboot clears it. Kill CE subprocesses cleanly before `rmmod`.
-- `map_register_to_offsets` must map `wN` to the same slot as `xN` (taint completeness — a w-reg gap there caused spurious "Mismatching CTraces"). See memory `project_ce_audit_findings`.
-- Known CE speculative-modeling gaps that can leave HW bits "unexplained": pair load/store 2nd element not traced, SUBPS flags, SIMD/FP not modeled (see memory `project_doc_what_we_dont_do`).
+## Legacy bin format
+`input_NNNN.bin` uses a per-flag NZCV slot (byte 0x2030) reconstructed to PSTATE before use; contract
+logic is identical. Prefer REIF + `input_gen.load`.

@@ -9,11 +9,11 @@
 #define MEMORY_INPUT_SIZE		        (MAIN_REGION_SIZE + FAULTY_REGION_SIZE)
 #define OVERFLOW_REGION_SIZE	        PAGESIZE
 #define REG_INITIALIZATION_REGION_SIZE	64
-#define EVICT_REGION_SIZE               L1D_SIZE
+#define EVICT_REGION_SIZE               L1D_SIZE_MAX
 
 // Aligns all members to 16 bytes, in order for sp register be able to access them (sp can access memory only when it is aligned to 16 bytes)
 typedef struct __attribute__((packed)) sandbox {
-    char eviction_region[EVICT_REGION_SIZE]     __attribute__((aligned(L1D_SIZE))); // region used in Prime+Probe for priming
+    char eviction_region[EVICT_REGION_SIZE]     __attribute__((aligned(L1D_SIZE_MAX))); // region used in Prime+Probe for priming
     char lower_overflow[OVERFLOW_REGION_SIZE]   __attribute__((aligned(16)));       // zero-initialized region for accidental overflows
     char main_region[MAIN_REGION_SIZE]          __attribute__((aligned(16)));       // first input page. does not cause faults
     char faulty_region[FAULTY_REGION_SIZE]      __attribute__((aligned(16)));       // second input. causes a (configurable) fault

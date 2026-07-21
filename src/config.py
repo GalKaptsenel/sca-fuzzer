@@ -243,6 +243,8 @@ class Conf:
     """ executor_remote_module: where the kernel module is staged on the device machine. """
     executor_remote_userland: str = '/tmp/executor_userland'
     """ executor_remote_userland: where the userland batch driver is staged on the device. """
+    executor_pinned_core: int = 0
+    """ executor_pinned_core: physical CPU id the executor pins measurement to. """
 
     # ==============================================================================================
     # Analyser

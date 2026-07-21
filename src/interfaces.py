@@ -868,6 +868,7 @@ class TestCase:
 
     def __init__(self, seed: int):
         self.seed = seed
+        self.test_id = -1
         self.actors = {"main": Actor(ActorMode.HOST, ActorPL.KERNEL, 0, "main")}
         self.functions = []
         self.address_map = {}

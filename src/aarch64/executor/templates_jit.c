@@ -31,6 +31,13 @@ extern int (*set_memory_rw_fn)(unsigned long, int);
 
 #define NINDEXES (64)
 
+#ifndef PRIME_REPS
+#define PRIME_REPS 4
+#endif
+
+
+
+
 /* Byte offset of the test case within the JIT'd harness, indexed by measurement
  * template. */
 static size_t tc_insert_offset_bytes_by_template[NUM_TEMPLATES] = { 0 };
@@ -157,7 +164,12 @@ static int probe_pfcs_end(jit_t* jit, int pmu1_reg, int pmu2_reg, int pmu3_reg, 
 /* Prime: fill the whole eviction region with stores, `reps` passes. Linear sweep --
  * priming fills every set, so no anti-prefetch scrambling (unlike probe/reload). */
 static int prime(jit_t* jit, int base_reg, int off_reg, int tmp_reg, int counter_reg, int reps) {
-	const int nlines = EVICT_REGION_SIZE / 64;
+	const struct cache_geometry g = cache_geometry_on_cpu(executor.config.pinned_cpu_id, 1, CACHE_TYPE_DATA);
+	if (!g.valid) {
+		module_err("L1D geometry probe failed on CPU %d\n", executor.config.pinned_cpu_id);
+		return -EINVAL;
+	}
+	const int nlines = g.size / 64;
 
 	adjust_reg(jit, base_reg, tmp_reg, BASE_REGION, EVICTION_REGION);
 	jit_isb(jit);
@@ -168,7 +180,6 @@ static int prime(jit_t* jit, int base_reg, int off_reg, int tmp_reg, int counter
 	jit_movr64(jit, tmp_reg, base_reg);     /* reset walking pointer to eviction base each pass */
 	jit_mov64(jit, counter_reg, nlines);
 
-	/* Per-store isb;dsb are REQUIRED for measurement fidelity (see history). */
 	uint8_t* loop = jit_get_cur(jit);
 	jit_isb(jit);
 	jit_dsb_sy(jit);
@@ -230,7 +241,12 @@ static int flush(jit_t* jit, int base_reg, int tmp1, int tmp2, int tmp3) {
  * Loop walks sets in rbit (bitrev6) order -- no constant stride for the prefetcher. */
 static int probe(jit_t* jit, int base_reg, int tmp1, int tmp2, int tmp3, int index_reg, int destination_reg) {
 	const int zero_reg = 31;
-	const int aggregate_chunks = L1D_SIZE / 4096;
+	const struct cache_geometry g = cache_geometry_on_cpu(executor.config.pinned_cpu_id, 1, CACHE_TYPE_DATA);
+	if (!g.valid) {
+		module_err("L1D geometry probe failed on CPU %d\n", executor.config.pinned_cpu_id);
+		return -EINVAL;
+	}
+	const int aggregate_chunks = g.size / 4096;
 	const int cnt = tmp3, idx = index_reg, off = tmp1, t_pre = tmp2, t_post = tmp1;
 
 	jit_isb(jit);
@@ -309,8 +325,8 @@ static int reload(jit_t* jit, int base_reg, int tmp1, int tmp2, int tmp3, int in
 		jit_dsb_sy(jit);
 		jit_subr64(jit, t_post, t_post, t_pre);           /* cycle delta */
 		if (record) {
-			jit_cbnz64(jit, t_post, jit_get_cur(jit) + 4 * 4); /* miss -> skip the 3-insn bit set */
-			jit_mov64(jit, t_pre, 1);             /* t_pre free after the delta */
+			jit_cbnz64(jit, t_post, jit_get_cur(jit) + 4 * 4); /* slow/evicted -> skip the bit set */
+			jit_mov64(jit, t_pre, 1);
 			jit_lslr64(jit, t_pre, t_pre, idx);
 			jit_orr64(jit, destination_reg, destination_reg, t_pre);
 		}
@@ -321,8 +337,7 @@ static int reload(jit_t* jit, int base_reg, int tmp1, int tmp2, int tmp3, int in
 
 	jit_isb(jit);
 	jit_dsb_sy(jit);
-	/* loop ended at UPPER_OVERFLOW (region_to[3]) -> restore base_reg to BASE for the epilogue. */
-	adjust_reg(jit, base_reg, tmp1, UPPER_OVERFLOW_REGION, BASE_REGION);
+	adjust_reg(jit, base_reg, tmp1, region_to[3], BASE_REGION);
 	return 0;
 }
 
@@ -346,9 +361,6 @@ static size_t prime_probe_method(jit_t* jit, uint32_t* tc, size_t tc_size, size_
 	prologue(jit, base_reg, tmp_reg1);
 	set_registers_from_input(jit, base_reg, tmp_reg1);
 
-#ifndef PRIME_REPS
-#define PRIME_REPS 4
-#endif
 	prime(jit, base_reg, tmp_reg1, tmp_reg2, tmp_reg3, PRIME_REPS);
 
 	adjust_reg(jit, base_reg, tmp_reg1, BASE_REGION, MAIN_REGION);
@@ -431,6 +443,57 @@ static size_t flush_reload_method(jit_t* jit, uint32_t* tc, size_t tc_size, size
 	return (size_t)((uintptr_t)jit_get_cur(jit) - start);
 }
 
+static size_t prime_reload_method(jit_t* jit, uint32_t* tc, size_t tc_size, size_t* tc_off_bytes) {
+	if (NULL == jit) {
+		return -EINVAL;
+	}
+	int base_reg = 29;
+	int hw_trace_reg = 15;
+	int pmu1_reg = 20;
+	int pmu2_reg = 21;
+	int pmu3_reg = 22;
+	int tmp_reg1 = 16;
+	int tmp_reg2 = 17;
+	int tmp_reg3 = 18;
+	int tmp_reg4 = 19;
+
+	uintptr_t start = (uintptr_t)jit_get_cur(jit);
+	jit_perm_rw(jit);
+	jit_bti(jit, 1, 1);
+	prologue(jit, base_reg, tmp_reg1);
+	set_registers_from_input(jit, base_reg, tmp_reg1);
+
+	prime(jit, base_reg, tmp_reg1, tmp_reg2, tmp_reg3, PRIME_REPS);
+
+	adjust_reg(jit, base_reg, tmp_reg1, BASE_REGION, MAIN_REGION);
+
+	probe_pfcs_start(jit, pmu1_reg, pmu2_reg, pmu3_reg);
+
+	jit_isb(jit);
+	jit_dsb_sy(jit);
+
+	if (NULL != tc_off_bytes) {
+		*tc_off_bytes = (uintptr_t)jit_get_cur(jit) - start;
+	}
+	for (int i = 0; i < (tc_size / 4); ++i) {
+		jit_emit(jit, tc[i]);
+	}
+
+	jit_isb(jit);
+	jit_dsb_sy(jit);
+
+	probe_pfcs_end(jit, pmu1_reg, pmu2_reg, pmu3_reg, tmp_reg1);
+
+	adjust_reg(jit, base_reg, tmp_reg1, MAIN_REGION, BASE_REGION);
+
+	reload(jit, base_reg, tmp_reg1, tmp_reg2, tmp_reg3, tmp_reg4, hw_trace_reg);
+
+	epilogue(jit, base_reg, hw_trace_reg, pmu1_reg, pmu2_reg, pmu3_reg, tmp_reg1);
+	jit_ret(jit, 30);
+	jit_perm_rx(jit);
+	return (size_t)((uintptr_t)jit_get_cur(jit) - start);
+}
+
 typedef size_t (*measurement_template_builder)(jit_t*, uint32_t*, size_t, size_t* tc_off_bytes);
 struct measurement_method {
 	enum Templates type;
@@ -441,6 +504,7 @@ struct measurement_method {
 static struct measurement_method methods[] = {
 	{PRIME_AND_PROBE_TEMPLATE,	prime_probe_method,	"prime and probe"},
 	{FLUSH_AND_RELOAD_TEMPLATE,	flush_reload_method, 	"flush and reload"},
+	{PRIME_AND_RELOAD_TEMPLATE,	prime_reload_method, 	"prime and reload"},
 };
 
 static ssize_t build_measurement_code(jit_t* jit, enum Templates t, uint32_t* tc, size_t tc_size) {

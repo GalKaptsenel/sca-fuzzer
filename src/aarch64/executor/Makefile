@@ -41,7 +41,7 @@ endif
 ccflags-y += -march=$(ARM_ARCH)
 
 # Common flags
-ccflags-y += -g -DL1D_SIZE_K=64 -DL1D_ASSOCIATIVITY=4
+ccflags-y += -g
 ccflags-y += -I$(src)/userapi
 
 # Object list
@@ -50,6 +50,7 @@ revizor-executor-y := \
 	chardevice.o \
 	input_format.o \
 	cpu.o \
+	cache_geometry.o \
 	executor.o \
 	inputs.o \
 	measurement.o \
@@ -77,16 +78,22 @@ HOSTCC ?= cc
 test_pmu: test_pmu.c pmu_logic.h
 	$(HOSTCC) -Wall -Wextra -O2 -o $@ test_pmu.c
 
+# Host-compiled unit test for the cache-geometry decode. Compiles the REAL decode (cache_geometry.c),
+# not a copy, and feeds known CCSIDR_EL1/CLIDR_EL1 values (no hardware, no module).
+test_cache_geometry: test_cache_geometry.c cache_geometry.c cache_geometry.h
+	$(HOSTCC) -Wall -Wextra -O2 -o $@ test_cache_geometry.c cache_geometry.c
+
 # Host-compiled, device-backed test of the kernel PAC sign/xpac ioctls via the non-faulting
 # verification (never AUTHs). Needs /dev/executor at runtime.
 test_pac_auth_verify: test_pac_auth_verify.c userapi/executor_pac_api.h userapi/executor_ioctl_nr.h
 	$(HOSTCC) -Wall -Wextra -O2 -Iuserapi -o $@ test_pac_auth_verify.c
 
-test: test_pmu
+test: test_pmu test_cache_geometry
 	./test_pmu
+	./test_cache_geometry
 
 # Cleanup
 clean:
 	$(MAKE) -C $(KERNEL_DIR) M=$(CURDIR) clean
-	rm -f test_pmu test_pac_auth_verify
+	rm -f test_pmu test_pac_auth_verify test_cache_geometry
 

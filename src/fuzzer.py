@@ -197,6 +197,7 @@ class FuzzerGeneric(Fuzzer):
         test_case: TestCase = self.generation_function(self.existing_test_case)
         self.input_gen.n_actors = len(test_case.actors)
         STAT.test_cases += 1
+        test_case.test_id = STAT.test_cases - 1
         inputs = self.input_gen.load(self.input_paths) if self.input_paths \
             else self.input_gen.generate(num_inputs)
         STAT.num_inputs += len(inputs) * CONF.inputs_per_class
@@ -676,7 +677,7 @@ class FuzzerGeneric(Fuzzer):
         # store the violation report
         with open(f"{violation_dir}/report.txt", "w") as f:
             f.write("# Violation Report\n\n")
-            f.write(f"* Test Case ID: {STAT.test_cases - 1}\n")
+            f.write(f"* Test Case ID: {test_case.test_id}\n")
             f.write(f"* Detected: {datetime.today().strftime('%d.%m.%y at %H:%M:%S')}\n\n")
             f.write("* Time to detection:"
                     f" {(datetime.today() - self.LOG.start_time).total_seconds()}\n")

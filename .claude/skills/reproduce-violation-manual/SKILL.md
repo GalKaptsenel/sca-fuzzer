@@ -1,95 +1,70 @@
 ---
 name: reproduce-violation-manual
-description: Manually reproduce ANY Revizor violation through /dev/executor with executor_userland, using the general "fixed context + swap the leaking slot" protocol — load the preceding inputs and the test case once, then run one experiment per counterexample input in the same slot and confirm the htrace divergence (the violation) persists. Use to confirm a saved violation-* by hand, generalize beyond a 2-input swap to V counterexample inputs, or build a manual measurement loop for a known leak. Builds on the executor-userland skill; pair with revizor-violation-triage (predicts the leaking set first).
+description: Reproduce/verify ANY Revizor violation on hardware with the controlled batch-context protocol — load the test case's full input batch once, swap ONLY the leaking slot between the counterexample inputs, and confirm the htrace divergence persists (genuine) or washes out (noise/batch-contamination). Runs local or remote (whatever reproduce.yaml selects) via verify.py, or by hand through /dev/executor with executor_userland. Handles REIF and legacy bin inputs, 2..V counterexample inputs, and multiple swap positions. Pair with revizor-violation-triage (predicts the leaking sets first).
 ---
 
-# Manually reproducing a Revizor violation (general protocol)
+# Reproducing / verifying a Revizor violation on hardware
 
-A Revizor violation is a set of **V counterexample inputs** that are contract-equivalent yet produce
-divergent hardware traces. To reproduce it by hand you recreate the *exact same* micro-architectural
-context for every one of the V inputs, vary only the one slot under test, and confirm the htrace
-divergence is stable and input-determined.
+A violation = V counterexample inputs that are contract-equivalent yet produce divergent hardware
+traces. To confirm it's real (not measurement noise) you must recreate the **exact same
+micro-architectural context** for every one of the V inputs, vary only the one slot under test, and
+check the htrace **distribution** divergence is stable, input-determined, and lands on the sets
+**revizor-violation-triage** predicted. Do the contract classification there first.
 
-Read the `executor-userland` skill first — this skill is the methodology; that one is the tool.
+## THE pitfall this defends against — batch/prefetcher contamination
+An input's htrace depends on its **predecessors within the same test case's input batch** (the
+prefetcher/BPU state carries across the super-batch). The executor **resets between test cases**, so you
+do NOT reiterate other test cases — only this TC's inputs. Measuring the counterexample inputs *in
+isolation* gives them different contexts and huge spurious differences. Always fix one prefix and swap
+only the tested slot.
 
-## Methodology
-Let the violation's counterexample inputs sit at boosted indices, and let `i = min(index)` be the
-lowest. The inputs `0 .. i-1` are the **real preceding context** (priming the µarch state); slot `i`
-is the only thing you swap and the only thing you measure.
+## Protocol (tool: `verify.py`)
+`verify.py <violation-dir> [--position lower|higher|last|all] [--reps N] [--sets s1,s2,...] [--inputs A,B,...]`
+- Loads the **whole** input batch (`input_*.reif`/`.bin`) in order + the test case, once.
+- `prefix = slots 0..P-1` (identical for every measurement); **swaps only slot P** between the V inputs;
+  one batch `trace_test_case` call each; records the last slot's htrace **distribution** (per-set
+  frequency over all reps — not just the dominant pattern).
+- **Positions** (try several — a real leak persists at all):
+  - `lower` → P = min(counterexample idx): prime up to the first leaking slot.
+  - `higher` → P = max: prime up to the last leaking slot.
+  - `last` → P = N-1: all iids as context, most symmetric.
+  - `all` → runs lower+higher+last and cross-checks.
+- Runs **local or remote** exactly as `reproduce.yaml`'s `executor_*` selects — no separate path.
+- Pass `--sets` the triage-predicted sets; the verdict prints whether the persistent difference lands on
+  them. Bin numbering: raw htrace int bit b == cache **set b** (identity); triage.py already reversed the
+  `report.txt` MSb-first strings (position p = set 63-p) into set space, so `--sets` are set indices.
 
-1. **Fixed context** — load inputs `0 .. i-1` into slots `0 .. i-1` (allocate → checkout → write),
-   then load the test case `T`. Do this **once**; it never changes.
-2. **V experiments** — for each of the V counterexample inputs in turn: write that input into slot `i`,
-   `TRACE`, then `MEASUREMENT` slot `i`. Record its htrace.
-3. **Confirm persistence** — compare the V htraces at the *predicted leaking set* (get it from
-   `revizor-violation-triage` / `ce_always_mispredict.py` first). A genuine violation: the leaking set
-   is lit for some inputs and ~never for others, the partition matches the contract's speculative
-   divergence, and it reproduces across repeated trials (the leak is **intermittent** — collect
-   statistics, don't expect every trial to fire).
+## Verdict
+- Persistent per-set spread (≥3% over high reps) **on a triage-predicted set** → **GENUINE**.
+- No set spreads / spread only off the predicted sets / washes out with reps → **NOISE / contamination**.
+- Real leaks are **intermittent** (misprediction fires part of the time) — a partial-frequency
+  difference IS the signal; don't expect every rep to fire, and DON'T "confirm noise" by naive isolated
+  high-rep repetition (that trains the BPU and hides Spectre-v1 — see revizor-violation-triage pitfall).
 
-## Inputs you need
-- `VD` = violation dir (`generated.asm`, `sandboxed_test_case`, `input_NNNN.bin`, `report.txt`).
-- The V counterexample input numbers (from `report.txt` → `## Counterexample Inputs`).
-- `i = min(those numbers)`; you load `0..i-1` as context and test in slot `i`.
-- The predicted leaking cache `SET` (from triage). Work in a scratch dir; **never modify the originals**.
+## Assertions verify.py makes (correctness)
+Identical prefix across all V measurements; `1 ≤ P < N`; ≥2 counterexample inputs; inputs exist. It
+does not silently fall back — it errors on a bad position/missing files. When in doubt also sanity-check
+the **channel** first (P+P prime correctness): every CE architectural set must show as a hot htrace bit
+at freq ≈ 1.0 with ~0 spurious hot bits; a noisy prime fabricates violations.
 
-## Build the byte artifacts (scratch dir)
-```
-ROOT=$(git rev-parse --show-toplevel); mkdir -p /tmp/exp
-"$ROOT/src/aarch64/asm_to_bytes/asm_to_bytes" < "$VD/sandboxed_test_case" > /tmp/exp/tc.bin
-python3 - "$VD" <<'PY'                      # rebuild each input's NZCV slot → PSTATE
-import sys, struct; ROOT_VD = sys.argv[1]
-sys.path.insert(0, "."); from src.aarch64.aarch64_input_layout import NZCVScheme
-FO = 8192 + 6*8                              # flags slot = byte 8240
-import os
-for f in os.listdir(ROOT_VD):
-    if not f.startswith("input_") or not f.endswith(".bin"): continue
-    raw = bytearray(open(f"{ROOT_VD}/{f}", "rb").read())
-    struct.pack_into("<Q", raw, FO, NZCVScheme.to_pstate(struct.unpack_from("<Q", raw, FO)[0]))
-    open(f"/tmp/exp/{f}", "wb").write(raw)
-PY
-```
+## Regime matters
+Measure under the **same regime** the violation was found (`executor_mode` P+P vs F+R, `enable_pre_run_flush`).
+A leak can be strong under one and invisible under the other — notably the kernel **P+P prime trains the
+BPU and can hide Spectre-v1**, so a genuine F+R leak may look absent under the stock P+P prime (use a
+lean single-loop prime, or L2-sized prime, to recover it).
 
-## Reload + set the regime (sysfs BEFORE loading)
-```
-cd "$ROOT/src/aarch64/executor"
-sudo rmmod revizor_executor; sudo insmod revizor-executor.ko; sudo chmod 777 /dev/executor
-echo "P+P" | sudo tee /sys/executor/measurement_mode        # match the regime the violation was found under
-echo 0     | sudo tee /sys/executor/enable_pre_run_flush     # flush ON masks branch-mispredict leaks
-```
-Reload is required so `ALLOCATE` hands out `0,1,2,…` (the static iid counter persists otherwise).
+## By hand (no Python) — executor_userland
+When you need to drive `/dev/executor` directly, use the **executor-userland** skill. Same protocol:
+`CLEAR_ALL_INPUTS`; for k in 0..P-1 `ALLOCATE`→`CHECKOUT`→`WRITE input_k`; `LOAD_TEST_CASE`→`WRITE tc`;
+then per counterexample input: `CHECKOUT slot P`→`WRITE input_V`→`TRACE`→`MEASUREMENT slot P`, read the
+htrace bit for the leaking set (**set N → report-string char 63-N**), repeat for statistics.
+- Reload the module first so `ALLOCATE` hands out 0,1,2,… (the iid counter persists).
+- Set the regime in sysfs **before** loading (`measurement_mode`, `enable_pre_run_flush 0`).
+- Never assume input ids — parse them from `ALLOCATE`. Don't run while a Python campaign is live.
+- Legacy bin inputs need the per-flag NZCV slot (byte 0x2030) reconstructed to PSTATE; REIF inputs
+  already carry it (`input_gen.load` handles both).
 
-## Run it (read every iid back — never assume)
-```
-EU="$ROOT/src/executor_userland/executor_userland /dev/executor"
-ht(){ $EU 7 | grep -aoiP 'htrace 0:\s*\K[01]{64}'; }; C=$((63-SET))   # set N → char 63-N
-
-$EU 9 >/dev/null                                                       # CLEAR_ALL_INPUTS
-for k in $(seq 0 $((i-1))); do                                         # fixed context 0..i-1
-  iid=$($EU 5 | grep -aoiP 'Allocated Input ID:\s*\K[0-9]+')
-  $EU 4 "$iid" >/dev/null; $EU w /tmp/exp/input_$(printf %04d $k).bin >/dev/null
-done
-slot=$($EU 5 | grep -aoiP 'Allocated Input ID:\s*\K[0-9]+')            # the slot under test (= i)
-$EU 1 >/dev/null; $EU w /tmp/exp/tc.bin >/dev/null                     # load test case
-
-for V in $CE_INPUTS; do                                                # one experiment per counterexample
-  $EU 4 "$slot" >/dev/null; $EU w /tmp/exp/input_$(printf %04d $V).bin >/dev/null
-  $EU 8 >/dev/null; $EU 4 "$slot" >/dev/null
-  echo "input $V  set$SET=${$(ht):$C:1}"                               # repeat in an outer loop for stats
-done
-```
-
-## Interpreting
-- Leaking set lit for one subset of the V inputs and ~never for the others, matching the contract's
-  speculative-divergence prediction ⇒ **genuine** leak reproduced.
-- All V inputs identical / arch-only every trial ⇒ no speculation occurred — almost always because
-  `enable_pre_run_flush` was left on, or the guarding branch wasn't mistrained (force it via
-  `branch_training_config` if needed; see `reproduce-revizor-violation`).
-
-## Gotchas
-- **Never assume input ids** — always parse them from `ALLOCATE` output.
-- **No static absolute paths** — resolve from the repo root (relative is fine).
-- `cmp -n 8256` when verifying read-backs (trailing simd/pad always differs).
-- The measurement regime matters: the same leak can be strong under P+P and invisible under F+R —
-  reproduce under the regime the violation was found.
-- Don't run this while the Python campaign is live (kernel input-id allocator corruption).
+## Cross-references
+- **revizor-violation-triage** — CE contract classification (run FIRST; gives the predicted leaking sets).
+- **executor-userland** — the raw /dev/executor CLI.
+- **reproduce-spectre-v4** — the store-bypass (v4) argument end-to-end.

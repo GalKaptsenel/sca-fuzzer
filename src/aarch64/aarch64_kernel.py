@@ -319,7 +319,7 @@ class LocalHWExecutor(HWExecutor):
         except PermissionError as e:
             _raise_access_error(self.executor_device_path, self.executor_device_path, e)
         self._write_sysfs("measurement_mode", CONF.executor_mode.encode())
-        self._write_sysfs("pin_to_core", b"0")
+        self._write_sysfs("pin_to_core", str(CONF.executor_pinned_core).encode())
         # sysfs parses an int (sscanf %u); emit 1/0 so a bool writes correctly.
         self._write_sysfs("enable_pre_run_flush", str(int(CONF.enable_pre_run_flush)).encode())
         self._write_sysfs("enable_ssbs", str(int(CONF.enable_speculative_store_bypass)).encode())
@@ -546,7 +546,7 @@ class RemoteHWExecutor(HWExecutor):
         self._check_abi_version()
         for name, value in (
             ("measurement_mode", CONF.executor_mode),
-            ("pin_to_core", 0),
+            ("pin_to_core", CONF.executor_pinned_core),
             ("enable_pre_run_flush", int(CONF.enable_pre_run_flush)),
             ("enable_ssbs", int(CONF.enable_speculative_store_bypass)),
             ("warmups", CONF.executor_warmups),

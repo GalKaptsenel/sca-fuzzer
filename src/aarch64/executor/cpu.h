@@ -40,6 +40,33 @@
 	DEFINE_MSR_ACCESSORS(msr)						\
 	DEFINE_SET_BIT_FUNC(msr, field, shift)					\
 
+/* CPUECTLR_EL1 (IMP-DEF, S3_0_C15_C1_4): the CPU extended control register that on Arm cores holds
+ * data-prefetcher controls. Read is non-destructive (probe the live value first); write is scoped to
+ * the measured run and immediately reverted (see execute()), so a bad value can never outlive a trace. */
+static inline uint64_t read_cpuectlr_el1(void) {
+	uint64_t val;
+	asm volatile("mrs %0, s3_0_c15_c1_4" : "=r"(val));
+	return val;
+}
+static inline void write_cpuectlr_el1(uint64_t val) {
+	asm volatile("msr s3_0_c15_c1_4, %0" :: "r"(val));
+	asm volatile("isb" ::: "memory");
+}
+
+/* Sibling IMP-DEF control registers, read-only here (non-destructive), so one probe shows every
+ * candidate that might hold the A510 data-prefetch control: CPUACTLR_EL1 (S3_0_C15_C1_0) and
+ * CPUACTLR2_EL1 (S3_0_C15_C1_1). */
+static inline uint64_t read_cpuactlr_el1(void) {
+	uint64_t val;
+	asm volatile("mrs %0, s3_0_c15_c1_0" : "=r"(val));
+	return val;
+}
+static inline uint64_t read_cpuactlr2_el1(void) {
+	uint64_t val;
+	asm volatile("mrs %0, s3_0_c15_c1_1" : "=r"(val));
+	return val;
+}
+
 struct aarch64_cpu_info {
 	uint64_t cpu_id;      // CPU index (logical)
 	uint64_t mpidr_el1;   // Affinity info (core/cluster ID)

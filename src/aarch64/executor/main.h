@@ -40,7 +40,7 @@
 #include <linux/set_memory.h>
 #endif
 
-#include "cache_configuration.h"
+#include "cache_geometry.h"
 #include "utils.h"
 #include "measurement.h"
 #include "bpu.h"
