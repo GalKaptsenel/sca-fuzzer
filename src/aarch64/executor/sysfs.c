@@ -230,6 +230,97 @@ static struct kobj_attribute pin_to_core_attribute = __ATTR(pin_to_core, 0644,pi
 static struct kobj_attribute jit_memoize_attribute = __ATTR(jit_memoize, 0644, jit_memoize_show, jit_memoize_store);
 static struct kobj_attribute jit_stats_attribute = __ATTR(jit_stats, 0644, jit_stats_show, jit_stats_store);
 
+/* DEBUG: dump the raw per-set L1D_CACHE_REFILL delta captured during the last reload().
+ * One line per set: "<set> <main_refills> <faulty_refills>"  (0 == hit / line was resident). */
+static ssize_t reload_refills_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+	int i = 0;
+	ssize_t n = 0;
+	/* columns: set  L1main L1faulty  L2main L2faulty   (counter0=reload_pmu_event, counter1=L2D_CACHE_REFILL) */
+	for (i = 0; i < 64; ++i) {
+		n += scnprintf(buf + n, PAGE_SIZE - n, "%d %llu %llu %llu %llu\n", i,
+		               executor.debug_reload_refills[i], executor.debug_reload_refills[64 + i],
+		               executor.debug_reload_refills2[i], executor.debug_reload_refills2[64 + i]);
+	}
+	return n;
+}
+static struct kobj_attribute reload_refills_attribute = __ATTR(reload_refills, 0444, reload_refills_show, NULL);
+
+/* F+R reload hit test: <0 = L1D_CACHE_REFILL delta==0 (default); >=0 = PMCCNTR cycle delta < (1<<shift). */
+static ssize_t reload_timer_shift_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+	return scnprintf(buf, PAGE_SIZE, "%d\n", executor.config.reload_timer_shift);
+}
+static ssize_t reload_timer_shift_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
+	int v = -1;
+	if (0 > kstrtoint(buf, 10, &v)) {
+		return -EINVAL;
+	}
+	executor.config.reload_timer_shift = v;
+	invalidate_jit_cache();
+	return count;
+}
+static struct kobj_attribute reload_timer_shift_attribute = __ATTR(reload_timer_shift, 0644, reload_timer_shift_show, reload_timer_shift_store);
+
+/* F+R reload set-visit order: 0 = fixed bit-reversed (default); 1 = fresh random permutation per run. */
+static ssize_t reload_random_order_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+	return scnprintf(buf, PAGE_SIZE, "%d\n", executor.config.reload_random_order);
+}
+static ssize_t reload_random_order_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
+	int v = 0;
+	if (0 > kstrtoint(buf, 10, &v)) {
+		return -EINVAL;
+	}
+	executor.config.reload_random_order = (0 != v);
+	invalidate_jit_cache();
+	return count;
+}
+static struct kobj_attribute reload_random_order_attribute = __ATTR(reload_random_order, 0644, reload_random_order_show, reload_random_order_store);
+
+/* PMU event id counted by reload()'s hit test (accepts hex). 0x03 = L1D_CACHE_REFILL, 0x17 = L2D_CACHE_REFILL. */
+static ssize_t reload_pmu_event_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+	return scnprintf(buf, PAGE_SIZE, "0x%x\n", executor.config.reload_pmu_event);
+}
+static ssize_t reload_pmu_event_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
+	int v = 0x03;
+	if (0 > kstrtoint(buf, 0, &v)) {
+		return -EINVAL;
+	}
+	executor.config.reload_pmu_event = v & 0xffff;
+	return count;
+}
+static struct kobj_attribute reload_pmu_event_attribute = __ATTR(reload_pmu_event, 0644, reload_pmu_event_show, reload_pmu_event_store);
+
+/* F+R reload: 0 = single 64-set sweep (default); 1 = per-set isolation (re-run test per set). */
+static ssize_t reload_isolate_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+	return scnprintf(buf, PAGE_SIZE, "%d\n", executor.config.reload_isolate);
+}
+static ssize_t reload_isolate_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
+	int v = 0;
+	if (0 > kstrtoint(buf, 10, &v)) {
+		return -EINVAL;
+	}
+	executor.config.reload_isolate = (0 != v);
+	invalidate_jit_cache();
+	return count;
+}
+static struct kobj_attribute reload_isolate_attribute = __ATTR(reload_isolate, 0644, reload_isolate_show, reload_isolate_store);
+
+/* SSBS bit read back during the last measurement: bit12=1 => bypass allowed (mitigation OFF); 0 => mitigated. */
+static ssize_t ssbs_state_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+	int bit = (executor.debug_ssbs >> 12) & 1;
+	return scnprintf(buf, PAGE_SIZE, "SSBS=%d (%s)  raw=0x%llx\n", bit,
+	                 bit ? "store-bypass ALLOWED, mitigation OFF" : "mitigated (SSB disabled)",
+	                 executor.debug_ssbs);
+}
+static struct kobj_attribute ssbs_state_attribute = __ATTR(ssbs_state, 0444, ssbs_state_show, NULL);
+
+/* Reload totals: L2D refills (demand+prefetch) vs MEM_ACCESS (demand only). refills > accesses => prefetch. */
+static ssize_t reload_traffic_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+	uint64_t l2d = executor.debug_reload_total_l2d, mem = executor.debug_reload_total_mem;
+	return scnprintf(buf, PAGE_SIZE, "l2d_cache_refill=%llu mem_access=%llu excess(prefetch)=%lld\n",
+	                 l2d, mem, (long long)l2d - (long long)mem);
+}
+static struct kobj_attribute reload_traffic_attribute = __ATTR(reload_traffic, 0444, reload_traffic_show, NULL);
+
 /* ---- system/ subdirectory: host info unrelated to the Revizor control knobs ---- */
 
 static ssize_t pmu_event_counters_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
@@ -280,6 +371,13 @@ static struct attribute *sysfs_attributes[] = {
 	&pin_to_core_attribute.attr,
 	&jit_memoize_attribute.attr,
 	&jit_stats_attribute.attr,
+	&reload_refills_attribute.attr,
+	&reload_timer_shift_attribute.attr,
+	&reload_random_order_attribute.attr,
+	&reload_pmu_event_attribute.attr,
+	&reload_isolate_attribute.attr,
+	&ssbs_state_attribute.attr,
+	&reload_traffic_attribute.attr,
 	NULL, /* need to NULL terminate the list of attributes */
 };
 

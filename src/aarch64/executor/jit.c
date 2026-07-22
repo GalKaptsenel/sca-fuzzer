@@ -1063,6 +1063,11 @@ void jit_read64_pmu(jit_t* jit, uint8_t pmu, uint8_t Rt) {
 	jit_mrs(jit, 1, 3, 14, 8 | ((pmu >> 3) & 3), pmu & 7, Rt);
 }
 
+// MRS <Xt=Rt>, PMCCNTR_EL0   (read the cycle counter; S3_3_C9_C13_0)
+void jit_read64_cyclecounter(jit_t* jit, uint8_t Rt) {
+	jit_mrs(jit, 1, 3, 9, 13, 0, Rt);
+}
+
 // MRS <Xd=rd>, PMEVCNTR0_EL0
 void jit_mrs_pmevcntr0_el0_64(jit_t* jit, int rd) {
 	uint32_t insn = 0xd53be800;

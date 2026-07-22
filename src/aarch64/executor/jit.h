@@ -128,6 +128,7 @@ void jit_mrs_pmevcntr0_el0_64(jit_t* jit, int rd);
 void jit_msr(jit_t* jit, uint8_t o0, uint8_t op1, uint8_t CRn, uint8_t CRm, uint8_t op2, uint8_t Rt);
 void jit_mrs(jit_t* jit, uint8_t o0, uint8_t op1, uint8_t CRn, uint8_t CRm, uint8_t op2, uint8_t Rt);
 void jit_read64_pmu(jit_t* jit, uint8_t pmu, uint8_t Rt);
+void jit_read64_cyclecounter(jit_t* jit, uint8_t Rt);
 void jit_msr_nzcv(jit_t* jit, uint8_t Rt);
 void jit_mrs_nzcv(jit_t* jit, uint8_t Rt);
 void jit_stp64(jit_t* jit, int rt1, int rt2, int rn, int imm);

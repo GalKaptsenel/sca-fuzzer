@@ -39,6 +39,10 @@ typedef struct executor_config {
 	enum Templates measurement_template;
 	int pinned_cpu_id;
 	char enable_ssbs;
+	int reload_timer_shift;  /* F+R reload hit test: <0 => L1D_CACHE_REFILL delta==0 (default); >=0 => PMCCNTR cycle delta < (1<<shift) */
+	int reload_random_order; /* F+R reload: 0 => fixed bit-reversed set order; 1 => fresh random permutation per run */
+	int reload_pmu_event;    /* PMU event id counted by reload()'s hit test (delta==0). Default 0x03 = L1D_CACHE_REFILL; e.g. 0x17 = L2D_CACHE_REFILL */
+	int reload_isolate;      /* 1 => reload probes only executor.reload_target_set (per-set isolation; C re-runs the test per set) */
 } executor_config_t;
 
 typedef struct device_managment {
@@ -59,6 +63,13 @@ typedef struct executor {
 	enum State state;
 	device_management_t device_mgmt;
 	void* measurement_code_views[MAX_MEASUREMENT_VIEWS];
+	uint64_t debug_reload_refills[128];  /* DEBUG: per-set counter0 delta from reload(); [0,63]=main, [64,127]=faulty */
+	uint64_t debug_reload_refills2[128]; /* DEBUG: per-set counter1 (L2D_CACHE_REFILL) delta from reload() */
+	uint64_t reload_order[64];           /* per-run set-visit order for reload() when reload_random_order is set */
+	uint64_t reload_target_set;          /* the single set reload() probes when reload_isolate is set */
+	uint64_t debug_ssbs;                 /* DEBUG: SSBS register value read back during the last measurement (bit 12 = PSTATE.SSBS) */
+	uint64_t debug_reload_total_l2d;     /* DEBUG: L2D_CACHE_REFILL count over the whole reload (demand + prefetch) */
+	uint64_t debug_reload_total_mem;     /* DEBUG: MEM_ACCESS count over the whole reload (demand only) */
 } executor_t;
 
 int __nocfi initialize_executor(set_memory_t);

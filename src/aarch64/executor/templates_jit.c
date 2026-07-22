@@ -291,53 +291,134 @@ static int probe(jit_t* jit, int base_reg, int tmp1, int tmp2, int tmp3, int ind
 
 /* Reload main + faulty (+ overflow line); set bit `set` iff resident (timed load hit).
  * Loop walks sets in rbit (bitrev6) order -- no constant stride for the prefetcher. */
+/* Emit: idx = next set to visit; off = idx*64. Isolate: the single target set; else bit-reversed/random. */
+static void emit_reload_set_index(jit_t* jit, int idx, int cnt, int off, int t_pre) {
+	if (executor.config.reload_isolate) {
+		uint64_t addr = (uint64_t)&executor.reload_target_set;
+		jit_mov64(jit, idx, addr & 0xffff);
+		jit_movk64(jit, idx, (addr >> 16) & 0xffff, 16);
+		jit_movk64(jit, idx, (addr >> 32) & 0xffff, 32);
+		jit_movk64(jit, idx, (addr >> 48) & 0xffff, 48);
+		jit_ldr64(jit, idx, idx);                    /* idx = executor.reload_target_set */
+		jit_lsl64(jit, off, idx, 6);
+		return;
+	}
+	if (executor.config.reload_random_order) {
+		uint64_t addr = (uint64_t)&executor.reload_order[0];
+		jit_mov64(jit, t_pre, addr & 0xffff);
+		jit_movk64(jit, t_pre, (addr >> 16) & 0xffff, 16);
+		jit_movk64(jit, t_pre, (addr >> 32) & 0xffff, 32);
+		jit_movk64(jit, t_pre, (addr >> 48) & 0xffff, 48);
+		jit_ldr64shift3(jit, idx, t_pre, cnt);   /* idx = reload_order[cnt] */
+	} else {
+		jit_rbit64(jit, idx, cnt);
+		jit_lsr64(jit, idx, idx, 58);            /* idx = bitrev6(cnt) */
+	}
+	jit_lsl64(jit, off, idx, 6);                 /* off = idx * 64 */
+}
+
 static int reload(jit_t* jit, int base_reg, int tmp1, int tmp2, int tmp3, int index_reg, int destination_reg) {
 	const int zero_reg = 31;
 	const int cnt = tmp3, idx = index_reg, off = tmp1, t_pre = tmp2, t_post = tmp1;
-	/* TEMP(lmfu): walk all four sandbox pages lower_overflow -> main -> faulty -> upper_overflow, so
-	 * main and faulty each sit mid-walk with a neighbour on both sides, but record hit bits into the
-	 * htrace ONLY for main and faulty. */
-	const enum template_regions region_from[4] = { BASE_REGION, LOWER_OVERFLOW_REGION, MAIN_REGION, FAULTY_REGION };
-	const enum template_regions region_to[4]   = { LOWER_OVERFLOW_REGION, MAIN_REGION, FAULTY_REGION, UPPER_OVERFLOW_REGION };
+	const int timer_shift = executor.config.reload_timer_shift;
+	const bool use_timer = (timer_shift >= 0);
+	const int eff_shift = use_timer ? timer_shift : 0;
+	/* Sweep: walk all four pages lower_overflow -> main -> faulty -> upper_overflow (main/faulty each
+	 * mid-walk with neighbours), record only main/faulty. Isolate: probe only main and faulty, only the
+	 * single target set (no sweep -> no self-prefetch); C re-runs the test per set and ORs the htrace. */
+	const bool isolate = executor.config.reload_isolate;
+	const enum template_regions region_from_full[4] = { BASE_REGION, LOWER_OVERFLOW_REGION, MAIN_REGION, FAULTY_REGION };
+	const enum template_regions region_to_full[4]   = { LOWER_OVERFLOW_REGION, MAIN_REGION, FAULTY_REGION, UPPER_OVERFLOW_REGION };
+	const enum template_regions region_from_iso[2]  = { BASE_REGION, MAIN_REGION };
+	const enum template_regions region_to_iso[2]    = { MAIN_REGION, FAULTY_REGION };
+	const enum template_regions* region_from = isolate ? region_from_iso : region_from_full;
+	const enum template_regions* region_to   = isolate ? region_to_iso   : region_to_full;
+	const int n_regions = isolate ? 2 : 4;
+	const int n_probe   = isolate ? 1 : NINDEXES;
 
 	jit_eor64(jit, destination_reg, destination_reg, destination_reg);
 
-	for (int r = 0; r < 4; ++r) {
+	/* totals over the whole reload: x4=L2D refills at start, x5=MEM_ACCESS at start */
+	jit_isb(jit);
+	jit_dsb_sy(jit);
+	jit_read64_pmu(jit, 1, 4);
+	jit_read64_pmu(jit, 2, 5);
+
+	for (int r = 0; r < n_regions; ++r) {
 		bool record = (MAIN_REGION == region_to[r]) || (FAULTY_REGION == region_to[r]);
 		adjust_reg(jit, base_reg, tmp1, region_from[r], region_to[r]);
 		jit_isb(jit);
 		jit_dsb_sy(jit);
 		jit_mov64(jit, cnt, 0);
 		uint8_t* loop = jit_get_cur(jit);
-		jit_rbit64(jit, idx, cnt);            /* idx = rbit(cnt) ... */
-		jit_lsr64(jit, idx, idx, 58);         /* ... >> 58 = bitrev6(cnt) in [0,63] */
-		jit_lsl64(jit, off, idx, 6);          /* byte offset of that set */
+		emit_reload_set_index(jit, idx, cnt, off, t_pre);
 		jit_isb(jit);
 		jit_dsb_sy(jit);
-		jit_read64_pmu(jit, 0, t_pre);
+		if (use_timer) { jit_read64_cyclecounter(jit, t_pre); } else { jit_read64_pmu(jit, 0, t_pre); }
+		jit_read64_pmu(jit, 1, 2);                        /* counter1 (L2D_CACHE_REFILL) pre -> x2 */
 		jit_isb(jit);
 		jit_dsb_sy(jit);
 		jit_ldr64shift0(jit, zero_reg, base_reg, off);
 		jit_isb(jit);
 		jit_dsb_sy(jit);
-		jit_read64_pmu(jit, 0, t_post);       /* t_post aliases tmp1: off is dead after the load */
+		if (use_timer) { jit_read64_cyclecounter(jit, t_post); } else { jit_read64_pmu(jit, 0, t_post); }
+		jit_read64_pmu(jit, 1, 3);                        /* counter1 post -> x3 */
 		jit_isb(jit);
 		jit_dsb_sy(jit);
-		jit_subr64(jit, t_post, t_post, t_pre);           /* cycle delta */
+		jit_subr64(jit, t_post, t_post, t_pre);           /* raw delta (refills, or cycles if use_timer) */
+		jit_subr64(jit, 3, 3, 2);                         /* x3 = counter1 (L2D) delta */
 		if (record) {
-			jit_cbnz64(jit, t_post, jit_get_cur(jit) + 4 * 4); /* slow/evicted -> skip the bit set */
+			jit_lsr64(jit, t_pre, t_post, eff_shift);          /* test = delta >> shift; hit iff 0 */
+			jit_cbnz64(jit, t_pre, jit_get_cur(jit) + 4 * 4);  /* not resident -> skip the bit set */
 			jit_mov64(jit, t_pre, 1);
 			jit_lslr64(jit, t_pre, t_pre, idx);
 			jit_orr64(jit, destination_reg, destination_reg, t_pre);
+			/* DEBUG: also stash the raw refill delta for this set (t_post=delta, idx=set still live).
+			 * base_words folds the region offset (main=0, faulty=64) into the address at build time. */
+			{
+				int base_words = (MAIN_REGION == region_to[r]) ? 0 : 64;
+				uint64_t a0 = (uint64_t)&executor.debug_reload_refills[base_words];
+				uint64_t a1 = (uint64_t)&executor.debug_reload_refills2[base_words];
+				jit_lsl64(jit, idx, idx, 3);              /* idx = set * 8 (byte offset, reused for both) */
+				jit_mov64(jit, t_pre, a0 & 0xffff);
+				jit_movk64(jit, t_pre, (a0 >> 16) & 0xffff, 16);
+				jit_movk64(jit, t_pre, (a0 >> 32) & 0xffff, 32);
+				jit_movk64(jit, t_pre, (a0 >> 48) & 0xffff, 48);
+				jit_str64shift0(jit, t_post, t_pre, idx); /* counter0 delta -> refills[base_words+set] */
+				jit_mov64(jit, t_pre, a1 & 0xffff);
+				jit_movk64(jit, t_pre, (a1 >> 16) & 0xffff, 16);
+				jit_movk64(jit, t_pre, (a1 >> 32) & 0xffff, 32);
+				jit_movk64(jit, t_pre, (a1 >> 48) & 0xffff, 48);
+				jit_str64shift0(jit, 3, t_pre, idx);      /* counter1 (L2D) delta -> refills2[base_words+set] */
+			}
 		}
 		jit_add64(jit, cnt, cnt, 1);
-		jit_sub64(jit, tmp1, cnt, NINDEXES);
+		jit_sub64(jit, tmp1, cnt, n_probe);
 		jit_cbnz64(jit, tmp1, loop);
 	}
 
 	jit_isb(jit);
 	jit_dsb_sy(jit);
-	adjust_reg(jit, base_reg, tmp1, region_to[3], BASE_REGION);
+	/* totals: x6=L2D end, x7=MEM end; deltas -> debug_reload_total_{l2d,mem} */
+	jit_read64_pmu(jit, 1, 6);
+	jit_read64_pmu(jit, 2, 7);
+	jit_subr64(jit, 6, 6, 4);
+	jit_subr64(jit, 7, 7, 5);
+	{
+		uint64_t al = (uint64_t)&executor.debug_reload_total_l2d;
+		uint64_t am = (uint64_t)&executor.debug_reload_total_mem;
+		jit_mov64(jit, 8, al & 0xffff);
+		jit_movk64(jit, 8, (al >> 16) & 0xffff, 16);
+		jit_movk64(jit, 8, (al >> 32) & 0xffff, 32);
+		jit_movk64(jit, 8, (al >> 48) & 0xffff, 48);
+		jit_str64(jit, 6, 8);
+		jit_mov64(jit, 8, am & 0xffff);
+		jit_movk64(jit, 8, (am >> 16) & 0xffff, 16);
+		jit_movk64(jit, 8, (am >> 32) & 0xffff, 32);
+		jit_movk64(jit, 8, (am >> 48) & 0xffff, 48);
+		jit_str64(jit, 7, 8);
+	}
+	adjust_reg(jit, base_reg, tmp1, region_to[n_regions - 1], BASE_REGION);
 	return 0;
 }
 

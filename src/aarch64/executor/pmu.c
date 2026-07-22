@@ -43,16 +43,16 @@ int config_pfc(void) {
 	asm volatile("isb\n");
 
 	// select events:
-	// 1. L1D cache refills (0x3)
-	asm volatile("msr pmevtyper0_el0, %0" :: "r" ((uint64_t)(filter_events | 0x03)));
+	// 1. reload() hit-test event (default 0x03 = L1D_CACHE_REFILL; configurable, e.g. 0x17 = L2D_CACHE_REFILL)
+	asm volatile("msr pmevtyper0_el0, %0" :: "r" ((uint64_t)(filter_events | (executor.config.reload_pmu_event & 0xffff))));
 	asm volatile("isb\n");
 
-	// 2. Instructions retired (0x08)
-	asm volatile("msr pmevtyper1_el0, %0" :: "r" ((uint64_t)(filter_events | 0x08)));
+	// 2. L2D_CACHE_REFILL (0x17) -- read alongside counter 0 in reload() for a simultaneous L1/L2 view
+	asm volatile("msr pmevtyper1_el0, %0" :: "r" ((uint64_t)(filter_events | 0x17)));
 	asm volatile("isb\n");
 
-	// 3. Instruction speculatively executed (0x1b)
-	asm volatile("msr pmevtyper2_el0, %0" :: "r" ((uint64_t)(filter_events | 0x1b)));
+	// 3. MEM_ACCESS (0x13) -- demand memory accesses (NOT prefetches); reload compares vs L2D refills
+	asm volatile("msr pmevtyper2_el0, %0" :: "r" ((uint64_t)(filter_events | 0x13)));
 	asm volatile("isb\n");
 
 	// 4. Branch instruction architecturally executed, mispredicted immediate (0x8111)

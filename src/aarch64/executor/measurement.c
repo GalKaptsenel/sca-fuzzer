@@ -1,5 +1,20 @@
 #include "main.h"
 #include "pmu.h"
+#include <linux/random.h>
+
+/* Fisher-Yates shuffle of executor.reload_order[0..63] -- a fresh random set-visit order for reload(). */
+static void fill_reload_order(void) {
+	int i = 0;
+	for (i = 0; i < 64; ++i) {
+		executor.reload_order[i] = i;
+	}
+	for (i = 63; i > 0; --i) {
+		uint32_t j = get_random_u32() % (uint32_t)(i + 1);
+		uint64_t t = executor.reload_order[i];
+		executor.reload_order[i] = executor.reload_order[j];
+		executor.reload_order[j] = t;
+	}
+}
 
 static inline int setup_environment(void) {
     int err = config_pfc();
@@ -176,16 +191,19 @@ static int __nocfi run_experiments(void) {
 	// Zero-initialize the region of memory used by Prime+Probe
 	memset(executor.sandbox->eviction_region, 0, sizeof(executor.sandbox->eviction_region));
 
-	// S3_3_C4_C2_6 is the SSBS register (mrs/msr ssbs); SSBS is PSTATE bit 12.
+	// S3_3_C4_C2_6 is the SSBS register (mrs/msr ssbs); SSBS is PSTATE bit 12. enable_ssbs=1 => SSBS=1
+	// (speculative store bypass ALLOWED, mitigation off); enable_ssbs=0 => SSBS=0 (bypass disabled,
+	// SSB mitigation ON). Set explicitly both ways and read back into debug_ssbs for verification.
 	uint64_t saved_ssbs = 0;
 	bool ssbs_changed = false;
-	if (executor.config.enable_ssbs) {
-		asm volatile("mrs %0, s3_3_c4_c2_6" : "=r"(saved_ssbs));
-		if (0 == (saved_ssbs & (1ULL << 12))) {
-			asm volatile("msr s3_3_c4_c2_6, %0\n isb\n" :: "r"(saved_ssbs | (1ULL << 12)) : "memory");
-			ssbs_changed = true;
-		}
+	asm volatile("mrs %0, s3_3_c4_c2_6" : "=r"(saved_ssbs));
+	uint64_t want_ssbs = executor.config.enable_ssbs ? (saved_ssbs | (1ULL << 12))
+	                                                 : (saved_ssbs & ~(1ULL << 12));
+	if (want_ssbs != saved_ssbs) {
+		asm volatile("msr s3_3_c4_c2_6, %0\n isb\n" :: "r"(want_ssbs) : "memory");
+		ssbs_changed = true;
 	}
+	asm volatile("mrs %0, s3_3_c4_c2_6" : "=r"(executor.debug_ssbs));
 
 	for (int64_t i = -executor.config.uarch_reset_rounds; i < rounds; ++i) {
 		struct input_node* current_input = NULL;
@@ -199,6 +217,10 @@ static int __nocfi run_experiments(void) {
 		current_input = rb_entry(current_input_node, struct input_node, node);
 		initialize_overflow_pages();
 		load_input_to_sandbox(&current_input->input);
+
+		if (executor.config.reload_random_order) {
+			fill_reload_order();
+		}
 
 		raw_local_irq_save(flags);
 
@@ -228,7 +250,18 @@ static int __nocfi run_experiments(void) {
 		}
 
 		// execute
-		((void(*)(void*))measurement_code)(executor.sandbox);
+		if (executor.config.reload_isolate) {
+			/* Per-set isolation: re-run the (deterministic) test once per set, each probing only that
+			 * set, and OR the single-set htraces so no reload sweep can prefetch the page into itself. */
+			uint64_t acc = 0;
+			for (executor.reload_target_set = 0; executor.reload_target_set < 64; ++executor.reload_target_set) {
+				((void(*)(void*))measurement_code)(executor.sandbox);
+				acc |= executor.sandbox->latest_measurement.htrace[0];
+			}
+			executor.sandbox->latest_measurement.htrace[0] = acc;
+		} else {
+			((void(*)(void*))measurement_code)(executor.sandbox);
+		}
 
 		if (use_exec_keys) {
 			pac_restore_sctlr(saved_sctlr);
