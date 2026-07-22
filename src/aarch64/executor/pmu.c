@@ -59,6 +59,10 @@ int config_pfc(void) {
 	asm volatile("msr pmevtyper3_el0, %0" :: "r" ((uint64_t)(filter_events | 0x8111)));
 	asm volatile("isb\n");
 
+	// cycle counter filter: same EL filter as the events, so PMCCNTR counts during the EL1 measurement
+	asm volatile("msr pmccfiltr_el0, %0" :: "r" ((uint64_t)filter_events));
+	asm volatile("isb\n");
+
 	// enable counting
 	asm volatile("msr pmcntenset_el0, %0" :: "r" (((uint64_t)0b1111) | (1ULL << 31)));
 	asm volatile("isb\n");
@@ -66,7 +70,8 @@ int config_pfc(void) {
 	// enable PMU counters and reset the counters (using 3 bits)
 	val = 0;
 	asm volatile("mrs %0, pmcr_el0" : "=r" (val));
-	asm volatile("msr pmcr_el0, %0" :: "r" (val | 0b111));
+	/* enable(E)/reset-events(P)/reset-cycles(C); clear D so PMCCNTR counts every cycle (no /64 divider) */
+	asm volatile("msr pmcr_el0, %0" :: "r" ((val | 0b111) & ~(1ULL << 3)));
 	asm volatile("isb\n");
 
 	return 0;
