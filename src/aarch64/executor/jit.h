@@ -160,7 +160,4 @@ void jit_msub64(jit_t* jit, int rd, int rn, int rm, int ra);
 
 void jit_set_phr_neoversen3(jit_t* jit, uint64_t value, int rtmp);
 void jit_set_phr_neoversen3_dynamic(jit_t* jit, uint64_t reg_bit, uint64_t rtmp1, uint64_t rtmp2, int pos, bool prev_zero);
-
-/* Pure instruction-word encoders (return the machine-code word instead of emitting it). */
-uint32_t movk64_word(int rd, int imm, int shift);
 #endif

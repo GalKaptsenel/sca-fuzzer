@@ -44,9 +44,6 @@ typedef struct Input {
 	/* Conditional branches trained to a requested direction before this input executes; the
 	 * terminator in slot 0 means no branch training. */
 	struct revisor_bpu_train_entry bpu_train[REVISOR_INPUT_MAX_BPU_TRAIN + 1];
-	/* PAC signatures computed on this core (with pac_keys) and spliced before this input executes;
-	 * the terminator in slot 0 means none. */
-	struct revisor_pac_sign_reloc_entry pac_sign_reloc[REVISOR_INPUT_MAX_PAC_SIGN_RELOCS + 1];
 } input_t;
 
 struct input_node {

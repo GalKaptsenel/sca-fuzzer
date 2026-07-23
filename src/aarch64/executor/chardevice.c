@@ -594,50 +594,6 @@ static int parse_bpu_training(const void* input_init, input_t* dst) {
 	return 0;
 }
 
-/* Parse the op-terminated on-device PAC-signing table into dst. Structural checks only (valid sign op,
- * rd in 0..30, 4-aligned MOVK offsets, within the cap); MOVK-offset bounds are checked at trace time.
- * On-device signing needs this input's PAC keys, so the section requires REVISOR_SEC_PAC_KEYS. */
-static int parse_pac_sign_relocations(const void* input_init, input_t* dst) {
-	dst->pac_sign_reloc[0].op = REVISOR_PAC_SIGN_RELOC_TERMINATOR;
-
-	const struct revisor_input_section* sec =
-		revisor_input_find_section(input_init, REVISOR_SEC_PAC_SIGN_RELOC);
-	if (NULL == sec) {
-		return 0;
-	}
-	if (0 != (sec->length % sizeof(struct revisor_pac_sign_reloc_entry))) {
-		return -EINVAL;
-	}
-	if (!dst->pac_keys_present) {
-		return -EINVAL;
-	}
-
-	const struct revisor_pac_sign_reloc_entry* src =
-		(const struct revisor_pac_sign_reloc_entry*)((const char*)input_init + sec->offset);
-	uint64_t max_entries = sec->length / sizeof(struct revisor_pac_sign_reloc_entry);
-	uint64_t n = 0;
-	while (n < max_entries && REVISOR_PAC_SIGN_RELOC_TERMINATOR != src[n].op) {
-		if (REVISOR_INPUT_MAX_PAC_SIGN_RELOCS <= n) {
-			return -EINVAL;
-		}
-		if (REVISOR_PAC_SIGN_OP_PACDZB < src[n].op || 30 < src[n].rd) {
-			return -EINVAL;
-		}
-		for (int w = 0; w < REVISOR_PAC_SIGN_MOVK_WINDOWS; ++w) {
-			if (0 != (src[n].movk_offset[w] % sizeof(uint32_t))) {
-				return -EINVAL;
-			}
-		}
-		dst->pac_sign_reloc[n] = src[n];
-		++n;
-	}
-	if (n == max_entries) {   /* no terminator within the section */
-		return -EINVAL;
-	}
-	dst->pac_sign_reloc[n].op = REVISOR_PAC_SIGN_RELOC_TERMINATOR;
-	return 0;
-}
-
 /* Extract a validated input initialization into the device's input_t. main/faulty/gpr are
  * required and must be exactly sized; mte_tags / pac_keys are optional and set their
  * *_present flag when supplied. Returns 0, or -EINVAL on a missing/mis-sized section. */
@@ -692,11 +648,7 @@ static int parse_input_init(const void* input_init, input_t* dst) {
 	if (0 != reloc_err) {
 		return reloc_err;
 	}
-	int bpu_err = parse_bpu_training(input_init, dst);
-	if (0 != bpu_err) {
-		return bpu_err;
-	}
-	return parse_pac_sign_relocations(input_init, dst);
+	return parse_bpu_training(input_init, dst);
 }
 
 static ssize_t copy_input_from_user_and_update_state(const char __user* user_buffer, size_t count) {
