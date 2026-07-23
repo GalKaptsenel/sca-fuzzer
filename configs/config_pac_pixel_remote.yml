@@ -1,0 +1,59 @@
+# Non-interference PAC fuzzing on the Google Pixel 8 (Tensor G3, QARMA5), driven remotely over adb.
+#
+# The sealer bakes signatures in SOFTWARE (architected QARMA5, matching the device) and ships them via
+# the normal CODE_RELOC section; the device only authenticates, using the keys in the PAC_KEYS section.
+# The pac_* profile below MUST match the Pixel (measured on-device: QARMA5, 39-bit VA, TBI, PAuth2) --
+# it drives both the sealer's signing and the CE's auth model.
+#
+# Prereqs:
+#   - the WSL->adb reverse tunnel up (adb server reachable at 127.0.0.1:5037), the Pixel authorized;
+#   - the CURRENT revizor-executor.ko loaded on the Pixel: its verify-before-AUTH guard keeps a wrong
+#     decoy signature from FPAC-resetting the phone.
+#
+# Run:
+#   python revizor.py fuzz -s base.json -c configs/config_pac_pixel_remote.yml -n 100 -i 50 \
+#       --save-violations .
+instruction_set: aarch64
+instruction_categories:
+  - PAC
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-BITFIELD
+  - BASE-CONDSEL
+  - BASE-BRANCH
+  - BASE-MEM-LOAD
+  - BASE-MEM-STORE
+min_bb_per_function: 5
+max_bb_per_function: 5
+max_successors_per_bb: 2
+min_successors_per_bb: 1
+fuzzer: non-interference
+input_generator: aarch64-nzcv
+pac_seal_prob: 1.0    # P(seal an eligible memory access); <1 leaves some unsealed
+pac_strip_prob: 0.0   # P(a sealed slot renders as XPAC strip vs a real AUT*)
+program_generator_seed: 312793
+input_gen_seed: 10
+
+# Target PAC profile -- MUST match the Pixel 8. The executor signs kernel (TTBR1) pointers, whose
+# regime has TBI OFF (measured: the PAC field spans the top byte); a wrong TBI here FPAC-reboots the phone.
+pac_qarma_version: 5
+pac_va_size: 39
+pac_tbi: false
+pac_pauth2: true
+
+# --- drive measurement on the physical Pixel 8 over adb (X3 = cpu8; A510=0-3, A715=4-7) ---
+executor_mode: F+R
+executor_warmups: 5
+enable_branch_mistraining: false
+executor_remote: true
+executor_remote_transport: adb
+executor_remote_host: 127.0.0.1
+executor_remote_port: 5037
+executor_remote_device: /dev/executor
+executor_remote_sysfs: /sys/executor
+executor_remote_userland: /data/local/tmp/executor_userland
+executor_remote_module: /data/local/tmp/revizor-executor.ko
+executor_pinned_core: 8
+superbatch_size: 100
+enable_fast_path_model: true

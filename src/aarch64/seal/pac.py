@@ -104,7 +104,9 @@ class PacSigner:
             for _ in range(samples):
                 v = random.randrange(1 << 48)
                 mask |= self._pac_sign(v, random.randrange(1 << 64), mn, self._keys) ^ v
-            assert mask and (mask >> 55) == 0, f"implausible PAC-field mask 0x{mask:016x}"
+            # The PAC field is bits [54:VA], plus the top byte when TBI is off; bit 55 (the sign) is
+            # never part of it.
+            assert mask and not (mask & (1 << 55)), f"implausible PAC-field mask 0x{mask:016x}"
             m = mask
             self._mask_cache[mn] = m
         return m
