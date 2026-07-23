@@ -1,5 +1,6 @@
 #include "main.h"
 #include "pmu.h"
+#include "jit.h"
 
 static inline int setup_environment(void) {
     int err = config_pfc();
@@ -123,6 +124,23 @@ static int validate_code_relocations(void) {
 	return 0;
 }
 
+static int validate_pac_sign_relocations(void) {
+	for (struct rb_node* node = rb_first(&executor.inputs_root); NULL != node; node = rb_next(node)) {
+		const input_t* input = &rb_entry(node, struct input_node, node)->input;
+		for (const struct revisor_pac_sign_reloc_entry* r = input->pac_sign_reloc;
+		     REVISOR_PAC_SIGN_RELOC_TERMINATOR != r->op; ++r) {
+			for (int w = 0; w < REVISOR_PAC_SIGN_MOVK_WINDOWS; ++w) {
+				if (executor.test_case_length < (r->movk_offset[w] + sizeof(uint32_t))) {
+					module_err("pac-sign MOVK offset %u exceeds test-case length %zu\n",
+					           r->movk_offset[w], executor.test_case_length);
+					return -EINVAL;
+				}
+			}
+		}
+	}
+	return 0;
+}
+
 /* Splice this input's relocations into the test-case body, or restore the body to the pristine test
  * case when `revert` is set. Bytes are written through view[0] (all views alias one set of physical
  * pages); the icache is VA-indexed, so it is invalidated only at `exec_view`, the VA that will run.
@@ -154,6 +172,44 @@ static void splice_code_relocations(void* exec_view, const input_t* input, bool 
 	asm volatile("dsb ish\n isb" ::: "memory");
 }
 
+static void splice_pac_sign_relocations(void* exec_view, const input_t* input, bool revert) {
+	const struct revisor_pac_sign_reloc_entry* relocs = input->pac_sign_reloc;
+	if (REVISOR_PAC_SIGN_RELOC_TERMINATOR == relocs->op) {
+		return;
+	}
+
+	size_t body = current_tc_insert_offset_bytes();
+	char* write_body = (char*)executor.measurement_code_views[0] + body;
+	char* exec_body  = (char*)exec_view + body;
+	const char* pristine = executor.test_case;
+	/* The signature occupies the highest REVISOR_PAC_SIGN_MOVK_WINDOWS of the four 16-bit windows. */
+	const int lowest_window = 4 - REVISOR_PAC_SIGN_MOVK_WINDOWS;
+
+	const struct revisor_pac_sign_reloc_entry* r;
+	for (r = relocs; REVISOR_PAC_SIGN_RELOC_TERMINATOR != r->op; ++r) {
+		uint64_t signed_ptr = revert ? 0 :
+			pac_run_op_with_keys((enum pac_op)r->op, r->value, r->context, &input->pac_keys);
+		for (int w = 0; w < REVISOR_PAC_SIGN_MOVK_WINDOWS; ++w) {
+			int shift = 16 * (lowest_window + w);
+			uint32_t word = revert ? *(const uint32_t*)(pristine + r->movk_offset[w])
+			                       : movk64_word(r->rd, (int)(signed_ptr >> shift), shift);
+			*(uint32_t*)(write_body + r->movk_offset[w]) = word;
+		}
+	}
+	for (r = relocs; REVISOR_PAC_SIGN_RELOC_TERMINATOR != r->op; ++r) {
+		for (int w = 0; w < REVISOR_PAC_SIGN_MOVK_WINDOWS; ++w) {
+			asm volatile("dc cvau, %0" :: "r"(write_body + r->movk_offset[w]) : "memory");
+		}
+	}
+	asm volatile("dsb ish" ::: "memory");
+	for (r = relocs; REVISOR_PAC_SIGN_RELOC_TERMINATOR != r->op; ++r) {
+		for (int w = 0; w < REVISOR_PAC_SIGN_MOVK_WINDOWS; ++w) {
+			asm volatile("ic ivau, %0" :: "r"(exec_body + r->movk_offset[w]) : "memory");
+		}
+	}
+	asm volatile("dsb ish\n isb" ::: "memory");
+}
+
 static int __nocfi run_experiments(void) {
 	int64_t rounds = (int64_t)executor.number_of_inputs;
 	unsigned long flags = 0;
@@ -168,6 +224,10 @@ static int __nocfi run_experiments(void) {
 	int reloc_err = validate_code_relocations();
 	if (0 != reloc_err) {
 		return reloc_err;
+	}
+	int pac_reloc_err = validate_pac_sign_relocations();
+	if (0 != pac_reloc_err) {
+		return pac_reloc_err;
 	}
 
 	current_input_node = rb_first(&executor.inputs_root);
@@ -212,6 +272,7 @@ static int __nocfi run_experiments(void) {
 			measurement_code = invalidate_bpu_entries();
 		}
 		splice_code_relocations(measurement_code, &current_input->input, false);
+		splice_pac_sign_relocations(measurement_code, &current_input->input, false);
 		apply_input_branch_training(measurement_code, &current_input->input);
 		if (executor.config.phr_flush) {
 			flush_bpu_phr();
@@ -239,6 +300,7 @@ static int __nocfi run_experiments(void) {
 
 		measure(&current_input->measurement);
 		splice_code_relocations(measurement_code, &current_input->input, true);
+		splice_pac_sign_relocations(measurement_code, &current_input->input, true);
 	}
 
 	if (ssbs_changed) {

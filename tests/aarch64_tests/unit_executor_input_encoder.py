@@ -12,7 +12,7 @@ import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..",
 from src.interfaces import (Input, InputFragment, MAIN_AREA_SIZE, FAULTY_AREA_SIZE,
                             GPR_SUBREGION_SIZE, SIMD_SUBREGION_SIZE)
 from src.aarch64.aarch64_input_layout import NZCVScheme
-from src.aarch64.aarch64_relocations import Relocation
+from src.aarch64.aarch64_relocations import Relocation, PacSignReloc
 from src.aarch64.aarch64_input_generator import AArch64InputGenerator
 from src.aarch64 import aarch64_executor_input_encoder as wire
 
@@ -250,6 +250,74 @@ class InputWireRoundTrip(unittest.TestCase):
             self.assertEqual(back.pac_keys, ei.pac_keys)
             self.assertEqual(back.bpu_training, ei.bpu_training)
             self.assertEqual(back.serialize(), ei.serialize())
+
+    def test_pac_sign_reloc_round_trips(self):
+        relocs = (PacSignReloc(op=wire.PAC_SIGN_OPS["pacia"], value=0xffff000012345000,
+                               context=0xcafe, rd=5, movk_offsets=(8, 12)),
+                  PacSignReloc(op=wire.PAC_SIGN_OPS["pacdb"], value=0x1000, context=0,
+                               rd=0, movk_offsets=(20, 24)))
+        ei = wire.ExecutorInput(self._input_with_valid_nzcv(7),
+                                pac_keys=list(range(10)), pac_sign_reloc=relocs)
+        back = wire.deserialize(ei.serialize())
+        self.assertEqual(back.pac_sign_reloc, relocs)
+        self.assertEqual(back.serialize(), ei.serialize())
+
+    def test_pac_sign_reloc_absent_when_empty(self):
+        ei = wire.ExecutorInput(self._input_with_valid_nzcv(8))
+        _, sections = _parse(ei.serialize())
+        self.assertNotIn(wire.SEC_PAC_SIGN_RELOC, sections)
+        self.assertEqual(wire.deserialize(ei.serialize()).pac_sign_reloc, ())
+
+    def test_pac_sign_reloc_entry_layout_matches_c_struct(self):
+        self.assertEqual(wire.PAC_SIGN_MOVK_WINDOWS, 2)   # VA=39 -> field in the top 2 windows
+        self.assertEqual(wire._PAC_SIGN_ENTRY_SIZE, 32)
+        r = PacSignReloc(op=4, value=0xAABBCCDD11223344, context=0x55667788, rd=9,
+                         movk_offsets=(0x40, 0x44))
+        payload = wire._pack_pac_sign_reloc([r])
+        self.assertEqual(len(payload), 2 * wire._PAC_SIGN_ENTRY_SIZE)   # entry + terminator
+        off0, off1 = struct.unpack_from("<II", payload, 0)
+        value, context, op, rd = struct.unpack_from("<QQII", payload, 8)   # value 8-aligned, no padding
+        self.assertEqual((off0, off1), (0x40, 0x44))
+        self.assertEqual((value, context, op, rd), (r.value, r.context, r.op, r.rd))
+        self.assertEqual(struct.unpack_from("<I", payload, wire._PAC_SIGN_ENTRY_SIZE + 24)[0],
+                         wire.PAC_SIGN_RELOC_TERMINATOR)   # terminator carries op == TERMINATOR
+
+    def test_pac_sign_reloc_requires_pac_keys(self):
+        reloc = (PacSignReloc(op=0, value=0x1000, context=0, rd=1, movk_offsets=(8, 12)),)
+        with self.assertRaises(ValueError):
+            wire.ExecutorInput(self._input_with_valid_nzcv(9), pac_sign_reloc=reloc).serialize()
+        # with keys it serializes fine
+        wire.ExecutorInput(self._input_with_valid_nzcv(9), pac_keys=list(range(10)),
+                           pac_sign_reloc=reloc).serialize()
+
+    def test_pac_sign_op_codes_match_enum_order(self):
+        self.assertEqual([wire.PAC_SIGN_OPS[m] for m in
+                          ("pacia", "pacib", "pacda", "pacdb", "pacga",
+                           "paciza", "pacizb", "pacdza", "pacdzb")], list(range(9)))
+
+    def test_pac_sign_reloc_wrong_window_count_rejected(self):
+        with self.assertRaises(ValueError):
+            wire._pack_pac_sign_reloc([PacSignReloc(0, 0, 0, 0, (0, 4, 8))])   # 3 != N
+
+    def test_pac_sign_reloc_over_cap_rejected(self):
+        many = [PacSignReloc(0, 0, 0, 0, (0,) * wire.PAC_SIGN_MOVK_WINDOWS)
+                for _ in range(wire.MAX_PAC_SIGN_RELOCS + 1)]
+        with self.assertRaises(ValueError):
+            wire._pack_pac_sign_reloc(many)
+
+    def test_pac_sign_reloc_random_fuzz(self):
+        rng = np.random.default_rng(77)
+        inp = AArch64InputGenerator(3).generate(1)[0]
+        rand64 = lambda: int(rng.integers(0, 1 << 32)) | (int(rng.integers(0, 1 << 32)) << 32)
+        for n in (0, 1, 4, wire.MAX_PAC_SIGN_RELOCS):
+            relocs = tuple(PacSignReloc(op=int(rng.integers(0, 9)), value=rand64(), context=rand64(),
+                                        rd=int(rng.integers(0, 31)),
+                                        movk_offsets=tuple(int(rng.integers(0, 1 << 18)) * 4
+                                                           for _ in range(wire.PAC_SIGN_MOVK_WINDOWS)))
+                           for _ in range(n))
+            back = wire.deserialize(wire.ExecutorInput(inp, pac_keys=list(range(10)),
+                                                       pac_sign_reloc=relocs).serialize())
+            self.assertEqual(back.pac_sign_reloc, relocs)
 
     def test_contract_execution_encode_envelope(self):
         """ContractExecution.encode emits a 16*u64 envelope + code + an input initialization whose

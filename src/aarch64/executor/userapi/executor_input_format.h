@@ -78,6 +78,7 @@ enum revisor_input_section_type {
     REVISOR_SEC_MTE_TAGS      = 0x06,
     REVISOR_SEC_CODE_RELOC    = 0x07,
     REVISOR_SEC_BPU_TRAINING  = 0x08,
+    REVISOR_SEC_PAC_SIGN_RELOC = 0x09,
 };
 
 struct revisor_input_header {
@@ -120,6 +121,42 @@ struct revisor_bpu_train_entry {
 
 #define REVISOR_BPU_TRAIN_TERMINATOR   ((uint32_t)0xFFFFFFFFul)
 #define REVISOR_INPUT_MAX_BPU_TRAIN    64
+
+/*
+ * REVISOR_SEC_PAC_SIGN_RELOC — on-device PAC signing, for when the sealer and the runner use
+ * different PAC algorithms (a QARMA3 host sealing for a QARMA5 phone would FPAC-fault on a baked
+ * signature). The kernel computes `signed = op(value, context)` with this input's keys
+ * (REVISOR_SEC_PAC_KEYS, required here) and writes its top bits into the REVISOR_PAC_SIGN_MOVK_WINDOWS
+ * highest of the four 16-bit MOVK windows of the body: window i is
+ * `MOVK Xrd, #imm, LSL #16*(4 - REVISOR_PAC_SIGN_MOVK_WINDOWS + i)` and movk_offset[i] is its byte
+ * offset. The PAC field is bits [54:VA_SIZE], so
+ * those windows carry the whole signature and the low half stays the program's address -> rd becomes
+ * `signed`. The array is terminated by an entry with op == REVISOR_PAC_SIGN_RELOC_TERMINATOR; a live
+ * entry's op is one of enum revisor_pac_sign_op below.
+ */
+/* Target virtual-address width (bits). A constant for now; later query the running core. */
+#define REVISOR_TARGET_VA_SIZE  39
+/* MOVK windows the PAC signature spans: from the window holding bit VA_SIZE up to the top (bit 63). */
+#define REVISOR_PAC_SIGN_MOVK_WINDOWS  (4 - (REVISOR_TARGET_VA_SIZE / 16))
+
+struct revisor_pac_sign_reloc_entry {
+    uint32_t movk_offset[REVISOR_PAC_SIGN_MOVK_WINDOWS];
+    uint64_t value;
+    uint64_t context;
+    uint32_t op;   /* enum revisor_pac_sign_op == kernel enum pac_op sign opcode */
+    uint32_t rd;
+};
+
+#define REVISOR_PAC_SIGN_RELOC_TERMINATOR  ((uint32_t)0xFFFFFFFFul)
+#define REVISOR_INPUT_MAX_PAC_SIGN_RELOCS  256
+
+enum revisor_pac_sign_op {
+    REVISOR_PAC_SIGN_OP_PACIA = 0, REVISOR_PAC_SIGN_OP_PACIB = 1,
+    REVISOR_PAC_SIGN_OP_PACDA = 2, REVISOR_PAC_SIGN_OP_PACDB = 3,
+    REVISOR_PAC_SIGN_OP_PACGA = 4,
+    REVISOR_PAC_SIGN_OP_PACIZA = 5, REVISOR_PAC_SIGN_OP_PACIZB = 6,
+    REVISOR_PAC_SIGN_OP_PACDZA = 7, REVISOR_PAC_SIGN_OP_PACDZB = 8,
+};
 
 /*
  * Validate a fully-copied input_init of exactly `total_len` bytes. Returns 1 if the header

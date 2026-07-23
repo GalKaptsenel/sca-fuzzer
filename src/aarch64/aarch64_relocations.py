@@ -1,7 +1,7 @@
 """AArch64 machine-code manipulation: rewrite instruction-word immediate fields, and splice fixed
 words into a pre-assembled base (relocation)."""
 from enum import Enum
-from typing import List, NamedTuple
+from typing import List, NamedTuple, Tuple
 
 
 NOP_WORD = 0xD503201F
@@ -102,6 +102,18 @@ class Relocation(NamedTuple):
     offset: int
     value: int
     rtype: RelocType = RelocType.WORD32
+
+
+class PacSignReloc(NamedTuple):
+    """A PAC signature the device computes on its own core (see REVISOR_SEC_PAC_SIGN_RELOC): sign
+    `value` under `context` with op `op` (a revisor_pac_sign_op index) using the input's keys, and
+    splice the result into register `rd` via the MOVK slots at `movk_offsets` — one per 16-bit window
+    the PAC field spans."""
+    op: int
+    value: int
+    context: int
+    rd: int
+    movk_offsets: Tuple[int, ...]
 
 
 def apply_relocations(base: bytes, relocs: List[Relocation]) -> bytes:

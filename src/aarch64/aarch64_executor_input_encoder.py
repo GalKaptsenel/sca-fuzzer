@@ -18,7 +18,7 @@ import numpy as np
 from ..interfaces import (Input, InputFragment, MAIN_AREA_SIZE, FAULTY_AREA_SIZE, GPR_SUBREGION_SIZE,
                           SIMD_SUBREGION_SIZE)
 from .aarch64_input_layout import NZCVScheme
-from .aarch64_relocations import Relocation
+from .aarch64_relocations import Relocation, PacSignReloc
 
 # --- mirror of executor_input_format.h --------------------------------------------------------
 INPUT_MAGIC = 0x49525A5652      # "RVZRI" magic (matches REVISOR_INPUT_MAGIC)
@@ -32,6 +32,7 @@ SEC_PAC_KEYS = 0x05
 SEC_MTE_TAGS = 0x06
 SEC_CODE_RELOC = 0x07
 SEC_BPU_TRAINING = 0x08
+SEC_PAC_SIGN_RELOC = 0x09
 
 _PREAMBLE_LEN = 6 * 8           # magic, version, header_len, n_sections, flags, total_len
 _SECTION_DESC_LEN = 4 * 8       # type, flags, offset, length
@@ -44,7 +45,14 @@ CODE_RELOC_TERMINATOR = 0xFFFFFFFF   # matches REVISOR_CODE_RELOC_TERMINATOR
 MAX_CODE_RELOCS = 256                # matches REVISOR_INPUT_MAX_CODE_RELOCS
 BPU_TRAIN_TERMINATOR = 0xFFFFFFFF    # matches REVISOR_BPU_TRAIN_TERMINATOR
 MAX_BPU_TRAIN = 64                   # matches REVISOR_INPUT_MAX_BPU_TRAIN
-# ----------------------------------------------------------------------------------------------
+PAC_SIGN_RELOC_TERMINATOR = 0xFFFFFFFF   # matches REVISOR_PAC_SIGN_RELOC_TERMINATOR
+MAX_PAC_SIGN_RELOCS = 256                # matches REVISOR_INPUT_MAX_PAC_SIGN_RELOCS
+TARGET_VA_SIZE = 39                                       # matches REVISOR_TARGET_VA_SIZE
+PAC_SIGN_MOVK_WINDOWS = 4 - (TARGET_VA_SIZE // 16)        # matches REVISOR_PAC_SIGN_MOVK_WINDOWS
+# revisor_pac_sign_op: mnemonic -> wire opcode (matches enum pac_op sign ops)
+PAC_SIGN_OPS = {"pacia": 0, "pacib": 1, "pacda": 2, "pacdb": 3, "pacga": 4,
+                "paciza": 5, "pacizb": 6, "pacdza": 7, "pacdzb": 8}
+# --------------------------------------------------------------------------------------------------
 
 
 def _pack_sections(sections: List[Tuple[int, bytes]]) -> bytes:
@@ -142,11 +150,47 @@ def _pack_bpu_training(entries: Sequence) -> bytes:
     return bytes(out)
 
 
+# struct revisor_pac_sign_reloc_entry: movk_offset[N] u32, (pad to 8), value u64, context u64,
+# op u32, rd u32. `_PAC_SIGN_PAD` aligns value to 8; the tail is naturally 8-sized so there is no
+# trailing padding.
+_PAC_SIGN_PAD = (-4 * PAC_SIGN_MOVK_WINDOWS) % 8
+_PAC_SIGN_ENTRY_SIZE = 4 * PAC_SIGN_MOVK_WINDOWS + _PAC_SIGN_PAD + struct.calcsize("<QQII")
+
+
+def _pack_pac_sign_reloc(relocs: Sequence[PacSignReloc]) -> bytes:
+    """Pack PacSignReloc entries followed by an op-terminated sentinel (matches
+    struct revisor_pac_sign_reloc_entry / REVISOR_PAC_SIGN_RELOC_TERMINATOR)."""
+    if len(relocs) > MAX_PAC_SIGN_RELOCS:
+        raise ValueError(f"{len(relocs)} PAC-sign relocations exceed the {MAX_PAC_SIGN_RELOCS} cap")
+    out = bytearray()
+    for r in list(relocs) + [PacSignReloc(PAC_SIGN_RELOC_TERMINATOR, 0, 0, 0,
+                                          (0,) * PAC_SIGN_MOVK_WINDOWS)]:
+        if len(r.movk_offsets) != PAC_SIGN_MOVK_WINDOWS:
+            raise ValueError(f"expected {PAC_SIGN_MOVK_WINDOWS} MOVK offsets, got {len(r.movk_offsets)}")
+        out += struct.pack(f"<{PAC_SIGN_MOVK_WINDOWS}I", *r.movk_offsets)
+        out += b"\x00" * _PAC_SIGN_PAD
+        out += struct.pack("<QQII", r.value, r.context, r.op, r.rd)
+    return bytes(out)
+
+
+def _unpack_pac_sign_reloc(payload: bytes) -> List[PacSignReloc]:
+    out: List[PacSignReloc] = []
+    for base in range(0, len(payload), _PAC_SIGN_ENTRY_SIZE):
+        offs = struct.unpack_from(f"<{PAC_SIGN_MOVK_WINDOWS}I", payload, base)
+        value, context, op, rd = struct.unpack_from("<QQII", payload,
+                                                     base + 4 * PAC_SIGN_MOVK_WINDOWS + _PAC_SIGN_PAD)
+        if PAC_SIGN_RELOC_TERMINATOR == op:
+            break
+        out.append(PacSignReloc(op=op, value=value, context=context, rd=rd, movk_offsets=offs))
+    return out
+
+
 def build_input_init(main: bytes, faulty: bytes, gpr: bytes, simd: Optional[bytes] = None, *,
                      mte_tags: Optional[Sequence[int]] = None,
                      pac_keys: Optional[Sequence[int]] = None,
                      code_reloc: Optional[Sequence] = None,
-                     bpu_training: Optional[Sequence] = None) -> bytes:
+                     bpu_training: Optional[Sequence] = None,
+                     pac_sign_reloc: Optional[Sequence] = None) -> bytes:
     """Assemble a REIF file from the raw section payloads. `gpr` is the final 64-byte GPR section (flags
     already in PSTATE form); `simd` is the optional 256-byte vector section. Shared by both consumers:
     the device write (ExecutorInput.serialize) and the contract-executor message (ContractExecution.encode)."""
@@ -165,6 +209,11 @@ def build_input_init(main: bytes, faulty: bytes, gpr: bytes, simd: Optional[byte
         sections.append((SEC_CODE_RELOC, _pack_code_reloc(code_reloc)))
     if bpu_training is not None:
         sections.append((SEC_BPU_TRAINING, _pack_bpu_training(bpu_training)))
+    if pac_sign_reloc is not None:
+        if pac_keys is None:
+            raise ValueError("PAC-sign relocations require a PAC_KEYS section (on-device signing "
+                             "needs this input's keys)")
+        sections.append((SEC_PAC_SIGN_RELOC, _pack_pac_sign_reloc(pac_sign_reloc)))
     return _pack_sections(sections)
 
 
@@ -177,6 +226,7 @@ class ExecutorInput:
     mte_tags: Optional[Sequence[int]] = None
     pac_keys: Optional[Sequence[int]] = None
     bpu_training: Tuple[Tuple[int, bool], ...] = ()
+    pac_sign_reloc: Tuple[PacSignReloc, ...] = ()
 
     def serialize(self) -> bytes:
         frag = _first_fragment(self.input_)
@@ -189,7 +239,8 @@ class ExecutorInput:
                                 frag[simd_off:simd_off + SIMD_SUBREGION_SIZE],
                                 mte_tags=self.mte_tags, pac_keys=self.pac_keys,
                                 code_reloc=self.code_reloc if self.code_reloc else None,
-                                bpu_training=self.bpu_training if self.bpu_training else None)
+                                bpu_training=self.bpu_training if self.bpu_training else None,
+                                pac_sign_reloc=self.pac_sign_reloc if self.pac_sign_reloc else None)
 
     # Delegate the arch-input surface the fuzzer/artifact-store touches, so an ExecutorInput is
     # interchangeable with an arch Input in generic code (no isinstance seams).
@@ -274,6 +325,8 @@ def deserialize(blob: bytes) -> ExecutorInput:
     mte_tags = _unpack_mte_tags(sections[SEC_MTE_TAGS]) if SEC_MTE_TAGS in sections else None
     pac_keys = (list(struct.unpack(f"<{PAC_KEYS_WORDS}Q", sections[SEC_PAC_KEYS]))
                 if SEC_PAC_KEYS in sections else None)
+    pac_sign_reloc = tuple(_unpack_pac_sign_reloc(sections.get(SEC_PAC_SIGN_RELOC, b"")))
 
     return ExecutorInput(_arch_input_from_sections(sections), code_reloc=code_reloc,
-                         mte_tags=mte_tags, pac_keys=pac_keys, bpu_training=bpu_training)
+                         mte_tags=mte_tags, pac_keys=pac_keys, bpu_training=bpu_training,
+                         pac_sign_reloc=pac_sign_reloc)

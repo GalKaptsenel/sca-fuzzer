@@ -850,16 +850,16 @@ void jit_mov64(jit_t* jit, int rd, int imm) {
 }
 
 // MOVK <Xd=rd>, #<imm16>, LSL #<shift>   (shift in {0,16,32,48})
+uint32_t movk64_word(int rd, int imm, int shift) {
+	return 0xf2800000u | ((shift / 16) << 21) | ((imm & 0xffff) << 5) | (rd & 0x1f);
+}
+
 void jit_movk64(jit_t* jit, int rd, int imm, int shift) {
-	uint32_t insn = 0xf2800000;
 	JIT_ASSERT(0 <= rd && rd <= 31);
 	JIT_ASSERT(0 <= imm && imm <= ((1 << 16) - 1));
 	JIT_ASSERT(0 == (shift & 0xF));
 	JIT_ASSERT(0 <= shift && shift <= 48);
-	insn |= rd;
-	insn |= imm << 5;
-	insn |= (shift / 16) << 21;
-	emit(jit, insn);
+	emit(jit, movk64_word(rd, imm, shift));
 }
 
 // load full 64-bit <imm> into <Xd=rd>   (MOVZ + 3x MOVK)
