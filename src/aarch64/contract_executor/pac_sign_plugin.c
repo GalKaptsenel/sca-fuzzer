@@ -134,20 +134,21 @@ void pac_keys_init(const uint64_t* keys, bool present)
     }
 }
 
-void pac_sign_plugin_init(void) { pac_profile_set(2, 16, 1, true); }   /* QARMA3, VA 48 */
+void pac_sign_plugin_init(void) { pac_profile_set(2, 16, 1, 1, true); }   /* QARMA3, VA 48 */
 void pac_sign_plugin_cleanup(void) {}
 
 /* The runner's PAC profile, established by pac_profile_set (pac_sign_plugin_init sets the default).
  *   QARMA3: iterations = 2, VA 48 -> tsz = 16.
  *   QARMA5: iterations = 4, VA 39 -> tsz = 25.
- * tbi = top-byte-ignore; pauth2 = FEAT_PAuth2 (APA/APA3 >= 3). */
+ - tbi0/tbi1 = top-byte-ignore (low/high VA half); pauth2 = FEAT_PAuth2 (APA/APA3 >= 3). */
 static struct pac_profile g_pac_profile;
 
-void pac_profile_set(int iterations, int tsz, int tbi, bool pauth2)
+void pac_profile_set(int iterations, int tsz, int tbi0, int tbi1, bool pauth2)
 {
     g_pac_profile.iterations = iterations;
     g_pac_profile.tsz = tsz;
-    g_pac_profile.tbi = tbi;
+    g_pac_profile.tbi0 = tbi0;
+    g_pac_profile.tbi1 = tbi1;
     g_pac_profile.pauth2 = pauth2;
 }
 

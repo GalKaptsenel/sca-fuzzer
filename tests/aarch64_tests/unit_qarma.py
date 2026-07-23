@@ -12,23 +12,22 @@ from src.aarch64 import aarch64_qarma as q
 
 KEYS = [0x0123456789abcdef, 0xfedcba9876543210] + [0] * 8   # apia = {lo, hi}
 CTX = 0x1122334455667788
-QARMA5 = q.PacProfile(iterations=4, tsz=25, tbi=1, pauth2=True)   # VA 39, TTBR0/user (TBI on)
-QARMA3 = q.PacProfile(iterations=2, tsz=16, tbi=1, pauth2=True)   # VA 48
+QARMA5 = q.PacProfile(iterations=4, tsz=25, tbi0=1, tbi1=0, pauth2=True)   # VA 39
+QARMA3 = q.PacProfile(iterations=2, tsz=16, tbi0=1, tbi1=1, pauth2=True)   # VA 48
 
 
 class QarmaTest(unittest.TestCase):
     def test_qarma5_matches_hardware(self):
-        # pacia outputs measured on real hardware. HW selects TBI per pointer (bit 55): a low-half
-        # (user) pointer uses TBI on (tbi=1); high-half (kernel) pointers use TBI off (tbi=0). The
-        # executor signs kernel pointers -- using tbi=1 there produces a wrong signature that
-        # FPAC-faults, so each vector must match under its own TBI and differ under the other (regression).
-        for ptr, tbi, want in ((0x0000000012345000, 1, 0x002a920012345000),   # user,   TBI on
-                               (0xffffffc012345000, 0, 0xb1e67d4012345000),   # kernel, TBI off
-                               (0xffffff8000abc000, 0, 0xd5a28d0000abc000)):  # kernel, TBI off
-            right = q.PacProfile(iterations=4, tsz=25, tbi=tbi, pauth2=True)
-            wrong = q.PacProfile(iterations=4, tsz=25, tbi=1 - tbi, pauth2=True)
-            self.assertEqual(q.sign(ptr, CTX, "pacia", KEYS, right), want)
-            self.assertNotEqual(q.sign(ptr, CTX, "pacia", KEYS, wrong), want)
+        # pacia outputs measured on real hardware. HW selects TBI per pointer by bit 55: a low-half
+        # (user) pointer uses TBI on (tbi0=1), a high-half (kernel) pointer uses TBI off (tbi1=0). The
+        # one profile reproduces both -- the executor signs kernel pointers, and TBI1 wrong there
+        # yields a wrong signature that FPAC-faults (regression).
+        for ptr, want in ((0x0000000012345000, 0x002a920012345000),   # user,   tbi0=1
+                          (0xffffffc012345000, 0xb1e67d4012345000),   # kernel, tbi1=0
+                          (0xffffff8000abc000, 0xd5a28d0000abc000)):  # kernel, tbi1=0
+            self.assertEqual(q.sign(ptr, CTX, "pacia", KEYS, QARMA5), want)
+        bad = q.PacProfile(iterations=4, tsz=25, tbi0=1, tbi1=1, pauth2=True)   # TBI1 on -> the FPAC bug
+        self.assertNotEqual(q.sign(0xffffffc012345000, CTX, "pacia", KEYS, bad), 0xb1e67d4012345000)
 
     def test_sign_then_strip_roundtrips(self):
         user = 0x0000000000abc000

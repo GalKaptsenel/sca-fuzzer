@@ -35,11 +35,13 @@ pac_strip_prob: 0.0   # P(a sealed slot renders as XPAC strip vs a real AUT*)
 program_generator_seed: 312793
 input_gen_seed: 10
 
-# Target PAC profile -- MUST match the Pixel 8. The executor signs kernel (TTBR1) pointers, whose
-# regime has TBI OFF (measured: the PAC field spans the top byte); a wrong TBI here FPAC-reboots the phone.
+# Target PAC profile -- MUST match the Pixel 8. TBI is selected per pointer by bit 55: the low
+# (TTBR0/user) half has TBI on, the high (TTBR1/kernel) half has TBI off (measured on-device: the PAC
+# field spans the top byte for kernel pointers). A wrong TBI here yields a wrong signature that FPAC-faults.
 pac_qarma_version: 5
 pac_va_size: 39
-pac_tbi: false
+pac_tbi0: true
+pac_tbi1: false
 pac_pauth2: true
 
 # --- drive measurement on the physical Pixel 8 over adb (X3 = cpu8; A510=0-3, A715=4-7) ---

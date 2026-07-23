@@ -10,21 +10,22 @@ M = (1 << 64) - 1
 
 
 class PacProfile(NamedTuple):
-    """iterations = 2 (QARMA3) or 4 (QARMA5); tsz = 64 - VA_size; tbi = top-byte-ignore;
-    pauth2 = FEAT_PAuth2 (APA/APA3 >= 3)."""
+    """iterations = 2 (QARMA3) or 4 (QARMA5); tsz = 64 - VA_size; tbi0/tbi1 = top-byte-ignore for the
+    low (TTBR0) / high (TTBR1) VA half, selected per pointer by bit 55; pauth2 = FEAT_PAuth2."""
     iterations: int
     tsz: int
-    tbi: int
+    tbi0: int
+    tbi1: int
     pauth2: bool
 
 
 _VERSION_ITERATIONS = {3: 2, 5: 4}
 
 
-def profile(qarma_version: int, va_size: int, tbi: bool, pauth2: bool) -> PacProfile:
+def profile(qarma_version: int, va_size: int, tbi0: bool, tbi1: bool, pauth2: bool) -> PacProfile:
     if qarma_version not in _VERSION_ITERATIONS:
         raise ValueError(f"unsupported QARMA version {qarma_version} (expected 3 or 5)")
-    return PacProfile(_VERSION_ITERATIONS[qarma_version], 64 - va_size, int(tbi), pauth2)
+    return PacProfile(_VERSION_ITERATIONS[qarma_version], 64 - va_size, int(tbi0), int(tbi1), pauth2)
 
 
 def _ext(v, s, l): return (v >> s) & ((1 << l) - 1)
@@ -106,10 +107,16 @@ def computepac(data: int, modifier: int, key_lo: int, key_hi: int, iterations: i
     return (w ^ modk0) & M
 
 
+def _tbi(ptr: int, p: PacProfile) -> int:
+    """TBI of the pointer's VA half (bit 55 selects TTBR0/low vs TTBR1/high)."""
+    return p.tbi1 if (ptr >> 55) & 1 else p.tbi0
+
+
 def addpac(ptr: int, modifier: int, key_lo: int, key_hi: int, p: PacProfile) -> int:
     """Sign a pointer: insert the PAC into the field bits per `p` (the AddPAC pseudocode)."""
-    ext = _sext(ptr, 55, 1) if p.tbi else _sext(ptr, 63, 1)
-    top_bit = 64 - (8 if p.tbi else 0)
+    tbi = _tbi(ptr, p)
+    ext = _sext(ptr, 55, 1) if tbi else _sext(ptr, 63, 1)
+    top_bit = 64 - (8 if tbi else 0)
     bot_bit = 64 - p.tsz
     ext_ptr = _dep(ptr, bot_bit, top_bit - bot_bit, ext & M)
     pac = computepac(ext_ptr, modifier, key_lo, key_hi, p.iterations)
@@ -118,7 +125,7 @@ def addpac(ptr: int, modifier: int, key_lo: int, key_hi: int, p: PacProfile) -> 
         pac ^= _mask(top_bit - 2, 1)
     if p.pauth2:
         pac ^= ptr
-    if p.tbi:
+    if tbi:
         ptr = ptr & (~_mask(bot_bit, 55 - bot_bit + 1) & M)
         pac &= _mask(bot_bit, 54 - bot_bit + 1)
     else:
@@ -129,7 +136,8 @@ def addpac(ptr: int, modifier: int, key_lo: int, key_hi: int, p: PacProfile) -> 
 
 def strip(ptr: int, p: PacProfile) -> int:
     """Recover the canonical pointer (XPAC)."""
-    mask = _mask(64 - p.tsz, (64 - (8 if p.tbi else 0)) - (64 - p.tsz))
+    tbi = _tbi(ptr, p)
+    mask = _mask(64 - p.tsz, (64 - (8 if tbi else 0)) - (64 - p.tsz))
     return (ptr | mask) if _ext(ptr, 55, 1) else (ptr & ~mask)
 
 

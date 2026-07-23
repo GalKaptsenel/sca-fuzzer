@@ -66,7 +66,7 @@ struct configuration {
 	uint64_t execution_clauses;        /* bitmask of EXEC_CLAUSE_*; 0 = seq (no speculation) */
 	uint64_t branch_predictor;         /* enum branch_predictor_id; used iff EXEC_CLAUSE_BPU */
 	uint64_t pac_profile;              /* packed PAC profile, applied iff CONFIG_FLAG_PAC_PROFILE
-	                                    * (iterations | tsz<<8 | tbi<<16 | pauth2<<24) */
+	                                    * (iterations | tsz<<8 | tbi0<<16 | tbi1<<17 | pauth2<<24) */
 };
 
 /* Envelope for one contract-executor message: exec-params (config) + code + a shared input initialization

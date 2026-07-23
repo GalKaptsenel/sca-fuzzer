@@ -7,12 +7,14 @@
 /* Architected ARM pointer-auth (QARMA3/QARMA5), ported from QEMU target/arm/tcg/pauth_helper.c.
  * Bit-exact against real hardware for the architected algorithm. */
 
-/* Target PAC parameters. iterations = 2 (QARMA3) or 4 (QARMA5); tsz = 64 - VA_size; tbi = top-byte
- * ignore; pauth2 = FEAT_PAuth2 (EnhancedPAC2, i.e. APA/APA3 >= 3). */
+/* Target PAC parameters. iterations = 2 (QARMA3) or 4 (QARMA5); tsz = 64 - VA_size; tbi0/tbi1 =
+ * top-byte-ignore for the low (TTBR0) / high (TTBR1) VA half, selected per pointer by bit 55;
+ * pauth2 = FEAT_PAuth2 (EnhancedPAC2, i.e. APA/APA3 >= 3). */
 struct pac_profile {
     int iterations;
     int tsz;
-    int tbi;
+    int tbi0;
+    int tbi1;
     bool pauth2;
 };
 

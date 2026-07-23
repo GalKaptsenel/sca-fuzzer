@@ -220,10 +220,11 @@ class Aarch64LocalExecutor(Aarch64Executor):
 
     def _pac_profile(self) -> qarma.PacProfile:
         """The target's PAC profile from CONF; every field is required for a PAC run."""
-        for name in ("pac_qarma_version", "pac_va_size", "pac_tbi", "pac_pauth2"):
+        for name in ("pac_qarma_version", "pac_va_size", "pac_tbi0", "pac_tbi1", "pac_pauth2"):
             if getattr(CONF, name) is None:
                 raise GeneratorException(f"a PAC run requires CONF.{name} (the target PAC profile)")
-        return qarma.profile(CONF.pac_qarma_version, CONF.pac_va_size, CONF.pac_tbi, CONF.pac_pauth2)
+        return qarma.profile(CONF.pac_qarma_version, CONF.pac_va_size, CONF.pac_tbi0, CONF.pac_tbi1,
+                             CONF.pac_pauth2)
 
     def branch_mistraining_entries(self, cer) -> List[Tuple[int, bool]]:
         """Compute the per-branch mistraining config from a CE trace, without touching the device.

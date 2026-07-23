@@ -17,30 +17,28 @@ static int g_fail = 0;
 /* Fixed test key (APIA). */
 static const uint64_t KLO = 0x0123456789abcdefull, KHI = 0xfedcba9876543210ull;
 static const uint64_t CTX = 0x1122334455667788ull;
-static const struct pac_profile QARMA5 = { .iterations = 4, .tsz = 25, .tbi = 1, .pauth2 = 1 };
-static const struct pac_profile QARMA3 = { .iterations = 2, .tsz = 16, .tbi = 1, .pauth2 = 1 };
+static const struct pac_profile QARMA5 = { .iterations = 4, .tsz = 25, .tbi0 = 1, .tbi1 = 0, .pauth2 = 1 };
+static const struct pac_profile QARMA3 = { .iterations = 2, .tsz = 16, .tbi0 = 1, .tbi1 = 1, .pauth2 = 1 };
 
-/* pacia outputs measured on real hardware (VA=39). HW selects TBI per pointer (bit 55): a low-half
- * (user) pointer uses TBI on (tbi=1); high-half (kernel) pointers use TBI off (tbi=0). The executor
- * signs kernel pointers -- tbi=1 there yields a wrong signature that FPAC-faults, so each vector must
- * match under its own TBI and differ under the other. */
+/* pacia outputs measured on real hardware (VA=39). HW selects TBI per pointer by bit 55: a low-half
+ * (user) pointer uses TBI on (tbi0=1), a high-half (kernel) pointer uses TBI off (tbi1=0). The one
+ * profile reproduces both -- the executor signs kernel pointers, and TBI1 wrong there yields a wrong
+ * signature that FPAC-faults. */
 static void test_qarma5_matches_hardware(void)
 {
-    const struct { uint64_t ptr, want; int tbi; } vec[] = {
-        { 0x0000000012345000ull, 0x002a920012345000ull, 1 },   /* user,   TBI on  */
-        { 0xffffffc012345000ull, 0xb1e67d4012345000ull, 0 },   /* kernel, TBI off */
-        { 0xffffff8000abc000ull, 0xd5a28d0000abc000ull, 0 },   /* kernel, TBI off */
+    const struct { uint64_t ptr, want; } vec[] = {
+        { 0x0000000012345000ull, 0x002a920012345000ull },   /* user,   tbi0=1 */
+        { 0xffffffc012345000ull, 0xb1e67d4012345000ull },   /* kernel, tbi1=0 */
+        { 0xffffff8000abc000ull, 0xd5a28d0000abc000ull },   /* kernel, tbi1=0 */
     };
     for (unsigned i = 0; i < sizeof(vec) / sizeof(vec[0]); ++i) {
-        struct pac_profile right = { .iterations = 4, .tsz = 25, .tbi = vec[i].tbi, .pauth2 = 1 };
-        struct pac_profile wrong = { .iterations = 4, .tsz = 25, .tbi = 1 - vec[i].tbi, .pauth2 = 1 };
-        uint64_t g = qarma_addpac(vec[i].ptr, CTX, KLO, KHI, right);
-        CHECK(g == vec[i].want, "ptr %016llx tbi=%d got %016llx want %016llx",
-              (unsigned long long)vec[i].ptr, vec[i].tbi, (unsigned long long)g,
-              (unsigned long long)vec[i].want);
-        CHECK(qarma_addpac(vec[i].ptr, CTX, KLO, KHI, wrong) != vec[i].want,
-              "ptr %016llx: wrong TBI unexpectedly matched", (unsigned long long)vec[i].ptr);
+        uint64_t g = qarma_addpac(vec[i].ptr, CTX, KLO, KHI, QARMA5);
+        CHECK(g == vec[i].want, "ptr %016llx got %016llx want %016llx",
+              (unsigned long long)vec[i].ptr, (unsigned long long)g, (unsigned long long)vec[i].want);
     }
+    struct pac_profile bad = { .iterations = 4, .tsz = 25, .tbi0 = 1, .tbi1 = 1, .pauth2 = 1 };
+    CHECK(qarma_addpac(0xffffffc012345000ull, CTX, KLO, KHI, bad) != 0xb1e67d4012345000ull,
+          "TBI1 on unexpectedly matched the kernel vector");
 }
 
 /* Signing sets only the PAC field; stripping recovers the canonical pointer exactly. */

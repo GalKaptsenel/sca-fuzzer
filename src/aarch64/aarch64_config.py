@@ -179,10 +179,11 @@ pac_seal_prob: float = 1.0
 pac_strip_prob: float = 0.0
 
 # Target PAC profile (required for PAC runs): QARMA version (3 or 5), VA size in bits, TBI enabled
-# (TCR_EL1.TBI), and FEAT_PAuth2 present (APA/APA3 >= 3).
+# (TCR_EL1.TBI0/TBI1) for the low/high VA half, and FEAT_PAuth2 present (APA/APA3 >= 3).
 pac_qarma_version: Optional[int] = None
 pac_va_size: Optional[int] = None
-pac_tbi: Optional[bool] = None
+pac_tbi0: Optional[bool] = None
+pac_tbi1: Optional[bool] = None
 pac_pauth2: Optional[bool] = None
 
 instruction_blocklist: List[str] = [

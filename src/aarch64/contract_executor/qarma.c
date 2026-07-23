@@ -132,11 +132,18 @@ uint64_t qarma_computepac(uint64_t data, uint64_t modifier,
     return w ^ modk0;
 }
 
+/* TBI of the pointer's VA half (bit 55 selects TTBR0/low vs TTBR1/high). */
+static int profile_tbi(uint64_t ptr, struct pac_profile p)
+{
+    return ((ptr >> 55) & 1) ? p.tbi1 : p.tbi0;
+}
+
 uint64_t qarma_addpac(uint64_t ptr, uint64_t modifier,
                       uint64_t key_lo, uint64_t key_hi, struct pac_profile p)
 {
-    int64_t ext = p.tbi ? sext64(ptr, 55, 1) : sext64(ptr, 63, 1);
-    int top_bit = 64 - (p.tbi ? 8 : 0);
+    int tbi = profile_tbi(ptr, p);
+    int64_t ext = tbi ? sext64(ptr, 55, 1) : sext64(ptr, 63, 1);
+    int top_bit = 64 - (tbi ? 8 : 0);
     int bot_bit = 64 - p.tsz;
     uint64_t ext_ptr = dep64(ptr, bot_bit, top_bit - bot_bit, (uint64_t)ext);
     uint64_t pac = qarma_computepac(ext_ptr, modifier, key_lo, key_hi, p.iterations);
@@ -148,7 +155,7 @@ uint64_t qarma_addpac(uint64_t ptr, uint64_t modifier,
     if (p.pauth2) {
         pac ^= ptr;
     }
-    if (p.tbi) {
+    if (tbi) {
         ptr &= ~bmask(bot_bit, 55 - bot_bit + 1);
         pac &= bmask(bot_bit, 54 - bot_bit + 1);
     } else {
@@ -160,8 +167,9 @@ uint64_t qarma_addpac(uint64_t ptr, uint64_t modifier,
 
 uint64_t qarma_strip(uint64_t ptr, struct pac_profile p)
 {
+    int tbi = profile_tbi(ptr, p);
     int bot_bit = 64 - p.tsz;
-    int top_bit = 64 - (p.tbi ? 8 : 0);
+    int top_bit = 64 - (tbi ? 8 : 0);
     uint64_t mask = bmask(bot_bit, top_bit - bot_bit);
     return ext64(ptr, 55, 1) ? (ptr | mask) : (ptr & ~mask);
 }
