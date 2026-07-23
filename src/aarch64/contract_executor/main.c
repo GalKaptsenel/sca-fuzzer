@@ -242,6 +242,11 @@ int main() {
 		/* The keys the plugin signs/auths under travel with the input; the kernel keeps none. */
 		pac_keys_init(simulation.sim_input.pac_keys, simulation.sim_input.pac_keys_present);
 
+		if (CONFIG_FLAG_PAC_PROFILE & simulation.sim_input.hdr.config.flags) {
+			uint64_t p = simulation.sim_input.hdr.config.pac_profile;
+			pac_profile_set(p & 0xff, (p >> 8) & 0xff, (p >> 16) & 1, (p >> 24) & 1);
+		}
+
 		g_iter_phase = 2; /* simulation */
 		CE_INSTALL_CRASH_HANDLERS(); /* reinstall in case Python code (TAGE) overrode them */
 

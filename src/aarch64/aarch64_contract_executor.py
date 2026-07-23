@@ -11,6 +11,7 @@ from .contract_executor.stream_ipc import StreamIPC
 from .aarch64_trace import ContractExecutionResult
 from .aarch64_executor_input_encoder import build_input_init
 from .aarch64_kernel import PacKeys
+from .aarch64_qarma import PacProfile
 from ..interfaces import MAIN_AREA_SIZE, GPR_SUBREGION_SIZE
 
 class SimFlags(IntFlag):
@@ -25,6 +26,7 @@ class ConfigFlags(IntFlag):
     CONFIG_FLAG_REQ_CODE_BASE_VIRT  = 1 << 1
     CONFIG_FLAG_REQ_MEM_BASE_PHYS   = 1 << 2
     CONFIG_FLAG_REQ_MEM_BASE_VIRT   = 1 << 3
+    CONFIG_FLAG_PAC_PROFILE         = 1 << 4
 
 
 class SimArch(IntEnum):
@@ -115,6 +117,7 @@ class ContractExecution:
     branch_predictor: BranchPredictor = BranchPredictor.NONE
     mte_tags: Optional[list] = None       # per-input MTE tags (one per 16B granule), or None
     pac_keys: Optional[PacKeys] = None    # per-input PAC keys, or None
+    pac_profile: Optional[PacProfile] = None   # target PAC profile the CE models auth with, or None
 
     def encode(self) -> bytes:
         """
@@ -150,6 +153,13 @@ class ContractExecution:
             req_mem_base_virt = self.req_mem_base_virt
             config_flags |= ConfigFlags.CONFIG_FLAG_REQ_MEM_BASE_VIRT
 
+        pac_profile_word = 0
+        if self.pac_profile is not None:
+            p = self.pac_profile
+            pac_profile_word = ((p.iterations & 0xff) | ((p.tsz & 0xff) << 8)
+                                | ((1 if p.tbi else 0) << 16) | ((1 if p.pauth2 else 0) << 24))
+            config_flags |= ConfigFlags.CONFIG_FLAG_PAC_PROFILE
+
         # memory = main‖faulty; the gpr register slots are the GPR section (CE reads only those).
         input_init = build_input_init(self.memory[:MAIN_AREA_SIZE], self.memory[MAIN_AREA_SIZE:],
                                 self.registers[:GPR_SUBREGION_SIZE],
@@ -173,6 +183,7 @@ class ContractExecution:
         data += (req_mem_base_virt).to_bytes(8, 'little')
         data += (int(self.execution_clauses)).to_bytes(8, 'little')
         data += (int(self.branch_predictor)).to_bytes(8, 'little')
+        data += (pac_profile_word).to_bytes(8, 'little')
 
         data += code_size.to_bytes(8, 'little')
         data += input_init_size.to_bytes(8, 'little')

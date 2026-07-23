@@ -24,6 +24,7 @@ from .aarch64_kernel import (LocalHWExecutor, HWExecutor, PacKeys, TraceUnit, HW
                              make_hw_executor)
 from .aarch64_generator import Pass, Aarch64SandboxPass
 from .seal.pac import PacSigner
+from . import aarch64_qarma as qarma
 from .seal.sealer import make_sealer, SealedTestCase, ResolvedSealingTestCase
 from .aarch64_relocations import apply_relocations, Relocation
 from .aarch64_contract_executor import (ContractExecution, ContractExecutorService,
@@ -217,17 +218,12 @@ class Aarch64LocalExecutor(Aarch64Executor):
             self._sign_hw = LocalHWExecutor("/dev/executor", "/sys/executor")
         return self._sign_hw
 
-    def _assert_sign_cpu_matches_device(self) -> None:
-        """PAC signatures baked locally must authenticate on the measurement device; QARMA/PAC is
-        implementation-defined, so a separate sign backend and device must share MIDR_EL1."""
-        sign_hw = self._local_executor()
-        if sign_hw is self.device:
-            return
-        local, remote = sign_hw.cpu_midr(), self.device.cpu_midr()
-        if local != remote:
-            raise GeneratorException(
-                f"PAC signing CPU MIDR_EL1 0x{local:016x} != measurement device 0x{remote:016x}; "
-                "baked PAC signatures would not authenticate on the device")
+    def _pac_profile(self) -> qarma.PacProfile:
+        """The target's PAC profile from CONF; every field is required for a PAC run."""
+        for name in ("pac_qarma_version", "pac_va_size", "pac_tbi", "pac_pauth2"):
+            if getattr(CONF, name) is None:
+                raise GeneratorException(f"a PAC run requires CONF.{name} (the target PAC profile)")
+        return qarma.profile(CONF.pac_qarma_version, CONF.pac_va_size, CONF.pac_tbi, CONF.pac_pauth2)
 
     def branch_mistraining_entries(self, cer) -> List[Tuple[int, bool]]:
         """Compute the per-branch mistraining config from a CE trace, without touching the device.
@@ -313,6 +309,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
             branch_predictor=bp,
             mte_tags=mte_tags,
             pac_keys=pac_keys,
+            pac_profile=self._pac_profile_value,
         )
 
     def _measure(self, exec_inputs: List[ExecutorInput], n_reps: int) -> List[HTrace]:
@@ -543,11 +540,15 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         self._pac_keys: Optional[PacKeys] = self._campaign_pac_keys() if "pac" in self._primitives \
             else None
 
-        # PAC signing capability (kernel SIGN only — never AUTH; a failed AUTH at EL1 resets the box).
+        # PAC signing in software: reproduce the target's architected QARMA (CONF profile) so the baked
+        # signatures authenticate on the device, whatever PAC algorithm it uses. The CE models auth with
+        # the same profile (passed in every CE message).
+        self._pac_profile_value = self._pac_profile() if "pac" in self._primitives else None
         signer = None
-        if "pac" in self._primitives:
-            self._assert_sign_cpu_matches_device()
-            signer = PacSigner(self._local_executor().pac_sign, self._pac_keys)
+        if self._pac_profile_value is not None:
+            profile = self._pac_profile_value
+            signer = PacSigner(lambda ptr, ctx, mn, keys: qarma.sign(ptr, ctx, mn, keys.words(), profile),
+                               self._pac_keys)
 
         # The sealer owns all sealing + resolution; it traces via _seal_trace and assembles object
         # code via _assemble_tc.

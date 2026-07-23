@@ -26,6 +26,7 @@ enum config_flags {
 	CONFIG_FLAG_REQ_CODE_BASE_VIRT	= 1 << 1,
 	CONFIG_FLAG_REQ_MEM_BASE_PHYS	= 1 << 2,
 	CONFIG_FLAG_REQ_MEM_BASE_VIRT	= 1 << 3,
+	CONFIG_FLAG_PAC_PROFILE		= 1 << 4,
 };
 
 /* Contracts are COMPOSABLE: `configuration.execution_clauses` is a BITMASK of clauses, so
@@ -64,6 +65,8 @@ struct configuration {
 	uint64_t requested_mem_base_virt;
 	uint64_t execution_clauses;        /* bitmask of EXEC_CLAUSE_*; 0 = seq (no speculation) */
 	uint64_t branch_predictor;         /* enum branch_predictor_id; used iff EXEC_CLAUSE_BPU */
+	uint64_t pac_profile;              /* packed PAC profile, applied iff CONFIG_FLAG_PAC_PROFILE
+	                                    * (iterations | tsz<<8 | tbi<<16 | pauth2<<24) */
 };
 
 /* Envelope for one contract-executor message: exec-params (config) + code + a shared input initialization
@@ -84,8 +87,8 @@ struct input_header {
 };
 
 /* Wire ABI must match the Python encoder (ContractExecution.encode). */
-_Static_assert(sizeof(struct configuration) == 9 * sizeof(uint64_t), "configuration ABI mismatch");
-_Static_assert(sizeof(struct input_header) == 16 * sizeof(uint64_t), "input_header ABI mismatch");
+_Static_assert(sizeof(struct configuration) == 10 * sizeof(uint64_t), "configuration ABI mismatch");
+_Static_assert(sizeof(struct input_header) == 17 * sizeof(uint64_t), "input_header ABI mismatch");
 
 /* ============================
  * In-memory representation

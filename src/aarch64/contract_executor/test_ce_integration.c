@@ -418,19 +418,6 @@ static bool run_ce_simple(
     return run_ce(code, n_words, mem, mem_sz, kbase_addr, max_nesting, contract, NULL, result);
 }
 
-/* PAC sign/auth/strip route through /dev/executor (EL1 keys); such tests SKIP without it. */
-static bool executor_dev_present(void) {
-    return access("/dev/executor", R_OK) == 0;
-}
-
-#define SKIP_IF_NO_EXECUTOR() do {                                              \
-    if (!executor_dev_present()) {                                              \
-        printf("SKIP %s: /dev/executor absent (load revizor-executor.ko)\n",   \
-               __func__);                                                       \
-        return;                                                                 \
-    }                                                                          \
-} while (0)
-
 /* Helper: find the Nth memory-access entry (0-indexed). Returns NULL if not found. */
 static instr_trace_entry_t *find_mem_entry(ce_result_t *res, int n) {
     int found = 0;
@@ -1585,7 +1572,6 @@ static uint32_t enc_autia(int rd, int rn) {
 }
 
 static void test_integration_pac_arch_roundtrip(void) {
-    SKIP_IF_NO_EXECUTOR();
     /*
      * X0 = kbase (the pointer to sign), X29 = kbase (set by main.c).
      * Code: PACIA X0,X29  →  AUTIA X0,X29  →  LDR X1,[X29]
@@ -1636,7 +1622,6 @@ static void test_integration_pac_arch_roundtrip(void) {
 /* ---- GROUP 25: AUTIA on spec path uses XPAC, not real AUT ------------- */
 
 static void test_integration_pac_spec_xpac(void) {
-    SKIP_IF_NO_EXECUTOR();
     /*
      * X0=0, X1=kbase, X29=kbase (main.c), max_nesting=1,
      * ALWAYS_MISPREDICT contract.
@@ -1708,7 +1693,6 @@ static uint32_t enc_paciza(int rd) { return 0xDAC123E0u | (uint32_t)rd; }
 static uint32_t enc_autiza(int rd) { return 0xDAC133E0u | (uint32_t)rd; }
 
 static void test_integration_paciza_autiza_roundtrip(void) {
-    SKIP_IF_NO_EXECUTOR();
     /*
      * PACIZA X0 signs X0=kbase with context=0 (XZR).
      * AUTIZA X0 authenticates on arch path; must recover kbase exactly.
@@ -1776,7 +1760,6 @@ static uint32_t enc_autda(int rd, int rn) {
 }
 
 static void test_integration_pacda_autda_roundtrip(void) {
-    SKIP_IF_NO_EXECUTOR();
     /*
      * PACDA X0,X29 signs with the DA (data-key A) key, context=kbase (X29).
      * AUTDA X0,X29 authenticates on arch path; must recover X0=kbase exactly.
@@ -2989,7 +2972,6 @@ static uint32_t enc_xpaci(int rd) { return 0xDAC143E0u | (uint32_t)rd; }
 
 /* PACGA: MAC in bits[63:32], [31:0] zero, deterministic for equal inputs. */
 static void test_integration_pac_pacga(void) {
-    SKIP_IF_NO_EXECUTOR();
     uint32_t code[] = { enc_pacga(0, 1, 2), enc_pacga(3, 1, 2), enc_ldr_reg(4, 29) };
     uint8_t mem[MEM_SIZE];
     memset(mem, 0, sizeof(mem));
@@ -3014,7 +2996,6 @@ static void test_integration_pac_pacga(void) {
 
 /* PACIA then XPACI strips the PAC field back to the original pointer (no auth). */
 static void test_integration_pac_sign_then_strip(void) {
-    SKIP_IF_NO_EXECUTOR();
     uint32_t code[] = { enc_pacia(0, 1), enc_ldr_reg(9, 29), enc_xpaci(0), enc_ldr_reg(2, 29) };
     uint8_t mem[MEM_SIZE];
     memset(mem, 0, sizeof(mem));
@@ -3041,7 +3022,6 @@ static void test_integration_pac_sign_then_strip(void) {
  * pointer. A *failing* auth faults the CPU (resets FEAT-FPAC) and exercises the
  * flagged pac.c key-swap path — run on the recoverable VM first. */
 static void test_integration_pac_sign_then_auth(void) {
-    SKIP_IF_NO_EXECUTOR();
     uint32_t code[] = { enc_pacia(0, 1), enc_ldr_reg(9, 29), enc_autia(0, 1), enc_ldr_reg(2, 29) };
     uint8_t mem[MEM_SIZE];
     memset(mem, 0, sizeof(mem));

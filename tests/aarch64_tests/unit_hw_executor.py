@@ -112,34 +112,6 @@ class MidrParseTest(unittest.TestCase):
             k._parse_midr_el1("CPU ID      : 0\n")
 
 
-class SignCpuMatchTest(unittest.TestCase):
-    """The PAC sign backend and the measurement device must share MIDR_EL1 when they are different
-    backends; a no-op when one backend both signs and measures."""
-
-    def _executor(self, sign_midr, device_midr):
-        ex = Aarch64LocalExecutor.__new__(Aarch64LocalExecutor)
-        ex.device = mock.Mock()
-        ex.device.cpu_midr.return_value = device_midr
-        ex._sign_hw = mock.Mock()               # a distinct local sign backend (remote measurement)
-        ex._sign_hw.cpu_midr.return_value = sign_midr
-        return ex
-
-    def test_matching_midr_passes(self):
-        self._executor(0xABC, 0xABC)._assert_sign_cpu_matches_device()   # no raise
-
-    def test_mismatched_midr_raises(self):
-        from src.interfaces import GeneratorException
-        with self.assertRaises(GeneratorException):
-            self._executor(0xAAA, 0xBBB)._assert_sign_cpu_matches_device()
-
-    def test_same_backend_is_a_noop(self):
-        ex = Aarch64LocalExecutor.__new__(Aarch64LocalExecutor)
-        ex.device = mock.Mock()
-        ex._sign_hw = ex.device                 # local measurement: one backend signs and measures
-        ex._assert_sign_cpu_matches_device()
-        ex.device.cpu_midr.assert_not_called()  # never even queried
-
-
 class MeasureRoutingTest(unittest.TestCase):
     def _executor(self, ignore_list, tc_bytes=b"TESTCASE"):
         ex = Aarch64LocalExecutor.__new__(Aarch64LocalExecutor)

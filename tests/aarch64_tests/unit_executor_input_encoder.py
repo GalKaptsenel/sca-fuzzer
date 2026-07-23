@@ -320,7 +320,7 @@ class InputWireRoundTrip(unittest.TestCase):
             self.assertEqual(back.pac_sign_reloc, relocs)
 
     def test_contract_execution_encode_envelope(self):
-        """ContractExecution.encode emits a 16*u64 envelope + code + an input initialization whose
+        """ContractExecution.encode emits a 17*u64 envelope + code + an input initialization whose
         memory == main‖faulty and gpr round-trip; this is what the CE binary parses."""
         from src.aarch64.aarch64_contract_executor import ContractExecution, SimArch, RVZRCE_MAGIC
         memory = bytes((i % 256 for i in range(MAIN_AREA_SIZE + FAULTY_AREA_SIZE)))  # 8192
@@ -330,14 +330,14 @@ class InputWireRoundTrip(unittest.TestCase):
                                req_mem_base_virt=0x1000)
         msg = ce.encode()
 
-        env = struct.unpack_from("<16Q", msg, 0)
+        env = struct.unpack_from("<17Q", msg, 0)
         self.assertEqual(env[0], RVZRCE_MAGIC)        # magic
-        code_size, init_size = env[13], env[14]
+        code_size, init_size = env[14], env[15]
         self.assertEqual(code_size, len(code))
-        self.assertEqual(len(msg), 16 * 8 + code_size + init_size)
-        self.assertEqual(msg[16 * 8:16 * 8 + code_size], code)
+        self.assertEqual(len(msg), 17 * 8 + code_size + init_size)
+        self.assertEqual(msg[17 * 8:17 * 8 + code_size], code)
 
-        init = msg[16 * 8 + code_size:]
+        init = msg[17 * 8 + code_size:]
         _, sections = _parse(init)
         self.assertEqual(sections[wire.SEC_MEMORY_MAIN] + sections[wire.SEC_MEMORY_FAULTY], memory)
         self.assertEqual(sections[wire.SEC_GPR], registers[:GPR_SUBREGION_SIZE])

@@ -3,14 +3,11 @@
 #include "simulation_execution_clause_hook.h"
 
 #include "userapi/executor_pac_api.h"
+#include "qarma.h"
 
-#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-
-#define EXECUTOR_DEV "/dev/executor"
 
 #define PACGA_MASK   0xFFE0FC00U
 #define PACGA_BASE   0x9AC03000U
@@ -110,21 +107,6 @@ static inline void write_xreg(struct cpu_state *s, uint32_t n, uint64_t v)
     s->gpr[29 - n] = (uintptr_t)v;
 }
 
-static const char *pac_mnemonic(pac_type_t ptype)
-{
-    switch (ptype) {
-        case PAC_IA:  return "pacia";
-        case PAC_IB:  return "pacib";
-        case PAC_DA:  return "pacda";
-        case PAC_DB:  return "pacdb";
-        case PAC_IZA: return "paciza";
-        case PAC_IZB: return "pacizb";
-        case PAC_DZA: return "pacdza";
-        case PAC_DZB: return "pacdzb";
-        default:      return NULL;
-    }
-}
-
 static const char *auth_mnemonic(auth_type_t atype)
 {
     switch (atype) {
@@ -140,10 +122,7 @@ static const char *auth_mnemonic(auth_type_t atype)
     }
 }
 
-static int g_executor_fd = -1;
-
-/* The keys every kernel sign/auth runs under, seeded per input from its PAC_KEYS section. The
- * kernel keeps no key state of its own, so they must travel with each request. */
+/* Per-input PAC keys (from the input's PAC_KEYS section) the software model signs under. */
 static struct pac_keys g_pac_keys;
 static bool g_pac_keys_present = false;
 
@@ -155,70 +134,51 @@ void pac_keys_init(const uint64_t* keys, bool present)
     }
 }
 
-void pac_sign_plugin_init(void)
+void pac_sign_plugin_init(void) { pac_profile_set(2, 16, 1, true); }   /* QARMA3, VA 48 */
+void pac_sign_plugin_cleanup(void) {}
+
+/* The runner's PAC profile, established by pac_profile_set (pac_sign_plugin_init sets the default).
+ *   QARMA3: iterations = 2, VA 48 -> tsz = 16.
+ *   QARMA5: iterations = 4, VA 39 -> tsz = 25.
+ * tbi = top-byte-ignore; pauth2 = FEAT_PAuth2 (APA/APA3 >= 3). */
+static struct pac_profile g_pac_profile;
+
+void pac_profile_set(int iterations, int tsz, int tbi, bool pauth2)
 {
-    /* The executor device is opened lazily on the first PAC instruction (see
-     * pac_executor_fd), so a test case that uses no PAC runs without the kernel
-     * module — e.g. on a VM orchestrator that only exercises architectural state. */
+    g_pac_profile.iterations = iterations;
+    g_pac_profile.tsz = tsz;
+    g_pac_profile.tbi = tbi;
+    g_pac_profile.pauth2 = pauth2;
 }
 
-void pac_sign_plugin_cleanup(void)
+static void key_for(pac_type_t ptype, uint64_t* lo, uint64_t* hi)
 {
-    if (g_executor_fd >= 0) {
-        close(g_executor_fd);
-        g_executor_fd = -1;
+    switch (ptype) {
+        case PAC_IA: case PAC_IZA: *lo = g_pac_keys.apia_lo; *hi = g_pac_keys.apia_hi; break;
+        case PAC_IB: case PAC_IZB: *lo = g_pac_keys.apib_lo; *hi = g_pac_keys.apib_hi; break;
+        case PAC_DA: case PAC_DZA: *lo = g_pac_keys.apda_lo; *hi = g_pac_keys.apda_hi; break;
+        case PAC_DB: case PAC_DZB: *lo = g_pac_keys.apdb_lo; *hi = g_pac_keys.apdb_hi; break;
+        default:                   *lo = 0; *hi = 0; break;
     }
 }
 
-/* Lazily open /dev/executor on first use. A PAC instruction genuinely needs the
- * kernel's EL1 keys, so its absence is fatal — but only for a test case that
- * actually executes PAC. */
-static int pac_executor_fd(void)
+static uint64_t sw_pac_xpac(uint64_t ptr)
 {
-    if (g_executor_fd < 0) {
-        g_executor_fd = open(EXECUTOR_DEV, O_RDWR);
-        if (g_executor_fd < 0) {
-            perror("[CE FATAL] pac_sign_plugin: open " EXECUTOR_DEV);
-            abort();
-        }
-    }
-    return g_executor_fd;
+    return qarma_strip(ptr, g_pac_profile);
 }
 
-static uint64_t kernel_pac_xpac(auth_type_t atype, uint64_t ptr)
+static uint64_t sw_pac_sign(pac_type_t ptype, uint64_t ptr, uint64_t ctx)
 {
-    const char *m;
-    switch (atype) {
-        case AUTH_IA: case AUTH_IB: case AUTH_IZA: case AUTH_IZB: m = "xpaci"; break;
-        case AUTH_DA: case AUTH_DB: case AUTH_DZA: case AUTH_DZB: m = "xpacd"; break;
-        default:
-            fprintf(stderr, "[CE FATAL] kernel_pac_xpac: unrecognised auth_type_t %d\n", atype);
-            abort();
-    }
-    struct pac_sign_req req = { .ptr = ptr, .ctx = 0, .result = 0 };
-    strncpy(req.mnemonic, m, sizeof(req.mnemonic) - 1);
-    if (ioctl(pac_executor_fd(), REVISOR_PAC_XPAC, &req) < 0) {
-        perror("[CE FATAL] pac_sign_plugin: REVISOR_PAC_XPAC failed");
-        abort();
-    }
-    return req.result;
+    uint64_t lo, hi;
+    key_for(ptype, &lo, &hi);
+    return qarma_addpac(ptr, ctx, lo, hi, g_pac_profile);
 }
 
-static uint64_t kernel_pac_sign(pac_type_t ptype, uint64_t ptr, uint64_t ctx)
+/* PACGA writes a 32-bit generic MAC into bits [63:32] of the destination. */
+static uint64_t sw_pac_ga(uint64_t xn, uint64_t xm)
 {
-    const char *m = pac_mnemonic(ptype);
-    if (!m) {
-        fprintf(stderr, "[CE FATAL] kernel_pac_sign: unrecognised pac_type_t %d\n", ptype);
-        abort();
-    }
-    struct pac_sign_req req = { .ptr = ptr, .ctx = ctx, .result = 0,
-                                .keys = g_pac_keys, .keys_present = g_pac_keys_present };
-    strncpy(req.mnemonic, m, sizeof(req.mnemonic) - 1);
-    if (ioctl(pac_executor_fd(), REVISOR_PAC_SIGN, &req) < 0) {
-        perror("[CE FATAL] pac_sign_plugin: REVISOR_PAC_SIGN failed");
-        abort();
-    }
-    return req.result;
+    return qarma_computepac(xn, xm, g_pac_keys.apga_lo, g_pac_keys.apga_hi,
+                            g_pac_profile.iterations) & 0xFFFFFFFF00000000ull;
 }
 
 /* The PAC sign op corresponding to an auth op (same key/key-letter; parallel enums). */
@@ -245,8 +205,8 @@ static pac_type_t auth_to_pac(auth_type_t a)
  * canonical result -- abort so the Python side surfaces it and stops the run. */
 static uint64_t model_auth(auth_type_t atype, uint64_t ptr, uint64_t ctx, uintptr_t pc)
 {
-    uint64_t canonical = kernel_pac_xpac(atype, ptr);
-    uint64_t resigned  = kernel_pac_sign(auth_to_pac(atype), canonical, ctx);
+    uint64_t canonical = sw_pac_xpac(ptr);
+    uint64_t resigned  = sw_pac_sign(auth_to_pac(atype), canonical, ctx);
     if (resigned != ptr) {
         fprintf(stderr, "[CE FATAL] %s at pc=%#lx would FPAC (ptr=%#018lx ctx=%#018lx): "
                 "forged architectural auth -- aborting\n",
@@ -285,14 +245,7 @@ void *pac_sign_hook(struct simulation_state *sim_state)
         uint32_t rm = (inst >> 16) & 0x1F;
         uint64_t xn = read_xreg(&sim_state->cpu_state, rn);
         uint64_t xm = read_xreg(&sim_state->cpu_state, rm);
-        struct pac_sign_req req = { .ptr = xn, .ctx = xm, .result = 0,
-                                    .keys = g_pac_keys, .keys_present = g_pac_keys_present };
-        strncpy(req.mnemonic, "pacga", sizeof(req.mnemonic) - 1);
-        if (ioctl(pac_executor_fd(), REVISOR_PAC_SIGN, &req) < 0) {
-            perror("[CE FATAL] pac_sign_hook: REVISOR_PAC_SIGN(pacga) failed");
-            abort();
-        }
-        write_xreg(&sim_state->cpu_state, rd, req.result);
+        write_xreg(&sim_state->cpu_state, rd, sw_pac_ga(xn, xm));
         return (void*)(sim_state->cpu_state.pc + 4);
     }
 
@@ -303,7 +256,7 @@ void *pac_sign_hook(struct simulation_state *sim_state)
     uint64_t ptr = read_xreg(&sim_state->cpu_state, rd);
     uint64_t ctx = read_xreg(&sim_state->cpu_state, rn);
 
-    uint64_t signed_val = kernel_pac_sign(ptype, ptr, ctx);
+    uint64_t signed_val = sw_pac_sign(ptype, ptr, ctx);
     write_xreg(&sim_state->cpu_state, rd, signed_val);
 
     return (void*)(sim_state->cpu_state.pc + 4);
@@ -325,7 +278,7 @@ void *auth_verify_hook(struct simulation_state *sim_state)
     int spec = is_in_speculation();
 
     if (spec) {
-        result = kernel_pac_xpac(atype, ptr);
+        result = sw_pac_xpac(ptr);
     } else {
         result = model_auth(atype, ptr, ctx, sim_state->cpu_state.pc);
     }
@@ -345,14 +298,7 @@ void *xpac_hook(struct simulation_state *sim_state)
     uint32_t rd = inst & 0x1F;
     uint64_t ptr = read_xreg(&sim_state->cpu_state, rd);
 
-    const char *m = (masked == XPACI_BASE) ? "xpaci" : "xpacd";
-    struct pac_sign_req req = { .ptr = ptr, .ctx = 0, .result = 0 };
-    strncpy(req.mnemonic, m, sizeof(req.mnemonic) - 1);
-    if (ioctl(pac_executor_fd(), REVISOR_PAC_XPAC, &req) < 0) {
-        perror("[CE FATAL] xpac_hook: REVISOR_PAC_XPAC failed");
-        abort();
-    }
-    write_xreg(&sim_state->cpu_state, rd, req.result);
+    write_xreg(&sim_state->cpu_state, rd, sw_pac_xpac(ptr));
 
     return (void*)(sim_state->cpu_state.pc + 4);
 }
