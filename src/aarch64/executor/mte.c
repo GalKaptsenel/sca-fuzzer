@@ -26,6 +26,12 @@ void mte_free_tagged_region(void *ptr, size_t size) {
 	}
 }
 
+void* mte_canonical_ptr(const void* p) {
+	uintptr_t a = (uintptr_t)p;
+	uintptr_t sext = (a & (1ull << 55)) ? (0xFFull << 56) : 0;
+	return (void*)((a & 0x00FFFFFFFFFFFFFFull) | sext);
+}
+
 #if CONFIG_ARM64_MTE_HW	// Real MTE hardware implementation
 
 static inline void stg(const void* ptr) {

@@ -13,6 +13,8 @@ struct mte_control_state {
 	uint64_t tcr_el1;
 };
 
+void* mte_canonical_ptr(const void* p);
+
 void *mte_alloc_tagged_region(size_t size);
 void mte_free_tagged_region(void *ptr, size_t size);
 bool mte_region_is_tagged(const void *ptr, size_t size);
