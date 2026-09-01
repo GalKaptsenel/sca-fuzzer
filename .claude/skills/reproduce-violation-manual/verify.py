@@ -92,10 +92,21 @@ def main():
     tc = f.asm_parser.parse_file(f"{vd}/generated.asm")
     paths = sorted(glob.glob(f"{vd}/input_*.reif")) or sorted(glob.glob(f"{vd}/input_*.bin"))
     assert paths, "no input_*.reif/.bin in violation dir"
-    allinp = f.input_gen.load(paths)
     f.executor.load_test_case(tc)
-    allex = [f.executor.as_executor_input(x) for x in allinp]
+    # Use each SAVED wire input verbatim, preserving its own code-relocation table. Do NOT rebuild via
+    # as_executor_input(): for NI/seal violations that re-seals every input to the GENUINE baseline and
+    # DISCARDS the decoy's relocations, so all counterexamples collapse to byte-identical binaries and
+    # only batch-position noise is measured (a silent false "washout"/"genuine"). The saved
+    # input_*.{reif,bin} already carry the exact per-variant code_reloc that produced the violation.
+    from src.aarch64.aarch64_executor_input_encoder import deserialize as _deserialize
+    allex = [_deserialize(open(p, "rb").read()) for p in paths]
     N = len(allex)
+    # Guard against the bug above (and any future regression): if the counterexamples are byte-identical
+    # there is nothing to compare and every "spread" is position noise, not a real leak.
+    if len({allex[i].serialize() for i in ce_inputs}) == 1:
+        sys.exit("ABORT: counterexample inputs are byte-identical (same code+data) after loading — "
+                 "cannot distinguish a leak from batch-position noise. For NI/seal violations, ensure "
+                 "the saved code_reloc is preserved (this is what verify.py now does via deserialize).")
     core = getattr(CONF, "executor_pinned_core", 0)
     positions = {"lower": min(ce_inputs), "higher": max(ce_inputs), "last": N - 1}
     todo = list(positions) if a.position == "all" else [a.position]

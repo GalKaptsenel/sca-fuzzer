@@ -176,7 +176,7 @@ def get_noninterference_executor(generator: interfaces.Generator,
                                   enable_mismatch_check_mode: bool = False) -> interfaces.Executor:
     """
     Create the non-interference executor (it auto-detects PAC/MTE from the enabled
-    instruction categories) with the
+    instruction categories, and canonicality from CONF.enable_canonicality) with the
     generator injected at construction.
 
     This is the only supported way to create a non-interference executor — the generator
@@ -189,8 +189,9 @@ def get_noninterference_executor(generator: interfaces.Generator,
             f"ERROR: non-interference executor requires aarch64 instruction set; "
             f"got '{CONF.instruction_set}'")
     from .aarch64 import aarch64_executor
-    # One non-interference executor; it auto-detects the active primitives (PAC and/or MTE) from the
-    # enabled instruction categories and seals/compares whatever is present.
+    # One non-interference executor; it auto-detects the active primitives (PAC and/or MTE from the
+    # enabled instruction categories, canonicality from CONF.enable_canonicality) and seals/compares
+    # whatever is present.
     return aarch64_executor.Aarch64NonInterferenceExecutor(generator, enable_mismatch_check_mode)
 
 

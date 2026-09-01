@@ -664,7 +664,12 @@ class FuzzerGeneric(Fuzzer):
         with open(f"{violation_dir}/reproduce.yaml", "a") as f:
             f.write("\n# Overwrite some of the configuration options to reproduce the violation\n")
             f.write(f"input_gen_seed: {violation.input_sequence[0].seed}\n")
-            f.write("inputs_per_class: 1\n")
+            # Non-interference boosts each input into genuine+decoy seal variants; forcing
+            # inputs_per_class=1 would regenerate ONLY genuine baselines (no decoy), making the
+            # violation impossible to reproduce. Keep the run's value so the decoys come back. Other
+            # fuzzers replay the saved inputs without re-boosting, so 1 is fine there.
+            ipc = CONF.inputs_per_class if isinstance(self, NoninterferenceFuzzer) else 1
+            f.write(f"inputs_per_class: {ipc}\n")
         shutil.copy2(f"{violation_dir}/org-config.yaml", f"{violation_dir}/minimize.yaml")
         with open(f"{violation_dir}/minimize.yaml", "a") as f:
             f.write("\n# Overwrite some of the configuration options to reproduce the violation\n")

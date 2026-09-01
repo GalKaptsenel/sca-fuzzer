@@ -429,11 +429,13 @@ class Aarch64LocalExecutor(Aarch64Executor):
 # shared by the PAC and MTE non-interference executors.
 # ==================================================================================================
 class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
-    """The non-interference executor for whatever primitives the instruction categories enable
-    (PAC and/or MTE). It seals the test case with the active value-seals — the memory pass composes
-    [Sandbox(, PacSign)(, MteTag)], and PAC also seals AUT* sites — then per input runs the contract
-    executor once, fills each fix point's data (PAC: sign; MTE: classify tags), and compares the
-    baseline vs decoy TC variants on hardware. Adding a primitive means adding its seal + its fill
+    """The non-interference executor for whatever primitives are active: PAC and/or MTE (enabled by
+    an instruction category) and/or canonicality (enabled by CONF.enable_canonicality, since it adds
+    no instructions — it seals existing memory accesses). It seals the test case with the active
+    value-seals — the memory pass composes [Sandbox(, PacSign)(, MteTag) | Canon], and PAC also seals
+    AUT* sites — then per input runs the contract executor once, fills each fix point's data (PAC:
+    sign; MTE: classify tags; canonicality: the non-canonical mask), and compares the baseline vs
+    decoy TC variants on hardware. Adding a primitive means adding its seal + its fill
     step here; the orchestration is primitive-agnostic. (Below: generic CE/BB-map/comparison helpers,
     then the lifecycle.)"""
 
@@ -533,29 +535,34 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             self._primitives.add("pac")
         if any(c.startswith("MTE") for c in cats):
             self._primitives.add("mte")
+        # canonicality is a category-independent seal of existing memory accesses; its own flag
+        if CONF.enable_canonicality:
+            self._primitives.add("canon")
         if not self._primitives:
             raise GeneratorException(
-                "non-interference fuzzing needs a PAC or MTE instruction category enabled")
+                "non-interference fuzzing needs a PAC or MTE instruction category, or "
+                "enable_canonicality, enabled")
 
-        # PAC VA size and TBI must match the executing machine (a wrong value makes the signature/strip
-        # mismatch the CPU's AUT* -> FPAC panic). Default them from the device; an explicit config still
-        # wins (remote fuzzing).
-        if "pac" in self._primitives:
+        # PAC/canon VA size and PAC TBI must match the executing machine (a wrong value makes the
+        # signature/strip mismatch the CPU's AUT* -> FPAC panic). Default them from the device; an
+        # explicit config still wins (remote fuzzing).
+        if self._primitives & {"pac", "canon"}:
             info = self.device.target_info()
             if CONF.va_size is None:
                 CONF.va_size = info.va_bits
-            if CONF.pac_tbi0 is None:
-                CONF.pac_tbi0 = bool(info.tbi0)
-            if CONF.pac_tbi1 is None:
-                CONF.pac_tbi1 = bool(info.tbi1)
-            if CONF.pac_tbid0 is None:
-                CONF.pac_tbid0 = bool(info.tbid0)
-            if CONF.pac_tbid1 is None:
-                CONF.pac_tbid1 = bool(info.tbid1)
-            if CONF.pac_qarma_version is None:
-                CONF.pac_qarma_version = info.qarma_version
-            if CONF.pac_pauth2 is None:
-                CONF.pac_pauth2 = bool(info.pauth2)
+            if "pac" in self._primitives:
+                if CONF.pac_tbi0 is None:
+                    CONF.pac_tbi0 = bool(info.tbi0)
+                if CONF.pac_tbi1 is None:
+                    CONF.pac_tbi1 = bool(info.tbi1)
+                if CONF.pac_tbid0 is None:
+                    CONF.pac_tbid0 = bool(info.tbid0)
+                if CONF.pac_tbid1 is None:
+                    CONF.pac_tbid1 = bool(info.tbid1)
+                if CONF.pac_qarma_version is None:
+                    CONF.pac_qarma_version = info.qarma_version
+                if CONF.pac_pauth2 is None:
+                    CONF.pac_pauth2 = bool(info.pauth2)
 
         # The campaign PAC keys, generated once by the input generator, embedded in every PAC input
         # and passed with every sign request — the kernel keeps no key state of its own.

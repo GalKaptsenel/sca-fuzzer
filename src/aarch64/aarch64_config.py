@@ -178,8 +178,8 @@ supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "l
 pac_seal_prob: float = 1.0
 pac_strip_prob: float = 0.0
 
-# Effective kernel (TTBR1) VA size: the single source of truth for PAC. None -> taken from the
-# executing device (TCR_EL1.T1SZ).
+# Effective kernel (TTBR1) VA size: the single source of truth for PAC and canonicality. None ->
+# taken from the executing device (TCR_EL1.T1SZ).
 va_size: Optional[int] = None
 
 pac_qarma_version: Optional[int] = None
@@ -188,6 +188,10 @@ pac_tbi1: Optional[bool] = None
 pac_tbid0: Optional[bool] = None
 pac_tbid1: Optional[bool] = None
 pac_pauth2: Optional[bool] = None
+
+enable_canonicality: bool = False
+canonicality_seal_prob: float = 1.0
+canonicality_mask: Optional[int] = None
 
 instruction_blocklist: List[str] = [
     # Crash/stall hazards: must never be generated regardless of enabled categories.

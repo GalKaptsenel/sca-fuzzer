@@ -81,6 +81,35 @@ def movk_word(rd: int, imm16: int, shift: int) -> int:
     return 0xF2800000 | ((shift // 16) << 21) | ((imm16 & 0xFFFF) << 5) | (rd & 0x1F)
 
 
+_M64 = (1 << 64) - 1
+
+
+def encode_bitmask_imm64(value: int) -> tuple:
+    """(N, immr, imms) for a 64-bit logical (bitmask) immediate `value`, or raise if not encodable.
+    Covers every element-size-64 pattern: any single contiguous run of ones and its rotations (which
+    is all a canonicality high-bit mask ever needs). Inverse of the AArch64 DecodeBitMasks: the value
+    must equal ROR((1 << (imms + 1)) - 1, immr)."""
+    v = value & _M64
+    if 0 == v or _M64 == v:
+        raise ValueError(f"0x{v:016x} is not a valid bitmask immediate (all-0 / all-1)")
+    ones = bin(v).count("1")
+    pattern = (1 << ones) - 1
+    for immr in range(64):
+        if v == (((pattern >> immr) | (pattern << (64 - immr))) & _M64):
+            return 1, immr, ones - 1
+    raise ValueError(f"0x{v:016x} is not an AArch64 64-bit logical bitmask immediate "
+                     f"(not a single contiguous run of ones or a rotation of one)")
+
+
+def eor_imm_word(rd: int, rn: int, value: int) -> int:
+    """EOR Xd, Xn, #value (64-bit logical immediate). A flip, so it breaks address canonicality
+    regardless of regime (0->1 for a TTBR0 pointer, 1->0 for a TTBR1 one). Raises via
+    encode_bitmask_imm64 if `value` is not an encodable bitmask immediate."""
+    n_bit, immr, imms = encode_bitmask_imm64(value)
+    return (0xD2000000 | (n_bit << 22) | (immr << 16) | (imms << 10)
+            | ((rn & 0x1F) << 5) | (rd & 0x1F))
+
+
 # AUT* base opcodes (Rd=Rn=0); the Z-variants bake Rn=31, so OR-ing rn=31 there is a no-op.
 _AUT_OPCODES = {
     "autia": 0xDAC11000, "autib": 0xDAC11400, "autda": 0xDAC11800, "autdb": 0xDAC11C00,

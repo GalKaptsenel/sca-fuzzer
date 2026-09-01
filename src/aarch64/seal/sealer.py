@@ -19,8 +19,11 @@ from .pac import (PacSign, PacSigner, build_pac_specs, _AUTH_TO_PAC, _AUTH_TO_XP
 from ..aarch64_mte import MteTagState, mte_tag_store_effect, MTE_INITIAL_DEFAULT_TAG
 from ..aarch64_target_desc import SANDBOX_BASE_REGISTER
 from ..aarch64_printer import Aarch64ASMLayout
-from ..aarch64_relocations import (NOP_WORD, xpac_word, addg_word, movk_word, aut_word,
+from ..aarch64_relocations import (NOP_WORD, xpac_word, addg_word, movk_word, aut_word, eor_imm_word,
                                     Relocation, apply_relocations)
+
+
+M = (1 << 64) - 1
 
 
 def _reg_num(reg: str) -> int:
@@ -42,6 +45,9 @@ def _encode(inst: Instruction) -> int:
                          int(inst.operands[1].value), int(inst.operands[2].value))
     if mn == "addg":
         return addg_word(_reg_num(inst.operands[0].value), int(inst.operands[3].value))
+    if mn == "eor":
+        return eor_imm_word(_reg_num(inst.operands[0].value), _reg_num(inst.operands[1].value),
+                            int(inst.operands[2].value))
     raise GeneratorException(f"cannot encode seal instruction {inst.name!r}")
 
 
@@ -148,6 +154,112 @@ class MteSealing(Sealing):
         # each undo their own delta, so both end at the input pointer's tag -> agree downstream.
         back = (16 - delta) % 16
         return [before, self._addg(back) if back else make_nop()]
+
+
+def _mask_runs(mask: int) -> List[int]:
+    """Split `mask` into its maximal contiguous runs of set bits, low to high. A single run of ones
+    is an encodable AArch64 logical (bitmask) immediate, so one EOR renders each run — a mask with a
+    gap (e.g. bit 55 punched out) needs one EOR per run."""
+    runs, i = [], 0
+    while i < 64:
+        if not (mask >> i) & 1:
+            i += 1
+            continue
+        j = i
+        while j < 64 and (mask >> j) & 1:
+            j += 1
+        runs.append(((1 << (j - i)) - 1) << i)   # bits [i:j-1]
+        i = j
+    return runs
+
+
+# How many random non-canonical masks to offer per canonicality slot, and the sampling budget.
+_CANON_POOL_SIZE = 6
+_CANON_POOL_TRIES = 64
+
+
+def _canon_va() -> int:
+    va = CONF.va_size
+    if va is None:
+        raise GeneratorException("canonicality needs va_size set")
+    if not 0 < va < 55:
+        raise GeneratorException(f"va_size {va} out of range (expected 1..54)")
+    return va
+
+
+def _canon_mask_pool(salt: int) -> List[int]:
+    """A deterministic pool of non-canonical flip masks for the decoy to choose from — the analogue of
+    PAC's wrong-signature pool / MTE's wrong-tag set. Each mask is a RANDOM contiguous run of bits
+    within the guaranteed-fault range [54:VA_SIZE]:
+
+      * flipping any bit in [54:VA] makes it disagree with the (never-flipped) regime-selector bit 55,
+        so the address is non-canonical in EITHER regime (TTBR0/TTBR1) and under TBI on or off — a
+        guaranteed translation fault. Bit 55 and the VA bits (<VA_SIZE) are never touched, so the
+        in-sandbox address and its cache-set index [11:6] are untouched (only canonicality changes);
+      * a single contiguous run is one AArch64 logical (bitmask) immediate, i.e. one EOR;
+      * randomising WHICH sub-run flips spreads the probe across the faulting field instead of always
+        flipping the same bits, and is seeded by the salt so a sealing class forges identically.
+
+    If canonicality_mask is set, the pool is that one fixed mask (must be a single [54:VA] run)."""
+    va = _canon_va()
+    fault = (((1 << (55 - va)) - 1) << va)   # bits [54:va]
+    if CONF.canonicality_mask is not None:
+        m = CONF.canonicality_mask & M
+        if 0 == m or (m & ~fault) or _mask_runs(m) != [m]:
+            raise GeneratorException(
+                f"canonicality_mask 0x{m:016x} must be a single contiguous run within [54:{va}] "
+                f"(the guaranteed-fault range; excludes bit 55, the top byte, and the VA bits)")
+        return [m]
+    rng = random.Random(hash(("canon-pool", salt)))
+    pool: List[int] = []
+    for _ in range(_CANON_POOL_TRIES):
+        lo = rng.randrange(va, 55)          # run start in [VA, 54]
+        hi = rng.randrange(lo, 55)          # run end   in [lo, 54]
+        m = ((1 << (hi - lo + 1)) - 1) << lo
+        if m and m not in pool:
+            pool.append(m)
+            if len(pool) >= _CANON_POOL_SIZE:
+                break
+    if not pool:
+        raise GeneratorException(f"no canonicality flip mask for VA_SIZE {va}")
+    return pool
+
+
+class CanonSealing(Sealing):
+    """Make a pointer register non-canonical for ONE speculative access, then restore it.
+    `seal(mask)` flips `mask` into the base register with an EOR right before the access (a
+    would-fault address in either translation regime) and, when the access preserves its base
+    register, flips it back with the SAME EOR right after — so the decoy RE-CONVERGES with the
+    baseline: only the sealed access differs, and the flipped high bits cannot cascade into a later
+    access's cache set (e.g. via a downstream shift that would move them into the set-index bits).
+    `seal(None/0)` is the canonical placeholder (NOPs). `pool` is the set of candidate non-canonical
+    masks the resolver offers (the decoy picks one at random); `revert` is False when the access
+    itself overwrites the base (a load into it, or write-back) — then the flipped bits are consumed
+    and no restore is emitted. The seal lands only on speculative-only slots, so the architectural
+    path stays canonical. `access_inst`/`pool` are exposed for the resolver."""
+
+    def __init__(self, value_reg: str, access_inst: Instruction, pool: List[int], revert: bool) -> None:
+        super().__init__()
+        self.value_reg = value_reg
+        self.access_inst = access_inst
+        self.pool = pool
+        self._revert = revert
+        self.slot_insts = self.seal(None, None)   # placeholder: [before] or [before, after]
+
+    def _eor(self, run: int) -> Instruction:
+        return (Instruction("eor", True, "", False,
+                            template=f"EOR {self.value_reg}, {self.value_reg}, #{run}")
+                .add_op(RegisterOperand(self.value_reg, 64, False, True))
+                .add_op(RegisterOperand(self.value_reg, 64, True, False))
+                .add_op(ImmediateOperand(str(run), 64)))
+
+    def seal(self, value: Optional[int], rng: Optional[random.Random]) -> List[Instruction]:
+        # One op before the access (the flip), and — when the base survives the access — the SAME flip
+        # after it (EOR is its own inverse) to restore the base, so the decoy matches the baseline
+        # downstream. genuine (value None/0) fills a NOP at each position; the resolver offers exactly
+        # one mask per decoy, so before and after always use the same value and cancel.
+        emit = (lambda: self._eor(value)) if value else make_nop
+        return [emit()] + ([emit()] if self._revert else [])
 
 
 # ==================================================================================================
@@ -302,6 +414,24 @@ def _resolve_mte(s: MteSealing, cer, layout) -> Tuple[Optional[int], List[int], 
     return delta, alts, spec
 
 
+def _resolve_canon(s: "CanonSealing", cer, layout) -> Tuple[Optional[int], List[int], Optional[int]]:
+    """A CanonSealing's value from a trace: the genuine value is canonical (None -> the NOP
+    placeholders); the alternatives are the sealing's pool of random non-canonical flip masks (the
+    decoy picks one). spec_nesting is the minimum depth the guarded access is reached at, so an access
+    ever reached architecturally (min == 0) is non-speculative and never non-canonicalized.
+    (value, alts, spec_nesting)."""
+    spec = None
+    if cer and s.access_inst is not None:
+        access_off, code_base = layout.instruction_address[s.access_inst], cer[0].cpu.pc
+        for ite in cer:
+            if not ite.metadata.has_memory_access or ite.cpu.pc - code_base != access_off:
+                continue
+            nest = ite.metadata.speculation_nesting
+            if spec is None or nest < spec:
+                spec = int(nest)
+    return None, list(s.pool), spec
+
+
 def _slot_offsets(tc: TestCase, layout, sealings: List["Sealing"]) -> Dict[int, Tuple[int, ...]]:
     """{id(sealing): its slot byte offsets in the assembled template}. Positions are one-for-one across
     fills, so an offset taken from the placeholder holds for every variant."""
@@ -417,6 +547,47 @@ class MteSealedTestCase(SealedTestCase):
         object_code = self._assemble(self._tc)
         return ResolvedSealingTestCase(entries, object_code,
                                        _slot_offsets(self._tc, self._layout, self._mte), self._salt)
+
+
+class CanonSealedTestCase(SealedTestCase):
+    """Sandbox clamp + a canonicality flip per data access. The flip EOR is the last op before the
+    access (after the offset-cancel SUBs), so nothing re-canonicalizes the pointer before it is used;
+    a matching EOR right AFTER the access restores the base (when the access preserves it), so the
+    decoy re-converges with the baseline and the flipped bits cannot cascade downstream. No new
+    instructions, no CE plugin, no per-input REIF section: the CE traces the canonical placeholder
+    (NOP slots) and only supplies speculation depth; the decoy is ordinary EOR words spliced through
+    the existing code-relocation path."""
+
+    def __init__(self, sealed_tc, trace_fn, assemble, sandbox_sealings, data_sites) -> None:
+        self._canon: List[CanonSealing] = []
+        super().__init__(sealed_tc, trace_fn, assemble, sandbox_sealings, data_sites)
+
+    def _insert_slots(self, data_sites) -> None:
+        # Per test case (seeded by the salt so every input shares one skeleton), each access is sealed
+        # with probability CONF.canonicality_seal_prob. A skipped access still gets its offset
+        # cancellation (sandbox safety), just no canonicality slot. base_preserved says whether the
+        # access leaves its base register intact (so the after-EOR can restore it).
+        pool = _canon_mask_pool(self._salt)   # validated once; shared by every slot in this test case
+        rng = random.Random(self._salt)
+        for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
+            if rng.random() >= CONF.canonicality_seal_prob:
+                _insert(bb, inst, offset_subs)
+                continue
+            s = CanonSealing(mem_reg, inst, pool, base_preserved)
+            self._canon.append(s)
+            _insert(bb, inst, offset_subs, s.slot_insts[:1])   # cancel offset, then flip (last before)
+            _place_after(bb, inst, s.slot_insts[1:])           # restore the base right after (re-converge)
+
+    def _sealings(self) -> List[Sealing]:
+        return self._sandbox + self._canon
+
+    def resolve(self, inp) -> ResolvedSealingTestCase:
+        cer = self._trace_fn(self._tc, inp)
+        canon = [_Resolved(s, *_resolve_canon(s, cer, self._layout)) for s in self._canon]
+        entries = self._clamp_entries(self._sandbox) + canon
+        object_code = self._assemble(self._tc)
+        return ResolvedSealingTestCase(entries, object_code,
+                                       _slot_offsets(self._tc, self._layout, self._canon), self._salt)
 
 
 class MtePacSealedTestCase(SealedTestCase):
@@ -548,6 +719,8 @@ class Sealer:
     def seal(self, test_case: TestCase) -> SealedTestCase:
         tc = copy.deepcopy(test_case)
         sandbox, data_sites = self._walk.sandbox(tc)
+        if self._primitives == frozenset({"canon"}):
+            return CanonSealedTestCase(tc, self._trace_fn, self._assemble, sandbox, data_sites)
         if self._primitives == frozenset({"mte"}):
             return MteSealedTestCase(tc, self._trace_fn, self._assemble, sandbox, data_sites)
         if self._primitives == frozenset({"pac"}):
@@ -650,8 +823,8 @@ class SandboxWalk:
                                 elif modifies_base:
                                     curr = curr - frozenset([norm_mem])
                                 # base_preserved: the access leaves its base register intact (not a
-                                # load destination, no write-back) -> a seal can be cleanly reverted
-                                # after it. dest regs include write-back bases.
+                                # load destination, no write-back) -> a canonicality flip can be
+                                # cleanly reverted after it. dest regs include write-back bases.
                                 base_preserved = norm_mem not in addr._dest_regs(inst)
                                 data_sites.append((inst, bb, mem_reg, offset_subs, base_preserved))
                     prop = addr.address_preserving_tag_op(inst)
@@ -674,6 +847,7 @@ def make_sealer(generator, trace_fn, assemble, primitives, signer, trace_bytes_f
     machine code (used by the PAC+MTE resolve to read AUT* contexts with the genuine tags applied);
     `signer` is the PAC signer used by resolve when 'pac' is active (None otherwise)."""
     prims = frozenset(primitives)
-    if prims not in (frozenset({"mte"}), frozenset({"pac"}), frozenset({"pac", "mte"})):
+    if prims not in (frozenset({"canon"}), frozenset({"mte"}), frozenset({"pac"}),
+                     frozenset({"pac", "mte"})):
         raise ValueError(f"unsupported seal primitives: {primitives!r}")
     return Sealer(generator, trace_fn, assemble, prims, signer, trace_bytes_fn)
