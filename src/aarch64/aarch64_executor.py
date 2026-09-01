@@ -220,11 +220,11 @@ class Aarch64LocalExecutor(Aarch64Executor):
 
     def _pac_profile(self) -> qarma.PacProfile:
         """The target's PAC profile from CONF; every field is required for a PAC run."""
-        for name in ("pac_qarma_version", "pac_va_size", "pac_tbi0", "pac_tbi1", "pac_pauth2"):
+        for name in ("pac_qarma_version", "va_size", "pac_tbi0", "pac_tbi1", "pac_pauth2"):
             if getattr(CONF, name) is None:
                 raise GeneratorException(f"a PAC run requires CONF.{name} (the target PAC profile)")
-        return qarma.profile(CONF.pac_qarma_version, CONF.pac_va_size, CONF.pac_tbi0, CONF.pac_tbi1,
-                             CONF.pac_pauth2)
+        return qarma.profile(CONF.pac_qarma_version, CONF.va_size, CONF.pac_tbi0, CONF.pac_tbi1,
+                             CONF.pac_pauth2, CONF.pac_tbid0, CONF.pac_tbid1)
 
     def branch_mistraining_entries(self, cer) -> List[Tuple[int, bool]]:
         """Compute the per-branch mistraining config from a CE trace, without touching the device.
@@ -299,7 +299,8 @@ class Aarch64LocalExecutor(Aarch64Executor):
                            max_mispred_instructions: int, ct: ExecutionClause,
                            bp: BranchPredictor = BranchPredictor.NONE,
                            mte_tags: Optional[List[int]] = None,
-                           pac_keys: Optional[PacKeys] = None) -> ContractExecution:
+                           pac_keys: Optional[PacKeys] = None,
+                           pac_profile: Optional[qarma.PacProfile] = None) -> ContractExecution:
         tc_memory, tc_regs = _ce_memory_regs(inp)
         return ContractExecution(
             tc_bytes, tc_memory, tc_regs, SimArch.RVZR_ARCH_AARCH64,
@@ -310,7 +311,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
             branch_predictor=bp,
             mte_tags=mte_tags,
             pac_keys=pac_keys,
-            pac_profile=self._pac_profile_value,
+            pac_profile=pac_profile,
         )
 
     def _measure(self, exec_inputs: List[ExecutorInput], n_reps: int) -> List[HTrace]:
@@ -536,6 +537,26 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             raise GeneratorException(
                 "non-interference fuzzing needs a PAC or MTE instruction category enabled")
 
+        # PAC VA size and TBI must match the executing machine (a wrong value makes the signature/strip
+        # mismatch the CPU's AUT* -> FPAC panic). Default them from the device; an explicit config still
+        # wins (remote fuzzing).
+        if "pac" in self._primitives:
+            info = self.device.target_info()
+            if CONF.va_size is None:
+                CONF.va_size = info.va_bits
+            if CONF.pac_tbi0 is None:
+                CONF.pac_tbi0 = bool(info.tbi0)
+            if CONF.pac_tbi1 is None:
+                CONF.pac_tbi1 = bool(info.tbi1)
+            if CONF.pac_tbid0 is None:
+                CONF.pac_tbid0 = bool(info.tbid0)
+            if CONF.pac_tbid1 is None:
+                CONF.pac_tbid1 = bool(info.tbid1)
+            if CONF.pac_qarma_version is None:
+                CONF.pac_qarma_version = info.qarma_version
+            if CONF.pac_pauth2 is None:
+                CONF.pac_pauth2 = bool(info.pauth2)
+
         # The campaign PAC keys, generated once by the input generator, embedded in every PAC input
         # and passed with every sign request — the kernel keeps no key state of its own.
         self._pac_keys: Optional[PacKeys] = self._campaign_pac_keys() if "pac" in self._primitives \
@@ -554,7 +575,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         # The sealer owns all sealing + resolution; it traces via _seal_trace and assembles object
         # code via _assemble_tc.
         self._sealer = make_sealer(generator, self._seal_trace, lambda tc: self._assemble_tc(tc)[0],
-                                   self._primitives, signer)
+                                   self._primitives, signer, trace_bytes_fn=self._ce_trace)
 
         # Per-test-case sealed placeholder, populated by load_test_case(); the CE-trace context the
         # sealer's resolve uses (captured per with_taints call).
@@ -599,7 +620,8 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             self._sandbox_base, _ = self.read_base_addresses()
         return self._contract_executor.run(self._make_ce_execution(
             tc_bytes, inp, self._sandbox_base, CONF.model_max_nesting, CONF.model_max_spec_window,
-            ExecutionClause.COND, mte_tags=self._mte_tags_for(inp), pac_keys=self._pac_keys))
+            ExecutionClause.COND, mte_tags=self._mte_tags_for(inp), pac_keys=self._pac_keys,
+            pac_profile=self._pac_profile_value))
 
     def _seal_trace(self, tc: TestCase, inp: Input) -> ContractExecutionResult:
         """The sealer's trace_fn: assemble the placeholder TC and run one CE trace."""

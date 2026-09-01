@@ -23,7 +23,8 @@ from src.config import CONF
 from src.isa_loader import InstructionSet
 from src.aarch64.aarch64_generator import Aarch64RandomGenerator
 from src.aarch64.aarch64_relocations import (
-    apply_relocations, read_word32, is_movk64, get_movk_imm16, is_xpac, get_addg_tag, NOP_WORD)
+    apply_relocations, read_word32, is_movk64, get_movk_imm16, get_movk_shift, is_xpac, get_addg_tag,
+    NOP_WORD)
 from src.aarch64.seal.pac import _AUTH_TO_PAC, _read_reg
 from src import factory
 from src.util import FuzzLogger
@@ -36,12 +37,18 @@ def _slot_words(ex, variant_bytes, sealing):
     return [read_word32(variant_bytes, layout.instruction_address[i]) for i in sealing.slot_insts]
 
 
-def _pac_kind(words, correct_sig):
-    if is_xpac(words[-1]):
+def _pac_kind(words, correct_sig, n_before):
+    """Classify a PAC slot from its variant words. The before-portion is words[:n_before]; its last
+    word is the AUT* (a real auth) or an XPAC (the arch-safe strip), and the earlier words are the
+    signature MOVKs. Shift-agnostic: each MOVK is compared against the signed pointer at its own LSL,
+    so it holds wherever the PAC field lands. The trailing revert XPAC (after the access) is ignored."""
+    if is_xpac(words[n_before - 1]):
         return "strip"
-    imm = get_movk_imm16(words[0]) if is_movk64(words[0]) else None
-    target = (correct_sig & 0xFFFF) if correct_sig is not None else None
-    return "auth_correct" if imm == target else "auth_forged"
+    if correct_sig is None:
+        return "auth_forged"
+    forged = any(is_movk64(w) and get_movk_imm16(w) != ((correct_sig >> get_movk_shift(w)) & 0xFFFF)
+                 for w in words[:n_before])
+    return "auth_forged" if forged else "auth_correct"
 
 
 def _mte_delta(words):
@@ -147,7 +154,7 @@ class NiRandomCoverageTest(unittest.TestCase):
                     for s in pac:
                         r = by_sealing[id(s)]
                         arch = not r.speculative
-                        k = _pac_kind(_slot_words(ex, tcv, s), r.value)
+                        k = _pac_kind(_slot_words(ex, tcv, s), r.value, s.n_before)
                         cov[f"pac_{'arch' if arch else 'spec'}_{k}"] += 1
                         if arch and k == "auth_forged":
                             arch_violations.append(f"PAC forge on arch slot reg={s.value_reg}")
@@ -163,7 +170,7 @@ class NiRandomCoverageTest(unittest.TestCase):
                 # per-decoy orthogonal combination of speculative PAC forge and MTE wrong-tag
                 for d in decoys:
                     pac_forged = any(by_sealing[id(s)].speculative
-                                     and _pac_kind(_slot_words(ex, d, s), by_sealing[id(s)].value) == "auth_forged"
+                                     and _pac_kind(_slot_words(ex, d, s), by_sealing[id(s)].value, s.n_before) == "auth_forged"
                                      for s in pac)
                     mte_wrong = any(by_sealing[id(s)].speculative
                                     and _mte_delta(_slot_words(ex, d, s)) != (by_sealing[id(s)].value or 0) % 16

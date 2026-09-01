@@ -215,6 +215,20 @@ class RemoteSetupTest(unittest.TestCase):
                 return "0x2000"
             if "cpu_info" in cmd:
                 return f"MIDR_EL1    : {midr}"
+            if "system/va_bits" in cmd:
+                return "48"
+            if "system/tbid0" in cmd:
+                return "0"
+            if "system/tbid1" in cmd:
+                return "1"
+            if "system/tbi0" in cmd:
+                return "1"
+            if "system/tbi1" in cmd:
+                return "1"
+            if "system/pac_qarma_version" in cmd:
+                return "3"
+            if "system/pac_pauth2" in cmd:
+                return "1"
             return ""
         conn.shell.side_effect = shell
         return conn, cfg
@@ -283,7 +297,9 @@ class BackendTransparencyTest(unittest.TestCase):
         ex._log_hw_counters = lambda per_input: None
         ex._current_tc_bytes = lambda: b"TC"
         ex.device = mock.create_autospec(k.HWExecutor, instance=True)
-        ex.device.target_info.return_value = TargetInfo(sandbox_base=0x1000, code_base=0x2000)
+        ex.device.target_info.return_value = TargetInfo(
+            sandbox_base=0x1000, code_base=0x2000, va_bits=48, tbi0=1, tbi1=1,
+            tbid0=0, tbid1=1, qarma_version=3, pauth2=1)
         ex.device.run_batch.return_value = [[[HWMeasurement(3, (0, 0, 0))]]]
 
         self.assertEqual(ex.read_base_addresses(), (0x1000, 0x2000))

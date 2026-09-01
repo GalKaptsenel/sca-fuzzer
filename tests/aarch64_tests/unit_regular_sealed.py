@@ -19,9 +19,21 @@ from src.config import CONF
 from src.isa_loader import InstructionSet
 from src.aarch64.aarch64_generator import Aarch64RandomGenerator
 from src.aarch64.aarch64_relocations import (
-    apply_relocations, read_word32, is_movk64, get_movk_imm16, is_addg, get_addg_tag, is_xpac,
-    NOP_WORD)
+    apply_relocations, read_word32, is_movk64, get_movk_imm16, get_movk_shift, is_addg, get_addg_tag,
+    is_xpac, NOP_WORD)
+from src.aarch64.seal.sealer import PacSealing, MteSealing
 from src import factory
+
+
+def _pac_movk_forged(words, value):
+    """True if any MOVK in the slot writes a 16-bit chunk that disagrees with the genuine signed
+    pointer `value` at that MOVK's own LSL. Shift-agnostic: reads the shift from each encoding, so it
+    holds wherever the PAC field lands (low or high bits) for the target's VA/TBI — no assumption that
+    the signature sits in the low 16 bits."""
+    if value is None:
+        return True
+    return any(is_movk64(w) and get_movk_imm16(w) != ((value >> get_movk_shift(w)) & 0xFFFF)
+               for w in words)
 
 _BASE = ["BASE-ARITH", "BASE-LOGICAL", "BASE-SHIFT", "BASE-BRANCH", "BASE-MEM-LOAD", "BASE-MEM-STORE"]
 
@@ -121,11 +133,12 @@ class RegularSealedSealingTest(unittest.TestCase):
             if r.speculative:
                 continue
             words = _slot_words(ex, tc, r)
-            if is_movk64(words[0]):                               # PAC: genuine sig or violation
-                if get_movk_imm16(words[0]) != (r.value & 0xFFFF if r.value is not None else None):
+            if isinstance(r.sealing, PacSealing):                 # PAC: every MOVK must be genuine
+                if _pac_movk_forged(words, r.value):
                     violations.append(f"forged PAC on arch slot reg={r.sealing.value_reg}")
-            elif is_addg(words[0]):                               # MTE: genuine delta or violation
-                if get_addg_tag(words[0]) != ((r.value or 0) % 16):
+            elif isinstance(r.sealing, MteSealing):               # MTE: the before-retag must be genuine
+                before = words[:r.sealing.n_before]
+                if any(is_addg(w) and get_addg_tag(w) != ((r.value or 0) % 16) for w in before):
                     violations.append(f"forged MTE retag on arch slot reg={r.sealing.value_reg}")
             # nop / xpac heads are arch-safe genuine encodings (strip / no-retag)
 
@@ -137,7 +150,7 @@ class RegularSealedSealingTest(unittest.TestCase):
                 continue
             if words[0] == NOP_WORD and is_xpac(words[-1]):
                 cov["spec_strip"] += 1
-            elif is_movk64(words[0]) and get_movk_imm16(words[0]) != (r.value & 0xFFFF if r.value is not None else -1):
+            elif isinstance(r.sealing, PacSealing) and _pac_movk_forged(words, r.value):
                 cov["spec_decoy"] += 1
             elif is_addg(words[0]) and get_addg_tag(words[0]) != ((r.value or 0) % 16):
                 cov["spec_decoy"] += 1

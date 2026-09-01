@@ -17,3 +17,4 @@ fuzzer: non-interference
 input_generator: aarch64-nzcv
 pac_seal_prob: 1.0    # P(seal an eligible memory access); <1 leaves some unsealed
 pac_strip_prob: 0.0   # P(a sealed slot renders as XPAC strip vs a real AUT*)
+# PAC profile (qarma version, va_size, TBI, PAuth2) all default from the device

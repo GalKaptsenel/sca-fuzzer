@@ -40,6 +40,13 @@ def get_movk_imm16(word: int) -> int:
     return get_imm_field(word, 5, 16)
 
 
+def get_movk_shift(word: int) -> int:
+    """The LSL shift (0/16/32/48) this MOVK writes its imm16 at, from the hw field (bits [22:21])."""
+    if not is_movk64(word):
+        raise ValueError(f"not a 64-bit MOVK word: 0x{word:08x}")
+    return ((word >> 21) & 0x3) * 16
+
+
 def xpac_word(data_key: bool, rd: int) -> int:
     """XPACD Xd (data key) or XPACI Xd (instruction key) — the seal's arch-safe strip op."""
     return (0xDAC147E0 if data_key else 0xDAC143E0) | (rd & 0x1F)

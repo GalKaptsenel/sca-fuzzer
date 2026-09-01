@@ -19,7 +19,8 @@ from .pac import (PacSign, PacSigner, build_pac_specs, _AUTH_TO_PAC, _AUTH_TO_XP
 from ..aarch64_mte import MteTagState, mte_tag_store_effect, MTE_INITIAL_DEFAULT_TAG
 from ..aarch64_target_desc import SANDBOX_BASE_REGISTER
 from ..aarch64_printer import Aarch64ASMLayout
-from ..aarch64_relocations import (NOP_WORD, xpac_word, addg_word, movk_word, aut_word, Relocation)
+from ..aarch64_relocations import (NOP_WORD, xpac_word, addg_word, movk_word, aut_word,
+                                    Relocation, apply_relocations)
 
 
 def _reg_num(reg: str) -> int:
@@ -85,45 +86,68 @@ class PacSealing(Sealing):
     `CONF.pac_strip_prob`, the arch-safe strip); `seal(None)` is the placeholder. `committed_inst` is
     exposed for the resolver."""
 
-    def __init__(self, value_reg: str, committed_inst: Instruction, encoder: PacSign) -> None:
+    def __init__(self, value_reg: str, committed_inst: Instruction, encoder: PacSign,
+                 revert: bool = False) -> None:
         super().__init__()
         self.value_reg = value_reg
         self.committed_inst = committed_inst
         self._enc = encoder
-        self.slot_insts = self.seal(None, None)   # seal itself with its placeholder = the slot to fill
+        self._revert = revert
+        self.n_before = encoder.n_sig_movks + 1   # signature MOVKs + the AUT*/strip (before the access)
+        self.slot_insts = self.seal(None, None)   # placeholder: before [+ after XPAC]
 
     def seal(self, value: Optional[int], rng: Optional[random.Random]) -> List[Instruction]:
         auth_mn = self.committed_inst.name.lower()
         ctx_reg = self.committed_inst.operands[1].value if len(self.committed_inst.operands) > 1 else None
         xpac = self._enc.make_xpac_inst(_AUTH_TO_XPAC[auth_mn], self.value_reg)
         if value is None:
-            return [make_nop() for _ in range(self._enc.n_sig_movks)] + [xpac]
-        movks = self._enc.make_sig_movks(self.value_reg, value)
-        if rng.random() < CONF.pac_strip_prob:
-            return movks + [xpac]
-        return movks + [self._enc.make_auth_inst(auth_mn, self.value_reg, ctx_reg)]
+            before = [make_nop() for _ in range(self._enc.n_sig_movks)] + [xpac]
+        else:
+            movks = self._enc.make_sig_movks(self.value_reg, value)
+            before = movks + ([xpac] if rng.random() < CONF.pac_strip_prob
+                              else [self._enc.make_auth_inst(auth_mn, self.value_reg, ctx_reg)])
+        if not self._revert:
+            return before
+        # After the access, strip the register back to a canonical pointer: XPAC clears the PAC field,
+        # so genuine (already stripped by the AUT*) is unchanged and decoy (failed AUT* leaving FPAC
+        # bits) is re-canonicalized -> both agree downstream. A separate XPAC instance (not the
+        # before one) so slot positions stay one-for-one.
+        return before + [self._enc.make_xpac_inst(_AUTH_TO_XPAC[auth_mn], self.value_reg)]
 
 
 class MteSealing(Sealing):
-    """Retag a pointer register by a 4-bit delta: `seal(delta)` is the retag, or [NOP] when 0/None.
-    `access_inst` is exposed for the resolver (its accessed cell's tag is the genuine tag)."""
+    """Retag a pointer register by a 4-bit delta: `seal(delta)` retags before the access (or [NOP]
+    when 0/None) and, when the access preserves its base register, retags back by -delta right after,
+    so the decoy re-converges with the baseline (only the sealed access differs, and a wrong tag can't
+    cascade into a later access's set via a downstream shift of the tag byte). `access_inst` is
+    exposed for the resolver (its accessed cell's tag is the genuine tag); `n_before` is how many slot
+    words precede the access (the rest are the after-revert)."""
 
-    def __init__(self, value_reg: str, access_inst: Instruction) -> None:
+    def __init__(self, value_reg: str, access_inst: Instruction, revert: bool = False) -> None:
         super().__init__()
         self.value_reg = value_reg
         self.access_inst = access_inst
-        self.slot_insts = self.seal(None, None)   # seal itself with its placeholder = the slot to fill
+        self._revert = revert
+        self.n_before = 1
+        self.slot_insts = self.seal(None, None)   # placeholder: [before] or [before, after]
+
+    def _addg(self, delta: int) -> Instruction:
+        return (Instruction("addg", True, "", False,
+                            template=f"ADDG {self.value_reg}, {self.value_reg}, #0, #{delta}")
+                .add_op(RegisterOperand(self.value_reg, 64, False, True))
+                .add_op(RegisterOperand(self.value_reg, 64, True, False))
+                .add_op(ImmediateOperand("0", 6))
+                .add_op(ImmediateOperand(str(delta), 4)))
 
     def seal(self, value: Optional[int], rng: Optional[random.Random]) -> List[Instruction]:
         delta = 0 if value is None else value % 16
-        if delta == 0:
-            return [make_nop()]
-        return [(Instruction("addg", True, "", False,
-                             template=f"ADDG {self.value_reg}, {self.value_reg}, #0, #{delta}")
-                 .add_op(RegisterOperand(self.value_reg, 64, False, True))
-                 .add_op(RegisterOperand(self.value_reg, 64, True, False))
-                 .add_op(ImmediateOperand("0", 6))
-                 .add_op(ImmediateOperand(str(delta), 4)))]
+        before = self._addg(delta) if delta else make_nop()
+        if not self._revert:
+            return [before]
+        # restore the original tag after the access (tag arithmetic is mod 16); genuine and decoy
+        # each undo their own delta, so both end at the input pointer's tag -> agree downstream.
+        back = (16 - delta) % 16
+        return [before, self._addg(back) if back else make_nop()]
 
 
 # ==================================================================================================
@@ -295,9 +319,10 @@ class SealedTestCase:
     per-concern subclass owns both the placement order and the resolution."""
 
     def __init__(self, sealed_tc: TestCase, trace_fn, assemble, sandbox_sealings: List[SandboxSealing],
-                 data_sites: List) -> None:
+                 data_sites: List, trace_bytes_fn=None) -> None:
         self._tc = sealed_tc
         self._trace_fn = trace_fn
+        self._trace_bytes_fn = trace_bytes_fn              # (machine code, input) -> cer, for a re-trace
         self._assemble = assemble                          # tc -> machine code, for the skeleton
         self._sandbox = sandbox_sealings
         self._salt = random.randrange(1 << 64)             # per-test-case; seeds deterministic forgery
@@ -346,13 +371,14 @@ class PacSealedTestCase(SealedTestCase):
         # (offset_subs is sandbox safety, not seal machinery: it pulls base+offset back into the clamped
         # region), just no AUT* — leaving a raw, sandbox-clamped, unauthenticated pointer.
         rng = random.Random(self._salt)
-        for inst, bb, mem_reg, offset_subs in data_sites:
+        for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
             if rng.random() >= CONF.pac_seal_prob:
                 _insert(bb, inst, offset_subs)
                 continue
-            s = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc)
+            s = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc, base_preserved)
             self._pac.append(s)
-            _insert(bb, inst, s.slot_insts, offset_subs)   # auth the base, then cancel the offset
+            _insert(bb, inst, s.slot_insts[:s.n_before], offset_subs)   # auth the base, then cancel offset
+            _place_after(bb, inst, s.slot_insts[s.n_before:])           # XPAC back to canonical (re-converge)
         _seal_auths(self._tc, self._enc, self._auth_specs, self._pac)
 
     def _sealings(self) -> List[Sealing]:
@@ -375,10 +401,11 @@ class MteSealedTestCase(SealedTestCase):
         super().__init__(sealed_tc, trace_fn, assemble, sandbox_sealings, data_sites)
 
     def _insert_slots(self, data_sites) -> None:
-        for inst, bb, mem_reg, offset_subs in data_sites:
-            s = MteSealing(mem_reg, inst)
+        for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
+            s = MteSealing(mem_reg, inst, base_preserved)
             self._mte.append(s)
-            _insert(bb, inst, offset_subs, s.slot_insts)   # cancel the offset, then retag last
+            _insert(bb, inst, offset_subs, s.slot_insts[:s.n_before])   # cancel offset, retag last
+            _place_after(bb, inst, s.slot_insts[s.n_before:])           # retag back (re-converge)
 
     def _sealings(self) -> List[Sealing]:
         return self._sandbox + self._mte
@@ -399,34 +426,53 @@ class MtePacSealedTestCase(SealedTestCase):
     then positionally equivalent to the genuine retag, so the placeholder trace already carries the
     genuine tag at every later AUT*; PAC resolves over that single trace, no genuine-tag re-trace."""
 
-    def __init__(self, sealed_tc, trace_fn, assemble, sandbox_sealings, data_sites, signer, enc, auth_specs) -> None:
+    def __init__(self, sealed_tc, trace_fn, assemble, sandbox_sealings, data_sites, signer, enc,
+                 auth_specs, trace_bytes_fn=None) -> None:
         self._signer = signer
         self._enc = enc
         self._auth_specs = auth_specs
         self._pac: List[PacSealing] = []
         self._mte: List[MteSealing] = []
-        super().__init__(sealed_tc, trace_fn, assemble, sandbox_sealings, data_sites)
+        super().__init__(sealed_tc, trace_fn, assemble, sandbox_sealings, data_sites, trace_bytes_fn)
 
     def _insert_slots(self, data_sites) -> None:
-        for inst, bb, mem_reg, offset_subs in data_sites:
-            p = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc)
-            m = MteSealing(mem_reg, inst)
+        for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
+            p = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc, base_preserved)
+            m = MteSealing(mem_reg, inst, base_preserved)
             self._pac.append(p)
             self._mte.append(m)
-            _insert(bb, inst, p.slot_insts, offset_subs, m.slot_insts)   # auth, cancel the offset, retag
+            # before: auth the base, cancel the offset, retag last (retag closest to the access)
+            _insert(bb, inst, p.slot_insts[:p.n_before], offset_subs, m.slot_insts[:m.n_before])
+            # after: undo in reverse (LIFO) so the decoy re-converges — MTE retag-back first (closest
+            # to the access), then PAC XPAC. _place_after keeps each group's order; call PAC first so
+            # its words land outermost.
+            _place_after(bb, inst, p.slot_insts[p.n_before:])
+            _place_after(bb, inst, m.slot_insts[m.n_before:])
         _seal_auths(self._tc, self._enc, self._auth_specs, self._pac)
 
     def _sealings(self) -> List[Sealing]:
         return self._sandbox + self._pac + self._mte
 
     def resolve(self, inp) -> ResolvedSealingTestCase:
+        # Pass A (placeholder): resolve the context-independent values — MTE tag deltas + PAC
+        # speculation-nesting. PAC contexts must NOT be signed off this trace: an AUT*'s context
+        # register may itself be MTE-retagged by another seal, and the placeholder renders those
+        # retags as NOPs, so the register carries the wrong tag here.
         cer = self._trace_fn(self._tc, inp)
         mte = [_Resolved(s, *_resolve_mte(s, cer, self._layout)) for s in self._mte]
-        pac = [_Resolved(s, *_resolve_pac(s, cer, self._layout, self._signer, self._salt)) for s in self._pac]
-        entries = self._clamp_entries(self._sandbox) + pac + mte
         object_code = self._assemble(self._tc)
-        return ResolvedSealingTestCase(entries, object_code,
-                                       _slot_offsets(self._tc, self._layout, self._pac + self._mte), self._salt)
+        offsets = _slot_offsets(self._tc, self._layout, self._pac + self._mte)
+
+        # Pass B (genuine-tag): re-trace with the genuine MTE retags spliced in (PAC left as the
+        # placeholder XPAC, which equals a passing AUT*, so nothing FPACs). Now every AUT*'s context
+        # register carries its real tag, so PAC signs over the true genuine (pointer, context).
+        mte_reloc = [Relocation(off, _encode(i))
+                     for r in mte for off, i in zip(offsets[id(r.sealing)], r.sealing.seal(r.value, None))]
+        cer_b = self._trace_bytes_fn(apply_relocations(object_code, mte_reloc), inp)
+        pac = [_Resolved(s, *_resolve_pac(s, cer_b, self._layout, self._signer, self._salt)) for s in self._pac]
+
+        entries = self._clamp_entries(self._sandbox) + pac + mte
+        return ResolvedSealingTestCase(entries, object_code, offsets, self._salt)
 
 
 # ==================================================================================================
@@ -486,9 +532,11 @@ class Sealer:
     SealedTestCase, which owns its value-seal placement order + resolution. The Sealer holds no
     knowledge of slot order itself."""
 
-    def __init__(self, generator, trace_fn, assemble, primitives: Set[str], signer) -> None:
+    def __init__(self, generator, trace_fn, assemble, primitives: Set[str], signer,
+                 trace_bytes_fn=None) -> None:
         self._walk = SandboxWalk(generator)
         self._trace_fn = trace_fn
+        self._trace_bytes_fn = trace_bytes_fn
         self._assemble = assemble
         self._primitives = frozenset(primitives)
         self._signer = signer
@@ -506,7 +554,7 @@ class Sealer:
             return PacSealedTestCase(tc, self._trace_fn, self._assemble, sandbox, data_sites,
                                      self._signer, self._enc, self._auth_specs)
         return MtePacSealedTestCase(tc, self._trace_fn, self._assemble, sandbox, data_sites,
-                                    self._signer, self._enc, self._auth_specs)
+                                    self._signer, self._enc, self._auth_specs, self._trace_bytes_fn)
 
 
 def _insert(bb, anchor, *groups) -> None:
@@ -515,6 +563,15 @@ def _insert(bb, anchor, *groups) -> None:
     for group in groups:
         for inst in group:
             bb.insert_before(anchor, inst)
+
+
+def _place_after(bb, anchor, insts) -> None:
+    """Insert `insts` immediately after `anchor`, preserving their order — the seal's after-revert
+    (restore the base register once the sealed access has run). insert_after puts each element right
+    after the anchor, so iterate in reverse to keep list order. Composed reverts (MtePac) call this
+    once per primitive; calling the outer primitive first lands the inner one closest to the access."""
+    for inst in reversed(list(insts)):
+        bb.insert_after(anchor, inst)
 
 
 def _record_positions(tc: TestCase, sealings: List[Sealing]) -> None:
@@ -592,7 +649,11 @@ class SandboxWalk:
                                         curr = curr | frozenset([norm_mem])
                                 elif modifies_base:
                                     curr = curr - frozenset([norm_mem])
-                                data_sites.append((inst, bb, mem_reg, offset_subs))
+                                # base_preserved: the access leaves its base register intact (not a
+                                # load destination, no write-back) -> a seal can be cleanly reverted
+                                # after it. dest regs include write-back bases.
+                                base_preserved = norm_mem not in addr._dest_regs(inst)
+                                data_sites.append((inst, bb, mem_reg, offset_subs, base_preserved))
                     prop = addr.address_preserving_tag_op(inst)
                     for dreg in addr._dest_regs(inst):
                         if prop is not None and dreg == addr._norm_reg(prop[0]):
@@ -607,11 +668,12 @@ class SandboxWalk:
         return sandbox, data_sites
 
 
-def make_sealer(generator, trace_fn, assemble, primitives, signer) -> Sealer:
+def make_sealer(generator, trace_fn, assemble, primitives, signer, trace_bytes_fn=None) -> Sealer:
     """The Sealer for the active primitives. `trace_fn(tc, input) -> cer` runs a CE trace; `assemble(tc)
-    -> bytes` assembles the object code; `signer` is the PAC signer used by resolve when 'pac' is
-    active (None otherwise)."""
+    -> bytes` assembles the object code; `trace_bytes_fn(code, input) -> cer` re-traces already-assembled
+    machine code (used by the PAC+MTE resolve to read AUT* contexts with the genuine tags applied);
+    `signer` is the PAC signer used by resolve when 'pac' is active (None otherwise)."""
     prims = frozenset(primitives)
     if prims not in (frozenset({"mte"}), frozenset({"pac"}), frozenset({"pac", "mte"})):
         raise ValueError(f"unsupported seal primitives: {primitives!r}")
-    return Sealer(generator, trace_fn, assemble, prims, signer)
+    return Sealer(generator, trace_fn, assemble, prims, signer, trace_bytes_fn)

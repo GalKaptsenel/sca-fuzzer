@@ -14,24 +14,21 @@ static inline uint64_t dep64(uint64_t v, int s, int l, uint64_t f)
 }
 static inline uint64_t bmask(int s, int l) { return (((uint64_t)1 << l) - 1) << s; }
 
-static const uint8_t SUB[16]  = {0xb,0x6,0x8,0xf,0xc,0x0,0x9,0xe,0x3,0x7,0x4,0x5,0xd,0x2,0x1,0xa};
-static const uint8_t ISUB[16] = {0x5,0xe,0xd,0x8,0xa,0xb,0x1,0x9,0x2,0x6,0xf,0x0,0x4,0xc,0x7,0x3};
+/* S-box per QARMA variant: QARMA5 (iterations 4) uses sigma2 (SUB5/ISUB5); QARMA3 (iterations 2) uses
+ * sigma1 (SUB3), which is involutory so its inverse is itself. Wrong box => signatures the CPU rejects. */
+static const uint8_t SUB5[16]  = {0xb,0x6,0x8,0xf,0xc,0x0,0x9,0xe,0x3,0x7,0x4,0x5,0xd,0x2,0x1,0xa};
+static const uint8_t ISUB5[16] = {0x5,0xe,0xd,0x8,0xa,0xb,0x1,0x9,0x2,0x6,0xf,0x0,0x4,0xc,0x7,0x3};
+static const uint8_t SUB3[16]  = {10,13,14,6,15,7,3,5,9,8,0,12,11,1,2,4};
 static const uint64_t RC[5] = {
     0x0000000000000000ull, 0x13198A2E03707344ull, 0xA4093822299F31D0ull,
     0x082EFA98EC4E6C89ull, 0x452821E638D01377ull,
 };
 static const uint64_t ALPHA = 0xC0AC29B7C97C50DDull;
 
-static uint64_t pac_sub(uint64_t i)
+static uint64_t pac_sub(uint64_t i, const uint8_t *sbox)
 {
     uint64_t o = 0;
-    for (int b = 0; b < 64; b += 4) o |= (uint64_t)SUB[(i >> b) & 0xf] << b;
-    return o;
-}
-static uint64_t pac_inv_sub(uint64_t i)
-{
-    uint64_t o = 0;
-    for (int b = 0; b < 64; b += 4) o |= (uint64_t)ISUB[(i >> b) & 0xf] << b;
+    for (int b = 0; b < 64; b += 4) o |= (uint64_t)sbox[(i >> b) & 0xf] << b;
     return o;
 }
 static int rot_cell(int cell, int n)
@@ -101,6 +98,8 @@ uint64_t qarma_computepac(uint64_t data, uint64_t modifier,
                           uint64_t key_lo, uint64_t key_hi, int iterations)
 {
     uint64_t key0 = key_hi, key1 = key_lo;
+    const uint8_t *S  = (iterations == 2) ? SUB3 : SUB5;
+    const uint8_t *IS = (iterations == 2) ? SUB3 : ISUB5;
     uint64_t modk0 = (key0 << 63) | ((key0 >> 1) ^ (key0 >> 63));
     uint64_t rmod = modifier, w = data ^ key0;
 
@@ -108,21 +107,21 @@ uint64_t qarma_computepac(uint64_t data, uint64_t modifier,
         w ^= key1 ^ rmod;
         w ^= RC[i];
         if (i > 0) w = pac_mult(cell_shuffle(w));
-        w = pac_sub(w);
+        w = pac_sub(w, S);
         rmod = tweak_shuffle(rmod);
     }
     w ^= modk0 ^ rmod;
     w = pac_mult(cell_shuffle(w));
-    w = pac_sub(w);
+    w = pac_sub(w, S);
     w = pac_mult(cell_shuffle(w));
     w ^= key1;
     w = cell_inv_shuffle(w);
-    w = pac_inv_sub(w);
+    w = pac_sub(w, IS);
     w = pac_mult(w);
     w = cell_inv_shuffle(w);
     w ^= key0 ^ rmod;
     for (int i = 0; i <= iterations; ++i) {
-        w = pac_inv_sub(w);
+        w = pac_sub(w, IS);
         if (i < iterations) w = cell_inv_shuffle(pac_mult(w));
         rmod = tweak_inv_shuffle(rmod);
         w ^= RC[iterations - i];
@@ -132,16 +131,20 @@ uint64_t qarma_computepac(uint64_t data, uint64_t modifier,
     return w ^ modk0;
 }
 
-/* TBI of the pointer's VA half (bit 55 selects TTBR0/low vs TTBR1/high). */
-static int profile_tbi(uint64_t ptr, struct pac_profile p)
+/* Effective TBI of the pointer's VA half (bit 55 selects TTBR0/low vs TTBR1/high). For an instruction
+ * key, TBI is disabled when the half's TBID is set: effective = TBI AND NOT TBID. */
+static int profile_tbi(uint64_t ptr, struct pac_profile p, int is_instr)
 {
-    return ((ptr >> 55) & 1) ? p.tbi1 : p.tbi0;
+    int high = (ptr >> 55) & 1;
+    int tbi = high ? p.tbi1 : p.tbi0;
+    int tbid = high ? p.tbid1 : p.tbid0;
+    return tbi & ((is_instr && tbid) ? 0 : 1);
 }
 
 uint64_t qarma_addpac(uint64_t ptr, uint64_t modifier,
-                      uint64_t key_lo, uint64_t key_hi, struct pac_profile p)
+                      uint64_t key_lo, uint64_t key_hi, struct pac_profile p, int is_instr)
 {
-    int tbi = profile_tbi(ptr, p);
+    int tbi = profile_tbi(ptr, p, is_instr);
     int64_t ext = tbi ? sext64(ptr, 55, 1) : sext64(ptr, 63, 1);
     int top_bit = 64 - (tbi ? 8 : 0);
     int bot_bit = 64 - p.tsz;
@@ -165,9 +168,9 @@ uint64_t qarma_addpac(uint64_t ptr, uint64_t modifier,
     return pac | ((uint64_t)ext & bmask(55, 1)) | ptr;
 }
 
-uint64_t qarma_strip(uint64_t ptr, struct pac_profile p)
+uint64_t qarma_strip(uint64_t ptr, struct pac_profile p, int is_instr)
 {
-    int tbi = profile_tbi(ptr, p);
+    int tbi = profile_tbi(ptr, p, is_instr);
     int bot_bit = 64 - p.tsz;
     int top_bit = 64 - (tbi ? 8 : 0);
     uint64_t mask = bmask(bot_bit, top_bit - bot_bit);

@@ -27,6 +27,48 @@ static ssize_t print_code_base_show(struct kobject *kobj, struct kobj_attribute 
     return scnprintf(buf, PAGE_SIZE,"%px\n", base);
 }
 
+static ssize_t va_bits_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+    /* Effective kernel-regime (TTBR1) VA size in bits = 64 - TCR_EL1.T1SZ. This is the authority
+     * for the PAC VA size: the sandbox runs at EL1 over a TTBR1 pointer, so the auth
+     * and strip ops act on the PAC field at bits [54:va_bits]. Reported to userland so a run derives
+     * the size from the machine instead of a hard-coded constant (which corrupts pointers on a
+     * mismatch). */
+    unsigned long long tcr = read_sysreg(tcr_el1);
+    unsigned int t1sz = (unsigned int)((tcr >> 16) & 0x3f);
+    return scnprintf(buf, PAGE_SIZE, "%u\n", 64u - t1sz);
+}
+
+static ssize_t tbi0_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+    return scnprintf(buf, PAGE_SIZE, "%u\n", (unsigned int)((read_sysreg(tcr_el1) >> 37) & 1));
+}
+
+static ssize_t tbi1_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+    return scnprintf(buf, PAGE_SIZE, "%u\n", (unsigned int)((read_sysreg(tcr_el1) >> 38) & 1));
+}
+
+static ssize_t tbid0_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+    return scnprintf(buf, PAGE_SIZE, "%u\n", (unsigned int)((read_sysreg(tcr_el1) >> 51) & 1));
+}
+
+static ssize_t tbid1_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+    return scnprintf(buf, PAGE_SIZE, "%u\n", (unsigned int)((read_sysreg(tcr_el1) >> 52) & 1));
+}
+
+/* Address-auth algorithm level from the ID registers: ID_AA64ISAR1_EL1.APA[7:4] (QARMA5) or
+ * ID_AA64ISAR2_EL1.APA3[15:12] (QARMA3). Level >= 3 => FEAT_PAuth2, >= 4 => FEAT_FPAC. */
+static unsigned int pac_apa(void)  { return (unsigned int)((read_sysreg_s(SYS_ID_AA64ISAR1_EL1) >> 4) & 0xf); }
+static unsigned int pac_apa3(void) { return (unsigned int)((read_sysreg_s(SYS_ID_AA64ISAR2_EL1) >> 12) & 0xf); }
+
+static ssize_t pac_qarma_version_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+    unsigned int v = pac_apa() ? 5u : (pac_apa3() ? 3u : 0u);
+    return scnprintf(buf, PAGE_SIZE, "%u\n", v);
+}
+
+static ssize_t pac_pauth2_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+    unsigned int level = pac_apa() ? pac_apa() : pac_apa3();
+    return scnprintf(buf, PAGE_SIZE, "%u\n", level >= 3u ? 1u : 0u);
+}
+
 static ssize_t enable_pre_run_flush_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
     bool value = false;
     if (kstrtobool(buf, &value)) {
@@ -221,6 +263,13 @@ static ssize_t pin_to_core_store(struct kobject *kobj, struct kobj_attribute *at
 static struct kobj_attribute warmups_attribute = __ATTR(warmups, 0644,warmups_show, warmups_store);
 static struct kobj_attribute print_sandbox_base_attribute = __ATTR(print_sandbox_base, 0444, print_sandbox_base_show, NULL);
 static struct kobj_attribute print_code_base_attribute = __ATTR(print_code_base, 0444, print_code_base_show, NULL);
+static struct kobj_attribute va_bits_attribute = __ATTR(va_bits, 0444, va_bits_show, NULL);
+static struct kobj_attribute tbi0_attribute = __ATTR(tbi0, 0444, tbi0_show, NULL);
+static struct kobj_attribute tbi1_attribute = __ATTR(tbi1, 0444, tbi1_show, NULL);
+static struct kobj_attribute tbid0_attribute = __ATTR(tbid0, 0444, tbid0_show, NULL);
+static struct kobj_attribute tbid1_attribute = __ATTR(tbid1, 0444, tbid1_show, NULL);
+static struct kobj_attribute pac_qarma_version_attribute = __ATTR(pac_qarma_version, 0444, pac_qarma_version_show, NULL);
+static struct kobj_attribute pac_pauth2_attribute = __ATTR(pac_pauth2, 0444, pac_pauth2_show, NULL);
 static struct kobj_attribute enable_pre_run_flush_attribute = __ATTR(enable_pre_run_flush, 0644,enable_pre_run_flush_show, enable_pre_run_flush_store);
 static struct kobj_attribute enable_phr_flush_attribute = __ATTR(enable_phr_flush, 0644,enable_phr_flush_show, enable_phr_flush_store);
 static struct kobj_attribute enable_view_rotation_attribute = __ATTR(enable_view_rotation, 0644,enable_view_rotation_show, enable_view_rotation_store);
@@ -356,6 +405,13 @@ static struct attribute *system_attributes[] = {
 	&measurement_supported_attribute.attr,
 	&cpu_info_attribute.attr,
 	&abi_version_attribute.attr,
+	&va_bits_attribute.attr,
+	&tbi0_attribute.attr,
+	&tbi1_attribute.attr,
+	&tbid0_attribute.attr,
+	&tbid1_attribute.attr,
+	&pac_qarma_version_attribute.attr,
+	&pac_pauth2_attribute.attr,
 	NULL,
 };
 

@@ -2,6 +2,7 @@
 #include "simulation_output.h"
 #include "simulation_hook.h"
 #include "addr_xlate.h"
+#include "simulation_execution_clause_hook.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
@@ -66,9 +67,20 @@ static int64_t signextend(size_t orig_len, size_t dest_len, int64_t value) {
 
 void* kaddr2uaddr(void* kaddr) {
 	if (!(CONFIG_FLAG_REQ_MEM_BASE_VIRT & simulation.sim_input.hdr.config.flags)) __builtin_trap();
-	return (void*)kaddr2uaddr_calc((uintptr_t)kaddr,
+	uintptr_t u = kaddr2uaddr_calc((uintptr_t)kaddr,
 		simulation.sim_input.hdr.config.requested_mem_base_virt,
 		(uintptr_t)simulation.simulation_memory);
+	uintptr_t lo = (uintptr_t)simulation.simulation_memory;
+	uintptr_t hi = lo + simulation.sim_input.mem_size + 0x1000;   /* sandbox + overflow page */
+	if (u < lo || u >= hi) {
+		/* The sandbox clamps every base, so an out-of-buffer address is a real defect (a va_size
+		 * mismatch, or a sandbox escape) -- fail loudly, never silently redirect. */
+		fprintf(stderr, "[CE FATAL] kaddr2uaddr: 0x%016" PRIxPTR " outside sandbox [0x%016" PRIxPTR
+			", 0x%016" PRIxPTR "); spec_nesting=%" PRIu64 "\n",
+			(uintptr_t)kaddr, lo, hi, spec_nesting());
+		abort();
+	}
+	return (void*)u;
 }
 
 

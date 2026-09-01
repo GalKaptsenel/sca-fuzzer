@@ -32,12 +32,12 @@ static void test_qarma5_matches_hardware(void)
         { 0xffffff8000abc000ull, 0xd5a28d0000abc000ull },   /* kernel, tbi1=0 */
     };
     for (unsigned i = 0; i < sizeof(vec) / sizeof(vec[0]); ++i) {
-        uint64_t g = qarma_addpac(vec[i].ptr, CTX, KLO, KHI, QARMA5);
+        uint64_t g = qarma_addpac(vec[i].ptr, CTX, KLO, KHI, QARMA5, 0);
         CHECK(g == vec[i].want, "ptr %016llx got %016llx want %016llx",
               (unsigned long long)vec[i].ptr, (unsigned long long)g, (unsigned long long)vec[i].want);
     }
     struct pac_profile bad = { .iterations = 4, .tsz = 25, .tbi0 = 1, .tbi1 = 1, .pauth2 = 1 };
-    CHECK(qarma_addpac(0xffffffc012345000ull, CTX, KLO, KHI, bad) != 0xb1e67d4012345000ull,
+    CHECK(qarma_addpac(0xffffffc012345000ull, CTX, KLO, KHI, bad, 0) != 0xb1e67d4012345000ull,
           "TBI1 on unexpectedly matched the kernel vector");
 }
 
@@ -46,10 +46,10 @@ static void test_sign_then_strip_roundtrips(void)
 {
     uint64_t user = 0x0000000000abc000ull;             /* canonical low-half pointer (VA=39) */
     for (uint64_t ctx = 0; ctx < 4; ++ctx) {
-        uint64_t s5 = qarma_addpac(user, ctx, KLO, KHI, QARMA5);
-        CHECK(qarma_strip(s5, QARMA5) == user, "QARMA5 strip ctx=%llu", (unsigned long long)ctx);
-        uint64_t s3 = qarma_addpac(user, ctx, KLO, KHI, QARMA3);
-        CHECK(qarma_strip(s3, QARMA3) == user, "QARMA3 strip ctx=%llu", (unsigned long long)ctx);
+        uint64_t s5 = qarma_addpac(user, ctx, KLO, KHI, QARMA5, 0);
+        CHECK(qarma_strip(s5, QARMA5, 0) == user, "QARMA5 strip ctx=%llu", (unsigned long long)ctx);
+        uint64_t s3 = qarma_addpac(user, ctx, KLO, KHI, QARMA3, 0);
+        CHECK(qarma_strip(s3, QARMA3, 0) == user, "QARMA3 strip ctx=%llu", (unsigned long long)ctx);
     }
 }
 
@@ -57,20 +57,20 @@ static void test_sign_then_strip_roundtrips(void)
 static void test_context_and_key_sensitivity(void)
 {
     uint64_t user = 0x0000000000abc000ull;
-    uint64_t a = qarma_addpac(user, 0x11, KLO, KHI, QARMA5);
-    uint64_t b = qarma_addpac(user, 0x12, KLO, KHI, QARMA5);
-    uint64_t c = qarma_addpac(user, 0x11, KLO ^ 1, KHI, QARMA5);
+    uint64_t a = qarma_addpac(user, 0x11, KLO, KHI, QARMA5, 0);
+    uint64_t b = qarma_addpac(user, 0x12, KLO, KHI, QARMA5, 0);
+    uint64_t c = qarma_addpac(user, 0x11, KLO ^ 1, KHI, QARMA5, 0);
     CHECK(a != b, "wrong-context sig collides");
     CHECK(a != c, "wrong-key sig collides");
-    CHECK(a == qarma_addpac(user, 0x11, KLO, KHI, QARMA5), "sign not deterministic");
-    CHECK(qarma_strip(a, QARMA5) == qarma_strip(b, QARMA5), "sigs strip to different pointers");
+    CHECK(a == qarma_addpac(user, 0x11, KLO, KHI, QARMA5, 0), "sign not deterministic");
+    CHECK(qarma_strip(a, QARMA5, 0) == qarma_strip(b, QARMA5, 0), "sigs strip to different pointers");
 }
 
 /* QARMA3 and QARMA5 are distinct algorithms (different round counts -> different signatures). */
 static void test_qarma3_differs_from_qarma5(void)
 {
     uint64_t user = 0x0000000000abc000ull;
-    CHECK(qarma_addpac(user, 0x11, KLO, KHI, QARMA3) != qarma_addpac(user, 0x11, KLO, KHI, QARMA5),
+    CHECK(qarma_addpac(user, 0x11, KLO, KHI, QARMA3, 0) != qarma_addpac(user, 0x11, KLO, KHI, QARMA5, 0),
           "QARMA3 == QARMA5");
 }
 

@@ -39,7 +39,7 @@ input_gen_seed: 10
 # (TTBR0/user) half has TBI on, the high (TTBR1/kernel) half has TBI off (measured on-device: the PAC
 # field spans the top byte for kernel pointers). A wrong TBI here yields a wrong signature that FPAC-faults.
 pac_qarma_version: 5
-pac_va_size: 39
+va_size: 39
 pac_tbi0: true
 pac_tbi1: false
 pac_pauth2: true

@@ -158,6 +158,7 @@ class ContractExecution:
             p = self.pac_profile
             pac_profile_word = ((p.iterations & 0xff) | ((p.tsz & 0xff) << 8)
                                 | ((1 if p.tbi0 else 0) << 16) | ((1 if p.tbi1 else 0) << 17)
+                                | ((1 if p.tbid0 else 0) << 18) | ((1 if p.tbid1 else 0) << 19)
                                 | ((1 if p.pauth2 else 0) << 24))
             config_flags |= ConfigFlags.CONFIG_FLAG_PAC_PROFILE
 

@@ -11,21 +11,26 @@ M = (1 << 64) - 1
 
 class PacProfile(NamedTuple):
     """iterations = 2 (QARMA3) or 4 (QARMA5); tsz = 64 - VA_size; tbi0/tbi1 = top-byte-ignore for the
-    low (TTBR0) / high (TTBR1) VA half, selected per pointer by bit 55; pauth2 = FEAT_PAuth2."""
+    low (TTBR0) / high (TTBR1) VA half, selected per pointer by bit 55; tbid0/tbid1 = TBI disabled for
+    instruction pointers in that half (so instruction keys use TBI AND NOT TBID); pauth2 = FEAT_PAuth2."""
     iterations: int
     tsz: int
     tbi0: int
     tbi1: int
     pauth2: bool
+    tbid0: int = 0
+    tbid1: int = 0
 
 
 _VERSION_ITERATIONS = {3: 2, 5: 4}
 
 
-def profile(qarma_version: int, va_size: int, tbi0: bool, tbi1: bool, pauth2: bool) -> PacProfile:
+def profile(qarma_version: int, va_size: int, tbi0: bool, tbi1: bool, pauth2: bool,
+            tbid0: bool = False, tbid1: bool = False) -> PacProfile:
     if qarma_version not in _VERSION_ITERATIONS:
         raise ValueError(f"unsupported QARMA version {qarma_version} (expected 3 or 5)")
-    return PacProfile(_VERSION_ITERATIONS[qarma_version], 64 - va_size, int(tbi0), int(tbi1), pauth2)
+    return PacProfile(_VERSION_ITERATIONS[qarma_version], 64 - va_size, int(tbi0), int(tbi1), pauth2,
+                      int(tbid0), int(tbid1))
 
 
 def _ext(v, s, l): return (v >> s) & ((1 << l) - 1)
@@ -37,13 +42,23 @@ def _dep(v, s, l, f):
     return (v & ~m & M) | ((f << s) & m)
 def _mask(s, l): return (((1 << l) - 1) << s) & M
 
-_SUB = [0xb,0x6,0x8,0xf,0xc,0x0,0x9,0xe,0x3,0x7,0x4,0x5,0xd,0x2,0x1,0xa]
-_ISUB = [0x5,0xe,0xd,0x8,0xa,0xb,0x1,0x9,0x2,0x6,0xf,0x0,0x4,0xc,0x7,0x3]
+# S-box per QARMA variant, keyed by `iterations`: QARMA5 (4) uses sigma2, QARMA3 (2) uses sigma1.
+# Using the wrong box silently produces signatures the CPU's AUT* rejects (FPAC).
+_SBOX = {
+    4: [0xb,0x6,0x8,0xf,0xc,0x0,0x9,0xe,0x3,0x7,0x4,0x5,0xd,0x2,0x1,0xa],
+    2: [10,13,14,6,15,7,3,5,9,8,0,12,11,1,2,4],
+}
+def _invert(s):
+    o = [0] * 16
+    for i, v in enumerate(s):
+        o[v] = i
+    return o
+_ISBOX = {k: _invert(v) for k, v in _SBOX.items()}
 _RC = [0x0000000000000000,0x13198A2E03707344,0xA4093822299F31D0,0x082EFA98EC4E6C89,0x452821E638D01377]
 _ALPHA = 0xC0AC29B7C97C50DD
 
-def _sub(i):  return sum(_SUB[(i >> b) & 0xf] << b for b in range(0, 64, 4))
-def _isub(i): return sum(_ISUB[(i >> b) & 0xf] << b for b in range(0, 64, 4))
+def _sub(i, S):  return sum(S[(i >> b) & 0xf] << b for b in range(0, 64, 4))
+def _isub(i, S): return sum(S[(i >> b) & 0xf] << b for b in range(0, 64, 4))
 
 def _rot(cell, n):
     cell &= 0xf; cell |= cell << 4
@@ -82,6 +97,7 @@ def _tishuf(i):
 def computepac(data: int, modifier: int, key_lo: int, key_hi: int, iterations: int) -> int:
     """The raw QARMA MAC (before pointer-field insertion). key0 = key_hi, key1 = key_lo."""
     key0, key1 = key_hi, key_lo
+    S, IS = _SBOX[iterations], _ISBOX[iterations]
     modk0 = ((key0 << 63) | ((key0 >> 1) ^ (key0 >> 63))) & M
     rmod, w = modifier, data ^ key0
     for i in range(iterations + 1):
@@ -89,15 +105,15 @@ def computepac(data: int, modifier: int, key_lo: int, key_hi: int, iterations: i
         w ^= _RC[i]
         if i > 0:
             w = _mult(_shuf(w))
-        w = _sub(w)
+        w = _sub(w, S)
         rmod = _tshuf(rmod)
     w ^= modk0 ^ rmod
-    w = _mult(_shuf(w)); w = _sub(w); w = _mult(_shuf(w))
+    w = _mult(_shuf(w)); w = _sub(w, S); w = _mult(_shuf(w))
     w ^= key1
-    w = _ishuf(w); w = _isub(w); w = _mult(w); w = _ishuf(w)
+    w = _ishuf(w); w = _isub(w, IS); w = _mult(w); w = _ishuf(w)
     w ^= key0 ^ rmod
     for i in range(iterations + 1):
-        w = _isub(w)
+        w = _isub(w, IS)
         if i < iterations:
             w = _ishuf(_mult(w))
         rmod = _tishuf(rmod)
@@ -107,14 +123,19 @@ def computepac(data: int, modifier: int, key_lo: int, key_hi: int, iterations: i
     return (w ^ modk0) & M
 
 
-def _tbi(ptr: int, p: PacProfile) -> int:
-    """TBI of the pointer's VA half (bit 55 selects TTBR0/low vs TTBR1/high)."""
-    return p.tbi1 if (ptr >> 55) & 1 else p.tbi0
+def _tbi(ptr: int, p: PacProfile, is_instr: bool = False) -> int:
+    """Effective TBI of the pointer's VA half (bit 55 selects TTBR0/low vs TTBR1/high). For an
+    instruction key, TBI is disabled when the half's TBID is set: effective = TBI AND NOT TBID."""
+    high = (ptr >> 55) & 1
+    tbi = p.tbi1 if high else p.tbi0
+    tbid = p.tbid1 if high else p.tbid0
+    return (tbi & (0 if (is_instr and tbid) else 1))
 
 
-def addpac(ptr: int, modifier: int, key_lo: int, key_hi: int, p: PacProfile) -> int:
+def addpac(ptr: int, modifier: int, key_lo: int, key_hi: int, p: PacProfile,
+           is_instr: bool = False) -> int:
     """Sign a pointer: insert the PAC into the field bits per `p` (the AddPAC pseudocode)."""
-    tbi = _tbi(ptr, p)
+    tbi = _tbi(ptr, p, is_instr)
     ext = _sext(ptr, 55, 1) if tbi else _sext(ptr, 63, 1)
     top_bit = 64 - (8 if tbi else 0)
     bot_bit = 64 - p.tsz
@@ -134,9 +155,9 @@ def addpac(ptr: int, modifier: int, key_lo: int, key_hi: int, p: PacProfile) -> 
     return (pac | ((ext & M) & _mask(55, 1)) | ptr) & M
 
 
-def strip(ptr: int, p: PacProfile) -> int:
+def strip(ptr: int, p: PacProfile, is_instr: bool = False) -> int:
     """Recover the canonical pointer (XPAC)."""
-    tbi = _tbi(ptr, p)
+    tbi = _tbi(ptr, p, is_instr)
     mask = _mask(64 - p.tsz, (64 - (8 if tbi else 0)) - (64 - p.tsz))
     return (ptr | mask) if _ext(ptr, 55, 1) else (ptr & ~mask)
 
@@ -148,5 +169,7 @@ _KEY_WORD = {"pacia": 0, "paciza": 0, "pacib": 2, "pacizb": 2,
 
 def sign(ptr: int, ctx: int, mnemonic: str, keys: Sequence[int], p: PacProfile) -> int:
     """Sign `ptr` with the key `mnemonic` selects, reproducing the runner's signed pointer."""
-    w = _KEY_WORD[mnemonic.lower()]
-    return addpac(ptr, ctx, keys[w], keys[w + 1], p)
+    mn = mnemonic.lower()
+    w = _KEY_WORD[mn]
+    is_instr = mn.startswith("paci")   # instruction keys A/B; data keys (pacd*) use plain TBI
+    return addpac(ptr, ctx, keys[w], keys[w + 1], p, is_instr)

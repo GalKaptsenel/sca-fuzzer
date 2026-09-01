@@ -134,8 +134,17 @@ void pac_keys_init(const uint64_t* keys, bool present)
     }
 }
 
-void pac_sign_plugin_init(void) { pac_profile_set(2, 16, 1, 1, true); }   /* QARMA3, VA 48 */
+void pac_sign_plugin_init(void) { pac_profile_set(2, 16, 1, 1, true, 0, 1); }   /* QARMA3, VA 48 */
 void pac_sign_plugin_cleanup(void) {}
+
+static int pac_type_is_instr(pac_type_t t)
+{
+    return t == PAC_IA || t == PAC_IB || t == PAC_IZA || t == PAC_IZB;
+}
+static int auth_type_is_instr(auth_type_t a)
+{
+    return a == AUTH_IA || a == AUTH_IB || a == AUTH_IZA || a == AUTH_IZB;
+}
 
 /* The runner's PAC profile, established by pac_profile_set (pac_sign_plugin_init sets the default).
  *   QARMA3: iterations = 2, VA 48 -> tsz = 16.
@@ -143,13 +152,15 @@ void pac_sign_plugin_cleanup(void) {}
  - tbi0/tbi1 = top-byte-ignore (low/high VA half); pauth2 = FEAT_PAuth2 (APA/APA3 >= 3). */
 static struct pac_profile g_pac_profile;
 
-void pac_profile_set(int iterations, int tsz, int tbi0, int tbi1, bool pauth2)
+void pac_profile_set(int iterations, int tsz, int tbi0, int tbi1, bool pauth2, int tbid0, int tbid1)
 {
     g_pac_profile.iterations = iterations;
     g_pac_profile.tsz = tsz;
     g_pac_profile.tbi0 = tbi0;
     g_pac_profile.tbi1 = tbi1;
     g_pac_profile.pauth2 = pauth2;
+    g_pac_profile.tbid0 = tbid0;
+    g_pac_profile.tbid1 = tbid1;
 }
 
 static void key_for(pac_type_t ptype, uint64_t* lo, uint64_t* hi)
@@ -163,16 +174,16 @@ static void key_for(pac_type_t ptype, uint64_t* lo, uint64_t* hi)
     }
 }
 
-static uint64_t sw_pac_xpac(uint64_t ptr)
+static uint64_t sw_pac_xpac(uint64_t ptr, int is_instr)
 {
-    return qarma_strip(ptr, g_pac_profile);
+    return qarma_strip(ptr, g_pac_profile, is_instr);
 }
 
 static uint64_t sw_pac_sign(pac_type_t ptype, uint64_t ptr, uint64_t ctx)
 {
     uint64_t lo, hi;
     key_for(ptype, &lo, &hi);
-    return qarma_addpac(ptr, ctx, lo, hi, g_pac_profile);
+    return qarma_addpac(ptr, ctx, lo, hi, g_pac_profile, pac_type_is_instr(ptype));
 }
 
 /* PACGA writes a 32-bit generic MAC into bits [63:32] of the destination. */
@@ -206,7 +217,7 @@ static pac_type_t auth_to_pac(auth_type_t a)
  * canonical result -- abort so the Python side surfaces it and stops the run. */
 static uint64_t model_auth(auth_type_t atype, uint64_t ptr, uint64_t ctx, uintptr_t pc)
 {
-    uint64_t canonical = sw_pac_xpac(ptr);
+    uint64_t canonical = sw_pac_xpac(ptr, auth_type_is_instr(atype));
     uint64_t resigned  = sw_pac_sign(auth_to_pac(atype), canonical, ctx);
     if (resigned != ptr) {
         fprintf(stderr, "[CE FATAL] %s at pc=%#lx would FPAC (ptr=%#018lx ctx=%#018lx): "
@@ -279,7 +290,7 @@ void *auth_verify_hook(struct simulation_state *sim_state)
     int spec = is_in_speculation();
 
     if (spec) {
-        result = sw_pac_xpac(ptr);
+        result = sw_pac_xpac(ptr, auth_type_is_instr(atype));
     } else {
         result = model_auth(atype, ptr, ctx, sim_state->cpu_state.pc);
     }
@@ -299,7 +310,7 @@ void *xpac_hook(struct simulation_state *sim_state)
     uint32_t rd = inst & 0x1F;
     uint64_t ptr = read_xreg(&sim_state->cpu_state, rd);
 
-    write_xreg(&sim_state->cpu_state, rd, sw_pac_xpac(ptr));
+    write_xreg(&sim_state->cpu_state, rd, sw_pac_xpac(ptr, masked == XPACI_BASE));
 
     return (void*)(sim_state->cpu_state.pc + 4);
 }

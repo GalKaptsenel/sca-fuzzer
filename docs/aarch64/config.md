@@ -98,3 +98,15 @@ Default: 0.0
 
 Probability that a sealed slot renders as the arch-safe XPAC* strip instead of a real AUT*. A strip
 never poisons under speculation, whereas an AUT* against the decoy signature does.
+
+```yaml
+Name: va_size
+Default: None
+```
+
+Effective kernel (TTBR1) VA size in bits — the single source of truth for PAC (the PAC field lives
+at bits `[54:va_size]`). `None` (default) means it is read from the executing device
+(`TCR_EL1.T1SZ`, exposed at `/sys/executor/system/va_bits`), which is correct for local and remote
+runs alike. Set it explicitly only when the generating machine cannot read the executing target (its
+value then wins). A mismatched `va_size` makes the PAC auth/strip overwrite real address bits and
+corrupt the sandbox pointer, so leaving it unset is preferred.

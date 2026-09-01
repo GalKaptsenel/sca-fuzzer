@@ -17,7 +17,7 @@ void pac_keys_init(const uint64_t* keys, bool present);
 
 /* Set the runner's architected PAC profile (iterations 2=QARMA3 / 4=QARMA5, tsz=64-VA_size, tbi0/tbi1,
  * pauth2). */
-void pac_profile_set(int iterations, int tsz, int tbi0, int tbi1, bool pauth2);
+void pac_profile_set(int iterations, int tsz, int tbi0, int tbi1, bool pauth2, int tbid0, int tbid1);
 
 /*
  * Must be called at process shutdown to close the device fd.

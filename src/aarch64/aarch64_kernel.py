@@ -122,6 +122,13 @@ class TargetInfo:
     """Static target addresses the generation side needs (e.g. the sandbox base to seal against)."""
     sandbox_base: int
     code_base: int
+    va_bits: int   # effective kernel (TTBR1) VA size = 64 - TCR_EL1.T1SZ; the PAC VA size
+    tbi0: int      # TCR_EL1.TBI0 (low/user VA half)
+    tbi1: int      # TCR_EL1.TBI1 (high/kernel VA half — governs the sandbox pointer's PAC field)
+    tbid0: int     # TCR_EL1.TBID0 (TBI disabled for instruction pointers, low half)
+    tbid1: int     # TCR_EL1.TBID1 (TBI disabled for instruction pointers, high half)
+    qarma_version: int  # PAC algorithm: 5 (ISAR1.APA) or 3 (ISAR2.APA3)
+    pauth2: int         # FEAT_PAuth2 present (auth level >= 3)
 
 
 def _parse_midr_el1(cpu_info: str) -> int:
@@ -440,8 +447,19 @@ class LocalHWExecutor(HWExecutor):
     def code_base(self) -> int:
         return int(self._read_sysfs('print_code_base'), 16)
 
+    @property
+    def va_bits(self) -> int:
+        return int(self._read_sysfs('system/va_bits'))
+
     def target_info(self) -> TargetInfo:
-        return TargetInfo(sandbox_base=self.sandbox_base, code_base=self.code_base)
+        return TargetInfo(sandbox_base=self.sandbox_base, code_base=self.code_base,
+                          va_bits=self.va_bits,
+                          tbi0=int(self._read_sysfs('system/tbi0')),
+                          tbi1=int(self._read_sysfs('system/tbi1')),
+                          tbid0=int(self._read_sysfs('system/tbid0')),
+                          tbid1=int(self._read_sysfs('system/tbid1')),
+                          qarma_version=int(self._read_sysfs('system/pac_qarma_version')),
+                          pauth2=int(self._read_sysfs('system/pac_pauth2')))
 
     def cpu_midr(self) -> int:
         return _parse_midr_el1(self._read_sysfs("system/cpu_info"))
@@ -569,7 +587,17 @@ class RemoteHWExecutor(HWExecutor):
         if self._info is None:
             sandbox = self._conn.shell(f"cat {self._cfg.sysfs}/print_sandbox_base", privileged=True)
             code = self._conn.shell(f"cat {self._cfg.sysfs}/print_code_base", privileged=True)
-            self._info = TargetInfo(sandbox_base=int(sandbox, 16), code_base=int(code, 16))
+            va = self._conn.shell(f"cat {self._cfg.sysfs}/system/va_bits", privileged=True)
+            tbi0 = self._conn.shell(f"cat {self._cfg.sysfs}/system/tbi0", privileged=True)
+            tbi1 = self._conn.shell(f"cat {self._cfg.sysfs}/system/tbi1", privileged=True)
+            tbid0 = self._conn.shell(f"cat {self._cfg.sysfs}/system/tbid0", privileged=True)
+            tbid1 = self._conn.shell(f"cat {self._cfg.sysfs}/system/tbid1", privileged=True)
+            qv = self._conn.shell(f"cat {self._cfg.sysfs}/system/pac_qarma_version", privileged=True)
+            p2 = self._conn.shell(f"cat {self._cfg.sysfs}/system/pac_pauth2", privileged=True)
+            self._info = TargetInfo(sandbox_base=int(sandbox, 16), code_base=int(code, 16),
+                                    va_bits=int(va), tbi0=int(tbi0), tbi1=int(tbi1),
+                                    tbid0=int(tbid0), tbid1=int(tbid1),
+                                    qarma_version=int(qv), pauth2=int(p2))
         return self._info
 
     @retry(max_times=_RETRIES, retry_on=IOError, backoff=0.5)

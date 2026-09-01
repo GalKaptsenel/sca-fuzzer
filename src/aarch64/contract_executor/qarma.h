@@ -16,17 +16,20 @@ struct pac_profile {
     int tbi0;
     int tbi1;
     bool pauth2;
+    int tbid0;   /* TBI disabled for instruction pointers in the low half */
+    int tbid1;   /* TBI disabled for instruction pointers in the high half */
 };
 
 /* The raw QARMA MAC (before pointer-field insertion). key0 = key_hi, key1 = key_lo. */
 uint64_t qarma_computepac(uint64_t data, uint64_t modifier,
                           uint64_t key_lo, uint64_t key_hi, int iterations);
 
-/* Sign a pointer: insert the PAC into the field bits per `p` (the AddPAC pseudocode). */
+/* Sign a pointer: insert the PAC into the field bits per `p` (the AddPAC pseudocode). is_instr picks
+ * the instruction TBID rule for the effective TBI. */
 uint64_t qarma_addpac(uint64_t ptr, uint64_t modifier,
-                      uint64_t key_lo, uint64_t key_hi, struct pac_profile p);
+                      uint64_t key_lo, uint64_t key_hi, struct pac_profile p, int is_instr);
 
 /* Strip the PAC field back to the canonical pointer (XPAC). */
-uint64_t qarma_strip(uint64_t ptr, struct pac_profile p);
+uint64_t qarma_strip(uint64_t ptr, struct pac_profile p, int is_instr);
 
 #endif /* CE_QARMA_H */

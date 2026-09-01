@@ -67,13 +67,18 @@ class SealOrderingTest(unittest.TestCase):
     def _assert_mte_immediately_before_access(self, sealed):
         locs = index_instructions(sealed._tc)
         for m in sealed._mte:
-            self.assertEqual(len(m.slot_locs), 1)                 # the MTE slot is one instruction
-            fm, bm, im = m.slot_locs[0]
+            # The MTE slot is the retag (before the access) plus, when the access preserves its base,
+            # a revert (after it). n_before words precede the access; the rest follow it.
             fa, ba, ia = locs[id(m.access_inst)]
-            self.assertEqual((fm, bm), (fa, ba), "MTE slot and its access must share a basic block")
+            fm, bm, im = m.slot_locs[m.n_before - 1]       # the retag: last before-word
+            self.assertEqual((fm, bm), (fa, ba), "MTE retag and its access must share a basic block")
             self.assertEqual(im, ia - 1,
                              "MTE retag must be the instruction immediately before its access "
                              "(nothing — especially the offset-cancel SUB — may sit between them)")
+            if len(m.slot_locs) > m.n_before:              # revert present -> immediately after
+                fr, br, ir = m.slot_locs[m.n_before]
+                self.assertEqual((fr, br), (fa, ba), "MTE revert and its access must share a block")
+                self.assertEqual(ir, ia + 1, "MTE revert must be the instruction immediately after")
 
     def test_mte_only_retag_is_last(self):
         self._assert_mte_immediately_before_access(self._seal_with_mte_sites({"mte"}))
