@@ -551,7 +551,9 @@ class TestComputeTaint(unittest.TestCase):
 # ===========================================================================
 
 class TestComputeCtraceL1D(unittest.TestCase):
-    """l1d: an unordered union bitmap of touched cache sets, arch and speculative merged."""
+    """l1d: two unordered cache-set bitmaps kept separate by speculation phase — architectural in bits
+    [63:0], speculative (wrong-path) in bits [127:64] — so a set touched architecturally is a distinct
+    observation from the same set touched only speculatively (mirrors x86's L1DTracer)."""
 
     def test_single_read_sets_its_bit(self):
         ct = _ctrace("l1d", {'mem': (64, 1, False)})   # set 1
@@ -568,11 +570,20 @@ class TestComputeCtraceL1D(unittest.TestCase):
         b = _ctrace("l1d", {'mem': (128, 1, False)}, {'mem': (64, 1, False)})
         self.assertEqual(a.raw, b.raw)
 
-    def test_arch_and_speculative_merged(self):
+    def test_arch_and_speculative_separated(self):
+        # arch set 5 -> low half (bit 5); spec set 3 -> high half (bit 64+3). NOT merged: this is what
+        # keeps a phase-different pair of inputs in distinct equivalence classes (no false violation).
         ct = _ctrace("l1d",
                      {'depth': 0, 'mem': (5 * 64, 8, False)},   # arch set 5
                      {'depth': 1, 'mem': (3 * 64, 8, False)})   # spec set 3
-        self.assertEqual(ct.raw, [(1 << 5) | (1 << 3)])
+        self.assertEqual(ct.raw, [(1 << (64 + 3)) | (1 << 5)])
+
+    def test_same_set_arch_vs_spec_are_distinct(self):
+        arch = _ctrace("l1d", {'depth': 0, 'mem': (3 * 64, 8, False)})   # set 3 architectural
+        spec = _ctrace("l1d", {'depth': 1, 'mem': (3 * 64, 8, False)})   # set 3 speculative
+        self.assertNotEqual(arch.raw, spec.raw)
+        self.assertEqual(arch.raw, [1 << 3])
+        self.assertEqual(spec.raw, [1 << (64 + 3)])
 
     def test_repeated_set_idempotent(self):
         ct = _ctrace("l1d", {'mem': (0, 1, False)}, {'mem': (16, 1, False)})  # both set 0

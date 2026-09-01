@@ -329,14 +329,24 @@ def _ct_none(cer: ContractExecutionResult) -> CTrace:
 
 
 def _ct_l1d(cer: ContractExecutionResult) -> CTrace:
-    # Union bitmap of the L1D cache sets touched (arch and speculative merged), matching the single
-    # unordered cache-set bitmap the hardware reports. Order has no observable counterpart here.
-    bitmap = 0
+    # Two L1D cache-set bitmaps kept separate by speculation phase, mirroring x86's L1DTracer:
+    # bits [63:0] = architectural accesses, bits [127:64] = speculative (wrong-path) accesses. Two
+    # inputs are contract-equivalent only when BOTH phases match, so an architectural touch of a set
+    # is a DIFFERENT contract observation from a merely speculative touch of the same set. Folding the
+    # two into one union bitmap (as this once did) groups phase-different inputs into one equivalence
+    # class, and P+P's architectural-only persistence then surfaces as a spurious violation. Order
+    # still has no observable counterpart, so each phase stays an unordered set bitmap.
+    arch = spec = 0
     for ite in cer:
         base = _sandbox_base(ite)
+        speculative = _is_speculative(ite)
         for ma in ite.metadata.accesses():
             for cache_set in _cache_sets(ma, base):
-                bitmap |= 1 << cache_set
+                if speculative:
+                    spec |= 1 << cache_set
+                else:
+                    arch |= 1 << cache_set
+    bitmap = (spec << 64) | arch
     ctrace = CTrace([bitmap])
     ctrace.hash_ = bitmap
     return ctrace
