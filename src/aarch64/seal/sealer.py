@@ -312,10 +312,18 @@ class ResolvedSealingTestCase:
         it reproduces across trace passes, and same-class inputs run the identical program."""
         return self._solve_relocations(self._offsets, rng, decoy=True)
 
+    def _eligible(self) -> List[_Resolved]:
+        """Slots a decoy may perturb: speculative-or-unreached (never architectural) and carrying
+        alternative values. When empty, decoy() reproduces genuine() (a null decoy) and the input is
+        not non-interference-testable."""
+        return [r for r in self._entries if r.speculative and r.alts]
+
+    def has_decoy(self) -> bool:
+        return bool(self._eligible())
+
     def _solve_relocations(self, offsets: Dict[int, Tuple[int, ...]],
                            rng: random.Random, decoy: bool) -> Tuple[Relocation, ...]:
-        eligible = [r for r in self._entries if r.speculative and r.alts]
-        perturb = self._decoy_subset(eligible, rng) if decoy else set()
+        perturb = self._decoy_subset(self._eligible(), rng) if decoy else set()
         relocs: List[Relocation] = []
         for r in self._entries:
             offs = offsets.get(id(r.sealing))
@@ -345,13 +353,17 @@ _FORGERY_TRIES = 64
 def _resolve_pac(s: PacSealing, cer, layout, signer: PacSigner, salt: int
                  ) -> Tuple[Optional[int], List[int], Optional[int]]:
     """A PacSealing's value from a trace: sign the pointer that reaches the sealing's XPAC, plus a pool
-    of wrong signatures that fail AUTH. (value, alts, spec_nesting)."""
+    of wrong signatures that fail AUTH. When the XPAC is never reached, the slot is still decoy-eligible
+    (HW may speculate deeper than the model): forge the pool over the sandbox base, whose PAC-field-window
+    bits every clamped sandbox pointer shares, so the decoy MOVKs preserve the pointer's non-field bits
+    and the after-XPAC re-converges — exactly as the reached case does. (value, alts, spec_nesting)."""
     correct_sig, alts, spec = None, [], None
     if not cer or s.committed_inst is None:
         return correct_sig, alts, spec
     xpac = next(i for i in s.slot_insts if i.name.lower() in ("xpaci", "xpacd"))
     xpac_off, code_base = layout.instruction_address[xpac], cer[0].cpu.pc
     pac_mn = _AUTH_TO_PAC[s.committed_inst.name.lower()]
+    mask = signer.field_mask(pac_mn)
     value_reg = s.committed_inst.operands[0].value
     ctx_reg = s.committed_inst.operands[1].value if len(s.committed_inst.operands) > 1 else None
     for ite in cer:
@@ -365,7 +377,10 @@ def _resolve_pac(s: PacSealing, cer, layout, signer: PacSigner, salt: int
         ptr = _read_reg(ite.cpu, value_reg)
         cval = _read_reg(ite.cpu, ctx_reg) if ctx_reg is not None else 0
         correct_sig = signer.sign(ptr, cval, pac_mn)
-        alts = _wrong_sigs(correct_sig, signer.field_mask(pac_mn), salt)
+        alts = _wrong_sigs(correct_sig, mask, salt)
+    if correct_sig is None:                          # unreached: forge over the shared sandbox base
+        base_ptr = _read_reg(cer[0].cpu, SANDBOX_BASE_REGISTER)
+        alts = _wrong_sigs(signer.sign(base_ptr, 0, pac_mn), mask, salt)
     return correct_sig, alts, spec
 
 
@@ -408,9 +423,16 @@ def _resolve_mte(s: MteSealing, cer, layout) -> Tuple[Optional[int], List[int], 
             if nest == 0 or correct_tag is None:
                 correct_tag, ptr_tag = tags.tag_at(ea), (ea >> 56) & 0xF
     if correct_tag is None or ptr_tag is None:
-        return None, [], spec
+        # unreached in the placeholder trace: genuine applies no retag (value None -> NOP), so any
+        # nonzero delta is a valid decoy should HW speculate deeper than the model reached.
+        return None, list(range(1, 16)), spec
     delta = (correct_tag - ptr_tag) % 16
-    alts = [d for d in range(16) if d != delta]   # any other tag -> a tag mismatch on the access
+    # A decoy whose retagged pointer lands on tag 0 or 15 cannot leak: the executor runs with
+    # TCR_EL1.TCMA1 set, which makes an EL1 access through a tag-0b0000 or tag-0b1111 ("match-all")
+    # pointer Tag-UNCHECKED — the hardware silently skips the tag comparison, so the intended mismatch
+    # never happens and the decoy behaves identically to the genuine access. Offer only deltas whose
+    # resulting tag (ptr_tag + d) is a genuinely-checked value in 1..14.
+    alts = [d for d in range(16) if d != delta and (ptr_tag + d) % 16 not in (0, 15)]
     return delta, alts, spec
 
 
