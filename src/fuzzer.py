@@ -240,7 +240,17 @@ class FuzzerGeneric(Fuzzer):
             units.append(self.executor.make_trace_unit(boosted))
             contexts.append((test_case, inputs, boosted, ctraces * CONF.inputs_per_class))
 
-        htraces_per_tc = self.executor.trace_batch(units, n_reps)
+        try:
+            htraces_per_tc = self.executor.trace_batch(units, n_reps)
+        except HardwareTracingError as e:
+            # The classic path skips a test case whose measurement fails; the bulk path measures a whole
+            # window at once, so a batch failure would otherwise crash the campaign. Route every test
+            # case in the window to the robust per-test-case path (fuzzing_round) instead of dropping
+            # them, matching the classic path's resilience without losing coverage.
+            STAT.hw_tracing_errors += 1
+            self.LOG.warning("fuzzer", f"batch tracing failed, routing window to the per-test-case "
+                                       f"path: {e}")
+            return [(tc, inputs) for tc, inputs, _, _ in contexts]
 
         candidates: List[Tuple[TestCase, List[Input]]] = []
         for (test_case, inputs, boosted, ctraces), htraces in zip(contexts, htraces_per_tc):

@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from collections import defaultdict
 
 from .aarch64_batch import TraceUnit, HWMeasurement, encode_request, decode_response
+from ..interfaces import HardwareTracingError
 from contextlib import contextmanager
 from functools import wraps
 from ..config import CONF
@@ -606,7 +607,15 @@ class RemoteHWExecutor(HWExecutor):
         cmd = f"{self._cfg.userland} {self._cfg.device} batch - -"
         with profile_op("batch"):
             response = self._conn.run(cmd, request, privileged=False)
-        return decode_response(response)
+        try:
+            return decode_response(response)
+        except ValueError as e:
+            # A malformed batch response (e.g. a unit's measurement failed on-device and the userland's
+            # stderr polluted the stream) is the batch-path analogue of trace_test_case's malformed
+            # output. Surface it as HardwareTracingError so the caller handles it like the classic path
+            # instead of crashing on a raw ValueError.
+            raise HardwareTracingError(f"malformed batch response ({e}); "
+                                       f"units={len(units)} resp_len={len(response)}")
 
 
 def _make_remote_connection() -> "Connection":
