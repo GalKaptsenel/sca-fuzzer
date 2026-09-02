@@ -96,6 +96,10 @@ void mte_set_sync(void) {
 #endif
 #define GCR_EL1_EXCL_MASK 0xFFFFUL
 
+uint64_t mte_gcr_read(void) {
+	return read_sysreg_s(SYS_GCR_EL1);
+}
+
 uint64_t mte_gcr_clear_exclude(void) {
 	uint64_t g = read_sysreg_s(SYS_GCR_EL1);
 	static bool logged = false;
@@ -144,6 +148,8 @@ uint8_t disable_TCMA1_bit(void)					{ return 0; }
 uint8_t enable_TCO_bit(void)					{ return 0; }
 
 uint8_t disable_TCO_bit(void)					{ return 0; }
+
+uint64_t mte_gcr_read(void)					{ return 0; }
 
 uint64_t mte_gcr_clear_exclude(void)				{ return 0; }
 

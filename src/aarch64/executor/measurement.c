@@ -210,6 +210,11 @@ static int __nocfi run_experiments(void) {
 	}
 	asm volatile("mrs %0, s3_3_c4_c2_6" : "=r"(executor.debug_ssbs));
 
+	// The kernel's GCR_EL1 (KASAN reserves tags in Exclude) at test-case entry; each input clears
+	// Exclude for its own execution and restores this value, and it is restored again at the TC
+	// boundary so the kernel's GCR is intact between test cases.
+	uint64_t pre_tc_gcr = mte_gcr_read();
+
 	for (int64_t i = -executor.config.uarch_reset_rounds; i < rounds; ++i) {
 		struct input_node* current_input = NULL;
 
@@ -257,7 +262,7 @@ static int __nocfi run_experiments(void) {
 		// execute. Clear GCR_EL1.Exclude first so ADDG/IRG in the test case (and the seal's ADDG
 		// retags) use plain modular tag arithmetic, matching the tag-blind contract model — the kernel
 		// leaves reserved tags in Exclude, which would make a sealed retag land on a different tag.
-		uint64_t saved_gcr = mte_gcr_clear_exclude();
+		mte_gcr_clear_exclude();
 		if (executor.config.reload_isolate) {
 			/* Per-set isolation: re-run the (deterministic) test once per set, each probing only that
 			 * set, and OR the single-set htraces so no reload sweep can prefetch the page into itself. */
@@ -270,7 +275,7 @@ static int __nocfi run_experiments(void) {
 		} else {
 			((void(*)(void*))measurement_code)(executor.sandbox);
 		}
-		mte_gcr_restore(saved_gcr);
+		mte_gcr_restore(pre_tc_gcr);
 
 		if (use_exec_keys) {
 			pac_restore_sctlr(saved_sctlr);
@@ -286,6 +291,10 @@ static int __nocfi run_experiments(void) {
 	if (ssbs_changed) {
 		asm volatile("msr s3_3_c4_c2_6, %0\n isb\n" :: "r"(saved_ssbs) : "memory");
 	}
+
+	// Reset GCR_EL1 to the kernel's pre-test-case value at the TC boundary (each input already
+	// restored it, but make the between-TC state explicit).
+	mte_gcr_restore(pre_tc_gcr);
 
 	return 0;
 }
