@@ -234,6 +234,17 @@ static int __nocfi run_experiments(void) {
 
 		raw_local_irq_save(flags);
 
+		// Re-assert the executor's full MTE control for THIS measurement, not just once at load: the
+		// kernel restores SCTLR_EL1/TCR_EL1 on context switches, so TCF (sync vs the kernel's async),
+		// TCMA1 (the harness reads the sandbox through the canonical tag-0b1111 base, which is only
+		// Unchecked when TCMA1 is set) and TCO can otherwise revert to the kernel's values mid-campaign
+		// and make the harness's own accesses tag-fault. Restore the kernel's values afterwards.
+		struct mte_control_state pre_mte;
+		mte_save_control(&pre_mte);
+		mte_set_sync();            // TCF=SYNC (+ATA): precise, executor-attributed faults
+		enable_TCMA1_bit();        // tag 0b0000/0b1111 Unchecked (canonical harness base)
+		disable_TCO_bit();         // tag checks enabled
+
 		void* measurement_code = executor.measurement_code_views[0];
 
 		/* Three independent knobs (decoupled from the legacy pre_run_flush):
@@ -263,6 +274,7 @@ static int __nocfi run_experiments(void) {
 		// retags) use plain modular tag arithmetic, matching the tag-blind contract model — the kernel
 		// leaves reserved tags in Exclude, which would make a sealed retag land on a different tag.
 		mte_gcr_clear_exclude();
+		mte_read_clear_tfsr();   // clear so a fault below is attributable to THIS input
 		if (executor.config.reload_isolate) {
 			/* Per-set isolation: re-run the (deterministic) test once per set, each probing only that
 			 * set, and OR the single-set htraces so no reload sweep can prefetch the page into itself. */
@@ -277,10 +289,24 @@ static int __nocfi run_experiments(void) {
 		}
 		mte_gcr_restore(pre_tc_gcr);
 
+		{
+			uint64_t tf = mte_read_clear_tfsr();
+			if (tf) {
+				static int64_t tfsr_faults = 0;
+				if (tfsr_faults++ < 20) {
+					module_err("TFSR tag fault: input loop-idx=%lld iid=%lld TFSR_EL1=0x%llx "
+					           "mte_tags_present=%d\n",
+					           (long long)i, (long long)current_input->id, tf,
+					           (int)current_input->input.mte_tags_present);
+				}
+			}
+		}
+
 		if (use_exec_keys) {
 			pac_restore_sctlr(saved_sctlr);
 			pac_load_keys(&saved_hw_keys);
 		}
+		mte_restore_control(&pre_mte);
 
 		raw_local_irq_restore(flags);
 

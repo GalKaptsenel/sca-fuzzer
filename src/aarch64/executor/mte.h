@@ -31,6 +31,11 @@ void mte_set_sync(void);
 uint64_t mte_gcr_read(void);
 uint64_t mte_gcr_clear_exclude(void);
 void mte_gcr_restore(uint64_t saved_gcr);
+// Read + clear TFSR_EL1 (async tag-fault status): non-zero => a tag-check fault happened in the window.
+uint64_t mte_read_clear_tfsr(void);
+// Force TCF=SYNC for the run (returns prior SCTLR_EL1); mte_restore_sctlr puts it back.
+uint64_t mte_force_sync(void);
+void mte_restore_sctlr(uint64_t saved);
 uint8_t enable_TCMA1_bit(void);
 uint8_t disable_TCMA1_bit(void);
 uint8_t enable_TCO_bit(void);

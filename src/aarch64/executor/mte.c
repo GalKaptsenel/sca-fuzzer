@@ -100,6 +100,37 @@ uint64_t mte_gcr_read(void) {
 	return read_sysreg_s(SYS_GCR_EL1);
 }
 
+#ifndef SYS_TFSR_EL1
+#define SYS_TFSR_EL1 sys_reg(3, 0, 5, 6, 0)
+#endif
+
+// Read the async tag-fault status (TFSR_EL1) and clear it. Non-zero means a tag-check fault occurred
+// since it was last cleared -- with the kernel's async TCF this is how a mismatched access is recorded
+// without a synchronous abort. Used to attribute a fault to the exact input that caused it.
+uint64_t mte_read_clear_tfsr(void) {
+	uint64_t t = read_sysreg_s(SYS_TFSR_EL1);
+	if (t) {
+		write_sysreg_s(0, SYS_TFSR_EL1);
+		isb();
+	}
+	return t;
+}
+
+// Force TCF=SYNC for the measurement window (returns the prior SCTLR_EL1 to restore). The kernel's
+// async TCF makes tag faults imprecise and decoupled from the run that caused them; SYNC delivers them
+// as a precise abort attributed to the executor, so a stray fault is caught immediately, not silently.
+uint64_t mte_force_sync(void) {
+	uint64_t saved = read_sysreg(sctlr_el1);
+	sysreg_clear_set(sctlr_el1, SCTLR_EL1_TCF_MASK, SCTLR_EL1_ATA | SCTLR_EL1_TCF_SYNC);
+	isb();
+	return saved;
+}
+
+void mte_restore_sctlr(uint64_t saved) {
+	write_sysreg(saved, sctlr_el1);
+	isb();
+}
+
 uint64_t mte_gcr_clear_exclude(void) {
 	uint64_t g = read_sysreg_s(SYS_GCR_EL1);
 	static bool logged = false;
@@ -150,6 +181,12 @@ uint8_t enable_TCO_bit(void)					{ return 0; }
 uint8_t disable_TCO_bit(void)					{ return 0; }
 
 uint64_t mte_gcr_read(void)					{ return 0; }
+
+uint64_t mte_read_clear_tfsr(void)				{ return 0; }
+
+uint64_t mte_force_sync(void)					{ return 0; }
+
+void mte_restore_sctlr(uint64_t saved)				{ (void)saved; }
 
 uint64_t mte_gcr_clear_exclude(void)				{ return 0; }
 
