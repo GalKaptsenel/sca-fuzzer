@@ -75,6 +75,11 @@ static void load_input_to_sandbox(input_t* input) {
 	if (input->mte_tags_present) {
 		mte_apply_sandbox_tags(executor.sandbox->main_region, input->mte_tags,
 		                       INPUT_MTE_TAG_COUNT);
+		// A <=16B access from the sandbox's last byte spills into upper_overflow's first granule; give
+		// that granule the last input tag so the boundary spill matches the in-bounds tag (else the
+		// overflow's default tag mismatches -> an architectural MTE tag fault on an accidental spill).
+		mte_apply_sandbox_tags(executor.sandbox->upper_overflow,
+		                       &input->mte_tags[INPUT_MTE_TAG_COUNT - 1], 1);
 	} else {
 		mte_init_sandbox_tags(executor.sandbox->main_region, MEMORY_INPUT_SIZE, MTE_INITIAL_DEFAULT_TAG);
 	}
