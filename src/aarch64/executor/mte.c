@@ -17,7 +17,23 @@
  * block aligned to its own size, so a caller whose size >= its alignment need (e.g. the sandbox
  * vs L1D_SIZE) is correctly aligned. Generic (page allocation), so defined for MTE and non-MTE. */
 void *mte_alloc_tagged_region(size_t size) {
-	return (void *)__get_free_pages(GFP_KERNEL | __GFP_ZERO, get_order(size));
+	unsigned int order = get_order(size);
+	void *p = (void *)__get_free_pages(GFP_KERNEL | __GFP_ZERO, order);
+#ifdef CONFIG_KASAN_HW_TAGS
+	// The fuzzer OWNS the MTE tags on this region: it STG-retags granules per input and runs test
+	// cases that deliberately mismatch tags. Under KASAN_HW_TAGS the page allocator also MTE-tags
+	// this memory and KASAN reports ANY tag mismatch on it as a kernel bug -> our per-input retagging
+	// and the test cases' intended tag faults surface as "BUG: KASAN: invalid-access", which aborts
+	// the measurement (seen as "bad magic" batch responses). Reset KASAN's tag on these pages to the
+	// match-all kernel tag so KASAN ignores the region and the fuzzer fully owns its MTE tags.
+	if (p) {
+		struct page *page = virt_to_page(p);
+		unsigned long i, n = 1UL << order;
+		for (i = 0; i < n; i++)
+			page_kasan_tag_reset(page + i);
+	}
+#endif
+	return p;
 }
 
 void mte_free_tagged_region(void *ptr, size_t size) {
