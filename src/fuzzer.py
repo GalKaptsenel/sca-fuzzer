@@ -873,7 +873,17 @@ class FuzzerGeneric(Fuzzer):
                     continue
                 primer = list(all_inputs)
                 primer[current.input_id] = all_inputs[other.input_id]
-                htraces, _ = self.executor.trace_test_case(primer, n_reps)
+                try:
+                    htraces, _ = self.executor.trace_test_case(primer, n_reps)
+                except HardwareTracingError as e:
+                    # A malformed device response during priming is an inconclusive measurement, not a
+                    # confirmed violation. Treat it like the null-htrace tracing error below (skip the
+                    # test case) rather than letting it crash the campaign — this is the third
+                    # measurement site that must be as resilient as the classic and bulk paths.
+                    STAT.hw_tracing_errors += 1
+                    self.LOG.warning("fuzzer", f"Tracing error during priming ({e}). "
+                                     "Skipping this test case")
+                    return False
                 new_htrace = htraces[current.input_id]
                 if not new_htrace.raw or new_htrace == null_htrace:
                     self.LOG.warning("fuzzer", "Tracing error during priming. "
