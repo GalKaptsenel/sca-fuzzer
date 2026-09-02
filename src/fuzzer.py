@@ -156,6 +156,7 @@ class FuzzerGeneric(Fuzzer):
         windowed = (CONF.superbatch_size > 1 and hasattr(self.executor, "trace_batch")
                     and self._supports_fast_boosting())
         window_size = CONF.superbatch_size if windowed else 1
+        STAT.sb_window_size = window_size if windowed else 0   # drives the windowed live-progress brief
 
         i = 0
         while i < num_test_cases:
@@ -169,12 +170,14 @@ class FuzzerGeneric(Fuzzer):
 
             # Fill a window with useful test cases (generation + filtering are per test case)
             window: List[Tuple[TestCase, List[Input]]] = []
+            STAT.sb_window_built = 0
             while len(window) < window_size and i < num_test_cases:
                 self.LOG.fuzzer_start_round(i)
                 i += 1
                 prepared = self._prepare_test_case(num_inputs)
                 if prepared is not None:
                     window.append(prepared)
+                STAT.sb_window_built = len(window)
 
             # Bulk tier flags the candidates (non-candidates finish here); classic mode passes all
             # test cases straight through.
@@ -227,7 +230,9 @@ class FuzzerGeneric(Fuzzer):
 
         units = []
         contexts = []
-        for test_case, inputs in window:
+        for k, (test_case, inputs) in enumerate(window):
+            STAT.sb_boosting = k + 1   # CE-boosting a whole window is CPU-heavy; keep the line moving
+            self.LOG.fuzzer_progress()
             self.executor.load_test_case(test_case)
             boosted, ctraces = self._boost_inputs(inputs, start_nesting)
             if not boosted:
@@ -240,6 +245,9 @@ class FuzzerGeneric(Fuzzer):
             units.append(self.executor.make_trace_unit(boosted))
             contexts.append((test_case, inputs, boosted, ctraces * CONF.inputs_per_class))
 
+        STAT.sb_boosting = 0
+        STAT.sb_measuring = len(units)   # units now in flight in one device batch (drives the brief)
+        self.LOG.fuzzer_progress()
         try:
             htraces_per_tc = self.executor.trace_batch(units, n_reps)
         except HardwareTracingError as e:
@@ -248,9 +256,13 @@ class FuzzerGeneric(Fuzzer):
             # case in the window to the robust per-test-case path (fuzzing_round) instead of dropping
             # them, matching the classic path's resilience without losing coverage.
             STAT.hw_tracing_errors += 1
+            STAT.sb_measuring = 0
             self.LOG.warning("fuzzer", f"batch tracing failed, routing window to the per-test-case "
                                        f"path: {e}")
             return [(tc, inputs) for tc, inputs, _, _ in contexts]
+        STAT.sb_measuring = 0
+        STAT.sb_measured += len(units)
+        STAT.sb_windows_done += 1
 
         candidates: List[Tuple[TestCase, List[Input]]] = []
         for (test_case, inputs, boosted, ctraces), htraces in zip(contexts, htraces_per_tc):
@@ -260,6 +272,8 @@ class FuzzerGeneric(Fuzzer):
                 candidates.append((test_case, inputs))
             else:
                 STAT.fast_path += 1
+        STAT.sb_candidates += len(candidates)
+        self.LOG.fuzzer_progress()
         return candidates
 
     @staticmethod
