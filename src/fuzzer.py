@@ -230,6 +230,13 @@ class FuzzerGeneric(Fuzzer):
         for test_case, inputs in window:
             self.executor.load_test_case(test_case)
             boosted, ctraces = self._boost_inputs(inputs, start_nesting)
+            if not boosted:
+                # No decoy-eligible inputs -> the test case is not non-interference-testable. Finish it
+                # here instead of sending a 0-input unit: the device's batch TRACE rejects an empty unit
+                # with -EINVAL ("unit N measurement failed" -> a malformed batch response). This mirrors
+                # the classic path, where trace_test_case guards the empty case.
+                STAT.fast_path += 1
+                continue
             units.append(self.executor.make_trace_unit(boosted))
             contexts.append((test_case, inputs, boosted, ctraces * CONF.inputs_per_class))
 
@@ -924,10 +931,23 @@ class NoninterferenceFuzzer(FuzzerGeneric):
         variants, keyed by a composite (ctrace, sealing class) ctrace so only same-signature variants
         collide."""
         ctraces, taints, traces = self.executor.trace_test_case_with_taints(inputs, nesting)
+        # Drop inputs with no decoy-eligible slot: their decoy would equal the genuine baseline (a null
+        # decoy), so any htrace split between the two is pure noise. An all-dropped window skips the test.
+        keep = [k for k, inp in enumerate(inputs) if self.executor.has_decoy(inp)]
+        inputs = [inputs[k] for k in keep]
+        ctraces = [ctraces[k] for k in keep]
+        traces = [traces[k] for k in keep]
         for inp, tr in zip(inputs, traces):
             inp._arch_trace = tr
+        if not inputs:
+            return [], []
         variants = [self.executor.variants_for_input(inp) for inp in inputs]
-        class_ctraces = [CTrace(ctr.raw + [hash(self.executor.sealing_class_of(inp)) & 0xFFFFFFFF])
+        # Non-interference compares only the variants of ONE input (its genuine baseline vs its own
+        # decoys) — the seal is the only thing that may differ. Keying the class by the input's own
+        # identity keeps two different arch inputs out of the same class even when they share a ctrace
+        # and sealing class, so a data-dependent (Spectre-v1) htrace split can't masquerade as a tag leak.
+        class_ctraces = [CTrace(ctr.raw + [hash(self.executor.sealing_class_of(inp)) & 0xFFFFFFFF,
+                                           hash(inp.tobytes()) & 0xFFFFFFFF])
                          for inp, ctr in zip(inputs, ctraces)]
         # round-major (all baselines, then all decoy0s, ...) so the base fast-boost replication of the
         # per-input ctraces lines up with the boosted list
