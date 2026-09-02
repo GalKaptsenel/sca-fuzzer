@@ -91,6 +91,29 @@ void mte_set_sync(void) {
 	isb();
 }
 
+#ifndef SYS_GCR_EL1
+#define SYS_GCR_EL1 sys_reg(3, 0, 1, 0, 6)
+#endif
+#define GCR_EL1_EXCL_MASK 0xFFFFUL
+
+uint64_t mte_gcr_clear_exclude(void) {
+	uint64_t g = read_sysreg_s(SYS_GCR_EL1);
+	static bool logged = false;
+	if (!logged) {
+		logged = true;
+		module_err("GCR_EL1=0x%llx (inherited Exclude=0x%llx); clearing Exclude for the run so ADDG/IRG "
+		           "match the tag-blind contract model\n", g, g & GCR_EL1_EXCL_MASK);
+	}
+	write_sysreg_s(g & ~GCR_EL1_EXCL_MASK, SYS_GCR_EL1);
+	isb();
+	return g;
+}
+
+void mte_gcr_restore(uint64_t saved_gcr) {
+	write_sysreg_s(saved_gcr, SYS_GCR_EL1);
+	isb();
+}
+
 void mte_save_control(struct mte_control_state* state) {
 	state->sctlr_el1 = read_sysreg(sctlr_el1);
 	state->tcr_el1 = read_TCR_EL1();
@@ -121,6 +144,10 @@ uint8_t disable_TCMA1_bit(void)					{ return 0; }
 uint8_t enable_TCO_bit(void)					{ return 0; }
 
 uint8_t disable_TCO_bit(void)					{ return 0; }
+
+uint64_t mte_gcr_clear_exclude(void)				{ return 0; }
+
+void mte_gcr_restore(uint64_t saved_gcr)			{ (void)saved_gcr; }
 
 bool mte_region_is_tagged(const void *ptr, size_t size)		{ (void)ptr; (void)size; return true; }
 

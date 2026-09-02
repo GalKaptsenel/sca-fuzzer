@@ -254,7 +254,10 @@ static int __nocfi run_experiments(void) {
 			saved_sctlr = pac_enable_all_keys();
 		}
 
-		// execute
+		// execute. Clear GCR_EL1.Exclude first so ADDG/IRG in the test case (and the seal's ADDG
+		// retags) use plain modular tag arithmetic, matching the tag-blind contract model — the kernel
+		// leaves reserved tags in Exclude, which would make a sealed retag land on a different tag.
+		uint64_t saved_gcr = mte_gcr_clear_exclude();
 		if (executor.config.reload_isolate) {
 			/* Per-set isolation: re-run the (deterministic) test once per set, each probing only that
 			 * set, and OR the single-set htraces so no reload sweep can prefetch the page into itself. */
@@ -267,6 +270,7 @@ static int __nocfi run_experiments(void) {
 		} else {
 			((void(*)(void*))measurement_code)(executor.sandbox);
 		}
+		mte_gcr_restore(saved_gcr);
 
 		if (use_exec_keys) {
 			pac_restore_sctlr(saved_sctlr);
