@@ -23,6 +23,7 @@ typedef struct {
 	uint64_t  element_size;		// size in bytes
 	uint64_t  is_write;	// 1 = write, 0 = read
 	uint64_t  is_atomic;	// 1 = read-modify-write (atomic/exclusive/CAS): reads AND writes the cell
+	uint64_t  allocation_tag;	// MTE granule tag [0..15] the CE holds for this address (0xFF = no tag memory)
 } mem_access_t;
 
 typedef struct {
@@ -58,10 +59,10 @@ typedef struct {
 
 /* extra_data is unused (always size 0), so every entry is a fixed 424-byte stride the Python parser
  * relies on. Lock the layout: a field/padding change must fail the build, not silently desync. */
-_Static_assert(sizeof(mem_access_t) == 48, "mem_access_t layout changed");
+_Static_assert(sizeof(mem_access_t) == 56, "mem_access_t layout changed");
 _Static_assert(sizeof(trace_cpu_state_t) == 288, "trace_cpu_state_t layout changed");
-_Static_assert(sizeof(instr_metadata_t) == 136, "instr_metadata_t layout changed");
-_Static_assert(sizeof(instr_trace_entry_t) == 424, "instr_trace_entry_t stride changed");
+_Static_assert(sizeof(instr_metadata_t) == 152, "instr_metadata_t layout changed");
+_Static_assert(sizeof(instr_trace_entry_t) == 440, "instr_trace_entry_t stride changed");
 _Static_assert(sizeof(contract_trace_t) == 16, "contract_trace_t header changed");
 
 void init_trace_log(size_t test_size);

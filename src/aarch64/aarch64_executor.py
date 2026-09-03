@@ -7,6 +7,7 @@ from __future__ import annotations
 import copy
 import random
 import os.path
+import sys
 
 import numpy as np
 from typing import List, Tuple, Set, Optional, Dict
@@ -677,6 +678,31 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         ctraces = [compute_ctrace(cer) for cer in ce_traces]
         return ctraces, taints, ce_traces
 
+    def _arch_tag_mismatches(self, cer: ContractExecutionResult) -> List[tuple]:
+        """Architectural (speculation_nesting == 0) memory accesses whose pointer tag differs from the
+        granule's allocation tag, excluding TCMA-unchecked tags 0/15 (which never tag-fault). Every
+        such access raises an MTE tag-check fault on hardware — the class of bug that crashes the phone
+        (SYNC → panic, ASYNC → the bad access completes and the run hangs). A speculative-only mismatch
+        is the intended TikTag channel and is NOT reported here."""
+        out: List[tuple] = []
+        code_base = None
+        for ite in cer:
+            if code_base is None:
+                code_base = ite.cpu.pc
+            if ite.metadata.speculation_nesting != 0:
+                continue
+            for ma in ite.metadata.accesses():
+                if ma.allocation_tag == 0xFF:   # no tag memory modeled for this address
+                    continue
+                ptr_tag = (ma.effective_address >> 56) & 0xF
+                granule_tag = ma.allocation_tag & 0xF
+                if ptr_tag in (0, 15):          # TCMA1: tag 0b0000/0b1111 pointers are Unchecked
+                    continue
+                if ptr_tag != granule_tag:
+                    out.append((ite.cpu.pc - code_base, ma.effective_address,
+                                ptr_tag, granule_tag, bool(ma.is_write)))
+        return out
+
     def variants_for_input(self, inp: Input) -> Dict[str, ExecutorInput]:
         """One kernel input file per variant of `inp`. Deterministic, so the CE pass, the HW pass, and
         priming build the identical set."""
@@ -684,14 +710,38 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         tags = self._mte_tags_for(inp)
         bpu = self._bpu_entries(inp)
         keys = self._pac_keys_words()
+        plans = self._variants_for(resolved)
+        if os.environ.get("MTE_BUGHUNT"):
+            # Offline (no-HW) MTE bug enumeration: trace every variant through the CE and drop the ones
+            # that make an architectural tag-mismatched access — those are the bugs that crash the phone,
+            # so excluding them keeps the HW pass from panicking while we log each one.
+            kept: Dict[str, Tuple[Relocation, ...]] = {}
+            for name, plan in plans.items():
+                bad = self._arch_tag_mismatches(
+                    self._ce_trace(apply_relocations(resolved.object_code, list(plan)), inp))
+                if bad:
+                    for off, ea, pt, gt, w in bad:
+                        sys.stderr.write(
+                            f"MTEBUG tc={self._tc_counter} input={getattr(inp, 'seed', '?')} "
+                            f"variant={name} tc_off=0x{off:x} ea=0x{ea:x} ptr_tag={pt} "
+                            f"granule_tag={gt} {'W' if w else 'R'}\n")
+                else:
+                    kept[name] = plan
+            plans = kept
         return {name: ExecutorInput(inp, code_reloc=plan, mte_tags=tags, pac_keys=keys,
                                     bpu_training=bpu)
-                for name, plan in self._variants_for(resolved).items()}
+                for name, plan in plans.items()}
 
     def sealing_class_of(self, inp: Input) -> tuple:
         """The input's sealing class (its resolved per-slot signatures/tags). Variants collide only
         when this agrees, not just the ctrace."""
         return self._resolve(inp).collapse_key
+
+    def has_decoy(self, inp: Input) -> bool:
+        """Whether `inp` has a decoy-eligible slot. When false, every decoy would equal the genuine
+        baseline (a null decoy), so the input is not non-interference-testable and must not be
+        boosted/measured."""
+        return self._resolve(inp).has_decoy()
 
     def _variants_for(self, resolved: ResolvedSealingTestCase) -> Dict[str, Tuple[Relocation, ...]]:
         """One boosting class: the genuine baseline plus `CONF.inputs_per_class - 1` decoys."""

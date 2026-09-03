@@ -1,6 +1,14 @@
 #include "main.h"
 #include "pmu.h"
 #include <linux/random.h>
+#include <linux/moduleparam.h>
+
+// TEMP bug-hunt: when set, dump the pre-execution tag/pointer state (mte_tag_verbose) but SKIP the
+// test-case execution entirely. Isolates whether an "unexpected reset" comes from the divergent
+// access during execution or from the tag setup/dump itself. Revert once the divergence is found.
+int mte_skip_exec = 0;
+module_param(mte_skip_exec, int, 0644);
+MODULE_PARM_DESC(mte_skip_exec, "Dump pre-exec state then skip test-case execution (MTE divergence bug-hunt)");
 
 /* Fisher-Yates shuffle of executor.reload_order[0..63] -- a fresh random set-visit order for reload(). */
 static void fill_reload_order(void) {
@@ -174,6 +182,54 @@ static void splice_code_relocations(void* exec_view, const input_t* input, bool 
 	asm volatile("dsb ish\n isb" ::: "memory");
 }
 
+/* Dump the actual per-granule tag of one region, read back via LDG, as chunked MTETAG lines. off_base
+ * is the region's byte offset (may be negative) relative to main_region, so every HW/CE line aligns by
+ * offset. */
+static void mte_log_region_actual(const char* when, const char* region, int64_t off_base, const char* base, uint64_t nbytes) {
+	static const char hexd[] = "0123456789abcdef";
+	uint64_t ngran = nbytes / MTE_GRANULE_SIZE;
+	char buf[129];
+	for (uint64_t off = 0; off < ngran; off += 128) {
+		uint64_t m = (ngran - off < 128) ? (ngran - off) : 128;
+		for (uint64_t k = 0; k < m; ++k) {
+			buf[k] = hexd[mte_read_tag(base + (off + k) * MTE_GRANULE_SIZE) & 0xF];
+		}
+		buf[m] = 0;
+		mte_dump_add("MTETAG side=HW when=%s region=%s off=%lld n=%llu tags=%s",
+		             when, region, (long long)(off_base + (int64_t)(off * MTE_GRANULE_SIZE)), m, buf);
+	}
+}
+
+/* Dump the actual sandbox tag memory (LDG over lower_overflow | main | faulty | upper_overflow) for
+ * CE<->HW persistency checking. `when` is "pretrace" (after the per-input tag reset, before the run) or
+ * "posttrace" (after the run, reflecting the test case's STG* effects). Pointers only on pretrace. */
+static void mte_dump_tags(const char* when, int64_t seq, int64_t iid, const input_t* input, int dump_ptrs) {
+	if (!mte_tag_verbose) {
+		return;
+	}
+	const char* mainr = executor.sandbox->main_region;
+	mte_dump_add("MTETAG side=HW when=%s seq=%lld iid=%lld base=0x%lx mte_tags_present=%d",
+	             when, (long long)seq, (long long)iid, (unsigned long)mainr, (int)input->mte_tags_present);
+	mte_log_region_actual(when, "lower_overflow", -(int64_t)OVERFLOW_REGION_SIZE,
+	                      executor.sandbox->lower_overflow, OVERFLOW_REGION_SIZE);
+	mte_log_region_actual(when, "main",   0,                mainr, MAIN_REGION_SIZE);
+	mte_log_region_actual(when, "faulty", MAIN_REGION_SIZE, executor.sandbox->faulty_region, FAULTY_REGION_SIZE);
+	mte_log_region_actual(when, "upper_overflow", MEMORY_INPUT_SIZE,
+	                      executor.sandbox->upper_overflow, OVERFLOW_REGION_SIZE);
+	if (!dump_ptrs) {
+		return;
+	}
+	const registers_t* r = &input->regs;
+	const uint64_t regv[6] = { r->x0, r->x1, r->x2, r->x3, r->x4, r->x5 };
+	for (int k = 0; k < 6; ++k) {
+		mte_dump_add("MTEPTR side=HW seq=%lld x%d=0x%llx t=%x",
+		             (long long)seq, k, (unsigned long long)regv[k], (unsigned)((regv[k] >> 56) & 0xF));
+	}
+	mte_dump_add("MTEPTR side=HW seq=%lld flags=0x%llx sp=0x%llx x29_base=0x%lx t=%x",
+	             (long long)seq, (unsigned long long)r->flags, (unsigned long long)r->sp,
+	             (unsigned long)mainr, (unsigned)(((uintptr_t)mainr >> 56) & 0xF));
+}
+
 static int __nocfi run_experiments(void) {
 	int64_t rounds = (int64_t)executor.number_of_inputs;
 	unsigned long flags = 0;
@@ -189,6 +245,8 @@ static int __nocfi run_experiments(void) {
 	if (0 != reloc_err) {
 		return reloc_err;
 	}
+
+	mte_dump_reset();   // buffer this run's tag log; flushed by the caller after the pinned call
 
 	current_input_node = rb_first(&executor.inputs_root);
 	BUG_ON(NULL == current_input_node);
@@ -227,6 +285,17 @@ static int __nocfi run_experiments(void) {
 		current_input = rb_entry(current_input_node, struct input_node, node);
 		initialize_overflow_pages();
 		load_input_to_sandbox(&current_input->input);
+
+		// Dump the actual tags/pointers BEFORE disabling IRQs: LDG reads allocation-tag memory and is
+		// never tag-checked, so it is valid under the kernel's MTE control, and doing the (chatty) dump
+		// here keeps its printk storm out of the IRQ-off measurement window (a long printk run on the
+		// pinned CPU with IRQs disabled trips the hard-lockup watchdog -> panic).
+		static int64_t mte_dump_seq = 0;
+		int64_t this_dump_seq = mte_dump_seq;
+		if (mte_tag_verbose) {
+			++mte_dump_seq;
+			mte_dump_tags("pretrace", this_dump_seq, current_input->id, &current_input->input, 1);
+		}
 
 		if (executor.config.reload_random_order) {
 			fill_reload_order();
@@ -275,7 +344,11 @@ static int __nocfi run_experiments(void) {
 		// leaves reserved tags in Exclude, which would make a sealed retag land on a different tag.
 		mte_gcr_clear_exclude();
 		mte_read_clear_tfsr();   // clear so a fault below is attributable to THIS input
-		if (executor.config.reload_isolate) {
+		if (mte_skip_exec) {
+			// BUGHUNT: state already dumped above; do NOT run the test case. If the phone still resets
+			// with execution skipped, the reset is in the tag setup/dump, not the divergent access.
+			executor.sandbox->latest_measurement.htrace[0] = 0;
+		} else if (executor.config.reload_isolate) {
 			/* Per-set isolation: re-run the (deterministic) test once per set, each probing only that
 			 * set, and OR the single-set htraces so no reload sweep can prefetch the page into itself. */
 			uint64_t acc = 0;
@@ -288,6 +361,12 @@ static int __nocfi run_experiments(void) {
 			((void(*)(void*))measurement_code)(executor.sandbox);
 		}
 		mte_gcr_restore(pre_tc_gcr);
+
+		// Post-execution tagmem (reflects the test case's STG* effects) for CE<->HW persistency checking;
+		// the NEXT input's pretrace dump must then show a clean reset back to that input's tags.
+		if (mte_tag_verbose) {
+			mte_dump_tags("posttrace", this_dump_seq, current_input->id, &current_input->input, 0);
+		}
 
 		{
 			uint64_t tf = mte_read_clear_tfsr();

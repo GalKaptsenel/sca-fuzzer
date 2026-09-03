@@ -21,7 +21,7 @@ SIZE_T = struct.Struct("<Q")   # size_t = 8
 _SANDBOX_BASE_GPR = int(Aarch64TargetDesc.reg_normalized[SANDBOX_BASE_REGISTER])
 
 class MemAccess:
-    _STRUCT = struct.Struct("<QQQQQQ")
+    _STRUCT = struct.Struct("<QQQQQQQ")
 
     def __init__(self, buf: memoryview, offset: int):
         (self.effective_address,
@@ -29,7 +29,8 @@ class MemAccess:
         self.after,
         self.element_size,
         self.is_write,
-        self.is_atomic) = self._STRUCT.unpack_from(buf, offset)
+        self.is_atomic,
+        self.allocation_tag) = self._STRUCT.unpack_from(buf, offset)
 
         self.size = self._STRUCT.size
 

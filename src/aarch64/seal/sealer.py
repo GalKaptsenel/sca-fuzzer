@@ -16,7 +16,6 @@ from ...interfaces import (Instruction, TestCase, BasicBlock, GeneratorException
 from .primitives import (make_nop, index_instructions, inst_at, _SANDBOX_MASK,
                            _SandboxInstrumentationBase)
 from .pac import (PacSign, PacSigner, build_pac_specs, _AUTH_TO_PAC, _AUTH_TO_XPAC, _read_reg)
-from ..aarch64_mte import MteTagState, mte_tag_store_effect, MTE_INITIAL_DEFAULT_TAG
 from ..aarch64_target_desc import SANDBOX_BASE_REGISTER
 from ..aarch64_printer import Aarch64ASMLayout
 from ..aarch64_relocations import (NOP_WORD, xpac_word, addg_word, movk_word, aut_word, eor_imm_word,
@@ -122,20 +121,21 @@ class PacSealing(Sealing):
 
 
 class MteSealing(Sealing):
-    """Retag a pointer register by a 4-bit delta: `seal(delta)` retags before the access (or [NOP]
-    when 0/None) and, when the access preserves its base register, retags back by -delta right after,
-    so the decoy re-converges with the baseline (only the sealed access differs, and a wrong tag can't
-    cascade into a later access's set via a downstream shift of the tag byte). `access_inst` is
-    exposed for the resolver (its accessed cell's tag is the genuine tag); `n_before` is how many slot
-    words precede the access (the rest are the after-revert)."""
+    """Retag a pointer register onto its cell's allocation tag: `seal(delta)` emits one ADDG that adds
+    the 4-bit delta to the pointer's tag right before the access (or [NOP] when 0/None), so the access
+    is tag-checked against a matching granule. There is NO retag-back: the matched (checked) tag then
+    propagates through the rest of the test-case logic — exactly as the CE's after-access tag correction
+    models a genuine ADDG — so the placeholder and genuine traces agree on every later tag store's
+    committed granule tag, and no pointer is ever left at the sandbox base's Unchecked tag. A decoy's
+    wrong tag lives only on the speculative path it perturbs and is rolled back with that speculation.
+    `access_inst` is exposed for the resolver (its accessed cell's tag is the genuine tag)."""
 
-    def __init__(self, value_reg: str, access_inst: Instruction, revert: bool = False) -> None:
+    def __init__(self, value_reg: str, access_inst: Instruction) -> None:
         super().__init__()
         self.value_reg = value_reg
         self.access_inst = access_inst
-        self._revert = revert
         self.n_before = 1
-        self.slot_insts = self.seal(None, None)   # placeholder: [before] or [before, after]
+        self.slot_insts = self.seal(None, None)   # placeholder: [before]
 
     def _addg(self, delta: int) -> Instruction:
         return (Instruction("addg", True, "", False,
@@ -147,13 +147,7 @@ class MteSealing(Sealing):
 
     def seal(self, value: Optional[int], rng: Optional[random.Random]) -> List[Instruction]:
         delta = 0 if value is None else value % 16
-        before = self._addg(delta) if delta else make_nop()
-        if not self._revert:
-            return [before]
-        # restore the original tag after the access (tag arithmetic is mod 16); genuine and decoy
-        # each undo their own delta, so both end at the input pointer's tag -> agree downstream.
-        back = (16 - delta) % 16
-        return [before, self._addg(back) if back else make_nop()]
+        return [self._addg(delta) if delta else make_nop()]
 
 
 def _mask_runs(mask: int) -> List[int]:
@@ -408,20 +402,18 @@ def _resolve_mte(s: MteSealing, cer, layout) -> Tuple[Optional[int], List[int], 
     correct_tag, ptr_tag, spec = None, None, None
     if cer and s.access_inst is not None:
         access_off, code_base = layout.instruction_address[s.access_inst], cer[0].cpu.pc
-        tags = MteTagState(MTE_INITIAL_DEFAULT_TAG)
         for ite in cer:
-            nest = ite.metadata.speculation_nesting
-            tags.to_depth(nest)
-            store = mte_tag_store_effect(ite)
-            if store is not None:
-                tags.set(*store)
             if not ite.metadata.has_memory_access or ite.cpu.pc - code_base != access_off:
                 continue
-            ea = ite.metadata.memory_access.effective_address
+            nest = ite.metadata.speculation_nesting
+            ma = ite.metadata.memory_access
             if spec is None or nest < spec:
                 spec = int(nest)
+            # The CE reports the granule's real allocation tag per access (seeded from the input tags,
+            # updated by STGs, speculation rolled back) -- the same value the hardware holds. Read it
+            # straight from the trace instead of re-deriving the tag memory in Python.
             if nest == 0 or correct_tag is None:
-                correct_tag, ptr_tag = tags.tag_at(ea), (ea >> 56) & 0xF
+                correct_tag, ptr_tag = ma.allocation_tag, (ma.effective_address >> 56) & 0xF
     if correct_tag is None or ptr_tag is None:
         # unreached in the placeholder trace: genuine applies no retag (value None -> NOP), so any
         # nonzero delta is a valid decoy should HW speculate deeper than the model reached.
@@ -553,11 +545,10 @@ class MteSealedTestCase(SealedTestCase):
         super().__init__(sealed_tc, trace_fn, assemble, sandbox_sealings, data_sites)
 
     def _insert_slots(self, data_sites) -> None:
-        for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
-            s = MteSealing(mem_reg, inst, base_preserved)
+        for inst, bb, mem_reg, offset_subs, _ in data_sites:
+            s = MteSealing(mem_reg, inst)
             self._mte.append(s)
-            _insert(bb, inst, offset_subs, s.slot_insts[:s.n_before])   # cancel offset, retag last
-            _place_after(bb, inst, s.slot_insts[s.n_before:])           # retag back (re-converge)
+            _insert(bb, inst, offset_subs, s.slot_insts)   # cancel offset, then retag onto the cell tag
 
     def _sealings(self) -> List[Sealing]:
         return self._sandbox + self._mte
@@ -631,16 +622,13 @@ class MtePacSealedTestCase(SealedTestCase):
     def _insert_slots(self, data_sites) -> None:
         for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
             p = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc, base_preserved)
-            m = MteSealing(mem_reg, inst, base_preserved)
+            m = MteSealing(mem_reg, inst)
             self._pac.append(p)
             self._mte.append(m)
-            # before: auth the base, cancel the offset, retag last (retag closest to the access)
-            _insert(bb, inst, p.slot_insts[:p.n_before], offset_subs, m.slot_insts[:m.n_before])
-            # after: undo in reverse (LIFO) so the decoy re-converges — MTE retag-back first (closest
-            # to the access), then PAC XPAC. _place_after keeps each group's order; call PAC first so
-            # its words land outermost.
+            # before: auth the base, cancel the offset, retag onto the cell tag (retag closest to the access)
+            _insert(bb, inst, p.slot_insts[:p.n_before], offset_subs, m.slot_insts)
+            # after: the PAC XPAC re-converges the decoy.
             _place_after(bb, inst, p.slot_insts[p.n_before:])
-            _place_after(bb, inst, m.slot_insts[m.n_before:])
         _seal_auths(self._tc, self._enc, self._auth_specs, self._pac)
 
     def _sealings(self) -> List[Sealing]:
@@ -784,10 +772,21 @@ class SandboxWalk:
     returns the clamps plus a per-access site list the SealedTestCase uses to place its value sealings."""
 
     def __init__(self, generator) -> None:
+        # Under MTE the sandbox is tagged one allocation tag per 16-byte granule, and an access is
+        # tag-checked against every granule its bytes touch. A pointer carries a single tag, so an
+        # unaligned/multi-byte data access straddling two differently-tagged granules faults on the one
+        # the pointer does not match. Clamping the base 16-byte-aligned (as tag stores already are)
+        # keeps each access within one granule, so its single tag covers it; the cache-set index
+        # (bits [11:6]) is unaffected. Only when a tag store can make granules non-uniform: with no
+        # tag-memory instruction in the pool the sandbox stays uniformly tagged and unaligned is safe.
+        granule_align = any("MTE-TAG-MEM-STORE" in s.tags
+                            for s in generator.instruction_set.instructions)
+        stg_mask = f"#0x{_SANDBOX_MASK & ~0xF:x}"
+        data_mask = stg_mask if granule_align else f"#0x{_SANDBOX_MASK:x}"
         self._addr = _Addressing(generator.target_desc.reg_normalized,
-                                 f"#0x{_SANDBOX_MASK:x}", SANDBOX_BASE_REGISTER)
-        self._mask = f"#0x{_SANDBOX_MASK:x}"
-        self._stg_mask = f"#0x{_SANDBOX_MASK & ~0xF:x}"
+                                 data_mask, SANDBOX_BASE_REGISTER)
+        self._mask = data_mask
+        self._stg_mask = stg_mask
 
     def sandbox(self, tc: TestCase) -> Tuple[List[SandboxSealing], List]:
         """The sandbox-taint dataflow + clamping. Decides which memory bases need an in-region clamp

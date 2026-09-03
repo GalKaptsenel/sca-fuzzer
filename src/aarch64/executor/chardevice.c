@@ -295,6 +295,7 @@ static int trace(void) {
 	}
 
 	int err = execute_on_pinned_cpu(executor.config.pinned_cpu_id, execute_on_target, NULL);
+	mte_dump_flush();   // emit the tag log buffered on the pinned CPU (printk is unsafe in that IPI ctx)
 	if(0 != err) {
 		module_err("Failed to execute on CPU %d (err: %d)\n", executor.config.pinned_cpu_id, err);
 		return err;

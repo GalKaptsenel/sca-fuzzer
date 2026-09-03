@@ -3,6 +3,7 @@
 #include "simulation_hook.h"
 #include "addr_xlate.h"
 #include "simulation_execution_clause_hook.h"
+#include "mte_tag_plugin.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
@@ -220,6 +221,9 @@ static void fill_mem_access(mem_access_t* acc, uintptr_t kea, uint64_t elem_sz,
 	acc->element_size = elem_sz;
 	acc->is_write = is_write;
 	acc->is_atomic = is_atomic;
+	// The real allocation tag the CE holds for this granule (seeded from the input's MTE tags and
+	// updated by STGs), so the seal reads the tag directly instead of re-deriving it in Python.
+	acc->allocation_tag = mte_tagmem_active() ? mte_tagmem_tag_at(kea) : 0xFFu;
 	if ((uintptr_t)-1 == kea) { __builtin_trap(); }
 
 	/* The sandbox allocation includes a full page of padding after mem_size (see main.c) so a

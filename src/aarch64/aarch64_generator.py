@@ -375,6 +375,14 @@ class Aarch64SandboxPass(Pass, _SandboxInstrumentationBase):
         super().__init__()
         self._sandbox_mask = f"#0x{_SANDBOX_MASK:x}"
         self._sandbox_base_reg = SANDBOX_BASE_REGISTER
+        # Under MTE the sandbox carries one allocation tag per 16-byte granule. A memory access is
+        # tag-checked against every granule its bytes fall in, but a pointer carries a single tag, so
+        # an unaligned/multi-byte access straddling two differently-tagged granules architecturally
+        # faults on the granule the pointer does not match (an STG can retag one granule and not its
+        # neighbour). Aligning every access to a granule keeps its bytes within one granule, so the one
+        # pointer tag covers the whole access. The cache-set channel is unaffected (set index is above
+        # bit 3). Only relevant when MTE tags are applied, i.e. when MTE is in the instruction pool.
+        self._granule_align = any(c.startswith("MTE") for c in CONF.instruction_categories)
 
     def run_on_test_case(self, test_case: TestCase) -> None:
         for func in test_case.functions:
@@ -388,15 +396,18 @@ class Aarch64SandboxPass(Pass, _SandboxInstrumentationBase):
         its base into [x29 .. x29+mask], then cancel the index/offset/extend so the effective address
         lands at the masked base. Multiple memory operands (e.g. MOPS copy) are each handled.
 
-        Limitation: the mask bounds the base, not base+access_size, so a multi-byte access (notably a
-        16-byte LDP/STP) whose masked base is within the last few bytes of the region can spill past
-        it. Rare and pre-existing; widen the mask to (region - max_access_size) if it ever matters."""
+        Under MTE (_granule_align) the base is 16-byte-aligned, so a <=16-byte access stays within one
+        tag granule (see __init__) and never spills past the region's last granule either. Without
+        alignment the mask bounds the base, not base+access_size, so a >16-byte access whose masked
+        base is within the last bytes of the region can spill past it (irrelevant without SIMD)."""
         if instr.get_implicit_mem_operands():
             raise GeneratorException("Implicit memory accesses are not supported")
         mem_ops = instr.get_mem_operands()
         if not mem_ops:
             raise GeneratorException("Attempt to sandbox an instruction without memory operands")
-        align16 = self._is_tag_store(instr)   # STG-family needs a 16-byte-aligned address
+        # STG-family needs a 16-byte-aligned address; under MTE every access is granule-aligned so it
+        # cannot straddle two differently-tagged granules.
+        align16 = self._is_tag_store(instr) or self._granule_align
         for mem_op in mem_ops:
             base = self._base_reg(mem_op)
             for inst in self._make_sandbox_insts(base, align16) + self._make_offset_sub_insts(mem_op):

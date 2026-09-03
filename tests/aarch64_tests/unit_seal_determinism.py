@@ -10,7 +10,9 @@ No kernel module needed.
 import os
 import sys
 import random
+import collections
 import unittest
+from types import SimpleNamespace
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 _ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
@@ -20,7 +22,8 @@ from src.interfaces import GeneratorException, Instruction, RegisterOperand
 from src.isa_loader import InstructionSet
 from src.aarch64.aarch64_generator import Aarch64RandomGenerator
 from src.aarch64.seal.pac import PacSign, build_pac_specs
-from src.aarch64.seal.sealer import _wrong_sigs, PacSealing, ResolvedSealingTestCase, _Resolved
+from src.aarch64.seal.sealer import (_wrong_sigs, _resolve_pac, PacSealing, ResolvedSealingTestCase,
+                                      _Resolved)
 
 _PAC_FIELD = 0xFFFF << 48          # a plausible 16-bit PAC field mask
 _CORRECT = 0x0ABC << 48 | 0x1234   # arbitrary "correct signature"
@@ -114,6 +117,90 @@ class SealResolutionDeterminismTest(unittest.TestCase):
         # genuine seals the correct value on every slot: the loaded signature is _CORRECT's field
         r = self._resolved(salt=0x55)
         self.assertTrue(r.genuine(), "expected at least one genuine relocation")
+
+
+class NullDecoyEligibilityTest(SealResolutionDeterminismTest):
+    """A slot is decoy-eligible iff it is speculative-or-unreached (never architectural) and carries
+    alternatives. When no slot is eligible, decoy() reproduces genuine() (a null decoy) and has_decoy()
+    is False, so the input can be dropped before it is ever compared against itself as noise."""
+
+    def _one_slot(self, spec_nesting, alts) -> ResolvedSealingTestCase:
+        ps = self._pac_sealing()
+        entry = _Resolved(ps, _CORRECT, alts, spec_nesting=spec_nesting)
+        return ResolvedSealingTestCase([entry], bytes(16), {id(ps): (0, 4)}, salt=0x55)
+
+    _ALTS = [0x1111 << 48, 0x2222 << 48, 0x3333 << 48]
+
+    def test_speculative_slot_is_eligible_and_decoys(self):
+        r = self._one_slot(spec_nesting=5, alts=self._ALTS)
+        self.assertTrue(r.has_decoy())
+        self.assertNotEqual(r.decoy(random.Random(1)), r.genuine())
+
+    def test_unreached_slot_is_eligible(self):
+        # spec_nesting None == the access never ran in the placeholder trace: still decoyable, since HW
+        # may speculate deeper than the model reached (point 1).
+        r = self._one_slot(spec_nesting=None, alts=self._ALTS)
+        self.assertTrue(r.has_decoy())
+        self.assertNotEqual(r.decoy(random.Random(1)), r.genuine())
+
+    def test_architectural_slot_is_not_eligible_null_decoy(self):
+        # spec_nesting 0 == reached architecturally: perturbing it would fault EL1, so it is never
+        # decoyed. With no other eligible slot the decoy collapses onto the genuine baseline.
+        r = self._one_slot(spec_nesting=0, alts=self._ALTS)
+        self.assertFalse(r.has_decoy())
+        for seed in range(8):
+            self.assertEqual(r.decoy(random.Random(seed)), r.genuine(),
+                             "an all-architectural resolution must yield a null decoy")
+
+    def test_no_alternatives_is_not_eligible(self):
+        r = self._one_slot(spec_nesting=5, alts=[])
+        self.assertFalse(r.has_decoy())
+
+
+class UnreachedPacForgeTest(SealResolutionDeterminismTest):
+    """An unreached PAC slot (its XPAC never in the trace) is still decoy-eligible: the pool is forged
+    over the sandbox base, so every wrong signature keeps the pointer's non-field bits (the after-XPAC
+    then re-converges the decoy with the baseline) — no traced pointer and no scratch register needed."""
+
+    _MASK = 0xFFFF << 48
+    _SANDBOX_BASE = 0xFFFF_0000_1234_5000     # kernel-ish base: non-field bits must survive the forge
+
+    class _Signer:
+        def __init__(self, mask): self._mask = mask
+        def field_mask(self, mn): return self._mask
+        def sign(self, ptr, ctx, mn): return (ptr & ~self._mask) | (0xABCD << 48)
+
+    class _Cpu:
+        def __init__(self, pc, base):
+            self.pc, self.sp = pc, 0
+            self.gpr = [0] * 31
+            self.gpr[29] = base                # SANDBOX_BASE_REGISTER == x29
+
+    class _Ite:
+        def __init__(self, cpu):
+            self.cpu = cpu
+            self.metadata = SimpleNamespace(speculation_nesting=0, has_memory_access=False,
+                                            memory_access=None)
+
+    class _Layout:
+        instruction_address = collections.defaultdict(lambda: 0x40)   # xpac at a nonzero offset
+
+    def _unreached_cer(self):
+        # one entry whose pc never equals code_base + xpac_off (0 != 0x40) -> the XPAC is never matched
+        return [self._Ite(self._Cpu(pc=0, base=self._SANDBOX_BASE))]
+
+    def test_unreached_pac_is_eligible_and_reconverges(self):
+        s = self._pac_sealing()
+        value, alts, spec = _resolve_pac(s, self._unreached_cer(), self._Layout(),
+                                         self._Signer(self._MASK), salt=0x99)
+        self.assertIsNone(value, "unreached: no genuine signature (baseline strips)")
+        self.assertIsNone(spec, "unreached slot is speculative (never architectural)")
+        self.assertTrue(alts, "unreached PAC slot must be decoy-eligible")
+        for sig in alts:
+            self.assertEqual(sig & ~self._MASK, self._SANDBOX_BASE & ~self._MASK,
+                             "a forged sig must keep the sandbox base's non-field bits (re-convergence)")
+            self.assertNotEqual(sig & self._MASK, (0xABCD << 48),
+                                "each forged sig must differ from the base signature in the PAC field")
 
 
 class PacFieldWindowTest(unittest.TestCase):

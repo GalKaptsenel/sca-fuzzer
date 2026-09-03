@@ -238,6 +238,7 @@ int main() {
 		 * the input carries no tags -- i.e. this is not an MTE-test-mode input. */
 		mte_tagmem_init((uintptr_t)kernel_sandbox_base, simulation.sim_input.mte_tags,
 		                simulation.sim_input.mte_tag_count);
+		mte_tagmem_log("reinit", (long)g_iter_num);
 
 		/* The keys the plugin signs/auths under travel with the input; the kernel keeps none. */
 		pac_keys_init(simulation.sim_input.pac_keys, simulation.sim_input.pac_keys_present);
@@ -250,6 +251,20 @@ int main() {
 
 		g_iter_phase = 2; /* simulation */
 		CE_INSTALL_CRASH_HANDLERS(); /* reinstall in case Python code (TAGE) overrode them */
+
+		mte_tagmem_log("pretrace", (long)g_iter_num);
+		if (mte_tag_log_enabled()) {
+			for (int r = 0; r < 6; ++r) {
+				fprintf(stderr, "MTEPTR side=CE seq=%ld x%d=0x%llx t=%x\n",
+				        (long)g_iter_num, r, (unsigned long long)regs_blob[r],
+				        (unsigned)((regs_blob[r] >> 56) & 0xF));
+			}
+			fprintf(stderr, "MTEPTR side=CE seq=%ld flags=0x%llx sp=0x%llx x29_base=0x%llx t=%x\n",
+			        (long)g_iter_num, (unsigned long long)regs_blob[6],
+			        (unsigned long long)regs_blob[7],
+			        (unsigned long long)(uintptr_t)kernel_sandbox_base,
+			        (unsigned)(((uintptr_t)kernel_sandbox_base >> 56) & 0xF));
+		}
 
 		asm volatile (
 				"mov x29, %2\n"
@@ -275,6 +290,8 @@ int main() {
 			);
 
 		g_iter_phase = 3; /* write-output */
+
+		mte_tagmem_log("posttrace", (long)g_iter_num);   /* tagmem after the test case's STG/LDG ran */
 
 		reset_execution_clause_state(); /* free this TC's checkpoint memory; the predictor resets
 		                                   lazily at the next BPU test case (ensure_initialized ->
