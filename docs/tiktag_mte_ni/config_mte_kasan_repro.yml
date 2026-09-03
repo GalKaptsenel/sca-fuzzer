@@ -1,0 +1,43 @@
+# MTE non-interference on the Pixel 8 X3, aimed at TikTag-class speculative tag-check leaks.
+# Contract = cond + bpas (branch-mispredict + store-bypass windows); SSBS=1 (store bypass allowed).
+# The CE stays tag-blind (tbi1=1 masks the tag for addressing), so a speculative-slot tag mismatch
+# that the hardware leaks -> htrace != tag-blind ctrace -> violation. PAC profile defaults from device.
+instruction_set: aarch64
+instruction_categories:
+  - MTE
+  - MTE-TAGMEM
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-BITFIELD
+  - BASE-CONDSEL
+  - BASE-BRANCH
+  - BASE-MEM-LOAD
+  - BASE-MEM-STORE
+min_bb_per_function: 5
+max_bb_per_function: 5
+max_successors_per_bb: 2
+min_successors_per_bb: 1
+fuzzer: non-interference
+input_generator: aarch64-nzcv
+
+contract_execution_clause:
+  - cond
+  - bpas
+contract_observation_clause: l1d
+enable_speculative_store_bypass: true
+
+executor_mode: F+R
+executor_pinned_core: 6
+superbatch_size: 100
+
+executor_remote: true
+executor_remote_transport: adb
+executor_remote_host: 127.0.0.1
+executor_remote_port: 5037
+executor_remote_device: /dev/executor
+executor_remote_sysfs: /sys/executor
+executor_remote_userland: /data/local/tmp/executor_userland
+executor_remote_module: /data/local/tmp/revizor-executor.ko
+program_generator_seed: 212904
+input_gen_seed: 939371555
