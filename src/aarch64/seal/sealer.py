@@ -779,7 +779,7 @@ class SandboxWalk:
         # keeps each access within one granule, so its single tag covers it; the cache-set index
         # (bits [11:6]) is unaffected. Only when a tag store can make granules non-uniform: with no
         # tag-memory instruction in the pool the sandbox stays uniformly tagged and unaligned is safe.
-        granule_align = any("MTE-TAG-MEM-STORE" in s.tags
+        granule_align = any("MTE-TAGMEM-STORE" in s.tags
                             for s in generator.instruction_set.instructions)
         stg_mask = f"#0x{_SANDBOX_MASK & ~0xF:x}"
         data_mask = stg_mask if granule_align else f"#0x{_SANDBOX_MASK:x}"

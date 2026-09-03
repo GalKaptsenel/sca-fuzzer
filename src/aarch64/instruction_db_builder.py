@@ -52,11 +52,11 @@ _GENERAL_CLASSES = {
 # MTE families (each instruction also carries the general "MTE" tag) — kept off the BASE-* tags so
 # MTE generates only when an MTE category is enabled.
 _MTE_ARITH   = frozenset("addg subg subp subps".split())                # tagged-pointer arithmetic
-_MTE_TAG_MEM_STORE = frozenset("stg st2g stz2g stzg stgm stgp stzgm".split())  # WRITE granule tags
-_MTE_TAG_MEM_LOAD  = frozenset("ldg ldgm".split())                            # READ granule tags
-_MTE_TAG_MEM = _MTE_TAG_MEM_STORE | _MTE_TAG_MEM_LOAD                    # tag store + tag load
+_MTE_TAGMEM_STORE = frozenset("stg st2g stz2g stzg stgm stgp stzgm".split())  # WRITE granule tags
+_MTE_TAGMEM_LOAD  = frozenset("ldg ldgm".split())                             # READ granule tags
+_MTE_TAGMEM = _MTE_TAGMEM_STORE | _MTE_TAGMEM_LOAD                       # tag store + tag load
 _MTE_BASE    = frozenset("irg gmi".split())                             # tag-register manipulation
-_MTE = _MTE_ARITH | _MTE_TAG_MEM | _MTE_BASE
+_MTE = _MTE_ARITH | _MTE_TAGMEM | _MTE_BASE
 _FLAGOP = frozenset("rmif setf8 setf16 cfinv axflag xaflag".split())    # purpose is flag manipulation
 _EXCEPTION = frozenset("brk hlt svc hvc smc dcps1 dcps2 dcps3 drps udf eret eretaa eretab".split())
 _BARRIER = frozenset("dmb dsb isb sb tsb psb csdb dgh esb gcsb clrex ssbb pssbb".split())
@@ -134,16 +134,16 @@ def _functional(name: str, cat: str) -> set:
         return {"PAC", "PAC-SIGN"}
     # MTE families split so a config can request exactly the tag semantics it needs: a tag STORE makes
     # granules non-uniform (drives the sandbox's granule alignment), a tag LOAD only reads them, and
-    # the arithmetic/base ops touch no tag memory at all. The umbrella tags (MTE, MTE-TAG-MEM) stay so
+    # the arithmetic/base ops touch no tag memory at all. The umbrella tags (MTE, MTE-TAGMEM) stay so
     # coarser configs keep working.
     if name in _MTE_ARITH:
-        return {"MTE", "MTE-NON-TAG-MEM", "MTE-ARITH"}
-    if name in _MTE_TAG_MEM_STORE:
-        return {"MTE", "MTE-TAG-MEM", "MTE-TAG-MEM-STORE"}
-    if name in _MTE_TAG_MEM_LOAD:
-        return {"MTE", "MTE-TAG-MEM", "MTE-TAG-MEM-LOAD"}
+        return {"MTE", "MTE-NON-TAGMEM", "MTE-ARITH"}
+    if name in _MTE_TAGMEM_STORE:
+        return {"MTE", "MTE-TAGMEM", "MTE-TAGMEM-STORE"}
+    if name in _MTE_TAGMEM_LOAD:
+        return {"MTE", "MTE-TAGMEM", "MTE-TAGMEM-LOAD"}
     if name in _MTE_BASE:
-        return {"MTE", "MTE-NON-TAG-MEM", "MTE-BASE"}
+        return {"MTE", "MTE-NON-TAGMEM", "MTE-BASE"}
     if name in _FLAGOP:
         return {"BASE-FLAGOP"}
     if name == "nop":

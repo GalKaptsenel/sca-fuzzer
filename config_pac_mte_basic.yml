@@ -9,7 +9,7 @@ instruction_set: aarch64
 instruction_categories:
   - PAC
   - MTE
-  - MTE-TAG-MEM
+  - MTE-TAGMEM
   - BASE-ARITH
   - BASE-LOGICAL
   - BASE-SHIFT

@@ -101,7 +101,7 @@ _option_values = {
             # PAC (pointer authentication)
             "PAC", "PAC-SIGN", "PAC-AUTH", "PAC-STRIP",
             # MTE (memory tagging)
-            "MTE", "MTE-ARITH", "MTE-TAG-MEM", "MTE-BASE",
+            "MTE", "MTE-ARITH", "MTE-TAGMEM", "MTE-BASE",
             # memory (coarse + direction + kind) and prefetch
             "BASE-MEM", "BASE-MEM-LOAD", "BASE-MEM-STORE", "BASE-MEM-ATOMIC", "BASE-MEM-EXCLUSIVE",
             "BASE-MEM-ACQREL", "BASE-MEM-COPY", "BASE-MEM-SET", "BASE-PREFETCH",
