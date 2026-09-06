@@ -146,12 +146,15 @@ static int prologue(jit_t* jit, int base_reg, int tmp_reg) {
 	return 0;
 }
 
-static int epilogue(jit_t* jit, int base_reg, int hw_trace_reg, int pmu1_reg, int pmu2_reg, int pmu3_reg, int tmp_reg) {
+static int epilogue(jit_t* jit, int base_reg, int hw_trace_reg, int btb_trace_reg, int pmu1_reg, int pmu2_reg, int pmu3_reg, int tmp_reg) {
 	const int sp_reg = 31;
 	adjust_reg(jit, base_reg, tmp_reg, BASE_REGION, LATEST_MEASUREMENT_REGION);
-	jit_stp64_post_index(jit, hw_trace_reg, pmu1_reg, base_reg, 16);
-	jit_stp64_post_index(jit, pmu2_reg, pmu3_reg, base_reg, 16);
-	jit_sub64(jit, base_reg, base_reg, 2 * 16);
+	/* measurement layout: htrace[0]=L1D, htrace[1]=L2 (reserved, 0), htrace[2]=BTB, then pfc[0..2]. */
+	jit_eor64(jit, tmp_reg, tmp_reg, tmp_reg);                        /* tmp = 0 -> reserved L2 slot */
+	jit_stp64_post_index(jit, hw_trace_reg, tmp_reg, base_reg, 16);   /* htrace[0]=L1D, htrace[1]=0 */
+	jit_stp64_post_index(jit, btb_trace_reg, pmu1_reg, base_reg, 16); /* htrace[2]=BTB, pfc[0] */
+	jit_stp64_post_index(jit, pmu2_reg, pmu3_reg, base_reg, 16);      /* pfc[1], pfc[2] */
+	jit_sub64(jit, base_reg, base_reg, 3 * 16);
 	adjust_reg(jit, base_reg, tmp_reg, LATEST_MEASUREMENT_REGION, STORED_RSP_REGION);
 	jit_ldr64(jit, 0, base_reg);
 	jit_add64(jit, sp_reg, 0, 0);
@@ -452,12 +455,113 @@ static int reload(jit_t* jit, int base_reg, int tmp1, int tmp2, int tmp3, int in
 	return 0;
 }
 
+/* ==================================================================================================
+ * BTB (branch-target) prime + probe  -> htrace[HTRACE_BTB], alongside the cache channel.
+ *
+ * A code-only array of BTB_NSLOTS indirect branches (`blr trampoline`), one per unit, at STRIDE-spaced
+ * PCs so each occupies a distinct BTB set. The array is a subroutine run twice: a prime pass (installs
+ * every entry) before the test case, and a probe pass after it. Each unit times its own branch with the
+ * BR_MIS_PRED_RETIRED PMU (counter 3): a unit whose entry the test case evicted mispredicts on the probe
+ * pass and sets its bit (the unroll index) in btb_trace. Unrolled + fall-through (no dynamic dispatch),
+ * so no extra indirect branch pollutes the count; distinct-set slots don't self-evict, so a single probe
+ * pass is robust (no per-set isolation needed for this channel). Absolute view[0] addresses are baked
+ * into the callers, so this requires view_rotation off (also required for BTB state to survive the run). */
+#define BTB_NSLOTS       64
+#define BTB_STRIDE       128     /* bytes between probe-branch PCs -> distinct BTB sets */
+#define BTB_PRIME_REPS   4
+#define BTB_TRACE_REG    23      /* accumulator (== the builders' btb_trace_reg) */
+#define BTB_TRAMP_REG    24      /* trampoline address; every unit does `blr` through it */
+#define BTB_REGION_REG   25      /* subroutine address (caller side) */
+#define BTB_REPS_REG     26      /* prime-pass rep counter (caller side) */
+#define BTB_LR_REG       27      /* subroutine-saved caller LR (units' blr clobbers x30) */
+#define BTB_REC_REG      19      /* 0 = prime pass (install only), 1 = probe pass (record) */
+#define BTB_T0_REG       17      /* PMU pre */
+#define BTB_T1_REG       18      /* PMU post */
+#define BTB_TMP_REG      16      /* delta / bit scratch */
+
+static void jit_load_addr64(jit_t* jit, int reg, uint64_t a) {
+	jit_mov64(jit, reg, (int)(a & 0xffff));
+	jit_movk64(jit, reg, (int)((a >> 16) & 0xffff), 16);
+	jit_movk64(jit, reg, (int)((a >> 32) & 0xffff), 32);
+	jit_movk64(jit, reg, (int)((a >> 48) & 0xffff), 48);
+}
+
+/* Emit (branched over) the trampoline + the probe subroutine. out_region = subroutine entry,
+ * out_tramp = the trampoline (`bti; ret`). */
+static void emit_bpu_region(jit_t* jit, uint64_t* out_region, uint64_t* out_tramp) {
+	uint8_t* b_over = jit_get_cur(jit);
+	jit_nop(jit);                                   /* placeholder for the branch-over (patched below) */
+
+	*out_tramp = (uint64_t)(uintptr_t)jit_get_cur(jit);
+	jit_bti(jit, 1, 1);
+	jit_ret(jit, 30);                               /* trampoline: return to the unit's blr site */
+
+	*out_region = (uint64_t)(uintptr_t)jit_get_cur(jit);
+	jit_bti(jit, 1, 1);
+	jit_movr64(jit, BTB_LR_REG, 30);                /* save caller LR (units' blr clobbers x30) */
+	for (int s = 0; s < BTB_NSLOTS; ++s) {
+		uint8_t* unit = jit_get_cur(jit);
+		jit_isb(jit); jit_dsb_sy(jit);
+		jit_read64_pmu(jit, 3, BTB_T0_REG);         /* pre = BR_MIS_PRED_RETIRED */
+		jit_isb(jit); jit_dsb_sy(jit);
+		jit_bti(jit, 1, 1);
+		jit_blr64(jit, BTB_TRAMP_REG);              /* the probe indirect branch (distinct PC per unit) */
+		jit_isb(jit); jit_dsb_sy(jit);
+		jit_read64_pmu(jit, 3, BTB_T1_REG);         /* post */
+		jit_isb(jit); jit_dsb_sy(jit);
+		jit_subr64(jit, BTB_TMP_REG, BTB_T1_REG, BTB_T0_REG);   /* delta = mispredicts over the branch */
+		uint8_t* c1 = jit_get_cur(jit);
+		jit_cbz32(jit, BTB_REC_REG, c1 + 5 * 4);    /* prime pass -> install only, don't record */
+		uint8_t* c2 = jit_get_cur(jit);
+		jit_cbz32(jit, BTB_TMP_REG, c2 + 4 * 4);    /* not evicted -> skip */
+		jit_mov64(jit, BTB_TMP_REG, 1);
+		jit_lsl64(jit, BTB_TMP_REG, BTB_TMP_REG, s);/* 1 << s (unroll-constant set index) */
+		jit_orr64(jit, BTB_TRACE_REG, BTB_TRACE_REG, BTB_TMP_REG);
+		while (jit_get_cur(jit) < unit + BTB_STRIDE) {
+			jit_nop(jit);                           /* pad so each unit's blr sits on its own set */
+		}
+	}
+	jit_movr64(jit, 30, BTB_LR_REG);
+	jit_ret(jit, 30);
+
+	uint8_t* end = jit_get_cur(jit);
+	jit_set_cur(jit, b_over);
+	jit_b(jit, end);                                /* skip the region in linear flow */
+	jit_set_cur(jit, end);
+}
+
+/* Prime pass: run the subroutine BTB_PRIME_REPS times to install every unit's BTB entry. */
+static void bpu_prime(jit_t* jit, uint64_t region, uint64_t tramp) {
+	jit_load_addr64(jit, BTB_TRAMP_REG, tramp);
+	jit_load_addr64(jit, BTB_REGION_REG, region);
+	jit_mov64(jit, BTB_REC_REG, 0);
+	jit_isb(jit); jit_dsb_sy(jit);
+	jit_mov64(jit, BTB_REPS_REG, BTB_PRIME_REPS);
+	uint8_t* loop = jit_get_cur(jit);
+	jit_blr64(jit, BTB_REGION_REG);
+	jit_sub64(jit, BTB_REPS_REG, BTB_REPS_REG, 1);
+	jit_cbnz64(jit, BTB_REPS_REG, loop);
+	jit_isb(jit); jit_dsb_sy(jit);
+}
+
+/* Probe pass: run the subroutine once, recording per-unit mispredicts into btb_trace_reg. */
+static void bpu_probe(jit_t* jit, uint64_t region, uint64_t tramp, int btb_trace_reg) {
+	jit_eor64(jit, btb_trace_reg, btb_trace_reg, btb_trace_reg);   /* fresh accumulator */
+	jit_load_addr64(jit, BTB_TRAMP_REG, tramp);
+	jit_load_addr64(jit, BTB_REGION_REG, region);
+	jit_mov64(jit, BTB_REC_REG, 1);
+	jit_isb(jit); jit_dsb_sy(jit);
+	jit_blr64(jit, BTB_REGION_REG);
+	jit_isb(jit); jit_dsb_sy(jit);
+}
+
 static size_t prime_probe_method(jit_t* jit, uint32_t* tc, size_t tc_size, size_t* tc_off_bytes) {
 	if (NULL == jit) {
 		return -EINVAL;
 	}
 	int base_reg = 29;
 	int hw_trace_reg = 15;
+	int btb_trace_reg = BTB_TRACE_REG;   /* BTB prime+probe result -> htrace[HTRACE_BTB]; 0 when disabled */
 	int pmu1_reg = 20;
 	int pmu2_reg = 21;
 	int pmu3_reg = 22;
@@ -465,14 +569,23 @@ static size_t prime_probe_method(jit_t* jit, uint32_t* tc, size_t tc_size, size_
 	int tmp_reg2 = 17;
 	int tmp_reg3 = 18;
 	int tmp_reg4 = 19;
-	
+	const bool bpu = executor.config.enable_bpu_probe;
+	uint64_t btb_region = 0, btb_tramp = 0;
+
 	uintptr_t start = (uintptr_t)jit_get_cur(jit);
 	jit_perm_rw(jit);
 	jit_bti(jit, 1, 1);
 	prologue(jit, base_reg, tmp_reg1);
+	if (bpu) {
+		emit_bpu_region(jit, &btb_region, &btb_tramp);
+	}
 	set_registers_from_input(jit, base_reg, tmp_reg1);
 
 	prime(jit, base_reg, tmp_reg1, tmp_reg2, tmp_reg3, PRIME_REPS);
+
+	if (bpu) {
+		bpu_prime(jit, btb_region, btb_tramp);   /* install BTB entries just before the test case */
+	}
 
 	adjust_reg(jit, base_reg, tmp_reg1, BASE_REGION, MAIN_REGION);
 
@@ -492,7 +605,12 @@ static size_t prime_probe_method(jit_t* jit, uint32_t* tc, size_t tc_size, size_
 
 	probe(jit, base_reg, tmp_reg1, tmp_reg2, tmp_reg3, tmp_reg4, hw_trace_reg);
 
-	epilogue(jit, base_reg, hw_trace_reg, pmu1_reg, pmu2_reg, pmu3_reg, tmp_reg1);
+	if (bpu) {
+		bpu_probe(jit, btb_region, btb_tramp, btb_trace_reg);
+	} else {
+		jit_eor64(jit, btb_trace_reg, btb_trace_reg, btb_trace_reg);
+	}
+	epilogue(jit, base_reg, hw_trace_reg, btb_trace_reg, pmu1_reg, pmu2_reg, pmu3_reg, tmp_reg1);
 	jit_ret(jit, 30);
 	jit_perm_rx(jit);
 	return (size_t)((uintptr_t)jit_get_cur(jit) - start);
@@ -504,6 +622,7 @@ static size_t flush_reload_method(jit_t* jit, uint32_t* tc, size_t tc_size, size
 	}
 	int base_reg = 29;
 	int hw_trace_reg = 15;
+	int btb_trace_reg = BTB_TRACE_REG;   /* BTB prime+probe result -> htrace[HTRACE_BTB]; 0 when disabled */
 	int pmu1_reg = 20;
 	int pmu2_reg = 21;
 	int pmu3_reg = 22;
@@ -511,14 +630,23 @@ static size_t flush_reload_method(jit_t* jit, uint32_t* tc, size_t tc_size, size
 	int tmp_reg2 = 17;
 	int tmp_reg3 = 18;
 	int tmp_reg4 = 19;
+	const bool bpu = executor.config.enable_bpu_probe;
+	uint64_t btb_region = 0, btb_tramp = 0;
 
 	uintptr_t start = (uintptr_t)jit_get_cur(jit);
 	jit_perm_rw(jit);
 	jit_bti(jit, 1, 1);
 	prologue(jit, base_reg, tmp_reg1);
+	if (bpu) {
+		emit_bpu_region(jit, &btb_region, &btb_tramp);
+	}
 	set_registers_from_input(jit, base_reg, tmp_reg1);
 
 	flush(jit, base_reg, tmp_reg1, tmp_reg2, tmp_reg3);
+
+	if (bpu) {
+		bpu_prime(jit, btb_region, btb_tramp);   /* install BTB entries just before the test case */
+	}
 
 	adjust_reg(jit, base_reg, tmp_reg1, BASE_REGION, MAIN_REGION);
 
@@ -538,7 +666,12 @@ static size_t flush_reload_method(jit_t* jit, uint32_t* tc, size_t tc_size, size
 
 	reload(jit, base_reg, tmp_reg1, tmp_reg2, tmp_reg3, tmp_reg4, hw_trace_reg);
 
-	epilogue(jit, base_reg, hw_trace_reg, pmu1_reg, pmu2_reg, pmu3_reg, tmp_reg1);
+	if (bpu) {
+		bpu_probe(jit, btb_region, btb_tramp, btb_trace_reg);
+	} else {
+		jit_eor64(jit, btb_trace_reg, btb_trace_reg, btb_trace_reg);
+	}
+	epilogue(jit, base_reg, hw_trace_reg, btb_trace_reg, pmu1_reg, pmu2_reg, pmu3_reg, tmp_reg1);
 	jit_ret(jit, 30);
 	jit_perm_rx(jit);
 	return (size_t)((uintptr_t)jit_get_cur(jit) - start);
@@ -550,6 +683,7 @@ static size_t prime_reload_method(jit_t* jit, uint32_t* tc, size_t tc_size, size
 	}
 	int base_reg = 29;
 	int hw_trace_reg = 15;
+	int btb_trace_reg = 23;   /* BTB prime+probe result -> htrace[HTRACE_BTB]; 0 when disabled */
 	int pmu1_reg = 20;
 	int pmu2_reg = 21;
 	int pmu3_reg = 22;
@@ -584,7 +718,8 @@ static size_t prime_reload_method(jit_t* jit, uint32_t* tc, size_t tc_size, size
 
 	reload(jit, base_reg, tmp_reg1, tmp_reg2, tmp_reg3, tmp_reg4, hw_trace_reg);
 
-	epilogue(jit, base_reg, hw_trace_reg, pmu1_reg, pmu2_reg, pmu3_reg, tmp_reg1);
+	jit_eor64(jit, btb_trace_reg, btb_trace_reg, btb_trace_reg);   /* BTB channel: filled by probe_bpu (TODO); 0 for now */
+	epilogue(jit, base_reg, hw_trace_reg, btb_trace_reg, pmu1_reg, pmu2_reg, pmu3_reg, tmp_reg1);
 	jit_ret(jit, 30);
 	jit_perm_rx(jit);
 	return (size_t)((uintptr_t)jit_get_cur(jit) - start);
@@ -642,6 +777,13 @@ int __nocfi load_jit_template(size_t tc_size) {
 	if(UNSET_TEMPLATE == executor.config.measurement_template) {
 		module_err("Template is not set!\n");
 		return -EINVAL;
+	}
+
+	/* The BTB prime/probe bakes absolute view[0] addresses into the harness; view rotation would run a
+	 * different view VA and mispredict everything. Not supported together for now -- warn loudly. */
+	if (executor.config.enable_bpu_probe && executor.config.view_rotation) {
+		module_err("enable_bpu_probe with view_rotation is not supported for now; "
+		           "the BTB htrace (htrace[%d]) will be invalid. Disable one.\n", HTRACE_BTB);
 	}
 
 	++jit_build_calls;

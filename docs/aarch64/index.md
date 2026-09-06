@@ -174,7 +174,7 @@ region with a checkout ioctl. *Valid in* lists the states in which the command d
 | 4 | `CHECKOUT_INPUT` | `uint64` input id | — | any (id must exist) | Select that input for `read`/`write`. |
 | 5 | `ALLOCATE_INPUT` | — | `uint64` new id | any | Allocate an input slot. |
 | 6 | `FREE_INPUT` | `uint64` input id | — | any | Free that input slot. |
-| 7 | `MEASUREMENT` | — | `measurement_t` = `htrace` (u64) + `pfc[3]` (u64 each) | `TRACED`, input checked out | Result for the checked-out input. |
+| 7 | `MEASUREMENT` | — | `measurement_t` = `htrace[3]` + `pfc[3]` (u64 each) | `TRACED`, input checked out | Result for the checked-out input. `htrace[0]`=L1D cache sets, `htrace[1]`=L2 (reserved), `htrace[2]`=BTB sets (populated only when `enable_bpu_probe`). |
 | 8 | `TRACE` | — | — | `READY` / `TRACED` | Run the test case over all inputs and measure. |
 | 9 | `CLEAR_ALL_INPUTS` | — | — | any | Free every input. |
 | 10 | `GET_TEST_LENGTH` | — | `uint64` length | test loaded (`LOADED_TEST` / `READY` / `TRACED`) | Length of the loaded test case. |
@@ -214,6 +214,7 @@ module reload). `LocalHWExecutor` raises a `PermissionError` carrying the exact 
 | `enable_pre_run_flush` | rw | `0` / non-zero | Legacy combined knob: writing it sets the BPU flush, the PHR flush, and view rotation together (back-compat); reads back the BPU-flush component. |
 | `enable_phr_flush` | rw | `0` / non-zero | Flush the path-history register (PHR) before each run, independently of the combined knob. |
 | `enable_view_rotation` | rw | `0` / non-zero | Toggle the view-rotation part of the pre-run reset, independently. |
+| `enable_bpu_probe` | rw | `0` / `1` | Also prime+probe the BTB alongside the cache channel, writing branch-target sets to `htrace[2]` (default `0`). Not supported together with `enable_view_rotation` (the BTB harness bakes absolute view[0] addresses); warns and yields an invalid BTB trace if both are set. |
 | `enable_ssbs` | rw | `0` / non-zero | Set `PSTATE.SSBS=1` on the core so it may bypass stores (required to observe Spectre-v4). |
 | `pin_to_core` | rw | online CPU id | Pin execution to a CPU (invalid → current CPU). |
 | `enable_branch_training` | rw | `0` / non-zero | Apply mistraining before the measured run (§12). |

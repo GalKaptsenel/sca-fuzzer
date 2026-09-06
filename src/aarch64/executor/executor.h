@@ -43,6 +43,7 @@ typedef struct executor_config {
 	int reload_random_order; /* F+R reload: 0 => fixed bit-reversed set order; 1 => fresh random permutation per run */
 	int reload_pmu_event;    /* PMU event id counted by reload()'s hit test (delta==0). Default 0x03 = L1D_CACHE_REFILL; e.g. 0x17 = L2D_CACHE_REFILL */
 	int reload_isolate;      /* 1 => reload probes only executor.reload_target_set (per-set isolation; C re-runs the test per set) */
+	char enable_bpu_probe;   /* 1 => also prime+probe the BTB alongside the cache channel -> htrace[HTRACE_BTB] */
 } executor_config_t;
 
 typedef struct device_managment {

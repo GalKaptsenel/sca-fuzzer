@@ -255,12 +255,14 @@ static int __nocfi run_experiments(void) {
 		if (executor.config.reload_isolate) {
 			/* Per-set isolation: re-run the (deterministic) test once per set, each probing only that
 			 * set, and OR the single-set htraces so no reload sweep can prefetch the page into itself. */
-			uint64_t acc = 0;
+			uint64_t acc = 0, acc_btb = 0;
 			for (executor.reload_target_set = 0; executor.reload_target_set < 64; ++executor.reload_target_set) {
 				((void(*)(void*))measurement_code)(executor.sandbox);
-				acc |= executor.sandbox->latest_measurement.htrace[0];
+				acc |= executor.sandbox->latest_measurement.htrace[HTRACE_L1D];
+				acc_btb |= executor.sandbox->latest_measurement.htrace[HTRACE_BTB];
 			}
-			executor.sandbox->latest_measurement.htrace[0] = acc;
+			executor.sandbox->latest_measurement.htrace[HTRACE_L1D] = acc;
+			executor.sandbox->latest_measurement.htrace[HTRACE_BTB] = acc_btb;
 		} else {
 			((void(*)(void*))measurement_code)(executor.sandbox);
 		}

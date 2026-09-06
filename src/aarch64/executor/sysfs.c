@@ -97,6 +97,22 @@ static ssize_t enable_phr_flush_show(struct kobject *kobj, struct kobj_attribute
 	return scnprintf(buf, PAGE_SIZE,"%d\n", executor.config.phr_flush);
 }
 
+static ssize_t enable_bpu_probe_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
+    bool value = false;
+    if (kstrtobool(buf, &value)) {
+        return -EINVAL;
+    }
+    executor.config.enable_bpu_probe = value;
+    // The BTB region is emitted before the test-case body only when enabled, which shifts the TC
+    // insert offset -> recompute the per-template offsets, then force a rebuild.
+    refresh_tc_insert_offsets();
+    invalidate_jit_cache();
+    return count;
+}
+static ssize_t enable_bpu_probe_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+	return scnprintf(buf, PAGE_SIZE,"%d\n", executor.config.enable_bpu_probe);
+}
+
 static ssize_t enable_ssbs_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
     bool value = false;
     if (kstrtobool(buf, &value)) {
@@ -273,6 +289,7 @@ static struct kobj_attribute pac_pauth2_attribute = __ATTR(pac_pauth2, 0444, pac
 static struct kobj_attribute enable_pre_run_flush_attribute = __ATTR(enable_pre_run_flush, 0644,enable_pre_run_flush_show, enable_pre_run_flush_store);
 static struct kobj_attribute enable_phr_flush_attribute = __ATTR(enable_phr_flush, 0644,enable_phr_flush_show, enable_phr_flush_store);
 static struct kobj_attribute enable_view_rotation_attribute = __ATTR(enable_view_rotation, 0644,enable_view_rotation_show, enable_view_rotation_store);
+static struct kobj_attribute enable_bpu_probe_attribute = __ATTR(enable_bpu_probe, 0644,enable_bpu_probe_show, enable_bpu_probe_store);
 static struct kobj_attribute enable_ssbs_attribute = __ATTR(enable_ssbs, 0644,enable_ssbs_show, enable_ssbs_store);
 static struct kobj_attribute measurement_mode_attribute = __ATTR(measurement_mode, 0644,measurement_mode_show, measurement_mode_store);
 static struct kobj_attribute pin_to_core_attribute = __ATTR(pin_to_core, 0644,pin_to_core_show, pin_to_core_store);
@@ -422,6 +439,7 @@ static struct attribute *sysfs_attributes[] = {
 	&enable_pre_run_flush_attribute.attr,
 	&enable_phr_flush_attribute.attr,
 	&enable_view_rotation_attribute.attr,
+	&enable_bpu_probe_attribute.attr,
 	&enable_ssbs_attribute.attr,
 	&measurement_mode_attribute.attr,
 	&pin_to_core_attribute.attr,

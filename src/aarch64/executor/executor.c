@@ -101,6 +101,7 @@ static void init_executor_defaults(void) {
 	executor.config.reload_random_order = 0;
 	executor.config.reload_pmu_event = 0x03;  /* L1D_CACHE_REFILL */
 	executor.config.reload_isolate = 0;
+	executor.config.enable_bpu_probe = 0;
 }
 
 int __nocfi initialize_executor(set_memory_t set_memory_x) {

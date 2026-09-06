@@ -55,8 +55,9 @@ int config_pfc(void) {
 	asm volatile("msr pmevtyper2_el0, %0" :: "r" ((uint64_t)(filter_events | 0x13)));
 	asm volatile("isb\n");
 
-	// 4. Branch instruction architecturally executed, mispredicted immediate (0x8111)
-	asm volatile("msr pmevtyper3_el0, %0" :: "r" ((uint64_t)(filter_events | 0x8111)));
+	// 4. BR_MIS_PRED_RETIRED (0x22): branch architecturally executed, mispredicted (base
+	//    architectural event, covers indirect branches; used by the BTB prime+probe channel)
+	asm volatile("msr pmevtyper3_el0, %0" :: "r" ((uint64_t)(filter_events | 0x22)));
 	asm volatile("isb\n");
 
 	// cycle counter filter: same EL filter as the events, so PMCCNTR counts during the EL1 measurement
