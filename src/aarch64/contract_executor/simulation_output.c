@@ -71,7 +71,7 @@ void* kaddr2uaddr(void* kaddr) {
 		simulation.sim_input.hdr.config.requested_mem_base_virt,
 		(uintptr_t)simulation.simulation_memory);
 	uintptr_t lo = (uintptr_t)simulation.simulation_memory;
-	uintptr_t hi = lo + simulation.sim_input.mem_size + 0x1000;   /* sandbox + overflow page */
+	uintptr_t hi = lo + simulation.sim_input.mem_size + SANDBOX_OVERFLOW_SIZE;
 	if (u < lo || u >= hi) {
 		/* The sandbox clamps every base, so an out-of-buffer address is a real defect (a va_size
 		 * mismatch, or a sandbox escape) -- fail loudly, never silently redirect. */
@@ -311,10 +311,15 @@ static instr_trace_entry_t* log_sim_state(struct simulation_state* sim_state) {
 	entry->metadata.window_id = 0;             // architectural unless the speculation logger sets it
 
 	mem_access_info_t mi = parse_memory_access_instruction(entry->cpu.encoding, &entry->cpu);
-	entry->metadata.has_memory_access = mi.is_mem ? 1 : 0;
-	entry->metadata.is_pair = mi.is_pair ? 1 : 0;
+	/* Function-frame (SP) spills are harness instrumentation, not test-case data: keep them out of
+	 * the contract footprint so CTrace matches HTrace (the kernel spills into upper_overflow, outside
+	 * the probed sets). The generator never emits sp as a data base, so this only drops prologue/
+	 * epilogue LR saves and restores. */
+	int is_contract_access = mi.is_mem && mi.base_register != AARCH64_SP_REG;
+	entry->metadata.has_memory_access = is_contract_access ? 1 : 0;
+	entry->metadata.is_pair = (is_contract_access && mi.is_pair) ? 1 : 0;
 
-	if(mi.is_mem) {
+	if(is_contract_access) {
 		fill_mem_access(&entry->metadata.memory_access, mi.effective_address, mi.data_size,
 				mi.is_store, mi.is_atomic, read_reg_or_zr(&entry->cpu, mi.target_register));
 		if(mi.is_pair) {

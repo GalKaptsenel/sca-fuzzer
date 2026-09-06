@@ -66,7 +66,7 @@ static struct simulation_state* fresh_state(uint8_t** mem_out) {
     simulation.sim_input.mem_size                               = 0x100;
     reset_execution_clause_state();
 
-    uint8_t* mem = calloc(1, simulation.sim_input.mem_size + 0x1000);
+    uint8_t* mem = calloc(1, simulation.sim_input.mem_size + SANDBOX_OVERFLOW_SIZE);
     static struct simulation_state st;
     memset(&st, 0, sizeof(st));
     st.memory = mem;

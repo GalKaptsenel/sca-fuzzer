@@ -8,6 +8,10 @@
 
 #define MAX_HOOKS (1024)
 
+// One trailing page after the input's memory, mirroring the kernel executor's upper_overflow:
+// it holds the test-case stack and absorbs accidental over-reads, so neither escapes the buffer.
+#define SANDBOX_OVERFLOW_SIZE 0x1000
+
 struct simulation {
 	uintptr_t return_address;
 	struct simulation_input sim_input;

@@ -238,8 +238,13 @@ void base_hook_c(struct cpu_state* state) {
 	 * software-emulated and skipped from native execution, so they must NOT have their base register
 	 * translated kaddr->uaddr here (the emulator already produced the architectural result from the
 	 * kaddr; translating would leave a uaddr in the base register). */
+	/* SP-based accesses are only ever function-frame spills (the generator never emits sp as a data
+	 * base): leave them native on the host stack instead of rebasing into the sandbox buffer — they
+	 * are harness instrumentation, kept out of the contract just like the kernel keeps them in
+	 * upper_overflow, outside the probed sets. */
 	if(is_memory_access(*(uint32_t*)state->pc) && !mte_is_mem_tag_access(*(uint32_t*)state->pc)
-	   && !is_literal_pc_relative(*(uint32_t*)state->pc)) {
+	   && !is_literal_pc_relative(*(uint32_t*)state->pc)
+	   && get_rn(*(uint32_t*)state->pc) != AARCH64_SP_REG) {
 		uint32_t inst = *(uint32_t*)state->pc;
 		uint32_t rn = get_rn(inst);
 		uintptr_t base_orig = cpu_state_read_base_reg(state, rn);

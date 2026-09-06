@@ -182,7 +182,7 @@ int main() {
 			goto main_input_free;
 		}
 
-		size_t sandbox_size = simulation.sim_input.mem_size + 0x1000; // Add a single page for overflow
+		size_t sandbox_size = simulation.sim_input.mem_size + SANDBOX_OVERFLOW_SIZE;
 		simulation.simulation_memory = (uint8_t*)malloc(sandbox_size);
 		if(NULL == simulation.simulation_memory) {
 			alarm(0);

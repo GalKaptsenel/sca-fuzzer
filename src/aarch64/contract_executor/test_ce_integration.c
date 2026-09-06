@@ -89,6 +89,11 @@ static uint32_t enc_str_postidx(int rt, int rn, int imm9) {
     uint32_t i = (uint32_t)(int32_t)imm9 & 0x1FF;
     return 0xF8000400u | (i << 12) | ((uint32_t)rn << 5) | (uint32_t)rt;
 }
+/* STR X<rt>, [X<rn>, #<imm9>]! — pre-index, 64-bit (Xn += imm9, then writes [Xn]) */
+static uint32_t enc_str_preidx(int rt, int rn, int imm9) {
+    uint32_t i = (uint32_t)(int32_t)imm9 & 0x1FF;
+    return 0xF8000C00u | (i << 12) | ((uint32_t)rn << 5) | (uint32_t)rt;
+}
 /* STP X<rt>, X<rt2>, [X<rn>] — signed offset 0, 64-bit (writes two 8-byte elements) */
 static uint32_t enc_stp(int rt, int rt2, int rn) {
     return 0xA9000000u | ((uint32_t)rt2 << 10) | ((uint32_t)rn << 5) | (uint32_t)rt;
@@ -515,6 +520,72 @@ static void test_integration_str_base(void) {
     EXPECT_EQ(e->metadata.memory_access.before,            init_val);
     EXPECT_EQ(e->metadata.memory_access.after,             (uint64_t)0);
     EXPECT_EQ(e->metadata.speculation_nesting,             (uint64_t)0);
+}
+
+/* ---- GROUP 2b: SP-based (function-frame) accesses stay out of the footprint ---- */
+
+static void test_integration_sp_access_excluded(void) {
+    /* An access based on SP is a function-frame spill (harness instrumentation), never test-case
+     * data — the generator never emits sp as a data base. It must NOT enter the contract footprint,
+     * mirroring the kernel, which keeps the stack in upper_overflow (outside the probed sets). Here
+     * LDR X0,[SP] must be dropped while LDR X1,[X29] is the sole contract access. */
+    uint32_t code[] = {
+        enc_ldr_reg(0, 31),   /* LDR X0, [SP]  — dropped from the footprint */
+        enc_ldr_reg(1, 29),   /* LDR X1, [X29] — the only contract access   */
+    };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t val = UINT64_C(0xC0FFEE0011223344);
+    memcpy(mem, &val, 8);
+
+    ce_result_t res;
+    if (!run_ce_simple(code, 2, mem, sizeof(mem), KBASE, 0, 0u, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    /* Exactly one contract memory access, and it is the [X29] load — the SP access is gone. */
+    EXPECT_EQ(count_mem_entries(&res), 1);
+    instr_trace_entry_t *e = find_mem_entry(&res, 0);
+    EXPECT(e != NULL);
+    if (!e) return;
+    EXPECT_EQ(e->metadata.memory_access.is_write,          (uint64_t)0);
+    EXPECT_EQ(e->metadata.memory_access.effective_address, KBASE);
+}
+
+static void test_integration_frame_spill_excluded(void) {
+    /* The exact non-leaf prologue/epilogue the generator emits: STR X30,[SP,#-16]! ... LDR X30,[SP],#16
+     * (writeback forms). Both are SP-based, so both must be dropped from the footprint and must run
+     * natively without a sandbox-bounds fault; the LR is preserved across the body, and only the
+     * body's LDR X0,[X29] is a contract access. */
+    uint32_t code[] = {
+        enc_str_preidx(30, 31, -16),  /* prologue: SP -= 16, spill X30      (dropped) */
+        enc_ldr_reg(0, 29),           /* body:     LDR X0, [X29]            (contract) */
+        enc_ldr_postidx(30, 31, 16),  /* epilogue: restore X30, SP += 16    (dropped) */
+    };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t val = UINT64_C(0x1122334455667788);
+    memcpy(mem, &val, 8);
+
+    ce_result_t res;
+    if (!run_ce_simple(code, 3, mem, sizeof(mem), KBASE, 0, 0u, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    /* Only the body load is in the footprint; the balanced SP spill/restore is invisible. */
+    EXPECT_EQ(count_mem_entries(&res), 1);
+    instr_trace_entry_t *e = find_mem_entry(&res, 0);
+    EXPECT(e != NULL);
+    if (!e) return;
+    EXPECT_EQ(e->metadata.memory_access.is_write,          (uint64_t)0);
+    EXPECT_EQ(e->metadata.memory_access.effective_address, KBASE);
+    EXPECT_EQ(e->metadata.memory_access.before,            val);
 }
 
 /* ---- GROUP 3: LDR X0, [X29, #16] — unsigned offset ------------------- */
@@ -3528,6 +3599,8 @@ int main(void) {
 
     test_integration_ldr_base();
     test_integration_str_base();
+    test_integration_sp_access_excluded();
+    test_integration_frame_spill_excluded();
     test_integration_mte_after_access_correction();
     test_integration_mte_inactive_no_correction();
     test_integration_mte_correction_propagates();

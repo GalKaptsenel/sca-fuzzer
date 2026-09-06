@@ -617,7 +617,7 @@ evicts along. The htrace is a 64-entry cache-set bitmap; an access at sandbox `o
    +-------------------------------+
    |  faulty_region       ( 4 KB)  |           input page 1   (offset 0x1000-0x1FFF)
    +-------------------------------+
-   |  upper_overflow      ( 4 KB)  |   guard (zeroed)
+   |  upper_overflow      ( 4 KB)  |   guard (zeroed); also the test-case STACK (SP at its top)
    +-------------------------------+
    |  stored_rsp          (  8 B)  |   saved stack pointer
    +-------------------------------+
@@ -625,6 +625,14 @@ evicts along. The htrace is a 64-entry cache-set bitmap; an access at sandbox `o
    +-------------------------------+
    high address
 ```
+
+The test-case stack lives at the **top of `upper_overflow`** and grows down (`SP` is seeded there by
+`get_stack_base_address`). This isolates function-frame spills (a callee's saved `LR`) from the input
+data regions: the sandbox address mask never clamps a generated access into `upper_overflow`, so a
+spill can neither alias input data nor pollute the Prime+Probe trace of the probed (main-region) sets.
+`SP`-based accesses are treated as harness instrumentation and kept out of the contract footprint — the
+contract executor mirrors this by exempting `Rn == SP` accesses from its trace (they run natively and
+are not recorded), so CTrace and htrace agree on programs that use a stack.
 
 ### 8.2 Input register region
 

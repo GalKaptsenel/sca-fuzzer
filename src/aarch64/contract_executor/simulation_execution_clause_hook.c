@@ -164,7 +164,7 @@ static void ensure_initialized(void) {
 	}
 	mgmt.current_checkpoint_id = 0;
 	mgmt.next_window_id = 0;   /* ids start at 1; 0 is the architectural flow */
-	mgmt.memory_size = simulation.sim_input.mem_size + 0x1000; // + overflow page
+	mgmt.memory_size = simulation.sim_input.mem_size + SANDBOX_OVERFLOW_SIZE;
 	size_t checkpoints_array_size = mgmt.max_checkpoints * sizeof(struct execution_checkpoint);
 	mgmt.checkpoints_array = malloc(checkpoints_array_size);
 	if(NULL == mgmt.checkpoints_array) {
