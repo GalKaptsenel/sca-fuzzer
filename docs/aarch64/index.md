@@ -655,12 +655,19 @@ the rule the basic-block DAG already follows one level down. `function_call_prob
 filled slot in a caller becomes a call.
 
 **Direct vs indirect calls.** `indirect_call_probability` chooses, per call, between a direct `BL <target>`
-and a single-target indirect `BLR Xd` (`Xd` a data register `x0`–`x5`). For the indirect form
-`Aarch64IndirectCallPass` inserts `ADR Xd, <target>` before the `BLR` to load the forward target's
-PC-relative address — `ADR`, not `ADRP`/`#:lo12:`, because the non-linking assembler resolves a local
-`ADR` but leaves `ADRP`/`#:lo12:` relocations unresolved (zero). The target register is a real operand
-on the `BLR`, so the pass reads it (not the template text); the target is still one forward function, so
-the acyclic DAG is unchanged. (Multi-target via a runtime GOT load replaces the `ADR` later.)
+and a single-target indirect `BLR Xd`. For the indirect form `Aarch64IndirectCallPass` inserts
+`ADR Xd, <target>` before the `BLR` to load the forward target's PC-relative address — `ADR`, not
+`ADRP`/`#:lo12:`, because the non-linking assembler resolves a local `ADR` but leaves `ADRP`/`#:lo12:`
+relocations unresolved (zero). The target register is a real operand on the `BLR`, so the pass reads it
+(not the template text); the target is still one forward function, so the acyclic DAG is unchanged.
+
+`Xd` is a **dedicated register (`INDIRECT_CALL_TARGET_REGISTER`, x28)**, not a data register. `ADR`
+writes a *code* address, which differs between the CE's code buffer and the kernel's code base — fine
+for the branch, but in a data register (x0–x7) the generator would later reuse it as a sandbox-masked
+base, and `code_addr & 0x1fff` differs between CE and kernel, so the same access hits different cache
+sets and CTrace/htrace diverge with no real leak. x28 is callee-saved (both the kernel harness and the
+CE trampoline restore it), not reserved (X15/X20–X22/X29) and never a data base, so the code address
+never reaches a load/store. (Multi-target via a runtime GOT load replaces the `ADR` later.)
 
 **Bounding the call fan-out.** A callee reached via many call paths executes many times — a function at
 call depth *d* with ~*c* calls per level runs ~*cᵈ* times, so a naive call-dense program re-executes a

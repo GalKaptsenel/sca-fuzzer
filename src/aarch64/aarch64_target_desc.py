@@ -9,6 +9,12 @@ from ..config import CONF
 # Parked in this shared constants module — a dedicated sandbox-ABI home would fit better.
 SANDBOX_BASE_REGISTER = "x29"
 
+# Dedicated register for an indirect call's target address (ADR + BLR): callee-saved (both the kernel
+# harness and the CE trampoline save/restore it), not reserved (X15 hw-trace, X20-X22 PMU, X29 base) and
+# not a data register — a code address in x0-x7 would be reused as a sandbox-masked base and diverge
+# between the CE and kernel code bases.
+INDIRECT_CALL_TARGET_REGISTER = "x28"
+
 
 class AArch64MemRole(MemoryRole):
     """AArch64 addressing roles inside `[...]` (the extractor's MemRole, minus NONE which maps to

@@ -19,7 +19,8 @@ from ..interfaces import TestCase, Operand, Instruction, BasicBlock, Function, I
     GeneratorException, RegisterOperand, MAIN_AREA_SIZE, FAULTY_AREA_SIZE, \
     MemoryOperand, OT, OperandSpec, MemorySpec, CondOperand, LabelOperand
 from ..generator import ConfigurableGenerator, RandomGenerator, Pass
-from .aarch64_target_desc import Aarch64TargetDesc, SANDBOX_BASE_REGISTER, AArch64MemRole
+from .aarch64_target_desc import Aarch64TargetDesc, SANDBOX_BASE_REGISTER, \
+    INDIRECT_CALL_TARGET_REGISTER, AArch64MemRole
 from .aarch64_elf_parser import Aarch64ElfParser
 from .aarch64_printer import Aarch64Printer
 
@@ -51,11 +52,9 @@ class Aarch64Generator(ConfigurableGenerator, abc.ABC):
         # register Aarch64IndirectCallPass materializes. "CALL" marks it for Function.is_leaf and the
         # frame pass; operands[0] is the (forward) target label, checked for the acyclic call graph.
         if random.random() < CONF.indirect_call_probability:
-            reg = random.choice([r for r in ("x0", "x1", "x2", "x3", "x4", "x5")
-                                 if r not in CONF.register_blocklist])
             inst = Instruction("blr", False, "CALL", True, template="BLR {reg}")
             inst.add_op(LabelOperand(label))
-            inst.add_op(self._target_reg_operand(reg, src=True, dest=False))
+            inst.add_op(self._target_reg_operand(INDIRECT_CALL_TARGET_REGISTER, src=True, dest=False))
             return inst
         inst = Instruction("bl", False, "CALL", True, template="BL {label}")
         return inst.add_op(LabelOperand(label))

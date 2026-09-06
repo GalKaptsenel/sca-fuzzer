@@ -133,11 +133,11 @@ class Conf:
     function) instead of a regular instruction. 0 disables calls. """
     indirect_call_probability: float = 0.0
     """ indirect_call_probability: when a call is emitted, the probability it is an INDIRECT call
-    (`ADR Xd, <target>; BLR Xd` into a data register Xd in x0-x5 — a monomorphic single-target indirect
-    branch) instead of a direct `BL <target>`. 0 keeps all calls direct; 1 forces every call indirect;
-    in between mixes the two. The target is still a single, forward (higher-indexed) function, so the
-    acyclic call-graph invariant is unchanged. (Multi-target indirect via a runtime dispatch table is a
-    later stage.) """
+    (`ADR Xd, <target>; BLR Xd`, Xd a free instrumentation register x8-x15 — a monomorphic single-target
+    indirect branch) instead of a direct `BL <target>`. 0 keeps all calls direct; 1 forces every call
+    indirect; in between mixes the two. The target is still a single, forward (higher-indexed) function,
+    so the acyclic call-graph invariant is unchanged. (Multi-target indirect via a runtime dispatch table
+    is a later stage.) """
     max_calls_per_function: int = 2
     """ max_calls_per_function: cap on the number of call instructions a single function may emit.
     Bounds the call graph's fan-out (the 'c' in the ~c^depth architectural re-execution of callees), so

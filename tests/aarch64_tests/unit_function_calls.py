@@ -163,6 +163,9 @@ class FunctionCallsTest(unittest.TestCase):
                         target = ins.operands[0].value
                         self.assertGreater(index[target], fi, "indirect call not forward-only")
                         reg = next(o.value for o in ins.operands if o.type == OT.REG)
+                        from src.aarch64.aarch64_target_desc import INDIRECT_CALL_TARGET_REGISTER
+                        self.assertEqual(reg, INDIRECT_CALL_TARGET_REGISTER,  # never a data register
+                                         f"indirect target must be the dedicated reg, got {reg}")
                         adr = insts[j - 1]
                         self.assertEqual(adr.name, "adr", "BLR must be preceded by an ADR")
                         self.assertEqual(adr.operands[0].value, reg, "ADR must load the BLR's register")
