@@ -3,6 +3,7 @@
 #include "simulation_output.h"
 #include "execution_clauses.h"
 #include "mte_tag_plugin.h"
+#include "call_stack.h"
 
 /* Generic speculation engine: a checkpoint/rollback stack + nesting counter. Per-instruction
  * behavior lives in the execution clauses, dispatched via the registry. */
@@ -42,6 +43,16 @@ static uint64_t take_checkpoint(struct simulation_state* sim_state) {
 		mte_tagmem_snapshot(checkpoint_tags);
 	}
 	mgmt.checkpoints_array[mgmt.current_checkpoint_id].tags = checkpoint_tags;
+
+	/* Snapshot the architectural call stack so a call/return taken on this window's path rolls back
+	 * with it (the stack is always small, so this copy is cheap). */
+	uint8_t* checkpoint_calls = malloc(call_stack_snapshot_bytes());
+	if(NULL == checkpoint_calls) {
+		fprintf(stderr, "OUT OF MEMORY - Unable to allocate a call-stack checkpoint!");
+		__builtin_trap();
+	}
+	call_stack_snapshot(checkpoint_calls);
+	mgmt.checkpoints_array[mgmt.current_checkpoint_id].call_stack = checkpoint_calls;
 	return mgmt.current_checkpoint_id++;
 }
 
@@ -54,6 +65,7 @@ static void reload_checkpoint(struct simulation_state* sim_state, uint64_t check
 	if(NULL != mgmt.checkpoints_array[checkpoint_id].tags) {
 		mte_tagmem_restore(mgmt.checkpoints_array[checkpoint_id].tags);
 	}
+	call_stack_restore(mgmt.checkpoints_array[checkpoint_id].call_stack);
 }
 
 void spec_reload_checkpoint(struct simulation_state* sim_state, const struct execution_checkpoint_desc* frame) {
@@ -67,6 +79,8 @@ static void destroy_execution_clause(void) {
 			mgmt.checkpoints_array[i].memory = NULL;
 			free(mgmt.checkpoints_array[i].tags);
 			mgmt.checkpoints_array[i].tags = NULL;
+			free(mgmt.checkpoints_array[i].call_stack);
+			mgmt.checkpoints_array[i].call_stack = NULL;
 		}
 		free(mgmt.checkpoints_array);
 		mgmt.checkpoints_array = NULL;
@@ -221,6 +235,10 @@ static void* handle_window_end(struct simulation_state* sim_state) {
 	if(frame->checkpoint_id != mgmt.current_checkpoint_id - 1) __builtin_trap();
 	free(mgmt.checkpoints_array[frame->checkpoint_id].memory);
 	mgmt.checkpoints_array[frame->checkpoint_id].memory = NULL;
+	free(mgmt.checkpoints_array[frame->checkpoint_id].tags);
+	mgmt.checkpoints_array[frame->checkpoint_id].tags = NULL;
+	free(mgmt.checkpoints_array[frame->checkpoint_id].call_stack);
+	mgmt.checkpoints_array[frame->checkpoint_id].call_stack = NULL;
 	--mgmt.current_checkpoint_id;
 
 	return (void*)frame->return_addr;

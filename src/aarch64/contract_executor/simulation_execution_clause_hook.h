@@ -14,7 +14,8 @@
 struct execution_checkpoint {
 	struct cpu_state cpu_state;
 	uint8_t* memory;
-	uint8_t* tags;     /* MTE tag-memory snapshot, or NULL when not in MTE-test mode */
+	uint8_t* tags;        /* MTE tag-memory snapshot, or NULL when not in MTE-test mode */
+	uint8_t* call_stack;  /* architectural return-address stack snapshot (calls/returns roll back) */
 };
 
 /* Max speculative entry PCs a single instruction's clauses may request (see spec_request_window). */

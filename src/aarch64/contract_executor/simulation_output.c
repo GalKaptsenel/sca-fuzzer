@@ -21,6 +21,22 @@ static inline contract_trace_t* alloc_contract_trace(size_t num_entries) {
 	return trace;
 }
 
+/* Double the trace log when it fills, so the contract trace is never truncated and no exploration
+ * depth is capped — the whole speculative fan-out is recorded. The buffer holds no live pointers across
+ * log calls (trace_pop_last returns by value; loggers fill the returned entry immediately), so realloc
+ * is safe. Growth is bounded in practice by the acyclic (forward-only) call/branch graph; only genuine
+ * memory exhaustion stops it, and that fails loudly at the call site. Returns 1 on success, 0 if the
+ * reallocation fails. */
+static int grow_trace_log(void) {
+	size_t new_max = max_log_index ? max_log_index * 2 : 1024;
+	contract_trace_t* bigger =
+	    (contract_trace_t*)realloc(trace_log, sizeof(contract_trace_t) + new_max * sizeof(instr_trace_entry_t));
+	if (NULL == bigger) return 0;
+	trace_log = bigger;
+	max_log_index = new_max;
+	return 1;
+}
+
 static inline void free_contract_trace(contract_trace_t* trace) {
 	if (NULL == trace) return;
 	free(trace);
@@ -253,9 +269,9 @@ static instr_trace_entry_t* log_sim_state(struct simulation_state* sim_state) {
 	}
 
 	size_t current_index = current_log_index;
-	if(max_log_index <= current_index) {
-		fprintf(stderr, "[FATAL] contract trace log full (%zu entries) — exploration exceeded the "
-		        "buffer; increase it in init_trace_log\n", max_log_index);
+	if(max_log_index <= current_index && !grow_trace_log()) {
+		fprintf(stderr, "[FATAL] out of memory growing the contract trace log (%zu entries)\n",
+		        max_log_index);
 		__builtin_trap();
 	}
 
@@ -359,9 +375,9 @@ instr_trace_entry_t trace_pop_last(void) {
 void trace_emit_entry(const instr_trace_entry_t* src) {
 	if(NULL == src || NULL == trace_log) return;
 	size_t idx = current_log_index;
-	if(max_log_index <= idx) {
-		fprintf(stderr, "[FATAL] contract trace log full (%zu entries) while re-emitting a bypassed "
-		        "store; increase it in init_trace_log\n", max_log_index);
+	if(max_log_index <= idx && !grow_trace_log()) {
+		fprintf(stderr, "[FATAL] out of memory growing the contract trace log (%zu entries) while "
+		        "re-emitting a bypassed store\n", max_log_index);
 		__builtin_trap();
 	}
 	instr_trace_entry_t* dst = (instr_trace_entry_t*)(trace_log + 1) + idx;
@@ -435,6 +451,8 @@ static int transmit_payload_to_file(FILE* f, const void* payload, size_t payload
 
 	return hdr.length;
 }
+
+
 
 void destroy_trace_log() {
 	// always emit a framed response so the reader never blocks waiting for one, even when the

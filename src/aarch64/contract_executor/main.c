@@ -5,6 +5,7 @@
 #include "pac_sign_plugin.h"
 #include "mte_tag_plugin.h"
 #include "tage_py.h"
+#include "call_stack.h"
 #include <signal.h>
 #include <ucontext.h>
 #include <unistd.h>
@@ -249,6 +250,7 @@ int main() {
 		}
 
 		g_iter_phase = 2; /* simulation */
+		call_stack_reset(); /* fresh architectural call stack for this test case */
 		CE_INSTALL_CRASH_HANDLERS(); /* reinstall in case Python code (TAGE) overrode them */
 
 		asm volatile (

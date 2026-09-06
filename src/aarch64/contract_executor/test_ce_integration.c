@@ -150,6 +150,14 @@ static uint32_t enc_ldr_regoff(int rt, int rn, int rm) {
 static uint32_t enc_b(int offset) {
     return 0x14000000u | ((uint32_t)(offset / 4) & 0x03FFFFFFu);
 }
+/* BL <label> — direct call; label is signed byte offset from this instruction (multiple of 4) */
+static uint32_t enc_bl(int offset) {
+    return 0x94000000u | ((uint32_t)(offset / 4) & 0x03FFFFFFu);
+}
+/* RET X<rn> */
+static uint32_t enc_ret(int rn) {
+    return 0xD65F0000u | ((uint32_t)rn << 5);
+}
 /* B.<cond> <label> — label is signed byte offset from this instruction (multiple of 4) */
 static uint32_t enc_b_cond(uint32_t cond, int offset) {
     uint32_t imm19 = (uint32_t)(offset / 4) & 0x7FFFFu;
@@ -586,6 +594,46 @@ static void test_integration_frame_spill_excluded(void) {
     EXPECT_EQ(e->metadata.memory_access.is_write,          (uint64_t)0);
     EXPECT_EQ(e->metadata.memory_access.effective_address, KBASE);
     EXPECT_EQ(e->metadata.memory_access.before,            val);
+}
+
+static void test_integration_call_returns_and_continues(void) {
+    /* Architectural call + return: BL enters the callee (which loads KBASE+64); RET returns to the
+     * instruction right after the BL (which loads KBASE). Both accesses must appear in the contract
+     * trace, callee first, then the caller resuming after the return — proving the CE executes calls
+     * and returns architecturally (so a fuzzing violation on a call program is speculative, not a
+     * mis-modelled architectural flow). */
+    uint32_t code[] = {
+        enc_bl(12),                    /* 0: BL -> callee at +12 (index 3); X30 = index 1 (byte 4) */
+        enc_ldr_reg(1, 29),            /* 1: caller resumes here after RET: LDR X1,[X29] = KBASE    */
+        enc_b(12),                     /* 2: B -> +12 (byte 20), past the callee, to the tail       */
+        enc_ldr_unsigned(0, 29, 64),   /* 3: callee body: LDR X0,[X29,#64] = KBASE+64               */
+        enc_ret(30),                   /* 4: RET -> X30 (index 1)                                   */
+    };
+
+    uint8_t mem[MEM_SIZE];
+    memset(mem, 0, sizeof(mem));
+    uint64_t at0 = UINT64_C(0x1111111111111111);   /* at KBASE     */
+    uint64_t at64 = UINT64_C(0x2222222222222222);  /* at KBASE+64  */
+    memcpy(mem, &at0, 8);
+    memcpy(mem + 64, &at64, 8);
+
+    ce_result_t res;
+    if (!run_ce_simple(code, 5, mem, sizeof(mem), KBASE, 0, 0u, &res)) {
+        ++g_tests_run; ++g_tests_failed;
+        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__);
+        return;
+    }
+
+    /* The callee ran (KBASE+64) AND control returned and continued (KBASE), in that order. */
+    EXPECT_EQ(count_mem_entries(&res), 2);
+    instr_trace_entry_t *callee = find_mem_entry(&res, 0);
+    instr_trace_entry_t *caller = find_mem_entry(&res, 1);
+    EXPECT(callee != NULL && caller != NULL);
+    if (!callee || !caller) return;
+    EXPECT_EQ(callee->metadata.memory_access.effective_address, KBASE + 64);
+    EXPECT_EQ(callee->metadata.memory_access.before,            at64);
+    EXPECT_EQ(caller->metadata.memory_access.effective_address, KBASE);
+    EXPECT_EQ(caller->metadata.memory_access.before,            at0);
 }
 
 /* ---- GROUP 3: LDR X0, [X29, #16] — unsigned offset ------------------- */
@@ -3601,6 +3649,7 @@ int main(void) {
     test_integration_str_base();
     test_integration_sp_access_excluded();
     test_integration_frame_spill_excluded();
+    test_integration_call_returns_and_continues();
     test_integration_mte_after_access_correction();
     test_integration_mte_inactive_no_correction();
     test_integration_mte_correction_propagates();

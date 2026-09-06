@@ -19,6 +19,7 @@ SRCS = \
   instruction_encodings.c \
   simulation_code.c \
   simulation_hook.c \
+  call_stack.c \
   simulation_input.c \
   simulation_output.c \
   simulation.c \
@@ -82,7 +83,7 @@ test_qarma: $(QARMA_TEST_SRCS) $(HDRS)
 	$(CC) $(CFLAGS) -I. $(QARMA_TEST_SRCS) -o $@
 
 # Speculation-engine sibling-window unit test: the real engine + stubbed externals + a synthetic clause.
-SIBLING_TEST_SRCS = simulation_execution_clause_hook.c test_sibling_windows.c
+SIBLING_TEST_SRCS = simulation_execution_clause_hook.c call_stack.c test_sibling_windows.c
 test_sibling_windows: $(SIBLING_TEST_SRCS) $(HDRS)
 	$(CC) $(CFLAGS) -I. $(SIBLING_TEST_SRCS) -o $@
 

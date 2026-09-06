@@ -2,6 +2,7 @@
 #include "simulation.h"
 #include "simulation_execution_clause_hook.h"
 #include "instruction_encodings.h"
+#include "call_stack.h"
 #include "mte_tag_plugin.h"
 
 #include "simulation_output.h"
@@ -299,8 +300,35 @@ void base_hook_c(struct cpu_state* state) {
 
 void* handle_ret_hook(struct simulation_state* sim_state) {
 	if(NULL == sim_state) return NULL;
-	if(0xd65f03c0 == *(uint32_t*)sim_state->cpu_state.pc) { // Identify RET
-	       	return (void*)sim_state->cpu_state.lr;
+	uint32_t insn = *(uint32_t*)sim_state->cpu_state.pc;
+	branch_type_t bt = classify_branch(insn);
+
+	// A call pushes its architectural return address (the instruction right after it) onto the call
+	// stack, then branches to the callee natively — so return NULL and let the native BL/BLR run.
+	if(BRANCH_BL == bt || BRANCH_BLR == bt) {
+		call_stack_push(sim_state->cpu_state.pc + 4);
+		return NULL;
+	}
+
+	// A return pops the matching call's address and continues there. With no active call (empty stack)
+	// it falls back to the simulation's top-level return address — the harness continuation — which
+	// mirrors the kernel seeding LR to the test-case exit.
+	if(0xd65f03c0 == insn) { // RET
+		uintptr_t target;
+		if(!call_stack_pop(&target)) {
+			target = simulation.return_address;
+		}
+		return (void*)target;
+	}
+
+	// SP-based memory accesses are function-frame spills (the generator never emits sp as a data base).
+	// They only exist to preserve X30 across the hardware's calls, but the contract executor returns via
+	// the call stack, so X30's spilled value is irrelevant. Skip them entirely (advance past without
+	// executing): this keeps them out of the contract and — crucially — stops SP from drifting under
+	// speculative exploration (an unbalanced speculative spill would otherwise walk SP off the stack).
+	if(is_memory_access(insn) && !is_literal_pc_relative(insn) &&
+	   AARCH64_SP_REG == get_rn(insn)) {
+		return (void*)(sim_state->cpu_state.pc + 4);
 	}
 	return NULL;
 }
