@@ -256,27 +256,45 @@ int main() {
 		arch_sp_reset((uintptr_t)kernel_sandbox_base + simulation.sim_input.mem_size + SANDBOX_OVERFLOW_SIZE);
 		CE_INSTALL_CRASH_HANDLERS(); /* reinstall in case Python code (TAGE) overrode them */
 
+		// The test case (run via blr) may clobber ANY general-purpose register. A full x0-x30 clobber
+		// list won't compile (no register left for the operands), so main() preserves its own state by
+		// saving/restoring the callee-saved registers (x19-x30, incl. FP/LR) around the run and lets the
+		// compiler spill the caller-saved x0-x18 via the clobber list. The balanced push/pop leaves SP
+		// unchanged. Inputs are read from memory via the regs_blob pointer to keep operand pressure low.
+		// (An incomplete list previously let an indirect call's ADR target, e.g. x25, corrupt a live
+		// value main() held in that register -> SIGSEGV.)
 		asm volatile (
+				"stp x19, x20, [sp, #-16]!\n"
+				"stp x21, x22, [sp, #-16]!\n"
+				"stp x23, x24, [sp, #-16]!\n"
+				"stp x25, x26, [sp, #-16]!\n"
+				"stp x27, x28, [sp, #-16]!\n"
+				"stp x29, x30, [sp, #-16]!\n"
 				"mov x29, %2\n"
 				"adr x9, 1f\n"
 				"str x9, %0\n"
-				"mov x0, %3\n"
-				"mov x1, %4\n"
-				"mov x2, %5\n"
-				"mov x3, %6\n"
-				"mov x4, %7\n"
-				"mov x5, %8\n"
-				"mov x6, %9\n"
-				/* x6 (slot 6) is already in PSTATE format. */
+				"ldr x0, [%3, #0]\n"
+				"ldr x1, [%3, #8]\n"
+				"ldr x2, [%3, #16]\n"
+				"ldr x3, [%3, #24]\n"
+				"ldr x4, [%3, #32]\n"
+				"ldr x5, [%3, #40]\n"
+				"ldr x6, [%3, #48]\n"
+				/* slot 6 is already in PSTATE format. */
 				"msr nzcv, x6\n"
-				"mov x7, %10\n"
+				"ldr x7, [%3, #56]\n"
 				"blr %1\n"
 				"1:\n"
+				"ldp x29, x30, [sp], #16\n"
+				"ldp x27, x28, [sp], #16\n"
+				"ldp x25, x26, [sp], #16\n"
+				"ldp x23, x24, [sp], #16\n"
+				"ldp x21, x22, [sp], #16\n"
+				"ldp x19, x20, [sp], #16\n"
 				: "=m"(simulation.return_address)
-				: "r"(simulation.sim_code.code), "r"(kernel_sandbox_base),
-				"r"(regs_blob[0]), "r"(regs_blob[1]), "r"(regs_blob[2]), "r"(regs_blob[3]),
-				"r"(regs_blob[4]), "r"(regs_blob[5]), "r"(regs_blob[6]), "r"(regs_blob[7])
-				: "x9", "x29", "memory", "cc", "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8", "x10", "x30"
+				: "r"(simulation.sim_code.code), "r"(kernel_sandbox_base), "r"(regs_blob)
+				: "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11", "x12",
+				"x13", "x14", "x15", "x16", "x17", "x18", "memory", "cc"
 			);
 
 		g_iter_phase = 3; /* write-output */
