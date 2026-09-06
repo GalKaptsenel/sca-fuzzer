@@ -498,6 +498,13 @@ whose test case also contains PAC `AUT*` instructions must still authenticate th
 genuinely. One CE pass over the sealed program fills every slot (signs the PAC slots, classifies the
 MTE slots); the decoy policy then perturbs only the target's speculative slots.
 
+Two further primitives seal *addresses*: **canonicality** (`enable_canonicality`) flips a load/store
+base non-canonical on the speculative decoy, and **branch-target sealing**
+(`enable_branch_target_sealing`) flips an indirect call's target register (`x28`) non-canonical (high
+bits) or misaligned (low bits → PC-alignment fault) right before a speculative `BLR` — with no
+after-revert, since the target is a dead scratch. Both seal only speculative-only slots, so genuine and
+decoy stay architecturally identical.
+
 ```
                           +-----------+
                           | one input |

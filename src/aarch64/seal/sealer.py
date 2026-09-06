@@ -262,6 +262,66 @@ class CanonSealing(Sealing):
         return [emit()] + ([emit()] if self._revert else [])
 
 
+def _branch_target_mask_pool(salt: int) -> List[int]:
+    """Masks the decoy XORs into an indirect call's target register before the BLR. Two fault axes:
+      * non-canonical: a contiguous run in [54:VA] (as in canonicality) -> translation fault;
+      * misaligned (when branch_target_seal_misalign): a low-bit value {1,2,3} -> the target is no
+        longer 4-byte aligned -> PC-alignment fault (an axis x86 lacks).
+    Unlike CanonSealing the target is a dead scratch (never a data base), so any bits may flip.
+    branch_target_canon_mask fixes the non-canonical run; otherwise a salt-seeded pool is used."""
+    va = _canon_va()
+    fault = (((1 << (55 - va)) - 1) << va)   # bits [54:va]
+    pool: List[int] = []
+    if CONF.branch_target_canon_mask is not None:
+        m = CONF.branch_target_canon_mask & M
+        if 0 == m or (m & ~fault) or _mask_runs(m) != [m]:
+            raise GeneratorException(
+                f"branch_target_canon_mask 0x{m:016x} must be a single contiguous run within [54:{va}]")
+        pool.append(m)
+    else:
+        rng = random.Random(hash(("bt-canon-pool", salt)))
+        for _ in range(_CANON_POOL_TRIES):
+            lo = rng.randrange(va, 55)
+            hi = rng.randrange(lo, 55)
+            m = ((1 << (hi - lo + 1)) - 1) << lo
+            if m and m not in pool:
+                pool.append(m)
+                if len(pool) >= _CANON_POOL_SIZE:
+                    break
+    if CONF.branch_target_seal_misalign:
+        pool += [1, 2, 3]   # low-bit misalignments -> PC-alignment fault
+    if not pool:
+        raise GeneratorException(f"no branch-target seal mask for VA_SIZE {va}")
+    return pool
+
+
+class BranchTargetSealing(Sealing):
+    """Corrupt an indirect call's target register for ONE speculative BLR: flip `mask` in with an EOR
+    right before the branch, making the target non-canonical (high bits) or misaligned (low [1:0]) so
+    the speculative BLR faults / mispredicts. NO after-revert -- the target register is a throwaway
+    scratch (materialized by the preceding ADR, never reused), so nothing cascades downstream.
+    `seal(None/0)` is the valid placeholder (a NOP). `pool` is the candidate masks the decoy picks from;
+    `branch_inst` is the BLR, exposed for the resolver. The seal lands only on speculative-only BLRs, so
+    the architectural path keeps a valid target."""
+
+    def __init__(self, value_reg: str, branch_inst: Instruction, pool: List[int]) -> None:
+        super().__init__()
+        self.value_reg = value_reg
+        self.branch_inst = branch_inst
+        self.pool = pool
+        self.slot_insts = self.seal(None, None)   # placeholder: [NOP]
+
+    def _eor(self, mask: int) -> Instruction:
+        return (Instruction("eor", True, "", False,
+                            template=f"EOR {self.value_reg}, {self.value_reg}, #{mask}")
+                .add_op(RegisterOperand(self.value_reg, 64, False, True))
+                .add_op(RegisterOperand(self.value_reg, 64, True, False))
+                .add_op(ImmediateOperand(str(mask), 64)))
+
+    def seal(self, value: Optional[int], rng: Optional[random.Random]) -> List[Instruction]:
+        return [self._eor(value) if value else make_nop()]
+
+
 # ==================================================================================================
 # ResolvedSealingTestCase — one input's resolution; mints genuine / decoy hardware test cases
 # ==================================================================================================
@@ -432,6 +492,23 @@ def _resolve_canon(s: "CanonSealing", cer, layout) -> Tuple[Optional[int], List[
     return None, list(s.pool), spec
 
 
+def _resolve_branch_target(s: "BranchTargetSealing", cer, layout) -> Tuple[Optional[int], List[int], Optional[int]]:
+    """A BranchTargetSealing's value from a trace: the genuine value is a valid target (None -> the NOP
+    placeholder); the alternatives are the pool of non-canonical / misaligned masks (the decoy picks
+    one). spec_nesting is the minimum depth the BLR is reached at, so a call ever reached
+    architecturally (min == 0) keeps a valid target and is never corrupted. (value, alts, spec_nesting)."""
+    spec = None
+    if cer and s.branch_inst is not None:
+        branch_off, code_base = layout.instruction_address[s.branch_inst], cer[0].cpu.pc
+        for ite in cer:
+            if ite.cpu.pc - code_base != branch_off:
+                continue
+            nest = ite.metadata.speculation_nesting
+            if spec is None or nest < spec:
+                spec = int(nest)
+    return None, list(s.pool), spec
+
+
 def _slot_offsets(tc: TestCase, layout, sealings: List["Sealing"]) -> Dict[int, Tuple[int, ...]]:
     """{id(sealing): its slot byte offsets in the assembled template}. Positions are one-for-one across
     fills, so an offset taken from the placeholder holds for every variant."""
@@ -590,6 +667,47 @@ class CanonSealedTestCase(SealedTestCase):
                                        _slot_offsets(self._tc, self._layout, self._canon), self._salt)
 
 
+class BranchTargetSealedTestCase(SealedTestCase):
+    """Sandbox clamp per data access (no value seal) + a canonicality/alignment flip on each
+    SPECULATIVE indirect-call target. The flip EOR lands right before the BLR (after the ADR that
+    materialized the target); no after-revert -- the target register is a dead scratch. The CE traces
+    the valid placeholder (NOP slots) and supplies speculation depth; the decoy is EOR words spliced in
+    through the code-relocation path (no CE plugin, no per-input REIF section)."""
+
+    def __init__(self, sealed_tc, trace_fn, assemble, sandbox_sealings, data_sites) -> None:
+        self._bt: List[BranchTargetSealing] = []
+        super().__init__(sealed_tc, trace_fn, assemble, sandbox_sealings, data_sites)
+
+    def _insert_slots(self, data_sites) -> None:
+        # data accesses keep their offset cancellation (sandbox safety); they are not value-sealed here.
+        for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
+            _insert(bb, inst, offset_subs)
+        # each indirect-call BLR is sealed with probability branch_target_seal_prob; the flip lands
+        # right before the BLR (after its target-materializing ADR).
+        pool = _branch_target_mask_pool(self._salt)
+        rng = random.Random(self._salt)
+        for func in self._tc.functions:
+            for bb in func:
+                for inst in list(bb):
+                    if inst.name != "blr" or rng.random() >= CONF.branch_target_seal_prob:
+                        continue
+                    reg = next(o.value for o in inst.operands if isinstance(o, RegisterOperand))
+                    s = BranchTargetSealing(reg, inst, pool)
+                    self._bt.append(s)
+                    _insert(bb, inst, s.slot_insts)   # flip right before the BLR
+
+    def _sealings(self) -> List[Sealing]:
+        return self._sandbox + self._bt
+
+    def resolve(self, inp) -> ResolvedSealingTestCase:
+        cer = self._trace_fn(self._tc, inp)
+        bt = [_Resolved(s, *_resolve_branch_target(s, cer, self._layout)) for s in self._bt]
+        entries = self._clamp_entries(self._sandbox) + bt
+        object_code = self._assemble(self._tc)
+        return ResolvedSealingTestCase(entries, object_code,
+                                       _slot_offsets(self._tc, self._layout, self._bt), self._salt)
+
+
 class MtePacSealedTestCase(SealedTestCase):
     """Sandbox clamp + PAC auth + MTE retag per data access, plus a PAC auth per standalone AUT*.
     The MTE retag (ADDG) is placed LAST — after the offset-cancel SUBs, immediately before the access
@@ -721,6 +839,8 @@ class Sealer:
         sandbox, data_sites = self._walk.sandbox(tc)
         if self._primitives == frozenset({"canon"}):
             return CanonSealedTestCase(tc, self._trace_fn, self._assemble, sandbox, data_sites)
+        if self._primitives == frozenset({"branch_target"}):
+            return BranchTargetSealedTestCase(tc, self._trace_fn, self._assemble, sandbox, data_sites)
         if self._primitives == frozenset({"mte"}):
             return MteSealedTestCase(tc, self._trace_fn, self._assemble, sandbox, data_sites)
         if self._primitives == frozenset({"pac"}):
@@ -847,7 +967,7 @@ def make_sealer(generator, trace_fn, assemble, primitives, signer, trace_bytes_f
     machine code (used by the PAC+MTE resolve to read AUT* contexts with the genuine tags applied);
     `signer` is the PAC signer used by resolve when 'pac' is active (None otherwise)."""
     prims = frozenset(primitives)
-    if prims not in (frozenset({"canon"}), frozenset({"mte"}), frozenset({"pac"}),
-                     frozenset({"pac", "mte"})):
+    if prims not in (frozenset({"canon"}), frozenset({"branch_target"}), frozenset({"mte"}),
+                     frozenset({"pac"}), frozenset({"pac", "mte"})):
         raise ValueError(f"unsupported seal primitives: {primitives!r}")
     return Sealer(generator, trace_fn, assemble, prims, signer, trace_bytes_fn)

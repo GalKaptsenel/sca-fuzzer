@@ -193,6 +193,15 @@ enable_canonicality: bool = False
 canonicality_seal_prob: float = 1.0
 canonicality_mask: Optional[int] = None
 
+# BranchTargetSealing: on the speculative decoy, corrupt an indirect call's target register before the
+# BLR so it becomes non-canonical (high bits, like canonicality) and/or misaligned (low bits [1:0] ->
+# PC-alignment fault, an axis x86 lacks). Genuine keeps a valid target; no after-revert (the target reg
+# is a throwaway scratch). Needs indirect calls in the test cases (indirect_call_probability > 0).
+enable_branch_target_sealing: bool = False
+branch_target_seal_prob: float = 1.0
+branch_target_canon_mask: Optional[int] = None   # fixed non-canonical high-bit run, or None = pool
+branch_target_seal_misalign: bool = True          # include the low-bit misalignment axis in the pool
+
 instruction_blocklist: List[str] = [
     # Crash/stall hazards: must never be generated regardless of enabled categories.
     "eretaa", "eretab", "udf",   # exception return / undefined -> trap or EL change

@@ -538,15 +538,18 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         # canonicality is a category-independent seal of existing memory accesses; its own flag
         if CONF.enable_canonicality:
             self._primitives.add("canon")
+        # branch-target sealing corrupts indirect-call targets; its own flag (needs indirect calls)
+        if CONF.enable_branch_target_sealing:
+            self._primitives.add("branch_target")
         if not self._primitives:
             raise GeneratorException(
                 "non-interference fuzzing needs a PAC or MTE instruction category, or "
-                "enable_canonicality, enabled")
+                "enable_canonicality / enable_branch_target_sealing, enabled")
 
         # PAC/canon VA size and PAC TBI must match the executing machine (a wrong value makes the
         # signature/strip mismatch the CPU's AUT* -> FPAC panic). Default them from the device; an
         # explicit config still wins (remote fuzzing).
-        if self._primitives & {"pac", "canon"}:
+        if self._primitives & {"pac", "canon", "branch_target"}:
             info = self.device.target_info()
             if CONF.va_size is None:
                 CONF.va_size = info.va_bits
