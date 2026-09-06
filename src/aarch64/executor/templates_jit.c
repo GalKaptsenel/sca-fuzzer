@@ -18,6 +18,36 @@ void invalidate_jit_cache(void) {
 	jit_cache_valid = false;
 }
 
+// ADR <Xd>, <label>: Xd = PC + off (off = label - PC, signed 21-bit byte offset). PC-relative, so the
+// encoding stays correct wherever the (view-rotated) harness runs.
+static uint32_t encode_adr(int rd, int32_t off) {
+	uint32_t imm = (uint32_t)off & 0x1FFFFF;
+	return 0x10000000u | ((imm & 0x3u) << 29) | (((imm >> 2) & 0x7FFFFu) << 5) | (uint32_t)rd;
+}
+
+// Emit the test-case body, preceded by a default LR pointing just past it. A return with no matching
+// call (a stray or speculative ret) then lands on the measurement's clean continuation instead of an
+// undefined address. The ADR is PC-relative (correct across views) and non-branch/non-memory, so it
+// perturbs none of the PFC events (cache-refill / mispredict). Emitted before the tc_off_bytes record
+// so that offset still points at the real body start.
+static void emit_tc_body(jit_t* jit, const uint32_t* tc, size_t tc_size,
+                         size_t* tc_off_bytes, uintptr_t start) {
+	uint8_t* lr_slot = jit_get_cur(jit);
+	jit_emit(jit, 0);  // placeholder, backpatched to ADR X30, <post-body>
+
+	if (NULL != tc_off_bytes) {
+		*tc_off_bytes = (uintptr_t)jit_get_cur(jit) - start;
+	}
+	for (size_t i = 0; i < tc_size / 4; ++i) {
+		jit_emit(jit, tc[i]);
+	}
+
+	uint8_t* post_body = jit_get_cur(jit);
+	jit_set_cur(jit, lr_slot);
+	jit_emit(jit, encode_adr(30, (int32_t)((uintptr_t)post_body - (uintptr_t)lr_slot)));
+	jit_set_cur(jit, post_body);
+}
+
 // Note on registers.
 // Some of the registers are reserved for a specific purpose and should never be overwritten.
 // These include:
@@ -451,12 +481,7 @@ static size_t prime_probe_method(jit_t* jit, uint32_t* tc, size_t tc_size, size_
 	jit_isb(jit);
 	jit_dsb_sy(jit);
 
-	if (NULL != tc_off_bytes) {
-		*tc_off_bytes = (uintptr_t)jit_get_cur(jit) - start;
-	}
-	for (int i = 0; i < (tc_size / 4); ++i) {
-		jit_emit(jit, tc[i]);
-	}
+	emit_tc_body(jit, tc, tc_size, tc_off_bytes, start);
 
 	jit_isb(jit);
 	jit_dsb_sy(jit);
@@ -502,12 +527,7 @@ static size_t flush_reload_method(jit_t* jit, uint32_t* tc, size_t tc_size, size
 	jit_isb(jit);
 	jit_dsb_sy(jit);
 
-	if (NULL != tc_off_bytes) {
-		*tc_off_bytes = (uintptr_t)jit_get_cur(jit) - start;
-	}
-	for (int i = 0; i < (tc_size / 4); ++i) {
-		jit_emit(jit, tc[i]);
-	}
+	emit_tc_body(jit, tc, tc_size, tc_off_bytes, start);
 
 	jit_isb(jit);
 	jit_dsb_sy(jit);
@@ -553,12 +573,7 @@ static size_t prime_reload_method(jit_t* jit, uint32_t* tc, size_t tc_size, size
 	jit_isb(jit);
 	jit_dsb_sy(jit);
 
-	if (NULL != tc_off_bytes) {
-		*tc_off_bytes = (uintptr_t)jit_get_cur(jit) - start;
-	}
-	for (int i = 0; i < (tc_size / 4); ++i) {
-		jit_emit(jit, tc[i]);
-	}
+	emit_tc_body(jit, tc, tc_size, tc_off_bytes, start);
 
 	jit_isb(jit);
 	jit_dsb_sy(jit);
