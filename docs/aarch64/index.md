@@ -654,6 +654,14 @@ the call graph is a forward DAG — no direct or indirect recursion, hence no un
 the rule the basic-block DAG already follows one level down. `function_call_probability` sets how often a
 filled slot in a caller becomes a call.
 
+**Direct vs indirect calls.** `indirect_call_probability` chooses, per call, between a direct `BL <target>`
+and a single-target indirect `BLR Xd` (`Xd` a data register `x0`–`x5`). For the indirect form
+`Aarch64IndirectCallPass` inserts `ADR Xd, <target>` before the `BLR` to load the forward target's
+PC-relative address — `ADR`, not `ADRP`/`#:lo12:`, because the non-linking assembler resolves a local
+`ADR` but leaves `ADRP`/`#:lo12:` relocations unresolved (zero). The target register is a real operand
+on the `BLR`, so the pass reads it (not the template text); the target is still one forward function, so
+the acyclic DAG is unchanged. (Multi-target via a runtime GOT load replaces the `ADR` later.)
+
 **Bounding the call fan-out.** A callee reached via many call paths executes many times — a function at
 call depth *d* with ~*c* calls per level runs ~*cᵈ* times, so a naive call-dense program re-executes a
 lot (and under a speculative contract that re-execution is explored per branch, multiplying further).

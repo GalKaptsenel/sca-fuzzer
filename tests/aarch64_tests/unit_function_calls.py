@@ -31,14 +31,15 @@ class FunctionCallsTest(unittest.TestCase):
         cls.get_gen = staticmethod(get_program_generator)
 
     def _gen(self, n, min_f, max_f, call_prob=0.5, program_size=8, assemble=False,
-             max_calls=1000, shrink=1.0):
+             max_calls=1000, shrink=1.0, indirect=0.0):
         C = self.CONF
-        C.__setattr__("min_functions_per_test_case", min_f)
-        C.__setattr__("max_functions_per_test_case", max_f)
-        C.__setattr__("function_call_probability", call_prob)
-        C.__setattr__("program_size", program_size)
-        C.__setattr__("max_calls_per_function", max_calls)
-        C.__setattr__("function_size_shrink", shrink)
+        C.min_functions_per_test_case = min_f
+        C.max_functions_per_test_case = max_f
+        C.function_call_probability = call_prob
+        C.program_size = program_size
+        C.max_calls_per_function = max_calls
+        C.function_size_shrink = shrink
+        C.indirect_call_probability = indirect
         gen = self.get_gen(self.isa, 1)
         out = []
         with tempfile.TemporaryDirectory() as d:
@@ -143,6 +144,34 @@ class FunctionCallsTest(unittest.TestCase):
     def test_multi_function_assembles(self):
         # create_test_case with disable_assembler=False raises if the assembler rejects the output
         self._gen(5, 3, 3, call_prob=0.4, assemble=True)
+
+    # ---- single-target indirect calls (BLR materialized by ADR) ---------------------------
+    def test_indirect_calls_are_blr_materialized_by_adr(self):
+        # indirect_call_probability=1.0: every call is a BLR whose target register is loaded by an
+        # immediately-preceding ADR to the same (forward) function label.
+        from src.interfaces import OT
+        saw = 0
+        for tc in self._gen(30, 3, 5, call_prob=0.8, program_size=20, indirect=1.0):
+            index = {f.name: i for i, f in enumerate(tc.functions)}
+            for fi, f in enumerate(tc.functions):
+                for bb in f:
+                    insts = list(bb) + bb.terminators
+                    for j, ins in enumerate(insts):
+                        if not ins.is_call:
+                            continue
+                        self.assertEqual(ins.name, "blr", "indirect call must be BLR")
+                        target = ins.operands[0].value
+                        self.assertGreater(index[target], fi, "indirect call not forward-only")
+                        reg = next(o.value for o in ins.operands if o.type == OT.REG)
+                        adr = insts[j - 1]
+                        self.assertEqual(adr.name, "adr", "BLR must be preceded by an ADR")
+                        self.assertEqual(adr.operands[0].value, reg, "ADR must load the BLR's register")
+                        self.assertEqual(adr.operands[-1].value, target, "ADR must target the callee")
+                        saw += 1
+        self.assertGreater(saw, 0, "no indirect calls exercised")
+
+    def test_indirect_calls_assemble(self):
+        self._gen(5, 3, 3, call_prob=0.6, program_size=16, indirect=1.0, assemble=True)
 
 
 if __name__ == "__main__":

@@ -38,6 +38,7 @@ class Aarch64Generator(ConfigurableGenerator, abc.ABC):
         self.passes = [
             Aarch64PatchUndefinedLoadsStoresPass(self.target_desc),
             Aarch64CallFramePass(),
+            Aarch64IndirectCallPass(),
         ]
 
         self.printer = Aarch64Printer(self.target_desc)
@@ -46,10 +47,24 @@ class Aarch64Generator(ConfigurableGenerator, abc.ABC):
         return Instruction("ret", False, "", True, template="RET")
 
     def get_call_instruction(self, label: str) -> Instruction:
-        # Direct call: BL <label> sets X30 = return address and branches to the function. The "CALL"
-        # category marks it for Function.is_leaf and the prologue/epilogue pass.
+        # A call to `label`: direct BL, or (per indirect_call_probability) an indirect BLR whose target
+        # register Aarch64IndirectCallPass materializes. "CALL" marks it for Function.is_leaf and the
+        # frame pass; operands[0] is the (forward) target label, checked for the acyclic call graph.
+        if random.random() < CONF.indirect_call_probability:
+            reg = random.choice([r for r in ("x0", "x1", "x2", "x3", "x4", "x5")
+                                 if r not in CONF.register_blocklist])
+            inst = Instruction("blr", False, "CALL", True, template="BLR {reg}")
+            inst.add_op(LabelOperand(label))
+            inst.add_op(self._target_reg_operand(reg, src=True, dest=False))
+            return inst
         inst = Instruction("bl", False, "CALL", True, template="BL {label}")
         return inst.add_op(LabelOperand(label))
+
+    @staticmethod
+    def _target_reg_operand(reg: str, src: bool, dest: bool) -> RegisterOperand:
+        op = RegisterOperand(reg, 64, src, dest)
+        op.name = "reg"   # matches the "{reg}" placeholder in the BLR/ADR templates
+        return op
 
     def get_unconditional_jump_instruction(self) -> Instruction:
         # B.AL / B.NV both branch "always" on A64, so they are additional unconditional forms
@@ -438,6 +453,28 @@ class Aarch64CallFramePass(Pass):
     @staticmethod
     def _restore_lr() -> Instruction:
         return Instruction("ldr", is_instrumentation=True, template="LDR X30, [SP], #16")
+
+
+class Aarch64IndirectCallPass(Pass):
+    """Materialize each indirect call's target: before every `BLR Xd` (emitted by get_call_instruction)
+    insert `ADR Xd, <target>` — the PC-relative address of the forward function, which resolves in both
+    the contract executor and the kernel (unlike ADRP/#:lo12:, whose relocations the non-linking
+    assembler leaves unresolved). A GOT load replaces the ADR for the multi-target case."""
+
+    def run_on_test_case(self, test_case: TestCase) -> None:
+        for func in test_case.functions:
+            for bb in func:
+                for inst in list(bb):
+                    if inst.name == "blr":
+                        label = inst.operands[0].value
+                        reg = next(o for o in inst.operands if o.type == OT.REG)
+                        bb.insert_before(inst, self._adr(reg.value, label))
+
+    @staticmethod
+    def _adr(reg: str, label: str) -> Instruction:
+        inst = Instruction("adr", is_instrumentation=True, template="ADR {reg}, {label}")
+        inst.add_op(Aarch64Generator._target_reg_operand(reg, src=False, dest=True))
+        return inst.add_op(LabelOperand(label))
 
 
 class Aarch64RandomGenerator(Aarch64Generator, RandomGenerator):
