@@ -634,6 +634,27 @@ spill can neither alias input data nor pollute the Prime+Probe trace of the prob
 contract executor mirrors this by exempting `Rn == SP` accesses from its trace (they run natively and
 are not recorded), so CTrace and htrace agree on programs that use a stack.
 
+### 8.1a Functions, calls, and returns
+
+A test case has `min_functions_per_test_case`..`max_functions_per_test_case` functions (default `1`
+reproduces the classic single-function program). Index `0` is the **entry**: it runs inline and ends by
+jumping to `.test_case_exit`. The rest are **callees**, reachable only through a `BL` and ending in a
+`RET`. A function may only call a **higher-indexed** one, and functions are laid out in index order, so
+the call graph is a forward DAG — no direct or indirect recursion, hence no unbounded loops — exactly
+the rule the basic-block DAG already follows one level down. `function_call_probability` sets how often a
+filled slot in a caller becomes a call.
+
+A callee that itself makes calls (`Function.is_leaf` is false) gets a **prologue/epilogue** that spills
+and restores `X30` around its body (`Aarch64CallFramePass`), so the return survives its own calls; leaf
+callees and the entry (which never returns) get no frame. `X29` is the sandbox base and is never used as
+a frame pointer. The harness also seeds `X30` to the test-case exit, so a return reached with no matching
+call — stray or speculative — is well-defined.
+
+> Note: the Phase-1a contract resolves calls/returns **architecturally only**; it does not yet model
+> return-address speculation (the RSB). On real hardware a `RET` speculates via the RSB, so enabling
+> calls surfaces return-speculation as violations until that predictor is added to the contract. This is
+> expected (it mirrors why Flowvizor's oracle models the RSB) and is the next contract-side work.
+
 ### 8.2 Input register region
 
 An input seeds memory (`main` + `faulty`) and the registers. The register region is 8 × 64-bit

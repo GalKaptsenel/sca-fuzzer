@@ -17,7 +17,7 @@ from ..config import CONF
 from ..isa_loader import InstructionSet
 from ..interfaces import TestCase, Operand, Instruction, BasicBlock, Function, InstructionSpec, \
     GeneratorException, RegisterOperand, MAIN_AREA_SIZE, FAULTY_AREA_SIZE, \
-    MemoryOperand, OT, OperandSpec, MemorySpec, CondOperand
+    MemoryOperand, OT, OperandSpec, MemorySpec, CondOperand, LabelOperand
 from ..generator import ConfigurableGenerator, RandomGenerator, Pass
 from .aarch64_target_desc import Aarch64TargetDesc, SANDBOX_BASE_REGISTER, AArch64MemRole
 from .aarch64_elf_parser import Aarch64ElfParser
@@ -37,12 +37,19 @@ class Aarch64Generator(ConfigurableGenerator, abc.ABC):
 
         self.passes = [
             Aarch64PatchUndefinedLoadsStoresPass(self.target_desc),
+            Aarch64CallFramePass(),
         ]
 
         self.printer = Aarch64Printer(self.target_desc)
 
     def get_return_instruction(self) -> Instruction:
         return Instruction("ret", False, "", True, template="RET")
+
+    def get_call_instruction(self, label: str) -> Instruction:
+        # Direct call: BL <label> sets X30 = return address and branches to the function. The "CALL"
+        # category marks it for Function.is_leaf and the prologue/epilogue pass.
+        inst = Instruction("bl", False, "CALL", True, template="BL {label}")
+        return inst.add_op(LabelOperand(label))
 
     def get_unconditional_jump_instruction(self) -> Instruction:
         # B.AL / B.NV both branch "always" on A64, so they are additional unconditional forms
@@ -401,6 +408,36 @@ class Aarch64SandboxPass(Pass, _SandboxInstrumentationBase):
             base = self._base_reg(mem_op)
             for inst in self._make_sandbox_insts(base, align16) + self._make_offset_sub_insts(mem_op):
                 parent.insert_before(instr, inst)
+
+
+class Aarch64CallFramePass(Pass):
+    """Give every non-leaf callee a stack frame that preserves the link register across its calls: a
+    prologue that spills X30 on entry and an epilogue that restores it before the return. Leaf
+    functions never clobber X30, and the inline entry function never returns, so neither needs a frame.
+
+    The spills use SP, which the harness points into upper_overflow — outside the sandbox data region —
+    so they are pure instrumentation: template-only (no memory operand), hence skipped by the sandbox
+    pass, and invisible to the contract (the kernel keeps them out of the probed sets; the contract
+    executor exempts SP-based accesses). X29 is the sandbox base and is never used as a frame pointer."""
+
+    def run_on_test_case(self, test_case: TestCase) -> None:
+        if not test_case.functions:
+            return
+        entry = test_case.functions[0]
+        for func in test_case.functions:
+            if func is entry or func.is_leaf:
+                continue
+            first_bb = func.get_first_bb()
+            first_bb.insert_before(first_bb.start, self._spill_lr())
+            func.exit.insert_after(func.exit.get_last(), self._restore_lr())
+
+    @staticmethod
+    def _spill_lr() -> Instruction:
+        return Instruction("str", is_instrumentation=True, template="STR X30, [SP, #-16]!")
+
+    @staticmethod
+    def _restore_lr() -> Instruction:
+        return Instruction("ldr", is_instrumentation=True, template="LDR X30, [SP], #16")
 
 
 class Aarch64RandomGenerator(Aarch64Generator, RandomGenerator):

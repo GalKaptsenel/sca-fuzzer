@@ -123,16 +123,26 @@ class ConfigurableGenerator(Generator, abc.ABC):
             self.LOG.error("Generation of test cases with multiple actors is not yet supported")
         self.create_actors(self.test_case)
 
-        # create the main function
+        # create the functions: index 0 is the entry (runs inline and exits the test case); the rest
+        # are callees, reachable only through calls. A function may only call a higher-indexed one, so
+        # the call graph is acyclic (no recursion, no loops) — the function-level analogue of the
+        # forward BB DAG. Functions are laid out in index order, so a higher index is a higher address.
         default_actor = self.test_case.actors["main"]
-        func = self.generate_function(".function_0", default_actor, self.test_case)
+        if CONF.min_functions_per_test_case == CONF.max_functions_per_test_case:
+            n_functions = CONF.min_functions_per_test_case
+        else:
+            n_functions = random.randint(CONF.min_functions_per_test_case,
+                                         CONF.max_functions_per_test_case)
+        functions = [
+            self.generate_function(f".function_{i}", default_actor, self.test_case, is_entry=(i == 0))
+            for i in range(n_functions)
+        ]
 
-        # fill the function with instructions
-        self.add_terminators_in_function(func)
-        self.add_instructions_in_function(func)
-
-        # add it to the test case
-        self.test_case.functions.append(func)
+        # fill each function with instructions; a function's call targets are the functions after it
+        for i, func in enumerate(functions):
+            self.add_terminators_in_function(func)
+            self.add_instructions_in_function(func, functions[i + 1:])
+            self.test_case.functions.append(func)
 
         # process the test case
         for p in self.passes:
@@ -319,7 +329,8 @@ class ConfigurableGenerator(Generator, abc.ABC):
             test_case.actors[name] = actor
 
     @abc.abstractmethod
-    def generate_function(self, name: str, owner: Actor, parent: TestCase) -> Function:
+    def generate_function(self, name: str, owner: Actor, parent: TestCase,
+                          is_entry: bool = True) -> Function:
         pass
 
     @abc.abstractmethod
@@ -378,7 +389,7 @@ class ConfigurableGenerator(Generator, abc.ABC):
         pass
 
     @abc.abstractmethod
-    def add_instructions_in_function(self, func: Function):
+    def add_instructions_in_function(self, func: Function, callees: Optional[List[Function]] = None):
         pass
 
     @abc.abstractmethod
@@ -403,8 +414,9 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
         self.cond_branches = \
             [i for i in self.control_flow_instructions if "BASE-BRANCH-COND" in i.tags]
 
-    def generate_function(self, label: str, owner: Actor, parent: TestCase):
-        """ Generates a random DAG of basic blocks within a function """
+    def generate_function(self, label: str, owner: Actor, parent: TestCase, is_entry: bool = True):
+        """ Generates a random DAG of basic blocks within a function. The entry function runs inline
+        and exits the test case; a callee returns to its caller. """
         func = Function(label, owner)
 
         # Define the maximum allowed number of successors for any BB
@@ -427,11 +439,15 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
         # Connect BBs into a graph, with func.exit as the sink
         self._wire_dag(nodes, func.exit, min_successors, max_successors)
 
-        # Function returns are not yet supported
-        # hence all functions end with an unconditional jump to the exit
-        func.exit.terminators = [
-            self.get_unconditional_jump_instruction().add_op(LabelOperand(parent.exit.name))
-        ]
+        # The entry function runs inline, so it ends with an unconditional jump to the test-case exit.
+        # A callee is reached through a call and ends with a return to its caller. (A stray/speculative
+        # return is well-defined too: the harness seeds the link register to the test-case exit.)
+        if is_entry:
+            func.exit.terminators = [
+                self.get_unconditional_jump_instruction().add_op(LabelOperand(parent.exit.name))
+            ]
+        else:
+            func.exit.terminators = [self.get_return_instruction()]
 
         # Finalize the function, splicing any unreachable flows into the block order
         func.extend(self._with_unreachable_flows(func_name, nodes, min_successors, max_successors))
@@ -661,11 +677,17 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
                 # Indirect jump
                 raise NotSupportedException()
 
-    def add_instructions_in_function(self, func: Function):
-        # evenly fill all BBs with random instructions
+    def add_instructions_in_function(self, func: Function, callees: Optional[List[Function]] = None):
+        # evenly fill all BBs with random instructions; when the function has call targets (functions
+        # laid out after it), some slots instead become a call to one of them.
+        callees = callees or []
         bb_list = func[:]
         for _ in range(0, CONF.program_size):
             bb = random.choice(bb_list)
+            if callees and random.random() < CONF.function_call_probability:
+                callee = random.choice(callees)
+                bb.insert_after(bb.get_last(), self.get_call_instruction(callee.name))
+                continue
             spec = self._pick_random_instruction_spec(self.non_memory_access_instructions,
                                                       self.store_instructions,
                                                       self.load_instruction,
@@ -695,6 +717,11 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
 
     @abc.abstractmethod
     def get_unconditional_jump_instruction(self) -> Instruction:
+        pass
+
+    @abc.abstractmethod
+    def get_call_instruction(self, label: str) -> Instruction:
+        """A direct call to the function labelled `label` (sets the link register and returns)."""
         pass
 
     def add_required_symbols(self, test_case: TestCase):

@@ -550,6 +550,12 @@ class Instruction:
                    control_flow=spec.control_flow, has_memory_access=spec.has_mem_operand,
                    template=spec.template)
 
+    @property
+    def is_call(self) -> bool:
+        """True for a function-call instruction (sets the link register and returns). Generated calls
+        use the "CALL" category; the ISA description tags them as ...-BRANCH-CALL."""
+        return self.category == "CALL" or self.category.endswith("BRANCH-CALL")
+
     def __str__(self) -> str:
         op_list = [
             "[" + o.value + "]" if isinstance(o, MemoryOperand) else o.value for o in self.operands
@@ -850,6 +856,17 @@ class Function:
 
     def extend(self, bb_list: List[BasicBlock]):
         self._all_bb.extend(bb_list)
+
+    @property
+    def is_leaf(self) -> bool:
+        """A leaf function makes no calls, so it never clobbers the link register and needs no stack
+        frame. A caller (non-leaf) must spill/restore the LR in its prologue/epilogue. Scans the body
+        and terminators for call instructions; query only after the function is fully generated."""
+        for bb in self._all_bb:
+            for inst in list(bb) + bb.terminators:
+                if inst.is_call:
+                    return False
+        return True
 
     def get_first_bb(self):
         return self._all_bb[0]

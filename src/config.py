@@ -120,6 +120,17 @@ class Conf:
     """ program_size: size of generated programs """
     avg_mem_accesses: int = 12
     """ avg_mem_accesses: average number of memory accesses in generated programs """
+    min_functions_per_test_case: int = 1
+    """ min_functions_per_test_case: minimal number of functions per generated test case. The first
+    function is the entry; the rest are callees reachable only through calls. """
+    max_functions_per_test_case: int = 1
+    """ max_functions_per_test_case: maximum number of functions per generated test case. 1 (the
+    default) reproduces the single-function behaviour. Functions are laid out in index order and a
+    function may only call a higher-indexed one, so the call graph is acyclic (no recursion/loops). """
+    function_call_probability: float = 0.5
+    """ function_call_probability: when a test case has more than one function, the probability that a
+    given instruction slot in a caller is emitted as a call (to a randomly chosen higher-indexed
+    function) instead of a regular instruction. 0 disables calls. """
     min_bb_per_function: int = 1
     """ min_bb_per_function: minimal number of basic blocks per function in generated programs """
     max_bb_per_function: int = 2
