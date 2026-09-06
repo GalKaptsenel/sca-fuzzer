@@ -131,6 +131,16 @@ class Conf:
     """ function_call_probability: when a test case has more than one function, the probability that a
     given instruction slot in a caller is emitted as a call (to a randomly chosen higher-indexed
     function) instead of a regular instruction. 0 disables calls. """
+    max_calls_per_function: int = 2
+    """ max_calls_per_function: cap on the number of call instructions a single function may emit.
+    Bounds the call graph's fan-out (the 'c' in the ~c^depth architectural re-execution of callees), so
+    speculative exploration of call-heavy programs stays tractable. """
+    function_size_shrink: float = 0.5
+    """ function_size_shrink: each successive (higher-indexed, i.e. more deeply callable) function is
+    generated with this fraction of the previous one's instruction budget: function i gets
+    ~program_size * function_size_shrink**i instructions (>= 1). Because a callee at depth d executes
+    ~c^d times, shrinking its length by ~1/c per level keeps total executed work near-linear instead of
+    exponential. 1.0 disables shrinking (every function gets the full program_size). """
     min_bb_per_function: int = 1
     """ min_bb_per_function: minimal number of basic blocks per function in generated programs """
     max_bb_per_function: int = 2

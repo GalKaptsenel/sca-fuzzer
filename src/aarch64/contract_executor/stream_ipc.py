@@ -6,7 +6,11 @@ from typing import Tuple
 
 HEADER_STRUCT = struct.Struct("<II")  # little-endian: length:uint32_t, type:uint32_t
 
-CE_READ_TIMEOUT = 30.0  # seconds before declaring CE hung
+# The CE emits nothing until an execution finishes (it computes the whole speculative trace, then
+# writes the response header + payload), so "no bytes yet" just means "still computing", not hung. A
+# deep call/speculation-heavy trace can legitimately take minutes, so this is generous; the CE's own
+# per-iteration watchdog (CE_ITERATION_TIMEOUT_SEC = 3600s) is the real backstop for a genuine hang.
+CE_READ_TIMEOUT = 600.0  # seconds with no output before declaring the CE hung
 
 
 class StreamIPC:

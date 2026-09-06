@@ -464,10 +464,14 @@ void destroy_trace_log() {
 	if(0 > sent) {
 		fprintf(stderr, "[ERR] failed to transmit contract trace (err=%d)\n", sent);
 	}
-	if(NULL != trace_log) {
-		free_contract_trace(trace_log);
-		trace_log = NULL;
-	}
+	// Retain the buffer across inputs (allocated once per process, per init_trace_log): the CE is a
+	// persistent service, so reusing the grown buffer avoids re-allocating and zeroing a large trace
+	// log (up to ~100 MB at high nesting) on every input, and lets a deep trace grow the buffer just
+	// once. Only the write cursor is reset; entries are always written before read, and only
+	// current_log_index of them are transmitted, so stale bytes past the cursor are never observed.
+	// The OS reclaims the buffer at process exit.
 	current_log_index = 0;
-	max_log_index  = 0;
+	if(NULL != trace_log) {
+		trace_log->entry_count = 0;
+	}
 }

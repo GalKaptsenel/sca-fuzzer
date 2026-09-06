@@ -30,12 +30,15 @@ class FunctionCallsTest(unittest.TestCase):
         cls.isa = InstructionSet("base.json", CONF.instruction_categories)
         cls.get_gen = staticmethod(get_program_generator)
 
-    def _gen(self, n, min_f, max_f, call_prob=0.5, program_size=8, assemble=False):
+    def _gen(self, n, min_f, max_f, call_prob=0.5, program_size=8, assemble=False,
+             max_calls=1000, shrink=1.0):
         C = self.CONF
         C.__setattr__("min_functions_per_test_case", min_f)
         C.__setattr__("max_functions_per_test_case", max_f)
         C.__setattr__("function_call_probability", call_prob)
         C.__setattr__("program_size", program_size)
+        C.__setattr__("max_calls_per_function", max_calls)
+        C.__setattr__("function_size_shrink", shrink)
         gen = self.get_gen(self.isa, 1)
         out = []
         with tempfile.TemporaryDirectory() as d:
@@ -114,6 +117,27 @@ class FunctionCallsTest(unittest.TestCase):
             self.assertFalse(self._calls(tc.functions[0]), "single function must make no calls")
             self.assertFalse(self._has_prologue(tc.functions[0]), "single function must have no frame")
             self.assertNotEqual(tc.functions[0].exit.terminators[0].name, "ret")
+
+    # ---- call fan-out is capped -----------------------------------------------------------
+    def test_max_calls_per_function(self):
+        cap = 2
+        for tc in self._gen(30, 3, 5, call_prob=0.9, program_size=20, max_calls=cap):
+            for f in tc.functions:
+                self.assertLessEqual(len(self._calls(f)), cap,
+                                     f"{f.name} emitted more than {cap} calls")
+
+    # ---- successive functions shrink in length --------------------------------------------
+    def test_function_size_shrink(self):
+        # With shrink=0.5, each function should be no longer than the previous (monotone non-increasing
+        # instruction count by index); a strict drop appears once sizes exceed the 1-instruction floor.
+        saw_drop = False
+        for tc in self._gen(20, 4, 4, call_prob=0.0, program_size=40, shrink=0.5):
+            sizes = [sum(1 for bb in f for _ in bb) for f in tc.functions]
+            for a, b in zip(sizes, sizes[1:]):
+                self.assertLessEqual(b, a, f"function sizes not non-increasing: {sizes}")
+            if sizes[0] > sizes[-1]:
+                saw_drop = True
+        self.assertTrue(saw_drop, "shrink produced no size reduction across functions")
 
     # ---- still assembles ------------------------------------------------------------------
     def test_multi_function_assembles(self):

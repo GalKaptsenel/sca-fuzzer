@@ -138,10 +138,13 @@ class ConfigurableGenerator(Generator, abc.ABC):
             for i in range(n_functions)
         ]
 
-        # fill each function with instructions; a function's call targets are the functions after it
+        # fill each function with instructions; a function's call targets are the functions after it.
+        # Successive (more deeply callable) functions shrink exponentially in length: a callee at depth
+        # d runs ~c^d times, so ~1/c-per-level shrinkage keeps total executed work near-linear.
         for i, func in enumerate(functions):
             self.add_terminators_in_function(func)
-            self.add_instructions_in_function(func, functions[i + 1:])
+            size = max(1, round(CONF.program_size * (CONF.function_size_shrink ** i)))
+            self.add_instructions_in_function(func, functions[i + 1:], size)
             self.test_case.functions.append(func)
 
         # process the test case
@@ -389,7 +392,8 @@ class ConfigurableGenerator(Generator, abc.ABC):
         pass
 
     @abc.abstractmethod
-    def add_instructions_in_function(self, func: Function, callees: Optional[List[Function]] = None):
+    def add_instructions_in_function(self, func: Function, callees: Optional[List[Function]] = None,
+                                     size: Optional[int] = None):
         pass
 
     @abc.abstractmethod
@@ -677,16 +681,23 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
                 # Indirect jump
                 raise NotSupportedException()
 
-    def add_instructions_in_function(self, func: Function, callees: Optional[List[Function]] = None):
-        # evenly fill all BBs with random instructions; when the function has call targets (functions
-        # laid out after it), some slots instead become a call to one of them.
+    def add_instructions_in_function(self, func: Function, callees: Optional[List[Function]] = None,
+                                     size: Optional[int] = None):
+        # evenly fill all BBs with `size` instructions (default program_size); when the function has
+        # call targets (functions laid out after it), some slots instead become a call to one of them,
+        # capped at max_calls_per_function to bound the call graph's fan-out.
         callees = callees or []
+        if size is None:
+            size = CONF.program_size
         bb_list = func[:]
-        for _ in range(0, CONF.program_size):
+        calls_emitted = 0
+        for _ in range(0, size):
             bb = random.choice(bb_list)
-            if callees and random.random() < CONF.function_call_probability:
+            if callees and calls_emitted < CONF.max_calls_per_function \
+                    and random.random() < CONF.function_call_probability:
                 callee = random.choice(callees)
                 bb.insert_after(bb.get_last(), self.get_call_instruction(callee.name))
+                calls_emitted += 1
                 continue
             spec = self._pick_random_instruction_spec(self.non_memory_access_instructions,
                                                       self.store_instructions,

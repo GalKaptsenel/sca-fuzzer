@@ -644,16 +644,29 @@ the call graph is a forward DAG — no direct or indirect recursion, hence no un
 the rule the basic-block DAG already follows one level down. `function_call_probability` sets how often a
 filled slot in a caller becomes a call.
 
+**Bounding the call fan-out.** A callee reached via many call paths executes many times — a function at
+call depth *d* with ~*c* calls per level runs ~*cᵈ* times, so a naive call-dense program re-executes a
+lot (and under a speculative contract that re-execution is explored per branch, multiplying further).
+Two knobs keep this tractable: `max_calls_per_function` caps *c* (the fan-out), and `function_size_shrink`
+makes each successive (more deeply callable) function exponentially shorter, so ~*cᵈ* executions of a
+~1/*cᵈ*-length body stays near-linear rather than exponential.
+
 A callee that itself makes calls (`Function.is_leaf` is false) gets a **prologue/epilogue** that spills
 and restores `X30` around its body (`Aarch64CallFramePass`), so the return survives its own calls; leaf
 callees and the entry (which never returns) get no frame. `X29` is the sandbox base and is never used as
 a frame pointer. The harness also seeds `X30` to the test-case exit, so a return reached with no matching
 call — stray or speculative — is well-defined.
 
-> Note: the Phase-1a contract resolves calls/returns **architecturally only**; it does not yet model
-> return-address speculation (the RSB). On real hardware a `RET` speculates via the RSB, so enabling
-> calls surfaces return-speculation as violations until that predictor is added to the contract. This is
-> expected (it mirrors why Flowvizor's oracle models the RSB) and is the next contract-side work.
+The contract executor models calls/returns with an **architectural call stack** (`call_stack.c`): a
+`BL`/`BLR` pushes the return address, a `RET` pops it (empty ⇒ the top-level return), and the stack is
+snapshotted into each speculation checkpoint so a call/return on a mispredicted path rolls back with the
+window. Its trace log is retained across inputs and grown on demand (no depth cap), and the CE↔bridge
+read timeout is generous, so a deep speculative trace is recorded, not truncated or falsely killed.
+
+> Note: the contract resolves calls/returns **architecturally** (the correct caller), so calls do not by
+> themselves produce violations. It does not yet model return-address *speculation* (the RSB); adding
+> that predictor — which also prunes the always-mispredict exploration to hardware-reachable paths — is
+> the next contract-side step, mirroring Flowvizor's oracle.
 
 ### 8.2 Input register region
 
