@@ -10,6 +10,14 @@
 volatile struct cpu_state g_last_hook_cpu_state;
 volatile uint32_t g_last_hook_orig_instr;
 
+/* Architectural stack pointer, tracked in software. The real (host) SP is used by the per-instruction
+ * trampoline and is unrelated to the test case's SP, so we model the sandbox SP here: it is seeded to
+ * the sandbox stack top per test case, presented to the hooks as cpu_state.sp, and updated by the
+ * emulated frame spills. It rides cpu_state.sp through the speculation checkpoint, so speculative
+ * spills roll back with their window and SP never drifts off the stack. */
+static uintptr_t g_arch_sp = 0;
+void arch_sp_reset(uintptr_t stack_top) { g_arch_sp = stack_top; }
+
 void ce_debug_print_last_sim_state(FILE *out) {
 	struct cpu_state s;
 	memcpy((void*)&s, (const void*)&g_last_hook_cpu_state, sizeof(s));
@@ -201,6 +209,7 @@ void base_hook_c(struct cpu_state* state) {
 	state->lr = simulation.return_address; // For the hooks, fake the LR register to point to the return address of the code when it runs wihtout simulation
 
 	sim_state.cpu_state = *state;
+	sim_state.cpu_state.sp = g_arch_sp;   /* hooks see the architectural sandbox SP, not the host SP */
 	sim_state.memory = simulation.simulation_memory;
 
 	// NOTICE: We write "outside" the simulated code, but we explicitly malloced 1 additional instruction spacew after the simulated code
@@ -214,6 +223,8 @@ void base_hook_c(struct cpu_state* state) {
 			current_ret_address = (uintptr_t)continue_simulation_from;
 		}
 	}
+
+	g_arch_sp = sim_state.cpu_state.sp;   /* persist frame-spill writebacks and speculative rollbacks */
 
 	memcpy(simulation.sim_input.code, simulation.sim_code.code, simulation.sim_input.hdr.code_size); // copy changes from hooks
 
@@ -322,12 +333,34 @@ void* handle_ret_hook(struct simulation_state* sim_state) {
 	}
 
 	// SP-based memory accesses are function-frame spills (the generator never emits sp as a data base).
-	// They only exist to preserve X30 across the hardware's calls, but the contract executor returns via
-	// the call stack, so X30's spilled value is irrelevant. Skip them entirely (advance past without
-	// executing): this keeps them out of the contract and — crucially — stops SP from drifting under
-	// speculative exploration (an unbalanced speculative spill would otherwise walk SP off the stack).
+	// Emulate them against the sandbox stack rather than running them natively (which would use the CE's
+	// host stack): move X30 to/from sandbox memory and adjust the architectural SP. The load/store is
+	// still recorded by the trace hook, so the spill appears in the contract footprint exactly as the
+	// kernel's does on hardware; then advance past the instruction (return pc+4) so it is not executed
+	// natively. cpu_state.sp is checkpointed with the window, so a speculative spill rolls back and SP
+	// never drifts off the stack.
 	if(is_memory_access(insn) && !is_literal_pc_relative(insn) &&
 	   AARCH64_SP_REG == get_rn(insn)) {
+		trace_cpu_state_t tcs = { 0 };
+		for (uint32_t r = 0; r < 31; ++r) { tcs.gpr[r] = cpu_state_read_base_reg(&sim_state->cpu_state, r); }
+		tcs.sp = sim_state->cpu_state.sp; tcs.pc = sim_state->cpu_state.pc;
+		mem_access_info_t mi = parse_memory_access_instruction(insn, &tcs);
+		void* uea = kaddr2uaddr((void*)(uintptr_t)mi.effective_address);
+		if (mi.is_store) {
+			uint64_t v = cpu_state_read_base_reg(&sim_state->cpu_state, mi.target_register);
+			memcpy(uea, &v, (size_t)mi.data_size);
+		} else {
+			uint64_t v = 0;
+			memcpy(&v, uea, (size_t)mi.data_size);
+			cpu_state_write_base_reg(&sim_state->cpu_state, mi.target_register, v);
+		}
+		// Writeback: pre- and post-indexed frame ops both move SP by their signed imm9 (STR X30,[SP,#-16]!
+		// and LDR X30,[SP],#16). A plain signed-offset form has no writeback.
+		if (is_pre_index(insn) || is_post_index(insn)) {
+			int64_t imm9 = (int64_t)((insn >> 12) & 0x1FF);
+			if (imm9 & 0x100) { imm9 |= ~(int64_t)0x1FF; }
+			sim_state->cpu_state.sp += (uintptr_t)imm9;
+		}
 		return (void*)(sim_state->cpu_state.pc + 4);
 	}
 	return NULL;

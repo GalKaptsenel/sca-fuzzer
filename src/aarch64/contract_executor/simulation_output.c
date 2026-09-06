@@ -327,11 +327,10 @@ static instr_trace_entry_t* log_sim_state(struct simulation_state* sim_state) {
 	entry->metadata.window_id = 0;             // architectural unless the speculation logger sets it
 
 	mem_access_info_t mi = parse_memory_access_instruction(entry->cpu.encoding, &entry->cpu);
-	/* Function-frame (SP) spills are harness instrumentation, not test-case data: keep them out of
-	 * the contract footprint so CTrace matches HTrace (the kernel spills into upper_overflow, outside
-	 * the probed sets). The generator never emits sp as a data base, so this only drops prologue/
-	 * epilogue LR saves and restores. */
-	int is_contract_access = mi.is_mem && mi.base_register != AARCH64_SP_REG;
+	/* Function-frame (SP) spills are recorded like any other access: handle_ret_hook emulates them
+	 * against the sandbox stack (entry->cpu.sp is the architectural sandbox SP), so the prologue/epilogue
+	 * LR save/restore appears in the contract footprint exactly as it does in the HTrace on hardware. */
+	int is_contract_access = mi.is_mem;
 	entry->metadata.has_memory_access = is_contract_access ? 1 : 0;
 	entry->metadata.is_pair = (is_contract_access && mi.is_pair) ? 1 : 0;
 

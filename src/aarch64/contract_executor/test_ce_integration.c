@@ -532,14 +532,15 @@ static void test_integration_str_base(void) {
 
 /* ---- GROUP 2b: SP-based (function-frame) accesses stay out of the footprint ---- */
 
-static void test_integration_sp_access_excluded(void) {
-    /* An access based on SP is a function-frame spill (harness instrumentation), never test-case
-     * data — the generator never emits sp as a data base. It must NOT enter the contract footprint,
-     * mirroring the kernel, which keeps the stack in upper_overflow (outside the probed sets). Here
-     * LDR X0,[SP] must be dropped while LDR X1,[X29] is the sole contract access. */
+static void test_integration_sp_access_modeled(void) {
+    /* An SP-based access is a function-frame spill; the CE emulates it against the sandbox stack (top
+     * of the overflow region, mirroring the kernel's get_stack_base_address) and records it in the
+     * contract footprint -- so it appears on the CTrace exactly as it lights a cache set in the HTrace.
+     * Here STR X30,[SP,#-16]! lands at STACK_TOP-16 (a write); LDR X1,[X29] is the body's data load. */
+    const uint64_t STACK_TOP = KBASE + MEM_SIZE + 0x1000;  /* + SANDBOX_OVERFLOW_SIZE = kernel stack top */
     uint32_t code[] = {
-        enc_ldr_reg(0, 31),   /* LDR X0, [SP]  — dropped from the footprint */
-        enc_ldr_reg(1, 29),   /* LDR X1, [X29] — the only contract access   */
+        enc_str_preidx(30, 31, -16),  /* prologue spill: STR X30,[SP,#-16]!  -> modeled */
+        enc_ldr_reg(1, 29),           /* body:           LDR X1,[X29]        -> modeled */
     };
 
     uint8_t mem[MEM_SIZE];
@@ -554,24 +555,30 @@ static void test_integration_sp_access_excluded(void) {
         return;
     }
 
-    /* Exactly one contract memory access, and it is the [X29] load — the SP access is gone. */
-    EXPECT_EQ(count_mem_entries(&res), 1);
-    instr_trace_entry_t *e = find_mem_entry(&res, 0);
-    EXPECT(e != NULL);
-    if (!e) return;
-    EXPECT_EQ(e->metadata.memory_access.is_write,          (uint64_t)0);
-    EXPECT_EQ(e->metadata.memory_access.effective_address, KBASE);
+    /* Both the frame spill and the body load are in the footprint. */
+    EXPECT_EQ(count_mem_entries(&res), 2);
+    instr_trace_entry_t *spill = find_mem_entry(&res, 0);
+    instr_trace_entry_t *body  = find_mem_entry(&res, 1);
+    EXPECT(spill != NULL);
+    EXPECT(body != NULL);
+    if (!spill || !body) return;
+    EXPECT_EQ(spill->metadata.memory_access.is_write,          (uint64_t)1);
+    EXPECT_EQ(spill->metadata.memory_access.effective_address, STACK_TOP - 16);
+    EXPECT_EQ(body->metadata.memory_access.is_write,           (uint64_t)0);
+    EXPECT_EQ(body->metadata.memory_access.effective_address,  KBASE);
+    EXPECT_EQ(body->metadata.memory_access.before,             val);
 }
 
-static void test_integration_frame_spill_excluded(void) {
+static void test_integration_frame_spill_modeled(void) {
     /* The exact non-leaf prologue/epilogue the generator emits: STR X30,[SP,#-16]! ... LDR X30,[SP],#16
-     * (writeback forms). Both are SP-based, so both must be dropped from the footprint and must run
-     * natively without a sandbox-bounds fault; the LR is preserved across the body, and only the
-     * body's LDR X0,[X29] is a contract access. */
+     * (writeback forms). Both are emulated against the sandbox stack and recorded, and X30 round-trips:
+     * the epilogue reads back what the prologue stored, at the same address (STACK_TOP-16). The body's
+     * LDR X0,[X29] is the third contract access. */
+    const uint64_t STACK_TOP = KBASE + MEM_SIZE + 0x1000;  /* + SANDBOX_OVERFLOW_SIZE */
     uint32_t code[] = {
-        enc_str_preidx(30, 31, -16),  /* prologue: SP -= 16, spill X30      (dropped) */
-        enc_ldr_reg(0, 29),           /* body:     LDR X0, [X29]            (contract) */
-        enc_ldr_postidx(30, 31, 16),  /* epilogue: restore X30, SP += 16    (dropped) */
+        enc_str_preidx(30, 31, -16),  /* prologue: SP -= 16, spill X30      */
+        enc_ldr_reg(0, 29),           /* body:     LDR X0, [X29]            */
+        enc_ldr_postidx(30, 31, 16),  /* epilogue: restore X30, SP += 16    */
     };
 
     uint8_t mem[MEM_SIZE];
@@ -586,14 +593,26 @@ static void test_integration_frame_spill_excluded(void) {
         return;
     }
 
-    /* Only the body load is in the footprint; the balanced SP spill/restore is invisible. */
-    EXPECT_EQ(count_mem_entries(&res), 1);
-    instr_trace_entry_t *e = find_mem_entry(&res, 0);
-    EXPECT(e != NULL);
-    if (!e) return;
-    EXPECT_EQ(e->metadata.memory_access.is_write,          (uint64_t)0);
-    EXPECT_EQ(e->metadata.memory_access.effective_address, KBASE);
-    EXPECT_EQ(e->metadata.memory_access.before,            val);
+    /* Three accesses: prologue store, body load, epilogue load. */
+    EXPECT_EQ(count_mem_entries(&res), 3);
+    instr_trace_entry_t *pro  = find_mem_entry(&res, 0);
+    instr_trace_entry_t *body = find_mem_entry(&res, 1);
+    instr_trace_entry_t *epi  = find_mem_entry(&res, 2);
+    EXPECT(pro != NULL);
+    EXPECT(body != NULL);
+    EXPECT(epi != NULL);
+    if (!pro || !body || !epi) return;
+    /* prologue: writes X30 at STACK_TOP-16 */
+    EXPECT_EQ(pro->metadata.memory_access.is_write,          (uint64_t)1);
+    EXPECT_EQ(pro->metadata.memory_access.effective_address, STACK_TOP - 16);
+    /* body: reads the test-case data at KBASE */
+    EXPECT_EQ(body->metadata.memory_access.is_write,          (uint64_t)0);
+    EXPECT_EQ(body->metadata.memory_access.effective_address, KBASE);
+    EXPECT_EQ(body->metadata.memory_access.before,            val);
+    /* epilogue: reads back the spilled X30 from the same address (round-trip) */
+    EXPECT_EQ(epi->metadata.memory_access.is_write,          (uint64_t)0);
+    EXPECT_EQ(epi->metadata.memory_access.effective_address, STACK_TOP - 16);
+    EXPECT_EQ(epi->metadata.memory_access.before,            pro->metadata.memory_access.after);
 }
 
 static void test_integration_call_returns_and_continues(void) {
@@ -3647,8 +3666,8 @@ int main(void) {
 
     test_integration_ldr_base();
     test_integration_str_base();
-    test_integration_sp_access_excluded();
-    test_integration_frame_spill_excluded();
+    test_integration_sp_access_modeled();
+    test_integration_frame_spill_modeled();
     test_integration_call_returns_and_continues();
     test_integration_mte_after_access_correction();
     test_integration_mte_inactive_no_correction();

@@ -251,6 +251,9 @@ int main() {
 
 		g_iter_phase = 2; /* simulation */
 		call_stack_reset(); /* fresh architectural call stack for this test case */
+		/* Seed the architectural SP to the sandbox stack top (mirrors the kernel's
+		 * get_stack_base_address = top of upper_overflow), so emulated frame spills land in the sandbox. */
+		arch_sp_reset((uintptr_t)kernel_sandbox_base + simulation.sim_input.mem_size + SANDBOX_OVERFLOW_SIZE);
 		CE_INSTALL_CRASH_HANDLERS(); /* reinstall in case Python code (TAGE) overrode them */
 
 		asm volatile (

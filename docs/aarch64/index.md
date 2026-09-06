@@ -627,12 +627,22 @@ evicts along. The htrace is a 64-entry cache-set bitmap; an access at sandbox `o
 ```
 
 The test-case stack lives at the **top of `upper_overflow`** and grows down (`SP` is seeded there by
-`get_stack_base_address`). This isolates function-frame spills (a callee's saved `LR`) from the input
-data regions: the sandbox address mask never clamps a generated access into `upper_overflow`, so a
-spill can neither alias input data nor pollute the Prime+Probe trace of the probed (main-region) sets.
-`SP`-based accesses are treated as harness instrumentation and kept out of the contract footprint — the
-contract executor mirrors this by exempting `Rn == SP` accesses from its trace (they run natively and
-are not recorded), so CTrace and htrace agree on programs that use a stack.
+`get_stack_base_address`). Placing it there keeps function-frame spills (a callee's saved `LR`) from
+*aliasing* the input data regions — the sandbox address mask never clamps a generated access into
+`upper_overflow`. It does **not** hide the spill from Prime+Probe, though: the cache-set index is
+`(addr >> 6) & 63`, so the spill still lights a set (empirically set 63 on this box) in the htrace of
+any program that uses a stack.
+
+The contract executor therefore **models** the frame spill rather than dropping it. It keeps an
+architectural `SP` in software (`g_arch_sp`), seeded to the sandbox stack top per test case (the real
+host `SP` is left for the per-instruction trampoline, which ignores the architectural `SP`). Each
+`SP`-based prologue/epilogue access (`STR X30,[SP,#-16]!` / `LDR X30,[SP],#16`) is **emulated** against
+the sandbox stack — `X30` is written/read in sandbox memory and the architectural `SP` is moved by the
+instruction's writeback — then the native instruction is skipped (`handle_ret_hook` advances past it).
+The access is recorded like any other, so CTrace carries the spill's cache set exactly as htrace does.
+Because the architectural `SP` rides `cpu_state.sp` through the per-window checkpoint, a speculative
+spill rolls back with its window and `SP` never drifts off the stack. An `SP` access that lands outside
+the sandbox is a real defect and faults loudly (never silently skipped).
 
 ### 8.1a Functions, calls, and returns
 
