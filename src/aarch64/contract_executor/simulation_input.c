@@ -41,7 +41,8 @@ int simulation_input_validate_header(const struct input_header* hdr) {
 		return -1;
 	}
 
-	if (MAX_PAYLOAD_SIZE < hdr->code_size || MAX_PAYLOAD_SIZE < hdr->input_init_size) {
+	if (MAX_PAYLOAD_SIZE < hdr->code_size || MAX_PAYLOAD_SIZE < hdr->data_size ||
+	    MAX_PAYLOAD_SIZE < hdr->input_init_size) {
 		return -1;
 	}
 
@@ -50,7 +51,7 @@ int simulation_input_validate_header(const struct input_header* hdr) {
 
 size_t simulation_input_payload_size(const struct input_header* hdr) {
 	if(NULL == hdr) return 0;
-	return hdr->code_size + hdr->input_init_size;
+	return hdr->code_size + hdr->data_size + hdr->input_init_size;
 }
 
 /* Parse the shared input initialization (executor_input_format) into sim_input: memory = main || faulty,
@@ -135,12 +136,13 @@ int simulation_input_load_fd(int fd, struct simulation_input* sim_input) {
 	}
 
 	if (sim_input->hdr.flags & RVZR_FLAG_HAS_CODE) {
-		sim_input->code = malloc(sim_input->hdr.code_size);
+		size_t code_and_data = sim_input->hdr.code_size + sim_input->hdr.data_size;
+		sim_input->code = malloc(code_and_data);   // instructions + read-only tables, contiguous
 		if (NULL == sim_input->code) {
 			goto load_fd_fail;
 		}
 
-		if (0 > read_full(fd, sim_input->code, sim_input->hdr.code_size)) {
+		if (0 > read_full(fd, sim_input->code, code_and_data)) {
 			goto load_fd_fail;
 		}
 	}
@@ -244,21 +246,23 @@ int simulation_input_from_file(FILE* f, struct simulation_input* sim_input) {
 		goto simulation_input_from_file_err;
 	}
 
-	if (payload_len < sizeof(sim_input->hdr) + sim_input->hdr.code_size + sim_input->hdr.input_init_size) {
+	if (payload_len < sizeof(sim_input->hdr) + sim_input->hdr.code_size + sim_input->hdr.data_size
+	                  + sim_input->hdr.input_init_size) {
 		fprintf(stderr, "Payload truncated!\n");
 		ret = -1;
 		goto simulation_input_from_file_err;
 	}
 
 	if (sim_input->hdr.flags & RVZR_FLAG_HAS_CODE) {
-		sim_input->code = malloc(sim_input->hdr.code_size);
+		size_t code_and_data = sim_input->hdr.code_size + sim_input->hdr.data_size;
+		sim_input->code = malloc(code_and_data);   // instructions + read-only tables, contiguous
 		if (NULL == sim_input->code) {
 			ret = -1;
 			goto simulation_input_from_file_err;
 		}
 
-		memcpy(sim_input->code, current_ptr, sim_input->hdr.code_size);
-		current_ptr += sim_input->hdr.code_size;
+		memcpy(sim_input->code, current_ptr, code_and_data);
+		current_ptr += code_and_data;
 	}
 
 	if (sim_input->hdr.flags & RVZR_FLAG_HAS_INPUT) {

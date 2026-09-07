@@ -602,9 +602,9 @@ static void test_struct_sizes(void) {
     /* struct configuration: 9 fields × 8 bytes = 72 bytes */
     EXPECT_EQ(sizeof(struct configuration), (size_t)80);
 
-    /* struct input_header: 16 u64 = magic+version+arch+flags(4) + config(9)
-     *   + code_size+input_init_size+reserved(3) = 128 bytes */
-    EXPECT_EQ(sizeof(struct input_header), (size_t)136);
+    /* struct input_header: 18 u64 = magic+version+arch+flags(4) + config(10)
+     *   + code_size+data_size+input_init_size+reserved(4) = 144 bytes */
+    EXPECT_EQ(sizeof(struct input_header), (size_t)144);
 
     /* input_header starts with magic at offset 0 */
     EXPECT_EQ(offsetof(struct input_header, magic), (size_t)0);

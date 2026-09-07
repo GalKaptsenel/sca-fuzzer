@@ -239,9 +239,16 @@ static void fill_mem_access(mem_access_t* acc, uintptr_t kea, uint64_t elem_sz,
 	if ((uintptr_t)-1 == kea) { __builtin_trap(); }
 
 	/* The sandbox allocation includes a full page of padding after mem_size (see main.c) so a
-	 * boundary overflow of up to one element is safe. */
+	 * boundary overflow of up to one element is safe. A read of the executable image (a dispatch
+	 * jump-table entry) is already a valid CE address — read it directly, without sandbox translation. */
 	uint64_t value_64bit = 0;
-	memcpy(&value_64bit, kaddr2uaddr((void*)kea), (size_t)elem_sz);
+	uintptr_t code_lo = (uintptr_t)simulation.sim_code.code;
+	uintptr_t code_hi = code_lo + simulation.sim_code.code_size + simulation.sim_code.data_size;
+	if (kea >= code_lo && kea < code_hi) {
+		memcpy(&value_64bit, (void*)kea, (size_t)elem_sz);
+	} else {
+		memcpy(&value_64bit, kaddr2uaddr((void*)kea), (size_t)elem_sz);
+	}
 	uint64_t write_mask;
 	switch(elem_sz) {
 		case 1: write_mask = 0xFF; break;
@@ -330,6 +337,10 @@ static instr_trace_entry_t* log_sim_state(struct simulation_state* sim_state) {
 	/* Function-frame (SP) spills are recorded like any other access: handle_ret_hook emulates them
 	 * against the sandbox stack (entry->cpu.sp is the architectural sandbox SP), so the prologue/epilogue
 	 * LR save/restore appears in the contract footprint exactly as it does in the HTrace on hardware. */
+	/* Every access is recorded, including a load from the executable image (the dispatch jump table read
+	 * by ADR+LDRSW): it is an ordinary memory access whose cache set is fixed by the table's page offset
+	 * (base-independent, so it matches the kernel) and varies with the input-hashed index — a real
+	 * observation, not to be hidden. */
 	int is_contract_access = mi.is_mem;
 	entry->metadata.has_memory_access = is_contract_access ? 1 : 0;
 	entry->metadata.is_pair = (is_contract_access && mi.is_pair) ? 1 : 0;

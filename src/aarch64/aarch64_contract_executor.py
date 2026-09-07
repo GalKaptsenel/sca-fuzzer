@@ -118,6 +118,7 @@ class ContractExecution:
     mte_tags: Optional[list] = None       # per-input MTE tags (one per 16B granule), or None
     pac_keys: Optional[PacKeys] = None    # per-input PAC keys, or None
     pac_profile: Optional[PacProfile] = None   # target PAC profile the CE models auth with, or None
+    data_size: int = 0    # trailing read-only bytes of machine_code (dispatch tables): loaded but not hooked
 
     def encode(self) -> bytes:
         """
@@ -167,7 +168,11 @@ class ContractExecution:
                                 self.registers[:GPR_SUBREGION_SIZE],
                                 mte_tags=self.mte_tags,
                                 pac_keys=self.pac_keys.words() if self.pac_keys is not None else None)
-        code_size: int = len(self.machine_code)
+        # machine_code = instructions ‖ read-only tables; the header splits it so the CE hooks only the
+        # instruction region and leaves the trailing tables intact for the dispatch loads.
+        assert 0 <= self.data_size <= len(self.machine_code)
+        code_size: int = len(self.machine_code) - self.data_size
+        data_size: int = self.data_size
         input_init_size: int = len(input_init)
 
         data = bytearray()
@@ -188,6 +193,7 @@ class ContractExecution:
         data += (pac_profile_word).to_bytes(8, 'little')
 
         data += code_size.to_bytes(8, 'little')
+        data += data_size.to_bytes(8, 'little')
         data += input_init_size.to_bytes(8, 'little')
 
         data += (0).to_bytes(8, 'little') # Reserved

@@ -139,21 +139,39 @@ static int atomic_kaddr_store_value(uint32_t inst, uint32_t rn, uint64_t kaddr, 
 static void* inner_hook_aarch64_instructions(struct simulation_code* sc) {
 	if(NULL == sc) return NULL;
 
-	size_t n_instructions = (sc->code_size / 4) + 1; // Add space for 1 additional instruction for our use (we would use this for  a default RET instruction at the end of the testcase)
-	
 	uint32_t* sim_code = (uint32_t*)sc->code;
+	size_t instr_words = sc->code_size / 4;
+	size_t end_slot    = (sc->code_size + sc->data_size) / 4;   // one word past code + tables
 
-	void* hook = sim_code + n_instructions;
+	// Executable layout: [instructions][read-only tables][end slot (4B)][trampoline]. The trampoline
+	// (and the terminal slot before it) live past code + data, in additional_space_alloc, so hooking
+	// only ever rewrites instruction words and the terminal slot, never the dispatch tables.
+	void* hook = (uint8_t*)sc->code + (end_slot + 1) * 4;
 
-	for (size_t i = 0; i < n_instructions; ++i) {
+	for (size_t i = 0; i < instr_words; ++i) {
 		uintptr_t pc = (uintptr_t)(sim_code + i);
-        	uint32_t bl = encode_bl(pc, (uintptr_t)hook);
-        	if (0 == bl) {
+		uint32_t bl = encode_bl(pc, (uintptr_t)hook);
+		if (0 == bl) {
 			return NULL;
 		}
-
 		sim_code[i] = bl;
 	}
+
+	// Keep the read-only dispatch tables intact for LDRSW: base_hook_c restores only the instruction
+	// region, so refresh the tables from the original payload here (a no-op when there are none).
+	if (0 != sc->data_size) {
+		memcpy((uint8_t*)sc->code + sc->code_size,
+		       (const uint8_t*)simulation.sim_input.code + sc->code_size, sc->data_size);
+	}
+
+	// Hook the terminal slot just past code + tables (when data_size==0 this is the original "+1" slot):
+	// B .test_case_exit lands here, so the trampoline fires, out_of_simulation trips and the trace ends —
+	// otherwise execution would fall through into a stale native RET and loop.
+	uint32_t end_bl = encode_bl((uintptr_t)(sim_code + end_slot), (uintptr_t)hook);
+	if (0 == end_bl) {
+		return NULL;
+	}
+	sim_code[end_slot] = end_bl;
 
 	__builtin___clear_cache((char*)sim_code, (char*)hook);
 	return hook;
@@ -174,6 +192,15 @@ int hook_aarch64_instructions(
 
 	__builtin___clear_cache((char*)copied_hook_addr, (char*)copied_hook_addr + hook_size);
 	return 0;
+}
+
+/* True when addr falls inside the executable image (instructions + read-only dispatch tables). A load
+ * of such an address is the ADR+LDRSW dispatch sequence reading its own jump table — a code/rodata read,
+ * not a sandbox access — so it is neither rebased into the sandbox nor recorded in the contract. */
+static inline int addr_in_sim_code(uintptr_t addr) {
+	uintptr_t lo = (uintptr_t)simulation.sim_code.code;
+	uintptr_t hi = lo + simulation.sim_code.code_size + simulation.sim_code.data_size;
+	return addr >= lo && addr < hi;
 }
 
 static inline uint32_t pc_to_orig_instruction(uintptr_t pc) {
@@ -212,9 +239,11 @@ void base_hook_c(struct cpu_state* state) {
 	sim_state.cpu_state.sp = g_arch_sp;   /* hooks see the architectural sandbox SP, not the host SP */
 	sim_state.memory = simulation.simulation_memory;
 
-	// NOTICE: We write "outside" the simulated code, but we explicitly malloced 1 additional instruction spacew after the simulated code
+	// Restore the original instructions; the read-only tables sit after them and are never touched here.
+	// The default-RET slot follows code + data (in the additional scratch), so it can't clobber a table.
 	memcpy(simulation.sim_code.code, simulation.sim_input.code, simulation.sim_input.hdr.code_size); // restore original code
-	*((uint32_t*)((uintptr_t)simulation.sim_code.code + simulation.sim_input.hdr.code_size)) = 0xd65f03c0; // Manually insert RET
+	*((uint32_t*)((uintptr_t)simulation.sim_code.code + simulation.sim_input.hdr.code_size
+	              + simulation.sim_input.hdr.data_size)) = 0xd65f03c0; // Manually insert RET past code+data
 
 	for (size_t i = 0; i < simulation.n_hooks; ++i) {
 		// Listeners can change the code flow by returning the next address to execute
@@ -280,11 +309,15 @@ void base_hook_c(struct cpu_state* state) {
 			restore_val = (base_orig & ~(0xFull << 56)) | ((uintptr_t)cell_tag << 56);
 		}
 
-		/* Rebase so the hardware-computed EA lands exactly on the translated (clean) EA;
-		 * the native access then never relies on EL0 TBI to drop a stray top byte. */
-		uintptr_t new_base = (uintptr_t)kaddr2uaddr((void*)ea) - ea + base_orig;
-		cpu_state_write_base_reg(state, rn, new_base);
-		if (!load_aliases) log_reg_fixup(rn, restore_val, new_base);
+		/* Rebase so the hardware-computed EA lands exactly on the translated (clean) EA; the native
+		 * access then never relies on EL0 TBI to drop a stray top byte. A load from the executable image
+		 * (the ADR+LDRSW dispatch reading its own jump table) already points into sim_code, so it needs no
+		 * rebase — leave the base as-is, exactly like the SP frame-spill exemption. */
+		if (!addr_in_sim_code(ea)) {
+			uintptr_t new_base = (uintptr_t)kaddr2uaddr((void*)ea) - ea + base_orig;
+			cpu_state_write_base_reg(state, rn, new_base);
+			if (!load_aliases) log_reg_fixup(rn, restore_val, new_base);
+		}
 
 		/* A store whose data register aliases the base wrote the uaddr, not the kaddr; restore those
 		 * bytes. Queued per stored element, so every element of a pair (or any wider store) is covered.

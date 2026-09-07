@@ -80,15 +80,17 @@ struct input_header {
     uint64_t flags;
     struct configuration config;
 
-    uint64_t code_size;   /* bytes of machine code following the header */
-    uint64_t input_init_size;   /* bytes of the input initialization following the code */
+    uint64_t code_size;   /* bytes of instructions following the header */
+    uint64_t data_size;   /* bytes of read-only data (dispatch tables) following the instructions:
+                           * loaded into the executable region but never hooked or executed. 0 = none. */
+    uint64_t input_init_size;   /* bytes of the input initialization following the code + data */
 
     uint64_t reserved;    /* must be 0 */
 };
 
 /* Wire ABI must match the Python encoder (ContractExecution.encode). */
 _Static_assert(sizeof(struct configuration) == 10 * sizeof(uint64_t), "configuration ABI mismatch");
-_Static_assert(sizeof(struct input_header) == 17 * sizeof(uint64_t), "input_header ABI mismatch");
+_Static_assert(sizeof(struct input_header) == 18 * sizeof(uint64_t), "input_header ABI mismatch");
 
 /* ============================
  * In-memory representation
