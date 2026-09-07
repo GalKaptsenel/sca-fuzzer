@@ -1,13 +1,18 @@
-"""decode_reg_accesses must report every register/flag a generated instruction reads/writes -- under-
-reporting hides a data dependency and can turn a real leak into a false negative. Capstone (5.0.x)
-under-reports some implicit accesses (rmif/setf8/setf16 expose nothing; pacga drops its 2nd source),
-which decode_reg_accesses compensates for.
+"""decode_reg_accesses must report every register/flag a generated instruction reads/writes, and must
+NOT invent writes it doesn't perform. Both directions corrupt taint: a missed read (or a real write
+mislabeled) can hide a dependency -> false negative; a spurious flag WRITE marks that flag's input dead
+so boosting mutates it -> false positive (the SETF16-writes-C bug: SETF8/SETF16 preserve C, RMIF writes
+only its mask-selected bits, yet Capstone/the old code claimed all of NZCV). Capstone (5.0.x) also
+under-reports these FlagM/FlagM2 ops' reads and RMIF's Xn source, and drops pacga's 2nd source, which
+decode_reg_accesses fills in.
 
-Each case lists the ARM-defined accesses that MUST appear (subset check -- over-reporting a source is
-the safe direction and is allowed). Encodings are confirmed to disassemble to the expected mnemonic so
-a wrong encoding fails loudly instead of testing nothing. test_every_supported_instruction_is_classified
-forces a case (or an explicit op.access-only classification) for every instruction the fuzzer emits, so
-a newly-added instruction with hidden accesses cannot slip through unchecked."""
+Reads and register writes use a subset check (over-reporting a read/base is the safe direction). Flag
+writes (NZCV in the dest) are checked EXACTLY by test_flag_writes_are_exact, since over-claiming one is
+itself the false-positive bug. Encodings are confirmed to disassemble to the expected mnemonic so a
+wrong encoding fails loudly. test_every_supported_instruction_is_classified and
+test_every_flag_writer_has_an_exact_case force a case for every instruction the fuzzer emits (and every
+NZCV writer in base.json), so a newly-added instruction with hidden or partial flag accesses cannot slip
+through unchecked."""
 import copy
 import unittest
 from unittest.mock import patch
@@ -24,20 +29,31 @@ from src.interfaces import OT
 
 _MD = capstone.Cs(capstone.CS_ARCH_ARM64, capstone.CS_MODE_LITTLE_ENDIAN)
 
-# mnemonic, encoding, required src (reads), required dest (writes)
+# mnemonic, encoding, required src (reads), required dest (writes).
+# Flag writes ("N"/"Z"/"C"/"V" in the dest set) are checked EXACTLY by test_flag_writes_are_exact:
+# over-claiming a flag write silently drops that flag's live taint -> false violation, so a case must
+# list every NZCV bit the instruction writes and no others. Register dests and all reads stay subset
+# checks (over-reporting a read/base is the safe direction).
 CASES = [
-    # implicit accesses Capstone gets wrong (the fix) --------------------------------
-    ("rmif",   0xba000421, {"x1"},          {"N", "Z", "C", "V"}),
-    ("setf8",  0x3a00080d, {"w0"},          {"N", "Z", "V"}),
-    ("setf16", 0x3a00480d, {"w0"},          {"N", "Z", "V"}),
+    # FEAT_FlagM/FlagM2 flag ops Capstone under-reports (the fix). These are PARTIAL flag writers:
+    # SETF8/SETF16 preserve C; RMIF writes only its mask-selected NZCV bits; CFINV touches only C.
+    ("setf8",  0x3a00080d, {"w0"},          {"N", "Z", "V"}),        # C preserved
+    ("setf16", 0x3a00480d, {"w0"},          {"N", "Z", "V"}),        # C preserved
+    ("rmif",   0xba000421, {"x1"},          {"V"}),                  # mask 0b0001 -> V only
+    ("rmif",   0xba000424, {"x1"},          {"Z"}),                  # mask 0b0100 -> Z only
+    ("rmif",   0xba018446, {"x2"},          {"Z", "C"}),             # mask 0b0110 -> Z,C
+    ("rmif",   0xba00042f, {"x1"},          {"N", "Z", "C", "V"}),   # mask 0b1111 -> all
+    ("cfinv",  0xd500401f, {"C"},           {"C"}),                  # C := NOT C
+    ("axflag", 0xd500405f, {"Z", "C", "V"}, {"N", "Z", "C", "V"}),   # ARM -> alt FP flag format
+    ("xaflag", 0xd500403f, {"C", "Z"},      {"N", "Z", "C", "V"}),   # alt -> ARM FP flag format
     ("pacga",  0x9ac23020, {"x1", "x2"},    {"x0"}),
     # flag readers/writers handled via cc / update_flags ----------------------------
     ("ccmp",   0xfa420020, {"x1", "x2", "Z"}, {"N", "Z", "C", "V"}),
     ("ccmn",   0xba420020, {"x1", "x2", "Z"}, {"N", "Z", "C", "V"}),
     ("adds",   0xab020020, {"x1", "x2"},    {"x0", "N", "Z", "C", "V"}),
     ("subs",   0xeb020020, {"x1", "x2"},    {"x0", "N", "Z", "C", "V"}),
-    ("ands",   0xea020020, {"x1", "x2"},    {"x0", "N", "Z"}),
-    ("bics",   0xea220020, {"x1", "x2"},    {"x0", "N", "Z"}),
+    ("ands",   0xea020020, {"x1", "x2"},    {"x0", "N", "Z", "C", "V"}),   # logical S: C,V := 0
+    ("bics",   0xea220020, {"x1", "x2"},    {"x0", "N", "Z", "C", "V"}),   # logical S: C,V := 0
     ("csel",   0x9a820020, {"x1", "x2", "Z"}, {"x0"}),
     ("csinc",  0x9a820420, {"x1", "x2", "Z"}, {"x0"}),
     ("csinv",  0x5a820020, {"w1", "w2", "Z"}, {"w0"}),
@@ -103,6 +119,17 @@ class DisasmRegAccessTest(unittest.TestCase):
                        or any(t.startswith(mnemonic) for t in tested))   # "b." <- "b.eq"
             self.assertTrue(covered, f"{mnemonic!r} is generated but has no reg-access test/classification")
 
+    def test_flag_writes_are_exact(self):
+        # A flag write claimed but not performed (over-claim) makes the taint tracker treat that flag's
+        # input as dead and boost it away -> false violation. This is exactly the SETF16-writes-C bug.
+        # So the NZCV bits in each case's dest must match the hardware EXACTLY, not just be a superset.
+        FLAGS = {"N", "Z", "C", "V"}
+        for mnemonic, encoding, _req_src, req_dest in CASES:
+            _, dest = decode_reg_accesses(encoding, 0)
+            self.assertEqual(req_dest & FLAGS, set(dest) & FLAGS,
+                             f"{mnemonic} 0x{encoding:08x}: flag writes {sorted(set(dest) & FLAGS)} "
+                             f"!= expected {sorted(req_dest & FLAGS)}")
+
 
 class EmptyAccessFallbackTest(unittest.TestCase):
     def test_unknown_role_is_over_approximated_as_source(self):
@@ -132,6 +159,20 @@ class BaseJsonRoleCrossCheckTest(unittest.TestCase):
     def tearDownClass(cls):
         CONF._borg_shared_state.clear()
         CONF._borg_shared_state.update(cls._saved_conf)
+
+    def test_every_flag_writer_has_an_exact_case(self):
+        # base.json marks (coarsely) which instructions write NZCV. Every such generated instruction
+        # must have a CASE above so test_flag_writes_are_exact pins its per-flag write set -- otherwise
+        # a newly added flag-writing instruction (esp. a partial writer like SETF/RMIF) could ship with
+        # an over-claimed flag write and no test to catch it.
+        case_names = {c[0] for c in CASES}
+        for name in supported_instructions:
+            writes_flags = any(op.type == OT.FLAGS and op.dest
+                               for spec in self.by_name.get(name, [])
+                               for op in spec.implicit_operands)
+            if writes_flags:
+                self.assertIn(name, case_names,
+                              f"{name} writes NZCV (base.json) but has no exact-flag case in CASES")
 
     def test_mte_positional_fixup_agrees_with_base_json(self):
         for mnemonic in _MTE_FIRST_REG_DEST:

@@ -717,6 +717,12 @@ within the slot. This lets the `aarch64-nzcv` input generator **fuzz each flag s
 because taint is tracked per byte, lets the trace depend on each flag independently instead of
 lumping all four into one word. The slot is converted to ARM `PSTATE` form just before execution.
 
+Per-flag taint is only sound if the read/write model is per-flag too: `decode_reg_accesses`
+(`aarch64_disasm.py`) must report exactly the NZCV bits each instruction writes. Partial-flag writers
+matter here — `SETF8`/`SETF16` write N,Z,V but **preserve C**, and `RMIF` writes only its
+mask-selected bits — so claiming they write all of NZCV would mark a still-live input flag as dead and
+let boosting mutate it, producing a false violation.
+
 ## 9. File formats
 
 ### 9.1 Run config (YAML)

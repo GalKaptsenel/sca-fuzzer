@@ -5,7 +5,7 @@ File: AArch64 instruction disassembly helpers (capstone-based).
 from typing import List, Tuple
 
 from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM, CS_AC_READ, CS_AC_WRITE
-from capstone.arm64 import (ARM64_OP_REG, ARM64_OP_MEM,
+from capstone.arm64 import (ARM64_OP_REG, ARM64_OP_MEM, ARM64_OP_IMM,
                             ARM64_CC_INVALID, ARM64_CC_EQ, ARM64_CC_NE,
                             ARM64_CC_HS, ARM64_CC_LO, ARM64_CC_MI, ARM64_CC_PL,
                             ARM64_CC_VS, ARM64_CC_VC, ARM64_CC_HI, ARM64_CC_LS,
@@ -19,6 +19,33 @@ _CAPSTONE.detail = True
 # by position: the first register operand is the destination, any further register operands are
 # sources (memory bases are recovered separately). SUBPS additionally writes NZCV.
 _MTE_FIRST_REG_DEST = frozenset({"addg", "subg", "irg", "gmi", "subp", "subps", "ldg"})
+
+# Capstone 5.0.x under-reports the FEAT_FlagM/FlagM2 flag-manipulation ops: it exposes neither the
+# NZCV bits they read nor the ones they write. Model each precisely as (reads, writes) over PSTATE
+# flags: a flag the op PRESERVES must not be listed as written (that would silently drop live taint on
+# it), and a flag it READS must be listed (a missed read under-taints). Any register operands are
+# added as sources separately. RMIF's write set depends on its mask immediate (see below); it is not
+# in this table.
+_FLAG_OP_NZCV = {
+    "setf8":  (set(),                {"N", "Z", "V"}),        # N,Z,V from Xn; C preserved
+    "setf16": (set(),                {"N", "Z", "V"}),        # N,Z,V from Xn; C preserved
+    "cfinv":  ({"C"},                {"C"}),                  # C := NOT C
+    "axflag": ({"Z", "C", "V"},      {"N", "Z", "C", "V"}),   # ARM -> alternate FP flag format
+    "xaflag": ({"C", "Z"},           {"N", "Z", "C", "V"}),   # alternate -> ARM FP flag format
+}
+
+# RMIF writes only the NZCV bits selected by its 4-bit mask immediate and preserves the rest:
+# bit 3 -> N, bit 2 -> Z, bit 1 -> C, bit 0 -> V (ARM DDI 0487, RMIF).
+_RMIF_MASK_FLAGS = (("N", 8), ("Z", 4), ("C", 2), ("V", 1))
+
+
+def _rmif_written_flags(insn) -> set:
+    """The NZCV bits RMIF actually writes, decoded from its mask operand (RMIF's last immediate)."""
+    masks = [op.imm for op in insn.operands if op.type == ARM64_OP_IMM]
+    if not masks:
+        raise ValueError(f"RMIF without a mask immediate: 0x{insn.bytes.hex()}")
+    mask = masks[-1]
+    return {flag for flag, bit in _RMIF_MASK_FLAGS if mask & bit}
 
 
 def decode_reg_accesses(encoding: int, pc: int) -> Tuple[List[str], List[str]]:
@@ -88,10 +115,18 @@ def decode_reg_accesses(encoding: int, pc: int) -> Tuple[List[str], List[str]]:
             if op.mem.index != 0:
                 src.add(insn.reg_name(op.mem.index))
 
-    # Capstone 5.0.x under-reports these: rmif/setf8/setf16 expose neither the source read nor the
-    # NZCV write, and pacga omits its second source (Xm).
-    if mnemonic in ("rmif", "setf8", "setf16"):
-        dest |= FLAG_BITS
+    # Capstone 5.0.x under-reports these: the FEAT_FlagM/FlagM2 flag ops (setf8/setf16/rmif/cfinv/
+    # axflag/xaflag) expose neither their NZCV reads nor their NZCV writes, and pacga omits its second
+    # source (Xm). Fill them in precisely — only the flags each op truly writes, and every flag it
+    # reads (see _FLAG_OP_NZCV / _rmif_written_flags): over-claiming a write drops live taint, a missed
+    # read under-taints, both causing false violations.
+    if mnemonic in _FLAG_OP_NZCV:
+        reads, writes = _FLAG_OP_NZCV[mnemonic]
+        src |= reads
+        dest |= writes
+        src.update(insn.reg_name(op.reg) for op in insn.operands if op.type == ARM64_OP_REG)
+    elif mnemonic == "rmif":
+        dest |= _rmif_written_flags(insn)
         src.update(insn.reg_name(op.reg) for op in insn.operands if op.type == ARM64_OP_REG)
     elif mnemonic == "pacga":
         src.update(insn.reg_name(op.reg) for op in insn.operands
