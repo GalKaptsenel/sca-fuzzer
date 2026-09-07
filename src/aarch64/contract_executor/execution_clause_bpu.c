@@ -5,6 +5,7 @@
 #include "simulation_input.h"        /* EXEC_CLAUSE_BPU */
 #include "simulation.h"              /* simulation.sim_input.hdr.config */
 #include "simulation_execution_clause_hook.h"  /* spec_nesting */
+#include <stdio.h>
 
 /* Mispredict branches per the predictor selected by the input (config.branch_predictor).
  * No default — an unknown/none selection on a BPU run traps. */
@@ -15,7 +16,15 @@ static void bpu_on_init(uint64_t index) { bpu_index = index; }
 
 static void bpu_on_reset(void) {
 	g_predictor = branch_predictor_by_id(simulation.sim_input.hdr.config.branch_predictor);
-	if (NULL == g_predictor) __builtin_trap();   // BPU enabled but no/unknown predictor selected
+	if (NULL == g_predictor) {
+		/* BPU clause enabled but no/unknown predictor selected. Fail loud AND informative (the
+		 * bare trap gave no diagnostic): the caller must pick a predictor, e.g. contract clause
+		 * "bpu_neoverse_n3" (branch_predictor=BRANCH_PREDICTOR_NEOVERSE_N3). */
+		fprintf(stderr, "[CE FATAL] bpu clause requires a branch_predictor selection, but "
+		        "config.branch_predictor=%lu is NONE/unknown; use e.g. clause 'bpu_neoverse_n3'\n",
+		        (unsigned long)simulation.sim_input.hdr.config.branch_predictor);
+		__builtin_trap();
+	}
 	if (g_predictor->init)  g_predictor->init();  // idempotent (predictor self-guards)
 	if (g_predictor->reset) g_predictor->reset();
 }
