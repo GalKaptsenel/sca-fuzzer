@@ -37,6 +37,8 @@ enum config_flags {
 #define EXEC_CLAUSE_BPU   (1u << 2)  /* mispredict branches per the selected branch predictor   */
 #define EXEC_CLAUSE_BARRIER (1u << 3)/* honor barriers: cut speculation a fencing barrier stops  */
 #define EXEC_CLAUSE_SLS   (1u << 4)  /* straight-line speculation: explore pc+4 past a branch    */
+#define EXEC_CLAUSE_RSB   (1u << 5)  /* return-stack misprediction: RET speculates to the pushed  *
+                                      * return when x30 was corrupted (Spectre-RSB)               */
 /* seq / arch-only == no clauses enabled (execution_clauses == 0). */
 
 /* Branch predictor EXEC_CLAUSE_BPU uses, selected via the input (see branch_predictors.c).

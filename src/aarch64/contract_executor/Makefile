@@ -30,6 +30,7 @@ SRCS = \
   execution_clause_bpu.c \
   execution_clause_bpas.c \
   execution_clause_sls.c \
+  execution_clause_rsb.c \
   branch_predictors.c \
   neoverse_n3_bpu.c \
   utils.c \

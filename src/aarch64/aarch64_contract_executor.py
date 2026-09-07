@@ -44,6 +44,7 @@ class ExecutionClause(IntFlag):
     BPU     = 4   # mispredict per an injected branch predictor
     BARRIER = 8   # honor barriers: cut speculation a fencing barrier stops
     SLS     = 16  # straight-line speculation: explore pc+4 past a branch
+    RSB     = 32  # return-stack misprediction: RET speculates to the pushed return (Spectre-RSB)
 
 
 # The only execution-clause combinations the CE supports. Arbitrary bitmask mixes are not
@@ -69,6 +70,16 @@ SUPPORTED_EXECUTION_CLAUSES = frozenset({
     ExecutionClause.SLS | ExecutionClause.COND | ExecutionClause.BARRIER,
     ExecutionClause.SLS | ExecutionClause.BPAS | ExecutionClause.BARRIER,
     ExecutionClause.SLS | ExecutionClause.COND | ExecutionClause.BPAS | ExecutionClause.BARRIER,
+    # rsb (return-stack misprediction) composes with cond/bpas/barrier (its prediction rides the
+    # architectural call stack, already checkpointed across foreign windows); not with bpu/sls yet.
+    ExecutionClause.RSB,
+    ExecutionClause.RSB | ExecutionClause.COND,
+    ExecutionClause.RSB | ExecutionClause.BPAS,
+    ExecutionClause.RSB | ExecutionClause.BARRIER,
+    ExecutionClause.RSB | ExecutionClause.COND | ExecutionClause.BPAS,
+    ExecutionClause.RSB | ExecutionClause.COND | ExecutionClause.BARRIER,
+    ExecutionClause.RSB | ExecutionClause.BPAS | ExecutionClause.BARRIER,
+    ExecutionClause.RSB | ExecutionClause.COND | ExecutionClause.BPAS | ExecutionClause.BARRIER,
 })
 
 
@@ -88,6 +99,8 @@ EXECUTION_CLAUSE_MAP = {
     "bpu_neoverse_n3":              (ExecutionClause.BPU,  BranchPredictor.NEOVERSE_N3),
     "barrier":                      (ExecutionClause.BARRIER, BranchPredictor.NONE),
     "sls":                          (ExecutionClause.SLS,  BranchPredictor.NONE),
+    "rsb":                          (ExecutionClause.RSB,  BranchPredictor.NONE),
+    "return_misprediction":         (ExecutionClause.RSB,  BranchPredictor.NONE),
 }
 
 

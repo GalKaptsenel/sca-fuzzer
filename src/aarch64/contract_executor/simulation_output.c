@@ -81,22 +81,34 @@ static int64_t signextend(size_t orig_len, size_t dest_len, int64_t value) {
 	return (int64_t)((uint64_t)value << shift) >> shift;
 }
 
-void* kaddr2uaddr(void* kaddr) {
-	if (!(CONFIG_FLAG_REQ_MEM_BASE_VIRT & simulation.sim_input.hdr.config.flags)) __builtin_trap();
-	uintptr_t u = kaddr2uaddr_calc((uintptr_t)kaddr,
+int kea_in_sandbox(uintptr_t kea) {
+	if (!(CONFIG_FLAG_REQ_MEM_BASE_VIRT & simulation.sim_input.hdr.config.flags)) return 0;
+	uintptr_t u = kaddr2uaddr_calc(kea,
 		simulation.sim_input.hdr.config.requested_mem_base_virt,
 		(uintptr_t)simulation.simulation_memory);
 	uintptr_t lo = (uintptr_t)simulation.simulation_memory;
 	uintptr_t hi = lo + simulation.sim_input.mem_size + SANDBOX_OVERFLOW_SIZE;
-	if (u < lo || u >= hi) {
-		/* The sandbox clamps every base, so an out-of-buffer address is a real defect (a va_size
-		 * mismatch, or a sandbox escape) -- fail loudly, never silently redirect. */
+	return (u >= lo && u < hi);
+}
+
+void* kaddr2uaddr(void* kaddr) {
+	if (!(CONFIG_FLAG_REQ_MEM_BASE_VIRT & simulation.sim_input.hdr.config.flags)) __builtin_trap();
+	if (!kea_in_sandbox((uintptr_t)kaddr)) {
+		/* The sandbox clamps every architectural base, so an out-of-buffer address here is a real
+		 * defect (a va_size mismatch, or a sandbox escape) -- fail loudly, never silently redirect.
+		 * A SPECULATIVE access can legitimately leave the sandbox (e.g. an RSB-mispredicted return runs
+		 * a callee epilogue whose frame spill walks SP off the stack); such a squashed access has no
+		 * modeled in-sandbox effect, so its callers skip it via kea_in_sandbox rather than reach here. */
+		uintptr_t lo = (uintptr_t)simulation.simulation_memory;
+		uintptr_t hi = lo + simulation.sim_input.mem_size + SANDBOX_OVERFLOW_SIZE;
 		fprintf(stderr, "[CE FATAL] kaddr2uaddr: 0x%016" PRIxPTR " outside sandbox [0x%016" PRIxPTR
 			", 0x%016" PRIxPTR "); spec_nesting=%" PRIu64 "\n",
 			(uintptr_t)kaddr, lo, hi, spec_nesting());
 		abort();
 	}
-	return (void*)u;
+	return (void*)kaddr2uaddr_calc((uintptr_t)kaddr,
+		simulation.sim_input.hdr.config.requested_mem_base_virt,
+		(uintptr_t)simulation.simulation_memory);
 }
 
 
@@ -246,6 +258,11 @@ static void fill_mem_access(mem_access_t* acc, uintptr_t kea, uint64_t elem_sz,
 	uintptr_t code_hi = code_lo + simulation.sim_code.code_size + simulation.sim_code.data_size;
 	if (kea >= code_lo && kea < code_hi) {
 		memcpy(&value_64bit, (void*)kea, (size_t)elem_sz);
+	} else if (0 != spec_nesting() && !kea_in_sandbox(kea)) {
+		/* A squashed speculative access whose address left the sandbox (e.g. an RSB-mispredicted
+		 * return's frame spill): its cache set is still recorded above (acc->effective_address), but
+		 * the out-of-sandbox data is not modeled, so leave 'before' zero instead of aborting. */
+		value_64bit = 0;
 	} else {
 		memcpy(&value_64bit, kaddr2uaddr((void*)kea), (size_t)elem_sz);
 	}

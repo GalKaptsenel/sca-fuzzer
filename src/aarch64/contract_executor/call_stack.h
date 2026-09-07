@@ -17,6 +17,9 @@ void   call_stack_reset(void);
 void   call_stack_push(uintptr_t return_addr);
 /* Pop the top return address into *out; returns 1 on success, 0 when the stack is empty. */
 int    call_stack_pop(uintptr_t *out);
+/* Read the top return address into *out without popping (the RSB's prediction for the next RET);
+ * returns 1 on success, 0 when the stack is empty. */
+int    call_stack_peek(uintptr_t *out);
 
 /* Snapshot support for speculation checkpoints. */
 size_t call_stack_snapshot_bytes(void);

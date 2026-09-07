@@ -76,6 +76,10 @@ void trace_emit_entry(const instr_trace_entry_t* src);
 
 // TODO: TMP
 void* kaddr2uaddr(void*);
+/* True iff a sandbox (kernel) address maps inside the sandbox buffer (incl. its overflow padding).
+ * kaddr2uaddr aborts on a false result; callers that tolerate a squashed speculative out-of-sandbox
+ * access (see execution_clause_rsb) test this first and skip the access. */
+int kea_in_sandbox(uintptr_t kea);
 
 /* Decoded memory-access description. is_mem == 0 means the instruction is not a (real) memory
  * access and all other fields are unset; a *_register field of (uint32_t)-1 means "not applicable". */

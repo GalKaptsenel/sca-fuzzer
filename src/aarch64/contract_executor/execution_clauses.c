@@ -3,6 +3,7 @@
 #include "execution_clause_bpas.h"
 #include "execution_clause_bpu.h"
 #include "execution_clause_sls.h"
+#include "execution_clause_rsb.h"
 #include "simulation_input.h"   /* EXEC_CLAUSE_* */
 
 /* The registry of all execution clauses. Add a clause = add its file + one entry here.
@@ -14,6 +15,7 @@ static const struct execution_clause_descriptor* const REGISTRY[] = {
 	&cond_execution_clause,
 	&bpu_execution_clause,
 	&sls_execution_clause,
+	&rsb_execution_clause,
 };
 
 int execution_clause_count(void) {
@@ -48,6 +50,16 @@ int execution_clauses_supported(uint64_t clauses) {
 		case EXEC_CLAUSE_SLS | EXEC_CLAUSE_COND | EXEC_CLAUSE_BARRIER:
 		case EXEC_CLAUSE_SLS | EXEC_CLAUSE_BPAS | EXEC_CLAUSE_BARRIER:
 		case EXEC_CLAUSE_SLS | EXEC_CLAUSE_COND | EXEC_CLAUSE_BPAS | EXEC_CLAUSE_BARRIER:
+		/* rsb composes with cond/bpas/barrier (its prediction rides the call stack, which is already
+		 * checkpointed across foreign windows). Not with bpu/sls yet — those interactions are untested. */
+		case EXEC_CLAUSE_RSB:
+		case EXEC_CLAUSE_RSB | EXEC_CLAUSE_COND:
+		case EXEC_CLAUSE_RSB | EXEC_CLAUSE_BPAS:
+		case EXEC_CLAUSE_RSB | EXEC_CLAUSE_BARRIER:
+		case EXEC_CLAUSE_RSB | EXEC_CLAUSE_COND | EXEC_CLAUSE_BPAS:
+		case EXEC_CLAUSE_RSB | EXEC_CLAUSE_COND | EXEC_CLAUSE_BARRIER:
+		case EXEC_CLAUSE_RSB | EXEC_CLAUSE_BPAS | EXEC_CLAUSE_BARRIER:
+		case EXEC_CLAUSE_RSB | EXEC_CLAUSE_COND | EXEC_CLAUSE_BPAS | EXEC_CLAUSE_BARRIER:
 			return 1;
 		default:
 			return 0;

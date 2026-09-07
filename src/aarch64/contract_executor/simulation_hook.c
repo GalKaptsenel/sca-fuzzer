@@ -378,14 +378,22 @@ void* handle_ret_hook(struct simulation_state* sim_state) {
 		for (uint32_t r = 0; r < 31; ++r) { tcs.gpr[r] = cpu_state_read_base_reg(&sim_state->cpu_state, r); }
 		tcs.sp = sim_state->cpu_state.sp; tcs.pc = sim_state->cpu_state.pc;
 		mem_access_info_t mi = parse_memory_access_instruction(insn, &tcs);
-		void* uea = kaddr2uaddr((void*)(uintptr_t)mi.effective_address);
-		if (mi.is_store) {
-			uint64_t v = cpu_state_read_base_reg(&sim_state->cpu_state, mi.target_register);
-			memcpy(uea, &v, (size_t)mi.data_size);
-		} else {
-			uint64_t v = 0;
-			memcpy(&v, uea, (size_t)mi.data_size);
-			cpu_state_write_base_reg(&sim_state->cpu_state, mi.target_register, v);
+		uintptr_t ea = (uintptr_t)mi.effective_address;
+		/* A frame spill is architecturally always on the sandbox stack; a SPECULATIVE one can walk SP
+		 * off it (an RSB-mispredicted return runs a callee epilogue with the caller's SP). That squashed
+		 * access has no modeled in-sandbox effect, so skip the emulated load/store — but still apply the
+		 * SP writeback below so the frame bookkeeping stays coherent. An architectural out-of-sandbox
+		 * spill is a real defect and still traps via kaddr2uaddr. */
+		if (0 == spec_nesting() || kea_in_sandbox(ea)) {
+			void* uea = kaddr2uaddr((void*)ea);
+			if (mi.is_store) {
+				uint64_t v = cpu_state_read_base_reg(&sim_state->cpu_state, mi.target_register);
+				memcpy(uea, &v, (size_t)mi.data_size);
+			} else {
+				uint64_t v = 0;
+				memcpy(&v, uea, (size_t)mi.data_size);
+				cpu_state_write_base_reg(&sim_state->cpu_state, mi.target_register, v);
+			}
 		}
 		// Writeback: pre- and post-indexed frame ops both move SP by their signed imm9 (STR X30,[SP,#-16]!
 		// and LDR X30,[SP],#16). A plain signed-offset form has no writeback.

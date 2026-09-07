@@ -32,6 +32,14 @@ int call_stack_pop(uintptr_t *out) {
 	return 1;
 }
 
+int call_stack_peek(uintptr_t *out) {
+	if (0 == g_call_stack.top) {
+		return 0;
+	}
+	*out = g_call_stack.entries[g_call_stack.top - 1];
+	return 1;
+}
+
 /* A snapshot copies only the live prefix (top + used entries), so a checkpoint stays small. */
 size_t call_stack_snapshot_bytes(void) {
 	return sizeof(size_t) + g_call_stack.top * sizeof(uintptr_t);
