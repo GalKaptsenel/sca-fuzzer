@@ -163,3 +163,30 @@ read from the executing device (`TCR_EL1.T1SZ`, exposed at `/sys/executor/system
 correct for local and remote runs alike. Set it explicitly only when the generating machine cannot
 read the executing target (its value then wins). A mismatched `va_size` makes the PAC auth/strip
 overwrite real address bits and corrupt the sandbox pointer, so leaving it unset is preferred.
+
+## Cross-input leftover detection (non-interference)
+
+The sole non-interference algorithm for cross-input speculative leftovers — a predecessor input
+speculatively training a predictor entry (e.g. a BTB target) that a later prober input reads. See
+§6.1a of the architecture reference for the generalized-priming + hybrid tipping-point search. It runs
+before each NI round on the genuine and forced-non-canonical seal lanes and reports one tipping point
+per leaking prober. Non-interference only; regular fuzzing is unaffected.
+
+```yaml
+Name: enable_leftover_detection
+Default: True
+```
+
+Run the leftover search each NI round. Requires a local HW executor with sysfs regime control (the
+search forces `enable_view_rotation=0` and unpinned execution, captured and restored around it); the
+fuzzer fails loud at startup if enabled against an executor that cannot control the regime (e.g.
+remote). Set `False` for remote executors or to run NI without leftover detection.
+
+```yaml
+Name: leftover_reps
+Default: 200
+```
+
+Sample size for every leftover-search measurement (detection, bisection, and the fresh re-verification
+of a found tipping point). A failed re-verification only drops a candidate, never fabricates one, so
+this trades runtime against the chance of missing a real leftover under the BTB's run-to-run jitter.

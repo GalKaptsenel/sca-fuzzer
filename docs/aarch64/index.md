@@ -528,6 +528,36 @@ decoy stay architecturally identical.
             +----------------------------------------+
 ```
 
+### 6.1a Cross-input leftover detection (BTB)
+
+The seals above compare *one* input's genuine vs decoy variant. A **cross-input** leftover is
+different: a predecessor input speculatively trains a predictor entry (e.g. a branch-target-buffer
+target) that a *later* "prober" input then speculatively reads — a leak that only surfaces across the
+input sequence. On aarch64 NI runs this is found by `enable_leftover_detection` (default on), the sole
+NI leftover algorithm (`src/aarch64/leftover.py`), a **generalized priming** search that runs before
+each normal NI round on two lanes: the *genuine* seal variant of every input and its forced-non-canonical
+(*bad*) variant, which are architecturally identical (ct-seq-equal), so any htrace difference between
+them is a genuine contract violation.
+
+For each prober `q`, holding it genuine and varying only its history `[0, q)`:
+
+1. **Detect** — compare the prober under an all-genuine history vs an all-bad history. Equal ⇒ the
+   prober does not depend on its history ⇒ no leftover. Different ⇒ a cross-input dependence (ordinary
+   priming would *discard* this as a context artifact; here it is exactly the leak, and is reported).
+2. **Localize** — a hybrid tipping-point bisection over `H_k = [genuine 0..k, bad k..q, genuine prober]`
+   with the invariant `key(H_lo) ≠ key(H_hi)` finds a `k` where toggling slot `k`'s genuine/bad state
+   flips the prober. It needs no monotonicity and no model of the predictor. Trace equality is exact
+   equality of the denoised consensus bitmap (`MergedBitmapAnalyser.merged_bitmap`), which is transitive
+   — the property the bisection depends on (a statistical test would not be).
+3. **Re-verify** — re-measure the boundary pair fresh and drop it if it no longer differs, rejecting a
+   noise fluke.
+
+It reports one tipping point per leaking prober (a valid counterexample; enumerating *every* contributor
+by recursion is unsound and is deliberately omitted). The search runs under a dedicated executor regime
+(`enable_view_rotation=0`, unpinned, `enable_ssbs=1`, no pre-run flush) that is captured and restored
+around it, so the normal NI round that follows is unaffected; it needs a local executor with sysfs
+regime control and fails loud at startup otherwise. `leftover_reps` sets the per-measurement sample size.
+
 ### 6.2 Variant assembly by relocation (throughput)
 
 The sibling variants for one input differ from a shared skeleton only at the sealing slots — the
