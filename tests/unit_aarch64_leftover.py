@@ -141,34 +141,41 @@ class DetectorTest(unittest.TestCase):
 
 
 class ScriptedMeasure:
-    """Returns a scripted value for the detecting slot on each call, so re-verification can be driven
-    adversarially. Non-detecting slots are constant, so only the detecting slot decides the result."""
+    """Returns a scripted raw trace for the detecting slot on each call, so re-verification can be
+    driven adversarially. Non-detecting slots are constant, so only the detecting slot decides."""
     CONST = 1 << 30
 
-    def __init__(self, detecting, script):
+    def __init__(self, detecting, raws):
         self.detecting = detecting
-        self.script = list(script)
+        self.raws = list(raws)          # one raw trace per call
         self.calls = 0
 
     def measure(self, batch, reps):
-        value = self.script[self.calls]
+        raw = self.raws[self.calls]
         self.calls += 1
-        return [H([value] * reps) if s == self.detecting else H([self.CONST]) for s in range(len(batch))]
+        return [H(list(raw)) if s == self.detecting else H([self.CONST]) for s in range(len(batch))]
 
 
 class ReverifyTest(unittest.TestCase):
     # detecting=1. Call order: localize probe(k=0), probe(k=1); re-verify probe(k=0), probe(k=1).
+    C, V = 0b1, 0b10                    # background bit + a bit straddling the 10% cutoff at 500 reps
 
     def test_reverify_drops_straddle_jitter(self):
-        # Localization sees a difference (1 vs 2 -- a jitter-flipped key), but the fresh robust
-        # re-verify sees the same distribution (7 vs 7) -> DROP. This is fable's straddle-jitter case:
-        # a boundary that only appeared under measurement jitter must not be reported.
-        m = ScriptedMeasure(detecting=1, script=[1, 2, 7, 7])
+        # Localization sees a difference (distinct search values -> candidate). But the fresh re-verify
+        # sees two SAME-distribution traces whose straddle bit lands 52/500 vs 48/500: the exact-bitmap
+        # KEY differs (the old exact-bitmap re-verify would KEEP it), yet the robust test finds them
+        # equivalent, so it is DROPPED. This actually pins the exact-bitmap -> robust re-verify fix
+        # (the earlier all-identical [7,7] script did not -- the old check drops identical traces too).
+        C, V = self.C, self.V
+        straddle_hi, straddle_lo = [C | V] * 52 + [C] * 448, [C | V] * 48 + [C] * 452
+        self.assertNotEqual(key(H(straddle_hi)), key(H(straddle_lo)))   # exact-bitmap alone would keep it
+        m = ScriptedMeasure(1, [[0b100] * 200, [0b1000] * 200, straddle_hi, straddle_lo])
         self.assertEqual(detector(m.measure).detect(*lanes(2)), [])
         self.assertEqual(m.calls, 4)
 
     def test_reverify_keeps_confirmed_boundary(self):
-        m = ScriptedMeasure(detecting=1, script=[1, 2, 2, 1])    # re-verify 2 vs 1 -> robustly differ -> KEEP
+        # A genuine boundary: the detecting pair's readout robustly differs between the two histories.
+        m = ScriptedMeasure(1, [[0b100] * 200, [0b1000] * 200, [0b1] * 500, [0b1000000] * 500])
         findings = detector(m.measure).detect(*lanes(2))
         self.assertEqual(len(findings), 1)
         self.assertEqual((findings[0].leaking_pair, findings[0].detecting_pair), (0, 1))
