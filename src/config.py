@@ -85,19 +85,6 @@ class Conf:
     """ fuzzer: type of the fuzzing algorithm """
     enable_priming: bool = True
     """ enable_priming: whether to check violations with priming """
-    enable_leftover_scan: bool = False
-    """ enable_leftover_scan: [TEMP/DEBUG, NI only] after boosting each test case, run a proactive
-        leaker scan (_scan_leftovers): for each prober input (held genuine) binary-search its history,
-        forcing each candidate predecessor NON-canonical, to find the predecessor whose canonicality
-        flips the prober's htrace (its LEAKER). Reports (prober -> leaker) pairs. Independent of whether
-        the analyser flagged a violation; needs the executor's forced-non-canonical variant. """
-    prime_predecessor_debug: bool = False
-    """ prime_predecessor_debug: [TEMP/DEBUG] replace regular priming with predecessor-priming. Regular
-        priming swaps a violating input's OWN slot, which cannot confirm a history-dependent leak whose
-        violating reps are byte-identical readouts differing only in their predecessor (e.g. phase-2
-        canonicality seeding a BTB entry that phase-3 reads). This variant instead swaps the
-        PREDECESSOR of a violating slot and re-traces: if the slot's htrace then changes, the divergence
-        follows the predecessor -> the violation is KEPT as a genuine order/context leak. """
     enable_triage: bool = False
     """ enable_triage: [TEMP, NI only] run our triage suite on every violation, in-pipeline, to LOCATE
         the exact input in the batch order that causes the divergence. Violations are NOT dropped -
