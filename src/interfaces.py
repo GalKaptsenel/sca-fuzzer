@@ -828,18 +828,50 @@ class BasicBlock:
         return self.end
 
 
+class DispatchTable:
+    """A function's jump table for multi-target indirect calls: the forward (higher-indexed) callees it
+    may dispatch to, cycled to a power-of-two length so a masked index always selects a valid entry.
+
+    Pure layout data — the AArch64 backend emits `entries` as PC-relative offsets under `label` and
+    materializes the load/branch sequence (see Aarch64IndirectCallPass); nothing here is arch-specific."""
+
+    def __init__(self, owner: "Function", callees: List["Function"]) -> None:
+        if not callees:
+            raise GeneratorException("a dispatch table needs at least one callee")
+        size = 1
+        while size < len(callees):
+            size <<= 1
+        self.owner = owner
+        self.entries: List["Function"] = [callees[i % len(callees)] for i in range(size)]
+
+    @property
+    def label(self) -> str:
+        # A GNU-as local label (.L*): the assembler resolves the ADR/.word references to it but keeps it
+        # out of the symbol table, so the ELF parser never mistakes the table for a function.
+        return f".L{self.owner.name.lstrip('.')}_dispatch"
+
+    @property
+    def size(self) -> int:
+        """Number of entries — a power of two, so the dispatch index is one AND mask (`size - 1`)."""
+        return len(self.entries)
+
+
 class Function:
     name: str
     owner: Actor
     _all_bb: List[BasicBlock]
     exit: BasicBlock
     obj_file_offset: int = 0
+    dispatch_table: Optional[DispatchTable] = None
+    """ dispatch_table: this function's multi-target indirect-call jump table (Aarch64IndirectCallPass),
+    or None if it has no dispatch call. The printer emits it as a trailing PC-relative offset table. """
 
     def __init__(self, name: str, owner: Actor):
         self.name = name
         self.owner = owner
         self.exit = BasicBlock(f".exit_{name.removeprefix('.function_')}")
         self._all_bb = []
+        self.dispatch_table = None
 
     def __len__(self):
         return len(self._all_bb)

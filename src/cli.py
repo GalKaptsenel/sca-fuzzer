@@ -469,6 +469,11 @@ def main() -> int:
 
         def _run_fuzzing():
             if args.subparser_name == 'tfuzz':
+                # a .py template is an object-based Python template; anything else is an asm template
+                if args.template.endswith('.py'):
+                    return fuzzer.start_from_python_template(args.num_test_cases, args.num_inputs,
+                                                             args.timeout, args.nonstop,
+                                                             args.save_violations)
                 return fuzzer.start_from_template(args.num_test_cases, args.num_inputs,
                                                   args.timeout, args.nonstop, args.save_violations)
             if testcase:

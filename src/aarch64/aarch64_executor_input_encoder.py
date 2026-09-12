@@ -172,6 +172,8 @@ def build_input_init(main: bytes, faulty: bytes, gpr: bytes, simd: Optional[byte
 class ExecutorInput:
     """One REIF input: an architectural `Input` plus the executor-only sections (relocations, MTE
     tags, PAC keys, branch training)."""
+    wire_extension = "reif"     # serialize() writes the REIF wire format; save it under this extension
+
     input_: Input
     code_reloc: Tuple[Relocation, ...] = ()
     mte_tags: Optional[Sequence[int]] = None

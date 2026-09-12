@@ -290,19 +290,29 @@ class BitTestWidthTest(unittest.TestCase):
 
 
 class GeneratableTest(unittest.TestCase):
-    """`_generatable`: a non-branch label operand (adr/adrp, literal load) is not generatable."""
+    """`_generatable`: a non-branch label operand (literal load, PC-relative PAC) is not emitted, except
+    the PC-relative address forms Revizor synthesizes and must parse back (adr/adrp)."""
 
     def test_non_branch_label_is_excluded(self):
-        inst = {"control_flow": False, "operands": [_op("Wt", write=True), _op("label", kind="label")]}
+        inst = {"name": "ldr", "control_flow": False,
+                "operands": [_op("Wt", write=True), _op("label", kind="label")]}
         self.assertFalse(dl._generatable(inst))
 
     def test_branch_label_is_kept(self):
-        inst = {"control_flow": True, "operands": [_op("label", kind="label")]}
+        inst = {"name": "bl", "control_flow": True, "operands": [_op("label", kind="label")]}
         self.assertTrue(dl._generatable(inst))
 
     def test_plain_instruction_is_kept(self):
-        inst = {"control_flow": False, "operands": [_op("Xd", write=True), _op("Xn", read=True)]}
+        inst = {"name": "add", "control_flow": False,
+                "operands": [_op("Xd", write=True), _op("Xn", read=True)]}
         self.assertTrue(dl._generatable(inst))
+
+    def test_pcrel_address_is_emitted(self):
+        # adr/adrp: non-branch label form, but synthesized + parsed back, so emitted to the DB
+        for name in ("adr", "adrp"):
+            inst = {"name": name, "control_flow": False,
+                    "operands": [_op("Xd", write=True), _op("label", kind="label")]}
+            self.assertTrue(dl._generatable(inst), name)
 
 
 class BaseJsonRegressionTest(unittest.TestCase):

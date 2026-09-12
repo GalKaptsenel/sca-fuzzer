@@ -295,6 +295,15 @@ class Aarch64LocalExecutor(Aarch64Executor):
         assembly = Aarch64Printer(self.target_desc).print_layout(layout)
         return Aarch64Generator.in_memory_assemble(assembly), layout
 
+    def _dispatch_data_size(self) -> int:
+        """Bytes of read-only dispatch-table data appended after the instructions
+        (Aarch64IndirectCallPass): 4 per entry, power-of-two per table. The CE loads them but must not
+        hook them, so the header reports them separately from the instruction bytes."""
+        if self.test_case is None:
+            return 0
+        return 4 * sum(f.dispatch_table.size
+                       for f in self.test_case.functions if f.dispatch_table)
+
     def _make_ce_execution(self, tc_bytes: bytes, inp: Input, sandbox_base: int, nesting: int,
                            max_mispred_instructions: int, ct: ExecutionClause,
                            bp: BranchPredictor = BranchPredictor.NONE,
@@ -312,6 +321,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
             mte_tags=mte_tags,
             pac_keys=pac_keys,
             pac_profile=pac_profile,
+            data_size=self._dispatch_data_size(),
         )
 
     def _measure(self, exec_inputs: List[ExecutorInput], n_reps: int) -> List[HTrace]:
@@ -695,6 +705,20 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         """The input's sealing class (its resolved per-slot signatures/tags). Variants collide only
         when this agrees, not just the ctrace."""
         return self._resolve(inp).collapse_key
+
+    def genuine_variant(self, inp: Input) -> ExecutorInput:
+        """[TEMP/DEBUG] The input's canonical (baseline) sealed variant -- the leftover scan's prober
+        and its all-canonical predecessors."""
+        return self.variants_for_input(inp)[NIVariant.BASELINE]
+
+    def noncanon_variant(self, inp: Input) -> ExecutorInput:
+        """[TEMP/DEBUG] The input's baseline TC sealed to force every speculative branch target
+        NON-canonical (see ResolvedSealingTestCase.forced_noncanon). The leftover scan uses this as the
+        guaranteed-non-canonical predecessor variant, since the random decoy may be identity/misaligned."""
+        resolved = self._resolve(inp)
+        return ExecutorInput(inp, code_reloc=resolved.forced_noncanon(),
+                             mte_tags=self._mte_tags_for(inp), pac_keys=self._pac_keys_words(),
+                             bpu_training=self._bpu_entries(inp))
 
     def _variants_for(self, resolved: ResolvedSealingTestCase) -> Dict[str, Tuple[Relocation, ...]]:
         """One boosting class: the genuine baseline plus `CONF.inputs_per_class - 1` decoys."""

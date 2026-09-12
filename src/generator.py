@@ -18,7 +18,7 @@ from .isa_loader import InstructionSet
 from .interfaces import Generator, TestCase, Operand, RegisterOperand, FlagsOperand, \
     MemoryOperand, ImmediateOperand, AgenOperand, LabelOperand, OT, Instruction, BasicBlock, \
     Function, OperandSpec, InstructionSpec, CondOperand, Actor, ActorMode, ActorPL, \
-    NotSupportedException
+    NotSupportedException, GeneratorException
 from .util import Logger
 from .config import CONF
 
@@ -423,14 +423,7 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
         and exits the test case; a callee returns to its caller. """
         func = Function(label, owner)
 
-        # Define the maximum allowed number of successors for any BB
-        if self.instruction_set.has_conditional_branch:
-            max_successors = CONF.max_successors_per_bb if CONF.max_successors_per_bb < 2 else 2
-            min_successors = CONF.min_successors_per_bb if CONF.min_successors_per_bb < 2 else 2
-            assert min_successors <= max_successors, "min_successors_per_bb > max_successors_per_bb"
-        else:
-            max_successors = 1
-            min_successors = 1
+        min_successors, max_successors = self.successor_bounds()
 
         # Create basic blocks
         if CONF.min_bb_per_function == CONF.max_bb_per_function:
@@ -456,6 +449,16 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
         # Finalize the function, splicing any unreachable flows into the block order
         func.extend(self._with_unreachable_flows(func_name, nodes, min_successors, max_successors))
         return func
+
+    def successor_bounds(self) -> Tuple[int, int]:
+        """(min, max) successors per basic block: up to two where the ISA has conditional branches
+        (one conditional edge plus the fallthrough), otherwise a straight chain."""
+        if not self.instruction_set.has_conditional_branch:
+            return 1, 1
+        lo = CONF.min_successors_per_bb if CONF.min_successors_per_bb < 2 else 2
+        hi = CONF.max_successors_per_bb if CONF.max_successors_per_bb < 2 else 2
+        assert lo <= hi, "min_successors_per_bb > max_successors_per_bb"
+        return lo, hi
 
     def _wire_dag(self, blocks: List[BasicBlock], exit_target: BasicBlock,
                   min_successors: int, max_successors: int):
@@ -645,6 +648,30 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
                 else:
                     bb.insert_before(bb.get_first(), inst)
 
+    def get_conditional_branch_instruction(self, target_label: str) -> Instruction:
+        """A random conditional branch to `target_label`."""
+        terminator = self.generate_instruction(random.choice(self.cond_branches))
+        label = terminator.get_label_operand()
+        assert label
+        label.value = target_label
+        return terminator
+
+    def get_conditional_branch_with_condition(self, target_label: str, cond: str) -> Instruction:
+        """A flag-conditioned branch `b.<cond> target_label` (taken per NZCV). `cond` is a condition
+        code (eq, ne, ...). Used by templates to pin the branch condition instead of randomizing it."""
+        spec = next((s for s in self.cond_branches
+                     if any(o.type == OT.COND for o in s.operands)), None)
+        if spec is None:
+            raise GeneratorException("no flag-conditioned branch (b.<cond>) in the instruction pool")
+        terminator = self.generate_instruction(spec)
+        for op in terminator.operands:
+            if op.type == OT.COND:
+                op.value = cond
+        label = terminator.get_label_operand()
+        assert label
+        label.value = target_label
+        return terminator
+
     def add_terminators_in_function(self, func: Function):
 
         def add_fallthrough(bb: BasicBlock, destination: BasicBlock):
@@ -654,6 +681,9 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
             bb.terminators.append(terminator)
 
         for bb in func:
+            if bb.terminators:
+                continue    # already finalized (e.g. a template set its own terminators)
+
             if len(bb.successors) == 0:
                 # Return instruction
                 continue
@@ -668,14 +698,7 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
                 add_fallthrough(bb, dest)
 
             elif len(bb.successors) == 2:
-                # Conditional branch
-                spec = random.choice(self.cond_branches)
-                terminator = self.generate_instruction(spec)
-                label = terminator.get_label_operand()
-                assert label
-                label.value = bb.successors[0].name
-                bb.terminators.append(terminator)
-
+                bb.terminators.append(self.get_conditional_branch_instruction(bb.successors[0].name))
                 add_fallthrough(bb, bb.successors[1])
             else:
                 # Indirect jump

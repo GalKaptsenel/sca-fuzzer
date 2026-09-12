@@ -372,6 +372,26 @@ class ResolvedSealingTestCase:
         it reproduces across trace passes, and same-class inputs run the identical program."""
         return self._solve_relocations(self._offsets, rng, decoy=True)
 
+    def forced_noncanon(self) -> Tuple[Relocation, ...]:
+        """[TEMP/DEBUG] Like decoy(), but perturb EVERY eligible (speculative) slot with a guaranteed
+        NON-CANONICAL alt -- a high-bit fault mask (>3), never a low-bit {1,2,3} misalignment, never the
+        identity the random decoy may pick. Used by the leftover scan to force a truly non-canonical
+        predecessor so the scan can attribute a prober's flip to that predecessor's canonicality."""
+        rng = random.Random(hash((self.collapse_key, self._salt, "forced-noncanon")))
+        eligible = {r for r in self._entries if r.speculative and r.alts}
+        relocs: List[Relocation] = []
+        for r in self._entries:
+            offs = self._offsets.get(id(r.sealing))
+            if offs is None:
+                continue
+            if r in eligible:
+                noncanon = [a for a in r.alts if a > 3] or list(r.alts)  # high-bit masks (drop misalign)
+                value = rng.choice(noncanon)
+            else:
+                value = r.value
+            relocs += [Relocation(off, _encode(i)) for off, i in zip(offs, r.sealing.seal(value, rng))]
+        return tuple(relocs)
+
     def _solve_relocations(self, offsets: Dict[int, Tuple[int, ...]],
                            rng: random.Random, decoy: bool) -> Tuple[Relocation, ...]:
         eligible = [r for r in self._entries if r.speculative and r.alts]

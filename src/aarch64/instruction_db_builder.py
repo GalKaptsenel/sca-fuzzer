@@ -37,7 +37,10 @@ from .arm_isa_extractor.models import OperandKind, MemRole, MemAccess
 _GENERAL_CLASSES = {
     "BASE-ARITH": frozenset(
         "add adds sub subs adc adcs sbc sbcs madd msub maddpt msubpt addpt subpt smaddl smsubl umaddl"
-        " umsubl smulh umulh sdiv udiv abs smax smin umax umin adr adrp".split()),
+        " umsubl smulh umulh sdiv udiv abs smax smin umax umin".split()),
+    # PC-relative address into a register: a location-dependent label operand, so not randomly
+    # generatable (no config enables this tag yet); present in the DB so the asm path can parse it.
+    "BASE-PCRELADDR": frozenset("adr adrp".split()),
     "BASE-LOGICAL": frozenset("and ands orr orn eor eon bic bics".split()),
     "BASE-SHIFT": frozenset("lslv lsrv asrv rorv".split()),
     "BASE-BITFIELD": frozenset("bfm ubfm sbfm extr".split()),
@@ -608,10 +611,19 @@ def _serialize(spec: InstructionSpec) -> dict:
             "implicit_operands": [_serialize_operand(o) for o in spec.implicit_operands]}
 
 
+# PC-relative address-into-register forms: not randomly generatable (the generator can't place their
+# label), but Revizor synthesizes them (indirect-call targets) and must parse them back, so they are
+# emitted to the DB and kept out of generation by their BASE-PCRELADDR tag (no config enables it).
+_EMIT_NONGENERATABLE = frozenset("adr adrp".split())
+
+
 def _generatable(inst: dict) -> bool:
-    """Whether Revizor can generate this instruction. A PC-relative reference (adr/adrp, literal load,
-    PC-relative PAC) takes a label operand, but only a branch's label has a target the generator can
-    place; such non-branch label forms are not generatable, so they are not emitted."""
+    """Whether the instruction is emitted to base.json. A PC-relative reference (adr/adrp, literal load,
+    PC-relative PAC) takes a label operand that only a branch can place, so such non-branch label forms
+    are not randomly generated -- and, except the ones Revizor synthesizes and must parse back
+    (`_EMIT_NONGENERATABLE`), not emitted."""
+    if inst["name"] in _EMIT_NONGENERATABLE:
+        return True
     if not inst["control_flow"] and any(OperandKind(o["kind"]) is OperandKind.LABEL
                                         for o in inst["operands"]):
         return False

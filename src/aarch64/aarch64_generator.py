@@ -15,8 +15,8 @@ from enum import Enum, auto
 
 from ..config import CONF
 from ..isa_loader import InstructionSet
-from ..interfaces import TestCase, Operand, Instruction, BasicBlock, Function, InstructionSpec, \
-    GeneratorException, RegisterOperand, MAIN_AREA_SIZE, FAULTY_AREA_SIZE, \
+from ..interfaces import TestCase, Operand, Instruction, BasicBlock, Function, DispatchTable, \
+    InstructionSpec, GeneratorException, RegisterOperand, MAIN_AREA_SIZE, FAULTY_AREA_SIZE, \
     MemoryOperand, OT, OperandSpec, MemorySpec, CondOperand, LabelOperand
 from ..generator import ConfigurableGenerator, RandomGenerator, Pass
 from .aarch64_target_desc import Aarch64TargetDesc, SANDBOX_BASE_REGISTER, \
@@ -49,15 +49,23 @@ class Aarch64Generator(ConfigurableGenerator, abc.ABC):
 
     def get_call_instruction(self, label: str) -> Instruction:
         # A call to `label`: direct BL, or (per indirect_call_probability) an indirect BLR whose target
-        # register Aarch64IndirectCallPass materializes. "CALL" marks it for Function.is_leaf and the
-        # frame pass; operands[0] is the (forward) target label, checked for the acyclic call graph.
+        # register Aarch64IndirectCallPass materializes.
         if random.random() < CONF.indirect_call_probability:
-            inst = Instruction("blr", False, "CALL", True, template="BLR {reg}")
-            inst.add_op(LabelOperand(label))
-            inst.add_op(self._target_reg_operand(INDIRECT_CALL_TARGET_REGISTER, src=True, dest=False))
-            return inst
+            return self.get_indirect_call_instruction(label)
+        return self.get_direct_call_instruction(label)
+
+    @staticmethod
+    def get_direct_call_instruction(label: str) -> Instruction:
         inst = Instruction("bl", False, "CALL", True, template="BL {label}")
         return inst.add_op(LabelOperand(label))
+
+    def get_indirect_call_instruction(self, label: str) -> Instruction:
+        # "CALL" marks it for Function.is_leaf and the frame pass; operands[0] is the (forward) target
+        # label, checked for the acyclic call graph. The target register is materialized later.
+        inst = Instruction("blr", False, "CALL", True, template="BLR {reg}")
+        inst.add_op(LabelOperand(label))
+        inst.add_op(self._target_reg_operand(INDIRECT_CALL_TARGET_REGISTER, src=True, dest=False))
+        return inst
 
     @staticmethod
     def _target_reg_operand(reg: str, src: bool, dest: bool) -> RegisterOperand:
@@ -210,6 +218,27 @@ class Aarch64PatchUndefinedLoadsStoresPass(Pass):
 
         elif any(name.startswith(m) for m in _STP_WRITEBACK):
             self._patch_stp_writeback(inst)
+
+    def constraint_reason(self, inst: Instruction) -> str:
+        """Human-readable reason this pass would rewrite a register in `inst`. Reuses the same category
+        dispatch as `_patch_instruction`, so the rule descriptions live in exactly one place (here)."""
+        name = inst.name.lower()
+        if any(name.startswith(m) for m in _LDR_WRITEBACK) \
+                or any(name.startswith(m) for m in _STR_WRITEBACK):
+            return "a write-back load/store's transferred register must differ from its base"
+        if any(name.startswith(m) for m in _LDP_ANY):
+            return "a load-pair's two destinations must differ (and, with write-back, from the base)"
+        if any(name.startswith(m) for m in _LDXP):
+            return "an exclusive load-pair's destinations must differ from each other and the base"
+        if any(name.startswith(m) for m in _STXR):
+            return "a store-exclusive's status register must differ from its value and address registers"
+        if any(name.startswith(m) for m in _STXP):
+            return "a store-exclusive-pair's status register must differ from its values and address"
+        if any(name.startswith(m) for m in _STP_WRITEBACK):
+            return "a write-back store-pair's source registers must differ from its base"
+        if name in _AUTH_CTX:
+            return "an AUT*'s context register must differ from its pointer register"
+        return "a memory access's index register must differ from its base (the sandbox subtracts them)"
 
     def _patch_address_register_collision(self, inst: Instruction) -> None:
         """For every memory access, force the index register to differ from the base. The sandbox masks
@@ -455,19 +484,58 @@ class Aarch64CallFramePass(Pass):
 
 
 class Aarch64IndirectCallPass(Pass):
-    """Materialize each indirect call's target: before every `BLR Xd` (emitted by get_call_instruction)
-    insert `ADR Xd, <target>` — the PC-relative address of the forward function, which resolves in both
-    the contract executor and the kernel (unlike ADRP/#:lo12:, whose relocations the non-linking
-    assembler leaves unresolved). A GOT load replaces the ADR for the multi-target case."""
+    """Materialize each indirect call's target register (Xd) before its `BLR Xd`.
+
+    Default — single target: `ADR Xd, <fn>`, the PC-relative address of the forward callee, which
+    resolves identically in the contract executor and the kernel (unlike ADRP/#:lo12:, whose relocations
+    the non-linking assembler leaves unresolved).
+
+    At dispatch_call_probability, where the caller has >= 2 forward callees — multi-target dispatch
+    through the caller's own jump table (emitted by the printer as trailing PC-relative offsets):
+
+        AND   Xi, Xi, #(N-1)            hash an input register to an in-table index (N = table size, pow2)
+        ADR   Xd, <fn>_dispatch         table base (PC-relative -> resolves in CE and kernel)
+        LDRSW Xi, [Xd, Xi, LSL #2]      entry = (callee - table): a base-independent signed offset
+        ADD   Xd, Xd, Xi                Xd = selected callee
+
+    Only Xd (the dedicated target register) ever holds a code address; Xi ends holding an offset, never
+    an address, so no code address leaks into the sandbox-masked data flow. Every inserted instruction is
+    template-only instrumentation (no memory operand), so the sandbox pass skips it and the sealer, which
+    keys on the BLR, is unaffected."""
+
+    # Input GPRs used as the hashed dispatch index; clobbered by the sequence, never reserved.
+    _INDEX_REGISTERS = ("x0", "x1", "x2", "x3", "x4", "x5")
 
     def run_on_test_case(self, test_case: TestCase) -> None:
-        for func in test_case.functions:
+        functions = test_case.functions
+        for i, func in enumerate(functions):
+            forward = functions[i + 1:]
+            can_dispatch = len(forward) >= 2   # a dispatch table needs at least two forward callees
             for bb in func:
                 for inst in list(bb):
-                    if inst.name == "blr":
-                        label = inst.operands[0].value
-                        reg = next(o for o in inst.operands if o.type == OT.REG)
-                        bb.insert_before(inst, self._adr(reg.value, label))
+                    if inst.name != "blr":
+                        continue
+                    reg = next(o for o in inst.operands if o.type == OT.REG).value
+                    if can_dispatch and random.random() < CONF.dispatch_call_probability:
+                        if func.dispatch_table is None:
+                            func.dispatch_table = DispatchTable(func, forward)
+                        for extra in self._dispatch_sequence(reg, func.dispatch_table):
+                            bb.insert_before(inst, extra)
+                    else:
+                        bb.insert_before(inst, self._adr(reg, inst.operands[0].value))
+
+    @classmethod
+    def _dispatch_sequence(cls, target_reg: str, table: DispatchTable,
+                           index_reg: Optional[str] = None) -> List[Instruction]:
+        index = index_reg if index_reg is not None else random.choice(cls._INDEX_REGISTERS)
+        template_only = lambda name, template: Instruction(name, is_instrumentation=True,
+                                                           template=template)
+        return [
+            template_only("and", f"AND {index}, {index}, #{table.size - 1}"),
+            cls._adr(target_reg, table.label),
+            template_only("ldrsw", f"LDRSW {index}, [{target_reg}, {index}, LSL #2]"),
+            template_only("add", f"ADD {target_reg}, {target_reg}, {index}"),
+        ]
 
     @staticmethod
     def _adr(reg: str, label: str) -> Instruction:

@@ -85,6 +85,42 @@ class Conf:
     """ fuzzer: type of the fuzzing algorithm """
     enable_priming: bool = True
     """ enable_priming: whether to check violations with priming """
+    enable_leftover_scan: bool = False
+    """ enable_leftover_scan: [TEMP/DEBUG, NI only] after boosting each test case, run a proactive
+        leaker scan (_scan_leftovers): for each prober input (held genuine) binary-search its history,
+        forcing each candidate predecessor NON-canonical, to find the predecessor whose canonicality
+        flips the prober's htrace (its LEAKER). Reports (prober -> leaker) pairs. Independent of whether
+        the analyser flagged a violation; needs the executor's forced-non-canonical variant. """
+    prime_predecessor_debug: bool = False
+    """ prime_predecessor_debug: [TEMP/DEBUG] replace regular priming with predecessor-priming. Regular
+        priming swaps a violating input's OWN slot, which cannot confirm a history-dependent leak whose
+        violating reps are byte-identical readouts differing only in their predecessor (e.g. phase-2
+        canonicality seeding a BTB entry that phase-3 reads). This variant instead swaps the
+        PREDECESSOR of a violating slot and re-traces: if the slot's htrace then changes, the divergence
+        follows the predecessor -> the violation is KEPT as a genuine order/context leak. """
+    enable_triage: bool = False
+    """ enable_triage: [TEMP, NI only] run our triage suite on every violation, in-pipeline, to LOCATE
+        the exact input in the batch order that causes the divergence. Violations are NOT dropped -
+        every one is kept and annotated with its culprit. Per violation:
+        (1) REPRODUCIBLE  - re-trace the batch (warmed); the violating slots must still diverge;
+        (2) GENUINE TEST  - rebuild the batch with every input as its genuine (baseline) seal variant;
+                            if the divergence collapses, a seal/input drives it (localisable), if not
+                            it is a pure position effect with no single input culprit;
+        (3) CULPRIT SEARCH- binary-search the decoy slots: genuine-ise a subset and see if the
+                            divergence collapses, narrowing to the single input slot that causes it
+                            (this is the violating input itself for a per-input leak, or a preceding
+                            input for an order/context leak). Records the culprit index. """
+    triage_reps: int = 100
+    """ triage_reps: sample size for triage measurements (independent of executor_sample_sizes). The
+        divergences triage decides (per-input ~0.9, order ~0.1) are clear well below the campaign's
+        max sample size, so keep this small for speed. """
+    triage_warmup: int = 3
+    """ triage_warmup: number of warm-up traces run ONCE at the start of a violation's triage (on the
+        original batch) to settle history-dependent state. NOT repeated per check (0 => none). """
+    triage_capture: bool = True
+    """ triage_capture: when triage classifies a violation as order/context or POSITION (the
+        interesting non-per-input cases), store its full artifact (test case + input batch + a
+        triage.txt with the culprit) even if the NI pipeline would otherwise drop it. """
     enable_speculation_filter: bool = False
     """ enable_speculation_filter: if True, discard test cases that don't trigger speculation"""
     enable_observation_filter: bool = False
@@ -133,11 +169,18 @@ class Conf:
     function) instead of a regular instruction. 0 disables calls. """
     indirect_call_probability: float = 0.0
     """ indirect_call_probability: when a call is emitted, the probability it is an INDIRECT call
-    (`ADR Xd, <target>; BLR Xd`, Xd a free instrumentation register x8-x15 — a monomorphic single-target
-    indirect branch) instead of a direct `BL <target>`. 0 keeps all calls direct; 1 forces every call
-    indirect; in between mixes the two. The target is still a single, forward (higher-indexed) function,
-    so the acyclic call-graph invariant is unchanged. (Multi-target indirect via a runtime dispatch table
-    is a later stage.) """
+    (`ADR Xd, <target>; BLR Xd`, Xd the dedicated target register) instead of a direct `BL <target>`.
+    0 keeps all calls direct; 1 forces every call indirect; in between mixes the two. Each indirect call
+    targets a single forward (higher-indexed) function, unless it is further upgraded to a multi-target
+    dispatch (see dispatch_call_probability); either way the acyclic call-graph invariant holds. """
+    dispatch_call_probability: float = 0.0
+    """ dispatch_call_probability: of the INDIRECT calls (see indirect_call_probability), the fraction
+    upgraded from a single-target `ADR Xd, <fn>` to a multi-target DISPATCH through the caller's own
+    per-function jump table: `ADR Xd, <table>; LDRSW Xi, [Xd, Xi, LSL #2]; ADD Xd, Xd, Xi; BLR Xd`, where
+    Xi is a hashed input register selecting one of the table's entries. The table holds only forward
+    (higher-indexed) callees, so the acyclic invariant is preserved; it needs >= 2 of them, else the call
+    stays single-target. Entries are PC-relative offsets, so the table resolves identically in the
+    contract executor and the kernel. 0 keeps every indirect call single-target. """
     max_calls_per_function: int = 2
     """ max_calls_per_function: cap on the number of call instructions a single function may emit.
     Bounds the call graph's fan-out (the 'c' in the ~c^depth architectural re-execution of callees), so

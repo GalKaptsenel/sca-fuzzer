@@ -35,9 +35,24 @@ class Aarch64ASMLayout:
         for func in test_case.functions:
             self._create_function(func)
 
+        self._create_dispatch_tables(test_case)
+
         for line in self.epilogue_template:
             self.content.append(line)
 
+    def _create_dispatch_tables(self, test_case: TestCase):
+        """Emit each function's multi-target jump table (Aarch64IndirectCallPass) as constant
+        PC-relative offsets, after all code — never reached by fall-through, and past every tracked
+        instruction so offsets are unaffected. Each entry is (callee - table); the dispatch sequence
+        reloads it and adds it back to the table base to recover the callee address."""
+        tables = [func.dispatch_table for func in test_case.functions if func.dispatch_table]
+        if not tables:
+            return
+        self.content.append(".section .data.main")
+        for table in tables:
+            self.content.append(f"{table.label}:")
+            for callee in table.entries:
+                self.content.append(f".word {callee.name} - {table.label}")
 
     def _create_function(self, func: Function):
         self.content.append(f'.section .data.{func.owner.name}')
