@@ -373,10 +373,11 @@ class ResolvedSealingTestCase:
         return self._solve_relocations(self._offsets, rng, decoy=True)
 
     def forced_noncanon(self) -> Tuple[Relocation, ...]:
-        """[TEMP/DEBUG] Like decoy(), but perturb EVERY eligible (speculative) slot with a guaranteed
-        NON-CANONICAL alt -- a high-bit fault mask (>3), never a low-bit {1,2,3} misalignment, never the
-        identity the random decoy may pick. Used by the leftover scan to force a truly non-canonical
-        predecessor so the scan can attribute a prober's flip to that predecessor's canonicality."""
+        """Like decoy(), but perturb EVERY eligible (speculative) slot with a guaranteed NON-CANONICAL
+        alt -- a high-bit fault mask (>3), never a low-bit {1,2,3} misalignment, never the identity the
+        random decoy may pick. The "bad" lane of the leftover search (leftover.py): a truly
+        non-canonical target so a predecessor either trains a predictor entry or faults, never silently
+        matches the genuine lane."""
         rng = random.Random(hash((self.collapse_key, self._salt, "forced-noncanon")))
         eligible = {r for r in self._entries if r.speculative and r.alts}
         relocs: List[Relocation] = []

@@ -707,14 +707,14 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         return self._resolve(inp).collapse_key
 
     def genuine_variant(self, inp: Input) -> ExecutorInput:
-        """[TEMP/DEBUG] The input's canonical (baseline) sealed variant -- the leftover scan's prober
-        and its all-canonical predecessors."""
+        """The input's genuine (canonical baseline) sealed variant -- the "good" lane of the
+        non-interference leftover search (leftover.py)."""
         return self.variants_for_input(inp)[NIVariant.BASELINE]
 
     def noncanon_variant(self, inp: Input) -> ExecutorInput:
-        """[TEMP/DEBUG] The input's baseline TC sealed to force every speculative branch target
-        NON-canonical (see ResolvedSealingTestCase.forced_noncanon). The leftover scan uses this as the
-        guaranteed-non-canonical predecessor variant, since the random decoy may be identity/misaligned."""
+        """The input's baseline test case sealed to force every speculative branch target
+        NON-canonical (see ResolvedSealingTestCase.forced_noncanon) -- the guaranteed-"bad" lane of the
+        leftover search, since the random decoy may be identity/misaligned and thus still train."""
         resolved = self._resolve(inp)
         return ExecutorInput(inp, code_reloc=resolved.forced_noncanon(),
                              mte_tags=self._mte_tags_for(inp), pac_keys=self._pac_keys_words(),
