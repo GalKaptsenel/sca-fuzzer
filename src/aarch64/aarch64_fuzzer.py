@@ -3,14 +3,18 @@ File: AArch64 fuzzer
 """
 from typing import List, Generator
 from contextlib import contextmanager
+import os
+import shutil
 import copy
 
-from ..fuzzer import FuzzerGeneric
+from ..fuzzer import FuzzerGeneric, NoninterferenceFuzzer
 from ..interfaces import TestCase, Input, HardwareTracingError
+from ..analyser import MergedBitmapAnalyser
 from ..util import STAT
-from ..config import CONF
+from ..config import CONF, ConfigException
 from .aarch64_executor import Aarch64Executor, pass_on_test_case
 from .aarch64_generator import Aarch64DsbSyPass
+from .leftover import GeneralizedPrimingDetector, LeftoverFinding
 
 
 # ==================================================================================================
@@ -123,3 +127,98 @@ class Aarch64Fuzzer(FuzzerGeneric):
                     return True
 
             return False
+
+
+class Aarch64NoninterferenceFuzzer(NoninterferenceFuzzer):
+    """AArch64 non-interference fuzzer.
+
+    Adds the cross-input speculative leftover detector (generalized priming + hybrid tipping-point
+    search, `leftover.py`) as the sole NI leftover-detection algorithm. Before each normal NI round it
+    builds the genuine/bad seal lanes for the input batch and runs the search under the leftover
+    regime; the regime is captured and restored around the search so the normal NI round that follows
+    sees the executor's usual regime. Regular (non-NI) fuzzing is a different fuzzer entirely and is
+    unaffected. The search itself lives in `leftover.py` and knows nothing about the fuzzer; the only
+    coupling is this thin seam (lane construction, the measure closure, the regime, and reporting)."""
+
+    # The executor sysfs regime the leftover search requires: SSBS on for the store-bypass window, no
+    # per-input flushing/rotation (would wipe the trained BTB entry), and unpinned execution (pinning
+    # measurably raises the non-canonical residual -- experimenter bonus finding). Captured-and-restored.
+    _LEFTOVER_REGIME = (("enable_ssbs", "1"), ("enable_pre_run_flush", "0"),
+                        ("enable_phr_flush", "0"), ("enable_view_rotation", "0"),
+                        ("pin_to_core", "-1"))
+
+    def initialize_modules(self) -> None:
+        super().initialize_modules()
+        # Fail fast, loud: the search's soundness depends on the leftover regime, which needs local
+        # sysfs control. Do not silently run it against an executor that cannot apply the regime.
+        if CONF.enable_leftover_detection and not self._regime_controllable():
+            raise ConfigException(
+                "enable_leftover_detection requires a local HW executor with sysfs regime control "
+                "(view_rotation / pin_to_core); set enable_leftover_detection = False for remote "
+                "executors.")
+
+    def _regime_controllable(self) -> bool:
+        dev = getattr(self.executor, "device", None)
+        return dev is not None and hasattr(dev, "_read_sysfs") and hasattr(dev, "_write_sysfs")
+
+    def fuzzing_round(self, test_case: TestCase, inputs: List[Input],
+                      ignore_list=None):
+        if CONF.enable_leftover_detection and len(inputs) >= 2:
+            self._detect_leftovers(test_case, inputs)
+        return super().fuzzing_round(test_case, inputs, ignore_list)
+
+    def _detect_leftovers(self, test_case: TestCase, inputs: List[Input]) -> None:
+        """Run the generalized-priming leftover search on the batch's genuine/bad seal lanes."""
+        self.executor.load_test_case(test_case)
+        genuine = [self.executor.genuine_variant(inp) for inp in inputs]
+        bad = [self.executor.noncanon_variant(inp) for inp in inputs]
+        outlier_threshold = CONF.analyser_outliers_threshold
+
+        detector = GeneralizedPrimingDetector(
+            measure=lambda batch, reps: self.executor.trace_test_case(batch, reps)[0],
+            key=lambda trace: MergedBitmapAnalyser.merged_bitmap(trace, outlier_threshold),
+            reps=CONF.leftover_reps)
+
+        findings: List[LeftoverFinding] = []
+        with self._leftover_regime():
+            try:
+                findings = detector.detect(genuine, bad)
+            except HardwareTracingError as e:  # transient device failure -> skip this round's search
+                self.LOG.warning("fuzzer", f"leftover detection: hardware tracing failed: {e}")
+
+        for f in findings:
+            self.LOG.warning("fuzzer", f"LEFTOVER: prober input {f.prober} <- tipping point "
+                             f"{f.tipping_point} (violating block {list(f.block)})")
+            self._save_leftover_artifact(test_case, f, genuine, bad)
+
+    @contextmanager
+    def _leftover_regime(self) -> Generator[None, None, None]:
+        """Apply the leftover-search sysfs regime, capturing and restoring the executor's values."""
+        dev = self.executor.device
+        saved = {name: dev._read_sysfs(name) for name, _ in self._LEFTOVER_REGIME}
+        try:
+            for name, value in self._LEFTOVER_REGIME:
+                dev._write_sysfs(name, value.encode())
+            yield
+        finally:
+            for name, value in saved.items():
+                dev._write_sysfs(name, value.encode())
+
+    def _save_leftover_artifact(self, test_case: TestCase, finding: LeftoverFinding,
+                                genuine: List, bad: List) -> None:
+        """Save the generating test case and the block's genuine/bad variants, for reproduction."""
+        try:
+            path = os.path.join(self.work_dir,
+                                f"leftover_p{finding.prober}_t{finding.tipping_point}_{STAT.test_cases}")
+            os.makedirs(path, exist_ok=True)
+            for attr in ("bin_path", "asm_path"):
+                src = getattr(test_case, attr, None)
+                if src and os.path.exists(src):
+                    shutil.copy(src, os.path.join(path, os.path.basename(src)))
+            for slot in finding.block:
+                for tag, lane in (("genuine", genuine), ("bad", bad)):
+                    with open(os.path.join(path, f"input{slot}_{tag}.reif"), "wb") as f:
+                        f.write(lane[slot].serialize())
+            self.LOG.warning("fuzzer", f"LEFTOVER artifacts saved: {path}")
+        except Exception as e:            # artifact saving must never abort a fuzzing round
+            self.LOG.warning("fuzzer", f"LEFTOVER artifact save failed: {e}")

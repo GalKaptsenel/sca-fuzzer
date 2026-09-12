@@ -202,6 +202,15 @@ branch_target_seal_prob: float = 1.0
 branch_target_canon_mask: Optional[int] = None   # fixed non-canonical high-bit run, or None = pool
 branch_target_seal_misalign: bool = True          # include the low-bit misalignment axis in the pool
 
+# Cross-input speculative leftover detection (src/aarch64/leftover.py): the sole non-interference
+# leftover algorithm (generalized priming + hybrid tipping-point search). Runs before each NI round on
+# the genuine/bad seal lanes; regular fuzzing is unaffected. Requires a local HW executor with sysfs
+# regime control (the search forces view_rotation=0 and unpinned execution); set False for remote.
+enable_leftover_detection: bool = True
+leftover_reps: int = 200
+""" leftover_reps: sample size for every leftover-search measurement (detection, bisection, and the
+    fresh re-verification of a found tipping point) """
+
 instruction_blocklist: List[str] = [
     # Crash/stall hazards: must never be generated regardless of enabled categories.
     "eretaa", "eretab", "udf",   # exception return / undefined -> trap or EL change

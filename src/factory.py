@@ -47,6 +47,10 @@ def get_fuzzer(instruction_set, working_directory, testcase, inputs):
             return aarch64_fuzzer.Aarch64Fuzzer(instruction_set, working_directory, testcase, inputs)
         raise ConfigException("ERROR: unknown value of `instruction_set` configuration option")
     elif CONF.fuzzer == "non-interference":
+        if "aarch64" in CONF.instruction_set:
+            from .aarch64 import aarch64_fuzzer
+            return aarch64_fuzzer.Aarch64NoninterferenceFuzzer(instruction_set, working_directory,
+                                                               testcase, inputs)
         return NoninterferenceFuzzer(instruction_set, working_directory, testcase, inputs)
 
     raise ConfigException("ERROR: unknown value of `fuzzer` configuration option")
