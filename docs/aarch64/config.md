@@ -166,11 +166,12 @@ overwrite real address bits and corrupt the sandbox pointer, so leaving it unset
 
 ## Cross-input leftover detection (non-interference)
 
-The sole non-interference algorithm for cross-input speculative leftovers — a predecessor input
-speculatively training a predictor entry (e.g. a BTB target) that a later prober input reads. See
-§6.1a of the architecture reference for the generalized-priming + hybrid tipping-point search. It runs
-before each NI round on the genuine and forced-non-canonical seal lanes and reports one tipping point
-per leaking prober. Non-interference only; regular fuzzing is unaffected.
+The sole non-interference algorithm for cross-input speculative leftovers — where the input whose seal
+toggle causes a leak (the *leaking pair*, a BTB entry it trains) differs from the input whose cache
+htrace diverges (the *detecting pair*). See §6.1a of the architecture reference for the
+generalized-priming search. It runs before each NI round on the genuine and forced-non-canonical seal
+lanes and reports the whole chain `[leaking pair .. detecting pair]`. Non-interference only; regular
+fuzzing is unaffected.
 
 ```yaml
 Name: enable_leftover_detection
@@ -187,6 +188,13 @@ Name: leftover_reps
 Default: 200
 ```
 
-Sample size for every leftover-search measurement (detection, bisection, and the fresh re-verification
-of a found tipping point). A failed re-verification only drops a candidate, never fabricates one, so
-this trades runtime against the chance of missing a real leftover under the BTB's run-to-run jitter.
+Sample size for the leftover search's localization measurements (the endpoint check and the bisection).
+
+```yaml
+Name: leftover_verify_reps
+Default: 500
+```
+
+Sample size for the fresh, robust (chi-squared) re-verification of a found leaking pair. Larger than
+`leftover_reps` so the confirmation tolerates the BTB's run-to-run overwrite jitter. A failed
+re-verification only drops a candidate, never fabricates one.

@@ -530,33 +530,43 @@ decoy stay architecturally identical.
 
 ### 6.1a Cross-input leftover detection (BTB)
 
-The seals above compare *one* input's genuine vs decoy variant. A **cross-input** leftover is
-different: a predecessor input speculatively trains a predictor entry (e.g. a branch-target-buffer
-target) that a *later* "prober" input then speculatively reads — a leak that only surfaces across the
-input sequence. On aarch64 NI runs this is found by `enable_leftover_detection` (default on), the sole
-NI leftover algorithm (`src/aarch64/leftover.py`), a **generalized priming** search that runs before
-each normal NI round on two lanes: the *genuine* seal variant of every input and its forced-non-canonical
-(*bad*) variant, which are architecturally identical (ct-seq-equal), so any htrace difference between
-them is a genuine contract violation.
+The seals above compare *one* input's genuine vs decoy variant, and priming confirms a violation only
+when it follows that input's *own* data. A **cross-input** leftover is the case priming otherwise
+*discards*: the divergence is caused by a *different*, earlier input. Splitting the two:
 
-For each prober `q`, holding it genuine and varying only its history `[0, q)`:
+- the **detecting pair** — the input whose cache htrace diverges (what Revizor notices);
+- the **leaking pair** — the input whose genuine/decoy toggle actually causes it, whose leak lives in
+  the microarchitecture (a BTB entry it speculatively trains) and only *surfaces* as the detecting
+  pair's cache divergence.
 
-1. **Detect** — compare the prober under an all-genuine history vs an all-bad history. Equal ⇒ the
-   prober does not depend on its history ⇒ no leftover. Different ⇒ a cross-input dependence (ordinary
-   priming would *discard* this as a context artifact; here it is exactly the leak, and is reported).
-2. **Localize** — a hybrid tipping-point bisection over `H_k = [genuine 0..k, bad k..q, genuine prober]`
-   with the invariant `key(H_lo) ≠ key(H_hi)` finds a `k` where toggling slot `k`'s genuine/bad state
-   flips the prober. It needs no monotonicity and no model of the predictor. Trace equality is exact
-   equality of the denoised consensus bitmap (`MergedBitmapAnalyser.merged_bitmap`), which is transitive
-   — the property the bisection depends on (a statistical test would not be).
-3. **Re-verify** — re-measure the boundary pair fresh and drop it if it no longer differs, rejecting a
-   noise fluke.
+When these differ, stock priming throws the pair away. `enable_leftover_detection` (default on), the
+sole NI leftover algorithm (`src/aarch64/leftover.py`), instead **finds the leaking pair using the
+detecting pair's signal, with priming's own definition** (same starting µarch, toggle one pair's
+genuine/decoy seal, see if the signal follows). It runs on two lanes — each input's *genuine* seal
+variant and its forced-non-canonical (*decoy*) variant, which are ct-seq-equal, so any htrace
+difference is a genuine contract violation.
 
-It reports one tipping point per leaking prober (a valid counterexample; enumerating *every* contributor
-by recursion is unsound and is deliberately omitted). The search runs under a dedicated executor regime
-(`enable_view_rotation=0`, unpinned, `enable_ssbs=1`, no pre-run flush) that is captured and restored
-around it, so the normal NI round that follows is unaffected; it needs a local executor with sysfs
-regime control and fails loud at startup otherwise. `leftover_reps` sets the per-measurement sample size.
+For a detecting pair `d`, held at its decoy variant, over its history `[0, d)`:
+
+1. **Localize** — a hybrid bisection over `H_k = [genuine 0..k, decoy k..d]`, invariant
+   `key(H_lo) ≠ key(H_hi)`, finds a `k` where toggling slot `k`'s genuine/decoy flips `d`'s signal:
+   the leaking pair. A chain of priming swaps — no monotonicity, no predictor model. Trace equality
+   is exact equality of the denoised consensus bitmap (`MergedBitmapAnalyser.merged_bitmap`), which is
+   transitive — the property the bisection relies on (a statistical test would not be).
+2. **Re-verify** — re-measure the boundary fresh at the larger `leftover_verify_reps`, using a robust
+   (chi-squared) test, and drop it unless it genuinely differs — rejecting a boundary that only appeared
+   under the BTB's run-to-run jitter (transitivity is not needed here, jitter-tolerance is).
+
+The reported counterexample is the **whole chain `[leaking pair .. detecting pair]`**: genuine before
+the leaking pair, decoy from it onward. A found leaking pair is a valid ct-seq counterexample for
+**any** predictor. Two secondary properties are most-recent-wins-scoped (they hold on the N3 BTB):
+scanning by the two endpoints is guaranteed to *find* an existing leak (a history-folded predictor can
+hide an interior witness between coinciding endpoints — guaranteeing detection there is linear, not
+O(log n)), and the chain reproduces standalone only where the genuine prefix is replaceable. Enumerating
+*every* contributor by recursion is unsound and is deliberately omitted. The search runs under a
+dedicated executor regime (`enable_view_rotation=0`, unpinned, `enable_ssbs=1`, no pre-run flush) that
+is captured and restored around it, so the normal NI round that follows is unaffected; it needs a local
+executor with sysfs regime control and fails loud at startup otherwise.
 
 ### 6.2 Variant assembly by relocation (throughput)
 
