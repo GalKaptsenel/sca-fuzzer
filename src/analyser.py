@@ -127,28 +127,28 @@ class MergedBitmapAnalyser(EquivalenceAnalyserCommon):
     def __init__(self):
         self.bitmap_cache = {}
 
+    @staticmethod
+    def merged_bitmap(htrace: HTrace, outlier_threshold: float) -> int:
+        """The denoised consensus of a trace: drop the values seen in fewer than
+        `outlier_threshold * len(raw)` repetitions (noise), then OR-merge the survivors into a
+        bitmap. Equality of this derived value is transitive, unlike the subset/disjoint test below."""
+        counter = Counter(htrace.raw)
+        threshold = outlier_threshold * len(htrace.raw)
+        bitmap = 0
+        for value in htrace.raw:
+            if counter[value] >= threshold:
+                bitmap |= value
+        return bitmap
+
+    def _bitmap(self, htrace: HTrace) -> int:
+        if htrace.hash_ not in self.bitmap_cache:
+            self.bitmap_cache[htrace.hash_] = self.merged_bitmap(
+                htrace, CONF.analyser_outliers_threshold)
+        return self.bitmap_cache[htrace.hash_]
+
     def htraces_are_equivalent(self, htrace1: HTrace, htrace2: HTrace) -> bool:
-        bitmaps = [0, 0]
-        sample_size = len(htrace1.raw)
-        assert sample_size == len(htrace2.raw), "htraces have different sizes"
-        threshold = CONF.analyser_outliers_threshold * sample_size
-        for i, htrace in enumerate([htrace1, htrace2]):
-            # check if cached
-            if htrace.hash_ in self.bitmap_cache:
-                bitmaps[i] = self.bitmap_cache[htrace.hash_]
-                continue
-
-            # remove outliers
-            counter = Counter(htrace.raw)
-            filtered = [x for x in htrace.raw if counter[x] >= threshold]
-
-            # merge into bitmap
-            for t in filtered:
-                bitmaps[i] |= t
-
-            # cache
-            self.bitmap_cache[htrace.hash_] = bitmaps[i]
-
+        assert len(htrace1.raw) == len(htrace2.raw), "htraces have different sizes"
+        bitmaps = [self._bitmap(htrace1), self._bitmap(htrace2)]
         if CONF.analyser_subsets_is_violation:
             return bitmaps[0] == bitmaps[1]
 
