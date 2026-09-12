@@ -208,8 +208,12 @@ branch_target_seal_misalign: bool = True          # include the low-bit misalign
 # regime control (the search forces view_rotation=0 and unpinned execution); set False for remote.
 enable_leftover_detection: bool = True
 leftover_reps: int = 200
-""" leftover_reps: sample size for every leftover-search measurement (detection, bisection, and the
-    fresh re-verification of a found tipping point) """
+""" leftover_reps: sample size for the leftover search's localization measurements (the endpoint check
+    and the bisection) """
+leftover_verify_reps: int = 500
+""" leftover_verify_reps: sample size for the fresh, robust re-verification of a found leaking pair.
+    Larger than leftover_reps so the confirmation tolerates the BTB's run-to-run overwrite jitter -- a
+    failed re-verification only drops a candidate, never fabricates one """
 
 instruction_blocklist: List[str] = [
     # Crash/stall hazards: must never be generated regardless of enabled categories.

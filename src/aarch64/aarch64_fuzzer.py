@@ -9,7 +9,7 @@ import copy
 
 from ..fuzzer import FuzzerGeneric, NoninterferenceFuzzer
 from ..interfaces import TestCase, Input, HardwareTracingError
-from ..analyser import MergedBitmapAnalyser
+from ..analyser import MergedBitmapAnalyser, ChiSquaredAnalyser
 from ..util import STAT
 from ..config import CONF, ConfigException
 from .aarch64_executor import Aarch64Executor, pass_on_test_case
@@ -168,16 +168,18 @@ class Aarch64NoninterferenceFuzzer(NoninterferenceFuzzer):
         return super().fuzzing_round(test_case, inputs, ignore_list)
 
     def _detect_leftovers(self, test_case: TestCase, inputs: List[Input]) -> None:
-        """Run the generalized-priming leftover search on the batch's genuine/bad seal lanes."""
+        """Run the generalized-priming leftover search on the batch's genuine/decoy seal lanes."""
         self.executor.load_test_case(test_case)
         genuine = [self.executor.genuine_variant(inp) for inp in inputs]
         bad = [self.executor.noncanon_variant(inp) for inp in inputs]
         outlier_threshold = CONF.analyser_outliers_threshold
+        robust = ChiSquaredAnalyser()  # jitter-tolerant re-verify, independent of the configured analyser
 
         detector = GeneralizedPrimingDetector(
             measure=lambda batch, reps: self.executor.trace_test_case(batch, reps)[0],
             key=lambda trace: MergedBitmapAnalyser.merged_bitmap(trace, outlier_threshold),
-            reps=CONF.leftover_reps)
+            confirm=lambda a, b: not robust.htraces_are_equivalent(a, b),
+            reps=CONF.leftover_reps, verify_reps=CONF.leftover_verify_reps)
 
         findings: List[LeftoverFinding] = []
         with self._leftover_regime():
@@ -187,8 +189,8 @@ class Aarch64NoninterferenceFuzzer(NoninterferenceFuzzer):
                 self.LOG.warning("fuzzer", f"leftover detection: hardware tracing failed: {e}")
 
         for f in findings:
-            self.LOG.warning("fuzzer", f"LEFTOVER: prober input {f.prober} <- tipping point "
-                             f"{f.tipping_point} (violating block {list(f.block)})")
+            self.LOG.warning("fuzzer", f"LEFTOVER: leaking pair {f.leaking_pair} -> detecting pair "
+                             f"{f.detecting_pair} (chain {list(f.chain)})")
             self._save_leftover_artifact(test_case, f, genuine, bad)
 
     @contextmanager
@@ -206,19 +208,24 @@ class Aarch64NoninterferenceFuzzer(NoninterferenceFuzzer):
 
     def _save_leftover_artifact(self, test_case: TestCase, finding: LeftoverFinding,
                                 genuine: List, bad: List) -> None:
-        """Save the generating test case and the block's genuine/bad variants, for reproduction."""
+        """Save the test case and the counterexample chain: each input's variant as it runs (genuine
+        before the leaking pair, decoy from it onward), plus the leaking pair's genuine variant -- the
+        flip that removes the leak."""
         try:
-            path = os.path.join(self.work_dir,
-                                f"leftover_p{finding.prober}_t{finding.tipping_point}_{STAT.test_cases}")
+            path = os.path.join(
+                self.work_dir,
+                f"leftover_l{finding.leaking_pair}_d{finding.detecting_pair}_{STAT.test_cases}")
             os.makedirs(path, exist_ok=True)
             for attr in ("bin_path", "asm_path"):
                 src = getattr(test_case, attr, None)
                 if src and os.path.exists(src):
                     shutil.copy(src, os.path.join(path, os.path.basename(src)))
-            for slot in finding.block:
-                for tag, lane in (("genuine", genuine), ("bad", bad)):
-                    with open(os.path.join(path, f"input{slot}_{tag}.reif"), "wb") as f:
-                        f.write(lane[slot].serialize())
+            for slot in range(finding.detecting_pair + 1):
+                lane = bad if slot in finding.chain else genuine
+                with open(os.path.join(path, f"input{slot}.reif"), "wb") as f:
+                    f.write(lane[slot].serialize())
+            with open(os.path.join(path, f"input{finding.leaking_pair}.flip.reif"), "wb") as f:
+                f.write(genuine[finding.leaking_pair].serialize())
             self.LOG.warning("fuzzer", f"LEFTOVER artifacts saved: {path}")
         except Exception as e:            # artifact saving must never abort a fuzzing round
             self.LOG.warning("fuzzer", f"LEFTOVER artifact save failed: {e}")
