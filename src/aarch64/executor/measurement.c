@@ -231,13 +231,19 @@ static int __nocfi run_experiments(void) {
 		/* Three independent knobs (decoupled from the legacy pre_run_flush):
 		 *   view_rotation : serve the next view (invalidate_bpu_entries) -> tagged-table miss
 		 *   branch_training: re-apply the mistraining config
-		 *   phr_flush     : overwrite the branch-history register before the run */
+		 *   phr_flush     : zero the branch-history register (BPU/PHR) ONCE before the trace
+		 *
+		 * phr_flush resets the branch history at the START of the trace (warm-ups + the first
+		 * recorded input, i <= 0) and NEVER between the trace's inputs: a trace is one sequence,
+		 * so the reset belongs before it, not between its inputs. Flushing per input would wipe the
+		 * cross-input branch-predictor state an earlier input trains -- exactly the state a
+		 * cross-input leftover lives in. */
 		if (executor.config.view_rotation) {
 			measurement_code = invalidate_bpu_entries();
 		}
 		splice_code_relocations(measurement_code, &current_input->input, false);
 		apply_input_branch_training(measurement_code, &current_input->input);
-		if (executor.config.phr_flush) {
+		if (executor.config.phr_flush && i <= 0) {
 			flush_bpu_phr();
 		}
 		config_pfc();
