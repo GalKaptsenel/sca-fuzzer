@@ -18,12 +18,18 @@ The search is self-contained -- it knows nothing about the fuzzer or executor --
                           only to re-verify a found boundary, where transitivity is not needed but
                           tolerance to microarchitectural jitter is.
 
-For a detecting pair `d`, over its history [0, d), with `d` held at its decoy variant:
-  * Localize (hybrid) -- let H_k = [genuine 0..k, decoy k..d]. With the invariant key(H_lo) != key(H_hi)
-    (lo=0, hi=d), bisect to a tipping point k where toggling slot k's genuine/decoy flips d's signal:
-    the leaking pair. A chain of priming swaps; needs no predictor model and no monotonicity.
+For a detecting pair `d`, over its history [0, d), searched from BOTH bases (mirroring priming's
+symmetric swap: the divergence may be caused by the prefix being genuine OR decoy):
+  * Localize (hybrid) -- let H_k = [base 0..k, toggle k..d], with the detecting pair toggled with the
+    suffix. With the invariant key(H_lo) != key(H_hi) (lo=0 all-toggle, hi=d+1 all-base), bisect to a
+    tipping point k where toggling slot k flips d's signal: the leaking pair. A chain of priming swaps;
+    needs no predictor model and no monotonicity. The genuine-prefix base sweeps decoy->genuine; the
+    decoy-prefix base is the mirror -- a prefix of decoy inputs can itself be the cause.
   * Re-verify -- re-measure H_k and H_{k+1} fresh at a larger sample and confirm they robustly differ,
     rejecting a boundary that only appeared under measurement jitter.
+A boundary at the detecting pair itself (leaking pair == detecting pair) is the pair's OWN seal flipping
+its OWN readout -- the own-target confound. It is a valid finding by default (an input that leaks about
+itself); pass exclude_self_dependence to keep only strictly cross-input leftovers.
 
 A found leaking pair is a valid ct-seq counterexample for ANY predictor (TAGE or trivial) -- the
 search never models how the prediction forms, so its *validity* is predictor-agnostic. Two SECONDARY
@@ -31,9 +37,10 @@ properties are narrower and hold for a single-entry, most-recent-wins predictor 
 scanning by the two endpoints (all-decoy vs all-genuine history) is guaranteed to *find* an existing
 leak -- a history-folded predictor could hide an interior witness between coinciding endpoints, and
 guaranteeing detection there is inherently linear, not O(log n); and running the chain standalone
-reproduces the leak only where the genuine prefix is replaceable. The reported counterexample is the
-whole chain [leaking pair .. detecting pair] (genuine before the leaking pair, decoy from it onward),
-one per detecting pair.
+reproduces the leak only where the swept prefix is replaceable. The reported counterexample is the
+whole chain [leaking pair .. detecting pair] (the base lane before the leaking pair, the toggle lane
+from it onward), de-duplicated by (leaking pair, detecting pair) across the two bases -- so up to two
+findings per detecting pair, one from each base.
 """
 from dataclasses import dataclass
 from typing import Any, Callable, List, Optional, Sequence
@@ -45,12 +52,14 @@ Key = Any            # a hashable canonical form of a trace
 
 @dataclass(frozen=True)
 class LeftoverFinding:
-    """Toggling input `leaking_pair`'s genuine/decoy seal flips the speculative readout of input
-    `detecting_pair`, with the rest of the sequence fixed. `chain` = [leaking_pair .. detecting_pair]
-    is the self-contained counterexample: genuine before the leaking pair, decoy from it onward."""
+    """Toggling input `leaking_pair`'s two ct-equal variants flips the readout of input
+    `detecting_pair`, the rest of the sequence fixed. `chain` = [leaking_pair .. detecting_pair] is the
+    self-contained counterexample. `prefix_genuine` is the base the search swept from: True = genuine
+    before the leaking pair and decoy from it on; False = the mirror (decoy before, genuine from it on)."""
     leaking_pair: int
     detecting_pair: int
     chain: range
+    prefix_genuine: bool
 
 
 class GeneralizedPrimingDetector:
@@ -64,45 +73,63 @@ class GeneralizedPrimingDetector:
         self._reps = reps
         self._verify_reps = verify_reps
 
-    def detect(self, genuine: Sequence[Variant], bad: Sequence[Variant]) -> List[LeftoverFinding]:
-        """Scan every input as a detecting pair and return each one's leaking pair, if any."""
-        assert len(genuine) == len(bad), "genuine and decoy lanes must have equal length"
-        found = (self.find_leaking_pair(genuine, bad, d) for d in range(1, len(genuine)))
-        return [f for f in found if f is not None]
+    def detect(self, genuine: Sequence[Variant], bad: Sequence[Variant],
+               exclude_self_dependence: bool = False) -> List[LeftoverFinding]:
+        """Scan every input as a detecting pair. For each, search from BOTH bases -- genuine-prefix and
+        decoy-prefix -- mirroring priming's symmetric swap: the divergence may be caused by the prefix
+        being good OR bad. De-duplicate by (leaking pair, detecting pair). A self-dependent finding
+        (leaking pair == detecting pair -- the pair leaks about itself) is a valid result by default;
+        pass exclude_self_dependence to drop it and keep only strictly cross-input leftovers."""
+        assert len(genuine) == len(bad), "the two lanes must have equal length"
+        findings: dict = {}
+        for detecting in range(1, len(genuine)):
+            for base, toggle, prefix_genuine in ((genuine, bad, True), (bad, genuine, False)):
+                f = self.find_leaking_pair(base, toggle, detecting, prefix_genuine,
+                                           exclude_self_dependence)
+                if f is not None:
+                    findings.setdefault((f.leaking_pair, f.detecting_pair), f)
+        return list(findings.values())
 
-    def find_leaking_pair(self, genuine: Sequence[Variant], bad: Sequence[Variant],
-                          detecting: int) -> Optional[LeftoverFinding]:
-        """Locate the leaking pair for detecting pair `detecting`, or None if it has none."""
-        lo, hi = 0, detecting
-        lo_key = self._probe_key(genuine, bad, detecting, lo)          # all-decoy history
-        if lo_key == self._probe_key(genuine, bad, detecting, hi):     # all-genuine history
+    def find_leaking_pair(self, base: Sequence[Variant], toggle: Sequence[Variant], detecting: int,
+                          prefix_genuine: bool = True,
+                          exclude_self_dependence: bool = False) -> Optional[LeftoverFinding]:
+        """Locate the leaking pair for `detecting`, sweeping the prefix from `base` toward `toggle`.
+        The detecting pair is toggled with the suffix, so the all-`base` end is hi = detecting + 1. A tip
+        at the detecting pair itself (leaking pair == detecting pair) is self-dependence -- the pair's
+        own seal flips its own readout; returned by default, dropped when exclude_self_dependence."""
+        lo, hi = 0, detecting + 1
+        lo_key = self._probe_key(base, toggle, detecting, lo)          # all-toggle history
+        if lo_key == self._probe_key(base, toggle, detecting, hi):     # all-base history
             return None                                                # signal independent of history
         while hi - lo > 1:                                             # invariant: key(H_lo) == lo_key != key(H_hi)
             mid = (lo + hi) // 2
-            if self._probe_key(genuine, bad, detecting, mid) == lo_key:
+            if self._probe_key(base, toggle, detecting, mid) == lo_key:
                 lo = mid
             else:
                 hi = mid
-        if not self._reverify(genuine, bad, detecting, lo):
+        if exclude_self_dependence and lo == detecting:               # own-target confound, not cross-input
             return None
-        return LeftoverFinding(lo, detecting, range(lo, detecting + 1))
+        if not self._reverify(base, toggle, detecting, lo):
+            return None
+        return LeftoverFinding(lo, detecting, range(lo, detecting + 1), prefix_genuine)
 
-    def _probe(self, genuine: Sequence[Variant], bad: Sequence[Variant],
+    def _probe(self, base: Sequence[Variant], toggle: Sequence[Variant],
                detecting: int, k: int, reps: int) -> Trace:
-        """detecting pair's trace under H_k: slots [0, k) genuine, [k, detecting] decoy (detecting
-        pair held decoy). Slots after it are irrelevant under in-order execution; they stay genuine."""
-        batch = list(genuine)
+        """detecting pair's trace under H_k: slots [0, k) from `base`, [k, detecting] from `toggle`. At
+        the top endpoint k = detecting + 1 the toggled range is empty (the all-`base` end). Slots after
+        `detecting` stay `base` (in-order irrelevant)."""
+        batch = list(base)
         for s in range(k, detecting + 1):
-            batch[s] = bad[s]
+            batch[s] = toggle[s]
         return self._measure(batch, reps)[detecting]
 
-    def _probe_key(self, genuine: Sequence[Variant], bad: Sequence[Variant],
+    def _probe_key(self, base: Sequence[Variant], toggle: Sequence[Variant],
                    detecting: int, k: int) -> Key:
-        return self._key(self._probe(genuine, bad, detecting, k, self._reps))
+        return self._key(self._probe(base, toggle, detecting, k, self._reps))
 
-    def _reverify(self, genuine: Sequence[Variant], bad: Sequence[Variant],
+    def _reverify(self, base: Sequence[Variant], toggle: Sequence[Variant],
                   detecting: int, k: int) -> bool:
         """Fresh, larger-sample, robust re-measurement of the boundary that toggles the leaking pair."""
-        h_k = self._probe(genuine, bad, detecting, k, self._verify_reps)
-        h_k1 = self._probe(genuine, bad, detecting, k + 1, self._verify_reps)
+        h_k = self._probe(base, toggle, detecting, k, self._verify_reps)
+        h_k1 = self._probe(base, toggle, detecting, k + 1, self._verify_reps)
         return self._confirm(h_k, h_k1)

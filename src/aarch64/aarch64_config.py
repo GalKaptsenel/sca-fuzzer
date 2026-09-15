@@ -214,6 +214,14 @@ leftover_verify_reps: int = 500
 """ leftover_verify_reps: sample size for the fresh, robust re-verification of a found leaking pair.
     Larger than leftover_reps so the confirmation tolerates the BTB's run-to-run overwrite jitter -- a
     failed re-verification only drops a candidate, never fabricates one """
+enable_boosted_leftover: bool = False
+""" enable_boosted_leftover: in REGULAR fuzzing, replace the standard priming false-positive filter with
+    the generalized-priming leftover search over boosted lanes (src/aarch64/boosted_lanes.py). Each
+    boosting round is a lane of ct-equal inputs; wherever priming would run, the flagged violation's own
+    detecting pair is localized by toggling earlier positions across the two diverging lanes. A found
+    leaking pair (self- or cross-input) confirms the violation and reports the [leaker..detector] chain;
+    none means a false positive, exactly as priming. Off by default (standard priming). Requires a local
+    HW executor with sysfs regime control. Reuses leftover_reps / leftover_verify_reps. """
 
 instruction_blocklist: List[str] = [
     # Crash/stall hazards: must never be generated regardless of enabled categories.

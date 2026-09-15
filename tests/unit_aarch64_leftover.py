@@ -76,11 +76,23 @@ class HistoryFoldOracle:
         return out
 
 
-def valid_tip(oracle, detecting, k, reps=200):
-    """A leaking pair is valid iff toggling slot k's genuine/decoy flips the detecting pair's readout."""
+class SelfSealOracle:
+    """Each slot's readout depends only on its OWN seal (genuine vs decoy), never on a predecessor.
+    This is the own-target confound: toggling the detecting pair's own seal flips its own readout, but
+    there is no cross-input leftover. The detector must report nothing -- a leftover is by definition
+    caused by a DIFFERENT, earlier input."""
+
+    def measure(self, batch, reps):
+        return [H([BG | (1 if batch[d][0] == "g" else 0)] * reps) for d in range(len(batch))]
+
+
+def valid_tip(oracle, detecting, k, prefix_genuine=True, reps=200):
+    """A leaking pair is valid iff toggling slot k flips the detecting pair's readout, in the direction
+    the finding was made (genuine-prefix base, or the mirror decoy-prefix base)."""
     det = detector(oracle.measure)
     g, b = lanes(detecting + 1)
-    return key(det._probe(g, b, detecting, k, reps)) != key(det._probe(g, b, detecting, k + 1, reps))
+    base, toggle = (g, b) if prefix_genuine else (b, g)
+    return key(det._probe(base, toggle, detecting, k, reps)) != key(det._probe(base, toggle, detecting, k + 1, reps))
 
 
 class DetectorTest(unittest.TestCase):
@@ -88,11 +100,16 @@ class DetectorTest(unittest.TestCase):
     def test_distinct_targets_every_detecting_pair_leaks(self):
         oracle = MostRecentWinsBTB({0: 1 << 0, 1: 1 << 1, 2: 1 << 2})
         findings = detector(oracle.measure).detect(*lanes(4))
-        self.assertEqual([f.detecting_pair for f in findings], [1, 2, 3])
-        # first-tip anchor: distinct targets, no inert prefix -> leaking pair is slot 0.
-        self.assertTrue(all(f.leaking_pair == 0 for f in findings))
-        for f in findings:
+        # the genuine-prefix base leaks every detecting pair at slot 0 (distinct targets, no inert prefix)
+        gp = [f for f in findings if f.prefix_genuine]
+        self.assertEqual([f.detecting_pair for f in gp], [1, 2, 3])
+        self.assertTrue(all(f.leaking_pair == 0 for f in gp))
+        for f in gp:
             self.assertEqual(f.chain, range(0, f.detecting_pair + 1))   # whole chain reported
+        # bidirectional: the decoy-prefix base also yields valid findings; every finding is a real boundary
+        self.assertTrue(any(not f.prefix_genuine for f in findings))
+        for f in findings:
+            self.assertTrue(valid_tip(oracle, f.detecting_pair, f.leaking_pair, f.prefix_genuine))
 
     def test_inert_prefix_is_skipped(self):
         oracle = MostRecentWinsBTB({2: 1 << 2})               # slots 0,1 inert; 2 trains
@@ -104,10 +121,20 @@ class DetectorTest(unittest.TestCase):
     def test_no_trainers_no_violation(self):
         self.assertEqual(detector(MostRecentWinsBTB({}).measure).detect(*lanes(5)), [])
 
+    def test_self_dependence_reported_by_default_and_optionally_excluded(self):
+        # Own-target confound: each slot reacts only to its own seal, so every detecting pair bisects to
+        # lo == detecting (the pair itself). By default these self-pairs are valid findings; passing
+        # exclude_self_dependence drops them, leaving only strictly cross-input leftovers (none here).
+        det = detector(SelfSealOracle().measure)
+        default = det.detect(*lanes(6))
+        self.assertEqual([(f.leaking_pair, f.detecting_pair) for f in default],
+                         [(1, 1), (2, 2), (3, 3), (4, 4), (5, 5)])
+        self.assertEqual(det.detect(*lanes(6), exclude_self_dependence=True), [])
+
     def test_same_target_masking_still_valid(self):
         oracle = MostRecentWinsBTB({0: 1 << 2, 1: 1 << 1, 2: 1 << 2})   # slots 0,2 share a target
         f = next(x for x in detector(oracle.measure).detect(*lanes(4)) if x.detecting_pair == 3)
-        self.assertTrue(valid_tip(oracle, 3, f.leaking_pair))
+        self.assertTrue(valid_tip(oracle, 3, f.leaking_pair, f.prefix_genuine))
 
     def test_multi_contributor_returns_one_valid_pair(self):
         # Two independent contributors into detecting pair 15. A single search returns ONE valid
@@ -115,7 +142,7 @@ class DetectorTest(unittest.TestCase):
         oracle = MostRecentWinsBTB({6: 1 << 3, 14: 1 << 4})
         f = next(x for x in detector(oracle.measure).detect(*lanes(16)) if x.detecting_pair == 15)
         self.assertIn(f.leaking_pair, (6, 14))
-        self.assertTrue(valid_tip(oracle, 15, f.leaking_pair))
+        self.assertTrue(valid_tip(oracle, 15, f.leaking_pair, f.prefix_genuine))
 
     def test_returned_pairs_are_always_valid(self):
         # Randomized: over many most-recent-wins configs, EVERY reported leaking pair must be a genuine
@@ -127,7 +154,7 @@ class DetectorTest(unittest.TestCase):
             slots = rng.sample(range(n - 1), rng.randint(1, min(8, n - 1)))
             oracle = MostRecentWinsBTB({s: rng.choice(symbols) for s in slots})
             for f in detector(oracle.measure).detect(*lanes(n)):
-                self.assertTrue(valid_tip(oracle, f.detecting_pair, f.leaking_pair))
+                self.assertTrue(valid_tip(oracle, f.detecting_pair, f.leaking_pair, f.prefix_genuine))
 
     def test_history_fold_endpoint_coincidence_is_missed_but_a_valid_witness_exists(self):
         # Documented most-recent-wins scope: for a history-folded predictor the two endpoints can
@@ -157,7 +184,9 @@ class ScriptedMeasure:
 
 
 class ReverifyTest(unittest.TestCase):
-    # detecting=1. Call order: localize probe(k=0), probe(k=1); re-verify probe(k=0), probe(k=1).
+    # These drive ONE search direction (find_leaking_pair) to isolate the re-verify path with a
+    # deterministic call count. detecting=1, so hi=2 (the detector is toggled). Call order: localize
+    # probe(k=0), probe(k=2), probe(k=1); then re-verify probe(k=0), probe(k=1) -- 5 calls.
     C, V = 0b1, 0b10                    # background bit + a bit straddling the 10% cutoff at 500 reps
 
     def test_reverify_drops_straddle_jitter(self):
@@ -169,16 +198,18 @@ class ReverifyTest(unittest.TestCase):
         C, V = self.C, self.V
         straddle_hi, straddle_lo = [C | V] * 52 + [C] * 448, [C | V] * 48 + [C] * 452
         self.assertNotEqual(key(H(straddle_hi)), key(H(straddle_lo)))   # exact-bitmap alone would keep it
-        m = ScriptedMeasure(1, [[0b100] * 200, [0b1000] * 200, straddle_hi, straddle_lo])
-        self.assertEqual(detector(m.measure).detect(*lanes(2)), [])
-        self.assertEqual(m.calls, 4)
+        m = ScriptedMeasure(1, [[0b100] * 200, [0b1000] * 200, [0b1000] * 200, straddle_hi, straddle_lo])
+        g, b = lanes(2)
+        self.assertIsNone(detector(m.measure).find_leaking_pair(g, b, 1))
+        self.assertEqual(m.calls, 5)
 
     def test_reverify_keeps_confirmed_boundary(self):
         # A genuine boundary: the detecting pair's readout robustly differs between the two histories.
-        m = ScriptedMeasure(1, [[0b100] * 200, [0b1000] * 200, [0b1] * 500, [0b1000000] * 500])
-        findings = detector(m.measure).detect(*lanes(2))
-        self.assertEqual(len(findings), 1)
-        self.assertEqual((findings[0].leaking_pair, findings[0].detecting_pair), (0, 1))
+        m = ScriptedMeasure(1, [[0b100] * 200, [0b1000] * 200, [0b1000] * 200, [0b1] * 500, [0b1000000] * 500])
+        g, b = lanes(2)
+        f = detector(m.measure).find_leaking_pair(g, b, 1)
+        self.assertEqual((f.leaking_pair, f.detecting_pair), (0, 1))
+        self.assertTrue(f.prefix_genuine)
 
 
 class TraceKeyTest(unittest.TestCase):

@@ -198,3 +198,21 @@ Default: 500
 Sample size for the fresh, robust (chi-squared) re-verification of a found leaking pair. Larger than
 `leftover_reps` so the confirmation tolerates the BTB's run-to-run overwrite jitter. A failed
 re-verification only drops a candidate, never fabricates one.
+
+## Boosted-lane leftover detection (regular fuzzing)
+
+The regular-fuzzing counterpart of the leftover search: instead of genuine/decoy seal lanes, it uses the
+boosted input lanes (each boosting round of an input class is a lane of ct-equal inputs). It replaces the
+standard priming false-positive filter — wherever priming would run, it localizes the flagged violation's
+own detecting pair by toggling earlier positions across the two diverging lanes. Reuses `leftover_reps`
+and `leftover_verify_reps`.
+
+```yaml
+Name: enable_boosted_leftover
+Default: false
+```
+
+Replace standard priming with the boosted-lane leftover search in regular fuzzing. A found leaking pair
+(self- or cross-input) confirms the violation and reports the `[leaker..detector]` chain; none means a
+false positive, exactly as priming. Requires a local HW executor with sysfs regime control and
+`inputs_per_class` ≥ 2. `False` by default (standard priming, unchanged).
