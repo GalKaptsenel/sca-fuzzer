@@ -10,7 +10,7 @@ A REIF file = a 6*u64 little-endian preamble, a section table (4*u64 per entry),
 payloads (each 8-byte aligned). Sections are located by type, not offset.
 """
 import struct
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -19,6 +19,7 @@ from ..interfaces import (Input, InputFragment, MAIN_AREA_SIZE, FAULTY_AREA_SIZE
                           SIMD_SUBREGION_SIZE)
 from .aarch64_input_layout import NZCVScheme
 from .aarch64_relocations import Relocation
+from .seal.environment import EnvironmentPlan, serialize_pte_overrides, deserialize_pte_overrides
 
 # --- mirror of executor_input_format.h --------------------------------------------------------
 INPUT_MAGIC = 0x49525A5652      # "RVZRI" magic (matches REVISOR_INPUT_MAGIC)
@@ -32,6 +33,7 @@ SEC_PAC_KEYS = 0x05
 SEC_MTE_TAGS = 0x06
 SEC_CODE_RELOC = 0x07
 SEC_BPU_TRAINING = 0x08
+SEC_PTE_SETTINGS = 0x09         # per-variant page-table environment (see seal/environment.py)
 
 _PREAMBLE_LEN = 6 * 8           # magic, version, header_len, n_sections, flags, total_len
 _SECTION_DESC_LEN = 4 * 8       # type, flags, offset, length
@@ -146,7 +148,8 @@ def build_input_init(main: bytes, faulty: bytes, gpr: bytes, simd: Optional[byte
                      mte_tags: Optional[Sequence[int]] = None,
                      pac_keys: Optional[Sequence[int]] = None,
                      code_reloc: Optional[Sequence] = None,
-                     bpu_training: Optional[Sequence] = None) -> bytes:
+                     bpu_training: Optional[Sequence] = None,
+                     env_plan: Optional[EnvironmentPlan] = None) -> bytes:
     """Assemble a REIF file from the raw section payloads. `gpr` is the final 64-byte GPR section (flags
     already in PSTATE form); `simd` is the optional 256-byte vector section. Shared by both consumers:
     the device write (ExecutorInput.serialize) and the contract-executor message (ContractExecution.encode)."""
@@ -165,6 +168,10 @@ def build_input_init(main: bytes, faulty: bytes, gpr: bytes, simd: Optional[byte
         sections.append((SEC_CODE_RELOC, _pack_code_reloc(code_reloc)))
     if bpu_training is not None:
         sections.append((SEC_BPU_TRAINING, _pack_bpu_training(bpu_training)))
+    # The per-variant run environment (see seal/environment.py). The encoder owns the section id;
+    # each environment aspect owns its byte codec. A new aspect adds a section here, nothing else.
+    if env_plan is not None and not env_plan.is_empty:
+        sections.append((SEC_PTE_SETTINGS, serialize_pte_overrides(env_plan.pte_overrides)))
     return _pack_sections(sections)
 
 
@@ -179,6 +186,7 @@ class ExecutorInput:
     mte_tags: Optional[Sequence[int]] = None
     pac_keys: Optional[Sequence[int]] = None
     bpu_training: Tuple[Tuple[int, bool], ...] = ()
+    env_plan: EnvironmentPlan = field(default_factory=EnvironmentPlan)
 
     def serialize(self) -> bytes:
         frag = _first_fragment(self.input_)
@@ -191,7 +199,8 @@ class ExecutorInput:
                                 frag[simd_off:simd_off + SIMD_SUBREGION_SIZE],
                                 mte_tags=self.mte_tags, pac_keys=self.pac_keys,
                                 code_reloc=self.code_reloc if self.code_reloc else None,
-                                bpu_training=self.bpu_training if self.bpu_training else None)
+                                bpu_training=self.bpu_training if self.bpu_training else None,
+                                env_plan=self.env_plan)
 
     # Delegate the arch-input surface the fuzzer/artifact-store touches, so an ExecutorInput is
     # interchangeable with an arch Input in generic code (no isinstance seams).
@@ -276,6 +285,9 @@ def deserialize(blob: bytes) -> ExecutorInput:
     mte_tags = _unpack_mte_tags(sections[SEC_MTE_TAGS]) if SEC_MTE_TAGS in sections else None
     pac_keys = (list(struct.unpack(f"<{PAC_KEYS_WORDS}Q", sections[SEC_PAC_KEYS]))
                 if SEC_PAC_KEYS in sections else None)
+    env_plan = (EnvironmentPlan(pte_overrides=deserialize_pte_overrides(sections[SEC_PTE_SETTINGS]))
+                if SEC_PTE_SETTINGS in sections else EnvironmentPlan())
 
     return ExecutorInput(_arch_input_from_sections(sections), code_reloc=code_reloc,
-                         mte_tags=mte_tags, pac_keys=pac_keys, bpu_training=bpu_training)
+                         mte_tags=mte_tags, pac_keys=pac_keys, bpu_training=bpu_training,
+                         env_plan=env_plan)
