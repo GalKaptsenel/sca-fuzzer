@@ -58,6 +58,7 @@ revizor-executor-y := \
 	pac.o \
 	pmu.o \
 	pagetable.o \
+	pte_fuzz.o \
 	sandbox.o \
 	sysfs.o \
 	jit.o \

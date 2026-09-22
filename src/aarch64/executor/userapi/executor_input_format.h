@@ -49,6 +49,10 @@
  *                              entry. Each entry trains the conditional branch at `offset`
  *                              toward `taken` before this input's execute, so the per-input
  *                              branch training travels with the input rather than a global config.
+ *   REVISOR_SEC_PTE_SETTINGS   u32 entry count, then that many struct revisor_pte_override_entry
+ *                              (packed). Each overrides one sandbox page's descriptor before this
+ *                              input runs (reverted afterwards) -- the environment axis of the
+ *                              non-interference fuzzer; genuine inputs omit the section.
  *
  * Included by the kernel module (chardevice.c) and by executor_userland; the parser
  * bodies live in executor/input_format.c.
@@ -78,6 +82,7 @@ enum revisor_input_section_type {
     REVISOR_SEC_MTE_TAGS      = 0x06,
     REVISOR_SEC_CODE_RELOC    = 0x07,
     REVISOR_SEC_BPU_TRAINING  = 0x08,
+    REVISOR_SEC_PTE_SETTINGS  = 0x09,
 };
 
 struct revisor_input_header {
@@ -120,6 +125,22 @@ struct revisor_bpu_train_entry {
 
 #define REVISOR_BPU_TRAIN_TERMINATOR   ((uint32_t)0xFFFFFFFFul)
 #define REVISOR_INPUT_MAX_BPU_TRAIN    64
+
+/* One page-table override (REVISOR_SEC_PTE_SETTINGS). At `level` (REVISOR_PTE_LEVEL_LEAF for the 4K
+ * leaf), on sandbox page `page_index` (the shared index contract with the writer's sandbox page map),
+ * set the bits in `mask` to the corresponding bits of `value` (`value` carries no bits outside `mask`).
+ * The kernel applies `new = (live & ~mask) | value` before the input runs and reverts afterwards.
+ * Position-independent: no absolute address is ever sent. The section payload is a u32 entry count
+ * followed by that many packed (20-byte) entries. */
+struct revisor_pte_override_entry {
+    uint16_t page_index;
+    uint16_t level;
+    uint64_t mask;
+    uint64_t value;
+} __attribute__((packed));
+
+#define REVISOR_PTE_LEVEL_LEAF           ((uint16_t)3)
+#define REVISOR_INPUT_MAX_PTE_OVERRIDES  16
 
 /*
  * Validate a fully-copied input_init of exactly `total_len` bytes. Returns 1 if the header

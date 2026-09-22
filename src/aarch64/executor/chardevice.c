@@ -595,6 +595,48 @@ static int parse_bpu_training(const void* input_init, input_t* dst) {
 	return 0;
 }
 
+/* Parse the optional page-table override table (REVISOR_SEC_PTE_SETTINGS): a u32 entry count followed
+ * by that many packed entries. Structural checks only (count cap, exact length, value within mask);
+ * page/level applicability is checked at apply time. Absent section -> pte_present stays false. */
+static int parse_pte_settings(const void* input_init, input_t* dst) {
+	dst->pte_present = false;
+	dst->pte_override_count = 0;
+
+	const struct revisor_input_section* sec =
+		revisor_input_find_section(input_init, REVISOR_SEC_PTE_SETTINGS);
+	if (NULL == sec) {
+		return 0;
+	}
+	if (sizeof(uint32_t) > sec->length) {
+		return -EINVAL;
+	}
+
+	const char* payload = (const char*)input_init + sec->offset;
+	uint32_t count = 0;
+	memcpy(&count, payload, sizeof(uint32_t));
+	if (REVISOR_INPUT_MAX_PTE_OVERRIDES < count) {
+		return -EINVAL;
+	}
+	if (sizeof(uint32_t) + (uint64_t)count * sizeof(struct revisor_pte_override_entry)
+	    != sec->length) {
+		return -EINVAL;
+	}
+
+	const struct revisor_pte_override_entry* src =
+		(const struct revisor_pte_override_entry*)(payload + sizeof(uint32_t));
+	for (uint32_t i = 0; i < count; ++i) {
+		struct revisor_pte_override_entry e;
+		memcpy(&e, &src[i], sizeof(e));   /* section payload is packed / possibly unaligned */
+		if (0 != (e.value & ~e.mask)) {   /* value carries no bits outside mask (writer invariant) */
+			return -EINVAL;
+		}
+		dst->pte_overrides[i] = e;
+	}
+	dst->pte_override_count = count;
+	dst->pte_present = (count > 0);
+	return 0;
+}
+
 /* Extract a validated input initialization into the device's input_t. main/faulty/gpr are
  * required and must be exactly sized; mte_tags / pac_keys are optional and set their
  * *_present flag when supplied. Returns 0, or -EINVAL on a missing/mis-sized section. */
@@ -649,7 +691,11 @@ static int parse_input_init(const void* input_init, input_t* dst) {
 	if (0 != reloc_err) {
 		return reloc_err;
 	}
-	return parse_bpu_training(input_init, dst);
+	int bpu_err = parse_bpu_training(input_init, dst);
+	if (0 != bpu_err) {
+		return bpu_err;
+	}
+	return parse_pte_settings(input_init, dst);
 }
 
 static ssize_t copy_input_from_user_and_update_state(const char __user* user_buffer, size_t count) {

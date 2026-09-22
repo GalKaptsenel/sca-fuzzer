@@ -1,5 +1,6 @@
 #include "main.h"
 #include "pmu.h"
+#include "pte_fuzz.h"
 #include <linux/random.h>
 #include <linux/moduleparam.h>
 
@@ -275,6 +276,7 @@ static int __nocfi run_experiments(void) {
 	// boundary so the kernel's GCR is intact between test cases.
 	uint64_t pre_tc_gcr = mte_gcr_read();
 
+	int rc = 0;   // set by a per-input setup failure (e.g. inapplicable PTE overrides); breaks the loop
 	for (int64_t i = -executor.config.uarch_reset_rounds; i < rounds; ++i) {
 		struct input_node* current_input = NULL;
 
@@ -287,6 +289,17 @@ static int __nocfi run_experiments(void) {
 		current_input = rb_entry(current_input_node, struct input_node, node);
 		initialize_overflow_pages();
 		load_input_to_sandbox(&current_input->input);
+
+		// Apply this input's page-table environment overrides (NI environment axis) AFTER the sandbox
+		// memory/tags are loaded (so the setup's own writes hit pristine pages) and BEFORE the run;
+		// reverted after measure(). A failure here (pages not 4K-mapped, etc.) is a hard error: fail
+		// the whole measurement loudly rather than run a variant with the wrong environment.
+		rc = pte_env_apply(&current_input->input);
+		if (0 != rc) {
+			module_err("PTE fuzzing: cannot apply page-table overrides (err %d); the spec-only "
+			           "pages must be 4K-mapped\n", rc);
+			break;
+		}
 
 		// Dump the actual tags/pointers BEFORE disabling IRQs: LDG reads allocation-tag memory and is
 		// never tag-checked, so it is valid under the kernel's MTE control, and doing the (chatty) dump
@@ -401,6 +414,7 @@ static int __nocfi run_experiments(void) {
 
 		measure(&current_input->measurement);
 		splice_code_relocations(measurement_code, &current_input->input, true);
+		pte_env_revert();   // restore the sandbox page tables to pristine for the next input
 	}
 
 	if (ssbs_changed) {
@@ -411,7 +425,7 @@ static int __nocfi run_experiments(void) {
 	// restored it, but make the between-TC state explicit).
 	mte_gcr_restore(pre_tc_gcr);
 
-	return 0;
+	return rc;
 }
 
 int execute(void) {
