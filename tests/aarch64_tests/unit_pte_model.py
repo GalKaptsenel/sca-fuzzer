@@ -109,6 +109,14 @@ class SandboxPageMapTest(unittest.TestCase):
         self.assertEqual(hit.name, "faulty")
         self.assertIsNone(self.m.spec_only_containing(base + 8, base))
 
+    def test_spec_only_intersecting_catches_boundary_spill(self):
+        base = 0x1_0000
+        # an 8-byte access starting 4 bytes before the boundary spills into faulty -> caught
+        hit = self.m.spec_only_intersecting(base + MAIN_AREA_SIZE - 4, 8, base)
+        self.assertEqual(hit.name, "faulty")
+        # an 8-byte access ending exactly at the boundary stays wholly in main -> not caught
+        self.assertIsNone(self.m.spec_only_intersecting(base + MAIN_AREA_SIZE - 8, 8, base))
+
     def test_require_spec_only(self):
         self.m.require_spec_only()   # ok
         with self.assertRaises(ValueError):

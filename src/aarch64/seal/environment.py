@@ -65,10 +65,16 @@ class SandboxPageMap:
             names.add(p.name)
 
     def spec_only_containing(self, address: int, base: int) -> Optional[SandboxPage]:
-        """The spec-only page `address` falls in (given the sandbox base VA), or None. The
-        arch-safety guard uses it to reject an arch access that lands on a spec-only page."""
+        """The spec-only page `address` falls in (given the sandbox base VA), or None."""
+        return self.spec_only_intersecting(address, 1, base)
+
+    def spec_only_intersecting(self, start: int, size: int, base: int) -> Optional[SandboxPage]:
+        """The spec-only page the access [start, start+size) touches (given the sandbox base VA), or
+        None. A multi-byte access straddling a page boundary counts -- a spill into a spec-only page
+        faults architecturally too, so the guard checks the whole extent."""
         for p in self.spec_only_pages:
-            if p.contains(address, base):
+            page_start = base + p.offset
+            if start < page_start + PAGE_SIZE and page_start < start + size:
                 return p
         return None
 

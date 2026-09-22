@@ -744,7 +744,8 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             cer = self._ce_trace(apply_relocations(resolved.object_code, resolved.genuine()), inp)
             base, _ = self.read_base_addresses()
             reached = any(
-                self._page_map.spec_only_containing(ma.effective_address, base) is not None
+                self._page_map.spec_only_intersecting(
+                    ma.effective_address, ma.element_size, base) is not None
                 for ite in cer if ite.metadata.speculation_nesting == 0
                 for ma in ite.metadata.accesses())
             self._spec_reach_cache[key] = reached
