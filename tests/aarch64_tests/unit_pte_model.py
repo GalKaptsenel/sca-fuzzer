@@ -68,19 +68,6 @@ class DescriptorLayoutTest(unittest.TestCase):
         for layout in (LEAF_LAYOUT, TABLE_LAYOUT):
             DescriptorLayout(layout.name, layout.fields)   # would raise on overlap
 
-    def test_from_table_parses_columns_and_skips_comments(self):
-        layout = DescriptorLayout.from_table("t", """
-            # name   offset width fuzz  description
-            valid         0     1  yes   is valid
-
-            wide          4     3  no    a three-bit field with spaces in the doc
-        """)
-        self.assertEqual(layout.field_names, ["valid", "wide"])
-        self.assertEqual(layout.field("wide").offset, 4)
-        self.assertEqual(layout.field("wide").width, 3)
-        self.assertEqual(layout.default_fuzzable_field_names, ["valid"])   # only the yes-row
-        self.assertEqual(layout.field("wide").doc, "a three-bit field with spaces in the doc")
-
 
 class PageTableDescriptorTest(unittest.TestCase):
     def test_get_with_field_roundtrip(self):

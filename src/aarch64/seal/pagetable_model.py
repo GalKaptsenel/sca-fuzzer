@@ -91,24 +91,6 @@ class DescriptorLayout:
             mask |= self.field(name).mask
         return mask
 
-    @classmethod
-    def from_table(cls, name: str, table: str) -> "DescriptorLayout":
-        """Build a layout from an aligned text table, one field per row:
-
-            name   offset  width  fuzz(yes/no)  description ...
-
-        Blank rows and rows starting with '#' are ignored. Keeping the columns in a string lets the
-        source read as a table without upsetting the whitespace linters."""
-        fields = []
-        for row in table.strip().splitlines():
-            row = row.strip()
-            if not row or row.startswith("#"):
-                continue
-            field_name, offset, width, fuzz, doc = row.split(None, 4)
-            fields.append(BitField(field_name, int(offset), int(width),
-                                   fuzz.lower() in ("yes", "y", "true", "1"), doc.strip()))
-        return cls(name, fields)
-
 
 @dataclass(frozen=True)
 class PageTableDescriptor:
@@ -135,38 +117,37 @@ class PageTableDescriptor:
 
 # Level-3 page descriptor (maps a 4 KB page). `oa` (output address) and `type` are never fuzzed so a
 # decoy keeps the same physical page and the same walk shape; all other attributes are fair game.
-LEAF_LAYOUT = DescriptorLayout.from_table("leaf", """
-    # name       offset  width  fuzz  description
-    valid             0      1  yes   descriptor is valid (0 -> translation fault)
-    type              1      1  no    must be 1 for a level-3 page descriptor
-    attr_indx         2      3  yes   MAIR index (memory type / cacheability)
-    ns                5      1  yes   non-secure
-    ap                6      2  yes   data access permissions AP[2:1]
-    sh                8      2  yes   shareability
-    af               10      1  yes   access flag (0 -> access fault without HW AF)
-    ng               11      1  yes   not-global
-    oa               12     36  no    output address [47:12] -- never fuzzed
-    gp               50      1  no    guarded page (FEAT_BTI)
-    dbm              51      1  yes   dirty bit modifier
-    contiguous       52      1  yes   contiguous hint
-    pxn              53      1  yes   privileged execute-never
-    uxn              54      1  yes   unprivileged execute-never (XN at EL1)
-    sw               55      4  no    reserved for software use
-    pbha             59      4  no    page-based hardware attributes (FEAT_HPDS2)
-""")
+LEAF_LAYOUT = DescriptorLayout("leaf", [
+    # BitField(name, offset, width, fuzzable_by_default, doc)
+    BitField("valid", 0, 1, True, "descriptor is valid (0 -> translation fault)"),
+    BitField("type", 1, 1, False, "must be 1 for a level-3 page descriptor"),
+    BitField("attr_indx", 2, 3, True, "MAIR index (memory type / cacheability)"),
+    BitField("ns", 5, 1, True, "non-secure"),
+    BitField("ap", 6, 2, True, "data access permissions AP[2:1]"),
+    BitField("sh", 8, 2, True, "shareability"),
+    BitField("af", 10, 1, True, "access flag (0 -> access fault without HW AF)"),
+    BitField("ng", 11, 1, True, "not-global"),
+    BitField("oa", 12, 36, False, "output address [47:12] -- never fuzzed"),
+    BitField("gp", 50, 1, False, "guarded page (FEAT_BTI)"),
+    BitField("dbm", 51, 1, True, "dirty bit modifier"),
+    BitField("contiguous", 52, 1, True, "contiguous hint"),
+    BitField("pxn", 53, 1, True, "privileged execute-never"),
+    BitField("uxn", 54, 1, True, "unprivileged execute-never (XN at EL1)"),
+    BitField("sw", 55, 4, False, "reserved for software use"),
+    BitField("pbha", 59, 4, False, "page-based hardware attributes (FEAT_HPDS2)"),
+])
 
 # Level 0-2 table descriptor (points at the next-level table). The next-table address and type are
 # fixed (they define the walk); only the table-global attribute overrides are fuzzable.
-TABLE_LAYOUT = DescriptorLayout.from_table("table", """
-    # name       offset  width  fuzz  description
-    valid             0      1  yes   descriptor is valid (0 -> translation fault)
-    type              1      1  no    must be 1 for a table descriptor (0 = block)
-    next_addr        12     36  no    next-level table address [47:12] -- never fuzzed
-    pxn_table        59      1  yes   PXNTable: privileged execute-never for the subtree
-    xn_table         60      1  yes   UXNTable/XNTable for the subtree
-    ap_table         61      2  yes   APTable: access-permission override for the subtree
-    ns_table         63      1  yes   NSTable for the subtree
-""")
+TABLE_LAYOUT = DescriptorLayout("table", [
+    BitField("valid", 0, 1, True, "descriptor is valid (0 -> translation fault)"),
+    BitField("type", 1, 1, False, "must be 1 for a table descriptor (0 = block)"),
+    BitField("next_addr", 12, 36, False, "next-level table address [47:12] -- never fuzzed"),
+    BitField("pxn_table", 59, 1, True, "PXNTable: privileged execute-never for the subtree"),
+    BitField("xn_table", 60, 1, True, "UXNTable/XNTable for the subtree"),
+    BitField("ap_table", 61, 2, True, "APTable: access-permission override for the subtree"),
+    BitField("ns_table", 63, 1, True, "NSTable for the subtree"),
+])
 
 
 LAYOUTS: Dict[str, DescriptorLayout] = {LEAF_LAYOUT.name: LEAF_LAYOUT, TABLE_LAYOUT.name: TABLE_LAYOUT}
