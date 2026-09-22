@@ -299,5 +299,11 @@ void mte_gcr_restore(uint64_t saved_gcr)			{ (void)saved_gcr; }
 
 bool mte_region_is_tagged(const void *ptr, size_t size)		{ (void)ptr; (void)size; return true; }
 
+void mte_set_sync(void)						{ }
+
+void mte_save_control(struct mte_control_state* state)		{ (void)state; }
+
+void mte_restore_control(const struct mte_control_state* state)	{ (void)state; }
+
 #endif
 
