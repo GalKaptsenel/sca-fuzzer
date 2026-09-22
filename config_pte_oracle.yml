@@ -1,0 +1,43 @@
+# Ready-to-run: PTE (page-table) environment fuzzing on the pte_oracle template.
+#
+#   ./revizor.py tfuzz -s base.json -c config_pte_oracle.yml -t templates/pte_oracle.py \
+#                -n 1 -i 200 -w ./pte_out
+#
+# The template speculatively reads the faulty page inside a store-bypass window that never retires.
+# With PTE fuzzing on, the genuine variant leaves that page present (its speculative read allocates a
+# cache line) while a decoy clears its `valid` bit (the speculative read faults and allocates nothing),
+# so the genuine/decoy htrace divergence is a genuine leak of page-table state.
+instruction_set: aarch64
+fuzzer: non-interference
+input_generator: aarch64-nzcv
+executor_mode: P+P
+
+# Instructions the template uses (udiv/madd/str/ldr/subs/orr + the conditional branch); required so the
+# generator can build the template body.
+instruction_categories:
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-MEM-LOAD
+  - BASE-MEM-STORE
+  - BASE-BRANCH-COND
+
+# PTE environment fuzzing (standalone; no code sealing primitive needed).
+enable_pte_fuzzing: true
+pte_fuzz_leaf_fields: [valid]   # decoys flip the faulty page's present bit -> speculative fault, no line
+inputs_per_class: 4             # 1 genuine + 3 decoys per input
+
+# The template's store-bypass window needs SSBS=1 (speculative store bypass allowed).
+enable_speculative_store_bypass: true
+contract_execution_clause:
+  - cond
+  - bpas
+model_min_nesting: 1
+model_max_nesting: 30
+
+# Keep per-input speculative state; unpinned execution (the canonicality-style regime).
+enable_pre_run_flush: false
+executor_pinned_core: -1
+executor_sample_sizes: [100, 500]
+
+program_generator_seed: 424242
+input_gen_seed: 424242
