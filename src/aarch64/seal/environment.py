@@ -137,28 +137,23 @@ class PteOverride:
 
 
 # SEC_PTE_SETTINGS codec: PTE overrides <-> bytes, kept beside PteOverride (the encoder maps this
-# payload to its REIF section; the kernel parses the identical record layout). A new environment
-# aspect brings its own codec beside its own data -- nothing here needs to know about it.
+# payload to its REIF section; the kernel parses the identical record layout). The payload is the
+# packed records back to back -- no count header; the count is the payload length / record size.
 _PTE_RECORD = struct.Struct("<HHQQ")   # page_index (u16), level (u16), mask (u64), value (u64)
-_PTE_HEADER = struct.Struct("<I")      # count (u32)
 
 
 def serialize_pte_overrides(overrides: Sequence[PteOverride]) -> bytes:
-    out = bytearray(_PTE_HEADER.pack(len(overrides)))
+    out = bytearray()
     for o in overrides:
         out += _PTE_RECORD.pack(o.page_index, o.level, o.mask, o.value)
     return bytes(out)
 
 
 def deserialize_pte_overrides(blob: bytes) -> Tuple[PteOverride, ...]:
-    (count,) = _PTE_HEADER.unpack_from(blob, 0)
-    pos = _PTE_HEADER.size
-    result = []
-    for _ in range(count):
-        pi, lvl, mask, val = _PTE_RECORD.unpack_from(blob, pos)
-        result.append(PteOverride(pi, lvl, mask, val))
-        pos += _PTE_RECORD.size
-    return tuple(result)
+    if 0 != len(blob) % _PTE_RECORD.size:
+        raise ValueError("PTE override section is not a whole number of entries")
+    return tuple(PteOverride(*_PTE_RECORD.unpack_from(blob, pos))
+                 for pos in range(0, len(blob), _PTE_RECORD.size))
 
 
 @dataclass(frozen=True)

@@ -49,10 +49,10 @@
  *                              entry. Each entry trains the conditional branch at `offset`
  *                              toward `taken` before this input's execute, so the per-input
  *                              branch training travels with the input rather than a global config.
- *   REVISOR_SEC_PTE_SETTINGS   u32 entry count, then that many struct revisor_pte_override_entry
- *                              (packed). Each overrides one sandbox page's descriptor before this
- *                              input runs (reverted afterwards) -- the environment axis of the
- *                              non-interference fuzzer; genuine inputs omit the section.
+ *   REVISOR_SEC_PTE_SETTINGS   an array of packed struct revisor_pte_override_entry (no count
+ *                              header; count = length / entry size). Each overrides one sandbox
+ *                              page's descriptor before this input runs (reverted afterwards).
+ *                              An absent section leaves the running mappings unchanged.
  *
  * Included by the kernel module (chardevice.c) and by executor_userland; the parser
  * bodies live in executor/input_format.c.
@@ -130,8 +130,8 @@ struct revisor_bpu_train_entry {
  * leaf), on sandbox page `page_index` (the shared index contract with the writer's sandbox page map),
  * set the bits in `mask` to the corresponding bits of `value` (`value` carries no bits outside `mask`).
  * The kernel applies `new = (live & ~mask) | value` before the input runs and reverts afterwards.
- * Position-independent: no absolute address is ever sent. The section payload is a u32 entry count
- * followed by that many packed (20-byte) entries. */
+ * Position-independent: no absolute address is ever sent. The section payload is these packed 20-byte
+ * entries back to back (no count header; count = payload length / entry size). */
 struct revisor_pte_override_entry {
     uint16_t page_index;
     uint16_t level;
@@ -139,8 +139,15 @@ struct revisor_pte_override_entry {
     uint64_t value;
 } __attribute__((packed));
 
-#define REVISOR_PTE_LEVEL_LEAF           ((uint16_t)3)
-#define REVISOR_INPUT_MAX_PTE_OVERRIDES  16
+/* Stage-1, 4K granule: page-table levels 0..3; the leaf that maps a page is the last. */
+#define REVISOR_PTE_LEVEL_COUNT          4
+#define REVISOR_PTE_LEVEL_LEAF           ((uint16_t)(REVISOR_PTE_LEVEL_COUNT - 1))
+/* Fuzzable sandbox data pages (keep in step with the sandbox data-page count and the writer's page
+ * map): lower_overflow, main, faulty, upper_overflow. */
+#define REVISOR_SANDBOX_PAGE_COUNT       4
+/* The table holds at most one override per (page, level), so bound it by that product rather than a
+ * magic number; it grows automatically with the page/level counts above. */
+#define REVISOR_INPUT_MAX_PTE_OVERRIDES  (REVISOR_SANDBOX_PAGE_COUNT * REVISOR_PTE_LEVEL_COUNT)
 
 /*
  * Validate a fully-copied input_init of exactly `total_len` bytes. Returns 1 if the header

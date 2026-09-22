@@ -595,9 +595,10 @@ static int parse_bpu_training(const void* input_init, input_t* dst) {
 	return 0;
 }
 
-/* Parse the optional page-table override table (REVISOR_SEC_PTE_SETTINGS): a u32 entry count followed
- * by that many packed entries. Structural checks only (count cap, exact length, value within mask);
- * page/level applicability is checked at apply time. Absent section -> pte_present stays false. */
+/* Parse the optional page-table override table (REVISOR_SEC_PTE_SETTINGS): back-to-back packed entries,
+ * no count header -- the entry count is the payload length / entry size. Structural checks only (length
+ * is a whole number of entries, within the cap, and each value within its mask); page/level
+ * applicability is checked at apply time. Absent section -> pte_present stays false. */
 static int parse_pte_settings(const void* input_init, input_t* dst) {
 	dst->pte_present = false;
 	dst->pte_override_count = 0;
@@ -607,24 +608,17 @@ static int parse_pte_settings(const void* input_init, input_t* dst) {
 	if (NULL == sec) {
 		return 0;
 	}
-	if (sizeof(uint32_t) > sec->length) {
+	if (0 != (sec->length % sizeof(struct revisor_pte_override_entry))) {
 		return -EINVAL;
 	}
-
-	const char* payload = (const char*)input_init + sec->offset;
-	uint32_t count = 0;
-	memcpy(&count, payload, sizeof(uint32_t));
+	uint64_t count = sec->length / sizeof(struct revisor_pte_override_entry);
 	if (REVISOR_INPUT_MAX_PTE_OVERRIDES < count) {
-		return -EINVAL;
-	}
-	if (sizeof(uint32_t) + (uint64_t)count * sizeof(struct revisor_pte_override_entry)
-	    != sec->length) {
 		return -EINVAL;
 	}
 
 	const struct revisor_pte_override_entry* src =
-		(const struct revisor_pte_override_entry*)(payload + sizeof(uint32_t));
-	for (uint32_t i = 0; i < count; ++i) {
+		(const struct revisor_pte_override_entry*)((const char*)input_init + sec->offset);
+	for (uint64_t i = 0; i < count; ++i) {
 		struct revisor_pte_override_entry e;
 		memcpy(&e, &src[i], sizeof(e));   /* section payload is packed / possibly unaligned */
 		if (0 != (e.value & ~e.mask)) {   /* value carries no bits outside mask (writer invariant) */
@@ -632,7 +626,7 @@ static int parse_pte_settings(const void* input_init, input_t* dst) {
 		}
 		dst->pte_overrides[i] = e;
 	}
-	dst->pte_override_count = count;
+	dst->pte_override_count = (uint32_t)count;
 	dst->pte_present = (count > 0);
 	return 0;
 }

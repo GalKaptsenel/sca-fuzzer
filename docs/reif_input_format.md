@@ -63,7 +63,7 @@ offset 0   ┌──────────────────────
 | `0x06` | `MTE_TAGS` | one 4-bit allocation tag per 16-byte granule of the main‖faulty span, packed two per byte, low nibble first (granule 2·i in bits 3:0, 2·i+1 in bits 7:4) |
 | `0x07` | `CODE_RELOC` | the per-input **relocation table** (see below) |
 | `0x08` | `BPU_TRAINING` | per-input branch-training entries (see below) |
-| `0x09` | `PTE_SETTINGS` | per-input **page-table overrides** (see below): a `u32` entry count then that many packed `revisor_pte_override_entry` |
+| `0x09` | `PTE_SETTINGS` | per-input **page-table overrides** (see below): packed `revisor_pte_override_entry` array (count = length / entry size) |
 
 `MEMORY_MAIN`, `MEMORY_FAULTY`, and `GPR` are required. The rest are optional; when a section is
 absent the kernel uses its default (e.g. no `MTE_TAGS` ⇒ the region's default tag). Ids `0x10+` are
@@ -112,7 +112,7 @@ section is omitted entirely. Up to `REVISOR_INPUT_MAX_BPU_TRAIN` (64) entries.
 struct revisor_pte_override_entry {           // packed, 20 bytes
     uint16_t page_index; uint16_t level; uint64_t mask; uint64_t value;
 } __attribute__((packed));
-// payload = u32 count, then `count` entries
+// payload = these entries back to back; count = length / 20
 ```
 
 Each entry overrides one sandbox page's descriptor at `level` (`REVISOR_PTE_LEVEL_LEAF` = 3 for the 4K
@@ -120,7 +120,7 @@ leaf) before this input runs: the kernel sets the `mask` bits to the correspondi
 (`value` carries no bits outside `mask`) via `new = (live & ~mask) | value`, and reverts afterwards.
 `page_index` is the shared page map with the writer (0 = `main_region`, 1 = `faulty_region`); it is
 position-independent (no absolute address is sent). When the section is absent, no change is made to the
-running mappings. Up to `REVISOR_INPUT_MAX_PTE_OVERRIDES` (16) entries.
+running mappings. Up to `REVISOR_INPUT_MAX_PTE_OVERRIDES` (sandbox pages × levels) entries.
 
 ## PAC keys (`PAC_KEYS`)
 
