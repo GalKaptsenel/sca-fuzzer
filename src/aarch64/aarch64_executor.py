@@ -773,14 +773,6 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             out[NIVariant.decoy_n(i)] = self._pte_policy.decoy_plan(self._page_map, rng)
         return out
 
-    def _forced_env_plan(self, inp: Input) -> EnvironmentPlan:
-        """The guaranteed-bad environment lane (spec-only pages forced invalid) for cross-input priming;
-        pristine when PTE fuzzing is off."""
-        if not self._environment_fuzzing:
-            return EnvironmentPlan()
-        self._require_spec_only_safe(inp)
-        return self._pte_policy.forced_plan(self._page_map)
-
     def variants_for_input(self, inp: Input) -> Dict[str, ExecutorInput]:
         """One kernel input file per variant of `inp`. Deterministic, so the CE pass, the HW pass, and
         priming build the identical set."""
@@ -828,7 +820,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         resolved = self._resolve(inp)
         return ExecutorInput(inp, code_reloc=resolved.forced_noncanon(),
                              mte_tags=self._mte_tags_for(inp), pac_keys=self._pac_keys_words(),
-                             bpu_training=self._bpu_entries(inp), env_plan=self._forced_env_plan(inp))
+                             bpu_training=self._bpu_entries(inp))
 
     def has_decoy(self, inp: Input) -> bool:
         """Whether `inp` is non-interference-testable: it has a decoy-eligible CODE slot, or PTE fuzzing

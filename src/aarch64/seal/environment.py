@@ -178,10 +178,9 @@ class EnvironmentPlan:
 
 
 class PteFuzzPolicy:
-    """Turns "these descriptor fields are fuzzable" into genuine / decoy / forced `EnvironmentPlan`s over
-    a `SandboxPageMap`. The genuine plan is empty (pristine PTEs). A decoy plan perturbs each spec-only
-    page's descriptor within the allowed fields; a forced plan applies a guaranteed-strong perturbation
-    (used by cross-input priming's always-bad lane)."""
+    """Turns "these descriptor fields are fuzzable" into genuine / decoy `EnvironmentPlan`s over a
+    `SandboxPageMap`. The genuine plan is empty (pristine PTEs); a decoy plan perturbs each spec-only
+    page's descriptor within the allowed fields."""
 
     def __init__(self, leaf_fields: Sequence[str], table_fields: Sequence[str] = ()) -> None:
         # validate the names against the layouts up front (loud on a typo)
@@ -199,14 +198,6 @@ class PteFuzzPolicy:
                      for p in page_map.spec_only_pages]
         return EnvironmentPlan(pte_overrides=tuple(overrides))
 
-    def forced_plan(self, page_map: SandboxPageMap) -> EnvironmentPlan:
-        """A deterministic, guaranteed-different override on every spec-only page: clear `valid` (a sure
-        speculative translation fault) when it is fuzzable, else flip the first allowed field high."""
-        page_map.require_spec_only()
-        overrides = [self._forced_override(p.index, LEVEL_LEAF, self._leaf_fields)
-                     for p in page_map.spec_only_pages]
-        return EnvironmentPlan(pte_overrides=tuple(overrides))
-
     # -- internals: all descriptor-bit reasoning is delegated to the layout ------------------------
     def _decoy_override(self, page_index: int, level: int, fields: Sequence[str],
                         rng: Random) -> PteOverride:
@@ -218,11 +209,3 @@ class PteFuzzPolicy:
             mask |= f.mask
             value = f.insert(value, rng.randint(0, f.max_value))
         return PteOverride(page_index, level, mask, value)
-
-    def _forced_override(self, page_index: int, level: int, fields: Sequence[str]) -> PteOverride:
-        layout = LEVEL_LAYOUTS[level]
-        if "valid" in fields:
-            f = layout.field("valid")
-            return PteOverride(page_index, level, f.mask, f.insert(0, 0))
-        f = layout.field(list(fields)[0])
-        return PteOverride(page_index, level, f.mask, f.insert(0, f.max_value))

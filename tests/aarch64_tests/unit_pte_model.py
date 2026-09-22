@@ -169,14 +169,6 @@ class PteFuzzPolicyTest(unittest.TestCase):
             self.assertEqual(o.mask & ~allowed, 0)      # never touches disallowed bits (e.g. oa)
             self.assertEqual(o.value & ~o.mask, 0)
 
-    def test_forced_plan_clears_valid_on_spec_only_pages(self):
-        plan = self.policy.forced_plan(self.m)
-        valid = LEAF_LAYOUT.field("valid")
-        self.assertTrue(plan.pte_overrides)
-        for o in plan.pte_overrides:
-            self.assertEqual(o.mask & valid.mask, valid.mask)   # valid is in the override
-            self.assertEqual(o.value & valid.mask, 0)           # and cleared
-
     def test_decoy_requires_a_spec_only_page(self):
         empty = SandboxPageMap([SandboxPage(0, "only", 0)])
         with self.assertRaises(ValueError):
