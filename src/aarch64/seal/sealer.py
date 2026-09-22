@@ -660,6 +660,24 @@ class MteSealedTestCase(SealedTestCase):
                                        _slot_offsets(self._tc, self._layout, self._mte), self._salt)
 
 
+class SandboxSealedTestCase(SealedTestCase):
+    """Only the sandbox clamp -- no value seal, so genuine code == decoy code (there is no code decoy).
+    Used when the genuine/decoy difference lives entirely in the run environment (PTE fuzzing): the test
+    case still needs its accesses clamped into the sandbox and its object code assembled, but nothing is
+    sealed with a per-input value. resolve() needs no CE trace (there are no values to compute)."""
+
+    def _insert_slots(self, data_sites) -> None:
+        for inst, bb, _mem_reg, offset_subs, _base_preserved in data_sites:
+            _insert(bb, inst, offset_subs)   # pin each access to its clamped base; no value seal
+
+    def _sealings(self) -> List[Sealing]:
+        return list(self._sandbox)
+
+    def resolve(self, inp) -> ResolvedSealingTestCase:
+        return ResolvedSealingTestCase(self._clamp_entries(self._sandbox), self._assemble(self._tc),
+                                       {}, self._salt)
+
+
 class CanonSealedTestCase(SealedTestCase):
     """Sandbox clamp + a canonicality flip per data access. The flip EOR is the last op before the
     access (after the offset-cancel SUBs), so nothing re-canonicalizes the pointer before it is used;
@@ -868,6 +886,10 @@ class Sealer:
     def seal(self, test_case: TestCase) -> SealedTestCase:
         tc = copy.deepcopy(test_case)
         sandbox, data_sites = self._walk.sandbox(tc)
+        if not self._primitives:
+            # No code seal: only the sandbox clamp. The genuine/decoy difference (if any) is supplied by
+            # the environment axis (PTE fuzzing), not by code.
+            return SandboxSealedTestCase(tc, self._trace_fn, self._assemble, sandbox, data_sites)
         if self._primitives == frozenset({"canon"}):
             return CanonSealedTestCase(tc, self._trace_fn, self._assemble, sandbox, data_sites)
         if self._primitives == frozenset({"branch_target"}):
@@ -1009,7 +1031,7 @@ def make_sealer(generator, trace_fn, assemble, primitives, signer, trace_bytes_f
     machine code (used by the PAC+MTE resolve to read AUT* contexts with the genuine tags applied);
     `signer` is the PAC signer used by resolve when 'pac' is active (None otherwise)."""
     prims = frozenset(primitives)
-    if prims not in (frozenset({"canon"}), frozenset({"branch_target"}), frozenset({"mte"}),
-                     frozenset({"pac"}), frozenset({"pac", "mte"})):
+    if prims not in (frozenset(), frozenset({"canon"}), frozenset({"branch_target"}),
+                     frozenset({"mte"}), frozenset({"pac"}), frozenset({"pac", "mte"})):
         raise ValueError(f"unsupported seal primitives: {primitives!r}")
     return Sealer(generator, trace_fn, assemble, prims, signer, trace_bytes_fn)

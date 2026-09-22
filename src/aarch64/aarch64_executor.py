@@ -27,6 +27,8 @@ from .aarch64_generator import Pass, Aarch64SandboxPass
 from .seal.pac import PacSigner
 from . import aarch64_qarma as qarma
 from .seal.sealer import make_sealer, SealedTestCase, ResolvedSealingTestCase
+from .seal.environment import (default_sandbox_page_map, PteFuzzPolicy, EnvironmentPlan,
+                               SandboxPageMap)
 from .aarch64_relocations import apply_relocations, Relocation
 from .aarch64_contract_executor import (ContractExecution, ContractExecutorService,
                                         ExecutionClause, SUPPORTED_EXECUTION_CLAUSES,
@@ -552,10 +554,10 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         # branch-target sealing corrupts indirect-call targets; its own flag (needs indirect calls)
         if CONF.enable_branch_target_sealing:
             self._primitives.add("branch_target")
-        if not self._primitives:
+        if not self._primitives and not CONF.enable_pte_fuzzing:
             raise GeneratorException(
                 "non-interference fuzzing needs a PAC or MTE instruction category, or "
-                "enable_canonicality / enable_branch_target_sealing, enabled")
+                "enable_canonicality / enable_branch_target_sealing / enable_pte_fuzzing, enabled")
 
         # PAC/canon VA size and PAC TBI must match the executing machine (a wrong value makes the
         # signature/strip mismatch the CPU's AUT* -> FPAC panic). Default them from the device; an
@@ -604,6 +606,16 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         self._sandbox_base: Optional[int] = None
         # Memo of the pure resolve, keyed by input. Reset per test case.
         self._resolve_cache: Dict[bytes, ResolvedSealingTestCase] = {}
+
+        # PTE (page-table) ENVIRONMENT fuzzing: a standalone axis (no code seal). When enabled, each
+        # decoy variant additionally fuzzes the page-table state of the spec-only page(s); the
+        # genuine/decoy difference is then purely the environment (see seal/environment.py).
+        self._page_map: Optional[SandboxPageMap] = None
+        self._pte_policy: Optional[PteFuzzPolicy] = None
+        if CONF.enable_pte_fuzzing:
+            self._page_map = default_sandbox_page_map()
+            self._pte_policy = PteFuzzPolicy(CONF.pte_fuzz_leaf_fields, CONF.pte_fuzz_table_fields)
+        self._spec_reach_cache: Dict[bytes, bool] = {}
 
     def _resolve(self, inp: Input) -> ResolvedSealingTestCase:
         key = inp.tobytes()
@@ -716,6 +728,59 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                                 ptr_tag, granule_tag, bool(ma.is_write)))
         return out
 
+    @property
+    def _environment_fuzzing(self) -> bool:
+        """Whether any run-environment axis is being fuzzed. When on, a decoy differs from the genuine
+        baseline in the environment even if the code is identical."""
+        return self._pte_policy is not None
+
+    def _arch_reaches_spec_only(self, inp: Input) -> bool:
+        """Whether `inp` makes an ARCHITECTURAL (retiring) memory access to a spec-only page. Such a page,
+        under a decoy PTE, would fault architecturally and panic the pinned CPU (no EL1 handler), so PTE
+        fuzzing must refuse the test case rather than risk it. Read off the genuine baseline CE trace."""
+        key = inp.tobytes()
+        if key not in self._spec_reach_cache:
+            resolved = self._resolve(inp)
+            cer = self._ce_trace(apply_relocations(resolved.object_code, resolved.genuine()), inp)
+            base, _ = self.read_base_addresses()
+            reached = any(
+                self._page_map.spec_only_containing(ma.effective_address, base) is not None
+                for ite in cer if ite.metadata.speculation_nesting == 0
+                for ma in ite.metadata.accesses())
+            self._spec_reach_cache[key] = reached
+        return self._spec_reach_cache[key]
+
+    def _require_spec_only_safe(self, inp: Input) -> None:
+        """Strict spec-only safety (no fallback): a test case that architecturally reaches a spec-only
+        page is a hard error for PTE fuzzing -- the generator/template must keep those pages off the
+        retiring path."""
+        if self._arch_reaches_spec_only(inp):
+            raise GeneratorException(
+                "PTE fuzzing: the test case makes an architectural access to a spec-only page, which "
+                "would fault and panic. Keep spec-only pages off the retiring path (reach them only "
+                "speculatively).")
+
+    def _env_plans_for(self, resolved: ResolvedSealingTestCase, inp: Input) -> Dict[str, EnvironmentPlan]:
+        """The per-variant page-table environment: genuine (pristine) for the baseline, a fuzzed decoy
+        for each decoy lane. Empty when PTE fuzzing is off. Deterministic per (sealing class, salt, i)."""
+        names = [NIVariant.BASELINE] + [NIVariant.decoy_n(i) for i in range(CONF.inputs_per_class - 1)]
+        if not self._environment_fuzzing:
+            return {name: EnvironmentPlan() for name in names}
+        self._require_spec_only_safe(inp)
+        out = {NIVariant.BASELINE: self._pte_policy.genuine_plan()}
+        for i in range(CONF.inputs_per_class - 1):
+            rng = random.Random(hash((resolved.collapse_key, self._sealed.salt, "pte-env", i)))
+            out[NIVariant.decoy_n(i)] = self._pte_policy.decoy_plan(self._page_map, rng)
+        return out
+
+    def _forced_env_plan(self, inp: Input) -> EnvironmentPlan:
+        """The guaranteed-bad environment lane (spec-only pages forced invalid) for cross-input priming;
+        pristine when PTE fuzzing is off."""
+        if not self._environment_fuzzing:
+            return EnvironmentPlan()
+        self._require_spec_only_safe(inp)
+        return self._pte_policy.forced_plan(self._page_map)
+
     def variants_for_input(self, inp: Input) -> Dict[str, ExecutorInput]:
         """One kernel input file per variant of `inp`. Deterministic, so the CE pass, the HW pass, and
         priming build the identical set."""
@@ -741,8 +806,9 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                 else:
                     kept[name] = plan
             plans = kept
+        env_plans = self._env_plans_for(resolved, inp)
         return {name: ExecutorInput(inp, code_reloc=plan, mte_tags=tags, pac_keys=keys,
-                                    bpu_training=bpu)
+                                    bpu_training=bpu, env_plan=env_plans[name])
                 for name, plan in plans.items()}
 
     def sealing_class_of(self, inp: Input) -> tuple:
@@ -762,13 +828,14 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         resolved = self._resolve(inp)
         return ExecutorInput(inp, code_reloc=resolved.forced_noncanon(),
                              mte_tags=self._mte_tags_for(inp), pac_keys=self._pac_keys_words(),
-                             bpu_training=self._bpu_entries(inp))
+                             bpu_training=self._bpu_entries(inp), env_plan=self._forced_env_plan(inp))
 
     def has_decoy(self, inp: Input) -> bool:
-        """Whether `inp` has a decoy-eligible slot. When false, every decoy would equal the genuine
-        baseline (a null decoy), so the input is not non-interference-testable and must not be
-        boosted/measured."""
-        return self._resolve(inp).has_decoy()
+        """Whether `inp` is non-interference-testable: it has a decoy-eligible CODE slot, or PTE fuzzing
+        is on (which makes the decoy differ from the baseline in the environment even when the code is
+        identical). When neither holds, every decoy equals the genuine baseline (a null decoy) and the
+        input must not be boosted/measured."""
+        return self._resolve(inp).has_decoy() or self._environment_fuzzing
 
     def _variants_for(self, resolved: ResolvedSealingTestCase) -> Dict[str, Tuple[Relocation, ...]]:
         """One boosting class: the genuine baseline plus `CONF.inputs_per_class - 1` decoys."""
