@@ -164,6 +164,44 @@ correct for local and remote runs alike. Set it explicitly only when the generat
 read the executing target (its value then wins). A mismatched `va_size` makes the PAC auth/strip
 overwrite real address bits and corrupt the sandbox pointer, so leaving it unset is preferred.
 
+## PTE (page-table entry) fuzzing
+
+An **environment-fuzzing** axis of the non-interference fuzzer, not a code sealing. The genuine and
+decoy variants run byte-identical code and touch identical virtual addresses; the only difference is
+the page-table state of pages reached **only speculatively** (the sandbox's spec-only page set — see
+`src/aarch64/seal/environment.py`), so any hardware-trace divergence is a genuine leak of page-table
+state through the speculative walk/access. Because the executor has no EL1 fault handler (a retiring
+fault panics), the fuzzed pages must never be reached architecturally (strict spec-only); a decoy may
+therefore flip even present/permission bits safely, since the faulting access is always squashed.
+
+The fuzzable bits are named by descriptor **field** (`LEAF_LAYOUT` / `TABLE_LAYOUT` in
+`src/aarch64/seal/pagetable_model.py`); the output address is never fuzzable, so genuine and decoy
+always map the same physical page.
+
+```yaml
+Name: enable_pte_fuzzing
+Default: False
+```
+
+Master switch. When set (with the non-interference fuzzer), each decoy variant additionally fuzzes the
+page-table state of the spec-only page(s).
+
+```yaml
+Name: pte_fuzz_leaf_fields
+Default: [valid, attr_indx, ns, ap, sh, af, ng, dbm, contiguous, pxn, uxn]
+```
+
+Level-3 leaf-descriptor fields a decoy may vary, by name. The default is every leaf field marked
+fuzzable by the layout (the output address and descriptor type are excluded).
+
+```yaml
+Name: pte_fuzz_table_fields
+Default: []
+```
+
+Level 0-2 table-descriptor fields a decoy may vary (e.g. `ap_table`, `xn_table`, `pxn_table`,
+`ns_table`). Empty by default (leaf-only fuzzing).
+
 ## Cross-input priming (regular fuzzing)
 
 Generalize standard priming. Standard priming keeps a flagged violation only when the divergence follows
