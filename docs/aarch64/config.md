@@ -164,55 +164,36 @@ correct for local and remote runs alike. Set it explicitly only when the generat
 read the executing target (its value then wins). A mismatched `va_size` makes the PAC auth/strip
 overwrite real address bits and corrupt the sandbox pointer, so leaving it unset is preferred.
 
-## Cross-input leftover detection (non-interference)
+## Cross-input priming (regular fuzzing)
 
-The sole non-interference algorithm for cross-input speculative leftovers — where the input whose seal
-toggle causes a leak (the *leaking pair*, a BTB entry it trains) differs from the input whose cache
-htrace diverges (the *detecting pair*). See §6.1a of the architecture reference for the
-generalized-priming search. It runs before each NI round on the genuine and forced-non-canonical seal
-lanes and reports the whole chain `[leaking pair .. detecting pair]`. Non-interference only; regular
-fuzzing is unaffected.
-
-```yaml
-Name: enable_leftover_detection
-Default: True
-```
-
-Run the leftover search each NI round. Requires a local HW executor with sysfs regime control (the
-search forces `enable_view_rotation=0` and unpinned execution, captured and restored around it); the
-fuzzer fails loud at startup if enabled against an executor that cannot control the regime (e.g.
-remote). Set `False` for remote executors or to run NI without leftover detection.
+Generalize standard priming. Standard priming keeps a flagged violation only when the divergence follows
+the *detecting pair*'s own input; **cross-input priming** additionally localizes an *earlier* ct-equal
+input — the *leaking pair* — whose microarchitectural leftover (e.g. a BTB entry it trains) surfaces as
+the detecting pair's cache divergence. See §6.1a of the architecture reference for the localization. It
+replaces standard priming in regular fuzzing over the boosted input lanes (each boosting round of an
+input class is a lane of ct-equal inputs), reusing the sample sizes standard priming already uses — the
+current stage size for localization, `executor_sample_sizes[-1]` to re-verify — so it adds no rep knobs.
+Requires a local HW executor with sysfs regime control and `inputs_per_class` ≥ 2.
 
 ```yaml
-Name: leftover_reps
-Default: 200
-```
-
-Sample size for the leftover search's localization measurements (the endpoint check and the bisection).
-
-```yaml
-Name: leftover_verify_reps
-Default: 500
-```
-
-Sample size for the fresh, robust (chi-squared) re-verification of a found leaking pair. Larger than
-`leftover_reps` so the confirmation tolerates the BTB's run-to-run overwrite jitter. A failed
-re-verification only drops a candidate, never fabricates one.
-
-## Boosted-lane leftover detection (regular fuzzing)
-
-The regular-fuzzing counterpart of the leftover search: instead of genuine/decoy seal lanes, it uses the
-boosted input lanes (each boosting round of an input class is a lane of ct-equal inputs). It replaces the
-standard priming false-positive filter — wherever priming would run, it localizes the flagged violation's
-own detecting pair by toggling earlier positions across the two diverging lanes. Reuses `leftover_reps`
-and `leftover_verify_reps`.
-
-```yaml
-Name: enable_boosted_leftover
+Name: enable_cross_input_priming
 Default: false
 ```
 
-Replace standard priming with the boosted-lane leftover search in regular fuzzing. A found leaking pair
-(self- or cross-input) confirms the violation and reports the `[leaker..detector]` chain; none means a
-false positive, exactly as priming. Requires a local HW executor with sysfs regime control and
-`inputs_per_class` ≥ 2. `False` by default (standard priming, unchanged).
+Replace standard priming with the generalized-priming localization in regular fuzzing. Wherever priming
+would run, the flagged violation's own detecting pair is localized by toggling earlier positions across
+the two diverging lanes; a found leaking pair (self- or cross-input) confirms the violation and reports
+the `[leaker..detector]` chain, none means a false positive — exactly as priming. `False` by default
+(standard priming, unchanged).
+
+```yaml
+Name: cross_input_priming_localizer
+Default: any
+Options: 'any' | 'optimal'
+```
+
+Which boundary the localization returns. `any` (default) is galloping + bisection (`exponential_search`):
+it returns *some* leaking pair, biased toward the detecting pair (the most-recent trainer), in
+O(log distance) probes. `optimal` is a linear scan (`linear_scan`): it returns `t_max`, the largest
+leaking class, at the cost of a linear number of probes. The saved counterexample keeps both whole lanes,
+so an `any` finding can be re-localized to `t_max` offline.

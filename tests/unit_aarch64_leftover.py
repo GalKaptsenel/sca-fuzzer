@@ -13,7 +13,8 @@ import unittest
 from collections import namedtuple
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src.aarch64.leftover import GeneralizedPrimingDetector          # noqa: E402
+from src.aarch64.leftover import (GeneralizedPrimingDetector,        # noqa: E402
+                                  linear_scan, exponential_search)
 from src.analyser import MergedBitmapAnalyser, ChiSquaredAnalyser    # noqa: E402
 
 H = namedtuple("H", "raw")          # minimal trace-like object: just `.raw`
@@ -31,8 +32,9 @@ def robust_differ(a, b):
     return not ChiSquaredAnalyser().htraces_are_equivalent(a, b)
 
 
-def detector(measure, reps=200, verify_reps=500):
-    return GeneralizedPrimingDetector(measure, key, robust_differ, reps=reps, verify_reps=verify_reps)
+def detector(measure, reps=200, verify_reps=500, localizer=exponential_search):
+    return GeneralizedPrimingDetector(measure, key, robust_differ, reps=reps, verify_reps=verify_reps,
+                                      localizer=localizer)
 
 
 def lanes(n):
@@ -86,6 +88,21 @@ class SelfSealOracle:
         return [H([BG | (1 if batch[d][0] == "g" else 0)] * reps) for d in range(len(batch))]
 
 
+class ChainOracle:
+    """A fully-scripted chain: the detecting pair's readout under the splice is chain[t], where t is the
+    split (the first toggled class). This gives exact control over r(t) = chain[t], so a non-monotone
+    chain can be built to separate the two localizers (linear_scan finds t_max; exponential_search may
+    gallop past it to another, still-genuine, boundary). Used only genuine-prefix (base 'g', toggle 'b')."""
+
+    def __init__(self, chain):
+        self.chain = chain                          # chain[t] = r(t), for t in 0 .. len(chain) - 1 = hi
+
+    def measure(self, batch, reps):
+        t = next((s for s, v in enumerate(batch) if v[0] == "b"), len(self.chain) - 1)   # the split
+        val = self.chain[min(t, len(self.chain) - 1)]
+        return [H([BG | val] * reps) for _ in batch]
+
+
 def valid_tip(oracle, detecting, k, prefix_genuine=True, reps=200):
     """A leaking pair is valid iff toggling slot k flips the detecting pair's readout, in the direction
     the finding was made (genuine-prefix base, or the mirror decoy-prefix base)."""
@@ -100,14 +117,15 @@ class DetectorTest(unittest.TestCase):
     def test_distinct_targets_every_detecting_pair_leaks(self):
         oracle = MostRecentWinsBTB({0: 1 << 0, 1: 1 << 1, 2: 1 << 2})
         findings = detector(oracle.measure).detect(*lanes(4))
-        # the genuine-prefix base leaks every detecting pair at slot 0 (distinct targets, no inert prefix)
+        # the genuine-prefix base leaks every detecting pair; with distinct targets the readout changes at
+        # every class, so the leaking pair the default localizer returns is the most-recent trainer d-1.
         gp = [f for f in findings if f.prefix_genuine]
         self.assertEqual([f.detecting_pair for f in gp], [1, 2, 3])
-        self.assertTrue(all(f.leaking_pair == 0 for f in gp))
+        self.assertTrue(all(f.leaking_pair == f.detecting_pair - 1 for f in gp))
         for f in gp:
-            self.assertEqual(f.chain, range(0, f.detecting_pair + 1))   # whole chain reported
-        # bidirectional: the decoy-prefix base also yields valid findings; every finding is a real boundary
-        self.assertTrue(any(not f.prefix_genuine for f in findings))
+            self.assertEqual(f.chain, range(f.leaking_pair, f.detecting_pair + 1))   # chain reported
+        # every reported finding is a genuine boundary (both bases are searched; identical (leaking,
+        # detecting) results from the two bases are de-duplicated to a single report).
         for f in findings:
             self.assertTrue(valid_tip(oracle, f.detecting_pair, f.leaking_pair, f.prefix_genuine))
 
@@ -231,6 +249,43 @@ class TraceKeyTest(unittest.TestCase):
                 for d in sample:
                     if eq(a, c) and eq(c, d):
                         self.assertTrue(eq(a, d))
+
+
+class LocalizerTest(unittest.TestCase):
+    """The two injected localizers: linear_scan returns t_max (the largest boundary), exponential_search
+    (galloping + bisection) returns some genuine boundary, possibly not t_max."""
+
+    def _find(self, chain, localizer):
+        det = len(chain) - 2                          # hi = det + 1 = last chain index
+        g = [("g", s) for s in range(det + 1)]
+        b = [("b", s) for s in range(det + 1)]
+        f = detector(ChainOracle(chain).measure, localizer=localizer).find_leaking_pair(g, b, det)
+        return None if f is None else f.leaking_pair
+
+    @staticmethod
+    def _is_boundary(chain, t):
+        return chain[t] != chain[t + 1]
+
+    def test_linear_returns_tmax_exponential_may_skip_to_another_boundary(self):
+        # Non-monotone chain over classes 0..9 (det = 8, hi = 9); boundaries at 0, 5, 6, so t_max = 6.
+        A, B = 1 << 1, 1 << 2
+        chain = [B, A, A, A, A, A, B, A, A, A]
+        self.assertEqual(self._find(chain, linear_scan), 6)          # optimal: the largest boundary
+        exp = self._find(chain, exponential_search)
+        self.assertNotEqual(exp, 6)                                  # galloping's probes stepped over t_max
+        self.assertIn(exp, (0, 5, 6))
+        self.assertTrue(self._is_boundary(chain, exp))               # but it is always a genuine boundary
+
+    def test_localizers_agree_on_a_single_boundary_chain(self):
+        A, B = 1 << 1, 1 << 2
+        chain = [A, A, A, A, A, B, B, B]                             # det = 6, hi = 7; sole boundary at 4
+        self.assertEqual(self._find(chain, linear_scan), 4)
+        self.assertEqual(self._find(chain, exponential_search), 4)
+
+    def test_endpoints_equal_returns_none_for_both(self):
+        chain = [1, 1, 1, 1, 1]                                      # no boundary; r(lo) == r(hi)
+        self.assertIsNone(self._find(chain, linear_scan))
+        self.assertIsNone(self._find(chain, exponential_search))
 
 
 if __name__ == "__main__":

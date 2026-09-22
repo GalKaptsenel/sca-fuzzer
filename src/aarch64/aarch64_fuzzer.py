@@ -3,8 +3,6 @@ File: AArch64 fuzzer
 """
 from typing import List, Generator
 from contextlib import contextmanager
-import os
-import shutil
 import copy
 
 from ..fuzzer import FuzzerGeneric, NoninterferenceFuzzer
@@ -14,8 +12,13 @@ from ..util import STAT
 from ..config import CONF, ConfigException
 from .aarch64_executor import Aarch64Executor, pass_on_test_case
 from .aarch64_generator import Aarch64DsbSyPass
-from .leftover import GeneralizedPrimingDetector, LeftoverFinding
+from .leftover import (GeneralizedPrimingDetector, LeftoverFinding, Localizer,
+                       linear_scan, exponential_search)
 from .boosted_lanes import lanes_of, detecting_position_and_lanes
+
+# Map cross_input_priming_localizer to the leftover.py localizer strategy: "any" = galloping + bisection
+# (some leaking pair), "optimal" = linear scan (t_max, the largest leaking class).
+_CROSS_INPUT_PRIMING_LOCALIZERS: dict = {"any": exponential_search, "optimal": linear_scan}
 
 
 # ==================================================================================================
@@ -43,7 +46,7 @@ def create_fenced_test_case(test_case: TestCase) -> TestCase:
 
 
 def regime_controllable(executor: Aarch64Executor) -> bool:
-    """The leftover searches need local sysfs regime control (view_rotation / phr_flush / pinning). Only a
+    """Cross-input priming needs local sysfs regime control (view_rotation / phr_flush / pinning). Only a
     local HW executor exposes it; a remote executor cannot apply the regime."""
     dev = getattr(executor, "device", None)
     return dev is not None and hasattr(dev, "_read_sysfs") and hasattr(dev, "_write_sysfs")
@@ -73,12 +76,12 @@ class Aarch64Fuzzer(FuzzerGeneric):
     # AArch64 saves inputs as the executor-ready REIF container (flags already in PSTATE form).
     input_file_extension: str = "reif"
 
-    # Regime for the boosted-lane leftover search (enable_boosted_leftover). Reset the BPU/PHR ONCE per
-    # trace (the post-fix phr_flush; see measurement.c) and keep cross-input training within a trace
-    # (view_rotation off, so all inputs share one code view). Do not use the legacy combined knob.
-    # Captured and restored around the search so the surrounding fuzzing keeps its usual regime.
-    _BOOSTED_LEFTOVER_REGIME = (("enable_pre_run_flush", "0"), ("enable_view_rotation", "0"),
-                                ("enable_phr_flush", "1"))
+    # Regime for cross-input priming (enable_cross_input_priming). Reset the BPU/PHR ONCE per trace (the
+    # post-fix phr_flush; see measurement.c) and keep cross-input training within a trace (view_rotation
+    # off, so all inputs share one code view). Captured and restored around the search so the surrounding
+    # fuzzing keeps its usual regime.
+    _CROSS_INPUT_PRIMING_REGIME = (("enable_pre_run_flush", "0"), ("enable_view_rotation", "0"),
+                                   ("enable_phr_flush", "1"))
 
     def _boost_inputs(self, inputs, nesting):
         # The aarch64 fuzzer's input unit is the ExecutorInput; convert once boosting is done.
@@ -90,22 +93,29 @@ class Aarch64Fuzzer(FuzzerGeneric):
         ExecutorInput(input_).save(path)
 
     def _priming(self, violations: List, inputs: List[Input]) -> List:
-        """Regular fuzzing: when enable_boosted_leftover is set, REPLACE standard priming with the
-        generalized-priming leftover search over boosted lanes. Priming asks "does the divergence follow
-        the detecting pair's own input?"; this asks the strictly more general "which (earlier or own)
-        ct-equal input causes it?" -- localizing the flagged violation's own detecting pair across its
-        two diverging lanes. A found leaking pair (self- or cross-input) confirms the violation and
-        reports the [leaker..detector] chain; none means a false positive, exactly as priming. Off by
-        default -> standard priming (unchanged)."""
-        if not CONF.enable_boosted_leftover:
+        """Regular fuzzing: when enable_cross_input_priming is set, REPLACE standard priming with the
+        generalized-priming localization over boosted lanes. Priming asks "does the divergence follow the
+        detecting pair's own input?"; this asks the strictly more general "which (earlier or own) ct-equal
+        input causes it?" -- localizing the flagged violation's own detecting pair across its two diverging
+        lanes. A found leaking pair (self- or cross-input) confirms the violation and reports the
+        [leaker..detector] chain; none means a false positive, exactly as priming. Off by default ->
+        standard priming (unchanged)."""
+        if not CONF.enable_cross_input_priming:
             return super()._priming(violations, inputs)
+        if not violations:
+            return []
         if not regime_controllable(self.executor):
-            raise ConfigException("enable_boosted_leftover requires a local HW executor with sysfs "
-                                  "regime control; set enable_boosted_leftover = False for remote.")
+            raise ConfigException("enable_cross_input_priming requires a local HW executor with sysfs "
+                                  "regime control; set enable_cross_input_priming = False for remote.")
+        # Reuse standard priming's sample sizes: the current stage size (read off the violation, as
+        # _prime_one does) for localization, and the largest configured size to re-verify a boundary.
+        reps = len(violations[0].measurements[0].htrace.raw)
+        verify_reps = CONF.executor_sample_sizes[-1]
+        localizer = _CROSS_INPUT_PRIMING_LOCALIZERS[CONF.cross_input_priming_localizer]
         n_orig = len(inputs) // CONF.inputs_per_class
         lanes = lanes_of(inputs, n_orig)
-        detector = self._make_leftover_detector()
-        with executor_regime(self.executor, self._BOOSTED_LEFTOVER_REGIME):
+        detector = self._make_leftover_detector(reps, verify_reps, localizer)
+        with executor_regime(self.executor, self._CROSS_INPUT_PRIMING_REGIME):
             try:
                 for violation in reversed(violations):        # priming pops the stack from the end
                     located = self._localize_boosted_violation(violation, lanes, n_orig, detector)
@@ -114,23 +124,25 @@ class Aarch64Fuzzer(FuzzerGeneric):
                         # Attach for the artifact report; do not print (priming runs once per sample
                         # size, so a print here would repeat). The report.txt carries the explanation.
                         violation.leftover = (finding, prefix_lane, suffix_lane, n_orig)
-                        self.LOG.dbg("fuzzer", f"boosted leftover: leaking pair {finding.leaking_pair}"
+                        self.LOG.dbg("fuzzer", f"cross-input priming: leaking pair {finding.leaking_pair}"
                                      f" -> detecting pair {finding.detecting_pair}")
                         return [violation]
             except HardwareTracingError as e:                 # transient device failure -> skip the round
-                self.LOG.warning("fuzzer", f"boosted leftover: hardware tracing failed: {e}")
+                self.LOG.warning("fuzzer", f"cross-input priming: hardware tracing failed: {e}")
         return []
 
-    def _make_leftover_detector(self) -> GeneralizedPrimingDetector:
+    def _make_leftover_detector(self, reps: int, verify_reps: int,
+                                localizer: Localizer) -> GeneralizedPrimingDetector:
         """The generalized-priming detector wired to this executor, with the production key/confirm seams
-        (denoised-consensus key for the bisection; robust chi-squared for the re-verify)."""
+        (denoised-consensus key for the bisection; robust chi-squared for the re-verify) and the selected
+        localizer strategy."""
         outlier = CONF.analyser_outliers_threshold
         robust = ChiSquaredAnalyser()
         return GeneralizedPrimingDetector(
-            measure=lambda batch, reps: self.executor.trace_test_case(batch, reps)[0],
+            measure=lambda batch, n: self.executor.trace_test_case(batch, n)[0],
             key=lambda trace: MergedBitmapAnalyser.merged_bitmap(trace, outlier),
             confirm=lambda a, b: not robust.htraces_are_equivalent(a, b),
-            reps=CONF.leftover_reps, verify_reps=CONF.leftover_verify_reps)
+            reps=reps, verify_reps=verify_reps, localizer=localizer)
 
     def _localize_boosted_violation(self, violation, lanes: List[list], n_orig: int,
                                     detector: GeneralizedPrimingDetector):
@@ -150,8 +162,8 @@ class Aarch64Fuzzer(FuzzerGeneric):
         return None
 
     def _store_violation_artifact(self, test_case: TestCase, violation, path: str) -> str:
-        """Extend the standard artifact: when the violation was localized by the boosted-lane leftover
-        search, append the two 'complex inputs' to report.txt so it reads on its own."""
+        """Extend the standard artifact: when the violation was localized by cross-input priming, append
+        the two 'complex inputs' to report.txt so it reads on its own."""
         violation_dir = super()._store_violation_artifact(test_case, violation, path)
         leftover = getattr(violation, "leftover", None)
         if leftover is not None:
@@ -178,7 +190,7 @@ class Aarch64Fuzzer(FuzzerGeneric):
             + (f"   (A picks {seq_a[p]}, B picks {seq_b[p]})\n" if p >= lo else "   (both pick %d)\n" % seq_a[p])
             for p in range(hi + 1))
         return (
-            "\n## Cross-input leftover (boosted-lane localization)\n"
+            "\n## Cross-input priming (leftover localization)\n"
             f"* Leaking pair:   position {lo} (input class {lo})\n"
             f"* Detecting pair: position {hi} (input class {hi})\n"
             f"* Kind: {kind}\n"
@@ -259,88 +271,6 @@ class Aarch64Fuzzer(FuzzerGeneric):
 
 
 class Aarch64NoninterferenceFuzzer(NoninterferenceFuzzer):
-    """AArch64 non-interference fuzzer.
-
-    Adds the cross-input speculative leftover detector (generalized priming + hybrid tipping-point
-    search, `leftover.py`) as the sole NI leftover-detection algorithm. Before each normal NI round it
-    builds the genuine/bad seal lanes for the input batch and runs the search under the leftover
-    regime; the regime is captured and restored around the search so the normal NI round that follows
-    sees the executor's usual regime. Regular (non-NI) fuzzing is a different fuzzer entirely and is
-    unaffected. The search itself lives in `leftover.py` and knows nothing about the fuzzer; the only
-    coupling is this thin seam (lane construction, the measure closure, the regime, and reporting)."""
-
-    # The executor sysfs regime the leftover search requires: SSBS on for the store-bypass window, no
-    # per-input flushing/rotation (would wipe the trained BTB entry), and unpinned execution (pinning
-    # measurably raises the non-canonical residual -- experimenter bonus finding). Captured-and-restored.
-    _LEFTOVER_REGIME = (("enable_ssbs", "1"), ("enable_pre_run_flush", "0"),
-                        ("enable_phr_flush", "0"), ("enable_view_rotation", "0"),
-                        ("pin_to_core", "-1"))
-
-    def initialize_modules(self) -> None:
-        super().initialize_modules()
-        # Fail fast, loud: the search's soundness depends on the leftover regime, which needs local
-        # sysfs control. Do not silently run it against an executor that cannot apply the regime.
-        if CONF.enable_leftover_detection and not regime_controllable(self.executor):
-            raise ConfigException(
-                "enable_leftover_detection requires a local HW executor with sysfs regime control "
-                "(view_rotation / pin_to_core); set enable_leftover_detection = False for remote "
-                "executors.")
-
-    def fuzzing_round(self, test_case: TestCase, inputs: List[Input],
-                      ignore_list=None):
-        if CONF.enable_leftover_detection and len(inputs) >= 2:
-            self._detect_leftovers(test_case, inputs)
-        return super().fuzzing_round(test_case, inputs, ignore_list)
-
-    def _detect_leftovers(self, test_case: TestCase, inputs: List[Input]) -> None:
-        """Run the generalized-priming leftover search on the batch's genuine/decoy seal lanes."""
-        self.executor.load_test_case(test_case)
-        genuine = [self.executor.genuine_variant(inp) for inp in inputs]
-        bad = [self.executor.noncanon_variant(inp) for inp in inputs]
-        outlier_threshold = CONF.analyser_outliers_threshold
-        robust = ChiSquaredAnalyser()  # jitter-tolerant re-verify, independent of the configured analyser
-
-        detector = GeneralizedPrimingDetector(
-            measure=lambda batch, reps: self.executor.trace_test_case(batch, reps)[0],
-            key=lambda trace: MergedBitmapAnalyser.merged_bitmap(trace, outlier_threshold),
-            confirm=lambda a, b: not robust.htraces_are_equivalent(a, b),
-            reps=CONF.leftover_reps, verify_reps=CONF.leftover_verify_reps)
-
-        findings: List[LeftoverFinding] = []
-        with executor_regime(self.executor, self._LEFTOVER_REGIME):
-            try:
-                findings = detector.detect(genuine, bad)
-            except HardwareTracingError as e:  # transient device failure -> skip this round's search
-                self.LOG.warning("fuzzer", f"leftover detection: hardware tracing failed: {e}")
-
-        for f in findings:
-            base = "genuine" if f.prefix_genuine else "decoy"
-            self.LOG.warning("fuzzer", f"LEFTOVER: leaking pair {f.leaking_pair} -> detecting pair "
-                             f"{f.detecting_pair} (chain {list(f.chain)}, {base}-prefix base)")
-            self._save_leftover_artifact(test_case, f, genuine, bad)
-
-    def _save_leftover_artifact(self, test_case: TestCase, finding: LeftoverFinding,
-                                genuine: List, bad: List) -> None:
-        """Save the test case and the counterexample chain: each input's variant as it runs (the base
-        lane before the leaking pair, the toggle lane from it onward), plus the leaking pair's base
-        variant -- the flip that removes the leak. The base lane is genuine for a genuine-prefix finding
-        and decoy for the mirror decoy-prefix finding (see LeftoverFinding.prefix_genuine)."""
-        try:
-            base, toggle = (genuine, bad) if finding.prefix_genuine else (bad, genuine)
-            path = os.path.join(
-                self.work_dir,
-                f"leftover_l{finding.leaking_pair}_d{finding.detecting_pair}_{STAT.test_cases}")
-            os.makedirs(path, exist_ok=True)
-            for attr in ("bin_path", "asm_path"):
-                src = getattr(test_case, attr, None)
-                if src and os.path.exists(src):
-                    shutil.copy(src, os.path.join(path, os.path.basename(src)))
-            for slot in range(finding.detecting_pair + 1):
-                lane = toggle if slot in finding.chain else base
-                with open(os.path.join(path, f"input{slot}.reif"), "wb") as f:
-                    f.write(lane[slot].serialize())
-            with open(os.path.join(path, f"input{finding.leaking_pair}.flip.reif"), "wb") as f:
-                f.write(base[finding.leaking_pair].serialize())
-            self.LOG.warning("fuzzer", f"LEFTOVER artifacts saved: {path}")
-        except Exception as e:            # artifact saving must never abort a fuzzing round
-            self.LOG.warning("fuzzer", f"LEFTOVER artifact save failed: {e}")
+    """AArch64 non-interference fuzzer. No aarch64-specific behaviour beyond the generic NI flow;
+    cross-input priming (generalized priming) is a regular-fuzzing feature and lives in
+    Aarch64Fuzzer._priming (enable_cross_input_priming)."""

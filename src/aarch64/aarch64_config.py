@@ -26,6 +26,12 @@ _option_values = {
         'random',
         'aarch64-nzcv',
     ],
+    # Which boundary the cross-input priming localization returns (src/aarch64/leftover.py):
+    # 'any' = galloping + bisection (some leaking pair), 'optimal' = linear scan (t_max).
+    'cross_input_priming_localizer': [
+        'any',
+        'optimal',
+    ],
     # UNUSED by AArch64 Revizor: fault injection is not implemented (the generator
     # reads this allowlist into flags that are never acted upon).
     'generator_faults_allowlist': [
@@ -202,26 +208,27 @@ branch_target_seal_prob: float = 1.0
 branch_target_canon_mask: Optional[int] = None   # fixed non-canonical high-bit run, or None = pool
 branch_target_seal_misalign: bool = True          # include the low-bit misalignment axis in the pool
 
-# Cross-input speculative leftover detection (src/aarch64/leftover.py): the sole non-interference
-# leftover algorithm (generalized priming + hybrid tipping-point search). Runs before each NI round on
-# the genuine/bad seal lanes; regular fuzzing is unaffected. Requires a local HW executor with sysfs
-# regime control (the search forces view_rotation=0 and unpinned execution); set False for remote.
-enable_leftover_detection: bool = True
-leftover_reps: int = 200
-""" leftover_reps: sample size for the leftover search's localization measurements (the endpoint check
-    and the bisection) """
-leftover_verify_reps: int = 500
-""" leftover_verify_reps: sample size for the fresh, robust re-verification of a found leaking pair.
-    Larger than leftover_reps so the confirmation tolerates the BTB's run-to-run overwrite jitter -- a
-    failed re-verification only drops a candidate, never fabricates one """
-enable_boosted_leftover: bool = False
-""" enable_boosted_leftover: in REGULAR fuzzing, replace the standard priming false-positive filter with
-    the generalized-priming leftover search over boosted lanes (src/aarch64/boosted_lanes.py). Each
-    boosting round is a lane of ct-equal inputs; wherever priming would run, the flagged violation's own
-    detecting pair is localized by toggling earlier positions across the two diverging lanes. A found
-    leaking pair (self- or cross-input) confirms the violation and reports the [leaker..detector] chain;
-    none means a false positive, exactly as priming. Off by default (standard priming). Requires a local
-    HW executor with sysfs regime control. Reuses leftover_reps / leftover_verify_reps. """
+# Cross-input priming (src/aarch64/leftover.py): generalize standard priming. Standard priming keeps a
+# flagged violation only if the divergence follows the detecting pair's OWN input; cross-input priming
+# additionally localizes an EARLIER ct-equal input (the leaking pair) whose microarchitectural leftover
+# (e.g. a BTB entry) surfaces as the detecting pair's cache divergence. It replaces standard priming in
+# regular fuzzing over the boosted lanes (src/aarch64/boosted_lanes.py), reusing the sample sizes
+# standard priming uses (the current stage size for localization, executor_sample_sizes[-1] to
+# re-verify). Requires a local HW executor with sysfs regime control (the search forces view_rotation=0
+# and unpinned execution); off by default (standard priming). Set False for remote executors.
+enable_cross_input_priming: bool = False
+""" enable_cross_input_priming: in REGULAR fuzzing, replace the standard priming false-positive filter
+    with the generalized-priming localization over boosted lanes. Wherever priming would run, the flagged
+    violation's own detecting pair is localized by toggling earlier positions across the two diverging
+    lanes; a found leaking pair (self- or cross-input) confirms the violation and reports the
+    [leaker..detector] chain, none means a false positive -- exactly as priming. Off by default. """
+cross_input_priming_localizer: str = "any"
+""" cross_input_priming_localizer: which boundary the localization returns. 'any' (default) = galloping +
+    bisection (src/aarch64/leftover.py exponential_search): returns some leaking pair, biased toward the
+    detecting pair (the most-recent trainer), in O(log distance) probes. 'optimal' = linear scan
+    (linear_scan): returns t_max, the largest leaking class, at the cost of a linear number of probes.
+    The saved counterexample keeps both whole lanes, so an 'any' finding can be re-localized to t_max
+    offline. """
 
 instruction_blocklist: List[str] = [
     # Crash/stall hazards: must never be generated regardless of enabled categories.
