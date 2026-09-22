@@ -26,7 +26,7 @@ _option_values = {
         'random',
         'aarch64-nzcv',
     ],
-    # Which boundary the cross-input priming localization returns (src/aarch64/leftover.py):
+    # Which boundary the cross-input priming localization returns (src/aarch64/cross_input.py):
     # 'any' = galloping + bisection (some leaking pair), 'optimal' = linear scan (t_max).
     'cross_input_priming_localizer': [
         'any',
@@ -208,9 +208,9 @@ branch_target_seal_prob: float = 1.0
 branch_target_canon_mask: Optional[int] = None   # fixed non-canonical high-bit run, or None = pool
 branch_target_seal_misalign: bool = True          # include the low-bit misalignment axis in the pool
 
-# Cross-input priming (src/aarch64/leftover.py): generalize standard priming. Standard priming keeps a
+# Cross-input priming (src/aarch64/cross_input.py): generalize standard priming. Standard priming keeps a
 # flagged violation only if the divergence follows the detecting pair's OWN input; cross-input priming
-# additionally localizes an EARLIER ct-equal input (the leaking pair) whose microarchitectural leftover
+# additionally localizes an EARLIER ct-equal input (the leaking pair) whose microarchitectural residue
 # (e.g. a BTB entry) surfaces as the detecting pair's cache divergence. It replaces standard priming in
 # regular fuzzing over the boosted lanes (src/aarch64/boosted_lanes.py), reusing the sample sizes
 # standard priming uses (the current stage size for localization, executor_sample_sizes[-1] to
@@ -224,7 +224,7 @@ enable_cross_input_priming: bool = False
     [leaker..detector] chain, none means a false positive -- exactly as priming. Off by default. """
 cross_input_priming_localizer: str = "any"
 """ cross_input_priming_localizer: which boundary the localization returns. 'any' (default) = galloping +
-    bisection (src/aarch64/leftover.py exponential_search): returns some leaking pair, biased toward the
+    bisection (src/aarch64/cross_input.py exponential_search): returns some leaking pair, biased toward the
     detecting pair (the most-recent trainer), in O(log distance) probes. 'optimal' = linear scan
     (linear_scan): returns t_max, the largest leaking class, at the cost of a linear number of probes.
     The saved counterexample keeps both whole lanes, so an 'any' finding can be re-localized to t_max

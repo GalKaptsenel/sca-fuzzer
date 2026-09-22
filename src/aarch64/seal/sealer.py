@@ -378,7 +378,7 @@ class ResolvedSealingTestCase:
     def forced_noncanon(self) -> Tuple[Relocation, ...]:
         """Like decoy(), but perturb EVERY eligible (speculative) slot with a guaranteed NON-CANONICAL
         alt -- a high-bit fault mask (>3), never a low-bit {1,2,3} misalignment, never the identity the
-        random decoy may pick. The "bad" lane of the leftover search (leftover.py): a truly
+        random decoy may pick. The "bad" lane of the cross-input priming search (cross_input.py): a truly
         non-canonical target so a predecessor either trains a predictor entry or faults, never silently
         matches the genuine lane."""
         rng = random.Random(hash((self.collapse_key, self._salt, "forced-noncanon")))

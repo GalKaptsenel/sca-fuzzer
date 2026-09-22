@@ -1,6 +1,6 @@
 """
 Tests for the cross-input priming CONFIG KNOBS and fuzzer WIRING (the localizer algorithms themselves
-are covered by tests.unit_aarch64_leftover.LocalizerTest). Run from the repo root:
+are covered by tests.unit_aarch64_cross_input.LocalizerTest). Run from the repo root:
     python -m unittest tests.aarch64_tests.unit_cross_input_priming
 
 The config half touches only src.config (no hardware, no capstone). The wiring half imports the aarch64
@@ -35,11 +35,6 @@ class CrossInputPrimingConfigTest(unittest.TestCase):
         self.assertEqual(CONF.enable_cross_input_priming, False)
         self.assertEqual(CONF.cross_input_priming_localizer, "any")
 
-    def test_removed_leftover_knobs_are_gone(self):
-        for gone in ("enable_leftover_detection", "leftover_reps", "leftover_verify_reps",
-                     "enable_boosted_leftover"):
-            self.assertFalse(hasattr(CONF, gone), f"{gone} should have been removed")
-
     def test_localizer_accepts_any_and_optimal(self):
         for v in ("any", "optimal"):
             CONF.safe_set("cross_input_priming_localizer", v)         # config-file load path
@@ -61,7 +56,7 @@ class CrossInputPrimingWiringTest(unittest.TestCase):
 
     def test_localizer_name_to_strategy_map(self):
         from src.aarch64 import aarch64_fuzzer as F
-        from src.aarch64.leftover import exponential_search, linear_scan
+        from src.aarch64.cross_input import exponential_search, linear_scan
         self.assertIs(F._CROSS_INPUT_PRIMING_LOCALIZERS["any"], exponential_search)
         self.assertIs(F._CROSS_INPUT_PRIMING_LOCALIZERS["optimal"], linear_scan)
         # every configured value must resolve to a strategy (no silent gap)

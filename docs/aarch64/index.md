@@ -531,7 +531,7 @@ decoy stay architecturally identical.
 ### 6.1a Cross-input priming (BTB)
 
 Standard priming confirms a violation only when the divergence follows the detecting input's *own* data;
-it *discards* the case a **cross-input** leftover creates, where the divergence is caused by a
+it *discards* the case a **cross-input** residue creates, where the divergence is caused by a
 *different*, earlier input. Splitting the two:
 
 - the **detecting pair** — the input whose cache htrace diverges (what Revizor notices);
@@ -545,7 +545,7 @@ localization that finds the leaking pair from the detecting pair's signal, under
 runs on the **boosted lanes** — two lanes each holding one member of every input class, so the members at
 a class are ct-seq-equal and any htrace difference is a genuine contract violation. It reuses standard
 priming's sample sizes (the current stage size to localize, the largest configured size to re-verify), so
-it adds no rep knobs. `src/aarch64/leftover.py` holds the search; it knows nothing about the fuzzer.
+it adds no rep knobs. `src/aarch64/cross_input.py` holds the search; it knows nothing about the fuzzer.
 
 Mirroring the write-up's objects: a **lane** is one variant per class; the **splice** σ takes classes
 `[0, t)` from one lane and `[t, detecting]` from the other; `r(t)` is the detecting pair's trace of that

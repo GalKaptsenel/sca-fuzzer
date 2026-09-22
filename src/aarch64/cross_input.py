@@ -1,5 +1,5 @@
 """
-File: AArch64 non-interference cross-input leftover detector (generalized priming).
+File: AArch64 non-interference cross-input leak detector (generalized priming).
 
 Revizor's priming asks "does a detected cache divergence follow the *detecting pair*'s own input?" and
 discards it otherwise. This generalizes that: when the divergence is caused by a *different*, earlier
@@ -43,7 +43,7 @@ boundary that only appeared under measurement jitter.
 
 A boundary at the detecting pair itself (leaking pair == detecting pair) is the pair's OWN variant
 flipping its OWN readout -- the own-target confound. It is a valid finding by default (an input that
-leaks about itself); pass exclude_self_dependence to keep only strictly cross-input leftovers.
+leaks about itself); pass exclude_self_dependence to keep only strictly cross-input leaks.
 
 A found leaking pair is a valid ct-seq counterexample for ANY predictor -- the search never models how the
 prediction forms, so its *validity* is predictor-agnostic. Guaranteeing that the endpoint promise
@@ -118,7 +118,7 @@ def exponential_search(r_key: RKey, lo: int, hi: int) -> int:
 
 
 @dataclass(frozen=True)
-class LeftoverFinding:
+class CrossInputFinding:
     """Toggling input `leaking_pair`'s two ct-equal variants flips the readout of input `detecting_pair`,
     the rest of the sequence fixed. `chain` = [leaking_pair .. detecting_pair] is the self-contained
     counterexample. `prefix_genuine` is the base the search swept from: True = genuine before the leaking
@@ -142,12 +142,12 @@ class GeneralizedPrimingDetector:
         self._localizer = localizer
 
     def detect(self, genuine: Sequence[Variant], bad: Sequence[Variant],
-               exclude_self_dependence: bool = False) -> List[LeftoverFinding]:
+               exclude_self_dependence: bool = False) -> List[CrossInputFinding]:
         """Scan every input as a detecting pair. For each, search from BOTH bases -- genuine-prefix and
         decoy-prefix -- mirroring priming's symmetric swap: the divergence may be caused by the prefix
         being good OR bad. De-duplicate by (leaking pair, detecting pair). A self-dependent finding
         (leaking pair == detecting pair -- the pair leaks about itself) is a valid result by default;
-        pass exclude_self_dependence to drop it and keep only strictly cross-input leftovers."""
+        pass exclude_self_dependence to drop it and keep only strictly cross-input leaks."""
         assert len(genuine) == len(bad), "the two lanes must have equal length"
         findings: dict = {}
         for detecting in range(1, len(genuine)):
@@ -160,7 +160,7 @@ class GeneralizedPrimingDetector:
 
     def find_leaking_pair(self, base: Sequence[Variant], toggle: Sequence[Variant], detecting: int,
                           prefix_genuine: bool = True,
-                          exclude_self_dependence: bool = False) -> Optional[LeftoverFinding]:
+                          exclude_self_dependence: bool = False) -> Optional[CrossInputFinding]:
         """Locate the leaking pair for `detecting`, sweeping the prefix from `base` toward `toggle` with the
         injected localizer. Each split is measured at most once (memoized), so r_key is a stable value the
         localizer may query freely. A tip at the detecting pair itself (leaking pair == detecting pair) is
@@ -181,7 +181,7 @@ class GeneralizedPrimingDetector:
             return None
         if not self._reverify(base, toggle, detecting, boundary):
             return None
-        return LeftoverFinding(boundary, detecting, range(boundary, detecting + 1), prefix_genuine)
+        return CrossInputFinding(boundary, detecting, range(boundary, detecting + 1), prefix_genuine)
 
     def _probe(self, base: Sequence[Variant], toggle: Sequence[Variant],
                detecting: int, k: int, reps: int) -> Trace:

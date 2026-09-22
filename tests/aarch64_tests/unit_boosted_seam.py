@@ -2,7 +2,7 @@
 Unit tests for the boosted-lane focused-localization seam (Aarch64Fuzzer._localize_boosted_violation).
 Pure logic, no hardware: a MOCK detector records how the seam drives find_leaking_pair, so the test
 pins the mapping violation -> (detecting position, lane pair) and the both-bases fall-through. Run:
-    python -m unittest tests.aarch64_tests.unit_boosted_leftover_seam
+    python -m unittest tests.aarch64_tests.unit_boosted_seam
 """
 import os
 import sys
@@ -11,7 +11,7 @@ from collections import namedtuple
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from src.aarch64.aarch64_fuzzer import Aarch64Fuzzer         # noqa: E402
-from src.aarch64.leftover import LeftoverFinding             # noqa: E402
+from src.aarch64.cross_input import CrossInputFinding             # noqa: E402
 
 M = namedtuple("M", "input_id")
 
@@ -33,7 +33,7 @@ class MockDetector:
                           exclude_self_dependence=False):
         self.calls.append((base, toggle, detecting, prefix_genuine))
         if self.hit_on is not None and prefix_genuine == self.hit_on:
-            return LeftoverFinding(0, detecting, range(0, detecting + 1), prefix_genuine)
+            return CrossInputFinding(0, detecting, range(0, detecting + 1), prefix_genuine)
         return None
 
 

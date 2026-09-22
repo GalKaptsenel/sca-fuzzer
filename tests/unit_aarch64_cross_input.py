@@ -1,10 +1,10 @@
 """
-Logical tests for the AArch64 non-interference cross-input leftover detector (src/aarch64/leftover.py).
+Logical tests for the AArch64 non-interference cross-input leak detector (src/aarch64/cross_input.py).
 
 They drive the algorithm with MOCK measurement oracles that simulate predictors, so they test the
 algorithm's LOGIC -- localization, the full-chain finding, the robust re-verify, and the transitivity
 of the trace key -- with no hardware. Run from the repo root:
-    python -m unittest tests.unit_aarch64_leftover
+    python -m unittest tests.unit_aarch64_cross_input
 """
 import os
 import sys
@@ -13,7 +13,7 @@ import unittest
 from collections import namedtuple
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src.aarch64.leftover import (GeneralizedPrimingDetector,        # noqa: E402
+from src.aarch64.cross_input import (GeneralizedPrimingDetector,        # noqa: E402
                                   linear_scan, exponential_search)
 from src.analyser import MergedBitmapAnalyser, ChiSquaredAnalyser    # noqa: E402
 
@@ -45,7 +45,7 @@ def lanes(n):
 class MostRecentWinsBTB:
     """Single-entry, most-recent-wins BTB oracle. A GENUINE trainer slot allocates its target; a decoy
     slot faults before allocating. The detecting pair is held decoy (its own target faults, so its
-    readout is purely the leftover), and reads the target of the most-recent GENUINE trainer among its
+    readout is purely the residue), and reads the target of the most-recent GENUINE trainer among its
     predecessors, or none. Deterministic -- a noiseless oracle."""
 
     def __init__(self, targets):
@@ -54,12 +54,12 @@ class MostRecentWinsBTB:
     def measure(self, batch, reps):
         out = []
         for d in range(len(batch)):
-            leftover = 0
+            residue = 0
             for s in range(d):           # predecessors, most-recent genuine trainer wins
                 kind, _ = batch[s]
                 if kind == "g" and s in self.targets:
-                    leftover = self.targets[s]
-            out.append(H([BG | leftover] * reps))
+                    residue = self.targets[s]
+            out.append(H([BG | residue] * reps))
         return out
 
 
@@ -81,7 +81,7 @@ class HistoryFoldOracle:
 class SelfSealOracle:
     """Each slot's readout depends only on its OWN seal (genuine vs decoy), never on a predecessor.
     This is the own-target confound: toggling the detecting pair's own seal flips its own readout, but
-    there is no cross-input leftover. The detector must report nothing -- a leftover is by definition
+    there is no cross-input leak. The detector must report nothing -- a residue is by definition
     caused by a DIFFERENT, earlier input."""
 
     def measure(self, batch, reps):
@@ -142,7 +142,7 @@ class DetectorTest(unittest.TestCase):
     def test_self_dependence_reported_by_default_and_optionally_excluded(self):
         # Own-target confound: each slot reacts only to its own seal, so every detecting pair bisects to
         # lo == detecting (the pair itself). By default these self-pairs are valid findings; passing
-        # exclude_self_dependence drops them, leaving only strictly cross-input leftovers (none here).
+        # exclude_self_dependence drops them, leaving only strictly cross-input leaks (none here).
         det = detector(SelfSealOracle().measure)
         default = det.detect(*lanes(6))
         self.assertEqual([(f.leaking_pair, f.detecting_pair) for f in default],

@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Triage a Revizor AArch64 CROSS-INPUT (generalized-priming / cross_input_priming) leftover violation
+"""Triage a Revizor AArch64 CROSS-INPUT (generalized-priming / cross_input_priming) residue violation
 on hardware.
 
-A cross-input leftover is not a single-slot v1/v4 leak: an earlier input (the LEAKING pair) leaves a
-microarchitectural leftover (e.g. a BTB entry it trains under a canonical vs non-canonical branch-target
+A cross-input leak is not a single-slot v1/v4 leak: an earlier input (the LEAKING pair) leaves a
+microarchitectural residue (e.g. a BTB entry it trains under a canonical vs non-canonical branch-target
 seal) that only surfaces as a LATER input (the DETECTING pair)'s cache divergence. The standard CE-driven
 triage.py cannot model that channel (and crashes on templates with unmasked addresses), so this verifier
 uses the real executor as the arbiter.
 
-It reproduces, at high reps, the control that defines a genuine cross-input leftover -- following the
-`report.txt` "Cross-input priming (leftover localization)" section (leaking pair lo, detecting pair hi,
+It reproduces, at high reps, the control that defines a genuine cross-input leak -- following the
+`report.txt` "Cross-input priming (leaker/detector localization)" section (leaking pair lo, detecting pair hi,
 Sequence A = all-genuine, Sequence B = the toggled lane):
 
   1. Own-slot indistinguishability (the "noncache" premise, def:xio(a)): the leaker's OWN htrace at its
@@ -17,7 +17,7 @@ Sequence A = all-genuine, Sequence B = the toggled lane):
      leaker's own slot, only downstream. (Plus the report's identical contract-trace hashes.)
   2. Leaker/detector matrix at the detector (position hi): fix the prefix, then cross the leaker seal
      {genuine, decoy} with the detector seal {genuine, decoy} and read the detector's htrace. A GENUINE
-     cross-input leftover shows one or more sets that track the LEAKER's seal and are INDEPENDENT of the
+     cross-input leak shows one or more sets that track the LEAKER's seal and are INDEPENDENT of the
      detector's own seal:
          genuine leaker -> leak set present for BOTH detector variants
          decoy   leaker -> leak set absent  for BOTH detector variants
@@ -96,7 +96,7 @@ def main():
     if lo == hi:
         # Self-dependent (own-target confound): the pair leaks about its OWN seal. From a fixed prefix,
         # its own-slot htrace differs between its genuine and decoy variants -- own-slot DISTINGUISHABLE,
-        # so standard priming already catches it (it is NOT a noncache/cross-input leftover). Still a
+        # so standard priming already catches it (it is NOT a noncache/cross-input leak). Still a
         # genuine leak: the input's own canonical branch evicts a set the non-canonical one does not.
         prefix = [inp(seqA[p]) for p in range(lo)]
         variants = {"genuine": inp(seqA[lo]), "decoy": inp(seqB[lo])}
@@ -122,7 +122,7 @@ def main():
             print(f"   LEAK sets (own seal changes own readout): {leak}")
             print(f"   -> GENUINE self-dependent (own-target) leak: the input's canonical branch evicts")
             print(f"      {leak}, the non-canonical one does not. Own-slot DISTINGUISHABLE -> standard")
-            print(f"      priming already catches this (not a cross-input leftover).")
+            print(f"      priming already catches this (not a cross-input leak).")
         else:
             print(f"   no own-slot set difference > {a.threshold} -> washed out / noise")
         return
@@ -192,11 +192,11 @@ def main():
         print(f"   noncache premise: these sets are the SAME across the detector's own seal, so the")
         print(f"      detecting pair is own-slot-indistinguishable -> standard priming (which swaps only")
         print(f"      the detector) misses it; cross-input priming localizes it to the leaker.")
-        print(f"   -> GENUINE cross-input leftover: leaking pair {seqA[lo]}/{seqB[lo]} @pos {lo} trains a")
+        print(f"   -> GENUINE cross-input leak: leaking pair {seqA[lo]}/{seqB[lo]} @pos {lo} trains a")
         print(f"      microarchitectural entry that changes detecting pair @pos {hi}'s readout at {leak_sets},")
         print(f"      regardless of the detector's own seal. Not in the contract -> real violation.")
     else:
-        print(f"   NO set tracks the leaker independently of the detector -> NOT a cross-input leftover")
+        print(f"   NO set tracks the leaker independently of the detector -> NOT a cross-input leak")
         print(f"      (washed out / detector-seal-dependent / noise).")
 
 

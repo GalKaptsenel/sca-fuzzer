@@ -168,7 +168,7 @@ overwrite real address bits and corrupt the sandbox pointer, so leaving it unset
 
 Generalize standard priming. Standard priming keeps a flagged violation only when the divergence follows
 the *detecting pair*'s own input; **cross-input priming** additionally localizes an *earlier* ct-equal
-input — the *leaking pair* — whose microarchitectural leftover (e.g. a BTB entry it trains) surfaces as
+input — the *leaking pair* — whose microarchitectural residue (e.g. a BTB entry it trains) surfaces as
 the detecting pair's cache divergence. See §6.1a of the architecture reference for the localization. It
 replaces standard priming in regular fuzzing over the boosted input lanes (each boosting round of an
 input class is a lane of ct-equal inputs), reusing the sample sizes standard priming already uses — the

@@ -1,5 +1,5 @@
 """
-File: boosted-lane construction for the regular-fuzzing leftover detector.
+File: boosted-lane construction for the regular-fuzzing cross-input priming detector.
 
 Boosting (Fuzzer._boost_inputs) lays inputs out as R = inputs_per_class lanes of n inputs each,
 order-preserving:
@@ -8,12 +8,12 @@ order-preserving:
       \\------ lane 0 ------/  \\------ lane 1 -------/    \\--- lane 2 --- /
 
 Lane r is boosted[r*n : (r+1)*n]. The members at position j across lanes (boosted[r*n + j] for each r)
-belong to the SAME input class, so they are ct-equal by boosting. The leftover detector's toggle at
+belong to the SAME input class, so they are ct-equal by boosting. The cross-input priming detector's toggle at
 position j is therefore "Ij vs its own boostings" -- cross-lane at the SAME position only, never
 cross-position.
 
 These helpers are the pure DATA seam: they turn the flat boosted list into lanes and enumerate which
-lane pairs to compare. The search itself (the bisection) lives in leftover.py and never sees a lane.
+lane pairs to compare. The search itself (the bisection) lives in cross_input.py and never sees a lane.
 """
 from typing import List, Optional, Sequence, Tuple
 

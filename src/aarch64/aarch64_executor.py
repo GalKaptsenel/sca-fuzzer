@@ -752,13 +752,13 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
 
     def genuine_variant(self, inp: Input) -> ExecutorInput:
         """The input's genuine (canonical baseline) sealed variant -- the "good" lane of the
-        non-interference leftover search (leftover.py)."""
+        non-interference cross-input priming search (cross_input.py)."""
         return self.variants_for_input(inp)[NIVariant.BASELINE]
 
     def noncanon_variant(self, inp: Input) -> ExecutorInput:
         """The input's baseline test case sealed to force every speculative branch target
         NON-canonical (see ResolvedSealingTestCase.forced_noncanon) -- the guaranteed-"bad" lane of the
-        leftover search, since the random decoy may be identity/misaligned and thus still train."""
+        cross-input priming search, since the random decoy may be identity/misaligned and thus still train."""
         resolved = self._resolve(inp)
         return ExecutorInput(inp, code_reloc=resolved.forced_noncanon(),
                              mte_tags=self._mte_tags_for(inp), pac_keys=self._pac_keys_words(),

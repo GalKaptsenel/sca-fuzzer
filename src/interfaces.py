@@ -1061,12 +1061,16 @@ class Violation(EquivalenceClass):
     the same htrace (or a equivalent htraces under the current analyser). """
     input_sequence: List[Input]
     """ input_sequence: the complete sequence of inputs that triggered the violation """
+    cross_input_finding: Optional[Tuple]
+    """ cross_input_finding: set by cross-input priming when the violation is localized to a
+    leaking/detecting input pair; (finding, prefix_lane, suffix_lane, n_orig) or None. """
 
     def __init__(self, eq_cls: EquivalenceClass, inputs: List[Input]) -> None:
         self.measurements = eq_cls.measurements
         self.ctrace = eq_cls.ctrace
         self.htrace_groups = eq_cls.htrace_groups
         self.input_sequence = inputs
+        self.cross_input_finding = None
 
     @classmethod
     def from_measurements(cls, ctrace: CTrace, measurements: List[Measurement],
