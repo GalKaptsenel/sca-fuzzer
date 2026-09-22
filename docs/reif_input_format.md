@@ -63,6 +63,7 @@ offset 0   ┌──────────────────────
 | `0x06` | `MTE_TAGS` | one 4-bit allocation tag per 16-byte granule of the main‖faulty span, packed two per byte, low nibble first (granule 2·i in bits 3:0, 2·i+1 in bits 7:4) |
 | `0x07` | `CODE_RELOC` | the per-input **relocation table** (see below) |
 | `0x08` | `BPU_TRAINING` | per-input branch-training entries (see below) |
+| `0x09` | `PTE_SETTINGS` | per-input **page-table overrides** (see below): a `u32` entry count then that many packed `revisor_pte_override_entry` |
 
 `MEMORY_MAIN`, `MEMORY_FAULTY`, and `GPR` are required. The rest are optional; when a section is
 absent the kernel uses its default (e.g. no `MTE_TAGS` ⇒ the region's default tag). Ids `0x10+` are
@@ -104,6 +105,25 @@ Each entry trains the conditional branch at byte `offset` of the body toward `ta
 0 = NOT-TAKEN) before this input executes, so per-input branch training travels **with the input**
 rather than as global config. Gated by `enable_branch_mistraining` (off by default); when off, the
 section is omitted entirely. Up to `REVISOR_INPUT_MAX_BPU_TRAIN` (64) entries.
+
+## Page-table overrides (`PTE_SETTINGS`)
+
+```c
+struct revisor_pte_override_entry {           // packed, 20 bytes; matches the writer's <HHQQ>
+    uint16_t page_index; uint16_t level; uint64_t mask; uint64_t value;
+} __attribute__((packed));
+// payload = u32 count, then `count` entries
+```
+
+The **environment axis** of the non-interference fuzzer. Each entry overrides one sandbox page's
+descriptor at `level` (`REVISOR_PTE_LEVEL_LEAF` = 3 for the 4K leaf) before this input runs: the kernel
+sets the `mask` bits to the corresponding bits of `value` (`value` carries no bits outside `mask`) via
+`new = (live & ~mask) | value`, and reverts afterwards. `page_index` is the shared page map with the
+writer (0 = `main_region`, 1 = `faulty_region`). It is position-independent — no absolute address is
+sent — and the output-address bits are never in a `mask`, so genuine and decoy map the same physical
+page. Genuine variants omit the section; a decoy fuzzes only pages it reaches **speculatively** (a
+retiring access to an overridden page would fault and panic, so the fuzzer refuses such a test case).
+Up to `REVISOR_INPUT_MAX_PTE_OVERRIDES` (16) entries.
 
 ## PAC keys (`PAC_KEYS`)
 
