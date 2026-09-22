@@ -160,7 +160,7 @@ _buggy_instructions: List[str] = []
 
 supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "ldr", "ldp", "stp", "orr", "ands", "and", "eor", "cbnz", "tbz", "tbnz",
                                      "csel", "csinc", "csinv", "csneg", "ccmn", "ccmp",
-                                     "sdiv", "udiv", "xpacd", "xpaci",
+                                     "sdiv", "udiv", "madd", "msub", "xpacd", "xpaci",
                                      "autia", "autiza", "autib", "autizb", "autda", "autdza", "autdb", "autdzb",
                                      "pacia", "paciza", "pacib", "pacizb", "pacda", "pacdza", "pacdb", "pacdzb", "pacga",
                                      "bics", "rmif", "setf8", "setf16",

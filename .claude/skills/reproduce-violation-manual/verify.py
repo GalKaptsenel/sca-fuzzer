@@ -79,6 +79,8 @@ def main():
     ap.add_argument("--inputs"); ap.add_argument("--position", default="last",
                                                  choices=["lower", "higher", "last", "all"])
     ap.add_argument("--reps", type=int, default=2000); ap.add_argument("--sets")
+    ap.add_argument("--template", help="rebuild the TestCase from a .py template when "
+                    "generated.asm cannot be re-parsed (e.g. dispatch tables)")
     a = ap.parse_args()
     vd = os.path.abspath(a.vd); repo = a.repo or find_repo(vd); sys.path.insert(0, repo)
     from src.config import CONF; CONF.load(f"{vd}/reproduce.yaml")
@@ -87,9 +89,22 @@ def main():
     ce_inputs = [int(x) for x in a.inputs.split(",")] if a.inputs else parse_inputs(report)
     assert len(ce_inputs) >= 2, "need >=2 counterexample inputs"
     predicted = {int(x) for x in a.sets.split(",")} if a.sets else None
+    if "Kind: cross-input" in report:
+        print("WARNING: this is a CROSS-INPUT (cross_input_priming) leftover. verify.py swaps only the\n"
+              "  detecting slot, which by design WASHES OUT a cross-input leftover (the cause is an\n"
+              "  EARLIER leaking slot). Use tools/cross_input_triage.py for these; verify.py is valid\n"
+              "  only for the co-located self-dependent (own-target) part.", file=sys.stderr)
 
     f = get_fuzzer("base.json", ".", None, ""); f.initialize_modules()
-    tc = f.asm_parser.parse_file(f"{vd}/generated.asm")
+    if a.template:                                   # template TCs (dispatch tables) don't re-parse
+        from src.aarch64.template.runner import load_template, build_test_case
+        tc = build_test_case(f.generator, load_template(a.template))
+    else:
+        try:
+            tc = f.asm_parser.parse_file(f"{vd}/generated.asm")
+        except Exception as e:
+            sys.exit(f"could not re-parse generated.asm ({e}); if this is a template test case "
+                     f"(e.g. an indirect-dispatch table), pass --template templates/<name>.py")
     paths = sorted(glob.glob(f"{vd}/input_*.reif")) or sorted(glob.glob(f"{vd}/input_*.bin"))
     assert paths, "no input_*.reif/.bin in violation dir"
     f.executor.load_test_case(tc)
