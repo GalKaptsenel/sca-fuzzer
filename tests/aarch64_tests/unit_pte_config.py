@@ -40,7 +40,8 @@ class PteConfigTest(unittest.TestCase):
 
     def test_configured_fields_build_a_valid_policy(self):
         # the fields the config ships must be accepted by the policy (validated against the layout)
-        PteFuzzPolicy(leaf_fields=CONF.pte_fuzz_leaf_fields, table_fields=CONF.pte_fuzz_table_fields)
+        PteFuzzPolicy(leaf_fields=CONF.pte_fuzz_leaf_fields,
+                      table_fields=CONF.pte_fuzz_table_fields)
 
 
 if __name__ == "__main__":

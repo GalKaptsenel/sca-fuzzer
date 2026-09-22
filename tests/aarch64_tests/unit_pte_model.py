@@ -105,7 +105,8 @@ class SandboxPageMapTest(unittest.TestCase):
     def test_spec_only_containing_maps_addresses_to_pages(self):
         base = 0x1_0000
         # an address in the faulty page is flagged; one in main (arch) is not.
-        self.assertEqual(self.m.spec_only_containing(base + MAIN_AREA_SIZE + 8, base).name, "faulty")
+        hit = self.m.spec_only_containing(base + MAIN_AREA_SIZE + 8, base)
+        self.assertEqual(hit.name, "faulty")
         self.assertIsNone(self.m.spec_only_containing(base + 8, base))
 
     def test_require_spec_only(self):
@@ -126,7 +127,8 @@ class EnvironmentPlanTest(unittest.TestCase):
 
     def test_empty_plan(self):
         self.assertTrue(EnvironmentPlan().is_empty)
-        self.assertFalse(EnvironmentPlan(pte_overrides=(PteOverride(2, LEVEL_LEAF, 1, 0),)).is_empty)
+        one = EnvironmentPlan(pte_overrides=(PteOverride(2, LEVEL_LEAF, 1, 0),))
+        self.assertFalse(one.is_empty)
 
     def test_pte_for_page(self):
         plan = EnvironmentPlan(pte_overrides=(PteOverride(2, LEVEL_LEAF, 0b1, 0b0),

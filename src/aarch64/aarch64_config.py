@@ -212,18 +212,11 @@ branch_target_seal_prob: float = 1.0
 branch_target_canon_mask: Optional[int] = None   # fixed non-canonical high-bit run, or None = pool
 branch_target_seal_misalign: bool = True          # include the low-bit misalignment axis in the pool
 
-# PTE (page-table entry) fuzzing: an ENVIRONMENT-fuzzing axis of the non-interference fuzzer (not a code
-# sealing). genuine and decoy variants run byte-identical code and touch identical virtual addresses; the
-# only difference is the page-table state of pages reached ONLY speculatively (see seal/environment.py),
-# so any hardware-trace divergence is a genuine leak of page-table state through the speculative walk.
-# The executor has no EL1 fault handler (a retiring fault panics), so the fuzzed pages must never be
-# reached architecturally (strict spec-only); a decoy may therefore flip even present/permission bits
-# safely, as the faulting access is always squashed. The fuzzable bits are given by descriptor FIELD NAME
-# (see LEAF_LAYOUT / TABLE_LAYOUT in seal/pagetable_model.py); the output address is never fuzzable, so
-# genuine and decoy always map the same physical page.
+# PTE (page-table entry) fuzzing: an NI environment-fuzzing axis where genuine/decoy differ only in
+# the page-table state of spec-only pages.
 enable_pte_fuzzing: bool = False
 pte_fuzz_leaf_fields: List[str] = list(LEAF_LAYOUT.default_fuzzable_field_names)
-""" pte_fuzz_leaf_fields: level-3 leaf-descriptor fields a decoy may vary on a spec-only page, by name
+""" pte_fuzz_leaf_fields: level-3 leaf-descriptor fields a decoy may vary on a spec-only page
     (e.g. 'valid', 'attr_indx', 'ap', 'sh', 'af', 'uxn'). """
 pte_fuzz_table_fields: List[str] = []
 """ pte_fuzz_table_fields: level 0-2 table-descriptor fields a decoy may vary (e.g. 'ap_table',

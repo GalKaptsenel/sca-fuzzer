@@ -730,14 +730,14 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
 
     @property
     def _environment_fuzzing(self) -> bool:
-        """Whether any run-environment axis is being fuzzed. When on, a decoy differs from the genuine
-        baseline in the environment even if the code is identical."""
+        """Whether any run-environment axis is being fuzzed. When on, a decoy differs from the
+        genuine baseline in the environment even if the code is identical."""
         return self._pte_policy is not None
 
     def _arch_reaches_spec_only(self, inp: Input) -> bool:
-        """Whether `inp` makes an ARCHITECTURAL (retiring) memory access to a spec-only page. Such a page,
-        under a decoy PTE, would fault architecturally and panic the pinned CPU (no EL1 handler), so PTE
-        fuzzing must refuse the test case rather than risk it. Read off the genuine baseline CE trace."""
+        """Whether `inp` makes an ARCHITECTURAL (retiring) memory access to a spec-only page, which
+        under a decoy PTE would fault and panic the pinned CPU (no EL1 handler). PTE fuzzing must
+        refuse such a test case rather than risk it. Read off the genuine baseline CE trace."""
         key = inp.tobytes()
         if key not in self._spec_reach_cache:
             resolved = self._resolve(inp)
@@ -751,18 +751,19 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         return self._spec_reach_cache[key]
 
     def _require_spec_only_safe(self, inp: Input) -> None:
-        """Strict spec-only safety (no fallback): a test case that architecturally reaches a spec-only
-        page is a hard error for PTE fuzzing -- the generator/template must keep those pages off the
+        """Strict spec-only safety (no fallback): a test case that architecturally reaches a
+        spec-only page is a hard error -- the generator/template must keep those pages off the
         retiring path."""
         if self._arch_reaches_spec_only(inp):
             raise GeneratorException(
-                "PTE fuzzing: the test case makes an architectural access to a spec-only page, which "
-                "would fault and panic. Keep spec-only pages off the retiring path (reach them only "
+                "PTE fuzzing: the test case makes an arch access to a spec-only page, which "
+                "would fault and panic. Keep spec-only pages off the retiring path (reach only "
                 "speculatively).")
 
-    def _env_plans_for(self, resolved: ResolvedSealingTestCase, inp: Input) -> Dict[str, EnvironmentPlan]:
-        """The per-variant page-table environment: genuine (pristine) for the baseline, a fuzzed decoy
-        for each decoy lane. Empty when PTE fuzzing is off. Deterministic per (sealing class, salt, i)."""
+    def _env_plans_for(self, resolved: ResolvedSealingTestCase,
+                       inp: Input) -> Dict[str, EnvironmentPlan]:
+        """The per-variant page-table environment: genuine (pristine) for the baseline, a fuzzed
+        decoy per decoy lane. Empty when PTE fuzzing is off. Deterministic per variant."""
         names = [NIVariant.BASELINE] + [NIVariant.decoy_n(i) for i in range(CONF.inputs_per_class - 1)]
         if not self._environment_fuzzing:
             return {name: EnvironmentPlan() for name in names}
@@ -823,10 +824,10 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                              bpu_training=self._bpu_entries(inp))
 
     def has_decoy(self, inp: Input) -> bool:
-        """Whether `inp` is non-interference-testable: it has a decoy-eligible CODE slot, or PTE fuzzing
-        is on (which makes the decoy differ from the baseline in the environment even when the code is
-        identical). When neither holds, every decoy equals the genuine baseline (a null decoy) and the
-        input must not be boosted/measured."""
+        """Whether `inp` is non-interference-testable: it has a decoy-eligible CODE slot, or PTE
+        fuzzing is on (so the decoy differs from the baseline in the environment even when the code
+        is identical). When neither holds, every decoy equals the genuine baseline (a null decoy)
+        and the input must not be boosted/measured."""
         return self._resolve(inp).has_decoy() or self._environment_fuzzing
 
     def _variants_for(self, resolved: ResolvedSealingTestCase) -> Dict[str, Tuple[Relocation, ...]]:

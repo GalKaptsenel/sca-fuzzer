@@ -1,19 +1,19 @@
 """AArch64 VMSAv8-64 page-table descriptor model (4 KB granule, stage 1).
 
-The single source of truth for descriptor bit layout. Everything else (the PTE sealing primitive, the
+The single source of truth for descriptor bit layout. Everything else (the PTE sealing primitive,
 input encoder, the kernel-facing environment plan) reasons about page-table state by FIELD NAME --
 `valid`, `attr_indx`, `ap`, `uxn`, ... -- and never by raw bit offset or magic mask. Add or change a
 descriptor bit here once and the rest of the stack follows.
 
-Pure and dependency-free (stdlib only) so the low-level config, the CE, and the sealer can all import it
-without a cycle. Two layouts are provided:
+Pure and dependency-free (stdlib only) so the low-level config, the CE, and the sealer can all
+import it without a cycle. Two layouts are provided:
 
   * `LEAF_LAYOUT`  -- a level-3 page descriptor (the leaf that maps a 4 KB page).
   * `TABLE_LAYOUT` -- a level 0-2 table descriptor (points at the next-level table).
 
-`fuzzable_by_default` marks the attribute fields whose value a decoy may vary out of the box; the output
-address / next-table address and the descriptor type are never in that set, so a decoy keeps mapping the
-same physical page through the same walk shape -- only attributes change.
+`fuzzable_by_default` marks the attribute fields whose value a decoy may vary out of the box; the
+output address / next-table address and the descriptor type are never in that set, so a decoy keeps
+mapping the same physical page through the same walk shape -- only attributes change.
 """
 from dataclasses import dataclass
 from typing import Dict, List, Sequence, Tuple
@@ -105,8 +105,8 @@ class PageTableDescriptor:
         return PageTableDescriptor(self.layout.field(name).insert(self.value, value), self.layout)
 
     def differs_only_in(self, other: "PageTableDescriptor", names: Sequence[str]) -> bool:
-        """True iff `self` and `other` agree on every bit outside the named fields -- the invariant a
-        decoy descriptor must satisfy (it may change only the allowed attribute fields)."""
+        """True iff `self` and `other` agree on every bit outside the named fields -- the invariant
+        a decoy descriptor must satisfy (it may change only the allowed attribute fields)."""
         allowed = self.layout.mask_for(names)
         return (self.value & ~allowed) == (other.value & ~allowed)
 
@@ -150,4 +150,5 @@ TABLE_LAYOUT = DescriptorLayout("table", [
 ])
 
 
-LAYOUTS: Dict[str, DescriptorLayout] = {LEAF_LAYOUT.name: LEAF_LAYOUT, TABLE_LAYOUT.name: TABLE_LAYOUT}
+LAYOUTS: Dict[str, DescriptorLayout] = {LEAF_LAYOUT.name: LEAF_LAYOUT,
+                                        TABLE_LAYOUT.name: TABLE_LAYOUT}

@@ -162,7 +162,8 @@ class CrossInputPrimingMixin(_MixinBase):
         if located is None:
             return None
         detecting, lane_a, lane_b = located
-        for prefix_lane, suffix_lane, prefix_from_first in ((lane_a, lane_b, True), (lane_b, lane_a, False)):
+        directions = ((lane_a, lane_b, True), (lane_b, lane_a, False))
+        for prefix_lane, suffix_lane, prefix_from_first in directions:
             finding = detector.find_leaking_pair(lanes[prefix_lane], lanes[suffix_lane],
                                                  detecting, prefix_from_first)
             if finding is not None:

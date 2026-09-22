@@ -661,10 +661,10 @@ class MteSealedTestCase(SealedTestCase):
 
 
 class SandboxSealedTestCase(SealedTestCase):
-    """Only the sandbox clamp -- no value seal, so genuine code == decoy code (there is no code decoy).
-    Used when the genuine/decoy difference lives entirely in the run environment (PTE fuzzing): the test
-    case still needs its accesses clamped into the sandbox and its object code assembled, but nothing is
-    sealed with a per-input value. resolve() needs no CE trace (there are no values to compute)."""
+    """Only the sandbox clamp -- no value seal, so genuine code == decoy code (no code decoy).
+    Used when the genuine/decoy difference lives entirely in the run environment (PTE fuzzing): the
+    test case still needs its accesses clamped and its object code assembled, but nothing is sealed
+    with a per-input value. resolve() needs no CE trace (there are no values to compute)."""
 
     def _insert_slots(self, data_sites) -> None:
         for inst, bb, _mem_reg, offset_subs, _base_preserved in data_sites:
@@ -887,7 +887,7 @@ class Sealer:
         tc = copy.deepcopy(test_case)
         sandbox, data_sites = self._walk.sandbox(tc)
         if not self._primitives:
-            # No code seal: only the sandbox clamp. The genuine/decoy difference (if any) is supplied by
+            # No code seal: only the sandbox clamp. The genuine/decoy difference (if any) comes
             # the environment axis (PTE fuzzing), not by code.
             return SandboxSealedTestCase(tc, self._trace_fn, self._assemble, sandbox, data_sites)
         if self._primitives == frozenset({"canon"}):

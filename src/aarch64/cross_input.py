@@ -121,8 +121,8 @@ def exponential_search(r_key: RKey, lo: int, hi: int) -> int:
 class CrossInputFinding:
     """Toggling input `leaking_pair`'s two ct-equal variants flips the readout of input `detecting_pair`,
     the rest of the sequence fixed. `chain` = [leaking_pair .. detecting_pair] is the self-contained
-    counterexample. `prefix_from_first` records which of the two lanes supplied the prefix: True = the
-    first lane before the leaking pair and the second lane from it on; False = the mirror."""
+    counterexample. `prefix_from_first` records which lane supplied the prefix: True = the first
+    lane before the leaking pair and the second from it on; False = the mirror."""
     leaking_pair: int
     detecting_pair: int
     chain: range
@@ -152,7 +152,8 @@ class GeneralizedPrimingDetector:
         assert len(lane_a) == len(lane_b), "the two lanes must have equal length"
         findings: dict = {}
         for detecting in range(1, len(lane_a)):
-            for base, toggle, prefix_from_first in ((lane_a, lane_b, True), (lane_b, lane_a, False)):
+            directions = ((lane_a, lane_b, True), (lane_b, lane_a, False))
+            for base, toggle, prefix_from_first in directions:
                 f = self.find_leaking_pair(base, toggle, detecting, prefix_from_first,
                                            exclude_self_dependence)
                 if f is not None:
@@ -182,7 +183,8 @@ class GeneralizedPrimingDetector:
             return None
         if not self._reverify(base, toggle, detecting, boundary):
             return None
-        return CrossInputFinding(boundary, detecting, range(boundary, detecting + 1), prefix_from_first)
+        chain = range(boundary, detecting + 1)
+        return CrossInputFinding(boundary, detecting, chain, prefix_from_first)
 
     def _probe(self, base: Sequence[Variant], toggle: Sequence[Variant],
                detecting: int, k: int, reps: int) -> Trace:

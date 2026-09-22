@@ -1,6 +1,6 @@
 """Transport tests for the PTE environment section over REIF (no hardware, no capstone):
 the per-variant EnvironmentPlan survives serialize/deserialize, the genuine variant ships NO PTE
-section (kernel keeps pristine PTEs) while a decoy does, and the difference between genuine and decoy
+section (kernel keeps pristine PTEs) while a decoy does, and the difference between genuine and
 is solely that section -- the code relocations are identical.
 
     python -m unittest tests.aarch64_tests.unit_pte_transport
@@ -26,7 +26,7 @@ class PteTransportTest(unittest.TestCase):
     def setUp(self):
         self.inp = Input(1)                 # zero-filled single-actor input is enough for transport
         self.decoy_plan = EnvironmentPlan(pte_overrides=(
-            PteOverride(2, LEVEL_LEAF, mask=0b1, value=0b0),        # clear valid on the spec-only page
+            PteOverride(2, LEVEL_LEAF, mask=0b1, value=0b0),        # clear valid (spec-only page)
             PteOverride(2, LEVEL_LEAF, mask=0xC0, value=0x40)))     # ap = 1
 
     def test_genuine_ships_no_pte_section(self):
@@ -46,7 +46,8 @@ class PteTransportTest(unittest.TestCase):
         # identical code relocations (the whole point: only the environment differs)
         self.assertEqual(genuine.code_reloc, decoy.code_reloc)
         # and the section sets differ by exactly the PTE section
-        self.assertEqual(_sections_present(decoy.serialize()) - _sections_present(genuine.serialize()),
+        added = _sections_present(decoy.serialize()) - _sections_present(genuine.serialize())
+        self.assertEqual(added,
                          {SEC_PTE_SETTINGS})
 
 
