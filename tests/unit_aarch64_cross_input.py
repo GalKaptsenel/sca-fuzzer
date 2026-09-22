@@ -14,7 +14,7 @@ from collections import namedtuple
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.aarch64.cross_input import (GeneralizedPrimingDetector,        # noqa: E402
-                                  linear_scan, exponential_search)
+                                     linear_scan, exponential_search)
 from src.analyser import MergedBitmapAnalyser, ChiSquaredAnalyser    # noqa: E402
 
 H = namedtuple("H", "raw")          # minimal trace-like object: just `.raw`
@@ -241,7 +241,9 @@ class TraceKeyTest(unittest.TestCase):
         # equality of the denoised bitmap key is, by construction. A statistical test would not be.
         sample = [H([0b100] * 200), H([0b010] * 3 + [0b100] * 197),
                   H([0b100] * 200), H([0b001] * 200)]
-        eq = lambda a, c: key(a) == key(c)
+
+        def eq(a, c):
+            return key(a) == key(c)
         for a in sample:
             self.assertTrue(eq(a, a))
             for c in sample:

@@ -1,25 +1,26 @@
 """
 File: AArch64 fuzzer
 """
-from typing import List, Generator
+from typing import List, Generator, Dict, Tuple, Optional, Sequence, TYPE_CHECKING
 from contextlib import contextmanager
 import copy
 
 from ..fuzzer import FuzzerGeneric, NoninterferenceFuzzer
-from ..interfaces import TestCase, Input, HardwareTracingError
+from ..interfaces import TestCase, Input, Violation, HardwareTracingError
 from ..analyser import MergedBitmapAnalyser, ChiSquaredAnalyser
 from ..util import STAT
 from ..config import CONF, ConfigException
-from .aarch64_executor import Aarch64Executor, pass_on_test_case
+from .aarch64_executor import Aarch64Executor, Aarch64LocalExecutor, pass_on_test_case
 from .aarch64_generator import Aarch64DsbSyPass
 from .cross_input import (GeneralizedPrimingDetector, CrossInputFinding, Localizer,
-                       linear_scan, exponential_search)
+                          linear_scan, exponential_search)
 from .boosted_lanes import lanes_of, detecting_position_and_lanes
 from .aarch64_kernel import LocalHWExecutor
 
 # Map cross_input_priming_localizer to the cross_input.py localizer strategy: "any" = galloping + bisection
 # (some leaking pair), "optimal" = linear scan (t_max, the largest leaking class).
-_CROSS_INPUT_PRIMING_LOCALIZERS: dict = {"any": exponential_search, "optimal": linear_scan}
+_CROSS_INPUT_PRIMING_LOCALIZERS: Dict[str, Localizer] = {
+    "any": exponential_search, "optimal": linear_scan}
 
 
 # ==================================================================================================
@@ -46,17 +47,21 @@ def create_fenced_test_case(test_case: TestCase) -> TestCase:
     return fenced
 
 
-def regime_controllable(executor: Aarch64Executor) -> bool:
+def regime_controllable(executor: Aarch64LocalExecutor) -> bool:
     """Cross-input priming needs local sysfs regime control (view_rotation / phr_flush / pinning). Only a
     local HW executor exposes it; a remote executor cannot apply the regime."""
     return isinstance(executor.device, LocalHWExecutor)
 
 
 @contextmanager
-def executor_regime(executor: Aarch64Executor, regime) -> Generator[None, None, None]:
+def executor_regime(executor: Aarch64LocalExecutor,
+                    regime: Sequence[Tuple[str, str]]) -> Generator[None, None, None]:
     """Apply a sysfs regime (a sequence of (name, value) pairs) to the executor for the duration of the
     `with` block, capturing the prior values and restoring them on exit."""
     dev = executor.device
+    if not isinstance(dev, LocalHWExecutor):
+        raise ConfigException("cross-input priming requires a local HW executor with sysfs regime "
+                              "control; set enable_cross_input_priming = False for remote.")
     saved = {name: dev._read_sysfs(name) for name, _ in regime}
     try:
         for name, value in regime:
@@ -70,7 +75,13 @@ def executor_regime(executor: Aarch64Executor, regime) -> Generator[None, None, 
 # ==================================================================================================
 # Fuzzer classes
 # ==================================================================================================
-class CrossInputPrimingMixin:
+if TYPE_CHECKING:                  # the mixin is only ever combined with a FuzzerGeneric subclass, so
+    _MixinBase = FuzzerGeneric     # tell the type checker (self.executor / LOG / super() resolve there);
+else:                              # at runtime it stays a pure mixin whose bases come from the subclass.
+    _MixinBase = object
+
+
+class CrossInputPrimingMixin(_MixinBase):
     """Cross-input priming (generalized priming): replace standard priming with a localization over the
     boosted lanes that finds the *leaking pair* -- an earlier ct-equal input whose microarchitectural
     residue surfaces as the *detecting pair*'s cache divergence. Shared by the regular fuzzer (boosted
@@ -79,14 +90,16 @@ class CrossInputPrimingMixin:
     selection, lane construction, the executor regime, and reporting). Subclasses set
     `_CROSS_INPUT_PRIMING_REGIME`. Off by default -> the subclass's standard priming (via super())."""
 
+    executor: Aarch64LocalExecutor
+
     # Default regime: reset the BPU/PHR ONCE per trace (post-fix phr_flush; see measurement.c) and keep
     # cross-input training within a trace (view_rotation off, so all inputs share one code view).
     # Captured and restored around the search so the surrounding fuzzing keeps its usual regime. The NI
     # fuzzer overrides this with the seal-lane regime.
-    _CROSS_INPUT_PRIMING_REGIME = (("enable_pre_run_flush", "0"), ("enable_view_rotation", "0"),
-                                   ("enable_phr_flush", "1"))
+    _CROSS_INPUT_PRIMING_REGIME: Tuple[Tuple[str, str], ...] = (
+        ("enable_pre_run_flush", "0"), ("enable_view_rotation", "0"), ("enable_phr_flush", "1"))
 
-    def _priming(self, violations: List, inputs: List[Input]) -> List:
+    def _priming(self, violations: List[Violation], inputs: List[Input]) -> List[Violation]:
         """When enable_cross_input_priming is set, REPLACE standard priming with the generalized-priming
         localization over boosted lanes. Priming asks "does the divergence follow the detecting pair's own
         input?"; this asks the strictly more general "which (earlier or own) ct-equal input causes it?" --
@@ -124,8 +137,9 @@ class CrossInputPrimingMixin:
                 self.LOG.warning("fuzzer", f"cross-input priming: hardware tracing failed: {e}")
         return []
 
-    def _make_cross_input_detector(self, reps: int, verify_reps: int,
-                                localizer: Localizer) -> GeneralizedPrimingDetector:
+    def _make_cross_input_detector(
+            self, reps: int, verify_reps: int,
+            localizer: Localizer) -> GeneralizedPrimingDetector:
         """The generalized-priming detector wired to this executor, with the production key/confirm seams
         (denoised-consensus key for the bisection; robust chi-squared for the re-verify) and the selected
         localizer strategy."""
@@ -137,8 +151,9 @@ class CrossInputPrimingMixin:
             confirm=lambda a, b: not robust.htraces_are_equivalent(a, b),
             reps=reps, verify_reps=verify_reps, localizer=localizer)
 
-    def _localize_boosted_violation(self, violation, lanes: List[list], n_orig: int,
-                                    detector: GeneralizedPrimingDetector):
+    def _localize_boosted_violation(self, violation: Violation, lanes: List[list], n_orig: int,
+                                    detector: GeneralizedPrimingDetector
+                                    ) -> Optional[Tuple[CrossInputFinding, int, int]]:
         """Focused localization of one flagged violation: find its detecting position and two diverging
         lanes, then run the toggle search on that lane pair from both bases (genuine- and decoy-prefix).
         Returns (finding, prefix_lane, suffix_lane) -- the lanes that hold the sequence before the leaking
@@ -154,7 +169,7 @@ class CrossInputPrimingMixin:
                 return finding, prefix_lane, suffix_lane
         return None
 
-    def _store_violation_artifact(self, test_case: TestCase, violation, path: str) -> str:
+    def _store_violation_artifact(self, test_case: TestCase, violation: Violation, path: str) -> str:
         """Extend the standard artifact: when the violation was localized by cross-input priming, append
         the two 'complex inputs' to report.txt so it reads on its own."""
         violation_dir = super()._store_violation_artifact(test_case, violation, path)
@@ -164,8 +179,9 @@ class CrossInputPrimingMixin:
                 f.write(self._cross_input_report_section(*residue))
         return violation_dir
 
-    def _cross_input_report_section(self, finding: CrossInputFinding, prefix_lane: int, suffix_lane: int,
-                                 n_orig: int) -> str:
+    def _cross_input_report_section(
+            self, finding: CrossInputFinding, prefix_lane: int, suffix_lane: int,
+            n_orig: int) -> str:
         """The counterexample as two sequences of input ids (the reduced 'complex inputs'): both are
         ct-equal (each position holds a member of the same input class), they differ ONLY across positions
         [leaking pair .. detecting pair], yet the detecting pair's hardware trace differs -- so an earlier
@@ -173,7 +189,10 @@ class CrossInputPrimingMixin:
         (ct-equal members) are listed explicitly so the two sequences are readable on their own."""
         lo, hi = finding.leaking_pair, finding.detecting_pair
         num_lanes = CONF.inputs_per_class
-        members = lambda p: [lane * n_orig + p for lane in range(num_lanes)]            # class p's ct-equal ids
+
+        def members(p):                                # class p's ct-equal input ids
+            return [lane * n_orig + p for lane in range(num_lanes)]
+
         seq_a = [prefix_lane * n_orig + p for p in range(hi + 1)]                       # all prefix lane
         seq_b = [(prefix_lane if p < lo else suffix_lane) * n_orig + p for p in range(hi + 1)]
         kind = "self-dependent (the detecting pair's own input)" if lo == hi \
@@ -195,8 +214,6 @@ class CrossInputPrimingMixin:
 
 
 class Aarch64Fuzzer(CrossInputPrimingMixin, FuzzerGeneric):
-    executor: Aarch64Executor
-
     # AArch64 saves inputs as the executor-ready REIF container (flags already in PSTATE form).
     input_file_extension: str = "reif"
 
