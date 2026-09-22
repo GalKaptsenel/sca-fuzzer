@@ -121,12 +121,12 @@ def exponential_search(r_key: RKey, lo: int, hi: int) -> int:
 class CrossInputFinding:
     """Toggling input `leaking_pair`'s two ct-equal variants flips the readout of input `detecting_pair`,
     the rest of the sequence fixed. `chain` = [leaking_pair .. detecting_pair] is the self-contained
-    counterexample. `prefix_genuine` is the base the search swept from: True = genuine before the leaking
-    pair and decoy from it on; False = the mirror (decoy before, genuine from it on)."""
+    counterexample. `prefix_from_first` records which of the two lanes supplied the prefix: True = the
+    first lane before the leaking pair and the second lane from it on; False = the mirror."""
     leaking_pair: int
     detecting_pair: int
     chain: range
-    prefix_genuine: bool
+    prefix_from_first: bool
 
 
 class GeneralizedPrimingDetector:
@@ -141,25 +141,26 @@ class GeneralizedPrimingDetector:
         self._verify_reps = verify_reps
         self._localizer = localizer
 
-    def detect(self, genuine: Sequence[Variant], bad: Sequence[Variant],
+    def detect(self, lane_a: Sequence[Variant], lane_b: Sequence[Variant],
                exclude_self_dependence: bool = False) -> List[CrossInputFinding]:
-        """Scan every input as a detecting pair. For each, search from BOTH bases -- genuine-prefix and
-        decoy-prefix -- mirroring priming's symmetric swap: the divergence may be caused by the prefix
-        being good OR bad. De-duplicate by (leaking pair, detecting pair). A self-dependent finding
-        (leaking pair == detecting pair -- the pair leaks about itself) is a valid result by default;
-        pass exclude_self_dependence to drop it and keep only strictly cross-input leaks."""
-        assert len(genuine) == len(bad), "the two lanes must have equal length"
+        """Scan every input as a detecting pair. For each, sweep the prefix from BOTH lanes as the base
+        (a->b and b->a) -- priming's symmetric swap: the divergence may be caused by either lane's
+        prefix. Neither lane is assumed to be a genuine baseline; they are simply the two lanes the
+        detected inputs belong to. De-duplicate by (leaking pair, detecting pair). A self-dependent
+        finding (leaking pair == detecting pair -- the pair leaks about itself) is a valid result by
+        default; pass exclude_self_dependence to drop it and keep only strictly cross-input leaks."""
+        assert len(lane_a) == len(lane_b), "the two lanes must have equal length"
         findings: dict = {}
-        for detecting in range(1, len(genuine)):
-            for base, toggle, prefix_genuine in ((genuine, bad, True), (bad, genuine, False)):
-                f = self.find_leaking_pair(base, toggle, detecting, prefix_genuine,
+        for detecting in range(1, len(lane_a)):
+            for base, toggle, prefix_from_first in ((lane_a, lane_b, True), (lane_b, lane_a, False)):
+                f = self.find_leaking_pair(base, toggle, detecting, prefix_from_first,
                                            exclude_self_dependence)
                 if f is not None:
                     findings.setdefault((f.leaking_pair, f.detecting_pair), f)
         return list(findings.values())
 
     def find_leaking_pair(self, base: Sequence[Variant], toggle: Sequence[Variant], detecting: int,
-                          prefix_genuine: bool = True,
+                          prefix_from_first: bool = True,
                           exclude_self_dependence: bool = False) -> Optional[CrossInputFinding]:
         """Locate the leaking pair for `detecting`, sweeping the prefix from `base` toward `toggle` with the
         injected localizer. Each split is measured at most once (memoized), so r_key is a stable value the
@@ -181,7 +182,7 @@ class GeneralizedPrimingDetector:
             return None
         if not self._reverify(base, toggle, detecting, boundary):
             return None
-        return CrossInputFinding(boundary, detecting, range(boundary, detecting + 1), prefix_genuine)
+        return CrossInputFinding(boundary, detecting, range(boundary, detecting + 1), prefix_from_first)
 
     def _probe(self, base: Sequence[Variant], toggle: Sequence[Variant],
                detecting: int, k: int, reps: int) -> Trace:

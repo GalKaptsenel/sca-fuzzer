@@ -103,12 +103,12 @@ class ChainOracle:
         return [H([BG | val] * reps) for _ in batch]
 
 
-def valid_tip(oracle, detecting, k, prefix_genuine=True, reps=200):
+def valid_tip(oracle, detecting, k, prefix_from_first=True, reps=200):
     """A leaking pair is valid iff toggling slot k flips the detecting pair's readout, in the direction
     the finding was made (genuine-prefix base, or the mirror decoy-prefix base)."""
     det = detector(oracle.measure)
     g, b = lanes(detecting + 1)
-    base, toggle = (g, b) if prefix_genuine else (b, g)
+    base, toggle = (g, b) if prefix_from_first else (b, g)
     return key(det._probe(base, toggle, detecting, k, reps)) != key(det._probe(base, toggle, detecting, k + 1, reps))
 
 
@@ -119,7 +119,7 @@ class DetectorTest(unittest.TestCase):
         findings = detector(oracle.measure).detect(*lanes(4))
         # the genuine-prefix base leaks every detecting pair; with distinct targets the readout changes at
         # every class, so the leaking pair the default localizer returns is the most-recent trainer d-1.
-        gp = [f for f in findings if f.prefix_genuine]
+        gp = [f for f in findings if f.prefix_from_first]
         self.assertEqual([f.detecting_pair for f in gp], [1, 2, 3])
         self.assertTrue(all(f.leaking_pair == f.detecting_pair - 1 for f in gp))
         for f in gp:
@@ -127,7 +127,7 @@ class DetectorTest(unittest.TestCase):
         # every reported finding is a genuine boundary (both bases are searched; identical (leaking,
         # detecting) results from the two bases are de-duplicated to a single report).
         for f in findings:
-            self.assertTrue(valid_tip(oracle, f.detecting_pair, f.leaking_pair, f.prefix_genuine))
+            self.assertTrue(valid_tip(oracle, f.detecting_pair, f.leaking_pair, f.prefix_from_first))
 
     def test_inert_prefix_is_skipped(self):
         oracle = MostRecentWinsBTB({2: 1 << 2})               # slots 0,1 inert; 2 trains
@@ -152,7 +152,7 @@ class DetectorTest(unittest.TestCase):
     def test_same_target_masking_still_valid(self):
         oracle = MostRecentWinsBTB({0: 1 << 2, 1: 1 << 1, 2: 1 << 2})   # slots 0,2 share a target
         f = next(x for x in detector(oracle.measure).detect(*lanes(4)) if x.detecting_pair == 3)
-        self.assertTrue(valid_tip(oracle, 3, f.leaking_pair, f.prefix_genuine))
+        self.assertTrue(valid_tip(oracle, 3, f.leaking_pair, f.prefix_from_first))
 
     def test_multi_contributor_returns_one_valid_pair(self):
         # Two independent contributors into detecting pair 15. A single search returns ONE valid
@@ -160,7 +160,7 @@ class DetectorTest(unittest.TestCase):
         oracle = MostRecentWinsBTB({6: 1 << 3, 14: 1 << 4})
         f = next(x for x in detector(oracle.measure).detect(*lanes(16)) if x.detecting_pair == 15)
         self.assertIn(f.leaking_pair, (6, 14))
-        self.assertTrue(valid_tip(oracle, 15, f.leaking_pair, f.prefix_genuine))
+        self.assertTrue(valid_tip(oracle, 15, f.leaking_pair, f.prefix_from_first))
 
     def test_returned_pairs_are_always_valid(self):
         # Randomized: over many most-recent-wins configs, EVERY reported leaking pair must be a genuine
@@ -172,7 +172,7 @@ class DetectorTest(unittest.TestCase):
             slots = rng.sample(range(n - 1), rng.randint(1, min(8, n - 1)))
             oracle = MostRecentWinsBTB({s: rng.choice(symbols) for s in slots})
             for f in detector(oracle.measure).detect(*lanes(n)):
-                self.assertTrue(valid_tip(oracle, f.detecting_pair, f.leaking_pair, f.prefix_genuine))
+                self.assertTrue(valid_tip(oracle, f.detecting_pair, f.leaking_pair, f.prefix_from_first))
 
     def test_history_fold_endpoint_coincidence_is_missed_but_a_valid_witness_exists(self):
         # Documented most-recent-wins scope: for a history-folded predictor the two endpoints can
@@ -227,7 +227,7 @@ class ReverifyTest(unittest.TestCase):
         g, b = lanes(2)
         f = detector(m.measure).find_leaking_pair(g, b, 1)
         self.assertEqual((f.leaking_pair, f.detecting_pair), (0, 1))
-        self.assertTrue(f.prefix_genuine)
+        self.assertTrue(f.prefix_from_first)
 
 
 class TraceKeyTest(unittest.TestCase):

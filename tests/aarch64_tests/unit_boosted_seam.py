@@ -25,15 +25,15 @@ def violation(groups):
 class MockDetector:
     """Records each find_leaking_pair call; returns a scripted finding for the base it is told to hit."""
 
-    def __init__(self, hit_on_prefix_genuine=None):
-        self.hit_on = hit_on_prefix_genuine       # None -> never finds; True/False -> finds on that base
+    def __init__(self, hit_on_prefix_from_first=None):
+        self.hit_on = hit_on_prefix_from_first       # None -> never finds; True/False -> finds on that base
         self.calls = []
 
-    def find_leaking_pair(self, base, toggle, detecting, prefix_genuine=True,
+    def find_leaking_pair(self, base, toggle, detecting, prefix_from_first=True,
                           exclude_self_dependence=False):
-        self.calls.append((base, toggle, detecting, prefix_genuine))
-        if self.hit_on is not None and prefix_genuine == self.hit_on:
-            return CrossInputFinding(0, detecting, range(0, detecting + 1), prefix_genuine)
+        self.calls.append((base, toggle, detecting, prefix_from_first))
+        if self.hit_on is not None and prefix_from_first == self.hit_on:
+            return CrossInputFinding(0, detecting, range(0, detecting + 1), prefix_from_first)
         return None
 
 
@@ -48,31 +48,31 @@ class LocalizeSeamTest(unittest.TestCase):
         return self.fz._localize_boosted_violation(violation(groups), self.lanes, self.n_orig, det)
 
     def test_genuine_prefix_hit_uses_right_position_and_lane_pair(self):
-        det = MockDetector(hit_on_prefix_genuine=True)
+        det = MockDetector(hit_on_prefix_from_first=True)
         # class j=2 diverged between lane 0 (id 2) and lane 1 (id 5).
         f, prefix_lane, suffix_lane = self._localize(det, [[M(2)], [M(5)]])
-        self.assertEqual((f.leaking_pair, f.detecting_pair, f.prefix_genuine), (0, 2, True))
+        self.assertEqual((f.leaking_pair, f.detecting_pair, f.prefix_from_first), (0, 2, True))
         self.assertEqual((prefix_lane, suffix_lane), (0, 1))      # prefix=lane0, suffix=lane1
         self.assertEqual(len(det.calls), 1)                       # found on the first base, no fall-through
-        base, toggle, detecting, prefix_genuine = det.calls[0]
-        self.assertEqual((base, toggle, detecting, prefix_genuine),
+        base, toggle, detecting, prefix_from_first = det.calls[0]
+        self.assertEqual((base, toggle, detecting, prefix_from_first),
                          (self.lanes[0], self.lanes[1], 2, True))  # base=lane0, toggle=lane1, detecting=2
 
     def test_falls_through_to_decoy_prefix_base(self):
-        det = MockDetector(hit_on_prefix_genuine=False)
+        det = MockDetector(hit_on_prefix_from_first=False)
         f, prefix_lane, suffix_lane = self._localize(det, [[M(1)], [M(4)]])   # class j=1, lanes 0 and 1
-        self.assertEqual((f.detecting_pair, f.prefix_genuine), (1, False))
+        self.assertEqual((f.detecting_pair, f.prefix_from_first), (1, False))
         self.assertEqual((prefix_lane, suffix_lane), (1, 0))      # decoy-prefix: lanes swapped
         self.assertEqual(len(det.calls), 2)                       # genuine base missed, decoy base hit
         self.assertEqual(det.calls[1][:3], (self.lanes[1], self.lanes[0], 1))  # swapped base/toggle
 
     def test_no_finding_returns_none(self):
-        det = MockDetector(hit_on_prefix_genuine=None)
+        det = MockDetector(hit_on_prefix_from_first=None)
         self.assertIsNone(self._localize(det, [[M(2)], [M(5)]]))
         self.assertEqual(len(det.calls), 2)                       # both bases tried
 
     def test_unlocalizable_violation_never_probes(self):
-        det = MockDetector(hit_on_prefix_genuine=True)
+        det = MockDetector(hit_on_prefix_from_first=True)
         self.assertIsNone(self._localize(det, [[M(2), M(5)]]))    # single group -> not localizable
         self.assertEqual(det.calls, [])                           # detector never called
 
