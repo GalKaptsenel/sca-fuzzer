@@ -65,6 +65,16 @@ class StatisticsCls:
     fp_priming: int = 0
     hw_tracing_errors: int = 0
 
+    # Super-batch (windowed bulk tier) live progress. sb_window_size == 0 means the classic per-test
+    # case flow; > 1 means the bulk tier is windowing that many test cases into one device batch.
+    sb_window_size: int = 0     # units per window
+    sb_window_built: int = 0    # test cases generated into the window currently being filled
+    sb_boosting: int = 0        # test cases CE-boosted so far in the current window (0 when not boosting)
+    sb_measuring: int = 0       # units in flight in the batch being measured now (0 when not measuring)
+    sb_measured: int = 0        # cumulative test cases measured through the batch tier
+    sb_windows_done: int = 0    # completed windows
+    sb_candidates: int = 0      # cumulative candidates the bulk tier flagged for the full pipeline
+
     # Implementation of Borg pattern
     def __init__(self) -> None:
         self.__dict__ = self._borg_shared_state
@@ -102,14 +112,34 @@ class StatisticsCls:
     def get_brief(self, elapsed: float = 0.0):
         if self.test_cases == 0:
             return ""
-        rate = self.test_cases / elapsed if elapsed > 0 else 0.0
-        # TEMP(perf-metrics): remove — traces/s in the live brief
-        trace_rate = self.num_traces / elapsed if elapsed > 0 else 0.0
-        filtered = self.fast_path + self.spec_filter + self.observ_filter
         if self.violations > 0:
             viol = f"{RED}⚠ {self.violations} violations{COL_RESET}"
         else:
             viol = "0 violations"
+
+        # Windowed bulk tier: the plain test-case counter freezes during the multi-minute batch
+        # round-trip (all generated, none measured yet), so show the window phase + how many test cases
+        # have actually run vs are pending, not just the generation counter.
+        if self.sb_window_size > 1:
+            if self.sb_measuring:
+                phase, pending = f"measuring {self.sb_measuring} units", self.sb_measuring
+            elif self.sb_boosting:
+                phase = f"boosting {self.sb_boosting}/{self.sb_window_size}"
+                pending = self.sb_window_size - self.sb_boosting
+            elif self.sb_window_built >= self.sb_window_size:
+                phase, pending = "processing candidates", 0
+            else:
+                phase = f"building {self.sb_window_built}/{self.sb_window_size}"
+                pending = self.sb_window_size - self.sb_window_built
+            ran_rate = self.sb_measured / elapsed if elapsed > 0 else 0.0
+            return (f"{CONF.executor_mode}  {phase} · {self.sb_measured} ran · {pending} pending · "
+                    f"{self.sb_candidates} cand · {self.sb_windows_done} win · "
+                    f"{_fmt_duration(elapsed)} · {ran_rate:.2f} tc/s · {viol}")
+
+        rate = self.test_cases / elapsed if elapsed > 0 else 0.0
+        # TEMP(perf-metrics): remove — traces/s in the live brief
+        trace_rate = self.num_traces / elapsed if elapsed > 0 else 0.0
+        filtered = self.fast_path + self.spec_filter + self.observ_filter
         return (f"{CONF.executor_mode}  {self.test_cases} tc · "
                 f"{_fmt_duration(elapsed)} · {rate:.2f} tc/s · {trace_rate:.1f} traces/s · "
                 f"{filtered} filtered · {viol}")
@@ -330,6 +360,18 @@ class Logger:
             self.dbg(
                 "fuzzer", f"Time: {datetime.today()} | "
                 f" Duration: {(datetime.today() - self.start_time).total_seconds()} seconds")
+
+    def fuzzer_progress(self) -> None:
+        """Refresh the live progress line outside a round boundary. The super-batch build and measure
+        phases run for a long time without starting a new round, so nothing else updates the display —
+        without this the line freezes mid-window (the misleading "stuck at tc 99")."""
+        if not self.info or STAT.test_cases == 0:
+            return
+        if self._dashboard_phase("running"):
+            return
+        elapsed = (datetime.today() - self.start_time).total_seconds()
+        self.msg = "\r⟳ " + STAT.get_brief(elapsed)
+        print(self.msg + CLR_EOL, end=self.line_ending, flush=True)
 
     def fuzzer_priming(self, num_violations: int):
         if self.info and not self._dashboard_phase(f"priming {num_violations}",

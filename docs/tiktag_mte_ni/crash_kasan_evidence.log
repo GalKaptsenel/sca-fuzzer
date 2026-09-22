@@ -1,0 +1,113 @@
+==================== CRASH #1  rc=1  Wed Sep  2 18:34:11 UTC 2026 ====================
+-- campaign context at crash (last progress line) --
+F+R  99 tc · 0s · 133.36 tc/s · 0.0 traces/s · 0 filtered · 0 violations[K
+-- FULL traceback (this run) --
+    return decode_response(response)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gal_k_1_1998/sca-fuzzer/src/aarch64/aarch64_batch.py", line 99, in decode_response
+    raise ValueError("not a batch response (bad magic)")
+ValueError: not a batch response (bad magic)
+
+========================================================================
+[PYTHON CRASH] 2026-09-02T18:34:09.313912
+========================================================================
+Traceback (most recent call last):
+  File "/home/gal_k_1_1998/sca-fuzzer/revizor.py", line 21, in <module>
+    exit_code = main()
+                ^^^^^^
+  File "/home/gal_k_1_1998/sca-fuzzer/src/cli.py", line 481, in main
+    exit_code = _run_with_profiler(_run_fuzzing) if args.profile else _run_fuzzing()
+                                                                      ^^^^^^^^^^^^^^
+  File "/home/gal_k_1_1998/sca-fuzzer/src/cli.py", line 477, in _run_fuzzing
+    return fuzzer.start_random(args.num_test_cases, args.num_inputs, args.timeout,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gal_k_1_1998/sca-fuzzer/src/fuzzer.py", line 120, in start_random
+    return self._start(num_test_cases, num_inputs, timeout, nonstop, save_violations)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gal_k_1_1998/sca-fuzzer/src/fuzzer.py", line 181, in _start
+    candidates = self._bulk_filter_candidates(window) if windowed else window
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gal_k_1_1998/sca-fuzzer/src/fuzzer.py", line 236, in _bulk_filter_candidates
+    htraces_per_tc = self.executor.trace_batch(units, n_reps)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gal_k_1_1998/sca-fuzzer/src/aarch64/aarch64_executor.py", line 383, in trace_batch
+    per_unit = self.device.run_batch(units, n_reps)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gal_k_1_1998/sca-fuzzer/src/aarch64/aarch64_kernel.py", line 506, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gal_k_1_1998/sca-fuzzer/src/aarch64/aarch64_kernel.py", line 609, in run_batch
+    return decode_response(response)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gal_k_1_1998/sca-fuzzer/src/aarch64/aarch64_batch.py", line 99, in decode_response
+    raise ValueError("not a batch response (bad magic)")
+ValueError: not a batch response (bad magic)
+-- error-line summary --
+    return fuzzer.start_random(args.num_test_cases, args.num_inputs, args.timeout,
+    return self._start(num_test_cases, num_inputs, timeout, nonstop, save_violations)
+    raise ValueError("not a batch response (bad magic)")
+ValueError: not a batch response (bad magic)
+    return fuzzer.start_random(args.num_test_cases, args.num_inputs, args.timeout,
+    return self._start(num_test_cases, num_inputs, timeout, nonstop, save_violations)
+    raise ValueError("not a batch response (bad magic)")
+ValueError: not a batch response (bad magic)
+-- device: module + /dev/executor --
+revizor_executor      163840  0 
+crw-rw-rw- 1 root root 486,   0 2024-11-05 03:23 /dev/executor
+-- device: input-id + num inputs loaded --
+Command number: 3
+Number Of Inputs: 0
+-- device: sysfs --
+system/measurement_supported=1
+
+system/abi_version=1
+
+print_sandbox_base=ffffff8864da1000
+
+-- dmesg: executor/error lines (last 25) --
+[28659.818288] [    C6] The buggy address belongs to the physical page:
+[28659.818427] [    C6] Memory state around the buggy address:
+[29127.165640] [  T509] type=1400 audit(1730769418.403:423): avc:  denied  { ioctl } for  comm="executor_userla" path="/dev/executor" dev="tmpfs" ino=1818 ioctlcmd=0x7201 scontext=u:r:shell:s0 tcontext=u:object_r:device:s0 tclass=chr_file permissive=1
+[29131.373003] [  T509] type=1400 audit(1730769422.611:424): avc:  denied  { read write } for  comm="executor_userla" name="executor" dev="tmpfs" ino=1818 scontext=u:r:shell:s0 tcontext=u:object_r:device:s0 tclass=chr_file permissive=1
+[29131.373291] [  T509] type=1400 audit(1730769422.611:425): avc:  denied  { open } for  comm="executor_userla" path="/dev/executor" dev="tmpfs" ino=1818 scontext=u:r:shell:s0 tcontext=u:object_r:device:s0 tclass=chr_file permissive=1
+[29527.569368] [ T4461] executor: executor is being unloaded.
+[29527.571854] [ T4461] executor: Unregistered device number MAJOR: 486, MINOR: 0 and deleted cdev
+[29527.601990] [ T4462] executor: Starting running executor kernel module init
+[29527.605320] [ T4462] executor: kallsyms_lookup_name_fn = (kallsyms_lookup_name_t)kprobe_trick("kallsyms_lookup_name") = ffffffd392e73ed4
+[29527.605448] [ T4462] executor: set_memory_x_fn = (set_memory_t)kallsyms_lookup_name_fn("set_memory_x") = ffffffd392ca80f4
+[29527.605548] [ T4462] executor: set_memory_nx_fn = (set_memory_t)kallsyms_lookup_name_fn("set_memory_nx") = ffffffd392ca80d8
+[29527.605634] [ T4462] executor: set_memory_rw_fn = (set_memory_t)kallsyms_lookup_name_fn("set_memory_rw") = ffffffd392ca80bc
+[29527.605711] [ T4462] executor: set_memory_ro_fn = (set_memory_t)kallsyms_lookup_name_fn("set_memory_ro") = ffffffd392ca7e08
+[29527.630361] [ T4462] executor: init_mm_ptr = (struct mm_struct *)kallsyms_lookup_name_fn("init_mm") = ffffffd3953fb468
+[29527.633957] [ T4462] executor: Registered device number MAJOR: 486, MINOR: 0 and created cdev
+[29527.633968] [ T4462] executor: Loaded Successfully
+[29546.220387] [ T4597] executor: Pinned execution to CPU 6
+[29745.579667] [  T509] type=1400 audit(1730770036.815:426): avc:  denied  { ioctl } for  comm="executor_userla" path="/dev/executor" dev="tmpfs" ino=1819 ioctlcmd=0x7201 scontext=u:r:shell:s0 tcontext=u:object_r:device:s0 tclass=chr_file permissive=1
+[29745.637510] [    C6] BUG: KASAN: invalid-access in 0xffffffc0221cd2c8
+[29745.637815] [    C6] The buggy address belongs to the physical page:
+[29745.637979] [    C6] Memory state around the buggy address:
+[29747.425070] [ T4882] executor: In order to trace, please load inputs and test case.
+[29750.887738] [  T509] type=1400 audit(1730770042.127:427): avc:  denied  { read write } for  comm="executor_userla" name="executor" dev="tmpfs" ino=1819 scontext=u:r:shell:s0 tcontext=u:object_r:device:s0 tclass=chr_file permissive=1
+[29750.888210] [  T509] type=1400 audit(1730770042.127:428): avc:  denied  { open } for  comm="executor_userla" path="/dev/executor" dev="tmpfs" ino=1819 scontext=u:r:shell:s0 tcontext=u:object_r:device:s0 tclass=chr_file permissive=1
+[29751.652616] [  T509] type=1400 audit(1730770042.891:430): avc:  denied  { open } for  comm="cat" path="/sys/executor/system/measurement_supported" dev="sysfs" ino=177227 scontext=u:r:shell:s0 tcontext=u:object_r:sysfs:s0 tclass=file permissive=1
+-- dmesg: raw tail (last 12) --
+[29745.638019] [    C6]  ffffff8864da0f00: ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
+[29745.638036] [    C6] >ffffff8864da1000: f6 f6 f6 f6 f6 f6 f6 f6 f6 f6 f6 f6 f6 f6 f6 f6
+[29745.638049] [    C6]                    ^
+[29745.638070] [    C6]  ffffff8864da1100: f6 f6 f6 f6 f6 f6 f6 f6 f6 f6 f6 f6 f6 f6 f6 f6
+[29745.638083] [    C6]  ffffff8864da1200: f6 f6 f6 f6 f6 f6 f6 f6 f6 f6 f6 f6 f6 f6 f6 f6
+[29745.638137] [    C6] ==================================================================
+[29747.425070] [ T4882] executor: In order to trace, please load inputs and test case.
+[29750.887738] [  T509] type=1400 audit(1730770042.127:427): avc:  denied  { read write } for  comm="executor_userla" name="executor" dev="tmpfs" ino=1819 scontext=u:r:shell:s0 tcontext=u:object_r:device:s0 tclass=chr_file permissive=1
+[29750.888210] [  T509] type=1400 audit(1730770042.127:428): avc:  denied  { open } for  comm="executor_userla" path="/dev/executor" dev="tmpfs" ino=1819 scontext=u:r:shell:s0 tcontext=u:object_r:device:s0 tclass=chr_file permissive=1
+[29751.652139] [  T509] type=1400 audit(1730770042.891:429): avc:  denied  { read } for  comm="cat" name="measurement_supported" dev="sysfs" ino=177227 scontext=u:r:shell:s0 tcontext=u:object_r:sysfs:s0 tclass=file permissive=1
+[29751.652616] [  T509] type=1400 audit(1730770042.891:430): avc:  denied  { open } for  comm="cat" path="/sys/executor/system/measurement_supported" dev="sysfs" ino=177227 scontext=u:r:shell:s0 tcontext=u:object_r:sysfs:s0 tclass=file permissive=1
+[29752.539348] [  T509] type=1400 audit(1730770043.779:431): avc:  denied  { syslog_read } for  comm="dmesg" scontext=u:r:shell:s0 tcontext=u:r:kernel:s0 tclass=system permissive=1
+==================== END CRASH #1 ====================
+
+
+==== REPRODUCING SEEDS (KASAN invalid-access / bad-magic) ====
+core: cpu6 (A715), superbatch_size=100 (trips window 1 fast)
+program_generator_seed=212904  input_gen_seed=939371555   (crashed 18:30)
+program_generator_seed=916041  input_gen_seed=3017136019  (crashed 18:34)
+repro config: docs/tiktag_mte_ni/config_mte_kasan_repro.yml

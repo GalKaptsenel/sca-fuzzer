@@ -1,0 +1,30 @@
+
+WARNING: [fuzzer] Running in non-interference mode.
+violation-260902-154155 suspect inp0, sweep x4 (MATCH delta=7) leak=[36, 37, 38, 39] reps=500x6
+  repeat 1/6
+  repeat 2/6
+  repeat 3/6
+  repeat 4/6
+  repeat 5/6
+  repeat 6/6
+
+delta match?  s36  s37  s38  s39   sum
+  0  mismis  0.07  0.04  0.07  0.03   0.21
+  1  mismis  0.05  0.02  0.05  0.02   0.14
+  2  mismis  0.08  0.07  0.09  0.07   0.32
+  3  mismis  0.07  0.05  0.05  0.04   0.21
+  4  mismis  0.07  0.05  0.04  0.03   0.19
+  5  mismis  0.08  0.05  0.04  0.04   0.20
+  6  mismis  0.08  0.08  0.07  0.05   0.29
+  7  MATCH   0.09  0.04  0.05  0.03   0.21
+  8  mismis  0.06  0.04  0.04  0.03   0.17
+  9  mismis  0.09  0.06  0.08  0.07   0.29
+ 10  mismis  0.09  0.07  0.06  0.05   0.27
+ 11  mismis  0.05  0.06  0.05  0.02   0.18
+ 12  mismis  0.08  0.07  0.07  0.02   0.24
+ 13  mismis  0.05  0.06  0.05  0.03   0.19
+ 14  mismis  0.08  0.08  0.09  0.06   0.30
+ 15  mismis  0.05  0.03  0.03  0.03   0.14
+
+MATCH sum=0.21   MISMATCH mean=0.22 min=0.14 max=0.32
+VERDICT: GENUINE tag leak iff MATCH sum is clearly ABOVE every mismatch (beyond repeat jitter); else prefetcher/measurement NOISE.

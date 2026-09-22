@@ -55,13 +55,28 @@ def _reg_value(cpu, name: str) -> int:
 
 def mte_tag_store_effect(ite) -> Optional[Tuple[int, int, int]]:
     """If ite is an STG-family tag store, return (addr, tag, n_granules); else None. STG writes the
-    allocation TAG of the granule at the base register's address (not data memory) — the CE flags no
-    memory access and exposes no effective address, so the granule address (base + disp) and the tag
-    source register come from capstone's structured operands. The tag is the logical tag of Xt."""
+    allocation TAG of the granule its address covers (not data memory); the tag is the logical tag of
+    Xt. The CE logs post-hook state, so a writeback form's base register is ALREADY incremented in the
+    trace (mte_emulator_hook writes it back before the entry is logged). Recover the access address
+    from the addressing mode (imm9<<4, sign-extended) so pre/post-index land on the right granule:
+      signed offset (mode 10): no writeback,      addr = base + off
+      pre-index     (mode 11): base holds Xn+off,  addr = base        (the writeback target == EA)
+      post-index    (mode 01): base holds Xn+off,  addr = base - off  (EA is the pre-writeback Xn)."""
     dec = decode_tag_store(ite.cpu.encoding, ite.cpu.pc)
     if dec is None:
         return None
-    mn, xt, base, disp = dec
-    return _reg_value(ite.cpu, base) + disp, (_reg_value(ite.cpu, xt) >> 56) & 0xF, _MTE_TAG_STORES[mn]
+    mn, xt, base, _ = dec
+    enc = ite.cpu.encoding
+    imm9 = (enc >> 12) & 0x1FF
+    off = (imm9 - 0x200 if imm9 & 0x100 else imm9) * MTE_GRANULE
+    mode = (enc >> 10) & 0x3
+    base_val = _reg_value(ite.cpu, base)
+    if mode == 0b01:
+        addr = base_val - off
+    elif mode == 0b11:
+        addr = base_val
+    else:
+        addr = base_val + off
+    return addr, (_reg_value(ite.cpu, xt) >> 56) & 0xF, _MTE_TAG_STORES[mn]
 
 

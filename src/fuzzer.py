@@ -166,6 +166,7 @@ class FuzzerGeneric(Fuzzer):
         windowed = (CONF.superbatch_size > 1 and hasattr(self.executor, "trace_batch")
                     and self._supports_fast_boosting())
         window_size = CONF.superbatch_size if windowed else 1
+        STAT.sb_window_size = window_size if windowed else 0   # drives the windowed live-progress brief
 
         i = 0
         while i < num_test_cases:
@@ -179,12 +180,14 @@ class FuzzerGeneric(Fuzzer):
 
             # Fill a window with useful test cases (generation + filtering are per test case)
             window: List[Tuple[TestCase, List[Input]]] = []
+            STAT.sb_window_built = 0
             while len(window) < window_size and i < num_test_cases:
                 self.LOG.fuzzer_start_round(i)
                 i += 1
                 prepared = self._prepare_test_case(num_inputs)
                 if prepared is not None:
                     window.append(prepared)
+                STAT.sb_window_built = len(window)
 
             # Bulk tier flags the candidates (non-candidates finish here); classic mode passes all
             # test cases straight through.
@@ -237,13 +240,39 @@ class FuzzerGeneric(Fuzzer):
 
         units = []
         contexts = []
-        for test_case, inputs in window:
+        for k, (test_case, inputs) in enumerate(window):
+            STAT.sb_boosting = k + 1   # CE-boosting a whole window is CPU-heavy; keep the line moving
+            self.LOG.fuzzer_progress()
             self.executor.load_test_case(test_case)
             boosted, ctraces = self._boost_inputs(inputs, start_nesting)
+            if not boosted:
+                # No decoy-eligible inputs -> the test case is not non-interference-testable. Finish it
+                # here instead of sending a 0-input unit: the device's batch TRACE rejects an empty unit
+                # with -EINVAL ("unit N measurement failed" -> a malformed batch response). This mirrors
+                # the classic path, where trace_test_case guards the empty case.
+                STAT.fast_path += 1
+                continue
             units.append(self.executor.make_trace_unit(boosted))
             contexts.append((test_case, inputs, boosted, ctraces * CONF.inputs_per_class))
 
-        htraces_per_tc = self.executor.trace_batch(units, n_reps)
+        STAT.sb_boosting = 0
+        STAT.sb_measuring = len(units)   # units now in flight in one device batch (drives the brief)
+        self.LOG.fuzzer_progress()
+        try:
+            htraces_per_tc = self.executor.trace_batch(units, n_reps)
+        except HardwareTracingError as e:
+            # The classic path skips a test case whose measurement fails; the bulk path measures a whole
+            # window at once, so a batch failure would otherwise crash the campaign. Route every test
+            # case in the window to the robust per-test-case path (fuzzing_round) instead of dropping
+            # them, matching the classic path's resilience without losing coverage.
+            STAT.hw_tracing_errors += 1
+            STAT.sb_measuring = 0
+            self.LOG.warning("fuzzer", f"batch tracing failed, routing window to the per-test-case "
+                                       f"path: {e}")
+            return [(tc, inputs) for tc, inputs, _, _ in contexts]
+        STAT.sb_measuring = 0
+        STAT.sb_measured += len(units)
+        STAT.sb_windows_done += 1
 
         candidates: List[Tuple[TestCase, List[Input]]] = []
         for (test_case, inputs, boosted, ctraces), htraces in zip(contexts, htraces_per_tc):
@@ -253,6 +282,8 @@ class FuzzerGeneric(Fuzzer):
                 candidates.append((test_case, inputs))
             else:
                 STAT.fast_path += 1
+        STAT.sb_candidates += len(candidates)
+        self.LOG.fuzzer_progress()
         return candidates
 
     @staticmethod
@@ -858,7 +889,17 @@ class FuzzerGeneric(Fuzzer):
                     continue
                 primer = list(all_inputs)
                 primer[current.input_id] = all_inputs[other.input_id]
-                htraces, _ = self.executor.trace_test_case(primer, n_reps)
+                try:
+                    htraces, _ = self.executor.trace_test_case(primer, n_reps)
+                except HardwareTracingError as e:
+                    # A malformed device response during priming is an inconclusive measurement, not a
+                    # confirmed violation. Treat it like the null-htrace tracing error below (skip the
+                    # test case) rather than letting it crash the campaign — this is the third
+                    # measurement site that must be as resilient as the classic and bulk paths.
+                    STAT.hw_tracing_errors += 1
+                    self.LOG.warning("fuzzer", f"Tracing error during priming ({e}). "
+                                     "Skipping this test case")
+                    return False
                 new_htrace = htraces[current.input_id]
                 if not new_htrace.raw or new_htrace == null_htrace:
                     self.LOG.warning("fuzzer", "Tracing error during priming. "
@@ -1041,10 +1082,23 @@ class NoninterferenceFuzzer(FuzzerGeneric):
         variants, keyed by a composite (ctrace, sealing class) ctrace so only same-signature variants
         collide."""
         ctraces, taints, traces = self.executor.trace_test_case_with_taints(inputs, nesting)
+        # Drop inputs with no decoy-eligible slot: their decoy would equal the genuine baseline (a null
+        # decoy), so any htrace split between the two is pure noise. An all-dropped window skips the test.
+        keep = [k for k, inp in enumerate(inputs) if self.executor.has_decoy(inp)]
+        inputs = [inputs[k] for k in keep]
+        ctraces = [ctraces[k] for k in keep]
+        traces = [traces[k] for k in keep]
         for inp, tr in zip(inputs, traces):
             inp._arch_trace = tr
+        if not inputs:
+            return [], []
         variants = [self.executor.variants_for_input(inp) for inp in inputs]
-        class_ctraces = [CTrace(ctr.raw + [hash(self.executor.sealing_class_of(inp)) & 0xFFFFFFFF])
+        # Non-interference compares only the variants of ONE input (its genuine baseline vs its own
+        # decoys) — the seal is the only thing that may differ. Keying the class by the input's own
+        # identity keeps two different arch inputs out of the same class even when they share a ctrace
+        # and sealing class, so a data-dependent (Spectre-v1) htrace split can't masquerade as a tag leak.
+        class_ctraces = [CTrace(ctr.raw + [hash(self.executor.sealing_class_of(inp)) & 0xFFFFFFFF,
+                                           hash(inp.tobytes()) & 0xFFFFFFFF])
                          for inp, ctr in zip(inputs, ctraces)]
         # round-major (all baselines, then all decoy0s, ...) so the base fast-boost replication of the
         # per-input ctraces lines up with the boosted list

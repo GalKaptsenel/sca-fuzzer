@@ -83,12 +83,12 @@ class RegularSealedRoutingTest(unittest.TestCase):
         self.assertEqual(ex._primitives, {"pac"})
 
     def test_mte_only(self):
-        ex = self._executor_for(["MTE", "MTE-TAG-MEM"] + _BASE)
+        ex = self._executor_for(["MTE", "MTE-TAGMEM"] + _BASE)
         self.assertIsInstance(ex, self.Sealed)
         self.assertEqual(ex._primitives, {"mte"})
 
     def test_pac_and_mte(self):
-        ex = self._executor_for(["PAC", "MTE", "MTE-TAG-MEM"] + _BASE)
+        ex = self._executor_for(["PAC", "MTE", "MTE-TAGMEM"] + _BASE)
         self.assertIsInstance(ex, self.Sealed)
         self.assertEqual(ex._primitives, {"pac", "mte"})
 
@@ -100,9 +100,9 @@ class RegularSealedRoutingTest(unittest.TestCase):
         from src.aarch64.aarch64_executor_input_encoder import MTE_TAG_COUNT
         inp = Input()
         self.assertIsNone(self._executor_for(["PAC"] + _BASE)._mte_tags_for(inp))
-        tags = self._executor_for(["MTE", "MTE-TAG-MEM"] + _BASE)._mte_tags_for(inp)
+        tags = self._executor_for(["MTE", "MTE-TAGMEM"] + _BASE)._mte_tags_for(inp)
         self.assertEqual(tags, [MTE_INITIAL_DEFAULT_TAG] * MTE_TAG_COUNT)
-        self.assertEqual(self._executor_for(["PAC", "MTE", "MTE-TAG-MEM"] + _BASE)._mte_tags_for(inp),
+        self.assertEqual(self._executor_for(["PAC", "MTE", "MTE-TAGMEM"] + _BASE)._mte_tags_for(inp),
                          [MTE_INITIAL_DEFAULT_TAG] * MTE_TAG_COUNT)
 
 

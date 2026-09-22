@@ -1,5 +1,7 @@
-# MTE non-interference fuzzing. The NI executor auto-detects MTE from the MTE* categories and seals
-# every memory access with [Sandbox, MteTag]; decoys retag speculative slots.
+# MTE non-interference on the Pixel 8 X3, aimed at TikTag-class speculative tag-check leaks.
+# Contract = cond + bpas (branch-mispredict + store-bypass windows); SSBS=1 (store bypass allowed).
+# The CE stays tag-blind (tbi1=1 masks the tag for addressing), so a speculative-slot tag mismatch
+# that the hardware leaks -> htrace != tag-blind ctrace -> violation. PAC profile defaults from device.
 instruction_set: aarch64
 instruction_categories:
   - MTE
@@ -18,6 +20,16 @@ max_successors_per_bb: 2
 min_successors_per_bb: 1
 fuzzer: non-interference
 input_generator: aarch64-nzcv
+
+contract_execution_clause:
+  - cond
+  - bpas
+contract_observation_clause: l1d
+enable_speculative_store_bypass: true
+
+executor_mode: F+R
+executor_pinned_core: 8
+superbatch_size: 100
 
 executor_remote: true
 executor_remote_transport: adb

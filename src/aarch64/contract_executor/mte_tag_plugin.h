@@ -22,4 +22,10 @@ uint8_t mte_tagmem_tag_at(uintptr_t addr);
  * base_hook must not translate their base register kaddr<->uaddr. */
 int     mte_is_mem_tag_access(uint32_t enc);
 
+/* MTE tag-consistency logging (default off; enable with env CE_MTE_TAG_LOG=1). Emits MTETAG lines
+ * (the modeled tag memory, chunked and offset-labeled) directly comparable to the kernel executor's
+ * HW dump, for verifying CE-vs-HW tag consistency. `when` is a short phase tag ("reinit"/"pretrace"). */
+int  mte_tag_log_enabled(void);
+void mte_tagmem_log(const char* when, long seq);
+
 #endif // MTE_TAG_PLUGIN_H
