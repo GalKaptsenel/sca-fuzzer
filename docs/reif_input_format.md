@@ -109,21 +109,18 @@ section is omitted entirely. Up to `REVISOR_INPUT_MAX_BPU_TRAIN` (64) entries.
 ## Page-table overrides (`PTE_SETTINGS`)
 
 ```c
-struct revisor_pte_override_entry {           // packed, 20 bytes; matches the writer's <HHQQ>
+struct revisor_pte_override_entry {           // packed, 20 bytes
     uint16_t page_index; uint16_t level; uint64_t mask; uint64_t value;
 } __attribute__((packed));
 // payload = u32 count, then `count` entries
 ```
 
-The **environment axis** of the non-interference fuzzer. Each entry overrides one sandbox page's
-descriptor at `level` (`REVISOR_PTE_LEVEL_LEAF` = 3 for the 4K leaf) before this input runs: the kernel
-sets the `mask` bits to the corresponding bits of `value` (`value` carries no bits outside `mask`) via
-`new = (live & ~mask) | value`, and reverts afterwards. `page_index` is the shared page map with the
-writer (0 = `main_region`, 1 = `faulty_region`). It is position-independent — no absolute address is
-sent — and the output-address bits are never in a `mask`, so genuine and decoy map the same physical
-page. Genuine variants omit the section; a decoy fuzzes only pages it reaches **speculatively** (a
-retiring access to an overridden page would fault and panic, so the fuzzer refuses such a test case).
-Up to `REVISOR_INPUT_MAX_PTE_OVERRIDES` (16) entries.
+Each entry overrides one sandbox page's descriptor at `level` (`REVISOR_PTE_LEVEL_LEAF` = 3 for the 4K
+leaf) before this input runs: the kernel sets the `mask` bits to the corresponding bits of `value`
+(`value` carries no bits outside `mask`) via `new = (live & ~mask) | value`, and reverts afterwards.
+`page_index` is the shared page map with the writer (0 = `main_region`, 1 = `faulty_region`); it is
+position-independent (no absolute address is sent). When the section is absent, no change is made to the
+running mappings. Up to `REVISOR_INPUT_MAX_PTE_OVERRIDES` (16) entries.
 
 ## PAC keys (`PAC_KEYS`)
 
