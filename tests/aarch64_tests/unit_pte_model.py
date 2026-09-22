@@ -13,6 +13,7 @@ from random import Random
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from src.aarch64.seal.pagetable_model import (BitField, DescriptorLayout,          # noqa: E402
                                               PageTableDescriptor, LEAF_LAYOUT, TABLE_LAYOUT)
+from src.interfaces import PAGE_SIZE, MAIN_AREA_SIZE                                # noqa: E402
 from src.aarch64.seal.environment import (                                         # noqa: E402
     SandboxPage, SandboxPageMap, PteOverride, EnvironmentPlan, PteFuzzPolicy,
     serialize_pte_overrides, deserialize_pte_overrides, default_sandbox_page_map, LEVEL_LEAF)
@@ -100,28 +101,30 @@ class SandboxPageMapTest(unittest.TestCase):
 
     def test_index_mismatch_and_dup_name_rejected(self):
         with self.assertRaises(ValueError):
-            SandboxPageMap([SandboxPage(1, "a")])
+            SandboxPageMap([SandboxPage(1, "a", 0)])
         with self.assertRaises(ValueError):
-            SandboxPageMap([SandboxPage(0, "a"), SandboxPage(1, "a")])
+            SandboxPageMap([SandboxPage(0, "a", 0), SandboxPage(1, "a", PAGE_SIZE)])
 
     def test_role_partition(self):
-        self.assertEqual([p.name for p in self.m.arch_pages],
-                         ["lower_overflow", "main", "upper_overflow"])
+        self.assertEqual([p.name for p in self.m.arch_pages], ["main"])
         self.assertEqual([p.name for p in self.m.spec_only_pages], ["faulty"])
 
     def test_spill_clamp_only_before_spec_only_or_end(self):
-        # main precedes the spec-only faulty page -> needs a clamp; lower precedes okay main -> not.
-        self.assertFalse(self.m.arch_access_needs_size_clamp(self.m.page("lower_overflow")))
+        # main precedes the spec-only faulty page -> a full-width arch access there needs a clamp.
         self.assertTrue(self.m.arch_access_needs_size_clamp(self.m.page("main")))
-        # upper_overflow is the last page -> a spill would leave the region -> clamp.
-        self.assertTrue(self.m.arch_access_needs_size_clamp(self.m.page("upper_overflow")))
         # a spec-only page is never an arch base, so it never reports needing a clamp.
         self.assertFalse(self.m.arch_access_needs_size_clamp(self.m.page("faulty")))
+
+    def test_spec_only_containing_maps_addresses_to_pages(self):
+        base = 0x1_0000
+        # an address in the faulty page is flagged; one in main (arch) is not.
+        self.assertEqual(self.m.spec_only_containing(base + MAIN_AREA_SIZE + 8, base).name, "faulty")
+        self.assertIsNone(self.m.spec_only_containing(base + 8, base))
 
     def test_require_spec_only(self):
         self.m.require_spec_only()   # ok
         with self.assertRaises(ValueError):
-            SandboxPageMap([SandboxPage(0, "only")]).require_spec_only()
+            SandboxPageMap([SandboxPage(0, "only", 0)]).require_spec_only()
 
 
 class EnvironmentPlanTest(unittest.TestCase):
@@ -175,7 +178,7 @@ class PteFuzzPolicyTest(unittest.TestCase):
             self.assertEqual(o.value & valid.mask, 0)           # and cleared
 
     def test_decoy_requires_a_spec_only_page(self):
-        empty = SandboxPageMap([SandboxPage(0, "only")])
+        empty = SandboxPageMap([SandboxPage(0, "only", 0)])
         with self.assertRaises(ValueError):
             self.policy.decoy_plan(empty, Random(0))
 

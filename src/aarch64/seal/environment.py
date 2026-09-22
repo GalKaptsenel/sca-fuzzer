@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from random import Random
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from ...interfaces import PAGE_SIZE, MAIN_AREA_SIZE
 from .pagetable_model import DescriptorLayout, LEAF_LAYOUT, TABLE_LAYOUT
 
 # Transport level ids (shared contract with the kernel): the page-table level a descriptor sits at.
@@ -30,12 +31,20 @@ LEVEL_LAYOUTS: Dict[int, DescriptorLayout] = {LEVEL_LEAF: LEAF_LAYOUT, 0: TABLE_
 
 @dataclass(frozen=True)
 class SandboxPage:
-    """One page of the sandbox data region, identified by its index (the shared contract with the
-    kernel's page-role table) and a human name. `spec_only` marks a page reached only speculatively --
-    the fuzzed axis; the rest are reachable on the retiring path with identical PTEs across variants."""
+    """One page of the sandbox data region. `index` is the shared contract with the kernel's page-role
+    table; `offset` is the page's byte offset from the sandbox base (= the `main` region, matching
+    get_sandbox_addr and the kernel's sysfs sandbox base), the unit both the arch-safety guard and the
+    kernel use to locate the page. `spec_only` marks a page reached only speculatively -- the fuzzed
+    axis; the rest are reachable on the retiring path with identical PTEs across variants."""
     index: int
     name: str
+    offset: int
     spec_only: bool = False
+
+    def contains(self, address: int, base: int) -> bool:
+        """Whether `address` falls in this page, given the sandbox base virtual address."""
+        start = base + self.offset
+        return start <= address < start + PAGE_SIZE
 
 
 class SandboxPageMap:
@@ -54,6 +63,14 @@ class SandboxPageMap:
             if p.name in names:
                 raise ValueError(f"duplicate page name {p.name!r}")
             names.add(p.name)
+
+    def spec_only_containing(self, address: int, base: int) -> Optional[SandboxPage]:
+        """The spec-only page `address` falls in (given the sandbox base VA), or None. The arch-safety
+        guard uses this to reject any architectural access that lands on a spec-only page."""
+        for p in self.spec_only_pages:
+            if p.contains(address, base):
+                return p
+        return None
 
     @property
     def pages(self) -> Tuple[SandboxPage, ...]:
@@ -92,15 +109,14 @@ class SandboxPageMap:
 
 
 def default_sandbox_page_map() -> SandboxPageMap:
-    """The current sandbox data-page layout (must stay in step with the kernel's page-role table and
-    `sandbox_t` in executor/sandbox.h): lower_overflow, main, faulty, upper_overflow. Only `faulty` is
-    spec-only for now; the abstraction supports any partition, so widening the spec-only set later is a
-    change to this one factory, not to the sealer or the kernel protocol."""
+    """The current fuzzable sandbox data pages, addressed by byte offset from the sandbox base (= the
+    `main` region; see get_sandbox_addr): `main` (arch-reachable) and `faulty` (spec-only, the one page a
+    test case may reach only speculatively). The partition is general -- widening the spec-only set later
+    (e.g. extra vmap'd pages) is a change to this one factory and the kernel's page-role table, not to the
+    policy, the executor, or the transport."""
     return SandboxPageMap([
-        SandboxPage(0, "lower_overflow"),
-        SandboxPage(1, "main"),
-        SandboxPage(2, "faulty", spec_only=True),
-        SandboxPage(3, "upper_overflow"),
+        SandboxPage(0, "main", offset=0),
+        SandboxPage(1, "faulty", offset=MAIN_AREA_SIZE, spec_only=True),
     ])
 
 
