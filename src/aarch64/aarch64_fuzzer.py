@@ -70,36 +70,29 @@ def executor_regime(executor: Aarch64Executor, regime) -> Generator[None, None, 
 # ==================================================================================================
 # Fuzzer classes
 # ==================================================================================================
-class Aarch64Fuzzer(FuzzerGeneric):
-    executor: Aarch64Executor
+class CrossInputPrimingMixin:
+    """Cross-input priming (generalized priming): replace standard priming with a localization over the
+    boosted lanes that finds the *leaking pair* -- an earlier ct-equal input whose microarchitectural
+    leftover surfaces as the *detecting pair*'s cache divergence. Shared by the regular fuzzer (boosted
+    random-data lanes) and the non-interference fuzzer (boosted seal-variant lanes -> canonicality/BTB).
+    The search itself is `src/aarch64/leftover.py`; this mixin is the thin seam (reps and localizer
+    selection, lane construction, the executor regime, and reporting). Subclasses set
+    `_CROSS_INPUT_PRIMING_REGIME`. Off by default -> the subclass's standard priming (via super())."""
 
-    # AArch64 saves inputs as the executor-ready REIF container (flags already in PSTATE form).
-    input_file_extension: str = "reif"
-
-    # Regime for cross-input priming (enable_cross_input_priming). Reset the BPU/PHR ONCE per trace (the
-    # post-fix phr_flush; see measurement.c) and keep cross-input training within a trace (view_rotation
-    # off, so all inputs share one code view). Captured and restored around the search so the surrounding
-    # fuzzing keeps its usual regime.
+    # Default regime: reset the BPU/PHR ONCE per trace (post-fix phr_flush; see measurement.c) and keep
+    # cross-input training within a trace (view_rotation off, so all inputs share one code view).
+    # Captured and restored around the search so the surrounding fuzzing keeps its usual regime. The NI
+    # fuzzer overrides this with the seal-lane regime.
     _CROSS_INPUT_PRIMING_REGIME = (("enable_pre_run_flush", "0"), ("enable_view_rotation", "0"),
                                    ("enable_phr_flush", "1"))
 
-    def _boost_inputs(self, inputs, nesting):
-        # The aarch64 fuzzer's input unit is the ExecutorInput; convert once boosting is done.
-        boosted, ctraces = super()._boost_inputs(inputs, nesting)
-        return list(map(self.executor.as_executor_input, boosted)), ctraces
-
-    def _save_input(self, input_, path: str) -> None:
-        from .aarch64_executor_input_encoder import ExecutorInput
-        ExecutorInput(input_).save(path)
-
     def _priming(self, violations: List, inputs: List[Input]) -> List:
-        """Regular fuzzing: when enable_cross_input_priming is set, REPLACE standard priming with the
-        generalized-priming localization over boosted lanes. Priming asks "does the divergence follow the
-        detecting pair's own input?"; this asks the strictly more general "which (earlier or own) ct-equal
-        input causes it?" -- localizing the flagged violation's own detecting pair across its two diverging
-        lanes. A found leaking pair (self- or cross-input) confirms the violation and reports the
-        [leaker..detector] chain; none means a false positive, exactly as priming. Off by default ->
-        standard priming (unchanged)."""
+        """When enable_cross_input_priming is set, REPLACE standard priming with the generalized-priming
+        localization over boosted lanes. Priming asks "does the divergence follow the detecting pair's own
+        input?"; this asks the strictly more general "which (earlier or own) ct-equal input causes it?" --
+        localizing the flagged violation's own detecting pair across its two diverging lanes. A found
+        leaking pair (self- or cross-input) confirms the violation and reports the [leaker..detector]
+        chain; none means a false positive, exactly as priming. Off by default -> standard priming."""
         if not CONF.enable_cross_input_priming:
             return super()._priming(violations, inputs)
         if not violations:
@@ -200,6 +193,22 @@ class Aarch64Fuzzer(FuzzerGeneric):
             f"* Sequence B: {seq_b}\n"
             f"* Input classes (ct-equal members), position by position:\n{classes}")
 
+
+class Aarch64Fuzzer(CrossInputPrimingMixin, FuzzerGeneric):
+    executor: Aarch64Executor
+
+    # AArch64 saves inputs as the executor-ready REIF container (flags already in PSTATE form).
+    input_file_extension: str = "reif"
+
+    def _boost_inputs(self, inputs, nesting):
+        # The aarch64 fuzzer's input unit is the ExecutorInput; convert once boosting is done.
+        boosted, ctraces = super()._boost_inputs(inputs, nesting)
+        return list(map(self.executor.as_executor_input, boosted)), ctraces
+
+    def _save_input(self, input_, path: str) -> None:
+        from .aarch64_executor_input_encoder import ExecutorInput
+        ExecutorInput(input_).save(path)
+
     def filter(self, test_case: TestCase, inputs: List[Input]) -> bool:
         """
         This function implements a multi-stage algorithm that gradually filters out
@@ -270,7 +279,15 @@ class Aarch64Fuzzer(FuzzerGeneric):
             return False
 
 
-class Aarch64NoninterferenceFuzzer(NoninterferenceFuzzer):
-    """AArch64 non-interference fuzzer. No aarch64-specific behaviour beyond the generic NI flow;
-    cross-input priming (generalized priming) is a regular-fuzzing feature and lives in
-    Aarch64Fuzzer._priming (enable_cross_input_priming)."""
+class Aarch64NoninterferenceFuzzer(CrossInputPrimingMixin, NoninterferenceFuzzer):
+    """AArch64 non-interference fuzzer. NI boosting fills each input class with its seal variants (the
+    genuine baseline plus decoys), so when enable_cross_input_priming is set, cross-input priming
+    localizes canonicality/BTB leftovers over the seal lanes: the input whose genuine/decoy seal trains a
+    predictor entry that surfaces as a later input's cache divergence. Uses the seal-lane regime."""
+
+    # Seal-lane regime: SSBS on for the store-bypass window, no per-input flushing/rotation (would wipe
+    # the trained BTB entry), and unpinned execution (pinning measurably raises the non-canonical
+    # residual). Captured and restored around the search.
+    _CROSS_INPUT_PRIMING_REGIME = (("enable_ssbs", "1"), ("enable_pre_run_flush", "0"),
+                                   ("enable_phr_flush", "0"), ("enable_view_rotation", "0"),
+                                   ("pin_to_core", "-1"))
