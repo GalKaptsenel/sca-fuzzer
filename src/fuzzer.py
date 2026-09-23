@@ -661,8 +661,10 @@ class FuzzerGeneric(Fuzzer):
         Path(path).mkdir(exist_ok=True)
         Path(violation_dir).mkdir()
 
-        # store violation
-        self.generator.printer.print(test_case, f"{violation_dir}/{test_case.asm_path}")
+        # store violation (basename only: a reproduced test case's asm_path carries the source -t
+        # directory, which must not nest inside the fresh violation dir)
+        self.generator.printer.print(test_case,
+                                     f"{violation_dir}/{os.path.basename(test_case.asm_path)}")
 
         # Optionally recompute the trace for inputs whose stored trace is stale (borrowed from a
         # class original on the fast path), so the artifact carries each input's own accurate trace.
@@ -691,7 +693,8 @@ class FuzzerGeneric(Fuzzer):
                     arch_trace.pretty_print()
 
         for m in violation.measurements:
-            self.generator.printer.print(m.test_case, f"{violation_dir}/{m.test_case.asm_path}")
+            self.generator.printer.print(
+                m.test_case, f"{violation_dir}/{os.path.basename(m.test_case.asm_path)}")
             # TEMP(enacted-reloc): dump the exact relocated bytes that ran, so a randomly-sealed
             # variant is reproducible from the artifact (the asm is identical across variants).
             from .aarch64.aarch64_executor_input_encoder import ExecutorInput

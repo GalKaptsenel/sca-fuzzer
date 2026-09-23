@@ -94,6 +94,14 @@ class Aarch64AsmParserTest(unittest.TestCase):
     def test_immediate_operand_preserved(self):
         self._assert_roundtrip("ADDS  w4, w3, #1417")
 
+    def test_zero_register_operand_roundtrips(self):
+        # base.json enumerates register 31 as x31/w31, but the printer spells it xzr/wzr; the parser
+        # must accept the alias so printed data-processing asm round-trips (was: no matching spec).
+        madd = self._assert_roundtrip("MADD  x4, x1, x5, xzr")
+        self.assertEqual([o.value for o in madd.operands if o.type == OT.REG][-1], "xzr")
+        self._assert_roundtrip("SUBS  xzr, x0, #0")
+        self._assert_roundtrip("MSUB  w4, w1, w5, wzr")
+
     def test_fpsimd_instruction_rejected(self):
         for line in ("fmov d0, d1", "fadd v0.4s, v1.4s, v2.4s", "ldr q0, [x1]", "movprfx z0, z1"):
             with self.assertRaises(SystemExit):
