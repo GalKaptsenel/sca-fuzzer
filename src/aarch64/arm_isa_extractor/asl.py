@@ -43,6 +43,10 @@ class AslSemantics:
     # how the access must be aligned: "natural" (to its access width -- single-copy-atomic accesses),
     # "granule" (to the MTE tag granule -- STG-family tag stores), or None (no alignment requirement).
     mem_alignment: str | None = None
+    # the memory AccessDescriptor kind (e.g. "AtomicOp", "FPAtomicOp", "RCW", "GPR", "MOPS"), or None
+    # for a non-memory instruction. Lets the DB builder split the memory family structurally instead of
+    # by mnemonic.
+    mem_accdesc: str | None = None
 
 
 # A memory data transfer in the ASL is a `Mem{<w>}(...)` / `MemAtomic{<w>}(...)` accessor whose brace
@@ -144,6 +148,7 @@ def extract_asl_semantics(asl: str) -> AslSemantics:
         flags_r |= _NZCV  # condition operand selects which; read footprint is all NZCV
     mem_access = _mem_access(asl)
     accdescs = _ACCDESC_KIND.findall(asl)
+    mem_accdesc = accdescs[0] if accdescs else None
     if any(k in _ALIGN_ACCDESC for k in accdescs):
         mem_alignment = "natural"                       # single-copy-atomic: align to the access width
     elif _TAG_ACCDESC in accdescs and mem_access is MemAccess.STORE:
@@ -159,5 +164,6 @@ def extract_asl_semantics(asl: str) -> AslSemantics:
         flags_read=frozenset(flags_r),
         mem_width=_mem_access_width(asl),
         mem_alignment=mem_alignment,
+        mem_accdesc=mem_accdesc,
     )
 

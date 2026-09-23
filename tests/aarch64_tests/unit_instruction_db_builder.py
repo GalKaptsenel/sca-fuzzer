@@ -201,6 +201,44 @@ class MemoryGroupingTest(unittest.TestCase):
             dl._expand_instruction(inst)
 
 
+class AtomicFamilyTagTest(unittest.TestCase):
+    """The RMW memory family is split by AccessDescriptor kind (mem_accdesc), not by mnemonic: integer
+    atomics vs floating-point atomics vs read-check-write vs MOPS copy."""
+
+    def _tags(self, name, accdesc):
+        inst = {"name": name, "category": "general", "mem_access": "rmw", "mem_accdesc": accdesc,
+                "flags_written": [], "flags_read": [], "control_flow": False}
+        return set(dl.get_tags(inst))
+
+    _OTHER = {"BASE-MEM-ATOMIC", "BASE-MEM-FPATOMIC", "BASE-MEM-RCW", "BASE-MEM-COPY"}
+
+    def test_integer_atomic(self):
+        t = self._tags("ldadd", "AtomicOp")
+        self.assertIn("BASE-MEM-ATOMIC", t)                        # positive
+        self.assertEqual(t & (self._OTHER - {"BASE-MEM-ATOMIC"}), set())   # negative: no other family
+
+    def test_fp_atomic_is_split_out(self):
+        t = self._tags("ldfadd", "FPAtomicOp")
+        self.assertIn("BASE-MEM-FPATOMIC", t)                      # positive
+        self.assertEqual(t & (self._OTHER - {"BASE-MEM-FPATOMIC"}), set())  # negative: not integer/RCW/COPY
+
+    def test_rcw_is_split_out(self):
+        t = self._tags("rcwcas", "RCW")
+        self.assertIn("BASE-MEM-RCW", t)                          # positive
+        self.assertEqual(t & (self._OTHER - {"BASE-MEM-RCW"}), set())       # negative
+
+    def test_mops_copy_is_split_out(self):
+        t = self._tags("cpyp", "MOPS")
+        self.assertIn("BASE-MEM-COPY", t)                        # positive
+        self.assertEqual(t & (self._OTHER - {"BASE-MEM-COPY"}), set())      # negative
+
+    def test_plain_load_has_no_atomic_family(self):
+        # negative: an ordinary load carries no RMW-family tag at all
+        inst = {"name": "ldr", "category": "general", "mem_access": "load", "mem_accdesc": "GPR",
+                "flags_written": [], "flags_read": [], "control_flow": False}
+        self.assertEqual(set(dl.get_tags(inst)) & self._OTHER, set())
+
+
 class RegisterOffsetWidthTest(unittest.TestCase):
     """`_resolve_register_offset`: a memory register-offset's extend is tied to the index width."""
 

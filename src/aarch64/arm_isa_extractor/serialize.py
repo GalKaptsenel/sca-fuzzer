@@ -26,6 +26,7 @@ def instruction_dict(i: Instruction) -> dict:
         "mem_width": ({"const_bits": i.mem_width.const_bits, "reg_mult": i.mem_width.reg_mult}
                       if i.mem_width is not None else None),
         "mem_alignment": i.mem_alignment,
+        "mem_accdesc": i.mem_accdesc,
     }
 
 

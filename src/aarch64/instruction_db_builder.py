@@ -192,8 +192,16 @@ def get_tags(inst: dict) -> list:
         tags.add(f"{isa}-MEM-STORE")
     if mem in ("ex-load", "ex-store"):
         tags.add(f"{isa}-MEM-EXCLUSIVE")
-    if mem == "rmw":                                               # rmw is always an LSE atomic or a MOPS copy
-        tags.add(f"{isa}-MEM-COPY" if name.startswith("cpy") else f"{isa}-MEM-ATOMIC")
+    if mem == "rmw":                                               # LSE/FP atomic, RCW, or a MOPS copy
+        accdesc = inst["mem_accdesc"]                              # split the family structurally
+        if accdesc == "MOPS":
+            tags.add(f"{isa}-MEM-COPY")
+        elif accdesc == "FPAtomicOp":
+            tags.add(f"{isa}-MEM-FPATOMIC")                        # floating-point atomic (FEAT_LSFE)
+        elif accdesc == "RCW":
+            tags.add(f"{isa}-MEM-RCW")                             # read-check-write (FEAT_THE)
+        else:                                                      # AtomicOp: the integer LSE atomics
+            tags.add(f"{isa}-MEM-ATOMIC")
     elif mem == "store" and name.startswith("set"):                # MOPS set (setf* is mem=none, excluded)
         tags.add(f"{isa}-MEM-SET")
     if name in _ACQREL:

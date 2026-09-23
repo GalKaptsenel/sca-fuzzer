@@ -112,3 +112,6 @@ class Instruction:
     # how the memory access must be aligned: "natural" (to its width), "granule" (MTE tag granule), or
     # None. The DB builder resolves it to the memory operand's alignment in bytes. See asl.AslSemantics.
     mem_alignment: "str | None" = None
+    # the memory AccessDescriptor kind (see asl.AslSemantics.mem_accdesc); the DB builder maps it to the
+    # memory-family tag (integer atomic vs FP atomic vs RCW vs copy).
+    mem_accdesc: "str | None" = None
