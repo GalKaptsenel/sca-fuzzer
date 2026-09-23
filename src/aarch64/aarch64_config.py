@@ -165,13 +165,9 @@ contract_observation_clause: str = 'l1d'
 """ contract_observation_clause: """
 
 # Instructions known to misbehave under the executor.
-# CAS/CASP: the contract executor cannot single-step them natively yet (pre-existing crash); they are
-# re-enabled once the CE models compare-and-swap. Only the base forms need listing -- the tag/pair
-# (t/p) variants are already excluded by the arch-version gate.
-_buggy_instructions: List[str] = [
-    "cas", "casa", "casab", "casah", "casal", "casalb", "casalh", "casb", "cash", "casl", "caslb", "caslh",
-    "casp", "caspa", "caspal", "caspl",
-]
+# Instructions temporarily held out of generation pending CE/generator support. Empty now that the CE
+# models compare-and-swap (CAS/CASP) and the generator patches CASP's even/consecutive register pairs.
+_buggy_instructions: List[str] = []
 
 supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "ldr", "ldp", "stp", "orr", "ands", "and", "eor", "cbnz", "tbz", "tbnz",
                                      "csel", "csinc", "csinv", "csneg", "ccmn", "ccmp",
@@ -210,6 +206,10 @@ supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "l
                                      # acquire / release ordered accesses
                                      "ldar", "ldarb", "ldarh", "ldapr", "ldaprb", "ldaprh", "ldlar", "ldlarb", "ldlarh",
                                      "stlr", "stlrb", "stlrh", "stllr", "stllrb", "stllrh",
+                                     # compare-and-swap (single + pair; CE models the RMW, generator patches CASP pairs)
+                                     "cas", "casa", "casab", "casah", "casal", "casalb", "casalh",
+                                     "casb", "cash", "casl", "caslb", "caslh",
+                                     "casp", "caspa", "caspal", "caspl",
                                      ]
 
 # AArch64-only: PAC seal probabilities (live seal path, PAC-only mode).
@@ -294,7 +294,6 @@ instruction_blocklist: List[str] = [
     "setpt", "setmt", "setet",
     "setptn", "setmtn", "setetn",
     *["cpy" + first + second + third for first in ["f", ""] for second in ["p", "m", "e"] for third in ["", "n", "rn", "rt", "rtn", "rtrn", "rtwn", "t", "tn", "trn", "twn", "wn", "wt", "wtn", "wtrn", "wtwn"]],
-    "caspa", "caspal", "casp", "caspl",
     # Rejected by the system assembler (newer atomic/RCW encodings it does not recognize)
     "ldtaddal",
     "rcwcas",

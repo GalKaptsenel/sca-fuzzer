@@ -155,6 +155,12 @@ _STXR = frozenset({"stxr", "stlxr", "stxrb", "stlxrb", "stxrh", "stlxrh"})
 # Store-exclusive pair: same as STXR plus data0==data1 check on status.
 _STXP = frozenset({"stxp", "stlxp"})
 
+# Compare-and-swap pair (CASP): each data operand pair must be consecutive even/odd registers
+# (Rs even, R(s+1)=Rs+1; likewise Rt), the two pairs disjoint, and neither aliasing the base. The
+# operand model fills the four data registers independently, so without this the assembler would
+# reject them. (No byte/half pair forms exist; the tag/RCW casp* variants stay in the arch/blocklist.)
+_CASP = frozenset({"casp", "caspa", "caspal", "caspl"})
+
 # Store pair with writeback: src0|src1 == base → UNPREDICTABLE.
 _STP_WRITEBACK = frozenset({"stp"})
 
@@ -216,6 +222,9 @@ class Aarch64PatchUndefinedLoadsStoresPass(Pass):
 
         elif any(name.startswith(m) for m in _STXP):
             self._patch_stxp(inst)
+
+        elif name in _CASP:
+            self._patch_casp(inst)
 
         elif any(name.startswith(m) for m in _STP_WRITEBACK):
             self._patch_stp_writeback(inst)
@@ -389,6 +398,45 @@ class Aarch64PatchUndefinedLoadsStoresPass(Pass):
 
         if norm_status in forbidden:
             self._replace_reg(ops[0], forbidden=forbidden)
+
+    def _patch_casp(self, inst: Instruction) -> None:
+        """CASP <Rs>, <R(s+1)>, <Rt>, <R(t+1)>, [<Xn>]: rewrite each data pair to consecutive even/odd
+        registers (Rs even, R(s+1)=Rs+1; Rt even, R(t+1)=Rt+1), keep the two pairs disjoint, and keep
+        neither pair aliasing the base. Registers are drawn from the blocklist-filtered pool, so a gap
+        in the pool just removes that even pair as a candidate."""
+        ops = inst.operands
+        if len(ops) < 5:
+            return
+        rs, rs1, rt, rt1, mem = ops[0], ops[1], ops[2], ops[3], ops[4]
+        assert all(isinstance(r, RegisterOperand) for r in (rs, rs1, rt, rt1))
+        assert isinstance(mem, MemoryOperand)
+        base = self._mem_regs_normalized(mem)
+        rs_lo = self._choose_even_pair(rs.width, forbidden=base)
+        self._set_reg_index(rs, rs_lo)
+        self._set_reg_index(rs1, rs_lo + 1)
+        rt_lo = self._choose_even_pair(rt.width, forbidden=base | {str(rs_lo), str(rs_lo + 1)})
+        self._set_reg_index(rt, rt_lo)
+        self._set_reg_index(rt1, rt_lo + 1)
+
+    def _choose_even_pair(self, width: int, forbidden: Set[str]) -> int:
+        """A normalised even register index n such that n and n+1 are both in the width's pool and
+        neither is in *forbidden* (a set of normalised-index strings). Names one CASP data pair
+        <R n>, <R n+1>. Returns the integer n."""
+        pool = {self._norm(r) for r in self.target_desc.registers.get(width, [])}
+        candidates = [n for n in range(0, 31, 2)
+                      if str(n) in pool and str(n + 1) in pool
+                      and str(n) not in forbidden and str(n + 1) not in forbidden]
+        if not candidates:
+            raise RuntimeError("unable to solve CASP pair constraints! unexpected!")
+        return random.choice(candidates)
+
+    def _set_reg_index(self, operand: RegisterOperand, idx: int) -> None:
+        """Set *operand* to the register of its own width whose normalised index is *idx*."""
+        match = next((r for r in self.target_desc.registers.get(operand.width, [])
+                      if self._norm(r) == str(idx)), None)
+        if match is None:
+            raise RuntimeError(f"no width-{operand.width} register with normalised index {idx}")
+        operand.value = match
 
     # ------------------------------------------------------------------
     # Helpers

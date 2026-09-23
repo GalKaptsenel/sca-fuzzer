@@ -50,8 +50,9 @@ class AtomicEnablementTest(unittest.TestCase):
     def test_acquire_release_enabled(self):
         self._assert_in("ldar", "stlr", "ldapr", "ldlar", "stllr")
 
-    def test_cas_held_out_until_ce_models_it(self):     # CE cannot execute CAS/CASP natively yet
-        self._assert_out("cas", "casa", "casal", "casp", "caspal")
+    def test_cas_and_casp_enabled(self):                # CE models the RMW; generator patches CASP pairs
+        self._assert_in("cas", "casa", "casal", "casb", "cash",
+                        "casp", "caspa", "caspal", "caspl")
 
     def test_feat_gated_variants_excluded_by_arch(self):
         self._assert_out("ldsetp", "swpp",              # LSE128 pair (v9.4)

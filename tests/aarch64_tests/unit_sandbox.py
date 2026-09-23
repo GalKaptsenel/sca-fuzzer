@@ -284,5 +284,50 @@ class PairExclusiveConstraintTest(unittest.TestCase):
         self.assertEqual(self._n(d.value), self._n("x2"))   # not patched (no writeback)
 
 
+class CaspConstraintTest(unittest.TestCase):
+    """CASP names two register PAIRS implicitly (Rs:Rs+1, Rt:Rt+1). The operand model fills the four
+    data registers independently, so _patch_casp must rewrite them to consecutive even/odd pairs, keep
+    the two pairs disjoint, and keep neither pair aliasing the base -- else the assembler rejects the
+    instruction or it is UNPREDICTABLE."""
+
+    def setUp(self):
+        self.patch = g.Aarch64PatchUndefinedLoadsStoresPass(Aarch64TargetDesc())
+
+    def _n(self, v):
+        return int(self.patch._norm(v))
+
+    def _run_casp(self, name, width, rs, rs1, rt, rt1, base):
+        pref = "x" if width == 64 else "w"
+        regs = [RegisterOperand(f"{pref}{r}", width, True, True) for r in (rs, rs1, rt, rt1)]
+        b = RegisterOperand(f"x{base}", 64, True, False)
+        b.mem_role = AArch64MemRole.BASE
+        mem = MemoryOperand(b.value, width * 2, True, True, inner=[b])
+        inst = Instruction(name, False, "", False, template="CASP ...")
+        inst.operands = regs + [mem]
+        self.patch._patch_instruction(inst)
+        return [self._n(o.value) for o in inst.operands[:4]], self._n(mem.inner[0].value)
+
+    def test_pairs_are_even_consecutive_disjoint_and_off_base(self):
+        # Deliberately messy inputs: odd, non-consecutive, aliasing the base, both widths.
+        for width in (64, 32):
+            for rs, rs1, rt, rt1, base in [(3, 7, 3, 9, 3), (1, 1, 1, 1, 5), (28, 0, 5, 5, 28),
+                                           (5, 6, 7, 8, 6), (0, 1, 2, 3, 0)]:
+                (a0, a1, a2, a3), b = self._run_casp("casp", width, rs, rs1, rt, rt1, base)
+                with self.subTest(width=width, seed=(rs, rs1, rt, rt1, base)):
+                    self.assertEqual(a0 % 2, 0, "Rs must be even")
+                    self.assertEqual(a1, a0 + 1, "R(s+1) must be Rs+1")
+                    self.assertEqual(a2 % 2, 0, "Rt must be even")
+                    self.assertEqual(a3, a2 + 1, "R(t+1) must be Rt+1")
+                    self.assertEqual(len({a0, a1, a2, a3}), 4, "the two pairs must be disjoint")
+                    self.assertNotIn(b, {a0, a1, a2, a3}, "no data register may alias the base")
+
+    def test_all_variants_dispatch(self):
+        # Every base CASP mnemonic is patched (not silently skipped).
+        for name in ("casp", "caspa", "caspal", "caspl"):
+            (a0, a1, a2, a3), _ = self._run_casp(name, 64, 3, 3, 3, 3, 10)
+            self.assertEqual(a1, a0 + 1)
+            self.assertEqual(a3, a2 + 1)
+
+
 if __name__ == "__main__":
     unittest.main()
