@@ -109,7 +109,7 @@ class InstructionSpec:
 
     def __init__(self, name: str = "", category: str = "", control_flow: bool = False,
                  datatype: str = "", template: str = "", operands=None,
-                 implicit_operands=None, tags: Tuple[str] = ()):
+                 implicit_operands=None, tags: Tuple[str] = (), min_arch=None):
         self.name = name
         self.category = category
         self.control_flow = control_flow
@@ -118,6 +118,8 @@ class InstructionSpec:
         self.operands = list(operands) if operands is not None else []
         self.implicit_operands = list(implicit_operands) if implicit_operands is not None else []
         self.tags = tags
+        # earliest architecture version (major, minor) the instruction needs; None = baseline Armv8.0.
+        self.min_arch = min_arch
         self.has_mem_operand = any(op.type == OT.MEM for op in self.operands + self.implicit_operands)
         self.has_write = any(op.dest and op.type == OT.MEM for op in self.operands + self.implicit_operands)
 

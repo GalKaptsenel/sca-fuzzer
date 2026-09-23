@@ -27,6 +27,7 @@ def instruction_dict(i: Instruction) -> dict:
                       if i.mem_width is not None else None),
         "mem_alignment": i.mem_alignment,
         "mem_accdesc": i.mem_accdesc,
+        "min_arch": list(i.min_arch) if i.min_arch is not None else None,
     }
 
 

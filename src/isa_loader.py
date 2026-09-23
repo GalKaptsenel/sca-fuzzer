@@ -11,6 +11,11 @@ from .interfaces import OT, InstructionSetAbstract, OperandSpec, MemorySpec, Ins
 from .config import CONF
 
 
+def _arch_norm(version) -> int:
+    """Collapse an ARM arch version (major, minor) onto one number line, using Armv9.x == Armv8.(x+5)."""
+    return 5 * (version[0] - 8) + version[1]
+
+
 class InstructionSet(InstructionSetAbstract):
     ot_str_to_enum = {
         "REG": OT.REG,
@@ -43,6 +48,10 @@ class InstructionSet(InstructionSetAbstract):
             instruction.template = instruction_node.get("template", None)
             # tags default to the single category (x86 stores its tag there)
             instruction.tags = tuple(instruction_node.get("tags") or [instruction.category])
+            # min_arch is aarch64-only (the arch-version gate); read directly so a stale DB fails loud.
+            if "aarch64" in CONF.instruction_set:
+                ma = instruction_node["min_arch"]
+                instruction.min_arch = tuple(ma) if ma is not None else None
 
             for op_node in instruction_node["operands"]:
                 op = self.parse_operand(op_node, instruction)
@@ -146,6 +155,13 @@ class InstructionSet(InstructionSetAbstract):
             # by their BASE-BARRIER tag so SSBB/PSSBB/DSB/… can be generated.
             if "aarch64" in CONF.instruction_set and spec.category != "general" \
                     and "BASE-BARRIER" not in spec.tags:
+                return False
+
+            # arch-version gate (aarch64): drop instructions newer than the target architecture (matches
+            # the assembler -march), so FEAT-gated forms (e.g. LSE128 ld*p, LSUI ldt*, THE rcw*) that
+            # would not assemble are excluded structurally. min_arch None = baseline Armv8.0.
+            if "aarch64" in CONF.instruction_set and spec.min_arch is not None \
+                    and _arch_norm(spec.min_arch) > _arch_norm(CONF.target_arch):
                 return False
 
             if CONF._no_generation:

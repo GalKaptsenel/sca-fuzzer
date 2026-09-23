@@ -115,3 +115,6 @@ class Instruction:
     # the memory AccessDescriptor kind (see asl.AslSemantics.mem_accdesc); the DB builder maps it to the
     # memory-family tag (integer atomic vs FP atomic vs RCW vs copy).
     mem_accdesc: "str | None" = None
+    # earliest architecture version this instruction is available from, as (major, minor); None for a
+    # baseline Armv8.0 instruction. Generation excludes instructions above the target's version.
+    min_arch: "tuple | None" = None

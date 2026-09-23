@@ -32,8 +32,22 @@ def _docvar(el: ET.Element, key: str) -> str | None:
     return None
 
 
+_ARCH_VARIANT = re.compile(r"v(\d+)Ap(\d+)")   # ARM architecture version token, e.g. v8Ap1 -> (8, 1)
+
+
+def _min_arch_variant(ic):
+    """The earliest architecture version an iclass is available from, as (major, minor), or None when
+    it carries no arch_variant (a baseline v8.0 instruction). Armv9.x aligns with Armv8.(x+5)."""
+    versions = []
+    for av in ic.findall("arch_variants/arch_variant"):
+        m = _ARCH_VARIANT.match(av.get("name") or "")
+        if m:
+            versions.append((int(m.group(1)), int(m.group(2))))
+    return min(versions, key=lambda v: 5 * (v[0] - 8) + v[1]) if versions else None
+
+
 def _build_instruction(section_id, category, explanations, asl, postdecode, sem, control_flow,
-                       flags, arch_constants, decode, boxes, rd, enc, enc_name) -> Instruction:
+                       flags, arch_constants, decode, boxes, rd, enc, enc_name, min_arch) -> Instruction:
     tmpl = enc.find("asmtemplate")
     text = tmpl.find("text") if tmpl is not None else None
     if text is None or not text.text:
@@ -52,7 +66,7 @@ def _build_instruction(section_id, category, explanations, asl, postdecode, sem,
         name=name, iclass_id=section_id, category=category,
         encoding_name=enc_name, asm_template=asm, control_flow=control_flow,
         mem_access=sem.mem_access, flags=flags, operands=operands, mem_width=sem.mem_width,
-        mem_alignment=sem.mem_alignment, mem_accdesc=sem.mem_accdesc,
+        mem_alignment=sem.mem_alignment, mem_accdesc=sem.mem_accdesc, min_arch=min_arch,
         constraints=unpredictable_constraints(decode + "\n" + postdecode, reg_vars))
     validate_instruction(inst)   # type/domain check; a malformed field loud-fails this encoding
     return inst
@@ -96,6 +110,7 @@ def iter_instructions(path, arch_constants: dict, failures: dict):
                 continue
             decode = _section_asl(ic, "Decode")  # Decode is per-iclass (addressing form: wback, scale, ...)
             boxes = {b.get("name"): _box_width(b) for b in rd.findall("box") if b.get("name")}
+            min_arch = _min_arch_variant(ic)     # earliest architecture version this iclass needs
             for enc in ic.findall("encoding"):
                 enc_name = enc.get("name")
                 if not enc_name:
@@ -103,6 +118,7 @@ def iter_instructions(path, arch_constants: dict, failures: dict):
                     continue
                 try:
                     yield _build_instruction(section_id, category, explanations, asl, postdecode, sem,
-                                             control_flow, flags, arch_constants, decode, boxes, rd, enc, enc_name)
+                                             control_flow, flags, arch_constants, decode, boxes, rd, enc,
+                                             enc_name, min_arch)
                 except ExtractionError as e:
                     failures[enc_name] = str(e)

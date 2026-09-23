@@ -137,6 +137,34 @@ class TestMemWidthAndAlignment(unittest.TestCase):
         self.assertIsNone(s.mem_alignment)
 
 
+class TestArchVersion(unittest.TestCase):
+    """Min-arch extraction from arch_variants, and the Armv8/Armv9 version comparison used by the gate."""
+
+    def _ic(self, *variant_names):
+        avs = "".join(f'<arch_variant name="{n}"/>' for n in variant_names)
+        return ET.fromstring(f"<iclass><arch_variants>{avs}</arch_variants></iclass>")
+
+    def test_min_of_multiple_variants(self):
+        from src.aarch64.arm_isa_extractor.extract import _min_arch_variant
+        self.assertEqual(_min_arch_variant(self._ic("v8Ap9", "v8Ap3")), (8, 3))   # earliest wins
+        self.assertEqual(_min_arch_variant(self._ic("v9Ap4")), (9, 4))
+
+    def test_no_variant_is_none(self):
+        from src.aarch64.arm_isa_extractor.extract import _min_arch_variant
+        self.assertIsNone(_min_arch_variant(ET.fromstring("<iclass/>")))          # baseline v8.0
+
+    def test_arch_norm_aligns_v8_and_v9(self):
+        from src.isa_loader import _arch_norm
+        self.assertEqual(_arch_norm((8, 5)), _arch_norm((9, 0)))   # Armv9.0 == Armv8.5
+        self.assertEqual(_arch_norm((8, 9)), _arch_norm((9, 4)))   # Armv9.4 == Armv8.9
+
+    def test_arch_norm_orders(self):
+        from src.isa_loader import _arch_norm
+        self.assertLess(_arch_norm((8, 1)), _arch_norm((9, 0)))    # v8.1 (LSE) below target v9.0
+        self.assertGreater(_arch_norm((9, 6)), _arch_norm((9, 0)))  # v9.6 (LSUI) above target
+        self.assertGreater(_arch_norm((9, 4)), _arch_norm((9, 0)))  # v9.4 (LSE128) above target
+
+
 class TestImmediate(unittest.TestCase):
     def test_plain_unsigned(self):
         op = immediate_operand("imm", "imm12", "unsigned immediate in the range 0 to 4095",

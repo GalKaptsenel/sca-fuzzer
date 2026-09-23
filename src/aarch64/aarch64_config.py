@@ -1,7 +1,7 @@
 """
 File: AArch64-specific Configuration Options
 """
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from .seal.pagetable_model import LEAF_LAYOUT
 
@@ -155,6 +155,11 @@ hardware confirmation that the training is effective on this core. """
 
 instruction_categories: List[str] = ["BASE-ARITH", "BASE-LOGICAL", "BASE-BRANCH-COND"]
 """ instruction_categories: a default list of tested instruction categories """
+
+target_arch: Tuple[int, int] = (9, 0)
+""" target_arch: the ARM architecture version (major, minor) generation targets, as (9, 0) for
+Armv9.0-A. Instructions requiring a newer version are excluded (they would not assemble). MUST match
+the assembler -march the generator uses (armv9-a); bump both together to reach newer FEATs. """
 
 contract_observation_clause: str = 'l1d'
 """ contract_observation_clause: """

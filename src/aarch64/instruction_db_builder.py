@@ -610,8 +610,10 @@ def _expand_format(template: str, by_name: dict, esize: int, mem_access: MemAcce
 def _instruction(inst: dict, template: str, operands: list) -> InstructionSpec:
     implicit = ([_flags_operand(inst["flags_written"], inst["flags_read"])]
                 if (inst["flags_written"] or inst["flags_read"]) else [])
+    min_arch = tuple(inst["min_arch"]) if inst["min_arch"] is not None else None
     spec = InstructionSpec(inst["name"], inst["category"], inst["control_flow"], template=template,
-                           operands=operands, implicit_operands=implicit, tags=tuple(get_tags(inst)))
+                           operands=operands, implicit_operands=implicit, tags=tuple(get_tags(inst)),
+                           min_arch=min_arch)
     spec.constraints = tuple(tuple(c) for c in inst.get("constraints", ()))
     return spec
 
@@ -665,6 +667,7 @@ def _serialize_operand(op: OperandSpec) -> dict:
 def _serialize(spec: InstructionSpec) -> dict:
     return {"name": spec.name, "category": spec.category, "control_flow": spec.control_flow,
             "source": spec.source, "template": spec.template, "tags": list(spec.tags),
+            "min_arch": list(spec.min_arch) if spec.min_arch is not None else None,
             "constraints": [list(c) for c in spec.constraints],
             "operands": [_serialize_operand(o) for o in spec.operands],
             "implicit_operands": [_serialize_operand(o) for o in spec.implicit_operands]}
