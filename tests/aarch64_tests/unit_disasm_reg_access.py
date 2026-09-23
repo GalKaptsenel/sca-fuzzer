@@ -21,7 +21,8 @@ import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..",
 _ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 import capstone
 import src.aarch64.aarch64_disasm as disasm
-from src.aarch64.aarch64_disasm import decode_reg_accesses, is_conditional_branch, _MTE_FIRST_REG_DEST
+from src.aarch64.aarch64_disasm import (decode_reg_accesses, is_conditional_branch,
+                                        _MTE_FIRST_REG_DEST, _ATOMIC_RMW_LOAD)
 from src.aarch64.aarch64_config import supported_instructions
 from src.config import CONF
 from src.isa_loader import InstructionSet
@@ -82,6 +83,29 @@ CASES = [
     ("subp",   0x9ac20020, {"x1", "x2"},    {"x0"}),
     ("subps",  0xbac20020, {"x1", "x2"},    {"x0", "N", "Z", "C", "V"}),
     ("ldg",    0xd9600020, {"x0", "x1"},    {"x0"}),   # RMW: Xt(x0) read+written, Xn(x1) base read
+    # LSE atomic RMW load forms LD<op> Rs, Rt, [Xn] / SWP: Capstone leaves op.access empty, so
+    # decode_reg_accesses fills roles by position -- Rs(op0) read, Rt(op1) written (old value), Xn read.
+    # No NZCV write. One case per base op plus a byte/half and an ordered variant.
+    ("ldadd",  0xf8210062, {"x1", "x3"},    {"x2"}),
+    ("ldaddb", 0x38210062, {"w1", "x3"},    {"w2"}),   # byte variant, W-form data regs
+    ("ldaddal", 0xf8e10062, {"x1", "x3"},   {"x2"}),   # acquire+release ordered variant
+    ("ldclr",  0xf8211062, {"x1", "x3"},    {"x2"}),
+    ("ldeor",  0xf8212062, {"x1", "x3"},    {"x2"}),
+    ("ldset",  0xf8213062, {"x1", "x3"},    {"x2"}),
+    ("ldsmax", 0xf8214062, {"x1", "x3"},    {"x2"}),
+    ("ldsmin", 0xf8215062, {"x1", "x3"},    {"x2"}),
+    ("ldumax", 0xf8216062, {"x1", "x3"},    {"x2"}),
+    ("ldumin", 0xf8217062, {"x1", "x3"},    {"x2"}),
+    ("swp",    0xf8218062, {"x1", "x3"},    {"x2"}),
+    ("swpalh", 0x78e480c5, {"w4", "x6"},    {"w5"}),
+    # Acquire/release ordered accesses: Capstone reports these correctly (load-acquire = plain load,
+    # store-release = plain store). Cases pin one load and one store; the rest are in EXPLICIT_OPERAND_ONLY.
+    ("ldar",   0xc8dffc20, {"x1"},          {"x0"}),
+    ("ldapr",  0xf8bfc020, {"x1"},          {"x0"}),
+    ("stlr",   0xc89ffc20, {"x0", "x1"},    set()),
+    # MADD/MSUB: Rd write, Rn/Rm/Ra read (all explicit; Capstone reports correctly).
+    ("madd",   0x9b020c20, {"x1", "x2", "x3"}, {"x0"}),
+    ("msub",   0x9b028c20, {"x1", "x2", "x3"}, {"x0"}),
 ]
 
 # Remaining supported instructions whose explicit operands are reported correctly by Capstone's
@@ -93,6 +117,10 @@ EXPLICIT_OPERAND_ONLY = {
     "eor", "orr", "pacib", "paciza", "pacizb", "pacdb", "pacdza", "pacdzb",
     "rbit", "rev", "rev16", "rev32",
     "sdiv", "stp", "tbnz", "tbz", "udiv", "xpaci",
+    # Acquire/release ordered accesses: Capstone reports op.access correctly (load-acquire writes Rt and
+    # reads the base; store-release reads Rt and the base). No implicit reg/flag access.
+    "ldar", "ldarb", "ldarh", "ldapr", "ldaprb", "ldaprh", "ldlar", "ldlarb", "ldlarh",
+    "stlr", "stlrb", "stlrh", "stllr", "stllrb", "stllrh",
 }
 
 # Barriers with no register/flag operands at all: their reg-access classification is trivially empty.
@@ -116,8 +144,30 @@ class DisasmRegAccessTest(unittest.TestCase):
             covered = (mnemonic in tested
                        or mnemonic in EXPLICIT_OPERAND_ONLY
                        or mnemonic in NO_OPERAND_BARRIERS
+                       or mnemonic in _ATOMIC_RMW_LOAD   # positional RMW fixup; representatives in CASES
                        or any(t.startswith(mnemonic) for t in tested))   # "b." <- "b.eq"
             self.assertTrue(covered, f"{mnemonic!r} is generated but has no reg-access test/classification")
+
+    def test_all_atomic_rmw_loads_report_a_register_dest(self):
+        # Every LD<op>/SWP form must report Rt as a written register (the old memory value), or its
+        # taint would be dropped. Assemble the X-form with distinct registers and check op1 is a dest.
+        import subprocess, tempfile
+        def _asm(line):
+            with tempfile.NamedTemporaryFile("w", suffix=".s", delete=False) as f:
+                f.write(".text\n" + line + "\n"); path = f.name
+            obj = path + ".o"
+            subprocess.run(["aarch64-linux-gnu-as", "-march=armv9-a", path, "-o", obj], check=True)
+            raw = subprocess.run(["aarch64-linux-gnu-objcopy", "-O", "binary", "-j", ".text",
+                                  obj, "/dev/stdout"], capture_output=True, check=True).stdout
+            os.unlink(path); os.unlink(obj)
+            return int.from_bytes(raw[:4], "little")
+        for mnemonic in sorted(_ATOMIC_RMW_LOAD):
+            reg = "w" if mnemonic.endswith(("b", "h")) else "x"
+            enc = _asm(f"{mnemonic} {reg}1, {reg}2, [x3]")
+            src, dest = decode_reg_accesses(enc, 0)
+            self.assertIn(f"{reg}2", dest, f"{mnemonic}: Rt not reported as a register write")
+            self.assertIn(f"{reg}1", src, f"{mnemonic}: Rs not reported as a register read")
+            self.assertIn("x3", src, f"{mnemonic}: base not reported as a read")
 
     def test_flag_writes_are_exact(self):
         # A flag write claimed but not performed (over-claim) makes the taint tracker treat that flag's
@@ -154,6 +204,13 @@ class BaseJsonRoleCrossCheckTest(unittest.TestCase):
         cls.by_name = {}
         for spec in isa.instructions:
             cls.by_name.setdefault(spec.name, []).append(spec)
+        # A second load that also enables the atomic categories, so the atomic-fixup cross-check sees
+        # the LSE RMW specs (config.yml itself does not enable them).
+        isa_atomic = InstructionSet(os.path.join(_ROOT, "base.json"),
+                                    CONF.instruction_categories + ["BASE-MEM-ATOMIC", "BASE-MEM-ACQREL"])
+        cls.by_name_atomic = {}
+        for spec in isa_atomic.instructions:
+            cls.by_name_atomic.setdefault(spec.name, []).append(spec)
 
     @classmethod
     def tearDownClass(cls):
@@ -185,6 +242,22 @@ class BaseJsonRoleCrossCheckTest(unittest.TestCase):
                         self.assertTrue(op.src and not op.dest, "non-first registers must be src-only")
                     # LDG is the sole RMW: base.json marks Xt both src and dest.
                     self.assertEqual(bool(regs[0].src), mnemonic == "ldg")
+
+    def test_atomic_rmw_fixup_agrees_with_base_json(self):
+        # The positional atomic fixup (Rs=src, Rt=dest) must match base.json's authoritative roles for
+        # every LD<op>/SWP form present in the spec, so it cannot drift from the architecture.
+        seen = 0
+        for mnemonic in _ATOMIC_RMW_LOAD:
+            for spec in self.by_name_atomic.get(mnemonic, []):
+                regs = [op for op in spec.operands if op.type == OT.REG]
+                mems = [op for op in spec.operands if op.type == OT.MEM]
+                with self.subTest(mnemonic=mnemonic):
+                    self.assertEqual(len(regs), 2, f"{mnemonic}: expected Rs,Rt register operands")
+                    self.assertTrue(regs[0].src and not regs[0].dest, "Rs must be src-only")
+                    self.assertTrue(regs[1].dest and not regs[1].src, "Rt must be dest-only (old value)")
+                    self.assertTrue(mems and mems[0].src and mems[0].dest, "memory cell must be RMW")
+                seen += 1
+        self.assertGreater(seen, 0, "no atomic RMW specs found in base.json (category load broken)")
 
 
 class IsConditionalBranchTest(unittest.TestCase):

@@ -20,6 +20,24 @@ _CAPSTONE.detail = True
 # sources (memory bases are recovered separately). SUBPS additionally writes NZCV.
 _MTE_FIRST_REG_DEST = frozenset({"addg", "subg", "irg", "gmi", "subp", "subps", "ldg"})
 
+# LSE integer atomic RMW *load* forms — LD<op> <Rs>, <Rt>, [<Xn|SP>] and SWP <Rs>, <Rt>, [<Xn|SP>].
+# Capstone 5.0.x leaves every operand access empty for these, so fill the register roles by position:
+# Rs (register operand 0) is a source (the value combined into memory), Rt (register operand 1) is the
+# destination that receives the OLD memory value, and the memory base is a source (added with all
+# memory bases). The memory cell itself is read-modify-write, but that is a memory access, tracked
+# separately from register taint. The store forms ST<op> (no Rt) discard the old value and so keep the
+# plain src-only over-approximation. The set is built exhaustively from the base op, ordering suffix
+# (a/l/al) and size suffix (b/h) so it cannot drift as variants are enabled.
+_LSE_ATOMIC_OPS = ("add", "clr", "eor", "set", "smax", "smin", "umax", "umin")
+_LSE_ORDER_SUFFIX = ("", "a", "l", "al")
+_LSE_SIZE_SUFFIX = ("", "b", "h")
+_ATOMIC_RMW_LOAD = frozenset(
+    f"ld{op}{order}{size}"
+    for op in _LSE_ATOMIC_OPS for order in _LSE_ORDER_SUFFIX for size in _LSE_SIZE_SUFFIX
+) | frozenset(
+    f"swp{order}{size}" for order in _LSE_ORDER_SUFFIX for size in _LSE_SIZE_SUFFIX
+)
+
 # Capstone 5.0.x under-reports the FEAT_FlagM/FlagM2 flag-manipulation ops: it exposes neither the
 # NZCV bits they read nor the ones they write. Model each precisely as (reads, writes) over PSTATE
 # flags: a flag the op PRESERVES must not be listed as written (that would silently drop live taint on
@@ -90,8 +108,8 @@ def decode_reg_accesses(encoding: int, pc: int) -> Tuple[List[str], List[str]]:
         src |= cc_to_read_flags(insn.cc)
 
     mnemonic = insn.mnemonic.lower()
-    reg_roles_fixed = mnemonic in _MTE_FIRST_REG_DEST or mnemonic in ("rmif", "setf8", "setf16",
-                                                                      "pacga")
+    reg_roles_fixed = (mnemonic in _MTE_FIRST_REG_DEST or mnemonic in _ATOMIC_RMW_LOAD
+                       or mnemonic in ("rmif", "setf8", "setf16", "pacga"))
 
     for op in insn.operands:
         if op.type == ARM64_OP_REG:
@@ -140,6 +158,12 @@ def decode_reg_accesses(encoding: int, pc: int) -> Tuple[List[str], List[str]]:
             src.add(regs[0])         # LDG is RMW: loads the tag into Xt, preserving its other bits
         if mnemonic == "subps":
             dest |= FLAG_BITS
+    elif mnemonic in _ATOMIC_RMW_LOAD:
+        regs = [insn.reg_name(op.reg) for op in insn.operands if op.type == ARM64_OP_REG]
+        if regs:
+            src.add(regs[0])         # Rs: the value combined into memory (read)
+        if len(regs) > 1:
+            dest.add(regs[1])        # Rt: receives the OLD memory value (write); memory base handled above
 
     return sorted(src), sorted(dest)
 
