@@ -277,6 +277,12 @@ cross_input_priming_localizer: str = "any"
     (linear_scan): returns t_max, the largest leaking class, at the cost of a linear number of probes.
     The saved counterexample keeps both whole lanes, so an 'any' finding can be re-localized to t_max
     offline. """
+cross_input_leaks_only: bool = False
+""" cross_input_leaks_only: keep only STRICTLY cross-input (non-self) leaks. A boundary at the detecting
+    pair itself (leaking pair == detecting pair) is that pair's own ct-equal variant leaking about itself
+    (a self-dependence); with this set, such findings are dropped and a violation is confirmed only when
+    an EARLIER input's microarchitectural residue changes a later input's readout. Off by default
+    (self- or cross-input both confirm). Requires enable_cross_input_priming. """
 
 instruction_blocklist: List[str] = [
     # Crash/stall hazards: must never be generated regardless of enabled categories.

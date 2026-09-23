@@ -34,6 +34,14 @@ class CrossInputPrimingConfigTest(unittest.TestCase):
         # off by default (standard priming), and the default localizer is the "any" (galloping) one.
         self.assertEqual(CONF.enable_cross_input_priming, False)
         self.assertEqual(CONF.cross_input_priming_localizer, "any")
+        # self- and cross-input findings both confirm by default (cross-input-only is opt-in).
+        self.assertEqual(CONF.cross_input_leaks_only, False)
+
+    def test_cross_input_leaks_only_is_boolean(self):
+        CONF.safe_set("cross_input_leaks_only", True)
+        self.assertTrue(CONF.cross_input_leaks_only)
+        with self.assertRaises(ConfigException):
+            CONF.safe_set("cross_input_leaks_only", "yes")   # wrong type -> loud
 
     def test_localizer_accepts_any_and_optimal(self):
         for v in ("any", "optimal"):

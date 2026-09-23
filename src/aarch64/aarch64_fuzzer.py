@@ -163,9 +163,11 @@ class CrossInputPrimingMixin(_MixinBase):
             return None
         detecting, lane_a, lane_b = located
         directions = ((lane_a, lane_b, True), (lane_b, lane_a, False))
+        exclude_self = CONF.cross_input_leaks_only
         for prefix_lane, suffix_lane, prefix_from_first in directions:
             finding = detector.find_leaking_pair(lanes[prefix_lane], lanes[suffix_lane],
-                                                 detecting, prefix_from_first)
+                                                 detecting, prefix_from_first,
+                                                 exclude_self_dependence=exclude_self)
             if finding is not None:
                 return finding, prefix_lane, suffix_lane
         return None

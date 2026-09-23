@@ -235,3 +235,14 @@ it returns *some* leaking pair, biased toward the detecting pair (the most-recen
 O(log distance) probes. `optimal` is a linear scan (`linear_scan`): it returns `t_max`, the largest
 leaking class, at the cost of a linear number of probes. The saved counterexample keeps both whole lanes,
 so an `any` finding can be re-localized to `t_max` offline.
+
+```yaml
+Name: cross_input_leaks_only
+Default: false
+```
+
+Keep only *strictly cross-input* (non-self) leaks. A boundary at the detecting pair itself (leaking pair
+== detecting pair) is that pair's own ct-equal variant leaking about itself — a self-dependence. With
+this set, such findings are dropped, so a violation is confirmed only when an **earlier** input's
+microarchitectural residue changes a **later** input's readout. `False` by default (a self- or
+cross-input finding both confirm). Requires `enable_cross_input_priming`.
