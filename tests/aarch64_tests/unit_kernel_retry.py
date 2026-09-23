@@ -6,6 +6,7 @@ from unittest import mock
 import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
 import src.aarch64.aarch64_kernel as kmod
 from src.aarch64.aarch64_kernel import RemoteHWExecutor, RemoteExecutorConfig
+from src.interfaces import HardwareTracingError
 
 
 class RetryPolicyTest(unittest.TestCase):
@@ -24,9 +25,12 @@ class RetryPolicyTest(unittest.TestCase):
         self.assertEqual(ex._conn.run.call_count, RemoteHWExecutor._RETRIES)
 
     def test_malformed_response_is_not_retried(self):
-        ex = self._executor(return_value=b"\x00" * 40)   # valid length, bad magic -> ValueError
+        # A well-formed-length but bad-magic response is a persistent format error: decode_response
+        # raises ValueError, which run_batch surfaces as HardwareTracingError and does NOT retry
+        # (retry is IOError-only).
+        ex = self._executor(return_value=b"\x00" * 40)
         with mock.patch.object(kmod.time, "sleep"):
-            with self.assertRaises(ValueError):
+            with self.assertRaises(HardwareTracingError):
                 ex.run_batch([], 1)
         self.assertEqual(ex._conn.run.call_count, 1)
 

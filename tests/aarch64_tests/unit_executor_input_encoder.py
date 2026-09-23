@@ -252,8 +252,9 @@ class InputWireRoundTrip(unittest.TestCase):
             self.assertEqual(back.serialize(), ei.serialize())
 
     def test_contract_execution_encode_envelope(self):
-        """ContractExecution.encode emits a 17*u64 envelope + code + an input initialization whose
-        memory == main‖faulty and gpr round-trip; this is what the CE binary parses."""
+        """ContractExecution.encode emits an 18*u64 envelope + code + an input initialization whose
+        memory == main‖faulty and gpr round-trip; this is what the CE binary parses. The envelope's
+        trailing sizes are code_size (env[14]), data_size (env[15]), input_init_size (env[16])."""
         from src.aarch64.aarch64_contract_executor import ContractExecution, SimArch, RVZRCE_MAGIC
         memory = bytes((i % 256 for i in range(MAIN_AREA_SIZE + FAULTY_AREA_SIZE)))  # 8192
         registers = bytes((i % 251 for i in range(GPR_SUBREGION_SIZE)))              # 64
@@ -262,14 +263,15 @@ class InputWireRoundTrip(unittest.TestCase):
                                req_mem_base_virt=0x1000)
         msg = ce.encode()
 
-        env = struct.unpack_from("<17Q", msg, 0)
+        env = struct.unpack_from("<18Q", msg, 0)
         self.assertEqual(env[0], RVZRCE_MAGIC)        # magic
-        code_size, init_size = env[14], env[15]
+        code_size, data_size, init_size = env[14], env[15], env[16]
         self.assertEqual(code_size, len(code))
-        self.assertEqual(len(msg), 17 * 8 + code_size + init_size)
-        self.assertEqual(msg[17 * 8:17 * 8 + code_size], code)
+        self.assertEqual(data_size, 0)                # no dispatch-table data trailing the code here
+        self.assertEqual(len(msg), 18 * 8 + code_size + init_size)
+        self.assertEqual(msg[18 * 8:18 * 8 + code_size], code)
 
-        init = msg[17 * 8 + code_size:]
+        init = msg[18 * 8 + code_size:]
         _, sections = _parse(init)
         self.assertEqual(sections[wire.SEC_MEMORY_MAIN] + sections[wire.SEC_MEMORY_FAULTY], memory)
         self.assertEqual(sections[wire.SEC_GPR], registers[:GPR_SUBREGION_SIZE])
