@@ -3322,8 +3322,59 @@ static void test_alias_atomic_ldadd(void) {             /* LDADD X1,X0,[X1] — 
     if (!ld) AL_FAIL();
     EXPECT_EQ(ld->metadata.memory_access.before, KBASE + AL_OFF);
 }
-/* CAS/CASP: the aliasing fixup covers them in principle, but the CE cannot execute CAS natively
- * (pre-existing limitation — it crashes regardless of aliasing), so there is nothing to drive yet. */
+/* CAS: compare X0 against [X2]; on match store X1, else leave memory. The CE runs it natively and
+ * models it as an atomic RMW. Readback (LDR X3,[X2] = 0xf9400043) reports the resulting cell value. */
+static void test_alias_atomic_cas_match(void) {           /* CAS X0,X1,[X2], X0==mem -> stores X1 */
+    uint64_t regs[REGS_COUNT] = {0}; regs[2] = KBASE + AL_OFF; regs[0] = 0; regs[1] = 0xABCD;
+    uint64_t cmp = 0;                                      /* mem[EA] = 0 == X0 -> swap */
+    ce_result_t res; instr_trace_entry_t* ld = alias_store_load(0xc8a07c41u, 0xf9400043u, regs, &cmp, &res);
+    if (!ld) AL_FAIL();
+    EXPECT_EQ(ld->metadata.memory_access.before, (uint64_t)0xABCD);   /* swap happened */
+    instr_trace_entry_t* cas = find_mem_entry(&res, 0);
+    if (!cas) AL_FAIL();
+    EXPECT(cas->metadata.memory_access.is_atomic);                    /* modeled as RMW */
+}
+static void test_alias_atomic_cas_mismatch(void) {        /* CAS X0,X1,[X2], X0!=mem -> no store */
+    uint64_t regs[REGS_COUNT] = {0}; regs[2] = KBASE + AL_OFF; regs[0] = 0xDEAD; regs[1] = 0xABCD;
+    uint64_t cmp = 0;                                      /* mem[EA] = 0 != X0 -> no swap */
+    ce_result_t res; instr_trace_entry_t* ld = alias_store_load(0xc8a07c41u, 0xf9400043u, regs, &cmp, &res);
+    if (!ld) AL_FAIL();
+    EXPECT_EQ(ld->metadata.memory_access.before, (uint64_t)0);        /* memory unchanged */
+}
+static void test_atomic_casp_pair(void) {                 /* CASP X0,X1,X2,X3,[X4]=0x48207c82 (64-bit pair) */
+    uint64_t regs[REGS_COUNT] = {0};
+    regs[4] = KBASE + AL_OFF;                              /* base (16B aligned) */
+    regs[0] = 0; regs[1] = 0;                              /* compare pair Xs:Xs+1 == mem 0:0 -> swap */
+    regs[2] = 0x1111; regs[3] = 0x2222;                    /* new pair Xt:Xt+1 */
+    uint8_t mem[MEM_SIZE]; memset(mem, 0, sizeof(mem));
+    uint32_t code[1] = { 0x48207c82u };
+    ce_result_t res;
+    if (!run_ce(code, 1, mem, sizeof(mem), KBASE, 0, 0u, regs, &res)) AL_FAIL();
+    instr_trace_entry_t* casp = find_mem_entry(&res, 0);
+    if (!casp) AL_FAIL();
+    EXPECT(casp->metadata.is_pair);                        /* both elements modeled */
+    EXPECT(casp->metadata.memory_access.is_atomic);
+    EXPECT(casp->metadata.memory_access2.is_atomic);
+    EXPECT_EQ(casp->metadata.memory_access.effective_address,  KBASE + AL_OFF);       /* element 0 */
+    EXPECT_EQ(casp->metadata.memory_access2.effective_address, KBASE + AL_OFF + 8);   /* element 1 at EA+8 */
+    EXPECT_EQ(casp->metadata.memory_access.element_size,  (uint64_t)8);
+    EXPECT_EQ(casp->metadata.memory_access2.element_size, (uint64_t)8);
+    EXPECT_EQ(casp->metadata.memory_access.after,  (uint64_t)0x1111);  /* Xt   -> [EA]   */
+    EXPECT_EQ(casp->metadata.memory_access2.after, (uint64_t)0x2222);  /* Xt+1 -> [EA+8] (was 0 before) */
+}
+static void test_atomic_casp_w_pair(void) {               /* CASP W0,W1,W2,W3,[X4]=0x08207c82 (32-bit pair) */
+    uint64_t regs[REGS_COUNT] = {0};
+    regs[4] = KBASE + AL_OFF; regs[0] = 0; regs[1] = 0; regs[2] = 0x1111; regs[3] = 0x2222;
+    uint8_t mem[MEM_SIZE]; memset(mem, 0, sizeof(mem));
+    uint32_t code[1] = { 0x08207c82u };
+    ce_result_t res;
+    if (!run_ce(code, 1, mem, sizeof(mem), KBASE, 0, 0u, regs, &res)) AL_FAIL();
+    instr_trace_entry_t* casp = find_mem_entry(&res, 0);
+    if (!casp) AL_FAIL();
+    EXPECT(casp->metadata.is_pair);
+    EXPECT_EQ(casp->metadata.memory_access.element_size,  (uint64_t)4);   /* 32-bit element */
+    EXPECT_EQ(casp->metadata.memory_access2.effective_address, KBASE + AL_OFF + 4);  /* EA+4 */
+}
 
 /* ---- GROUP 40: SLS — straight-line speculation ------------------------- */
 
@@ -3767,6 +3818,10 @@ int main(void) {
     test_alias_str_w();
     test_alias_atomic_swp();
     test_alias_atomic_ldadd();
+    test_alias_atomic_cas_match();
+    test_alias_atomic_cas_mismatch();
+    test_atomic_casp_pair();
+    test_atomic_casp_w_pair();
 
     // PAC (need /dev/executor; skip without it). sign_then_auth is a matched,
     // non-faulting round-trip — but a failing auth resets FEAT-FPAC silicon, so

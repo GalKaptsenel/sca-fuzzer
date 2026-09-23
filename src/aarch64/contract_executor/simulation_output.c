@@ -214,19 +214,33 @@ mem_access_info_t parse_memory_access_instruction(uint32_t inst, const trace_cpu
 	} else {
 		/* Remaining memory accesses all address [Xn] with no offset: load/store exclusive
 		 * (LDXR/STXR/LDAXR/STLXR and the pair forms LDXP/STXP), acquire/release ordered
-		 * (LDAR/STLR/LDLAR/STLLR) and compare-and-swap (CAS/CASP).  Distinguishing fields:
-		 * o2 = bit23, L = bit22 (1 = load), o1 = bit21 (set for exclusive-pair and for CAS). */
+		 * (LDAR/STLR/LDLAR/STLLR/LDAPR) and compare-and-swap (CAS/CASP). Fields in this group:
+		 *   o2 = bit23, L = bit22 (1 = load), o1 = bit21, sz-high = bit31, sz-low = bit30.
+		 * The sub-cases are distinguished as follows (all verified against the assembler):
+		 *   CAS       : o1=1, o2=1                 -- non-pair compare-and-swap; size = 1<<bits[31:30].
+		 *   CASP      : o1=1, o2=0, bit31=0        -- compare-and-swap PAIR; element size = bit30?8:4;
+		 *                                             element 1's data register is Rt+1 (implicit), NOT
+		 *                                             the Rt2 field (which is 11111 for CAS/CASP).
+		 *   LDXP/STXP : o1=1, o2=0, bit31=1        -- exclusive pair; element 1 carries the Rt2 field.
+		 *   otherwise : exclusive single / ordered -- a pure load or store selected by L.
+		 * (There is no byte/halfword exclusive-pair, so bit31=0 with o1=1,o2=0 is unambiguously CASP.) */
 		int o2 = (inst >> 23) & 1;
 		int L  = (inst >> 22) & 1;
 		int o1 = (inst >> 21) & 1;
+		int sz_high = (inst >> 31) & 1;
 		mi.base_register = get_rn(inst);
 		mi.effective_address = read_reg(state, mi.base_register);
 		mi.data_size = access_size(inst);
-		if (o2 && o1) {
-			/* compare-and-swap: a genuine read-modify-write (CASP's 2nd element not modelled). */
+		if (o1 && (o2 || 0 == sz_high)) {
+			/* compare-and-swap (CAS or CASP): a genuine read-modify-write of [Xn]. */
 			mi.is_atomic = 1;
 			mi.is_load = 1;
 			mi.is_store = 1;
+			if (!o2) {                 /* CASP: a pair of RMW elements at [Xn] and [Xn]+element_size */
+				mi.is_pair = 1;
+				mi.data_size = ((inst >> 30) & 1) ? 8 : 4;   /* CASP element: bit30 -> 64/32-bit */
+				mi.rt2_register = (get_rt(inst) + 1) & 0x1F;  /* second data register is Rt+1 */
+			}
 		} else {
 			/* exclusive / ordered: a pure load or store, selected by the L bit. */
 			mi.is_load = L;
