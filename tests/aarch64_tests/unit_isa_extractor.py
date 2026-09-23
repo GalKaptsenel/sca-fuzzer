@@ -149,9 +149,9 @@ class TestArchVersion(unittest.TestCase):
         self.assertEqual(_min_arch_variant(self._ic("v8Ap9", "v8Ap3")), (8, 3))   # earliest wins
         self.assertEqual(_min_arch_variant(self._ic("v9Ap4")), (9, 4))
 
-    def test_no_variant_is_none(self):
+    def test_no_variant_is_baseline(self):
         from src.aarch64.arm_isa_extractor.extract import _min_arch_variant
-        self.assertIsNone(_min_arch_variant(ET.fromstring("<iclass/>")))          # baseline v8.0
+        self.assertEqual(_min_arch_variant(ET.fromstring("<iclass/>")), (8, 0))   # baseline, never None
 
     def test_arch_norm_aligns_v8_and_v9(self):
         from src.isa_loader import _arch_norm

@@ -1,7 +1,7 @@
 """
 File: AArch64-specific Configuration Options
 """
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 from .seal.pagetable_model import LEAF_LAYOUT
 
@@ -156,16 +156,22 @@ hardware confirmation that the training is effective on this core. """
 instruction_categories: List[str] = ["BASE-ARITH", "BASE-LOGICAL", "BASE-BRANCH-COND"]
 """ instruction_categories: a default list of tested instruction categories """
 
-target_arch: Tuple[int, int] = (9, 0)
-""" target_arch: the ARM architecture version (major, minor) generation targets, as (9, 0) for
+target_arch: List[int] = [9, 0]
+""" target_arch: the ARM architecture version [major, minor] generation targets, as [9, 0] for
 Armv9.0-A. Instructions requiring a newer version are excluded (they would not assemble). MUST match
 the assembler -march the generator uses (armv9-a); bump both together to reach newer FEATs. """
 
 contract_observation_clause: str = 'l1d'
 """ contract_observation_clause: """
 
-# Instructions known to misbehave under the executor; none identified for AArch64 yet.
-_buggy_instructions: List[str] = []
+# Instructions known to misbehave under the executor.
+# CAS/CASP: the contract executor cannot single-step them natively yet (pre-existing crash); they are
+# re-enabled once the CE models compare-and-swap. Only the base forms need listing -- the tag/pair
+# (t/p) variants are already excluded by the arch-version gate.
+_buggy_instructions: List[str] = [
+    "cas", "casa", "casab", "casah", "casal", "casalb", "casalh", "casb", "cash", "casl", "caslb", "caslh",
+    "casp", "caspa", "caspal", "caspl",
+]
 
 supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "ldr", "ldp", "stp", "orr", "ands", "and", "eor", "cbnz", "tbz", "tbnz",
                                      "csel", "csinc", "csinv", "csneg", "ccmn", "ccmp",
@@ -181,6 +187,29 @@ supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "l
                                      "ldg",                            # MTE load allocation tag
                                      "ssbb", "pssbb",                  # store-bypass barriers (ct-bpas + barrier contract)
                                      # add "sb", "isb", "dsb" here to fuzz the control-fence barriers (cond/bpu + barrier)
+                                     # LSE atomics (RMW)
+                                     "ldadd", "ldadda", "ldaddab", "ldaddah", "ldaddal", "ldaddalb", "ldaddalh",
+                                     "ldaddb", "ldaddh", "ldaddl", "ldaddlb", "ldaddlh",
+                                     "ldclr", "ldclra", "ldclrab", "ldclrah", "ldclral", "ldclralb", "ldclralh",
+                                     "ldclrb", "ldclrh", "ldclrl", "ldclrlb", "ldclrlh",
+                                     "ldeor", "ldeora", "ldeorab", "ldeorah", "ldeoral", "ldeoralb", "ldeoralh",
+                                     "ldeorb", "ldeorh", "ldeorl", "ldeorlb", "ldeorlh",
+                                     "ldset", "ldseta", "ldsetab", "ldsetah", "ldsetal", "ldsetalb", "ldsetalh",
+                                     "ldsetb", "ldseth", "ldsetl", "ldsetlb", "ldsetlh",
+                                     "ldsmax", "ldsmaxa", "ldsmaxab", "ldsmaxah", "ldsmaxal", "ldsmaxalb", "ldsmaxalh",
+                                     "ldsmaxb", "ldsmaxh", "ldsmaxl", "ldsmaxlb", "ldsmaxlh",
+                                     "ldsmin", "ldsmina", "ldsminab", "ldsminah", "ldsminal", "ldsminalb", "ldsminalh",
+                                     "ldsminb", "ldsminh", "ldsminl", "ldsminlb", "ldsminlh",
+                                     "ldumax", "ldumaxa", "ldumaxab", "ldumaxah", "ldumaxal", "ldumaxalb", "ldumaxalh",
+                                     "ldumaxb", "ldumaxh", "ldumaxl", "ldumaxlb", "ldumaxlh",
+                                     "ldumin", "ldumina", "lduminab", "lduminah", "lduminal", "lduminalb", "lduminalh",
+                                     "lduminb", "lduminh", "lduminl", "lduminlb", "lduminlh",
+                                     # swap
+                                     "swp", "swpa", "swpab", "swpah", "swpal", "swpalb", "swpalh",
+                                     "swpb", "swph", "swpl", "swplb", "swplh",
+                                     # acquire / release ordered accesses
+                                     "ldar", "ldarb", "ldarh", "ldapr", "ldaprb", "ldaprh", "ldlar", "ldlarb", "ldlarh",
+                                     "stlr", "stlrb", "stlrh", "stllr", "stllrb", "stllrh",
                                      ]
 
 # AArch64-only: PAC seal probabilities (live seal path, PAC-only mode).

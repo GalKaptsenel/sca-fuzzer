@@ -36,14 +36,15 @@ _ARCH_VARIANT = re.compile(r"v(\d+)Ap(\d+)")   # ARM architecture version token,
 
 
 def _min_arch_variant(ic):
-    """The earliest architecture version an iclass is available from, as (major, minor), or None when
-    it carries no arch_variant (a baseline v8.0 instruction). Armv9.x aligns with Armv8.(x+5)."""
+    """The earliest architecture version an iclass is available from, as (major, minor). An iclass with
+    no arch_variant is a baseline (8, 0) instruction -- always a concrete version, never None. Armv9.x
+    aligns with Armv8.(x+5)."""
     versions = []
     for av in ic.findall("arch_variants/arch_variant"):
         m = _ARCH_VARIANT.match(av.get("name") or "")
         if m:
             versions.append((int(m.group(1)), int(m.group(2))))
-    return min(versions, key=lambda v: 5 * (v[0] - 8) + v[1]) if versions else None
+    return min(versions, key=lambda v: 5 * (v[0] - 8) + v[1]) if versions else (8, 0)
 
 
 def _build_instruction(section_id, category, explanations, asl, postdecode, sem, control_flow,
