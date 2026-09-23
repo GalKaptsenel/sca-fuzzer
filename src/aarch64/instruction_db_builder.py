@@ -186,12 +186,17 @@ def get_tags(inst: dict) -> list:
     mem = inst["mem_access"]
     if mem in ("load", "store", "rmw", "ex-load", "ex-store"):
         tags.add(f"{isa}-MEM")
-    if mem in ("load", "ex-load"):
-        tags.add(f"{isa}-MEM-LOAD")                                # atomics are RMW, so not LOAD
-    elif mem in ("store", "ex-store"):
-        tags.add(f"{isa}-MEM-STORE")
+    # BASE-MEM-LOAD/STORE are the PLAIN accesses only. Ordered (acquire/release) and exclusive
+    # loads/stores are single-copy-atomic (they require natural alignment) and carry their own family
+    # tag (EXCLUSIVE here, ACQREL below) -- so enabling BASE-MEM-LOAD in a config does not pull them
+    # into a path that may not align them. The sealer aligns them robustly regardless (belt and braces).
+    is_acqrel = name in _ACQREL
     if mem in ("ex-load", "ex-store"):
         tags.add(f"{isa}-MEM-EXCLUSIVE")
+    elif mem == "load" and not is_acqrel:
+        tags.add(f"{isa}-MEM-LOAD")                                # plain load (atomics are RMW, not LOAD)
+    elif mem == "store" and not is_acqrel:
+        tags.add(f"{isa}-MEM-STORE")
     if mem == "rmw":                                               # LSE/FP atomic, RCW, or a MOPS copy
         accdesc = inst["mem_accdesc"]                              # split the family structurally
         if accdesc == "MOPS":

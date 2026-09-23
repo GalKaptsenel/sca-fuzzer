@@ -944,12 +944,34 @@ class SandboxWalk:
         # tag-memory instruction in the pool the sandbox stays uniformly tagged and unaligned is safe.
         granule_align = any("MTE-TAGMEM-STORE" in s.tags
                             for s in generator.instruction_set.instructions)
-        stg_mask = f"#0x{_SANDBOX_MASK & ~0xF:x}"
-        data_mask = stg_mask if granule_align else f"#0x{_SANDBOX_MASK:x}"
+        # Floor every access at one MTE granule when a tag store can make granules non-uniform (so a
+        # multi-byte access can't straddle two differently-tagged granules); otherwise no floor. Each
+        # access is additionally aligned to its own requirement (mem_op.alignment) in _addr_mask, so a
+        # single-copy-atomic access (acquire/release, exclusive, LSE atomic) is naturally aligned no
+        # matter which config generates it.
+        self._granule_floor = 16 if granule_align else 1
+        # value-seal clamp (a sealed pointer written into a register): granule-aligned under MTE.
+        value_mask = f"#0x{_SANDBOX_MASK & ~0xF:x}" if granule_align else f"#0x{_SANDBOX_MASK:x}"
         self._addr = _Addressing(generator.target_desc.reg_normalized,
-                                 data_mask, SANDBOX_BASE_REGISTER)
-        self._mask = data_mask
-        self._stg_mask = stg_mask
+                                 value_mask, SANDBOX_BASE_REGISTER)
+
+    def _addr_mask(self, inst) -> str:
+        """The sandbox clamp mask for one memory access, aligned to the wider of the MTE granule floor
+        and the access's own natural-alignment requirement (mem_op.alignment bytes; 0 = none)."""
+        align = max(self._granule_floor, inst.get_mem_operands()[0].alignment)
+        return f"#0x{_SANDBOX_MASK & ~(align - 1):x}"
+
+    def _realign_reused_base(self, inst, reg: str) -> List[Instruction]:
+        """Instructions to re-align an ALREADY in-region base to this access's natural-alignment
+        requirement, for the case where the base was clamped by a prior, weaker-aligned access and the
+        clamp is not re-emitted (re-clamping would re-add the sandbox base). Masking only the low bits
+        keeps the base in-region (x29 is page-aligned). Empty when the access needs no alignment (a plain
+        load/store); atomics take no offset, so aligning the base aligns the effective address."""
+        align = inst.get_mem_operands()[0].alignment
+        if align <= 1:
+            return []
+        mask = f"#0x{(-align) & ((1 << 64) - 1):x}"        # ~(align - 1), a 64-bit bitmask immediate
+        return [Instruction("and", True, "", False, template=f"AND {reg}, {reg}, {mask}")]
 
     def sandbox(self, tc: TestCase) -> Tuple[List[SandboxSealing], List]:
         """The sandbox-taint dataflow + clamping. Decides which memory bases need an in-region clamp
@@ -987,8 +1009,8 @@ class SandboxWalk:
                             norm_mem = addr._norm_reg(mem_reg)
                             offset_subs = addr._make_offset_sub_insts(inst.get_mem_operands()[0])
                             modifies_base = bool(offset_subs)
-                            if addr._is_tag_store(inst):             # STG: 16B-aligned clamp, no value
-                                prefixes.append((inst, bb, clamp(mem_reg, self._stg_mask) + offset_subs))
+                            if addr._is_tag_store(inst):             # STG: granule-aligned clamp, no value
+                                prefixes.append((inst, bb, clamp(mem_reg, self._addr_mask(inst)) + offset_subs))
                                 curr = curr - frozenset([norm_mem])
                             elif addr._is_tag_load(inst):            # LDG: clamp, no value
                                 if norm_mem in curr:
@@ -996,16 +1018,20 @@ class SandboxWalk:
                                     if modifies_base:
                                         curr = curr - frozenset([norm_mem])
                                 else:
-                                    prefixes.append((inst, bb, clamp(mem_reg, self._mask) + offset_subs))
+                                    prefixes.append((inst, bb, clamp(mem_reg, self._addr_mask(inst)) + offset_subs))
                                     if not modifies_base:
                                         curr = curr | frozenset([norm_mem])
                             else:                                    # data access: clamp now, value later
                                 if norm_mem not in curr:
-                                    prefixes.append((inst, bb, clamp(mem_reg, self._mask)))
+                                    prefixes.append((inst, bb, clamp(mem_reg, self._addr_mask(inst))))
                                     if not modifies_base:
                                         curr = curr | frozenset([norm_mem])
-                                elif modifies_base:
-                                    curr = curr - frozenset([norm_mem])
+                                else:                                # base already in-region: re-align it
+                                    realign = self._realign_reused_base(inst, mem_reg)
+                                    if realign:
+                                        prefixes.append((inst, bb, realign))
+                                    if modifies_base:
+                                        curr = curr - frozenset([norm_mem])
                                 # base_preserved: the access leaves its base register intact (not a
                                 # load destination, no write-back) -> a canonicality flip can be
                                 # cleanly reverted after it. dest regs include write-back bases.

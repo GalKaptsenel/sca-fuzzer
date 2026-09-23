@@ -239,6 +239,35 @@ class AtomicFamilyTagTest(unittest.TestCase):
         self.assertEqual(set(dl.get_tags(inst)) & self._OTHER, set())
 
 
+class OrderedExclusiveTagTest(unittest.TestCase):
+    """Ordered (acquire/release) and exclusive accesses are their OWN families, not the plain
+    BASE-MEM-LOAD/STORE -- so enabling plain load/store never pulls a single-copy-atomic access into a
+    path that may not align it."""
+
+    def _tags(self, name, mem_access):
+        inst = {"name": name, "category": "general", "mem_access": mem_access, "mem_accdesc": "GPR",
+                "flags_written": [], "flags_read": [], "control_flow": False}
+        return set(dl.get_tags(inst))
+
+    def test_plain_load_store_are_base_mem_load_store(self):
+        self.assertIn("BASE-MEM-LOAD", self._tags("ldr", "load"))       # positive
+        self.assertIn("BASE-MEM-STORE", self._tags("str", "store"))
+
+    def test_acqrel_is_not_plain_load_store(self):
+        for name, ma in (("ldar", "load"), ("ldarh", "load"), ("stlr", "store"), ("stllrh", "store")):
+            t = self._tags(name, ma)
+            self.assertIn("BASE-MEM-ACQREL", t)                        # positive
+            self.assertNotIn("BASE-MEM-LOAD", t)                       # negative
+            self.assertNotIn("BASE-MEM-STORE", t)
+
+    def test_exclusive_is_not_plain_load_store(self):
+        for name, ma in (("ldxr", "ex-load"), ("stxr", "ex-store")):
+            t = self._tags(name, ma)
+            self.assertIn("BASE-MEM-EXCLUSIVE", t)                     # positive
+            self.assertNotIn("BASE-MEM-LOAD", t)                       # negative
+            self.assertNotIn("BASE-MEM-STORE", t)
+
+
 class RegisterOffsetWidthTest(unittest.TestCase):
     """`_resolve_register_offset`: a memory register-offset's extend is tied to the index width."""
 

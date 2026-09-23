@@ -98,6 +98,31 @@ class SandboxAlignmentTest(unittest.TestCase):
         self.assertEqual(f(_mem_aligned(32), 16), 32)  # a wider access exceeds the floor
 
 
+class SealRealignReusedBaseTest(unittest.TestCase):
+    """The sealer re-aligns an already-in-region base to a stricter-aligned access's requirement without
+    re-clamping (which would re-add the sandbox base). Masking only the low bits keeps it in-region."""
+
+    def _atomic(self, access_align):
+        base = RegisterOperand("x1", 64, True, False)
+        base.mem_role = AArch64MemRole.BASE
+        mem = MemoryOperand("x1", 64, True, True, inner=[base], alignment=access_align)
+        inst = Instruction("ldar", False, "", False, template="LDAR {Xt}, [{Xn}]")
+        inst.operands = [RegisterOperand("x0", 64, False, True), mem]
+        return inst
+
+    def test_masks_low_bits_to_access_alignment(self):
+        from src.aarch64.seal.sealer import SandboxWalk
+        realign = SandboxWalk._realign_reused_base   # uses only `inst` (no self state)
+        self.assertEqual([i.template for i in realign(None, self._atomic(8), "x1")],
+                         ["AND x1, x1, #0xfffffffffffffff8"])
+        self.assertEqual([i.template for i in realign(None, self._atomic(2), "x1")],
+                         ["AND x1, x1, #0xfffffffffffffffe"])
+
+    def test_no_realign_for_unaligned_access(self):
+        from src.aarch64.seal.sealer import SandboxWalk
+        self.assertEqual(SandboxWalk._realign_reused_base(None, self._atomic(0), "x1"), [])  # plain access
+
+
 class BaseIndexCollisionTest(unittest.TestCase):
     """base == index would make `SUB base, base, index` zero the base (sandbox escape); the patch pass
     must force the index register to differ from the base."""
