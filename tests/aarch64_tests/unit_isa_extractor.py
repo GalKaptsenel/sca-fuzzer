@@ -93,6 +93,50 @@ class TestAslSemantics(unittest.TestCase):
         self.assertIn("t", s.written_regvars)
 
 
+class TestMemWidthAndAlignment(unittest.TestCase):
+    """The access width (from the Mem/MemAtomic accessor brace, or the value bits() for an empty brace)
+    and the alignment class (from the AccessDescriptor kind)."""
+
+    def _sem(self, accessor, accdesc):
+        return extract_asl_semantics(f"let data : bits(datasize) = {accessor};\n"
+                                     f"accdesc = CreateAccDesc{accdesc};\n")
+
+    def test_width_reg_single(self):                 # swp: MemAtomic{datasize}
+        s = self._sem("MemAtomic{datasize}(address, value, accdesc)", "AtomicOp(MemOp_LOAD)")
+        self.assertEqual((s.mem_width.const_bits, s.mem_width.reg_mult), (None, 1))
+        self.assertEqual(s.mem_alignment, "natural")
+
+    def test_width_reg_empty_brace(self):            # cas/ldadd: MemAtomic{} -> width on the value
+        s = self._sem("MemAtomic{}(address, cmp, value, accdesc)", "AtomicOp(MemOp_LOAD)")
+        self.assertEqual((s.mem_width.const_bits, s.mem_width.reg_mult), (None, 1))
+        self.assertEqual(s.mem_alignment, "natural")
+
+    def test_width_pair(self):                       # casp/ldp: 2*datasize
+        s = self._sem("MemAtomic{2*datasize}(address, value, accdesc)", "AtomicOp(MemOp_LOAD)")
+        self.assertEqual(s.mem_width.reg_mult, 2)
+
+    def test_width_const_subword(self):              # ldrb: Mem{8}
+        s = extract_asl_semantics("let data : bits(8) = Mem{8}(address, accdesc);\n"
+                                  "accdesc = CreateAccDescGPR(MemOp_LOAD);\n")
+        self.assertEqual(s.mem_width.const_bits, 8)
+        self.assertIsNone(s.mem_alignment)           # plain GPR access: no alignment requirement
+
+    def test_alignment_granule_for_tag_store(self):  # stg: MemTag store, LDGSTG accdesc
+        s = extract_asl_semantics("AArch64.MemTag[address] = tag;\n"
+                                  "accdesc = CreateAccDescLDGSTG(MemOp_STORE);\n")
+        self.assertEqual(s.mem_alignment, "granule")
+
+    def test_no_alignment_for_tag_load(self):        # ldg: LDGSTG load needs no alignment
+        s = extract_asl_semantics("tag = AArch64.MemTag[address];\n"
+                                  "accdesc = CreateAccDescLDGSTG(MemOp_LOAD);\n")
+        self.assertIsNone(s.mem_alignment)
+
+    def test_no_width_no_alignment_when_no_accessor(self):
+        s = extract_asl_semantics("X{}(d) = X{}(n) + imm;\n")
+        self.assertIsNone(s.mem_width)
+        self.assertIsNone(s.mem_alignment)
+
+
 class TestImmediate(unittest.TestCase):
     def test_plain_unsigned(self):
         op = immediate_operand("imm", "imm12", "unsigned immediate in the range 0 to 4095",

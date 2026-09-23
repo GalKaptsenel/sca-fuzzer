@@ -64,7 +64,7 @@ class InstructionSet(InstructionSetAbstract):
             if "inner" in op:                         # decomposed addressing (AArch64): wrap components
                 inner = [self.parse_operand(c, parent) for c in op["inner"]]
                 spec = MemorySpec(op["width"], op.get("signed", True), op["src"], op["dest"], inner,
-                                  op_name)
+                                  op_name, op["alignment"])
             else:                                     # combined address string (x86)
                 spec = OperandSpec(op_type, op["width"], op.get("signed", True), op["src"], op["dest"],
                                    op.get("values", []), op_name)

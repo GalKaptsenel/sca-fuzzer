@@ -51,7 +51,8 @@ def _build_instruction(section_id, category, explanations, asl, postdecode, sem,
     inst = Instruction(
         name=name, iclass_id=section_id, category=category,
         encoding_name=enc_name, asm_template=asm, control_flow=control_flow,
-        mem_access=sem.mem_access, flags=flags, operands=operands,
+        mem_access=sem.mem_access, flags=flags, operands=operands, mem_width=sem.mem_width,
+        mem_alignment=sem.mem_alignment,
         constraints=unpredictable_constraints(decode + "\n" + postdecode, reg_vars))
     validate_instruction(inst)   # type/domain check; a malformed field loud-fails this encoding
     return inst

@@ -23,6 +23,9 @@ def instruction_dict(i: Instruction) -> dict:
         "flags_written": sorted(i.flags.written), "flags_read": sorted(i.flags.read),
         "operands": [operand_dict(o) for o in i.operands],
         "constraints": [list(c) for c in i.constraints],
+        "mem_width": ({"const_bits": i.mem_width.const_bits, "reg_mult": i.mem_width.reg_mult}
+                      if i.mem_width is not None else None),
+        "mem_alignment": i.mem_alignment,
     }
 
 

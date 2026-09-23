@@ -168,7 +168,8 @@ class Aarch64AsmParser(AsmParserGeneric):
                          for k, c in enumerate(op_spec.inner)]
                 vi += len(op_spec.inner)
                 address = ", ".join(o.value for o in inner)
-                op = MemoryOperand(address, op_spec.width, op_spec.src, op_spec.dest, inner=inner)
+                op = MemoryOperand(address, op_spec.width, op_spec.src, op_spec.dest, inner=inner,
+                                   alignment=op_spec.alignment)
                 op.name = op_spec.name
             else:
                 op = self._simple_operand(op_spec, values[vi], line_num)

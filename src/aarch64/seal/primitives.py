@@ -127,12 +127,12 @@ class _SandboxInstrumentationBase:
             remaining -= chunk
         return result
 
-    def _make_sandbox_insts(self, reg: str, align16: bool = False) -> List[Instruction]:
-        """[AND reg, reg, #mask; ADD reg, reg, x29] sandboxing reg into the input region.
-        align16 clears the low 4 bits too (STG-family tag stores require a 16-byte-aligned address)."""
-        mask = self._sandbox_mask
-        if align16:
-            mask = f"#0x{(_SANDBOX_MASK & ~0xF):x}"
+    def _make_sandbox_insts(self, reg: str, align_bytes: int = 1) -> List[Instruction]:
+        """[AND reg, reg, #mask; ADD reg, reg, x29] sandboxing reg into the input region. align_bytes>1
+        (a power of two) also clears the low log2(align_bytes) bits, so the base is align_bytes-aligned:
+        naturally-aligned single-copy-atomic accesses need their access width, STG-family tag stores and
+        MTE granules need 16."""
+        mask = f"#0x{(_SANDBOX_MASK & ~(align_bytes - 1)):x}"
         and_inst = Instruction("and", True, "", False, template=f"AND {reg}, {reg}, {mask}")
         add_inst = Instruction("add", True, "", False, template=f"ADD {reg}, {reg}, {self._sandbox_base_reg}")
         return [and_inst, add_inst]

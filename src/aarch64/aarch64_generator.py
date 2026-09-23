@@ -23,6 +23,7 @@ from .aarch64_target_desc import Aarch64TargetDesc, SANDBOX_BASE_REGISTER, \
     INDIRECT_CALL_TARGET_REGISTER, AArch64MemRole
 from .aarch64_elf_parser import Aarch64ElfParser
 from .aarch64_printer import Aarch64Printer
+from .aarch64_mte import MTE_GRANULE
 
 
 from .seal.primitives import _SANDBOX_MASK, _SandboxInstrumentationBase
@@ -455,13 +456,21 @@ class Aarch64SandboxPass(Pass, _SandboxInstrumentationBase):
         mem_ops = instr.get_mem_operands()
         if not mem_ops:
             raise GeneratorException("Attempt to sandbox an instruction without memory operands")
-        # STG-family needs a 16-byte-aligned address; under MTE every access is granule-aligned so it
-        # cannot straddle two differently-tagged granules.
-        align16 = self._is_tag_store(instr) or self._granule_align
+        # Each access carries its own alignment requirement (mem_op.alignment: natural for single-copy-
+        # atomic accesses, the tag granule for STG-family tag stores). Under MTE tagging the run also
+        # floors every access at one granule, so a multi-byte access cannot straddle two tag granules.
+        mode_floor = MTE_GRANULE if self._granule_align else 1
         for mem_op in mem_ops:
             base = self._base_reg(mem_op)
-            for inst in self._make_sandbox_insts(base, align16) + self._make_offset_sub_insts(mem_op):
+            align_bytes = self._access_alignment_bytes(mem_op, mode_floor)
+            for inst in self._make_sandbox_insts(base, align_bytes) + self._make_offset_sub_insts(mem_op):
                 parent.insert_before(instr, inst)
+
+    @staticmethod
+    def _access_alignment_bytes(mem_op: MemoryOperand, mode_floor: int) -> int:
+        """Byte alignment to force on this access's base: the wider of the access's own requirement
+        (mem_op.alignment) and the mode floor (a full tag granule under MTE tagging, else 1)."""
+        return max(mode_floor, mem_op.alignment)
 
 
 class Aarch64CallFramePass(Pass):
@@ -599,4 +608,5 @@ class Aarch64RandomGenerator(Aarch64Generator, RandomGenerator):
         # normal dispatch (which also stamps its MemoryRole), and keep them as the operand's `inner`.
         inner = [self.generate_operand(component, inst) for component in spec.inner]
         address = ", ".join(op.value for op in inner)
-        return MemoryOperand(address, spec.width, spec.src, spec.dest, inner=inner)
+        return MemoryOperand(address, spec.width, spec.src, spec.dest, inner=inner,
+                             alignment=spec.alignment)

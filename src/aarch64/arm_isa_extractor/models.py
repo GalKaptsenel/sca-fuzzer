@@ -83,6 +83,16 @@ class Operand:
 
 
 @dataclass(frozen=True)
+class MemWidth:
+    """The data-transfer width of a memory access, before per-form W/X resolution. Exactly one field is
+    set: `const_bits` for a fixed sub-word access (ldrb -> const_bits=8), or `reg_mult` for a width of
+    `reg_mult * data_register_width` (reg_mult=1 a single register, 2 a register pair). The DB builder
+    resolves it to the memory operand's concrete bit width once the data-register width is known."""
+    const_bits: int | None = None
+    reg_mult: int | None = None
+
+
+@dataclass(frozen=True)
 class Instruction:
     name: str
     iclass_id: str
@@ -96,3 +106,9 @@ class Instruction:
     # reg-var pairs that must use different registers (CONSTRAINED UNPREDICTABLE if they alias),
     # e.g. ("t", "t2") for LDP's two destinations. Operands are matched by their asl_index.
     constraints: tuple = ()
+    # data-transfer width of the memory access (None when it transfers no register data: a prefetch
+    # hint or a block copy/set). The DB builder resolves it to the memory operand's access width.
+    mem_width: "MemWidth | None" = None
+    # how the memory access must be aligned: "natural" (to its width), "granule" (MTE tag granule), or
+    # None. The DB builder resolves it to the memory operand's alignment in bytes. See asl.AslSemantics.
+    mem_alignment: "str | None" = None

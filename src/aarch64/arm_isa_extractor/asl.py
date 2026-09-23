@@ -1,7 +1,7 @@
 from __future__ import annotations
 import re
 from dataclasses import dataclass
-from .models import MemAccess
+from .models import MemAccess, MemWidth
 
 # ASL register access `<File>{<w>}(<v>)` / `<File>[<v>]`, e.g. `X{64}(t)`, `V{}(n)`, `P{}(g)`.
 # File is one of X/W (GP), V/Q/D/S/H/B (SIMD&FP), Z/P (SVE), or the Vpart/ZA* SIMD/SME accessors;
@@ -13,6 +13,16 @@ _REG_HELPER_READ = re.compile(r"(?:ShiftReg|ExtendReg)(?:\{[^}]*\})?\(\s*(\w+)")
 _SP_REGVAR = re.compile(r"if\s+(\w+)\s*==\s*31\s+then(?:(?!\bend\b).)*?SP\{", re.S)
 # AccessDescriptor states the access: CreateAccDesc<kind>(MemOp_LOAD|STORE; "Ex"=exclusive
 _ACCDESC_MEMOP = re.compile(r"CreateAccDesc(\w*?)\(\s*MemOp_(\w+)", re.I)
+_ACCDESC_KIND = re.compile(r"CreateAccDesc(\w+)")
+# AccessDescriptor kinds whose access is single-copy-atomic and so requires NATURAL alignment (to its
+# own access width; an unaligned one takes an Alignment fault regardless of SCTLR.A): the LSE/FP/
+# read-check-write atomics, load/store-exclusive, and the acquire/release-ordered accesses (incl.
+# limited-ordering-region and the 64-byte atomic). Plain GPR/SIMD/SVE/SME/MOPS accesses tolerate an
+# unaligned address. LDGSTG tag STORES are handled apart: they align to the MTE tag granule, not a
+# data width.
+_ALIGN_ACCDESC = frozenset({"AtomicOp", "FPAtomicOp", "RCW", "ExLDST",
+                            "AcqRel", "LDAcqPC", "ASIMDAcqRel", "LOR", "LS64"})
+_TAG_ACCDESC = "LDGSTG"      # LDG (load, no alignment) / STG-family tag store (granule-aligned)
 _FLAG_GROUP_W = re.compile(r"PSTATE\.\[([NZCV, ]+)\]\s*=", re.I)     # `PSTATE.[N,Z,C,V] =`
 _FLAG_ONE_W = re.compile(r"PSTATE\.([NZCV])\s*=", re.I)             # `PSTATE.C =`
 _FLAG_READ = re.compile(r"PSTATE\.([NZCV])(?!\s*=)", re.I)          # `PSTATE.C` as rvalue
@@ -27,6 +37,45 @@ class AslSemantics:
     sp_regvars: frozenset       # reg-number vars that mean SP at 31 (else XZR)
     flags_written: frozenset
     flags_read: frozenset
+    # width of the data transferred to/from memory (see MemWidth), or None when the instruction
+    # transfers no register data (a prefetch hint, a block copy/set, or not a memory access).
+    mem_width: MemWidth | None = None
+    # how the access must be aligned: "natural" (to its access width -- single-copy-atomic accesses),
+    # "granule" (to the MTE tag granule -- STG-family tag stores), or None (no alignment requirement).
+    mem_alignment: str | None = None
+
+
+# A memory data transfer in the ASL is a `Mem{<w>}(...)` / `MemAtomic{<w>}(...)` accessor whose brace
+# <w> is the access width IN BITS: a literal (a fixed sub-word access, e.g. ldrb -> `Mem{8}`),
+# `datasize`/`elsize` (one data-register width, e.g. `Mem{datasize}`), or `2*datasize`/`2*elsize` (a
+# register pair, e.g. ldp -> `Mem{2*datasize}`). A few atomics leave the brace empty (`MemAtomic{}`) and
+# carry the width on the value they read instead: `let data : bits(<w>) = MemAtomic{}`.
+_MEM_ACCESSOR = re.compile(r"Mem\w*\{([^}]*)\}")            # the accessor; group 1 = width expr (maybe "")
+_MEM_EMPTY_WIDTH = re.compile(r"bits\(([^)]+)\)\s*=\s*Mem")  # empty-brace accessor: width on the value
+_MEM_WIDTH_PAIR = re.compile(r"^\s*2\s*\*\s*(?:datasize|elsize)\s*$")
+_MEM_WIDTH_REG = re.compile(r"^\s*(?:datasize|elsize)\s*$")
+
+
+def _mem_access_width(asl: str) -> MemWidth | None:
+    """The memory data-transfer width from the ASL accessor (see MemWidth). None when there is no
+    accessor, or its width is not a scalar our model resolves (an SVE vector-length / element-loop
+    access) -- those transfer no single fixed-width register value."""
+    m = _MEM_ACCESSOR.search(asl)
+    if m is None:
+        return None
+    expr = m.group(1).strip()
+    if not expr:                                    # empty brace -> width is on the value read
+        v = _MEM_EMPTY_WIDTH.search(asl)
+        if v is None:
+            return None
+        expr = v.group(1).strip()
+    if expr.isdigit():
+        return MemWidth(const_bits=int(expr))
+    if _MEM_WIDTH_PAIR.match(expr):
+        return MemWidth(reg_mult=2)
+    if _MEM_WIDTH_REG.match(expr):
+        return MemWidth(reg_mult=1)
+    return None                                     # non-scalar width (SVE VL / element loop): not modeled
 
 
 def _mem_access(asl: str) -> MemAccess:
@@ -93,12 +142,22 @@ def extract_asl_semantics(asl: str) -> AslSemantics:
     flags_r = {f.upper() for f in _FLAG_READ.findall(asl)}
     if "ConditionHolds" in asl:
         flags_r |= _NZCV  # condition operand selects which; read footprint is all NZCV
+    mem_access = _mem_access(asl)
+    accdescs = _ACCDESC_KIND.findall(asl)
+    if any(k in _ALIGN_ACCDESC for k in accdescs):
+        mem_alignment = "natural"                       # single-copy-atomic: align to the access width
+    elif _TAG_ACCDESC in accdescs and mem_access is MemAccess.STORE:
+        mem_alignment = "granule"                       # STG-family tag store: align to the tag granule
+    else:
+        mem_alignment = None
     return AslSemantics(
-        mem_access=_mem_access(asl),
+        mem_access=mem_access,
         read_regvars=frozenset(reads),
         written_regvars=frozenset(writes),
         sp_regvars=frozenset(v.lower() for v in _SP_REGVAR.findall(asl)),
         flags_written=frozenset(flags_w),
         flags_read=frozenset(flags_r),
+        mem_width=_mem_access_width(asl),
+        mem_alignment=mem_alignment,
     )
 

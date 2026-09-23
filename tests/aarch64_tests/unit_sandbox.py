@@ -68,6 +68,36 @@ class SandboxCancellationTest(unittest.TestCase):
         self.assertEqual(self._cancel(mem), ["SUB x1, x1, #4095", "SUB x1, x1, #905"])
 
 
+def _mem_aligned(alignment):
+    """A [x1] memory operand carrying the given required byte alignment (0 = none)."""
+    base = RegisterOperand("x1", 64, True, False)
+    base.mem_role = AArch64MemRole.BASE
+    return MemoryOperand("x1", 64, True, True, inner=[base], alignment=alignment)
+
+
+class SandboxAlignmentTest(unittest.TestCase):
+    """The sandbox mask clears the low bits needed to align an access; the required alignment is carried
+    on the memory operand (natural for atomics, tag granule for STG stores), floored by the MTE mode."""
+
+    def test_mask_scales_with_alignment_bytes(self):
+        s = _Sandbox()
+        self.assertEqual(s._make_sandbox_insts("x1", 1)[0].template, "AND x1, x1, #0x1fff")
+        self.assertEqual(s._make_sandbox_insts("x1", 8)[0].template, "AND x1, x1, #0x1ff8")
+        self.assertEqual(s._make_sandbox_insts("x1", 16)[0].template, "AND x1, x1, #0x1ff0")
+
+    def test_operand_alignment_is_used(self):
+        f = g.Aarch64SandboxPass._access_alignment_bytes
+        self.assertEqual(f(_mem_aligned(0), 1), 1)     # no requirement, no MTE floor
+        self.assertEqual(f(_mem_aligned(8), 1), 8)     # 64-bit atomic -> 8B
+        self.assertEqual(f(_mem_aligned(16), 1), 16)   # casp-128 / STG granule -> 16B
+
+    def test_mte_mode_floor_and_operand_requirement_combine(self):
+        f = g.Aarch64SandboxPass._access_alignment_bytes
+        self.assertEqual(f(_mem_aligned(0), 16), 16)   # plain access under MTE -> granule floor
+        self.assertEqual(f(_mem_aligned(8), 16), 16)   # max(16, 8)
+        self.assertEqual(f(_mem_aligned(32), 16), 32)  # a wider access exceeds the floor
+
+
 class BaseIndexCollisionTest(unittest.TestCase):
     """base == index would make `SUB base, base, index` zero the base (sandbox escape); the patch pass
     must force the index register to differ from the base."""

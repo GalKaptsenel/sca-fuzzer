@@ -84,9 +84,12 @@ class MemorySpec(OperandSpec):
     src/dest is the access direction (a load reads the location, a store writes it)."""
 
     def __init__(self, width: int, signed: bool, src: bool, dest: bool,
-                 inner: List["OperandSpec"], name: str = "n/a"):
+                 inner: List["OperandSpec"], name: str = "n/a", alignment: int = 0):
         super().__init__(OT.MEM, width, signed, src, dest, (), name)
         self.inner = inner
+        # required address alignment in bytes (0 = none): the access width for single-copy-atomic
+        # accesses, or the MTE tag granule for STG-family tag stores. The sandbox pass enforces it.
+        self.alignment = alignment
 
 
 class InstructionSpec:
@@ -407,9 +410,11 @@ class MemoryOperand(Operand):
     load reads the location, a store writes it). x86 builds a plain access from a combined address
     string and leaves `inner` empty."""
     def __init__(self, address: str, width: int, src: bool, dest: bool,
-                 inner: Optional[List["Operand"]] = None):
+                 inner: Optional[List["Operand"]] = None, alignment: int = 0):
         self.width = width
         self.inner = inner if inner is not None else []
+        # required address alignment in bytes (0 = none); see MemorySpec.alignment.
+        self.alignment = alignment
         super().__init__(address.lower(), OT.MEM, src, dest)
 
 

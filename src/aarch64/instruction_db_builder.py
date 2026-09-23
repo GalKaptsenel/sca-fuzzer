@@ -29,6 +29,10 @@ from .arm_isa_extractor import pipeline
 from .arm_isa_extractor.download import resolve_release
 from .arm_isa_extractor.models import OperandKind, MemRole, MemAccess
 
+# MTE tag granule in bytes (architecturally fixed, 1 << LOG2_TAG_GRANULE): STG-family tag stores must
+# be aligned to it. Kept here (the DB-build side) rather than importing the runtime constant.
+MTE_TAG_GRANULE = 16
+
 # ---------------------------------------------------------------------------
 # Tagging
 # ---------------------------------------------------------------------------
@@ -347,9 +351,45 @@ def _operand(op: dict, esize: int) -> OperandSpec:
 def _memory_operand(components: list, mem_access: MemAccess) -> MemorySpec:
     """One memory access (the operands of a single `[...]`) as a MemorySpec wrapping its address
     components. The MemorySpec's src/dest is the access direction; the components keep their own
-    read/write, so pre/post-index writeback on the base survives."""
+    read/write, so pre/post-index writeback on the base survives. Its `width` is set later, per
+    concrete form, to the memory ACCESS width in bits (see _apply_mem_access_width); it starts at 0."""
     src, dest = _ACCESS_DIR[mem_access]
-    return MemorySpec(components[0].width, False, src, dest, components, components[0].name)
+    return MemorySpec(0, False, src, dest, components, components[0].name)
+
+
+def _apply_mem_attributes(operands: list, mem_width: dict | None, mem_alignment: str | None) -> None:
+    """Set each MemorySpec's `width` (memory ACCESS width in bits, for this concrete form) and its
+    `alignment` (required address alignment in bytes, 0 = none).
+    `mem_width` (extractor IR, see models.MemWidth): {"const_bits": bits} for a fixed sub-word access;
+    {"reg_mult": mult} for a `datasize`/`elsize` access = mult * one data-register width (1 single, 2 a
+    register pair); None for an access with no register transfer (prefetch hint, block copy/set) -> 0.
+    `mem_alignment` (extractor IR): "natural" -> align to the access width; "granule" -> the MTE tag
+    granule; None -> no alignment. A "natural" access whose width is unknown (0) stays alignment 0 (only
+    happens for out-of-scope, never-generated forms; in-scope atomics always resolve a width)."""
+    mems = [o for o in operands if isinstance(o, MemorySpec)]
+    if not mems:
+        return
+    if mem_width is None:
+        bits = 0
+    elif mem_width["const_bits"] is not None:
+        bits = mem_width["const_bits"]
+    else:                                   # reg_mult * one data-register width
+        data = [o for o in operands if o.type is OT.REG and o.mem_role is None]
+        if not data:
+            raise ValueError(f"register-width memory access with no data register: "
+                             f"{[o.name for o in operands]}")
+        bits = mem_width["reg_mult"] * data[0].width
+    if mem_alignment is None:
+        alignment = 0
+    elif mem_alignment == "natural":
+        alignment = bits // 8
+    elif mem_alignment == "granule":
+        alignment = MTE_TAG_GRANULE
+    else:
+        raise ValueError(f"unknown mem_alignment {mem_alignment!r}")
+    for m in mems:
+        m.width = bits
+        m.alignment = alignment
 
 
 # A register-offset's index width is tied to its extend modifier (the ARM `option` field): UXTW/SXTW
@@ -590,6 +630,8 @@ def _expand_instruction(inst: dict) -> list:
                 continue
             if not _resolve_bit_test(operands, inst["control_flow"]):
                 continue
+            # data-register widths are now fixed for this form -> resolve the memory access attributes
+            _apply_mem_attributes(operands, inst["mem_width"], inst["mem_alignment"])
             template = template.rstrip()
             key = (template, tuple(o.name for o in operands))
             if key in seen:
@@ -603,7 +645,8 @@ def _serialize_operand(op: OperandSpec) -> dict:
     """Flatten an operand spec to the base.json shape isa_loader reads (the one place dicts appear)."""
     if isinstance(op, MemorySpec):
         return {"type_": op.type.name, "width": op.width, "signed": op.signed, "src": op.src,
-                "dest": op.dest, "name": op.name, "inner": [_serialize_operand(c) for c in op.inner]}
+                "dest": op.dest, "name": op.name, "alignment": op.alignment,
+                "inner": [_serialize_operand(c) for c in op.inner]}
     out = {"type_": op.type.name, "width": op.width, "signed": op.signed, "src": op.src,
            "dest": op.dest, "values": list(op.values), "name": op.name}
     if op.mem_role is not None:
