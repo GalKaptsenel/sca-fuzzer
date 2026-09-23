@@ -124,7 +124,7 @@ def _make_trace(*steps: dict) -> Tuple[List[_ITE], object]:
                                     sp=step.get('sp', 0), nzcv=step.get('nzcv', 0))))
         patch_map[enc] = (step.get('srcs', []), step.get('dests', []))
 
-    def _fake(encoding, pc):
+    def _fake(encoding, pc, reg_roles=None):
         return patch_map.get(encoding, ([], []))
 
     return ites, _fake

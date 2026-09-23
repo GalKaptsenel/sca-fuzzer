@@ -2,8 +2,9 @@
 File: AArch64 instruction disassembly helpers (capstone-based).
   - Decode a 32-bit encoding to text, read/written operands, branch class
 """
-from typing import List, Tuple
+from typing import Dict, List, Optional, Tuple
 
+from ..interfaces import OT
 from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM, CS_AC_READ, CS_AC_WRITE
 from capstone.arm64 import (ARM64_OP_REG, ARM64_OP_MEM, ARM64_OP_IMM,
                             ARM64_CC_INVALID, ARM64_CC_EQ, ARM64_CC_NE,
@@ -15,28 +16,19 @@ from capstone.arm64 import (ARM64_OP_REG, ARM64_OP_MEM, ARM64_OP_IMM,
 _CAPSTONE = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
 _CAPSTONE.detail = True
 
-# Capstone 5.0.x leaves op.access empty for these MTE ops, so their register roles must be filled in
-# by position: the first register operand is the destination, any further register operands are
-# sources (memory bases are recovered separately). SUBPS additionally writes NZCV.
-_MTE_FIRST_REG_DEST = frozenset({"addg", "subg", "irg", "gmi", "subp", "subps", "ldg"})
+# Register-operand read/write roles are NOT re-derived here for instructions the ISA describes: they
+# are the authoritative per-operand src/dest already carried by every Instruction/InstructionSpec
+# (loaded from base.json). decode_reg_accesses takes that as `reg_roles` (see build_register_role_map)
+# and applies it verbatim, so an RMW register (e.g. CAS's Rs, read AND written), a pure destination
+# (an LSE LD<op>'s Rt), or a plain source are each categorised from the spec, never guessed. Capstone
+# supplies only the register NAMES/order, the memory base/index, and the condition code; its op.access
+# is used solely for instructions absent from the map (e.g. sealer-injected AND/ADD/XPAC helpers,
+# which it reports correctly), falling back to an over-approximate read when even that is empty (a
+# taint-safe direction: a missed read is unsafe, an extra read is not).
 
-# LSE integer atomic RMW *load* forms — LD<op> <Rs>, <Rt>, [<Xn|SP>] and SWP <Rs>, <Rt>, [<Xn|SP>].
-# Capstone 5.0.x leaves every operand access empty for these, so fill the register roles by position:
-# Rs (register operand 0) is a source (the value combined into memory), Rt (register operand 1) is the
-# destination that receives the OLD memory value, and the memory base is a source (added with all
-# memory bases). The memory cell itself is read-modify-write, but that is a memory access, tracked
-# separately from register taint. The store forms ST<op> (no Rt) discard the old value and so keep the
-# plain src-only over-approximation. The set is built exhaustively from the base op, ordering suffix
-# (a/l/al) and size suffix (b/h) so it cannot drift as variants are enabled.
-_LSE_ATOMIC_OPS = ("add", "clr", "eor", "set", "smax", "smin", "umax", "umin")
-_LSE_ORDER_SUFFIX = ("", "a", "l", "al")
-_LSE_SIZE_SUFFIX = ("", "b", "h")
-_ATOMIC_RMW_LOAD = frozenset(
-    f"ld{op}{order}{size}"
-    for op in _LSE_ATOMIC_OPS for order in _LSE_ORDER_SUFFIX for size in _LSE_SIZE_SUFFIX
-) | frozenset(
-    f"swp{order}{size}" for order in _LSE_ORDER_SUFFIX for size in _LSE_SIZE_SUFFIX
-)
+# Capstone 5.0.x does not mark SUBPS as writing NZCV (it is an MTE pointer-subtract that sets flags);
+# no static register role covers this, so its full-NZCV write is added explicitly.
+_FULL_NZCV_WRITERS = frozenset({"subps"})
 
 # Capstone 5.0.x under-reports the FEAT_FlagM/FlagM2 flag-manipulation ops: it exposes neither the
 # NZCV bits they read nor the ones they write. Model each precisely as (reads, writes) over PSTATE
@@ -66,7 +58,42 @@ def _rmif_written_flags(insn) -> set:
     return {flag for flag, bit in _RMIF_MASK_FLAGS if mask & bit}
 
 
-def decode_reg_accesses(encoding: int, pc: int) -> Tuple[List[str], List[str]]:
+def build_register_role_map(instructions) -> Dict[Tuple[str, int], Tuple[Tuple[bool, bool], ...]]:
+    """Authoritative register-operand roles, taken straight from the ISA objects (no guessing).
+
+    `instructions` is any iterable of objects exposing `.name` and `.operands`, where each operand has
+    `.type`, `.src`, `.dest` -- both a concrete `Instruction` and an `InstructionSpec` qualify, so the
+    map can be built from the loaded InstructionSet or from a test case's own instructions. The result
+    keys on (mnemonic, number-of-register-operands) so different-arity forms of one mnemonic never
+    collide, and maps to the (is_src, is_dest) of each register operand in operand order. Two specs that
+    share a key must agree on roles (an architectural fact), else it fails loud rather than pick one.
+    """
+    roles: Dict[Tuple[str, int], Tuple[Tuple[bool, bool], ...]] = {}
+    for inst in instructions:
+        regs = [op for op in inst.operands if op.type == OT.REG]
+        if not regs:
+            continue
+        key = (inst.name.lower(), len(regs))
+        value = tuple((bool(op.src), bool(op.dest)) for op in regs)
+        existing = roles.get(key)
+        if existing is not None and existing != value:
+            raise ValueError(f"conflicting register roles for {key}: {existing} vs {value}")
+        roles[key] = value
+    return roles
+
+
+def decode_reg_accesses(encoding: int, pc: int,
+                        reg_roles: Optional[Dict[Tuple[str, int], Tuple[Tuple[bool, bool], ...]]] = None
+                        ) -> Tuple[List[str], List[str]]:
+    """Register/flag reads (src) and writes (dest) of one encoded instruction.
+
+    Register-operand roles come from `reg_roles` (build_register_role_map) -- the authoritative ISA
+    roles -- when the instruction is present there. For instructions absent from the map (sealer-
+    injected helpers, or when no map is supplied), Capstone's op.access is used, and an operand Capstone
+    leaves access-empty is over-approximated as a read (taint-safe). Flag (NZCV) reads/writes are always
+    derived here, since their per-bit set depends on the condition code / mask immediate that no static
+    operand role captures.
+    """
     FLAG_BITS = {"N", "Z", "C", "V"}
 
     def cc_to_read_flags(cc: int):
@@ -108,21 +135,31 @@ def decode_reg_accesses(encoding: int, pc: int) -> Tuple[List[str], List[str]]:
         src |= cc_to_read_flags(insn.cc)
 
     mnemonic = insn.mnemonic.lower()
-    reg_roles_fixed = (mnemonic in _MTE_FIRST_REG_DEST or mnemonic in _ATOMIC_RMW_LOAD
-                       or mnemonic in ("rmif", "setf8", "setf16", "pacga"))
 
-    for op in insn.operands:
-        if op.type == ARM64_OP_REG:
-            reg = insn.reg_name(op.reg)
-            if op.access & CS_AC_WRITE:
+    # Register operands: authoritative roles from the ISA map when known, else Capstone's op.access.
+    reg_ops = [op for op in insn.operands if op.type == ARM64_OP_REG]
+    roles = reg_roles.get((mnemonic, len(reg_ops))) if reg_roles is not None else None
+    if roles is not None and len(roles) != len(reg_ops):
+        raise ValueError(f"{mnemonic}: role map has {len(roles)} register roles but decoded "
+                         f"{len(reg_ops)} from 0x{encoding:08x}")
+    for i, op in enumerate(reg_ops):
+        reg = insn.reg_name(op.reg)
+        if roles is not None:
+            is_src, is_dest = roles[i]          # spec roles: read, written, or both (an RMW register)
+            if is_src:
+                src.add(reg)
+            if is_dest:
                 dest.add(reg)
+        elif op.access & (CS_AC_READ | CS_AC_WRITE):
             if op.access & CS_AC_READ:
                 src.add(reg)
-            # Access empty and no explicit role: over-approximate as a read (taint-safe; a spurious
-            # write would not be).
-            if not (op.access & (CS_AC_READ | CS_AC_WRITE)) and not reg_roles_fixed:
-                src.add(reg)
-        elif op.type == ARM64_OP_MEM:
+            if op.access & CS_AC_WRITE:
+                dest.add(reg)
+        else:
+            src.add(reg)                        # Capstone empty, no spec role: over-approx read (safe)
+
+    for op in insn.operands:
+        if op.type == ARM64_OP_MEM:
             if op.mem.base != 0:
                 base_reg = insn.reg_name(op.mem.base)
                 src.add(base_reg)
@@ -133,37 +170,18 @@ def decode_reg_accesses(encoding: int, pc: int) -> Tuple[List[str], List[str]]:
             if op.mem.index != 0:
                 src.add(insn.reg_name(op.mem.index))
 
-    # Capstone 5.0.x under-reports these: the FEAT_FlagM/FlagM2 flag ops (setf8/setf16/rmif/cfinv/
-    # axflag/xaflag) expose neither their NZCV reads nor their NZCV writes, and pacga omits its second
-    # source (Xm). Fill them in precisely — only the flags each op truly writes, and every flag it
-    # reads (see _FLAG_OP_NZCV / _rmif_written_flags): over-claiming a write drops live taint, a missed
-    # read under-taints, both causing false violations.
+    # Flags (NZCV): register roles never carry per-bit flag precision, so derive it here. The
+    # FEAT_FlagM/FlagM2 ops are under-reported by Capstone (neither NZCV reads nor writes exposed);
+    # RMIF's write set depends on its mask immediate; SUBPS's full-NZCV write is not flagged at all.
+    # Over-claiming a flag write drops live taint (false violation); a missed flag read under-taints.
     if mnemonic in _FLAG_OP_NZCV:
         reads, writes = _FLAG_OP_NZCV[mnemonic]
         src |= reads
         dest |= writes
-        src.update(insn.reg_name(op.reg) for op in insn.operands if op.type == ARM64_OP_REG)
     elif mnemonic == "rmif":
         dest |= _rmif_written_flags(insn)
-        src.update(insn.reg_name(op.reg) for op in insn.operands if op.type == ARM64_OP_REG)
-    elif mnemonic == "pacga":
-        src.update(insn.reg_name(op.reg) for op in insn.operands
-                   if op.type == ARM64_OP_REG and not (op.access & CS_AC_WRITE))
-    elif mnemonic in _MTE_FIRST_REG_DEST:
-        regs = [insn.reg_name(op.reg) for op in insn.operands if op.type == ARM64_OP_REG]
-        if regs:
-            dest.add(regs[0])        # first register operand is the destination
-            src.update(regs[1:])     # the rest are sources (a memory base is handled above)
-        if mnemonic == "ldg":
-            src.add(regs[0])         # LDG is RMW: loads the tag into Xt, preserving its other bits
-        if mnemonic == "subps":
-            dest |= FLAG_BITS
-    elif mnemonic in _ATOMIC_RMW_LOAD:
-        regs = [insn.reg_name(op.reg) for op in insn.operands if op.type == ARM64_OP_REG]
-        if regs:
-            src.add(regs[0])         # Rs: the value combined into memory (read)
-        if len(regs) > 1:
-            dest.add(regs[1])        # Rt: receives the OLD memory value (write); memory base handled above
+    if mnemonic in _FULL_NZCV_WRITERS:
+        dest |= FLAG_BITS
 
     return sorted(src), sorted(dest)
 

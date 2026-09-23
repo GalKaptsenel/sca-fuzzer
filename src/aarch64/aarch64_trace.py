@@ -249,12 +249,16 @@ class _TaintTracker:
         self._written[self._live[-1]].update(offsets)
 
 
-def compute_taint(cer: ContractExecutionResult) -> InputTaint:
+def compute_taint(cer: ContractExecutionResult, reg_roles=None) -> InputTaint:
     """
     Derive input taint from a single CE execution result.
 
     A byte is marked must-preserve iff any execution path (arch or speculative)
     reads it before writing to it.
+
+    `reg_roles` (build_register_role_map) supplies the authoritative per-operand register roles used
+    by decode_reg_accesses; pass the map built from the traced test case so RMW/write/read operands
+    are categorised from the ISA rather than guessed. None falls back to Capstone (taint-safe).
     """
     input_taint = InputTaint()
     sandbox_u8 = input_taint.view(np.uint8)
@@ -282,7 +286,7 @@ def compute_taint(cer: ContractExecutionResult) -> InputTaint:
             else:
                 mem_tracker.on_read(offsets)
 
-        srcs, dests = decode_reg_accesses(ite.cpu.encoding, ite.cpu.pc)
+        srcs, dests = decode_reg_accesses(ite.cpu.encoding, ite.cpu.pc, reg_roles)
         gpr_tracker.on_read(chain.from_iterable(map(map_register_to_offsets, srcs)))
         gpr_tracker.on_write(chain.from_iterable(map(map_register_to_offsets, dests)))
 

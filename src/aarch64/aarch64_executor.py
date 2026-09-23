@@ -33,7 +33,7 @@ from .aarch64_relocations import apply_relocations, Relocation
 from .aarch64_contract_executor import (ContractExecution, ContractExecutorService,
                                         ExecutionClause, SUPPORTED_EXECUTION_CLAUSES,
                                         BranchPredictor, EXECUTION_CLAUSE_MAP, SimArch)
-from .aarch64_disasm import disassemble_instruction, is_conditional_branch
+from .aarch64_disasm import disassemble_instruction, is_conditional_branch, build_register_role_map
 from .aarch64_trace import compute_ctrace, compute_taint, ContractExecutionResult
 from .aarch64_input_layout import _input_bytes_with_pstate, REGISTER_REGION_OFFSET
 from .aarch64_executor_input_encoder import ExecutorInput, MTE_TAG_COUNT
@@ -398,6 +398,16 @@ class Aarch64LocalExecutor(Aarch64Executor):
             self._log_hw_counters(per_input)
         return [self._aggregate_measurements(per_input) for per_input in per_unit]
 
+    def _reg_role_map(self):
+        """Authoritative register-operand read/write roles for the loaded test case's instructions,
+        taken from the ISA objects the generator produced (each Operand carries src/dest). Passed to
+        compute_taint so RMW/write/read register operands are categorised from the spec, not guessed.
+        Rebuilt per test case; empty when none is loaded."""
+        if self.test_case is None:
+            return {}
+        return build_register_role_map(
+            inst for func in self.test_case for bb in func for inst in bb)
+
     def trace_test_case_with_taints(self, inputs: List[Input], nesting: int) -> Tuple[List[CTrace], List[InputTaint], List[ContractExecutionResult]]:
         """Sandbox the test case, run CE per input, and return cache-set CTraces, input taints, and the
         CE traces (the last feed per-input BPU mistraining)."""
@@ -431,7 +441,8 @@ class Aarch64LocalExecutor(Aarch64Executor):
             cer = self._contract_executor.run(execution)
             traces.append(cer)
 
-        taints = [compute_taint(cer) for cer in traces]
+        reg_roles = self._reg_role_map()
+        taints = [compute_taint(cer, reg_roles) for cer in traces]
         ctraces = [compute_ctrace(cer) for cer in traces]
 
         return ctraces, taints, traces
@@ -699,7 +710,8 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                 self._log_variant_binaries(log, inp_idx, cer, resolved)
             log.ensure_flushed()
 
-        taints = [compute_taint(cer) for cer in ce_traces]
+        reg_roles = self._reg_role_map()
+        taints = [compute_taint(cer, reg_roles) for cer in ce_traces]
         ctraces = [compute_ctrace(cer) for cer in ce_traces]
         return ctraces, taints, ce_traces
 

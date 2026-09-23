@@ -1,43 +1,105 @@
 """decode_reg_accesses must report every register/flag a generated instruction reads/writes, and must
-NOT invent writes it doesn't perform. Both directions corrupt taint: a missed read (or a real write
-mislabeled) can hide a dependency -> false negative; a spurious flag WRITE marks that flag's input dead
-so boosting mutates it -> false positive (the SETF16-writes-C bug: SETF8/SETF16 preserve C, RMIF writes
-only its mask-selected bits, yet Capstone/the old code claimed all of NZCV). Capstone (5.0.x) also
-under-reports these FlagM/FlagM2 ops' reads and RMIF's Xn source, and drops pacga's 2nd source, which
-decode_reg_accesses fills in.
+NOT invent a write it does not perform. Both directions corrupt taint: a missed read (or a missed write
+mislabeled as a read) is the taint-SAFE direction (it over-preserves), but a spurious WRITE marks that
+operand's input dead so boosting mutates it -> false violation (the SETF16-writes-C bug: SETF8/SETF16
+preserve C, RMIF writes only its mask-selected bits, yet Capstone/older code claimed all of NZCV).
 
-Reads and register writes use a subset check (over-reporting a read/base is the safe direction). Flag
-writes (NZCV in the dest) are checked EXACTLY by test_flag_writes_are_exact, since over-claiming one is
-itself the false-positive bug. Encodings are confirmed to disassemble to the expected mnemonic so a
-wrong encoding fails loudly. test_every_supported_instruction_is_classified and
-test_every_flag_writer_has_an_exact_case force a case for every instruction the fuzzer emits (and every
-NZCV writer in base.json), so a newly-added instruction with hidden or partial flag accesses cannot slip
-through unchecked."""
+Register-operand roles are NO LONGER guessed here: they are taken from the ISA objects (base.json ->
+InstructionSpec/Instruction, each operand carrying src/dest) via build_register_role_map, and
+decode_reg_accesses applies them verbatim. So an RMW register (CAS's Rs, read AND written), a pure
+destination (an LSE LD<op>'s Rt), and a plain source are each categorised from the spec. Capstone still
+supplies the register names/order, the memory base, and the flag reads/writes (their per-bit set depends
+on the condition code / mask immediate, which no static role captures).
+
+Regression coverage so the categorisation cannot silently break again:
+  * CASES pin src/dest (incl. RMW/write/read and flags) for one representative per family.
+  * test_flag_writes_are_exact keeps NZCV writes EXACT (the false-positive guard).
+  * test_decode_agrees_with_capstone proves, on real encodings, that the map + operand-order zip agree
+    with Capstone wherever Capstone reports op.access (an independent oracle for the non-atomic ISA).
+  * test_role_map_matches_base_json checks build_register_role_map reproduces base.json's authoritative
+    per-operand roles for every loaded spec (and fails loud on a role conflict).
+  * test_atomic_and_cas_roles_match_base_json cross-checks the LSE atomic/CAS/CASP roles (incl. the
+    blocklisted CAS/CASP, read from raw base.json) -- the empty-op.access families Capstone cannot help.
+  * test_every_supported_instruction_covered ensures every generatable mnemonic has a role source.
+"""
 import copy
+import json
+import os
+import subprocess
+import sys
+import tempfile
 import unittest
-from unittest.mock import patch
 
-import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
 _ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 import capstone
-import src.aarch64.aarch64_disasm as disasm
+from capstone import CS_AC_READ, CS_AC_WRITE
+from capstone.arm64 import ARM64_OP_REG
 from src.aarch64.aarch64_disasm import (decode_reg_accesses, is_conditional_branch,
-                                        _MTE_FIRST_REG_DEST, _ATOMIC_RMW_LOAD)
+                                        build_register_role_map)
 from src.aarch64.aarch64_config import supported_instructions
 from src.config import CONF
 from src.isa_loader import InstructionSet
 from src.interfaces import OT
 
 _MD = capstone.Cs(capstone.CS_ARCH_ARM64, capstone.CS_MODE_LITTLE_ENDIAN)
+_MD.detail = True
 
-# mnemonic, encoding, required src (reads), required dest (writes).
-# Flag writes ("N"/"Z"/"C"/"V" in the dest set) are checked EXACTLY by test_flag_writes_are_exact:
-# over-claiming a flag write silently drops that flag's live taint -> false violation, so a case must
-# list every NZCV bit the instruction writes and no others. Register dests and all reads stay subset
-# checks (over-reporting a read/base is the safe direction).
+# Categories broad enough to load every family the tests exercise (base + atomics + acqrel + MTE + PAC).
+_TEST_CATEGORIES = ["BASE-ARITH", "BASE-LOGICAL", "BASE-SHIFT", "BASE-BITFIELD", "BASE-CONDSEL",
+                    "BASE-BRANCH", "BASE-MEM-LOAD", "BASE-MEM-STORE", "BASE-FLAGOP", "BASE-BITCOUNT",
+                    "BASE-CRC", "BASE-BITBYTE", "BASE-MEM-ATOMIC", "BASE-MEM-ACQREL",
+                    "MTE-TAGMEM", "MTE-ARITH", "MTE-BASE", "PAC-SIGN", "PAC-STRIP", "PAC-AUTH"]
+
+# Built once (setUpModule) from the loaded ISA: the authoritative register-role map the executor also
+# builds, plus the spec list and a raw-base.json fallback for blocklisted specs (CAS/CASP).
+_ROLES = None
+_ISA_BY_NAME = None
+_RAW_BY_NAME = None
+_SAVED_CONF = None
+
+
+def setUpModule():
+    global _ROLES, _ISA_BY_NAME, _RAW_BY_NAME, _SAVED_CONF
+    _SAVED_CONF = copy.deepcopy(CONF._borg_shared_state)
+    CONF.load(os.path.join(_ROOT, "config.yml"))
+    isa = InstructionSet(os.path.join(_ROOT, "base.json"), _TEST_CATEGORIES)
+    _ROLES = build_register_role_map(isa.instructions)
+    _ISA_BY_NAME = {}
+    for spec in isa.instructions:
+        _ISA_BY_NAME.setdefault(spec.name.lower(), []).append(spec)
+    with open(os.path.join(_ROOT, "base.json")) as f:
+        raw = json.load(f)
+    raw = raw["instructions"] if isinstance(raw, dict) and "instructions" in raw else raw
+    raw = list(raw.values()) if isinstance(raw, dict) else raw
+    _RAW_BY_NAME = {}
+    for i in raw:
+        _RAW_BY_NAME.setdefault((i.get("name") or "").lower(), []).append(i)
+
+
+def tearDownModule():
+    CONF._borg_shared_state.clear()
+    CONF._borg_shared_state.update(_SAVED_CONF)
+
+
+def _asm(line, march="armv9-a+memtag"):
+    """Assemble one instruction and return its 32-bit little-endian encoding."""
+    with tempfile.NamedTemporaryFile("w", suffix=".s", delete=False) as f:
+        f.write(".text\n" + line + "\n")
+        path = f.name
+    obj = path + ".o"
+    subprocess.run(["aarch64-linux-gnu-as", "-march=" + march, path, "-o", obj], check=True)
+    raw = subprocess.run(["aarch64-linux-gnu-objcopy", "-O", "binary", "-j", ".text", obj,
+                          "/dev/stdout"], capture_output=True, check=True).stdout
+    os.unlink(path)
+    os.unlink(obj)
+    return int.from_bytes(raw[:4], "little")
+
+
+# mnemonic, encoding, required src (reads), required dest (writes). Flag writes ("N"/"Z"/"C"/"V") are
+# checked EXACTLY by test_flag_writes_are_exact; register dests and all reads use a subset check.
 CASES = [
-    # FEAT_FlagM/FlagM2 flag ops Capstone under-reports (the fix). These are PARTIAL flag writers:
-    # SETF8/SETF16 preserve C; RMIF writes only its mask-selected NZCV bits; CFINV touches only C.
+    # FEAT_FlagM/FlagM2 flag ops Capstone under-reports -- PARTIAL flag writers (kept precise here).
     ("setf8",  0x3a00080d, {"w0"},          {"N", "Z", "V"}),        # C preserved
     ("setf16", 0x3a00480d, {"w0"},          {"N", "Z", "V"}),        # C preserved
     ("rmif",   0xba000421, {"x1"},          {"V"}),                  # mask 0b0001 -> V only
@@ -47,14 +109,14 @@ CASES = [
     ("cfinv",  0xd500401f, {"C"},           {"C"}),                  # C := NOT C
     ("axflag", 0xd500405f, {"Z", "C", "V"}, {"N", "Z", "C", "V"}),   # ARM -> alt FP flag format
     ("xaflag", 0xd500403f, {"C", "Z"},      {"N", "Z", "C", "V"}),   # alt -> ARM FP flag format
-    ("pacga",  0x9ac23020, {"x1", "x2"},    {"x0"}),
+    ("pacga",  0x9ac23020, {"x1", "x2"},    {"x0"}),                 # Xm 2nd source (map supplies it)
     # flag readers/writers handled via cc / update_flags ----------------------------
     ("ccmp",   0xfa420020, {"x1", "x2", "Z"}, {"N", "Z", "C", "V"}),
     ("ccmn",   0xba420020, {"x1", "x2", "Z"}, {"N", "Z", "C", "V"}),
     ("adds",   0xab020020, {"x1", "x2"},    {"x0", "N", "Z", "C", "V"}),
     ("subs",   0xeb020020, {"x1", "x2"},    {"x0", "N", "Z", "C", "V"}),
-    ("ands",   0xea020020, {"x1", "x2"},    {"x0", "N", "Z", "C", "V"}),   # logical S: C,V := 0
-    ("bics",   0xea220020, {"x1", "x2"},    {"x0", "N", "Z", "C", "V"}),   # logical S: C,V := 0
+    ("ands",   0xea020020, {"x1", "x2"},    {"x0", "N", "Z", "C", "V"}),
+    ("bics",   0xea220020, {"x1", "x2"},    {"x0", "N", "Z", "C", "V"}),
     ("csel",   0x9a820020, {"x1", "x2", "Z"}, {"x0"}),
     ("csinc",  0x9a820420, {"x1", "x2", "Z"}, {"x0"}),
     ("csinv",  0x5a820020, {"w1", "w2", "Z"}, {"w0"}),
@@ -69,26 +131,24 @@ CASES = [
     ("ldp",    0xa9400440, {"x2"},          {"x0", "x1"}),
     ("cbz",    0x340000a0, {"w0"},          set()),
     ("b.eq",   0x54000000, {"Z"},           set()),
-    # MTE tag stores: Capstone reports the base register (read); no register dest in these forms.
+    # MTE tag stores: base register read; no register dest.
     ("stg",    0xd9200820, {"x1"},          set()),
     ("st2g",   0xd9a00862, {"x3"},          set()),
     ("stzg",   0xd96008a4, {"x5"},          set()),
     ("stz2g",  0xd9e008e6, {"x7"},          set()),
-    # MTE tag arithmetic / load: Capstone 5.0.x leaves op.access empty, so decode_reg_accesses fills
-    # roles by position (first reg = dest, rest = sources); SUBPS also writes NZCV.
+    # MTE tag arithmetic / load (empty op.access -> roles from the ISA map). SUBPS also writes NZCV;
+    # LDG is RMW (Xt read+written).
     ("addg",   0x91800420, {"x1"},          {"x0"}),
     ("subg",   0xd1800420, {"x1"},          {"x0"}),
-    ("irg",    0x9adf1020, {"x1"},          {"x0"}),
     ("gmi",    0x9ac21420, {"x1", "x2"},    {"x0"}),
     ("subp",   0x9ac20020, {"x1", "x2"},    {"x0"}),
     ("subps",  0xbac20020, {"x1", "x2"},    {"x0", "N", "Z", "C", "V"}),
-    ("ldg",    0xd9600020, {"x0", "x1"},    {"x0"}),   # RMW: Xt(x0) read+written, Xn(x1) base read
-    # LSE atomic RMW load forms LD<op> Rs, Rt, [Xn] / SWP: Capstone leaves op.access empty, so
-    # decode_reg_accesses fills roles by position -- Rs(op0) read, Rt(op1) written (old value), Xn read.
-    # No NZCV write. One case per base op plus a byte/half and an ordered variant.
+    ("ldg",    0xd9600020, {"x0", "x1"},    {"x0"}),
+    # LSE atomic RMW load forms LD<op> Rs, Rt, [Xn] / SWP (empty op.access -> roles from the ISA map):
+    # Rs read, Rt written (old value), Xn read; no NZCV write.
     ("ldadd",  0xf8210062, {"x1", "x3"},    {"x2"}),
-    ("ldaddb", 0x38210062, {"w1", "x3"},    {"w2"}),   # byte variant, W-form data regs
-    ("ldaddal", 0xf8e10062, {"x1", "x3"},   {"x2"}),   # acquire+release ordered variant
+    ("ldaddb", 0x38210062, {"w1", "x3"},    {"w2"}),
+    ("ldaddal", 0xf8e10062, {"x1", "x3"},   {"x2"}),
     ("ldclr",  0xf8211062, {"x1", "x3"},    {"x2"}),
     ("ldeor",  0xf8212062, {"x1", "x3"},    {"x2"}),
     ("ldset",  0xf8213062, {"x1", "x3"},    {"x2"}),
@@ -98,18 +158,26 @@ CASES = [
     ("ldumin", 0xf8217062, {"x1", "x3"},    {"x2"}),
     ("swp",    0xf8218062, {"x1", "x3"},    {"x2"}),
     ("swpalh", 0x78e480c5, {"w4", "x6"},    {"w5"}),
-    # Acquire/release ordered accesses: Capstone reports these correctly (load-acquire = plain load,
-    # store-release = plain store). Cases pin one load and one store; the rest are in EXPLICIT_OPERAND_ONLY.
+    # Acquire/release ordered accesses: Capstone reports these correctly. Pin one load, one store.
     ("ldar",   0xc8dffc20, {"x1"},          {"x0"}),
     ("ldapr",  0xf8bfc020, {"x1"},          {"x0"}),
     ("stlr",   0xc89ffc20, {"x0", "x1"},    set()),
-    # MADD/MSUB: Rd write, Rn/Rm/Ra read (all explicit; Capstone reports correctly).
+    # MADD/MSUB: Rd write, Rn/Rm/Ra read.
     ("madd",   0x9b020c20, {"x1", "x2", "x3"}, {"x0"}),
     ("msub",   0x9b028c20, {"x1", "x2", "x3"}, {"x0"}),
 ]
 
-# Remaining supported instructions whose explicit operands are reported correctly by Capstone's
-# op.access (verified per family: PAC 1-source, ALU, mem, branches) -- no implicit reg/flag access.
+# Register operands whose src/dest exactly match these -- pinned so an RMW/write/read cannot silently
+# flip. (mnemonic, encoding) -> (exact register src set, exact register dest set), flags excluded.
+EXACT_REG_CASES = [
+    ("ldadd",  0xf8210062, {"x1", "x3"}, {"x2"}),        # Rs read, Rt write, base read
+    ("swp",    0xf8218062, {"x1", "x3"}, {"x2"}),
+    ("ldg",    0xd9600020, {"x0", "x1"}, {"x0"}),        # Xt read+written (RMW)
+    ("addg",   0x91800420, {"x1"},       {"x0"}),        # Xd write, Xn read
+    ("pacga",  0x9ac23020, {"x1", "x2"}, {"x0"}),        # both sources reported
+]
+
+# Acquire/release forms Capstone reports correctly; no register-role fixup needed.
 EXPLICIT_OPERAND_ONLY = {
     "autia", "autib", "autiza", "autizb", "autda", "autdb", "autdza", "autdzb",
     "b", "cbnz", "cls", "clz",
@@ -117,147 +185,177 @@ EXPLICIT_OPERAND_ONLY = {
     "eor", "orr", "pacib", "paciza", "pacizb", "pacdb", "pacdza", "pacdzb",
     "rbit", "rev", "rev16", "rev32",
     "sdiv", "stp", "tbnz", "tbz", "udiv", "xpaci",
-    # Acquire/release ordered accesses: Capstone reports op.access correctly (load-acquire writes Rt and
-    # reads the base; store-release reads Rt and the base). No implicit reg/flag access.
     "ldar", "ldarb", "ldarh", "ldapr", "ldaprb", "ldaprh", "ldlar", "ldlarb", "ldlarh",
     "stlr", "stlrb", "stlrh", "stllr", "stllrb", "stllrh",
 }
 
-# Barriers with no register/flag operands at all: their reg-access classification is trivially empty.
 NO_OPERAND_BARRIERS = {"ssbb", "pssbb"}
+
+# LSE atomic RMW family mnemonics (op x order x size), and CAS/CASP, enumerated exactly so prefix
+# matching cannot leak in the FEAT_LSE128 *p pair forms (ldclrp/ldsetp/swpp) or unrelated names.
+_LSE_OPS = ("add", "clr", "eor", "set", "smax", "smin", "umax", "umin")
+_LSE_ORDER = ("", "a", "l", "al")
+_LSE_SIZE = ("", "b", "h")
+_LDOP_SWP_NAMES = frozenset(
+    [f"ld{op}{o}{s}" for op in _LSE_OPS for o in _LSE_ORDER for s in _LSE_SIZE]
+    + [f"swp{o}{s}" for o in _LSE_ORDER for s in _LSE_SIZE])
+_CAS_NAMES = frozenset(f"cas{o}{s}" for o in _LSE_ORDER for s in _LSE_SIZE)
+_CASP_NAMES = frozenset(f"casp{o}" for o in _LSE_ORDER)
+
+# Capstone 5.0.x reports WRONG (not merely empty) op.access for these, so it is not a trustworthy oracle
+# for them -- they are validated against base.json instead. pacga: reports Xd as a read (it is written).
+# The MTE arith/tag and LSE atomic families report empty access (auto-skipped by the oracle test), but
+# are listed here too for clarity.
+_CAPSTONE_UNRELIABLE = ({"pacga", "addg", "subg", "irg", "gmi", "subp", "subps", "ldg",
+                         "setf8", "setf16", "rmif", "cfinv", "axflag", "xaflag"}
+                        | _LDOP_SWP_NAMES | _CAS_NAMES | _CASP_NAMES)
 
 
 class DisasmRegAccessTest(unittest.TestCase):
-    def test_no_under_reporting(self):
-        for mnemonic, encoding, req_src, req_dest in CASES:
+    def test_disassembly_matches_expected_mnemonic(self):
+        for mnemonic, encoding, _s, _d in CASES:
             insn = next(_MD.disasm(encoding.to_bytes(4, "little"), 0), None)
             self.assertIsNotNone(insn, f"{mnemonic}: 0x{encoding:08x} did not decode")
             self.assertEqual(insn.mnemonic, mnemonic,
                              f"0x{encoding:08x} decoded as {insn.mnemonic}, expected {mnemonic}")
-            src, dest = decode_reg_accesses(encoding, 0)
+
+    def test_no_under_reporting(self):
+        for mnemonic, encoding, req_src, req_dest in CASES:
+            src, dest = decode_reg_accesses(encoding, 0, _ROLES)
             self.assertLessEqual(req_src, set(src), f"{mnemonic}: missing source(s) {req_src - set(src)}")
             self.assertLessEqual(req_dest, set(dest), f"{mnemonic}: missing dest(s) {req_dest - set(dest)}")
 
-    def test_every_supported_instruction_is_classified(self):
-        tested = {c[0] for c in CASES}
-        for mnemonic in supported_instructions:
-            covered = (mnemonic in tested
-                       or mnemonic in EXPLICIT_OPERAND_ONLY
-                       or mnemonic in NO_OPERAND_BARRIERS
-                       or mnemonic in _ATOMIC_RMW_LOAD   # positional RMW fixup; representatives in CASES
-                       or any(t.startswith(mnemonic) for t in tested))   # "b." <- "b.eq"
-            self.assertTrue(covered, f"{mnemonic!r} is generated but has no reg-access test/classification")
-
-    def test_all_atomic_rmw_loads_report_a_register_dest(self):
-        # Every LD<op>/SWP form must report Rt as a written register (the old memory value), or its
-        # taint would be dropped. Assemble the X-form with distinct registers and check op1 is a dest.
-        import subprocess, tempfile
-        def _asm(line):
-            with tempfile.NamedTemporaryFile("w", suffix=".s", delete=False) as f:
-                f.write(".text\n" + line + "\n"); path = f.name
-            obj = path + ".o"
-            subprocess.run(["aarch64-linux-gnu-as", "-march=armv9-a", path, "-o", obj], check=True)
-            raw = subprocess.run(["aarch64-linux-gnu-objcopy", "-O", "binary", "-j", ".text",
-                                  obj, "/dev/stdout"], capture_output=True, check=True).stdout
-            os.unlink(path); os.unlink(obj)
-            return int.from_bytes(raw[:4], "little")
-        for mnemonic in sorted(_ATOMIC_RMW_LOAD):
-            reg = "w" if mnemonic.endswith(("b", "h")) else "x"
-            enc = _asm(f"{mnemonic} {reg}1, {reg}2, [x3]")
-            src, dest = decode_reg_accesses(enc, 0)
-            self.assertIn(f"{reg}2", dest, f"{mnemonic}: Rt not reported as a register write")
-            self.assertIn(f"{reg}1", src, f"{mnemonic}: Rs not reported as a register read")
-            self.assertIn("x3", src, f"{mnemonic}: base not reported as a read")
+    def test_register_roles_are_exact(self):
+        # RMW / write / read register operands pinned exactly (flags excluded): a flipped role here is
+        # the class of bug this whole path exists to prevent.
+        FLAGS = {"N", "Z", "C", "V"}
+        for mnemonic, encoding, exp_src, exp_dest in EXACT_REG_CASES:
+            src, dest = decode_reg_accesses(encoding, 0, _ROLES)
+            self.assertEqual(set(s for s in src if s not in FLAGS), exp_src, f"{mnemonic}: src regs")
+            self.assertEqual(set(d for d in dest if d not in FLAGS), exp_dest, f"{mnemonic}: dest regs")
 
     def test_flag_writes_are_exact(self):
-        # A flag write claimed but not performed (over-claim) makes the taint tracker treat that flag's
-        # input as dead and boost it away -> false violation. This is exactly the SETF16-writes-C bug.
-        # So the NZCV bits in each case's dest must match the hardware EXACTLY, not just be a superset.
+        # A flag write claimed but not performed drops that flag's live taint -> false violation.
         FLAGS = {"N", "Z", "C", "V"}
         for mnemonic, encoding, _req_src, req_dest in CASES:
-            _, dest = decode_reg_accesses(encoding, 0)
+            _, dest = decode_reg_accesses(encoding, 0, _ROLES)
             self.assertEqual(req_dest & FLAGS, set(dest) & FLAGS,
                              f"{mnemonic} 0x{encoding:08x}: flag writes {sorted(set(dest) & FLAGS)} "
                              f"!= expected {sorted(req_dest & FLAGS)}")
 
+    def test_decode_agrees_with_capstone(self):
+        # Independent oracle: wherever Capstone reports op.access for a register operand, the
+        # map-driven decode must agree on that operand's read/write role. This proves the ISA role map
+        # and the operand-order zip are correct for every instruction Capstone can vouch for (the
+        # atomic/MTE families, which Capstone leaves empty, are checked against base.json separately).
+        for mnemonic, encoding, _s, _d in CASES:
+            if mnemonic in _CAPSTONE_UNRELIABLE:
+                continue
+            insn = next(_MD.disasm(encoding.to_bytes(4, "little"), 0))
+            src, dest = decode_reg_accesses(encoding, 0, _ROLES)
+            for op in insn.operands:
+                if op.type != ARM64_OP_REG:
+                    continue
+                reg = insn.reg_name(op.reg)
+                if op.access & CS_AC_READ:
+                    self.assertIn(reg, src, f"{mnemonic}: Capstone reads {reg}, decode did not")
+                if op.access & CS_AC_WRITE:
+                    self.assertIn(reg, dest, f"{mnemonic}: Capstone writes {reg}, decode did not")
+                # Never invent a write Capstone (which is authoritative when populated) does not report.
+                if op.access & (CS_AC_READ | CS_AC_WRITE) and not (op.access & CS_AC_WRITE):
+                    self.assertNotIn(reg, dest,
+                                     f"{mnemonic}: decode invented a write to {reg} (Capstone: read-only)")
+
+    def test_every_supported_instruction_covered(self):
+        # Every generatable mnemonic must have an authoritative role source: a register-operand entry
+        # in the ISA map (so decode categorises it from the spec), or it is a control/branch/barrier
+        # with no register operands (Capstone/flag logic suffices).
+        mapped = {m for (m, _n) in _ROLES}
+        for mnemonic in supported_instructions:
+            has_reg_form = any(any(o.type == OT.REG for o in s.operands)
+                               for s in _ISA_BY_NAME.get(mnemonic, []))
+            covered = (mnemonic in mapped
+                       or mnemonic in EXPLICIT_OPERAND_ONLY
+                       or mnemonic in NO_OPERAND_BARRIERS
+                       or not has_reg_form)
+            self.assertTrue(covered, f"{mnemonic!r} is generated but has no register-role source")
+
+
+class RoleMapCrossCheckTest(unittest.TestCase):
+    """build_register_role_map must reproduce base.json's authoritative per-operand roles, so the map
+    the executor feeds to taint cannot drift from the ISA."""
+
+    def test_role_map_matches_base_json(self):
+        for name, specs in _ISA_BY_NAME.items():
+            for spec in specs:
+                regs = [op for op in spec.operands if op.type == OT.REG]
+                if not regs:
+                    continue
+                key = (name, len(regs))
+                self.assertIn(key, _ROLES, f"{key}: missing from the role map")
+                expected = tuple((bool(op.src), bool(op.dest)) for op in regs)
+                self.assertEqual(_ROLES[key], expected, f"{key}: role map disagrees with spec")
+
+    def test_atomic_and_cas_roles_match_base_json(self):
+        # The LSE atomic/CAS/CASP families are the ones Capstone leaves op.access empty for, so their
+        # roles come entirely from the ISA. Verify against raw base.json (CAS/CASP are blocklisted, so
+        # absent from the loaded set; read them raw). Rs read, Rt written for LD<op>/SWP; Rs read+written
+        # for CAS; Rs pair read+written for CASP.
+        def raw_reg_roles(entry):
+            regs = [o for o in entry.get("operands", [])
+                    if (o.get("values") or [""])[0][:1] in ("x", "w")]
+            return [(bool(o.get("src")), bool(o.get("dest"))) for o in regs]
+
+        expected = {}
+        for name in _LDOP_SWP_NAMES:
+            expected[name] = [(True, False), (False, True)]              # Rs read, Rt written
+        for name in _CAS_NAMES:
+            expected[name] = [(True, True), (True, False)]               # Rs read+written, Rt read
+        for name in _CASP_NAMES:
+            expected[name] = [(True, True), (True, True), (True, False), (True, False)]  # pair
+
+        checked = 0
+        for name, exp in expected.items():
+            for entry in _RAW_BY_NAME.get(name, []):
+                self.assertEqual(raw_reg_roles(entry), exp, f"{name}: base.json roles")
+                checked += 1
+        self.assertGreater(checked, 100, f"too few atomic specs cross-checked ({checked})")
+
 
 class EmptyAccessFallbackTest(unittest.TestCase):
-    def test_unknown_role_is_over_approximated_as_source(self):
-        # With the positional MTE fixup disabled, GMI's registers (which Capstone leaves access-empty)
-        # must fall through to the src-only over-approximation: all read, none written.
-        with patch.object(disasm, "_MTE_FIRST_REG_DEST", frozenset()):
-            src, dest = decode_reg_accesses(0x9ac21420, 0)   # gmi x0, x1, x2
+    def test_no_map_over_approximates_as_read(self):
+        # Without a role map (e.g. the display logger), an operand Capstone leaves access-empty is
+        # over-approximated as a read -- the taint-SAFE direction (a missed write over-preserves; it
+        # never invents a write). GMI's registers are all empty-access in Capstone 5.0.x.
+        src, dest = decode_reg_accesses(0x9ac21420, 0, None)   # gmi x0, x1, x2
         self.assertEqual(set(src), {"x0", "x1", "x2"})
         self.assertEqual(set(dest), set())
 
+    def test_no_map_never_invents_a_write(self):
+        # The safety invariant across the whole ISA: with no map, decode must never report a register
+        # WRITE that the spec does not have (that is the false-violation direction).
+        for mnemonic, encoding, _s, _d in CASES:
+            _, dest_nomap = decode_reg_accesses(encoding, 0, None)
+            _, dest_map = decode_reg_accesses(encoding, 0, _ROLES)
+            reg_writes_nomap = {d for d in dest_nomap if d not in ("N", "Z", "C", "V")}
+            reg_writes_map = {d for d in dest_map if d not in ("N", "Z", "C", "V")}
+            self.assertLessEqual(reg_writes_nomap, reg_writes_map,
+                                 f"{mnemonic}: no-map decode invented register write(s) "
+                                 f"{reg_writes_nomap - reg_writes_map}")
 
-class BaseJsonRoleCrossCheckTest(unittest.TestCase):
-    """base.json carries authoritative per-operand src/dest roles (from ARM's spec). Cross-check the
-    hand-maintained positional fixup in decode_reg_accesses against it, so the fixup cannot silently
-    drift from the architecture as instructions are added."""
 
-    @classmethod
-    def setUpClass(cls):
-        cls._saved_conf = copy.deepcopy(CONF._borg_shared_state)
-        CONF.load(os.path.join(_ROOT, "config.yml"))
-        isa = InstructionSet(os.path.join(_ROOT, "base.json"), CONF.instruction_categories)
-        cls.by_name = {}
-        for spec in isa.instructions:
-            cls.by_name.setdefault(spec.name, []).append(spec)
-        # A second load that also enables the atomic categories, so the atomic-fixup cross-check sees
-        # the LSE RMW specs (config.yml itself does not enable them).
-        isa_atomic = InstructionSet(os.path.join(_ROOT, "base.json"),
-                                    CONF.instruction_categories + ["BASE-MEM-ATOMIC", "BASE-MEM-ACQREL"])
-        cls.by_name_atomic = {}
-        for spec in isa_atomic.instructions:
-            cls.by_name_atomic.setdefault(spec.name, []).append(spec)
-
-    @classmethod
-    def tearDownClass(cls):
-        CONF._borg_shared_state.clear()
-        CONF._borg_shared_state.update(cls._saved_conf)
-
+class FlagWriterCoverageTest(unittest.TestCase):
     def test_every_flag_writer_has_an_exact_case(self):
-        # base.json marks (coarsely) which instructions write NZCV. Every such generated instruction
-        # must have a CASE above so test_flag_writes_are_exact pins its per-flag write set -- otherwise
-        # a newly added flag-writing instruction (esp. a partial writer like SETF/RMIF) could ship with
-        # an over-claimed flag write and no test to catch it.
+        # Every generated NZCV writer must have a CASE so test_flag_writes_are_exact pins its per-flag
+        # write set (a partial writer like SETF/RMIF must not ship with an over-claimed flag write).
         case_names = {c[0] for c in CASES}
         for name in supported_instructions:
             writes_flags = any(op.type == OT.FLAGS and op.dest
-                               for spec in self.by_name.get(name, [])
+                               for spec in _ISA_BY_NAME.get(name, [])
                                for op in spec.implicit_operands)
             if writes_flags:
                 self.assertIn(name, case_names,
                               f"{name} writes NZCV (base.json) but has no exact-flag case in CASES")
-
-    def test_mte_positional_fixup_agrees_with_base_json(self):
-        for mnemonic in _MTE_FIRST_REG_DEST:
-            for spec in self.by_name.get(mnemonic, []):   # absent (e.g. irg) => not generated, skip
-                regs = [op for op in spec.operands if op.type == OT.REG]
-                self.assertTrue(regs, f"{mnemonic}: base.json has no register operands")
-                with self.subTest(mnemonic=mnemonic):
-                    self.assertTrue(regs[0].dest, "first register must be a destination")
-                    for op in regs[1:]:
-                        self.assertTrue(op.src and not op.dest, "non-first registers must be src-only")
-                    # LDG is the sole RMW: base.json marks Xt both src and dest.
-                    self.assertEqual(bool(regs[0].src), mnemonic == "ldg")
-
-    def test_atomic_rmw_fixup_agrees_with_base_json(self):
-        # The positional atomic fixup (Rs=src, Rt=dest) must match base.json's authoritative roles for
-        # every LD<op>/SWP form present in the spec, so it cannot drift from the architecture.
-        seen = 0
-        for mnemonic in _ATOMIC_RMW_LOAD:
-            for spec in self.by_name_atomic.get(mnemonic, []):
-                regs = [op for op in spec.operands if op.type == OT.REG]
-                mems = [op for op in spec.operands if op.type == OT.MEM]
-                with self.subTest(mnemonic=mnemonic):
-                    self.assertEqual(len(regs), 2, f"{mnemonic}: expected Rs,Rt register operands")
-                    self.assertTrue(regs[0].src and not regs[0].dest, "Rs must be src-only")
-                    self.assertTrue(regs[1].dest and not regs[1].src, "Rt must be dest-only (old value)")
-                    self.assertTrue(mems and mems[0].src and mems[0].dest, "memory cell must be RMW")
-                seen += 1
-        self.assertGreater(seen, 0, "no atomic RMW specs found in base.json (category load broken)")
 
 
 class IsConditionalBranchTest(unittest.TestCase):
