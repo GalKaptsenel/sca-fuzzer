@@ -184,17 +184,24 @@ class PteFuzzPolicy:
     `SandboxPageMap`. The genuine plan is empty (pristine PTEs); a decoy perturbs each spec-only
     page's descriptor within the allowed fields."""
 
-    def __init__(self, leaf_fields: Sequence[str], table_fields: Sequence[str] = ()) -> None:
+    def __init__(self, leaf_fields: Sequence[str], table_fields: Sequence[str] = (),
+                 fields_per_decoy: int = 1) -> None:
         # validate the names against the layouts up front (loud on a typo)
         LEAF_LAYOUT.mask_for(leaf_fields)
         TABLE_LAYOUT.mask_for(table_fields)
         self._leaf_fields = list(leaf_fields)
         self._table_fields = list(table_fields)
+        if not self._leaf_fields:
+            raise ValueError("PteFuzzPolicy needs at least one leaf field to fuzz")
+        if not 1 <= fields_per_decoy <= len(self._leaf_fields):
+            raise ValueError(f"fields_per_decoy must be in [1, {len(self._leaf_fields)}]")
+        self._fields_per_decoy = fields_per_decoy
 
     def genuine_plan(self) -> EnvironmentPlan:
         return EnvironmentPlan()
 
     def decoy_plan(self, page_map: SandboxPageMap, rng: Random) -> EnvironmentPlan:
+        """A decoy fuzzing a random subset of `fields_per_decoy` leaf fields (deterministic per `rng`)."""
         page_map.require_spec_only()
         overrides = [self._decoy_override(p.index, LEVEL_LEAF, self._leaf_fields, rng)
                      for p in page_map.spec_only_pages]
@@ -204,9 +211,8 @@ class PteFuzzPolicy:
     def _decoy_override(self, page_index: int, level: int, fields: Sequence[str],
                         rng: Random) -> PteOverride:
         layout = LEVEL_LAYOUTS[level]
-        chosen = [f for f in fields if rng.random() < 0.5] or [rng.choice(list(fields))]
         mask = value = 0
-        for name in chosen:
+        for name in rng.sample(list(fields), self._fields_per_decoy):
             f = layout.field(name)
             mask |= f.mask
             value = f.insert(value, rng.randint(0, f.max_value))

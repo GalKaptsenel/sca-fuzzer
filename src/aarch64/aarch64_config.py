@@ -255,6 +255,9 @@ pte_fuzz_leaf_fields: List[str] = list(LEAF_LAYOUT.default_fuzzable_field_names)
 pte_fuzz_table_fields: List[str] = []
 """ pte_fuzz_table_fields: level 0-2 table-descriptor fields a decoy may vary (e.g. 'ap_table',
     'xn_table'); empty by default (leaf-only fuzzing). """
+pte_fuzz_fields_per_decoy: int = 1
+""" pte_fuzz_fields_per_decoy: how many leaf fields (a count of fields, not bits) each decoy fuzzes,
+    drawn as a random subset of pte_fuzz_leaf_fields. Default 1 (isolate one field per decoy). """
 
 # Cross-input priming (src/aarch64/cross_input.py): generalize standard priming. Standard priming keeps a
 # flagged violation only if the divergence follows the detecting pair's OWN input; cross-input priming

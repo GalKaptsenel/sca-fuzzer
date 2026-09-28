@@ -156,6 +156,16 @@ class PteFuzzPolicyTest(unittest.TestCase):
     def test_genuine_plan_is_empty(self):
         self.assertTrue(self.policy.genuine_plan().is_empty)
 
+    def test_empty_leaf_fields_is_loud(self):
+        with self.assertRaises(ValueError):
+            PteFuzzPolicy(leaf_fields=[])
+
+    def test_fields_per_decoy_out_of_range_is_loud(self):
+        with self.assertRaises(ValueError):
+            PteFuzzPolicy(leaf_fields=["valid", "ap"], fields_per_decoy=0)
+        with self.assertRaises(ValueError):
+            PteFuzzPolicy(leaf_fields=["valid", "ap"], fields_per_decoy=3)
+
     def test_decoy_only_touches_spec_only_pages_within_allowed_bits(self):
         allowed = LEAF_LAYOUT.mask_for(["valid", "ap", "attr_indx"])
         spec_indices = {p.index for p in self.m.spec_only_pages}
@@ -165,6 +175,27 @@ class PteFuzzPolicyTest(unittest.TestCase):
             self.assertIn(o.page_index, spec_indices)
             self.assertEqual(o.mask & ~allowed, 0)      # never touches disallowed bits (e.g. oa)
             self.assertEqual(o.value & ~o.mask, 0)
+
+    def test_default_subset_is_one_field(self):
+        # default fields_per_decoy=1: each override's mask is exactly one fuzzable field's mask.
+        field_masks = {LEAF_LAYOUT.field(f).mask for f in ["valid", "ap", "attr_indx"]}
+        for seed in range(20):
+            for o in self.policy.decoy_plan(self.m, Random(seed)).pte_overrides:
+                self.assertIn(o.mask, field_masks)
+
+    def test_fields_per_decoy_selects_that_many_distinct_fields(self):
+        policy = PteFuzzPolicy(leaf_fields=["valid", "ap", "attr_indx"], fields_per_decoy=2)
+        singles = {LEAF_LAYOUT.field(f).mask for f in ["valid", "ap", "attr_indx"]}
+        for seed in range(20):
+            for o in policy.decoy_plan(self.m, Random(seed)).pte_overrides:
+                chosen = [m for m in singles if o.mask & m]
+                self.assertEqual(len(chosen), 2)                 # exactly two distinct fields
+                self.assertEqual(o.mask, chosen[0] | chosen[1])  # mask is their union, nothing else
+
+    def test_decoy_is_deterministic_per_seed(self):
+        a = self.policy.decoy_plan(self.m, Random(99))
+        b = self.policy.decoy_plan(self.m, Random(99))
+        self.assertEqual(a.pte_overrides, b.pte_overrides)
 
     def test_decoy_requires_a_spec_only_page(self):
         empty = SandboxPageMap([SandboxPage(0, "only", 0)])

@@ -625,7 +625,8 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         self._pte_policy: Optional[PteFuzzPolicy] = None
         if CONF.enable_pte_fuzzing:
             self._page_map = default_sandbox_page_map()
-            self._pte_policy = PteFuzzPolicy(CONF.pte_fuzz_leaf_fields, CONF.pte_fuzz_table_fields)
+            self._pte_policy = PteFuzzPolicy(CONF.pte_fuzz_leaf_fields, CONF.pte_fuzz_table_fields,
+                                             CONF.pte_fuzz_fields_per_decoy)
         self._spec_reach_cache: Dict[bytes, bool] = {}
 
     def _resolve(self, inp: Input) -> ResolvedSealingTestCase:

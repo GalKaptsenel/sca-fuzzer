@@ -194,6 +194,16 @@ Default: [valid, attr_indx, ns, ap, sh, af, ng, dbm, contiguous, pxn, uxn]
 Level-3 leaf-descriptor fields a decoy may vary, by name. The default is every leaf field marked
 fuzzable by the layout (the output address and descriptor type are excluded).
 
+Each decoy fuzzes a random subset of these fields (see `pte_fuzz_fields_per_decoy`).
+
+```yaml
+Name: pte_fuzz_fields_per_decoy
+Default: 1
+```
+
+How many leaf fields (a count of fields, not bits) each decoy fuzzes, drawn as a random subset of
+`pte_fuzz_leaf_fields`. Default 1 isolates one field per decoy. Must be in `[1, len(pte_fuzz_leaf_fields)]`.
+
 ```yaml
 Name: pte_fuzz_table_fields
 Default: []
