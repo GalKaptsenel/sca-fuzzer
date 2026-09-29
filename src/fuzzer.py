@@ -416,9 +416,12 @@ class FuzzerGeneric(Fuzzer):
                 STAT.fp_early_priming += 1
                 return None
 
-        # 2.4 FP might appear because we experienced noise. Retry the experiment with a larger
-        #     sample size to reduce the impact of noise
+        # 2.4 FP might appear because we experienced noise. Retry the experiment with a larger sample
+        #     size to reduce the impact of noise. A priming strategy that already verifies at the largest
+        #     sample in one pass opts out of this sweep -- see _sample_size_sweep_needed.
         for n_reps in CONF.executor_sample_sizes[1:]:
+            if not self._sample_size_sweep_needed():
+                break
             self.LOG.fuzzer_sample_size_increase(n_reps)
             args.n_reps = n_reps
             args.n_reps -= len(htraces[0].raw)  # subtract the number of repetitions already done
@@ -442,6 +445,12 @@ class FuzzerGeneric(Fuzzer):
             self._triage(violations, args.inputs)
 
         return violations[0]
+
+    def _sample_size_sweep_needed(self) -> bool:
+        """Whether the slow path should re-measure a candidate at the larger configured sample sizes.
+        True by default; a priming strategy that already verifies at the largest sample in one pass
+        overrides this to skip the redundant sweep."""
+        return True
 
     def _collect_traces(
             self, args: TracingArguments) -> Tuple[List[Violation], List[CTrace], List[HTrace]]:

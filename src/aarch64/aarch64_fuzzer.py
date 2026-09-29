@@ -127,8 +127,6 @@ class CrossInputPrimingMixin(_MixinBase):
                     located = self._localize_boosted_violation(violation, lanes, n_orig, detector)
                     if located is not None:
                         finding, prefix_lane, suffix_lane = located
-                        # Attach for the artifact report; do not print (priming runs once per sample
-                        # size, so a print here would repeat). The report.txt carries the explanation.
                         violation.cross_input_finding = (finding, prefix_lane, suffix_lane, n_orig)
                         self.LOG.dbg("fuzzer", f"cross-input priming: leaking pair {finding.leaking_pair}"
                                      f" -> detecting pair {finding.detecting_pair}")
@@ -136,6 +134,12 @@ class CrossInputPrimingMixin(_MixinBase):
             except HardwareTracingError as e:                 # transient device failure -> skip the round
                 self.LOG.warning("fuzzer", f"cross-input priming: hardware tracing failed: {e}")
         return []
+
+    def _sample_size_sweep_needed(self) -> bool:
+        # find_leaking_pair re-verifies the boundary at verify_reps (the largest configured sample) in
+        # its one pass, so the slow-path sweep -- and its re-priming -- is redundant for cross-input
+        # priming. Standard priming still needs the sweep.
+        return not CONF.enable_cross_input_priming
 
     def _make_cross_input_detector(
             self, reps: int, verify_reps: int,
