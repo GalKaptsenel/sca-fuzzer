@@ -103,6 +103,24 @@ class ChainOracle:
         return [H([BG | val] * reps) for _ in batch]
 
 
+class MixedSelfAndCrossOracle:
+    """The detecting pair's readout carries BOTH its own seal (self-dependent) and the residue of an
+    earlier trainer slot (cross-input). Galloping from the all-base end meets the self-dependent boundary
+    (t == detecting) first, so excluding self-dependence must narrow the interval -- a post-hoc filter
+    would drop the genuine cross-input boundary at the trainer."""
+
+    def __init__(self, trainer):
+        self.trainer = trainer
+
+    def measure(self, batch, reps):
+        out = []
+        for d in range(len(batch)):
+            own = 2 if batch[d][0] == "g" else 0
+            residue = 4 if self.trainer < d and batch[self.trainer][0] == "g" else 0
+            out.append(H([BG | own | residue] * reps))
+        return out
+
+
 def valid_tip(oracle, detecting, k, prefix_from_first=True, reps=200):
     """A leaking pair is valid iff toggling slot k flips the detecting pair's readout, in the direction
     the finding was made (genuine-prefix base, or the mirror decoy-prefix base)."""
@@ -183,6 +201,47 @@ class DetectorTest(unittest.TestCase):
         g, b = lanes(5)
         self.assertIsNone(det.find_leaking_pair(g, b, 4))     # endpoints coincide -> missed
         self.assertTrue(valid_tip(oracle, 4, 0))              # yet slot 0 is a genuine interior witness
+
+    def test_excluding_self_dependence_keeps_a_coexisting_cross_input_boundary(self):
+        # Mixed leak: the detecting pair leaks about itself AND carries trainer slot 2's residue. With
+        # exclude_self_dependence the search must return the cross-input boundary (2), not discard the
+        # whole finding because galloping first meets the self-dependent boundary (5).
+        det = detector(MixedSelfAndCrossOracle(trainer=2).measure)
+        g, b = lanes(6)
+        self.assertEqual(det.find_leaking_pair(g, b, 5).leaking_pair, 5)          # default: self wins
+        f = det.find_leaking_pair(g, b, 5, exclude_self_dependence=True)
+        self.assertIsNotNone(f)
+        self.assertEqual((f.leaking_pair, f.detecting_pair), (2, 5))
+        f = detector(MixedSelfAndCrossOracle(trainer=2).measure, localizer=linear_scan) \
+            .find_leaking_pair(g, b, 5, exclude_self_dependence=True)
+        self.assertEqual(f.leaking_pair, 2)
+
+    def test_pure_self_dependence_excluded_in_one_comparison(self):
+        # Narrowed ends coincide for a pure self-dependent leak: the search stops after measuring the two
+        # ends, without localizing a boundary only to discard it.
+        calls = []
+
+        def measure(batch, reps):
+            calls.append(1)
+            return SelfSealOracle().measure(batch, reps)
+        g, b = lanes(6)
+        self.assertIsNone(detector(measure).find_leaking_pair(g, b, 5, exclude_self_dependence=True))
+        self.assertEqual(len(calls), 2)
+
+    def test_boundary_rejected_unless_members_contract_equal(self):
+        oracle = MostRecentWinsBTB({2: 1 << 2})
+        g, b = lanes(4)
+        checked = []
+
+        def make(valid):
+            def is_valid_toggle(base_member, toggle_member):
+                checked.append((base_member, toggle_member))
+                return valid
+            return GeneralizedPrimingDetector(oracle.measure, key, robust_differ, reps=200,
+                                              verify_reps=500, is_valid_toggle=is_valid_toggle)
+        self.assertIsNone(make(False).find_leaking_pair(g, b, 3))
+        self.assertEqual(checked, [(("g", 2), ("b", 2))])           # the boundary class's two members
+        self.assertEqual(make(True).find_leaking_pair(g, b, 3).leaking_pair, 2)
 
 
 class ScriptedMeasure:
@@ -292,3 +351,35 @@ class LocalizerTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class ContractEqualToggleTest(unittest.TestCase):
+    """The fuzzer seam behind is_valid_toggle: re-trace a boundary's two members on the contract model and
+    accept the boundary only when their contract traces are equal."""
+
+    class _Executor:
+        def __init__(self, ctrace_of):
+            self.ctrace_of = ctrace_of
+            self.calls = []
+
+        def trace_test_case_with_taints(self, inputs, nesting):
+            self.calls.append((inputs, nesting))
+            return [self.ctrace_of[i] for i in inputs], None, None
+
+    def _seam(self, ctrace_of):
+        from src.aarch64.aarch64_fuzzer import CrossInputPrimingMixin
+        seam = CrossInputPrimingMixin.__new__(CrossInputPrimingMixin)
+        seam.executor = self._Executor(ctrace_of)
+        return seam
+
+    def test_equal_and_unequal_contract_traces(self):
+        from src.aarch64.aarch64_executor_input_encoder import ExecutorInput
+        from src.config import CONF
+        a, b, c = object(), object(), object()
+        seam = self._seam({a: 7, b: 7, c: 8})
+        ea, eb, ec = (ExecutorInput.__new__(ExecutorInput) for _ in range(3))
+        for e, i in ((ea, a), (eb, b), (ec, c)):
+            object.__setattr__(e, "input_", i)
+        self.assertTrue(seam._contract_equal_toggle(ea, eb))
+        self.assertFalse(seam._contract_equal_toggle(ea, ec))
+        self.assertEqual(seam.executor.calls[0], ([a, b], CONF.model_max_nesting))

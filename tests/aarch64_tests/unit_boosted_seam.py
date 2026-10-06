@@ -4,12 +4,17 @@ Pure logic, no hardware: a MOCK detector records how the seam drives find_leakin
 pins the mapping violation -> (detecting position, lane pair) and the both-bases fall-through. Run:
     python -m unittest tests.aarch64_tests.unit_boosted_seam
 """
+import contextlib
+import copy
 import os
 import sys
 import unittest
+from unittest import mock
 from collections import namedtuple
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, _ROOT)
+from src.config import CONF                                   # noqa: E402
 from src.aarch64.aarch64_fuzzer import Aarch64Fuzzer         # noqa: E402
 from src.aarch64.cross_input import CrossInputFinding             # noqa: E402
 
@@ -39,6 +44,16 @@ class MockDetector:
 
 class LocalizeSeamTest(unittest.TestCase):
     # 3 classes (n_orig=3), 2 lanes: lane 0 = [a0,a1,a2], lane 1 = [b0,b1,b2].
+    @classmethod
+    def setUpClass(cls):
+        cls._saved_conf = copy.deepcopy(CONF._borg_shared_state)
+        CONF.load(os.path.join(_ROOT, "config_pac.yml"))      # the seam reads aarch64 options
+
+    @classmethod
+    def tearDownClass(cls):
+        CONF._borg_shared_state.clear()
+        CONF._borg_shared_state.update(cls._saved_conf)
+
     def setUp(self):
         self.fz = object.__new__(Aarch64Fuzzer)   # bypass __init__ (no HW); the method uses no other state
         self.lanes = [["a0", "a1", "a2"], ["b0", "b1", "b2"]]
@@ -75,6 +90,49 @@ class LocalizeSeamTest(unittest.TestCase):
         det = MockDetector(hit_on_prefix_from_first=True)
         self.assertIsNone(self._localize(det, [[M(2), M(5)]]))    # single group -> not localizable
         self.assertEqual(det.calls, [])                           # detector never called
+
+
+class PrimingOutcomeLogTest(unittest.TestCase):
+    """_priming reports every candidate's outcome at INFO: self-dependent or cross-input, or none."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._saved_conf = copy.deepcopy(CONF._borg_shared_state)
+        CONF.load(os.path.join(_ROOT, "config_pac.yml"))
+        CONF.enable_cross_input_priming = True
+        CONF.cross_input_leaks_only = False
+
+    @classmethod
+    def tearDownClass(cls):
+        CONF._borg_shared_state.clear()
+        CONF._borg_shared_state.update(cls._saved_conf)
+
+    def _prime(self, finding):
+        fz = object.__new__(Aarch64Fuzzer)
+        fz.executor, fz.LOG = mock.Mock(), mock.Mock()
+        det = mock.Mock()
+        det.find_leaking_pair.return_value = finding
+        fz._make_cross_input_detector = lambda reps, verify, loc: det
+        v = violation([[M(2)], [M(5)]])
+        v.measurements = [mock.Mock(htrace=mock.Mock(raw=[0] * 4))]
+        with mock.patch("src.aarch64.aarch64_fuzzer.regime_controllable", return_value=True), \
+                mock.patch("src.aarch64.aarch64_fuzzer.executor_regime", return_value=contextlib.nullcontext()), \
+                mock.patch("src.aarch64.aarch64_fuzzer.lanes_of",
+                           return_value=[["a0", "a1", "a2"], ["b0", "b1", "b2"]]):
+            out = fz._priming([v], ["i"] * 6)
+        return out, [c.args[1] for c in fz.LOG.inform.call_args_list]
+
+    def test_self_dependent_and_cross_input_are_reported(self):
+        for leaking, kind in ((2, "self-dependent"), (0, "cross-input")):
+            out, msgs = self._prime(CrossInputFinding(leaking, 2, range(leaking, 3), True))
+            self.assertEqual(len(out), 1)
+            self.assertIn("any localizer, self-dependent + cross-input", msgs[0])
+            self.assertIn(f"CONFIRMED {kind} leak", msgs[-1])
+
+    def test_no_leaking_pair_is_a_false_positive(self):
+        out, msgs = self._prime(None)
+        self.assertEqual(out, [])
+        self.assertIn("no leaking pair -> false positive", msgs[-1])
 
 
 if __name__ == "__main__":

@@ -43,7 +43,8 @@ boundary that only appeared under measurement jitter.
 
 A boundary at the detecting pair itself (leaking pair == detecting pair) is the pair's OWN variant
 flipping its OWN readout -- the own-target confound. It is a valid finding by default (an input that
-leaks about itself); pass exclude_self_dependence to keep only strictly cross-input leaks.
+leaks about itself); pass exclude_self_dependence to keep only strictly cross-input leaks (the search
+then covers [0, detecting) only). `is_valid_toggle` rejects a boundary whose members are not contract-equal.
 
 A found leaking pair is a valid ct-seq counterexample for ANY predictor -- the search never models how the
 prediction forms, so its *validity* is predictor-agnostic. Guaranteeing that the endpoint promise
@@ -132,7 +133,8 @@ class CrossInputFinding:
 class GeneralizedPrimingDetector:
     def __init__(self, measure: Callable[[List[Variant], int], List[Trace]],
                  key: Callable[[Trace], Key], confirm: Callable[[Trace, Trace], bool],
-                 *, reps: int, verify_reps: int, localizer: Localizer = exponential_search) -> None:
+                 *, reps: int, verify_reps: int, localizer: Localizer = exponential_search,
+                 is_valid_toggle: Optional[Callable[[Variant, Variant], bool]] = None) -> None:
         assert reps >= 1 and verify_reps >= 1, "reps must be positive"
         self._measure = measure
         self._key = key
@@ -140,6 +142,7 @@ class GeneralizedPrimingDetector:
         self._reps = reps
         self._verify_reps = verify_reps
         self._localizer = localizer
+        self._is_valid_toggle = is_valid_toggle
 
     def detect(self, lane_a: Sequence[Variant], lane_b: Sequence[Variant],
                exclude_self_dependence: bool = False) -> List[CrossInputFinding]:
@@ -166,9 +169,9 @@ class GeneralizedPrimingDetector:
         """Locate the leaking pair for `detecting`, sweeping the prefix from `base` toward `toggle` with the
         injected localizer. Each split is measured at most once (memoized), so r_key is a stable value the
         localizer may query freely. A tip at the detecting pair itself (leaking pair == detecting pair) is
-        self-dependence -- the pair's own variant flips its own readout; returned by default, dropped when
-        exclude_self_dependence."""
-        lo, hi = 0, detecting + 1
+        self-dependence -- the pair's own variant flips its own readout; returned by default, excluded by
+        searching only [0, detecting) when exclude_self_dependence."""
+        lo, hi = 0, (detecting if exclude_self_dependence else detecting + 1)
         cache: dict = {}
 
         def r_key(t: int) -> Key:                    # r(t)'s key; each split measured once, so it is stable
@@ -179,8 +182,8 @@ class GeneralizedPrimingDetector:
         if r_key(lo) == r_key(hi):                   # signal independent of history -> nothing to localize
             return None
         boundary = self._localizer(r_key, lo, hi)
-        if exclude_self_dependence and boundary == detecting:   # own-target confound, not cross-input
-            return None
+        if self._is_valid_toggle is not None and not self._is_valid_toggle(base[boundary], toggle[boundary]):
+            return None                              # members not contract-equal: not a counterexample
         if not self._reverify(base, toggle, detecting, boundary):
             return None
         chain = range(boundary, detecting + 1)

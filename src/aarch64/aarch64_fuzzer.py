@@ -15,6 +15,7 @@ from .aarch64_generator import Aarch64DsbSyPass
 from .cross_input import (GeneralizedPrimingDetector, CrossInputFinding, Localizer,
                           linear_scan, exponential_search)
 from .boosted_lanes import lanes_of, detecting_position_and_lanes
+from .aarch64_executor_input_encoder import ExecutorInput
 from .aarch64_kernel import LocalHWExecutor
 
 # Map cross_input_priming_localizer to the cross_input.py localizer strategy: "any" = galloping + bisection
@@ -121,6 +122,9 @@ class CrossInputPrimingMixin(_MixinBase):
         n_orig = len(inputs) // CONF.inputs_per_class
         lanes = lanes_of(inputs, n_orig)
         detector = self._make_cross_input_detector(reps, verify_reps, localizer)
+        scope = "cross-input only" if CONF.cross_input_leaks_only else "self-dependent + cross-input"
+        self.LOG.inform("fuzzer", f"cross-input priming ({CONF.cross_input_priming_localizer} localizer, "
+                                  f"{scope}): localizing {len(violations)} candidate(s)")
         with executor_regime(self.executor, self._CROSS_INPUT_PRIMING_REGIME):
             try:
                 for violation in reversed(violations):        # priming pops the stack from the end
@@ -128,11 +132,16 @@ class CrossInputPrimingMixin(_MixinBase):
                     if located is not None:
                         finding, prefix_lane, suffix_lane = located
                         violation.cross_input_finding = (finding, prefix_lane, suffix_lane, n_orig)
-                        self.LOG.dbg("fuzzer", f"cross-input priming: leaking pair {finding.leaking_pair}"
-                                     f" -> detecting pair {finding.detecting_pair}")
+                        kind = "self-dependent" if finding.leaking_pair == finding.detecting_pair \
+                            else "cross-input"
+                        self.LOG.inform("fuzzer", f"cross-input priming: CONFIRMED {kind} leak, leaking pair "
+                                                  f"{finding.leaking_pair} -> detecting pair "
+                                                  f"{finding.detecting_pair}")
                         return [violation]
             except HardwareTracingError as e:                 # transient device failure -> skip the round
                 self.LOG.warning("fuzzer", f"cross-input priming: hardware tracing failed: {e}")
+                return []
+        self.LOG.inform("fuzzer", "cross-input priming: no leaking pair -> false positive")
         return []
 
     def _sample_size_sweep_needed(self) -> bool:
@@ -145,15 +154,23 @@ class CrossInputPrimingMixin(_MixinBase):
             self, reps: int, verify_reps: int,
             localizer: Localizer) -> GeneralizedPrimingDetector:
         """The generalized-priming detector wired to this executor, with the production key/confirm seams
-        (denoised-consensus key for the bisection; robust chi-squared for the re-verify) and the selected
-        localizer strategy."""
+        (denoised-consensus key for the bisection; robust chi-squared for the re-verify), the selected
+        localizer strategy, and the contract-equality check on a located boundary's two members."""
         outlier = CONF.analyser_outliers_threshold
         robust = ChiSquaredAnalyser()
         return GeneralizedPrimingDetector(
             measure=lambda batch, n: self.executor.trace_test_case(batch, n)[0],
             key=lambda trace: MergedBitmapAnalyser.merged_bitmap(trace, outlier),
             confirm=lambda a, b: not robust.htraces_are_equivalent(a, b),
-            reps=reps, verify_reps=verify_reps, localizer=localizer)
+            reps=reps, verify_reps=verify_reps, localizer=localizer,
+            is_valid_toggle=self._contract_equal_toggle)
+
+    def _contract_equal_toggle(self, base_member: ExecutorInput, toggle_member: ExecutorInput) -> bool:
+        """Whether a boundary's two members share a contract trace."""
+        assert isinstance(base_member, ExecutorInput) and isinstance(toggle_member, ExecutorInput)
+        ctraces = self.executor.trace_test_case_with_taints(
+            [base_member.input_, toggle_member.input_], CONF.model_max_nesting)[0]
+        return ctraces[0] == ctraces[1]
 
     def _localize_boosted_violation(self, violation: Violation, lanes: List[list], n_orig: int,
                                     detector: GeneralizedPrimingDetector
