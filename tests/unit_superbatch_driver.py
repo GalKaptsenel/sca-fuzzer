@@ -8,6 +8,7 @@ import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..")
 from src.fuzzer import FuzzerGeneric
 from src.config import CONF
 from src.util import STAT
+from tests.conf_isolation import setUpModule, tearDownModule  # noqa: F401  (restores CONF + cwd)
 
 
 class BulkTierTest(unittest.TestCase):
@@ -26,6 +27,7 @@ class BulkTierTest(unittest.TestCase):
 
     def _driver(self, filter_results):
         drv = FuzzerGeneric.__new__(FuzzerGeneric)
+        drv.LOG = mock.Mock()
         drv.executor = mock.Mock()
         drv.executor.make_trace_unit.side_effect = lambda boosted: ("unit", tuple(boosted))
         drv.executor.trace_batch.side_effect = lambda units, n_reps: [["htrace"] for _ in units]

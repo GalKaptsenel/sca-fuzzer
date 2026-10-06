@@ -20,6 +20,7 @@ from src.config import CONF
 from src.aarch64.aarch64_relocations import (encode_bitmask_imm64, eor_imm_word, NOP_WORD, Relocation)
 from src.aarch64.aarch64_generator import Aarch64Generator
 from src.aarch64.seal import sealer as S
+from tests.conf_isolation import setUpModule, tearDownModule  # noqa: F401  (restores CONF + cwd)
 
 _FAULT_39 = (((1 << (55 - 39)) - 1) << 39)   # bits [54:39]
 

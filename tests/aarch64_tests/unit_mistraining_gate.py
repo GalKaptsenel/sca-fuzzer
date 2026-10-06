@@ -13,6 +13,7 @@ from types import SimpleNamespace
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 from src.config import CONF                                          # noqa: E402
 from src.aarch64.aarch64_executor import Aarch64LocalExecutor        # noqa: E402
+from tests.conf_isolation import setUpModule, tearDownModule  # noqa: F401  (restores CONF + cwd)
 
 _CBZ = 0xb4000040  # `cbz x0, .+8` — a conditional branch (verified is_conditional_branch == True)
 

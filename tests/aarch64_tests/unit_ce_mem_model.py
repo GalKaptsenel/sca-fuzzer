@@ -18,6 +18,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+from tests.conf_isolation import setUpModule, tearDownModule  # noqa: F401  (restores CONF + cwd)
 _ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 _SELF = os.path.abspath(__file__)
 _INPUT_BIN = "/tmp/_ce_mm_input.bin"

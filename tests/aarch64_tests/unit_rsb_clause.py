@@ -13,6 +13,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+from tests.conf_isolation import setUpModule, tearDownModule  # noqa: F401  (restores CONF + cwd)
 _ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 
 # Matches execution_clause_rsb.c's RSB_DEPTH; anything deeper overflows the shadow RSB and mispredicts.

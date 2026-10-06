@@ -37,7 +37,7 @@ class NiBoostingTest(SealedExecutorFixture, unittest.TestCase):
 
     def test_boost_fills_class_with_seal_variants(self):
         fz = self._fuzzer()
-        inputs = self.igen.generate(1)
+        inputs = [self._decoy_input()]
         boosted, ctraces = fz._boost_inputs(inputs, CONF.model_max_nesting)
         self.assertEqual(len(boosted), CONF.inputs_per_class * len(inputs))   # class filled by seal
         self.assertTrue(all(isinstance(b, self.ExecutorInput) for b in boosted))
@@ -45,7 +45,7 @@ class NiBoostingTest(SealedExecutorFixture, unittest.TestCase):
 
     def test_boost_and_detect_divergence(self):
         fz = self._fuzzer()
-        boosted, args = self._boosted_args(fz, self.igen.generate(1))
+        boosted, args = self._boosted_args(fz, [self._decoy_input()])
 
         # baseline (flat 0) diverges from the rest -> a violation, carrying the ExecutorInput variants
         def fake(flat, n):
@@ -59,7 +59,7 @@ class NiBoostingTest(SealedExecutorFixture, unittest.TestCase):
 
     def test_boost_no_violation_when_variants_agree(self):
         fz = self._fuzzer()
-        _boosted, args = self._boosted_args(fz, self.igen.generate(1))
+        _boosted, args = self._boosted_args(fz, [self._decoy_input()])
         with mock.patch.object(self.ex, "trace_test_case",
                                side_effect=lambda flat, n: ([HTrace([0] * 4)] * len(flat),
                                                             [None] * len(flat))):

@@ -14,6 +14,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+from tests.conf_isolation import setUpModule, tearDownModule  # noqa: F401  (restores CONF + cwd)
 _ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 _CE = os.path.join(_ROOT, "src/aarch64/contract_executor/contract_executor")
 _BASE = 0x200000

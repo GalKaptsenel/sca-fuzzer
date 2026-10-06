@@ -7,6 +7,8 @@ genuine (correct signature/tag — arch-safe); speculative slots are genuine or 
 per-sealing-class coin flip (consistent within a class, shared by every class member).
 """
 import os
+import shutil
+import copy
 import sys
 import random
 import tempfile
@@ -56,7 +58,31 @@ def _slot_words(ex, variant_bytes, r):
     return [read_word32(variant_bytes, layout.instruction_address[i]) for i in r.sealing.slot_insts]
 
 
-class RegularSealedRoutingTest(unittest.TestCase):
+_PROGRAM_SEED = 0x5EA1
+_INPUT_SEED = 0xC0DE
+
+
+class _ConfIsolated(unittest.TestCase):
+    """Loads a config for the class and restores the shared CONF afterwards; per-test temp dirs."""
+
+    @classmethod
+    def _load_conf(cls, name):
+        cls._saved_conf = copy.deepcopy(CONF._borg_shared_state)
+        CONF.load(os.path.join(_ROOT, name))
+
+    @classmethod
+    def tearDownClass(cls):
+        if hasattr(cls, "_saved_conf"):
+            CONF._borg_shared_state.clear()
+            CONF._borg_shared_state.update(cls._saved_conf)
+
+    def _tmpdir(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        return d
+
+
+class RegularSealedRoutingTest(_ConfIsolated):
     """factory.get_executor selects the right executor for each category combination."""
 
     @classmethod
@@ -65,7 +91,7 @@ class RegularSealedRoutingTest(unittest.TestCase):
             raise unittest.SkipTest("kernel module not loaded — /dev/executor missing")
         from src.aarch64.aarch64_executor import (Aarch64LocalExecutor, Aarch64RegularSealedExecutor)
         cls.Local, cls.Sealed = Aarch64LocalExecutor, Aarch64RegularSealedExecutor
-        CONF.load(os.path.join(_ROOT, "config_pac_mte_basic.yml"))   # fuzzer: basic
+        cls._load_conf("config_pac_mte_basic.yml")   # fuzzer: basic
 
     def _executor_for(self, categories):
         CONF.instruction_categories = categories
@@ -106,7 +132,7 @@ class RegularSealedRoutingTest(unittest.TestCase):
                          [MTE_INITIAL_DEFAULT_TAG] * MTE_TAG_COUNT)
 
 
-class RegularSealedSealingTest(unittest.TestCase):
+class RegularSealedSealingTest(_ConfIsolated):
     """Per-input sealing correctness, driving the real seal/resolve pipeline (no hardware step)."""
 
     @classmethod
@@ -115,11 +141,11 @@ class RegularSealedSealingTest(unittest.TestCase):
             raise unittest.SkipTest("kernel module not loaded — /dev/executor missing")
         from src.aarch64.aarch64_kernel import PacKeys
         cls.PacKeys = PacKeys
-        CONF.load(os.path.join(_ROOT, "config_pac_mte_basic.yml"))
+        cls._load_conf("config_pac_mte_basic.yml")
         cls.isa = InstructionSet(os.path.join(_ROOT, "base.json"), CONF.instruction_categories)
 
     def _executor(self):
-        gen = Aarch64RandomGenerator(self.isa, random.randrange(1 << 32))
+        gen = Aarch64RandomGenerator(self.isa, _PROGRAM_SEED)
         ex = factory.get_executor(generator=gen)
         type(self)._last_ex = ex
         return ex, gen
@@ -161,17 +187,14 @@ class RegularSealedSealingTest(unittest.TestCase):
 
     def test_arch_genuine_spec_decoy_with_corner_cases(self):
         ex, gen = self._executor()
-        ig = factory.get_input_generator(random.randrange(1 << 32)); tmp = tempfile.mkdtemp()
+        ig = factory.get_input_generator(_INPUT_SEED); tmp = self._tmpdir()
         cov = {"arch_genuine": 0, "spec_decoy": 0, "spec_strip": 0}
         violations = []
         tcs = 0
         for _ in range(8 * 6):
             if tcs >= 5:
                 break
-            try:
-                tc = gen.create_test_case(os.path.join(tmp, "t.asm"), disable_assembler=True)
-            except Exception:
-                continue
+            tc = gen.create_test_case(os.path.join(tmp, "t.asm"), disable_assembler=True)
             ex.load_test_case(tc)
             if not self._has_value_slots(ex):
                 continue
@@ -189,12 +212,9 @@ class RegularSealedSealingTest(unittest.TestCase):
         self.assertGreater(cov["spec_decoy"], 0, f"no speculative decoy seen ({cov})")
 
     def _seal_a_tc(self, ex, gen, n_inputs=4):
-        ig = factory.get_input_generator(random.randrange(1 << 32)); tmp = tempfile.mkdtemp()
+        ig = factory.get_input_generator(_INPUT_SEED); tmp = self._tmpdir()
         for _ in range(8 * 6):
-            try:
-                tc = gen.create_test_case(os.path.join(tmp, "t.asm"), disable_assembler=True)
-            except Exception:
-                continue
+            tc = gen.create_test_case(os.path.join(tmp, "t.asm"), disable_assembler=True)
             ex.load_test_case(tc)
             if not self._has_value_slots(ex):
                 continue
@@ -245,21 +265,18 @@ class RegularSealedSealingTest(unittest.TestCase):
         try:
             CONF.instruction_categories = ["PAC"] + _BASE   # pure-PAC -> PacSealedTestCase
             isa = InstructionSet(os.path.join(_ROOT, "base.json"), CONF.instruction_categories)
-            gen = Aarch64RandomGenerator(isa, random.randrange(1 << 32))
+            gen = Aarch64RandomGenerator(isa, _PROGRAM_SEED)
             ex = factory.get_executor(generator=gen)
             type(self)._last_ex = ex
             self.assertEqual(ex._primitives, {"pac"})
-            ig = factory.get_input_generator(random.randrange(1 << 32)); tmp = tempfile.mkdtemp()
+            ig = factory.get_input_generator(_INPUT_SEED); tmp = self._tmpdir()
 
             total_sites = sealed = 0
             traced_unsealed = False
             for _ in range(8 * 12):
                 if total_sites >= 120:
                     break
-                try:
-                    tc = gen.create_test_case(os.path.join(tmp, "t.asm"), disable_assembler=True)
-                except Exception:
-                    continue
+                tc = gen.create_test_case(os.path.join(tmp, "t.asm"), disable_assembler=True)
                 CONF.pac_seal_prob = 1.0; ex.load_test_case(tc); n_all = len(ex._sealed._pac)
                 CONF.pac_seal_prob = 0.0; ex.load_test_case(tc); n_none = len(ex._sealed._pac)
                 sites = n_all - n_none
@@ -286,12 +303,9 @@ class RegularSealedSealingTest(unittest.TestCase):
         """The same input resolved twice yields the same collapse_key (the sealing class); a class is
         minted once and shared. Sanity: a single input maps to exactly one class TC."""
         ex, gen = self._executor()
-        ig = factory.get_input_generator(random.randrange(1 << 32)); tmp = tempfile.mkdtemp()
+        ig = factory.get_input_generator(_INPUT_SEED); tmp = self._tmpdir()
         for _ in range(8 * 6):
-            try:
-                tc = gen.create_test_case(os.path.join(tmp, "t.asm"), disable_assembler=True)
-            except Exception:
-                continue
+            tc = gen.create_test_case(os.path.join(tmp, "t.asm"), disable_assembler=True)
             ex.load_test_case(tc)
             if not self._has_value_slots(ex):
                 continue

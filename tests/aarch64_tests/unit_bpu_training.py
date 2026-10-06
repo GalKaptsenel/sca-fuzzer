@@ -23,6 +23,7 @@ import unittest
 import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
 from src.aarch64.aarch64_executor import Aarch64LocalExecutor, is_conditional_branch
 from src.config import CONF
+from tests.conf_isolation import setUpModule, tearDownModule  # noqa: F401  (restores CONF + cwd)
 
 _CODE_BASE_SYSFS = "/sys/executor/print_code_base"
 _MODULE_LOADED = os.path.exists(_CODE_BASE_SYSFS)

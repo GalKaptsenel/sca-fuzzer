@@ -10,6 +10,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+from tests.conf_isolation import setUpModule, tearDownModule  # noqa: F401  (restores CONF + cwd)
 _ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 
 MASK = 0x1fff          # sandbox is main(4K)+faulty(4K); EA-x29 must lie in [0, 0x1fff]

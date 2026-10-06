@@ -14,6 +14,7 @@ from src.config import CONF
 from src.isa_loader import InstructionSet
 from src.aarch64.aarch64_generator import Aarch64RandomGenerator, _AUTH_CTX
 from src.aarch64.aarch64_target_desc import Aarch64TargetDesc
+from tests.conf_isolation import setUpModule, tearDownModule  # noqa: F401  (restores CONF + cwd)
 
 
 class TestGeneratorAuthContext(unittest.TestCase):

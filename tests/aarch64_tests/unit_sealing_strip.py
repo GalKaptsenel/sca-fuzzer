@@ -15,6 +15,7 @@ from src.interfaces import Instruction, RegisterOperand
 from src.aarch64.aarch64_generator import Aarch64RandomGenerator
 from src.aarch64.seal.pac import PacSign, build_pac_specs
 from src.aarch64.seal.sealer import PacSealing, SandboxSealing, MteSealing
+from tests.conf_isolation import setUpModule, tearDownModule  # noqa: F401  (restores CONF + cwd)
 
 _ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 

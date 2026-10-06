@@ -25,6 +25,7 @@ from src.isa_loader import InstructionSet
 from src import factory
 import src.aarch64.aarch64_executor as ni_mod
 from src.aarch64.aarch64_relocations import apply_relocations
+from tests.conf_isolation import setUpModule, tearDownModule  # noqa: F401  (restores CONF + cwd)
 
 _ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 # The canonical kernel sandbox base the HW campaign uses (top byte 0xff -> pointer tag 0b1111); the CE

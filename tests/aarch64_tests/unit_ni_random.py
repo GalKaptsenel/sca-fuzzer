@@ -11,6 +11,8 @@ the random generator+pipeline actually exercises them together. Driven through t
 Sealer/SealedTestCase pipeline (src/aarch64/seal/sealer.py).
 """
 import os
+import shutil
+import copy
 import sys
 import random
 import tempfile
@@ -28,6 +30,7 @@ from src.aarch64.aarch64_relocations import (
 from src.aarch64.seal.pac import _AUTH_TO_PAC, _read_reg
 from src import factory
 from src.util import FuzzLogger
+from tests.conf_isolation import setUpModule, tearDownModule  # noqa: F401  (restores CONF + cwd)
 
 
 def _slot_words(ex, variant_bytes, sealing):
@@ -55,29 +58,30 @@ def _mte_delta(words):
     return 0 if words[0] == NOP_WORD else get_addg_tag(words[0])   # ADDG Xd,Xd,#0,#<delta>, or NOP
 
 
+_PROGRAM_SEED = 0x5EA1
+_INPUT_SEED = 0xC0DE
+
+
 class NiRandomCoverageTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         if not os.path.exists("/dev/executor"):
             raise unittest.SkipTest("kernel module not loaded — /dev/executor missing")
-        try:
-            from src.aarch64.aarch64_kernel import PacKeys
-            CONF.load(os.path.join(_ROOT, "config_pac_mte.yml"))
-            cls._saved_strip_prob = CONF.pac_strip_prob
-            CONF.pac_strip_prob = 0.1   # exercise the spec-strip corner case (0.0 by default)
-            from src.aarch64.aarch64_executor import Aarch64NonInterferenceExecutor
-            isa = InstructionSet(os.path.join(_ROOT, "base.json"), CONF.instruction_categories)
-            cls.gen = Aarch64RandomGenerator(isa, random.randrange(1 << 32))
-            cls.ex = Aarch64NonInterferenceExecutor(cls.gen)
-            cls.igen = factory.get_input_generator(random.randrange(1 << 32))
-            cls.tmp = tempfile.mkdtemp()
-        except Exception as e:
-            raise unittest.SkipTest(f"NI executor setup failed: {e}")
+        from src.aarch64.aarch64_executor import Aarch64NonInterferenceExecutor
+        cls._saved_conf = copy.deepcopy(CONF._borg_shared_state)
+        CONF.load(os.path.join(_ROOT, "config_pac_mte.yml"))
+        CONF.pac_strip_prob = 0.1   # exercise the spec-strip corner case (0.0 by default)
+        isa = InstructionSet(os.path.join(_ROOT, "base.json"), CONF.instruction_categories)
+        cls.gen = Aarch64RandomGenerator(isa, _PROGRAM_SEED)
+        cls.ex = Aarch64NonInterferenceExecutor(cls.gen)
+        cls.igen = factory.get_input_generator(_INPUT_SEED)
+        cls.tmp = tempfile.mkdtemp()
 
     @classmethod
     def tearDownClass(cls):
-        if hasattr(cls, "_saved_strip_prob"):
-            CONF.pac_strip_prob = cls._saved_strip_prob
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+        CONF._borg_shared_state.clear()
+        CONF._borg_shared_state.update(cls._saved_conf)
 
     def _assert_oracle_matches_genuine(self, baseline, inp, pac, mte, by_sealing):
         """Independent oracle: classify each slot from the GENUINE trace (the resolver's flag comes
@@ -114,7 +118,8 @@ class NiRandomCoverageTest(unittest.TestCase):
             inst = s.committed_inst
             ptr = _read_reg(ent.cpu, inst.operands[0].value)
             ctx = _read_reg(ent.cpu, inst.operands[1].value) if len(inst.operands) > 1 else 0
-            self.assertEqual(ex._sealed._signer.sign(ptr, ctx, _AUTH_TO_PAC[inst.name.lower()]), r.value,
+            self.assertEqual(ex._sealed._signer.sign(ptr, ctx, _AUTH_TO_PAC[inst.name.lower()], inp.pac_keys),
+                             r.value,
                              f"genuine {inst.name} {inst.operands[0].value}: re-sign over genuine "
                              f"state != resolved sig (would FPAC)")
 
@@ -126,10 +131,7 @@ class NiRandomCoverageTest(unittest.TestCase):
         for _ in range(8 * 6):
             if tcs >= 8:
                 break
-            try:
-                tc = gen.create_test_case(os.path.join(self.tmp, "t.asm"), disable_assembler=True)
-            except Exception:
-                continue
+            tc = gen.create_test_case(os.path.join(self.tmp, "t.asm"), disable_assembler=True)
             ex.load_test_case(tc)
             sandbox = getattr(ex._sealed, "_sandbox", [])
             pac = getattr(ex._sealed, "_pac", [])
