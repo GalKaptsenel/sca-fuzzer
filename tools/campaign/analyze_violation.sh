@@ -12,6 +12,7 @@
 # Usage: analyze_violation.sh <campaign_dir>
 set -u
 D="${1:?campaign dir required}"
+D="$(cd "$D" 2>/dev/null && pwd)" || { echo "bad campaign dir"; exit 2; }
 R="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"   # repo root (tools/campaign/..)
 CFG="$D/config.yml"; PIDFILE="$D/pid"; RUN="$D/run.sh"; LOG="$D/fuzz.log"; LOCK="$D/device.lock"
 

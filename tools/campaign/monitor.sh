@@ -7,6 +7,7 @@
 # Verdicts: OK | RESTARTED:<reason> | STUCK_RESTARTED:<reason> | RESTART_FAILED:<reason> | NEW_VIOLATIONS:<n>
 set -u
 D="${1:?campaign dir required}"
+D="$(cd "$D" 2>/dev/null && pwd)" || { echo "bad campaign dir"; exit 2; }
 PIDFILE="$D/pid"; STATE="$D/monitor_state"; LOG="$D/fuzz.log"; RUN="$D/run.sh"; LOCK="$D/device.lock"
 CFG="$D/config.yml"
 
