@@ -32,7 +32,6 @@ from src import factory
 isa = InstructionSet("base.json", CONF.instruction_categories)
 gen = Aarch64RandomGenerator(isa, random.randrange(1 << 32))
 ex = Aarch64NonInterferenceExecutor(gen)
-PAC_KEYS = ex._pac_keys   # the executor's campaign keys — the seal signs under these
 igen = factory.get_input_generator(random.randrange(1 << 32))
 os.makedirs("/tmp/_verify_seal", exist_ok=True)
 
@@ -89,6 +88,7 @@ for case in range(NCASES):
     if tc is None:
         print(f"[{KIND}] no sealable test case for this config"); break
     inp = igen.generate(1)[0]
+    pac_keys = PacKeys(*inp.pac_keys)   # the input's own keys — the seal signs under these
     resolved = ex._resolve(inp)
     entries = {id(e.sealing): e for e in resolved._entries}
 
@@ -102,10 +102,10 @@ for case in range(NCASES):
                 continue
             ptr, ctx, _ = rc
             auth_mn = s.committed_inst.name.lower()
-            signed = LE.pac_sign(ptr, ctx, _AUTH_TO_PAC[auth_mn], PAC_KEYS)
+            signed = LE.pac_sign(ptr, ctx, _AUTH_TO_PAC[auth_mn], pac_keys)
             pac_tot += 1
             pac_ok += (((signed >> 48) & 0xFFFF) == e.value) and \
-                (LE.pac_auth(signed, ctx, auth_mn, PAC_KEYS) == ptr)
+                (LE.pac_auth(signed, ctx, auth_mn, pac_keys) == ptr)
 
         # ---- speculative NI-options distribution over many decoy variants ----
         for s in ex._sealed._pac:

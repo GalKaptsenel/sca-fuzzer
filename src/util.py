@@ -19,6 +19,12 @@ from collections import Counter
 from .interfaces import Violation, SANDBOX_CODE_SIZE, Model, HTrace
 from .config import CONF
 
+
+def stable_rng(*parts) -> random.Random:
+    """An RNG seeded from `parts` identically in every process (unlike hash(), which randomizes str and
+    bytes per process); parts must have a deterministic repr (ints, str, None, bool, tuples)."""
+    return random.Random(xxhash.xxh64(repr(parts).encode()).intdigest())
+
 MASK_64BIT = pow(2, 64)
 POW2_64 = pow(2, 64)
 

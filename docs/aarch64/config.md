@@ -157,12 +157,37 @@ Name: va_size
 Default: None
 ```
 
-Effective kernel (TTBR1) VA size in bits — the single source of truth for both PAC and
-canonicality (the PAC/canonicality field lives at bits `[54:va_size]`). `None` (default) means it is
-read from the executing device (`TCR_EL1.T1SZ`, exposed at `/sys/executor/system/va_bits`), which is
-correct for local and remote runs alike. Set it explicitly only when the generating machine cannot
-read the executing target (its value then wins). A mismatched `va_size` makes the PAC auth/strip
-overwrite real address bits and corrupt the sandbox pointer, so leaving it unset is preferred.
+Kernel (TTBR1) VA size in bits, `64 - TCR_EL1.T1SZ`: the PAC/canonicality field is `[54:va_size]`.
+`None` means it is decoded from the device's `TCR_EL1` (`/sys/executor/system/tcr_el1`). In a PAC
+campaign it is part of the PAC profile below.
+
+```yaml
+Name: va_size0, pac_qarma_version, pac_generic_qarma_version, pac_auth_level, pac_constpacfield,
+      pac_tbi0, pac_tbi1, pac_tbid0, pac_tbid1, pac_mtx0, pac_mtx1
+Default: None
+```
+
+The PAC profile: every input of the ARM `AddPAC`/`Strip`/`Auth`/`ComputePAC` pseudocode at EL1 —
+`va_size0` = 64 − `TCR_EL1.T0SZ`; the address-auth algorithm (`pac_qarma_version`: 5 = APA, 3 = APA3);
+the generic (PACGA) algorithm (`pac_generic_qarma_version`: 5 = GPA, 3 = GPA3, 0 = none/IMPDEF); the
+APA/APA3 level (`pac_auth_level`: 1 PAuth, 2 EPAC, 3 PAuth2, 4 FPAC, 5 FPACCOMBINE);
+FEAT_CONSTPACFIELD; `TCR_EL1.TBI0/1`, `TBID0/1`, `MTX0/1`.
+
+All unset (default): decoded from the device's raw `TCR_EL1`, `ID_AA64ISAR1_EL1`, `ID_AA64ISAR2_EL1`
+(`/sys/executor/system/`, read on every CPU; a mismatch across CPUs fails the read). If any is set,
+all of them and `va_size` must be set, and the device is not consulted (remote fuzzing). The run
+refuses to start on what the model does not cover: an IMPDEF address-auth algorithm, `MTX0/1` set
+(FEAT_MTE4), or a TxSZ outside [16, 39] (LVA / TTST clamping). A PACGA without a modeled generic
+algorithm aborts the contract executor.
+
+```yaml
+Name: pac_keys_per_input
+Default: True
+```
+
+PAC keys are part of each input and the kernel, the contract executor and the sealer all run an input
+under its own keys. `True`: every input draws its own key set from its seed. `False`: all inputs of
+the campaign share one key set, drawn from `input_gen_seed`.
 
 ## PTE (page-table entry) fuzzing
 
@@ -212,14 +237,14 @@ Default: []
 Level 0-2 table-descriptor fields a decoy may vary (e.g. `ap_table`, `xn_table`, `pxn_table`,
 `ns_table`). Empty by default (leaf-only fuzzing).
 
-## Cross-input priming (regular fuzzing)
+## Cross-input priming (regular and non-interference fuzzing)
 
 Generalize standard priming. Standard priming keeps a flagged violation only when the divergence follows
 the *detecting pair*'s own input; **cross-input priming** additionally localizes an *earlier* ct-equal
 input — the *leaking pair* — whose microarchitectural residue (e.g. a BTB entry it trains) surfaces as
 the detecting pair's cache divergence. See §6.1a of the architecture reference for the localization. It
-replaces standard priming in regular fuzzing over the boosted input lanes (each boosting round of an
-input class is a lane of ct-equal inputs), reusing the sample sizes standard priming already uses — the
+replaces standard priming over the boosted input lanes (regular fuzzing: each boosting round of an input
+class is a lane of ct-equal inputs; non-interference: each seal variant is a lane), reusing the sample sizes standard priming already uses — the
 current stage size for localization, `executor_sample_sizes[-1]` to re-verify — so it adds no rep knobs.
 Requires a local HW executor with sysfs regime control and `inputs_per_class` ≥ 2.
 
@@ -228,11 +253,12 @@ Name: enable_cross_input_priming
 Default: false
 ```
 
-Replace standard priming with the generalized-priming localization in regular fuzzing. Wherever priming
+Replace standard priming with the generalized-priming localization. Wherever priming
 would run, the flagged violation's own detecting pair is localized by toggling earlier positions across
 the two diverging lanes; a found leaking pair (self- or cross-input) confirms the violation and reports
 the `[leaker..detector]` chain, none means a false positive — exactly as priming. `False` by default
-(standard priming, unchanged).
+(standard priming, unchanged). Every localized candidate logs its outcome at INFO (self-dependent or
+cross-input leak, or no leaking pair).
 
 ```yaml
 Name: cross_input_priming_localizer

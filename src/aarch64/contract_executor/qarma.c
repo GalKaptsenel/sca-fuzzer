@@ -1,5 +1,8 @@
 #include "qarma.h"
 
+#include <stdio.h>
+#include <stdlib.h>
+
 /* Bit helpers (QEMU semantics). */
 static inline uint64_t ext64(uint64_t v, int s, int l) { return (v >> s) & (((uint64_t)1 << l) - 1); }
 static inline int64_t sext64(uint64_t v, int s, int l)
@@ -98,8 +101,12 @@ uint64_t qarma_computepac(uint64_t data, uint64_t modifier,
                           uint64_t key_lo, uint64_t key_hi, int iterations)
 {
     uint64_t key0 = key_hi, key1 = key_lo;
-    const uint8_t *S  = (iterations == 2) ? SUB3 : SUB5;
-    const uint8_t *IS = (iterations == 2) ? SUB3 : ISUB5;
+    if (2 != iterations && 4 != iterations) {
+        fprintf(stderr, "[CE FATAL] QARMA iterations %d (expected 2 = QARMA3 or 4 = QARMA5)\n", iterations);
+        abort();
+    }
+    const uint8_t *S  = (2 == iterations) ? SUB3 : SUB5;
+    const uint8_t *IS = (2 == iterations) ? SUB3 : ISUB5;
     uint64_t modk0 = (key0 << 63) | ((key0 >> 1) ^ (key0 >> 63));
     uint64_t rmod = modifier, w = data ^ key0;
 
@@ -131,48 +138,88 @@ uint64_t qarma_computepac(uint64_t data, uint64_t modifier,
     return w ^ modk0;
 }
 
-/* Effective TBI of the pointer's VA half (bit 55 selects TTBR0/low vs TTBR1/high). For an instruction
- * key, TBI is disabled when the half's TBID is set: effective = TBI AND NOT TBID. */
-static int profile_tbi(uint64_t ptr, struct pac_profile p, int is_instr)
+static bool pauth2(struct pac_profile p)
 {
-    int high = (ptr >> 55) & 1;
+    return p.level >= 3;
+}
+
+static bool epac(struct pac_profile p)
+{
+    return 2 == p.level;
+}
+
+static int bit(uint64_t v, int b)
+{
+    return (int)((v >> b) & 1);
+}
+
+/* EffectiveTBI (EL1): the TBI/TBID of the half ptr<55> selects; TBID disables TBI for instr keys. */
+static int effective_tbi(uint64_t ptr, struct pac_profile p, int is_instr)
+{
+    int high = bit(ptr, 55);
     int tbi = high ? p.tbi1 : p.tbi0;
     int tbid = high ? p.tbid1 : p.tbid0;
-    return tbi & ((is_instr && tbid) ? 0 : 1);
+    return (tbi && !(is_instr && tbid)) ? 1 : 0;
+}
+
+/* CalculateBottomPACBit: 64 - TxSZ of the half `half` selects (TTBR1 if 1). */
+static int bottom_pac_bit(int half, struct pac_profile p)
+{
+    return 64 - (half ? p.t1sz : p.t0sz);
+}
+
+/* AddPAC's selbit (EL1, two VA ranges): ptr<55> if any half has TBI for this key kind, else ptr<63>;
+ * always ptr<55> with FEAT_PAuth2 + FEAT_CONSTPACFIELD. */
+static int selbit_of(uint64_t ptr, struct pac_profile p, int is_instr)
+{
+    int any_tbi;
+    if (pauth2(p) && p.constpacfield) {
+        return bit(ptr, 55);
+    }
+    if (is_instr) {
+        any_tbi = (p.tbi1 && !p.tbid1) || (p.tbi0 && !p.tbid0);
+    } else {
+        any_tbi = p.tbi1 || p.tbi0;
+    }
+    return any_tbi ? bit(ptr, 55) : bit(ptr, 63);
 }
 
 uint64_t qarma_addpac(uint64_t ptr, uint64_t modifier,
                       uint64_t key_lo, uint64_t key_hi, struct pac_profile p, int is_instr)
 {
-    int tbi = profile_tbi(ptr, p, is_instr);
-    int64_t ext = tbi ? sext64(ptr, 55, 1) : sext64(ptr, 63, 1);
-    int top_bit = 64 - (tbi ? 8 : 0);
-    int bot_bit = 64 - p.tsz;
-    uint64_t ext_ptr = dep64(ptr, bot_bit, top_bit - bot_bit, (uint64_t)ext);
+    int tbi = effective_tbi(ptr, p, is_instr);
+    int top_bit = tbi ? 55 : 63;
+    int selbit = selbit_of(ptr, p, is_instr);
+    int bottom = bottom_pac_bit(selbit, p);
+    uint64_t ext = selbit ? ~0ull : 0ull;
+    uint64_t low = ptr & bmask(0, bottom);
+    uint64_t ext_ptr = tbi ? ((ptr & bmask(56, 8)) | (ext & bmask(bottom, 56 - bottom)) | low)
+                           : ((ext & bmask(bottom, 64 - bottom)) | low);
     uint64_t pac = qarma_computepac(ext_ptr, modifier, key_lo, key_hi, p.iterations);
+    uint64_t field = bmask(bottom, 55 - bottom);
+    uint64_t unused = field | (tbi ? bmask(56, 8) : 0);   /* spec unusedbits_mask */
 
-    int64_t test = sext64(ptr, bot_bit, top_bit - bot_bit);
-    if (test != 0 && test != -1 && !p.pauth2) {
-        pac ^= bmask(top_bit - 2, 1);
+    if (0 != (ptr & unused) && unused != (ptr & unused)) {
+        if (epac(p)) {
+            pac = 0;
+        } else if (!pauth2(p)) {
+            pac ^= bmask(top_bit - 1, 1);
+        }
     }
-    if (p.pauth2) {
+    if (pauth2(p)) {
         pac ^= ptr;
     }
     if (tbi) {
-        ptr &= ~bmask(bot_bit, 55 - bot_bit + 1);
-        pac &= bmask(bot_bit, 54 - bot_bit + 1);
-    } else {
-        ptr &= bmask(0, bot_bit);
-        pac &= ~(bmask(55, 1) | bmask(0, bot_bit));
+        return (ptr & bmask(56, 8)) | ((uint64_t)selbit << 55) | (pac & field) | low;
     }
-    return pac | ((uint64_t)ext & bmask(55, 1)) | ptr;
+    return (pac & bmask(56, 8)) | ((uint64_t)selbit << 55) | (pac & field) | low;
 }
 
 uint64_t qarma_strip(uint64_t ptr, struct pac_profile p, int is_instr)
 {
-    int tbi = profile_tbi(ptr, p, is_instr);
-    int bot_bit = 64 - p.tsz;
-    int top_bit = 64 - (tbi ? 8 : 0);
-    uint64_t mask = bmask(bot_bit, top_bit - bot_bit);
-    return ext64(ptr, 55, 1) ? (ptr | mask) : (ptr & ~mask);
+    int half = bit(ptr, 55);
+    int bottom = bottom_pac_bit(half, p);
+    int top = effective_tbi(ptr, p, is_instr) ? 56 : 64;
+    uint64_t mask = bmask(bottom, top - bottom);
+    return half ? (ptr | mask) : (ptr & ~mask);
 }

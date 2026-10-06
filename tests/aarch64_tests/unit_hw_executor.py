@@ -11,6 +11,7 @@ import src.aarch64.aarch64_connection as conn_mod
 import src.aarch64.aarch64_executor as emod
 from src.aarch64.aarch64_executor import Aarch64LocalExecutor
 from src.aarch64.aarch64_kernel import HWMeasurement, TraceUnit, TargetInfo
+from tests.conf_isolation import setUpModule, tearDownModule  # noqa: F401  (restores CONF + cwd)
 
 
 class _ConfRemoteSnapshot(unittest.TestCase):
@@ -215,20 +216,12 @@ class RemoteSetupTest(unittest.TestCase):
                 return "0x2000"
             if "cpu_info" in cmd:
                 return f"MIDR_EL1    : {midr}"
-            if "system/va_bits" in cmd:
-                return "48"
-            if "system/tbid0" in cmd:
-                return "0"
-            if "system/tbid1" in cmd:
-                return "1"
-            if "system/tbi0" in cmd:
-                return "1"
-            if "system/tbi1" in cmd:
-                return "1"
-            if "system/pac_qarma_version" in cmd:
-                return "3"
-            if "system/pac_pauth2" in cmd:
-                return "1"
+            if "system/tcr_el1" in cmd:
+                return "0x0010001000100010"
+            if "system/id_aa64isar1_el1" in cmd:
+                return "0x0000000000000000"
+            if "system/id_aa64isar2_el1" in cmd:
+                return "0x0000000000003100"
             return ""
         conn.shell.side_effect = shell
         return conn, cfg
@@ -271,6 +264,8 @@ class RemoteSetupTest(unittest.TestCase):
         ex = k.RemoteHWExecutor(conn, cfg)          # setup does NOT query base or cpu_info
         ti1, ti2 = ex.target_info(), ex.target_info()
         self.assertEqual((ti1.sandbox_base, ti1.code_base), (0x1000, 0x2000))
+        self.assertEqual((ti1.tcr_el1, ti1.id_aa64isar1_el1, ti1.id_aa64isar2_el1),
+                         (0x0010001000100010, 0, 0x3100))   # raw registers, parsed as hex
         self.assertIs(ti1, ti2)
         self.assertEqual(ex.cpu_midr(), 0x410fd8e0)
         self.assertEqual(ex.cpu_midr(), 0x410fd8e0)
@@ -298,8 +293,7 @@ class BackendTransparencyTest(unittest.TestCase):
         ex._current_tc_bytes = lambda: b"TC"
         ex.device = mock.create_autospec(k.HWExecutor, instance=True)
         ex.device.target_info.return_value = TargetInfo(
-            sandbox_base=0x1000, code_base=0x2000, va_bits=48, tbi0=1, tbi1=1,
-            tbid0=0, tbid1=1, qarma_version=3, pauth2=1)
+            sandbox_base=0x1000, code_base=0x2000, tcr_el1=0, id_aa64isar1_el1=0, id_aa64isar2_el1=0)
         ex.device.run_batch.return_value = [[[HWMeasurement(3, (0, 0, 0))]]]
 
         self.assertEqual(ex.read_base_addresses(), (0x1000, 0x2000))

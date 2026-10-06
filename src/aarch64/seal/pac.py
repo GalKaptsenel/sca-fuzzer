@@ -12,6 +12,11 @@ from ...config import CONF
 from ...interfaces import Instruction, InstructionSpec, RegisterOperand, ImmediateOperand
 
 
+def pac_enabled() -> bool:
+    """Whether the campaign generates PAC instructions (a PAC instruction category is selected)."""
+    return any(c.startswith("PAC") for c in CONF.instruction_categories or [])
+
+
 _PAC_INFO: Dict[str, Tuple[str, str]] = {
     # pac_mnemonic: (auth_mnemonic, xpac_mnemonic)
     'pacia':  ('autia',  'xpaci'),  'pacib':  ('autib',  'xpaci'),
@@ -85,31 +90,27 @@ def _read_reg(cpu, reg: Optional[str]) -> Optional[int]:
 
 
 class PacSigner:
-    """The kernel PAC signing capability — the only PAC code that touches the hardware keys. Pure
-    SIGN, never AUTH (a failed AUTH at EL1 resets the box). `field_mask` characterizes which bits SIGN
-    sets (the PAC field), so a forgery confined to them provably fails AUTH."""
+    """The PAC SIGN capability (never AUTH: a failed AUTH at EL1 faults), under the keys of the input
+    being resolved. `field_mask(ptr, mn)` is the exact PAC field AddPAC writes for `ptr`, so a forgery
+    confined to it provably fails AUTH."""
 
-    def __init__(self, pac_sign, keys):
-        self._pac_sign = pac_sign       # pac_sign(ptr, ctx, mnemonic, keys) -> signed 64-bit
-        self._keys = keys               # the campaign PAC keys every sign runs under
-        self._mask_cache: Dict[str, int] = {}
+    def __init__(self, pac_sign, field_mask):
+        self._pac_sign = pac_sign       # pac_sign(ptr, ctx, mnemonic, key_words) -> signed 64-bit
+        self._field_mask = field_mask   # field_mask(ptr, mnemonic) -> PAC field bits of ptr
 
-    def sign(self, ptr: int, ctx: int, mn: str) -> int:
-        return self._pac_sign(ptr, ctx, mn, self._keys)
+    def sign(self, ptr: int, ctx: int, mn: str, keys: Tuple[int, ...]) -> int:
+        return self._pac_sign(ptr, ctx, mn, keys)
 
-    def field_mask(self, mn: str, samples: int = 64) -> int:
-        m = self._mask_cache.get(mn)
-        if m is None:
-            mask = 0
-            for _ in range(samples):
-                v = random.randrange(1 << 48)
-                mask |= self._pac_sign(v, random.randrange(1 << 64), mn, self._keys) ^ v
-            # The PAC field is bits [54:VA], plus the top byte when TBI is off; bit 55 (the sign) is
-            # never part of it.
-            assert mask and not (mask & (1 << 55)), f"implausible PAC-field mask 0x{mask:016x}"
-            m = mask
-            self._mask_cache[mn] = m
-        return m
+    def field_mask(self, ptr: int, mn: str) -> int:
+        return self._field_mask(ptr, mn)
+
+    def field_span(self) -> int:
+        """Union of the PAC fields of both VA halves under every key: the bits a signature can touch."""
+        span = 0
+        for mn in _PAC_INFO:
+            for ptr in (0, 1 << 55):
+                span |= self._field_mask(ptr, mn)
+        return span
 
 
 class AuthInstructionSpec(InstructionSpec):

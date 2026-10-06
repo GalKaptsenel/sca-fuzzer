@@ -21,13 +21,14 @@ from src.isa_loader import InstructionSet
 from src.aarch64.aarch64_generator import Aarch64RandomGenerator, Aarch64Generator
 from src.aarch64.seal.primitives import index_instructions
 from src.aarch64.seal.sealer import make_sealer, _encode
+from tests.conf_isolation import setUpModule, tearDownModule  # noqa: F401  (restores CONF + cwd)
 
 
 class _MaskSigner:
     """Minimal signer for ordering/encoding tests (never signs): supplies a PAC field mask that reaches
     below bit 48, so the emitter produces the multi-MOVK slot this test then orders and encodes."""
 
-    def field_mask(self, mn):
+    def field_span(self):
         return (0x7F << 48) | (0xFF << 40)
 
 

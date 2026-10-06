@@ -221,17 +221,27 @@ supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "l
 #   AUT* against the decoy signature does.
 pac_seal_prob: float = 1.0
 pac_strip_prob: float = 0.0
+# PAC keys are part of each input: True -> every input draws its own key set (seeded by the input);
+# False -> all inputs of the campaign share one key set (seeded by input_gen_seed).
+pac_keys_per_input: bool = True
 
-# Effective kernel (TTBR1) VA size: the single source of truth for PAC and canonicality. None ->
-# taken from the executing device (TCR_EL1.T1SZ).
+# Kernel (TTBR1) VA size, 64 - TCR_EL1.T1SZ, for PAC and canonicality. None -> from the device.
 va_size: Optional[int] = None
 
-pac_qarma_version: Optional[int] = None
+# PAC profile: the TCR_EL1 / ID_AA64ISAR1/2_EL1 state the ARM AddPAC/Strip/Auth pseudocode reads.
+# All None -> decoded from the device; if any is set, all (and va_size) must be, and the device is not
+# consulted (remote fuzzing).
+va_size0: Optional[int] = None                    # 64 - TCR_EL1.T0SZ
+pac_qarma_version: Optional[int] = None           # address auth: 5 (APA) or 3 (APA3)
+pac_generic_qarma_version: Optional[int] = None   # PACGA: 5 (GPA), 3 (GPA3), 0 (none / IMPDEF)
+pac_auth_level: Optional[int] = None              # APA/APA3 value: 1 PAuth .. 3 PAuth2 .. 5 FPACCOMBINE
+pac_constpacfield: Optional[bool] = None          # ID_AA64ISAR2_EL1.PAC_frac == 1
 pac_tbi0: Optional[bool] = None
 pac_tbi1: Optional[bool] = None
 pac_tbid0: Optional[bool] = None
 pac_tbid1: Optional[bool] = None
-pac_pauth2: Optional[bool] = None
+pac_mtx0: Optional[bool] = None
+pac_mtx1: Optional[bool] = None
 
 enable_canonicality: bool = False
 canonicality_seal_prob: float = 1.0
@@ -268,7 +278,7 @@ pte_fuzz_fields_per_decoy: int = 1
 # re-verify). Requires a local HW executor with sysfs regime control (the search forces view_rotation=0
 # and unpinned execution); off by default (standard priming). Set False for remote executors.
 enable_cross_input_priming: bool = False
-""" enable_cross_input_priming: in REGULAR fuzzing, replace the standard priming false-positive filter
+""" enable_cross_input_priming: in regular and non-interference fuzzing, replace the standard priming filter
     with the generalized-priming localization over boosted lanes. Wherever priming would run, the flagged
     violation's own detecting pair is localized by toggling earlier positions across the two diverging
     lanes; a found leaking pair (self- or cross-input) confirms the violation and reports the

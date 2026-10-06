@@ -278,6 +278,9 @@ class Input(np.ndarray):
         Input.size = n_actors * InputFragment.size
     """
     seed: int = 0
+    # AArch64 PAC keys this input runs under (10 words: apia, apib, apda, apdb, apga as {lo, hi});
+    # None when the campaign has no PAC.
+    pac_keys: Optional[Tuple[int, ...]] = None
     data_size: int = (MAIN_AREA_SIZE + FAULTY_AREA_SIZE + REG_INIT_AREA_SIZE) // 8
 
     def __init__(self, n_actors: int = 1) -> None:
@@ -293,11 +296,16 @@ class Input(np.ndarray):
             return
         if hasattr(obj, 'seed'):
             self.seed = obj.seed
+        if hasattr(obj, 'pac_keys'):
+            self.pac_keys = obj.pac_keys
 
     def __hash__(self) -> int:  # type: ignore
-        # hash of input is hash of input data, registers and memory
-        h = hash(self.tobytes())
-        return h
+        # hash of input is hash of input data, registers and memory, and the keys it runs under
+        return hash((self.tobytes(), self.pac_keys))
+
+    def identity(self) -> Tuple[bytes, Optional[Tuple[int, ...]]]:
+        """Everything that defines the input's execution: its bytes and its PAC keys."""
+        return self.tobytes(), self.pac_keys
 
     def get_simd128_registers(self, actor_id: int):
         vals = []

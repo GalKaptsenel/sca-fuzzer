@@ -17,8 +17,8 @@ static int g_fail = 0;
 /* Fixed test key (APIA). */
 static const uint64_t KLO = 0x0123456789abcdefull, KHI = 0xfedcba9876543210ull;
 static const uint64_t CTX = 0x1122334455667788ull;
-static const struct pac_profile QARMA5 = { .iterations = 4, .tsz = 25, .tbi0 = 1, .tbi1 = 0, .pauth2 = 1 };
-static const struct pac_profile QARMA3 = { .iterations = 2, .tsz = 16, .tbi0 = 1, .tbi1 = 1, .pauth2 = 1 };
+static const struct pac_profile QARMA5 = { .iterations = 4, .t0sz = 25, .t1sz = 25, .tbi0 = 1, .tbi1 = 0, .level = 3, .generic_iterations = 4 };
+static const struct pac_profile QARMA3 = { .iterations = 2, .t0sz = 16, .t1sz = 16, .tbi0 = 1, .tbi1 = 1, .level = 3, .generic_iterations = 2 };
 
 /* pacia outputs measured on real hardware (VA=39). HW selects TBI per pointer by bit 55: a low-half
  * (user) pointer uses TBI on (tbi0=1), a high-half (kernel) pointer uses TBI off (tbi1=0). The one
@@ -36,7 +36,7 @@ static void test_qarma5_matches_hardware(void)
         CHECK(g == vec[i].want, "ptr %016llx got %016llx want %016llx",
               (unsigned long long)vec[i].ptr, (unsigned long long)g, (unsigned long long)vec[i].want);
     }
-    struct pac_profile bad = { .iterations = 4, .tsz = 25, .tbi0 = 1, .tbi1 = 1, .pauth2 = 1 };
+    struct pac_profile bad = { .iterations = 4, .t0sz = 25, .t1sz = 25, .tbi0 = 1, .tbi1 = 1, .level = 3, .generic_iterations = 4 };
     CHECK(qarma_addpac(0xffffffc012345000ull, CTX, KLO, KHI, bad, 0) != 0xb1e67d4012345000ull,
           "TBI1 on unexpectedly matched the kernel vector");
 }
@@ -74,9 +74,21 @@ static void test_qarma3_differs_from_qarma5(void)
           "QARMA3 == QARMA5");
 }
 
+/* PACIZB measured on N3 (QARMA3, VA 48, TBI0=TBI1=1, TBID0=0, TBID1=1, PAuth2) on a non-canonical
+ * high-half pointer (bit63 != bit55): selbit = ptr<55> because the low half has TBI for instr keys. */
+static void test_noncanonical_selbit_matches_hardware(void)
+{
+    const struct pac_profile n3 = { .iterations = 2, .t0sz = 16, .t1sz = 16, .tbi0 = 1, .tbi1 = 1,
+                                    .tbid0 = 0, .tbid1 = 1, .level = 3, .generic_iterations = 2 };
+    uint64_t g = qarma_addpac(0x0ae500000ae50000ull, 0, 0x4de594c526f0f1ccull, 0xd94d88c0873cc2b6ull,
+                              n3, 1);
+    CHECK(0xe4bf00000ae50000ull == g, "pacizb got %016llx want e4bf00000ae50000", (unsigned long long)g);
+}
+
 int main(void)
 {
     test_qarma5_matches_hardware();
+    test_noncanonical_selbit_matches_hardware();
     test_sign_then_strip_roundtrips();
     test_context_and_key_sensitivity();
     test_qarma3_differs_from_qarma5();

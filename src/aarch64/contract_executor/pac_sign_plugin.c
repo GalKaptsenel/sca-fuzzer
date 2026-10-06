@@ -118,7 +118,9 @@ static const char *auth_mnemonic(auth_type_t atype)
         case AUTH_IZB: return "autizb";
         case AUTH_DZA: return "autdza";
         case AUTH_DZB: return "autdzb";
-        default:       return NULL;
+        default:
+            fprintf(stderr, "[CE FATAL] no mnemonic for auth type %d -- aborting\n", (int)atype);
+            abort();
     }
 }
 
@@ -134,7 +136,7 @@ void pac_keys_init(const uint64_t* keys, bool present)
     }
 }
 
-void pac_sign_plugin_init(void) { pac_profile_set(2, 16, 1, 1, true, 0, 1); }   /* QARMA3, VA 48 */
+void pac_sign_plugin_init(void) {}
 void pac_sign_plugin_cleanup(void) {}
 
 static int pac_type_is_instr(pac_type_t t)
@@ -146,21 +148,36 @@ static int auth_type_is_instr(auth_type_t a)
     return a == AUTH_IA || a == AUTH_IB || a == AUTH_IZA || a == AUTH_IZB;
 }
 
-/* The runner's PAC profile, established by pac_profile_set (pac_sign_plugin_init sets the default).
- *   QARMA3: iterations = 2, VA 48 -> tsz = 16.
- *   QARMA5: iterations = 4, VA 39 -> tsz = 25.
- - tbi0/tbi1 = top-byte-ignore (low/high VA half); pauth2 = FEAT_PAuth2 (APA/APA3 >= 3). */
+/* The runner's PAC profile for the current input (see pac_profile_init). */
 static struct pac_profile g_pac_profile;
+static bool g_pac_profile_present = false;
 
-void pac_profile_set(int iterations, int tsz, int tbi0, int tbi1, bool pauth2, int tbid0, int tbid1)
+void pac_profile_init(uint64_t word, bool present)
 {
-    g_pac_profile.iterations = iterations;
-    g_pac_profile.tsz = tsz;
-    g_pac_profile.tbi0 = tbi0;
-    g_pac_profile.tbi1 = tbi1;
-    g_pac_profile.pauth2 = pauth2;
-    g_pac_profile.tbid0 = tbid0;
-    g_pac_profile.tbid1 = tbid1;
+    g_pac_profile_present = present;
+    if (!present) {
+        return;
+    }
+    g_pac_profile.iterations         = (int)(word & 0xff);
+    g_pac_profile.t1sz               = (int)((word >> 8) & 0xff);
+    g_pac_profile.tbi0               = (int)((word >> 16) & 1);
+    g_pac_profile.tbi1               = (int)((word >> 17) & 1);
+    g_pac_profile.tbid0              = (int)((word >> 18) & 1);
+    g_pac_profile.tbid1              = (int)((word >> 19) & 1);
+    g_pac_profile.level              = (int)((word >> 20) & 0xf);
+    g_pac_profile.constpacfield      = 0 != ((word >> 26) & 1);
+    g_pac_profile.t0sz               = (int)((word >> 32) & 0xff);
+    g_pac_profile.generic_iterations = (int)((word >> 40) & 0xff);
+}
+
+/* A PAC instruction needs the profile (and, unless it only strips, the keys) the input carries. */
+static void require_pac_state(const char *what, bool needs_keys, uintptr_t pc)
+{
+    if (!g_pac_profile_present || (needs_keys && !g_pac_keys_present)) {
+        fprintf(stderr, "[CE FATAL] %s at pc=%#lx without a PAC %s in the input -- aborting\n",
+                what, (unsigned long)pc, g_pac_profile_present ? "key set" : "profile");
+        abort();
+    }
 }
 
 static void key_for(pac_type_t ptype, uint64_t* lo, uint64_t* hi)
@@ -170,7 +187,9 @@ static void key_for(pac_type_t ptype, uint64_t* lo, uint64_t* hi)
         case PAC_IB: case PAC_IZB: *lo = g_pac_keys.apib_lo; *hi = g_pac_keys.apib_hi; break;
         case PAC_DA: case PAC_DZA: *lo = g_pac_keys.apda_lo; *hi = g_pac_keys.apda_hi; break;
         case PAC_DB: case PAC_DZB: *lo = g_pac_keys.apdb_lo; *hi = g_pac_keys.apdb_hi; break;
-        default:                   *lo = 0; *hi = 0; break;
+        default:
+            fprintf(stderr, "[CE FATAL] no PAC key for pac type %d -- aborting\n", (int)ptype);
+            abort();
     }
 }
 
@@ -186,11 +205,16 @@ static uint64_t sw_pac_sign(pac_type_t ptype, uint64_t ptr, uint64_t ctx)
     return qarma_addpac(ptr, ctx, lo, hi, g_pac_profile, pac_type_is_instr(ptype));
 }
 
-/* PACGA writes a 32-bit generic MAC into bits [63:32] of the destination. */
-static uint64_t sw_pac_ga(uint64_t xn, uint64_t xm)
+/* PACGA writes a 32-bit generic MAC into bits [63:32] of the destination, under the generic algorithm. */
+static uint64_t sw_pac_ga(uint64_t xn, uint64_t xm, uintptr_t pc)
 {
+    if (0 == g_pac_profile.generic_iterations) {
+        fprintf(stderr, "[CE FATAL] pacga at pc=%#lx: no modeled generic-auth algorithm -- aborting\n",
+                (unsigned long)pc);
+        abort();
+    }
     return qarma_computepac(xn, xm, g_pac_keys.apga_lo, g_pac_keys.apga_hi,
-                            g_pac_profile.iterations) & 0xFFFFFFFF00000000ull;
+                            g_pac_profile.generic_iterations) & 0xFFFFFFFF00000000ull;
 }
 
 /* The PAC sign op corresponding to an auth op (same key/key-letter; parallel enums). */
@@ -257,13 +281,15 @@ void *pac_sign_hook(struct simulation_state *sim_state)
         uint32_t rm = (inst >> 16) & 0x1F;
         uint64_t xn = read_xreg(&sim_state->cpu_state, rn);
         uint64_t xm = read_xreg(&sim_state->cpu_state, rm);
-        write_xreg(&sim_state->cpu_state, rd, sw_pac_ga(xn, xm));
+        require_pac_state("pacga", true, sim_state->cpu_state.pc);
+        write_xreg(&sim_state->cpu_state, rd, sw_pac_ga(xn, xm, sim_state->cpu_state.pc));
         return (void*)(sim_state->cpu_state.pc + 4);
     }
 
     uint32_t rd, rn;
     pac_type_t ptype = classify_pac(inst, &rd, &rn);
     if (ptype == PAC_NONE) { return NULL; }
+    require_pac_state("pac*", true, sim_state->cpu_state.pc);
 
     uint64_t ptr = read_xreg(&sim_state->cpu_state, rd);
     uint64_t ctx = read_xreg(&sim_state->cpu_state, rn);
@@ -282,6 +308,7 @@ void *auth_verify_hook(struct simulation_state *sim_state)
     uint32_t rd, rn;
     auth_type_t atype = classify_auth(inst, &rd, &rn);
     if (atype == AUTH_NONE) { return NULL; }
+    require_pac_state(auth_mnemonic(atype), true, sim_state->cpu_state.pc);
 
     uint64_t ptr = read_xreg(&sim_state->cpu_state, rd);
     uint64_t ctx = read_xreg(&sim_state->cpu_state, rn);
@@ -306,6 +333,7 @@ void *xpac_hook(struct simulation_state *sim_state)
     uint32_t inst = *(uint32_t *)sim_state->cpu_state.pc;
     uint32_t masked = inst & XPAC_MASK;
     if (masked != XPACI_BASE && masked != XPACD_BASE) { return NULL; }
+    require_pac_state("xpac", false, sim_state->cpu_state.pc);
 
     uint32_t rd = inst & 0x1F;
     uint64_t ptr = read_xreg(&sim_state->cpu_state, rd);

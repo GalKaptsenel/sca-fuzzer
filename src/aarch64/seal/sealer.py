@@ -11,6 +11,7 @@ import random
 from typing import Dict, List, Optional, Set, Tuple
 
 from ...config import CONF
+from ...util import stable_rng
 from ...interfaces import (Instruction, TestCase, BasicBlock, GeneratorException,
                           RegisterOperand, ImmediateOperand)
 from .primitives import (make_nop, index_instructions, inst_at, _SANDBOX_MASK,
@@ -204,7 +205,7 @@ def _canon_mask_pool(salt: int) -> List[int]:
                 f"canonicality_mask 0x{m:016x} must be a single contiguous run within [54:{va}] "
                 f"(the guaranteed-fault range; excludes bit 55, the top byte, and the VA bits)")
         return [m]
-    rng = random.Random(hash(("canon-pool", salt)))
+    rng = stable_rng("canon-pool", salt)
     pool: List[int] = []
     for _ in range(_CANON_POOL_TRIES):
         lo = rng.randrange(va, 55)          # run start in [VA, 54]
@@ -273,7 +274,7 @@ def _branch_target_mask_pool(salt: int) -> List[int]:
                 f"branch_target_canon_mask 0x{m:016x} must be a single contiguous run within [54:{va}]")
         pool.append(m)
     else:
-        rng = random.Random(hash(("bt-canon-pool", salt)))
+        rng = stable_rng("bt-canon-pool", salt)
         for _ in range(_CANON_POOL_TRIES):
             lo = rng.randrange(va, 55)
             hi = rng.randrange(lo, 55)
@@ -342,7 +343,7 @@ class ResolvedSealingTestCase:
         self._object_code = object_code
         self._offsets = offsets
         self._salt = salt
-        genuine_rng = random.Random(hash((self.collapse_key, salt)))   # class-invariant render choices
+        genuine_rng = stable_rng(self.collapse_key, salt)   # class-invariant render choices
         self._genuine = self._solve_relocations(offsets, genuine_rng, decoy=False)
 
     @staticmethod
@@ -381,7 +382,7 @@ class ResolvedSealingTestCase:
         random decoy may pick. The "bad" lane of the cross-input priming search (cross_input.py): a truly
         non-canonical target so a predecessor either trains a predictor entry or faults, never silently
         matches the genuine lane."""
-        rng = random.Random(hash((self.collapse_key, self._salt, "forced-noncanon")))
+        rng = stable_rng(self.collapse_key, self._salt, "forced-noncanon")
         eligible = set(self._eligible())
         relocs: List[Relocation] = []
         for r in self._entries:
@@ -425,7 +426,14 @@ _FORGERY_POOL_SIZE = 6
 _FORGERY_TRIES = 64
 
 
-def _resolve_pac(s: PacSealing, cer, layout, signer: PacSigner, salt: int
+def _input_pac_keys(inp) -> Tuple[int, ...]:
+    """The PAC keys the input runs under; a PAC sealing cannot be resolved without them."""
+    if inp.pac_keys is None:
+        raise GeneratorException(f"PAC input {inp.seed} carries no PAC keys")
+    return inp.pac_keys
+
+
+def _resolve_pac(s: PacSealing, cer, layout, signer: PacSigner, keys: Tuple[int, ...], salt: int
                  ) -> Tuple[Optional[int], List[int], Optional[int]]:
     """A PacSealing's value from a trace: sign the pointer that reaches the sealing's XPAC, plus a pool
     of wrong signatures that fail AUTH. When the XPAC is never reached, the slot is still decoy-eligible
@@ -438,7 +446,6 @@ def _resolve_pac(s: PacSealing, cer, layout, signer: PacSigner, salt: int
     xpac = next(i for i in s.slot_insts if i.name.lower() in ("xpaci", "xpacd"))
     xpac_off, code_base = layout.instruction_address[xpac], cer[0].cpu.pc
     pac_mn = _AUTH_TO_PAC[s.committed_inst.name.lower()]
-    mask = signer.field_mask(pac_mn)
     value_reg = s.committed_inst.operands[0].value
     ctx_reg = s.committed_inst.operands[1].value if len(s.committed_inst.operands) > 1 else None
     for ite in cer:
@@ -451,11 +458,11 @@ def _resolve_pac(s: PacSealing, cer, layout, signer: PacSigner, salt: int
             continue
         ptr = _read_reg(ite.cpu, value_reg)
         cval = _read_reg(ite.cpu, ctx_reg) if ctx_reg is not None else 0
-        correct_sig = signer.sign(ptr, cval, pac_mn)
-        alts = _wrong_sigs(correct_sig, mask, salt)
+        correct_sig = signer.sign(ptr, cval, pac_mn, keys)
+        alts = _wrong_sigs(correct_sig, signer.field_mask(ptr, pac_mn), salt)
     if correct_sig is None:                          # unreached: forge over the shared sandbox base
         base_ptr = _read_reg(cer[0].cpu, SANDBOX_BASE_REGISTER)
-        alts = _wrong_sigs(signer.sign(base_ptr, 0, pac_mn), mask, salt)
+        alts = _wrong_sigs(signer.sign(base_ptr, 0, pac_mn, keys), signer.field_mask(base_ptr, pac_mn), salt)
     return correct_sig, alts, spec
 
 
@@ -463,7 +470,7 @@ def _wrong_sigs(correct_sig: int, mask: int, salt: int) -> List[int]:
     """A deterministic pool of wrong signatures: the correct signature with only its PAC field bits
     perturbed (so each is a genuine AUTH failure). Seeded by (correct_sig, mask, salt), so every member
     of a sealing class forges identically."""
-    rng = random.Random(hash((correct_sig, mask, salt)))
+    rng = stable_rng(correct_sig, mask, salt)
     pool: List[int] = []
     for _ in range(_FORGERY_TRIES):
         sig = (correct_sig & ~mask) | (rng.randrange(1 << 64) & mask)
@@ -628,7 +635,9 @@ class PacSealedTestCase(SealedTestCase):
 
     def resolve(self, inp) -> ResolvedSealingTestCase:
         cer = self._trace_fn(self._tc, inp)
-        pac = [_Resolved(s, *_resolve_pac(s, cer, self._layout, self._signer, self._salt)) for s in self._pac]
+        keys = _input_pac_keys(inp)
+        pac = [_Resolved(s, *_resolve_pac(s, cer, self._layout, self._signer, keys, self._salt))
+               for s in self._pac]
         entries = self._clamp_entries(self._sandbox) + pac
         object_code = self._assemble(self._tc)
         return ResolvedSealingTestCase(entries, object_code,
@@ -807,7 +816,9 @@ class MtePacSealedTestCase(SealedTestCase):
         mte_reloc = [Relocation(off, _encode(i))
                      for r in mte for off, i in zip(offsets[id(r.sealing)], r.sealing.seal(r.value, None))]
         cer_b = self._trace_bytes_fn(apply_relocations(object_code, mte_reloc), inp)
-        pac = [_Resolved(s, *_resolve_pac(s, cer_b, self._layout, self._signer, self._salt)) for s in self._pac]
+        keys = _input_pac_keys(inp)
+        pac = [_Resolved(s, *_resolve_pac(s, cer_b, self._layout, self._signer, keys, self._salt))
+               for s in self._pac]
 
         entries = self._clamp_entries(self._sandbox) + pac + mte
         return ResolvedSealingTestCase(entries, object_code, offsets, self._salt)
@@ -838,14 +849,10 @@ class _Addressing(_SandboxInstrumentationBase):
         return None
 
 
-# The PAC field position depends on the VA/TCR config, not the key, so any sign mnemonic reveals it.
-_PROBE_PAC_MN = "pacia"
-
-
-def _pac_encoder(generator, field_mask):
+def _pac_encoder(generator, field_span):
     """The PacSign slot encoder + the AUT* spec table."""
     _, auth_specs, xpac_specs = build_pac_specs(generator)
-    return PacSign(generator, auth_specs, xpac_specs, field_mask), auth_specs
+    return PacSign(generator, auth_specs, xpac_specs, field_span), auth_specs
 
 
 def _seal_auths(tc: TestCase, enc: PacSign, auth_specs, pac: List) -> None:
@@ -879,7 +886,7 @@ class Sealer:
         self._primitives = frozenset(primitives)
         self._signer = signer
         if "pac" in self._primitives:
-            self._enc, self._auth_specs = _pac_encoder(generator, signer.field_mask(_PROBE_PAC_MN))
+            self._enc, self._auth_specs = _pac_encoder(generator, signer.field_span())
         else:
             self._enc, self._auth_specs = None, None
 

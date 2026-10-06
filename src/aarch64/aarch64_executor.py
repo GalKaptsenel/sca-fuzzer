@@ -18,8 +18,8 @@ from .aarch64_generator import Aarch64Generator
 from .aarch64_printer import Aarch64Printer, Aarch64ASMLayout
 from ..interfaces import (HTrace, Input, TestCase, Executor, HardwareTracingError, CTrace,
                           InputTaint, GeneratorException, Measurement)
-from ..config import CONF
-from ..util import Logger, STAT, FuzzLogger
+from ..config import CONF, ConfigException
+from ..util import Logger, STAT, FuzzLogger, stable_rng
 from .aarch64_target_desc import Aarch64TargetDesc
 from .aarch64_kernel import (LocalHWExecutor, HWExecutor, PacKeys, TraceUnit, HWMeasurement,
                              make_hw_executor)
@@ -74,6 +74,31 @@ class NIVariant:
 # ==================================================================================================
 # Main executor class
 # ==================================================================================================
+# PacRegisters field -> the config option that pins it.
+_PAC_CONF = (("qarma_version", "pac_qarma_version"), ("generic_qarma_version", "pac_generic_qarma_version"),
+             ("auth_level", "pac_auth_level"), ("va_size0", "va_size0"), ("va_size1", "va_size"),
+             ("tbi0", "pac_tbi0"), ("tbi1", "pac_tbi1"), ("tbid0", "pac_tbid0"), ("tbid1", "pac_tbid1"),
+             ("constpacfield", "pac_constpacfield"), ("mtx0", "pac_mtx0"), ("mtx1", "pac_mtx1"))
+
+
+def _pac_registers(device: HWExecutor) -> qarma.PacRegisters:
+    """The PAC state: all from the config if any PAC option is set (then all must be), else decoded
+    from the device and recorded into the config."""
+    given = [c for _, c in _PAC_CONF if getattr(CONF, c) is not None]
+    if given:
+        missing = [c for _, c in _PAC_CONF if getattr(CONF, c) is None]
+        if missing:
+            raise ConfigException(f"PAC profile partially configured ({given}); also set {missing}")
+        return qarma.PacRegisters(**{f: getattr(CONF, c) for f, c in _PAC_CONF})
+    info = device.target_info()
+    regs = qarma.decode_registers(info.tcr_el1, info.id_aa64isar1_el1, info.id_aa64isar2_el1)
+    for f, c in _PAC_CONF:
+        setattr(CONF, c, getattr(regs, f))
+    Logger().warning("executor", "no PAC profile in the config: using the current machine's -- "
+                     + ", ".join(f"{c}={getattr(regs, f)}" for f, c in _PAC_CONF))
+    return regs
+
+
 class Aarch64Executor(Executor):
     """
     The executor for aarch64 architecture. The executor interfaces with the kernel module to collect
@@ -220,14 +245,6 @@ class Aarch64LocalExecutor(Aarch64Executor):
         if self._sign_hw is None:
             self._sign_hw = LocalHWExecutor("/dev/executor", "/sys/executor")
         return self._sign_hw
-
-    def _pac_profile(self) -> qarma.PacProfile:
-        """The target's PAC profile from CONF; every field is required for a PAC run."""
-        for name in ("pac_qarma_version", "va_size", "pac_tbi0", "pac_tbi1", "pac_pauth2"):
-            if getattr(CONF, name) is None:
-                raise GeneratorException(f"a PAC run requires CONF.{name} (the target PAC profile)")
-        return qarma.profile(CONF.pac_qarma_version, CONF.va_size, CONF.pac_tbi0, CONF.pac_tbi1,
-                             CONF.pac_pauth2, CONF.pac_tbid0, CONF.pac_tbid1)
 
     def branch_mistraining_entries(self, cer) -> List[Tuple[int, bool]]:
         """Compute the per-branch mistraining config from a CE trace, without touching the device.
@@ -465,11 +482,9 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
 
     def _run_ce_on_tc(self, tc_bytes: bytes, inp: Input, sandbox_base: int) -> Optional[List]:
         """Run CE on the machine code *tc_bytes* for *inp*; return trace entries or None on failure."""
+        assert sandbox_base == self._sandbox_base, "pre-HW CE must use the sealed sandbox base"
         try:
-            execution = self._make_ce_execution(tc_bytes, inp, sandbox_base, CONF.model_max_nesting,
-                                                 CONF.model_max_spec_window,
-                                                 ExecutionClause.COND)
-            return list(self._contract_executor.run(execution))
+            return list(self._ce_trace(tc_bytes, inp))
         except RuntimeError as exc:
             FuzzLogger.get().w(f"  [CE ERROR] {exc}")
             return None
@@ -570,41 +585,22 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                 "non-interference fuzzing needs a PAC or MTE instruction category, or "
                 "enable_canonicality / enable_branch_target_sealing / enable_pte_fuzzing, enabled")
 
-        # PAC/canon VA size and PAC TBI must match the executing machine (a wrong value makes the
-        # signature/strip mismatch the CPU's AUT* -> FPAC panic). Default them from the device; an
-        # explicit config still wins (remote fuzzing).
-        if self._primitives & {"pac", "canon", "branch_target"}:
-            info = self.device.target_info()
-            if CONF.va_size is None:
-                CONF.va_size = info.va_bits
-            if "pac" in self._primitives:
-                if CONF.pac_tbi0 is None:
-                    CONF.pac_tbi0 = bool(info.tbi0)
-                if CONF.pac_tbi1 is None:
-                    CONF.pac_tbi1 = bool(info.tbi1)
-                if CONF.pac_tbid0 is None:
-                    CONF.pac_tbid0 = bool(info.tbid0)
-                if CONF.pac_tbid1 is None:
-                    CONF.pac_tbid1 = bool(info.tbid1)
-                if CONF.pac_qarma_version is None:
-                    CONF.pac_qarma_version = info.qarma_version
-                if CONF.pac_pauth2 is None:
-                    CONF.pac_pauth2 = bool(info.pauth2)
+        # The PAC profile (and the VA size PAC/canonicality share) must match the executing machine: a
+        # wrong value makes the signature/strip mismatch the CPU's AUT* -> FPAC panic.
+        self._pac_profile_value: Optional[qarma.PacProfile] = None
+        if "pac" in self._primitives:
+            self._pac_profile_value = qarma.profile(**_pac_registers(self.device)._asdict())
+        elif self._primitives & {"canon", "branch_target"} and CONF.va_size is None:
+            CONF.va_size = 64 - ((self.device.target_info().tcr_el1 >> 16) & 0x3f)
 
-        # The campaign PAC keys, generated once by the input generator, embedded in every PAC input
-        # and passed with every sign request — the kernel keeps no key state of its own.
-        self._pac_keys: Optional[PacKeys] = self._campaign_pac_keys() if "pac" in self._primitives \
-            else None
-
-        # PAC signing in software: reproduce the target's architected QARMA (CONF profile) so the baked
-        # signatures authenticate on the device, whatever PAC algorithm it uses. The CE models auth with
-        # the same profile (passed in every CE message).
-        self._pac_profile_value = self._pac_profile() if "pac" in self._primitives else None
+        # PAC signing in software: reproduce the target's architected QARMA (the PAC profile) so the baked
+        # signatures authenticate on the device. The CE models auth with the same profile (passed in
+        # every CE message).
         signer = None
         if self._pac_profile_value is not None:
             profile = self._pac_profile_value
-            signer = PacSigner(lambda ptr, ctx, mn, keys: qarma.sign(ptr, ctx, mn, keys.words(), profile),
-                               self._pac_keys)
+            signer = PacSigner(lambda ptr, ctx, mn, keys: qarma.sign(ptr, ctx, mn, keys, profile),
+                               lambda ptr, mn: qarma.pac_field_mask(ptr, profile, qarma.is_instr_key(mn)))
 
         # The sealer owns all sealing + resolution; it traces via _seal_trace and assembles object
         # code via _assemble_tc.
@@ -616,7 +612,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         self._sealed: Optional[SealedTestCase] = None
         self._sandbox_base: Optional[int] = None
         # Memo of the pure resolve, keyed by input. Reset per test case.
-        self._resolve_cache: Dict[bytes, ResolvedSealingTestCase] = {}
+        self._resolve_cache: Dict[Tuple, ResolvedSealingTestCase] = {}
 
         # PTE (page-table) ENVIRONMENT fuzzing: a standalone axis (no code seal). When enabled, each
         # decoy variant additionally fuzzes the page-table state of the spec-only page(s); the
@@ -627,10 +623,10 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             self._page_map = default_sandbox_page_map()
             self._pte_policy = PteFuzzPolicy(CONF.pte_fuzz_leaf_fields, CONF.pte_fuzz_table_fields,
                                              CONF.pte_fuzz_fields_per_decoy)
-        self._spec_reach_cache: Dict[bytes, bool] = {}
+        self._spec_reach_cache: Dict[Tuple, bool] = {}
 
     def _resolve(self, inp: Input) -> ResolvedSealingTestCase:
-        key = inp.tobytes()
+        key = inp.identity()
         if key not in self._resolve_cache:
             self._resolve_cache[key] = self._sealed.resolve(inp)
         return self._resolve_cache[key]
@@ -643,19 +639,18 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             return None
         return [MTE_INITIAL_DEFAULT_TAG] * MTE_TAG_COUNT
 
-    def _campaign_pac_keys(self) -> PacKeys:
-        """The deterministic per-campaign PAC keys, generated once by the input generator (seeded from
-        the config), shared by every input so a sealing class's one shared signature set verifies."""
-        from .. import factory
-        return PacKeys(*factory.get_input_generator(CONF.input_gen_seed).generate_pac_keys())
-
-    def _pac_keys_words(self) -> Optional[List[int]]:
-        """The campaign PAC keys as the 10-word PAC_KEYS section (else None when PAC is inactive), so
-        every input carries the keys its baked signatures were signed under."""
+    def _pac_keys_words(self, inp: Input) -> Optional[List[int]]:
+        """The input's PAC keys as the 10-word PAC_KEYS section (None when PAC is inactive): the kernel,
+        the CE and the sealer all run an input under its own keys."""
         if "pac" not in self._primitives:
             return None
-        assert self._pac_keys is not None
-        return self._pac_keys.words()
+        if inp.pac_keys is None:
+            raise GeneratorException(f"PAC input {inp.seed} carries no PAC keys")
+        return list(inp.pac_keys)
+
+    def _input_pac_keys(self, inp: Input) -> Optional[PacKeys]:
+        words = self._pac_keys_words(inp)
+        return None if words is None else PacKeys(*words)
 
     def _ce_trace(self, tc_bytes: bytes, inp: Input) -> ContractExecutionResult:
         """One CE trace of the machine code `tc_bytes` for `inp`. Sealing always traces at max
@@ -665,7 +660,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             self._sandbox_base, _ = self.read_base_addresses()
         return self._contract_executor.run(self._make_ce_execution(
             tc_bytes, inp, self._sandbox_base, CONF.model_max_nesting, CONF.model_max_spec_window,
-            ExecutionClause.COND, mte_tags=self._mte_tags_for(inp), pac_keys=self._pac_keys,
+            ExecutionClause.COND, mte_tags=self._mte_tags_for(inp), pac_keys=self._input_pac_keys(inp),
             pac_profile=self._pac_profile_value))
 
     def _seal_trace(self, tc: TestCase, inp: Input) -> ContractExecutionResult:
@@ -751,7 +746,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         """Whether `inp` makes an ARCHITECTURAL (retiring) memory access to a spec-only page, which
         under a decoy PTE would fault and panic the pinned CPU (no EL1 handler). PTE fuzzing must
         refuse such a test case rather than risk it. Read off the genuine baseline CE trace."""
-        key = inp.tobytes()
+        key = inp.identity()
         if key not in self._spec_reach_cache:
             resolved = self._resolve(inp)
             cer = self._ce_trace(apply_relocations(resolved.object_code, resolved.genuine()), inp)
@@ -784,7 +779,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         self._require_spec_only_safe(inp)
         out = {NIVariant.BASELINE: self._pte_policy.genuine_plan()}
         for i in range(CONF.inputs_per_class - 1):
-            rng = random.Random(hash((resolved.collapse_key, self._sealed.salt, "pte-env", i)))
+            rng = stable_rng(resolved.collapse_key, self._sealed.salt, "pte-env", i)
             out[NIVariant.decoy_n(i)] = self._pte_policy.decoy_plan(self._page_map, rng)
         return out
 
@@ -794,7 +789,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         resolved = self._resolve(inp)
         tags = self._mte_tags_for(inp)
         bpu = self._bpu_entries(inp)
-        keys = self._pac_keys_words()
+        keys = self._pac_keys_words(inp)
         plans = self._variants_for(resolved)
         if os.environ.get("MTE_BUGHUNT"):
             # Offline (no-HW) MTE bug enumeration: trace every variant through the CE and drop the ones
@@ -834,7 +829,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         cross-input priming search, since the random decoy may be identity/misaligned and thus still train."""
         resolved = self._resolve(inp)
         return ExecutorInput(inp, code_reloc=resolved.forced_noncanon(),
-                             mte_tags=self._mte_tags_for(inp), pac_keys=self._pac_keys_words(),
+                             mte_tags=self._mte_tags_for(inp), pac_keys=self._pac_keys_words(inp),
                              bpu_training=self._bpu_entries(inp))
 
     def has_decoy(self, inp: Input) -> bool:
@@ -848,7 +843,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         """One boosting class: the genuine baseline plus `CONF.inputs_per_class - 1` decoys."""
         plans = {NIVariant.BASELINE: resolved.genuine()}
         for i in range(CONF.inputs_per_class - 1):
-            rng = random.Random(hash((resolved.collapse_key, self._sealed.salt, i)))
+            rng = stable_rng(resolved.collapse_key, self._sealed.salt, i)
             plans[NIVariant.decoy_n(i)] = resolved.decoy(rng)
         return plans
 
@@ -882,7 +877,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         """Extend an arch input to its baseline kernel input file — genuine relocations here; the regular
         subclass overrides to the input's sealing-class plan."""
         return ExecutorInput(inp, code_reloc=self._resolve(inp).genuine(),
-                             mte_tags=self._mte_tags_for(inp), pac_keys=self._pac_keys_words(),
+                             mte_tags=self._mte_tags_for(inp), pac_keys=self._pac_keys_words(inp),
                              bpu_training=self._bpu_entries(inp))
 
     def _current_tc_bytes(self) -> bytes:
@@ -937,7 +932,7 @@ class Aarch64RegularSealedExecutor(Aarch64NonInterferenceExecutor):
         of a class runs the identical program (caveat-4 merges fall out); genuine()'s arch slots are
         always correct (never a forged AUTH)."""
         resolved = self._resolve(inp)
-        rng = random.Random(hash((resolved.collapse_key, self._sealed.salt)))
+        rng = stable_rng(resolved.collapse_key, self._sealed.salt)
         plan = resolved.decoy(rng) if rng.random() < self._DECOY_PROB else resolved.genuine()
         return ExecutorInput(inp, code_reloc=plan, mte_tags=self._mte_tags_for(inp),
-                             pac_keys=self._pac_keys_words(), bpu_training=self._bpu_entries(inp))
+                             pac_keys=self._pac_keys_words(inp), bpu_training=self._bpu_entries(inp))

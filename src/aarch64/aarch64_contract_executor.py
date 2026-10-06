@@ -170,10 +170,12 @@ class ContractExecution:
         pac_profile_word = 0
         if self.pac_profile is not None:
             p = self.pac_profile
-            pac_profile_word = ((p.iterations & 0xff) | ((p.tsz & 0xff) << 8)
-                                | ((1 if p.tbi0 else 0) << 16) | ((1 if p.tbi1 else 0) << 17)
-                                | ((1 if p.tbid0 else 0) << 18) | ((1 if p.tbid1 else 0) << 19)
-                                | ((1 if p.pauth2 else 0) << 24))
+            # layout: pac_sign_plugin.h pac_profile_init
+            pac_profile_word = ((p.iterations & 0xff) | ((p.t1sz & 0xff) << 8)
+                                | (int(bool(p.tbi0)) << 16) | (int(bool(p.tbi1)) << 17)
+                                | (int(bool(p.tbid0)) << 18) | (int(bool(p.tbid1)) << 19)
+                                | ((p.level & 0xf) << 20) | (int(p.constpacfield) << 26)
+                                | ((p.t0sz & 0xff) << 32) | ((p.generic_iterations & 0xff) << 40))
             config_flags |= ConfigFlags.CONFIG_FLAG_PAC_PROFILE
 
         # memory = main‖faulty; the gpr register slots are the GPR section (CE reads only those).

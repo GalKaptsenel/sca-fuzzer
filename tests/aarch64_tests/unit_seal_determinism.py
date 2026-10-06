@@ -24,6 +24,7 @@ from src.aarch64.aarch64_generator import Aarch64RandomGenerator
 from src.aarch64.seal.pac import PacSign, build_pac_specs
 from src.aarch64.seal.sealer import (_wrong_sigs, _resolve_pac, PacSealing, ResolvedSealingTestCase,
                                       _Resolved)
+from tests.conf_isolation import setUpModule, tearDownModule  # noqa: F401  (restores CONF + cwd)
 
 _PAC_FIELD = 0xFFFF << 48          # a plausible 16-bit PAC field mask
 _CORRECT = 0x0ABC << 48 | 0x1234   # arbitrary "correct signature"
@@ -167,8 +168,9 @@ class UnreachedPacForgeTest(SealResolutionDeterminismTest):
 
     class _Signer:
         def __init__(self, mask): self._mask = mask
-        def field_mask(self, mn): return self._mask
-        def sign(self, ptr, ctx, mn): return (ptr & ~self._mask) | (0xABCD << 48)
+        def field_mask(self, ptr, mn): return self._mask
+        def field_span(self): return self._mask
+        def sign(self, ptr, ctx, mn, keys): return (ptr & ~self._mask) | (0xABCD << 48)
 
     class _Cpu:
         def __init__(self, pc, base):
@@ -192,7 +194,7 @@ class UnreachedPacForgeTest(SealResolutionDeterminismTest):
     def test_unreached_pac_is_eligible_and_reconverges(self):
         s = self._pac_sealing()
         value, alts, spec = _resolve_pac(s, self._unreached_cer(), self._Layout(),
-                                         self._Signer(self._MASK), salt=0x99)
+                                         self._Signer(self._MASK), keys=tuple(range(10)), salt=0x99)
         self.assertIsNone(value, "unreached: no genuine signature (baseline strips)")
         self.assertIsNone(spec, "unreached slot is speculative (never architectural)")
         self.assertTrue(alts, "unreached PAC slot must be decoy-eligible")

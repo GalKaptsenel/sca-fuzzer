@@ -288,6 +288,8 @@ def deserialize(blob: bytes) -> ExecutorInput:
     env_plan = (EnvironmentPlan(pte_overrides=deserialize_pte_overrides(sections[SEC_PTE_SETTINGS]))
                 if SEC_PTE_SETTINGS in sections else EnvironmentPlan())
 
-    return ExecutorInput(_arch_input_from_sections(sections), code_reloc=code_reloc,
+    arch_input = _arch_input_from_sections(sections)
+    arch_input.pac_keys = None if pac_keys is None else tuple(pac_keys)   # keys belong to the input
+    return ExecutorInput(arch_input, code_reloc=code_reloc,
                          mte_tags=mte_tags, pac_keys=pac_keys, bpu_training=bpu_training,
                          env_plan=env_plan)

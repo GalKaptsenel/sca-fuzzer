@@ -4,32 +4,35 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* Architected ARM pointer-auth (QARMA3/QARMA5), ported from QEMU target/arm/tcg/pauth_helper.c.
- * Bit-exact against real hardware for the architected algorithm. */
+/* Architected ARM pointer-auth (QARMA3/QARMA5): ComputePAC ported from QEMU, AddPAC/Strip per the ARM
+ * ARM shared pseudocode (aarch64/functions/pac). Bit-exact against real hardware. */
 
-/* Target PAC parameters. iterations = 2 (QARMA3) or 4 (QARMA5); tsz = 64 - VA_size; tbi0/tbi1 =
- * top-byte-ignore for the low (TTBR0) / high (TTBR1) VA half, selected per pointer by bit 55;
- * pauth2 = FEAT_PAuth2 (EnhancedPAC2, i.e. APA/APA3 >= 3). */
+/* The EL1 PAC state AddPAC/Strip/ComputePAC read. iterations / generic_iterations = 2 (QARMA3) or 4
+ * (QARMA5) for address / generic (PACGA) auth, generic 0 = no modeled generic algorithm; level = the
+ * APA/APA3 feature value (1 PAuth, 2 EPAC, 3 PAuth2, 4 FPAC, 5 FPACCOMBINE); t0sz/t1sz, tbi, tbid =
+ * TCR_EL1 fields; constpacfield = FEAT_CONSTPACFIELD. */
 struct pac_profile {
     int iterations;
-    int tsz;
+    int generic_iterations;
+    int level;
+    int t0sz;
+    int t1sz;
     int tbi0;
     int tbi1;
-    bool pauth2;
-    int tbid0;   /* TBI disabled for instruction pointers in the low half */
-    int tbid1;   /* TBI disabled for instruction pointers in the high half */
+    int tbid0;
+    int tbid1;
+    bool constpacfield;
 };
 
 /* The raw QARMA MAC (before pointer-field insertion). key0 = key_hi, key1 = key_lo. */
 uint64_t qarma_computepac(uint64_t data, uint64_t modifier,
                           uint64_t key_lo, uint64_t key_hi, int iterations);
 
-/* Sign a pointer: insert the PAC into the field bits per `p` (the AddPAC pseudocode). is_instr picks
- * the instruction TBID rule for the effective TBI. */
+/* ARM AddPAC: insert the PAC of `ptr` (with good extension bits) into its PAC field. */
 uint64_t qarma_addpac(uint64_t ptr, uint64_t modifier,
                       uint64_t key_lo, uint64_t key_hi, struct pac_profile p, int is_instr);
 
-/* Strip the PAC field back to the canonical pointer (XPAC). */
+/* ARM Strip (XPAC): replace the PAC field with copies of ptr<55>. */
 uint64_t qarma_strip(uint64_t ptr, struct pac_profile p, int is_instr);
 
 #endif /* CE_QARMA_H */

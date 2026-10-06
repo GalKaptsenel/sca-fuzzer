@@ -15,9 +15,10 @@ void pac_sign_plugin_init(void);
  */
 void pac_keys_init(const uint64_t* keys, bool present);
 
-/* Set the runner's architected PAC profile (iterations 2=QARMA3 / 4=QARMA5, tsz=64-VA_size, tbi0/tbi1,
- * pauth2). */
-void pac_profile_set(int iterations, int tsz, int tbi0, int tbi1, bool pauth2, int tbid0, int tbid1);
+/* Set the runner's PAC profile from the request's packed word (`present` false when it carries none).
+ * Word: [7:0] iterations, [15:8] T1SZ, 16 TBI0, 17 TBI1, 18 TBID0, 19 TBID1, [23:20] auth level,
+ * 26 CONSTPACFIELD, [39:32] T0SZ, [47:40] generic iterations. */
+void pac_profile_init(uint64_t word, bool present);
 
 /*
  * Must be called at process shutdown to close the device fd.

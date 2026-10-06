@@ -96,14 +96,22 @@ class FuzzerGeneric(Fuzzer):
         pass
         # more adjustments could be implemented by subclasses!
 
+    @staticmethod
+    def _pin_seeds() -> None:
+        """Draw any unset (zero) seed and pin it in CONF before a module reads it (the AArch64 PAC
+        keys derive from input_gen_seed), so the rerun config reproduces the session exactly."""
+        rng = random.Random()
+        if not CONF.program_generator_seed:
+            CONF.program_generator_seed = rng.randint(1, 1_000_000)
+        if not CONF.input_gen_seed:
+            CONF.input_gen_seed = rng.randint(1, 2 ** 32 - 1)
+
     def initialize_modules(self):
         """ create all main modules """
+        self._pin_seeds()
         isa = self.instruction_set
-        prog_seed = CONF.program_generator_seed
-        data_seed = CONF.input_gen_seed
-
-        self.generator = factory.get_program_generator(isa, prog_seed)
-        self.input_gen = factory.get_input_generator(data_seed)
+        self.generator = factory.get_program_generator(isa, CONF.program_generator_seed)
+        self.input_gen = factory.get_input_generator(CONF.input_gen_seed)
         # pass the generator so aarch64 can select the PAC/MTE-aware regular executor (per-input
         # genuine sealed TCs); ignored by every other executor.
         self.executor = factory.get_executor(generator=self.generator)
@@ -146,12 +154,9 @@ class FuzzerGeneric(Fuzzer):
 
         start_time = datetime.today()
 
-        # Fix the seeds up front so the session is reproducible, and build a
-        # command that re-runs it exactly (program_generator_seed defaults to a
-        # random value, so we draw and pin it ourselves).
-        rng = random.Random()
-        prog_seed = CONF.program_generator_seed or rng.randint(1, 1_000_000)
-        input_seed = CONF.input_gen_seed or rng.randint(1, 2 ** 32 - 1)
+        # The seeds were pinned by initialize_modules; build a command that re-runs the session exactly.
+        prog_seed, input_seed = CONF.program_generator_seed, CONF.input_gen_seed
+        assert prog_seed and input_seed, "initialize_modules must pin the seeds first"
         self.generator.set_seed(prog_seed)
         self.input_gen.set_seed(input_seed)
         rerun_cmd = self._build_rerun_command(prog_seed, input_seed, num_test_cases,
@@ -1078,6 +1083,7 @@ class NoninterferenceFuzzer(FuzzerGeneric):
         self.LOG.warning("fuzzer", "Running in non-interference mode.")
 
     def initialize_modules(self):
+        self._pin_seeds()
         isa = self.instruction_set
         self.generator = factory.get_program_generator(isa, CONF.program_generator_seed)
         self.input_gen = factory.get_input_generator(CONF.input_gen_seed)
@@ -1110,7 +1116,7 @@ class NoninterferenceFuzzer(FuzzerGeneric):
         # identity keeps two different arch inputs out of the same class even when they share a ctrace
         # and sealing class, so a data-dependent (Spectre-v1) htrace split can't masquerade as a tag leak.
         class_ctraces = [CTrace(ctr.raw + [hash(self.executor.sealing_class_of(inp)) & 0xFFFFFFFF,
-                                           hash(inp.tobytes()) & 0xFFFFFFFF])
+                                           hash(inp.identity()) & 0xFFFFFFFF])
                          for inp, ctr in zip(inputs, ctraces)]
         # round-major (all baselines, then all decoy0s, ...) so the base fast-boost replication of the
         # per-input ctraces lines up with the boosted list
