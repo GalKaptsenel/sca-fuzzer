@@ -45,19 +45,26 @@ source venv/bin/activate
 analyzed=0
 for V in $(ls -d "$D"/violation-* 2>/dev/null); do
     [[ -f "$V/analysis.md" ]] && continue
+    modes=""
+    for m in regular new_both new_xinput; do
+        modes+=$(timeout 1800 python tools/analyze_violation.py "$V" mode "$m" 5 2>/dev/null | grep -E "^MODE")$'\n'
+    done
+    rc=$(timeout 600 python tools/analyze_violation.py "$V" rootcause 2>/dev/null \
+         | grep -E "PAC slots|genuine L1D|random-decoy|forced-noncanon|set [0-9]|VERDICT|not a PAC")
+    if grep -q "STABLE" <<<"$modes"; then
+        final="REAL PAC-SOURCED LEAK (a priming strategy confirmed the same pair in >=80% of reps)"
+    else
+        final="NOISE / not a PAC leak (no strategy produced a stable, pair-consistent finding)"
+    fi
     {
         echo "# Violation analysis: $(basename "$V")"
         echo; echo "Reproduced with the full input sequence (same order, same config); each priming"
-        echo "strategy run on the reproduced violation."; echo
-        echo '## Priming comparison'
-        for m in regular new_both new_xinput; do
-            timeout 600 python tools/analyze_violation.py "$V" mode "$m" 2>/dev/null | grep -E "^MODE|cross-input priming:"
-        done
-        echo; echo '## Root cause (CE model)'
-        timeout 600 python tools/analyze_violation.py "$V" rootcause 2>/dev/null \
-            | grep -E "PAC slots|genuine L1D|random-decoy|forced-noncanon|set [0-9]|VERDICT|not a PAC"
+        echo "strategy run 5x on the reproduced violation (a real leak reproduces the SAME pair -> STABLE)."
+        echo; echo '## Priming comparison'; echo "$modes"
+        echo '## Root cause (CE model, detecting input self-channel)'; echo "$rc"
+        echo; echo "## Final verdict"; echo "$final"
     } > "$V/analysis.md" 2>&1
-    echo "analyzed $(basename "$V")"; grep -E "^MODE|VERDICT" "$V/analysis.md" | sed 's/^/    /'
+    echo "analyzed $(basename "$V"): $final"; grep -E "^MODE" "$V/analysis.md" | sed 's/^/    /'
     analyzed=$((analyzed + 1))
 done
 

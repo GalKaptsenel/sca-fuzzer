@@ -53,27 +53,43 @@ _MODES = {
 }
 
 
-def mode(vdir, name):
+def _one(vdir, name):
+    """Run one reproduction under mode `name`; return (hit, pair) where pair=(leaking,detecting) or None."""
     _load_repro_config(vdir)
     for k, v in _MODES[name].items():
         setattr(CONF, k, v)
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         _fz, violation = _reproduce(vdir)
-    log = buf.getvalue()
-    priming_lines = [ln.strip() for ln in log.splitlines() if "cross-input priming:" in ln]
-    verdict = "VIOLATION" if violation else "no-violation (rejected as false positive / filtered)"
-    detail = ""
-    if violation is not None:
-        cif = getattr(violation, "cross_input_finding", None)
-        if cif is not None:
-            finding = cif[0]
-            kind = "self-dependent" if finding.leaking_pair == finding.detecting_pair else "cross-input"
-            detail = (f"  leaking_pair={finding.leaking_pair} detecting_pair={finding.detecting_pair}"
-                      f" ({kind})")
-    print(f"MODE {name}: {verdict}{detail}")
-    for ln in priming_lines:
-        print(f"    {ln}")
+    if violation is None:
+        return False, None
+    cif = getattr(violation, "cross_input_finding", None)
+    if cif is None:
+        return True, None                         # regular priming confirmed (no cross-input finding)
+    f = cif[0]
+    return True, (f.leaking_pair, f.detecting_pair)
+
+
+def mode(vdir, name, reps=1):
+    """Run mode `name` `reps` times. A real leak reproduces the SAME pair consistently; an unstable or
+    pair-inconsistent hit is hardware noise. STABLE requires >=80% of runs to hit the same pair."""
+    from collections import Counter
+    reps = max(1, int(reps))
+    hits, pairs = 0, Counter()
+    for _ in range(reps):
+        hit, pair = _one(vdir, name)
+        hits += int(hit)
+        if hit:
+            pairs[pair] += 1
+    if hits == 0:
+        print(f"MODE {name}: no-violation in {reps}/{reps} (rejected / filtered)")
+        return
+    top, top_n = pairs.most_common(1)[0]
+    stable = reps > 1 and top is not None and top_n >= -(-reps * 4 // 5)   # ceil(0.8*reps)
+    kind = "" if top is None else (" self-dependent" if top[0] == top[1] else " cross-input")
+    tag = "STABLE" if stable else ("INTERMITTENT/noise" if reps > 1 else "single-shot")
+    desc = "regular-confirmed" if top is None else f"leaking_pair={top[0]} detecting_pair={top[1]}{kind}"
+    print(f"MODE {name}: VIOLATION {hits}/{reps} [{tag}] {desc}  (pairs={dict(pairs)})")
 
 
 def rootcause(vdir):
@@ -145,7 +161,7 @@ def rootcause(vdir):
 if __name__ == "__main__":
     vdir = sys.argv[1]
     if sys.argv[2] == "mode":
-        mode(vdir, sys.argv[3])
+        mode(vdir, sys.argv[3], sys.argv[4] if len(sys.argv) > 4 else 1)
     elif sys.argv[2] == "rootcause":
         rootcause(vdir)
     else:
