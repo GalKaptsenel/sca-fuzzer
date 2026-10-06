@@ -26,7 +26,7 @@ instruction_categories:
 enable_pte_fuzzing: true
 # Fuzz the full set of leaf attributes a decoy may vary (not just valid):
 pte_fuzz_leaf_fields: [valid, attr_indx, ns, ap, sh, af, ng, dbm, contiguous, pxn, uxn]
-inputs_per_class: 4             # 1 genuine + 3 decoys per input
+inputs_per_class: 2             # 1 genuine + 1 decoy (single decoy)
 
 # The template's store-bypass window needs SSBS=1 (speculative store bypass allowed).
 enable_speculative_store_bypass: true
@@ -43,8 +43,10 @@ enable_pre_run_flush: false
 # ONLY strictly cross-input (non-self) leaks -- an earlier input's residue changing a later one.
 enable_cross_input_priming: true
 cross_input_leaks_only: true
+cross_input_priming_localizer: any   # galloping + BISECTION (binary search), not O(n) linear scan
 executor_pinned_core: -1
-executor_sample_sizes: [100, 500]
+executor_sample_sizes: [50, 200]   # reps: the dominant localization cost
 
 program_generator_seed: 424242
 input_gen_seed: 424242
+
