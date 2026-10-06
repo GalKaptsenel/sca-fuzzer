@@ -1,0 +1,53 @@
+# EXCERPT of rvzr/fuzzer.py -- the CLEAN cross-input priming seam (x86 port).
+# NOTE: the live upstream tree ALSO carries a separate throwaway 'experiment patch' that logs a
+#       stock-vs-new comparison inline; that is campaign scaffolding and is NOT part of the port.
+
+# import:
+29:from .cross_input_priming import CrossInputPrimingCheck
+
+# stage dispatch (priming / noise / priming_large):
+        if stage == "priming":
+            if not self.conf.enable_priming:
+                return
+            if self.conf.enable_cross_input_priming:
+                self._cross_input_priming_check()
+            else:
+                self._priming_check()
+            return
+
+        if stage == "noise":
+            # Cross-input priming re-verifies its result at the largest sample size within its
+            # own search, which makes the sweep - and the priming re-check after it - redundant
+            if len(CONF.executor_sample_sizes) == 1 or self.conf.enable_cross_input_priming:
+                return
+            self.conf.extend_htraces = True
+
+            for sample_size in CONF.executor_sample_sizes[1:]:
+                self.fuzzer.log.sample_size_increase(sample_size)
+                self.conf.executor_n_reps = sample_size - len(self.htraces[0])
+                self._normal_stage()
+                if not self.violations:
+                    return
+            return
+
+        if stage == "priming_large":
+            if not self.conf.enable_priming or len(CONF.executor_sample_sizes) == 1 \
+                    or self.conf.enable_cross_input_priming:
+                return
+            self.conf.executor_n_reps = CONF.executor_sample_sizes[-1]
+            self._priming_check()
+            return
+
+
+# the stage method:
+    def _cross_input_priming_check(self) -> None:
+        """
+        Perform a cross-input priming check, a generalization of `_priming_check` that replaces it
+        when CONF.enable_cross_input_priming is set. The standard check keeps a violation only if
+        the divergence follows the detecting input's own data; the cross-input check instead asks
+        *which* input in the sequence causes it, and accepts the violation if the answer is any of
+        them. See `rvzr/cross_input_priming.py` and `rvzr/cross_input.py`.
+        """
+        check = CrossInputPrimingCheck(self.fuzzer.executor, self.fuzzer.analyser, self.fuzzer.log)
+        self.violations = check.run(self.violations, self.org_inputs, self.boosted_inputs,
+                                    self.ctraces)

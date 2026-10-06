@@ -1,0 +1,35 @@
+# EXCERPT of rvzr/config.py -- the knobs added for cross-input priming (x86 port)
+# (field defaults + the _option_values entry + the validation in _check_config)
+
+    enable_priming: bool = True
+    """ enable_priming: whether to check violations with priming """
+    enable_cross_input_priming: bool = False
+    """ enable_cross_input_priming: whether to replace the standard priming check with
+    cross-input priming, which also accepts violations whose leakage is carried between inputs
+    by microarchitectural state that the executor cannot read directly """
+    cross_input_priming_localizer: str = "any"
+    """ cross_input_priming_localizer: the search strategy used by cross-input priming to
+    localize the leaking input class """
+    cross_input_leaks_only: bool = False
+    """ cross_input_leaks_only: whether cross-input priming should discard self-dependent
+    findings and report only strictly cross-input leakage """
+    enable_speculation_filter: bool = False
+
+# --- inputs_per_class (default raised to 2; required >=2 by cross-input priming) ---
+    inputs_per_class: int = 2
+    """ inputs_per_class: number of inputs per input class """
+
+# --- allowed values ---
+        "fuzzer": ["basic", "architectural", "archdiff"],
+        "cross_input_priming_localizer": ["any", "optimal"],
+
+# --- validation (_check_config) ---
+        if self.enable_cross_input_priming:
+            if not self.enable_priming:
+                raise ConfigException(
+                    "enable_cross_input_priming requires enable_priming to be enabled")
+            if self.inputs_per_class < 2:
+                raise ConfigException("enable_cross_input_priming requires inputs_per_class >= 2, "
+                                      "as it toggles between the members of an input class")
+            if not self.enable_pre_run_flush:
+                raise ConfigException(
