@@ -35,7 +35,8 @@ class PacProfileSourceTest(unittest.TestCase):
         for c in _PAC_OPTIONS:
             setattr(CONF, c, None)
         self.device = mock.Mock()
-        self.device.target_info.return_value = TargetInfo(0x1000, 0x2000, _N3_TCR, 0, _N3_ISAR2)
+        self.device.target_info.return_value = TargetInfo(0x1000, 0x2000, _N3_TCR, 0, _N3_ISAR2,
+                                                          id_aa64pfr1_el1=0)
 
     def tearDown(self):
         for c, v in self._saved.items():

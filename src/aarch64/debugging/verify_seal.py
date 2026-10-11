@@ -53,8 +53,7 @@ def find_sealable():
 
 
 def read_ptr_ctx(s, cer, layout):
-    xpac = next(i for i in s.slot_insts if i.name.lower() in ("xpaci", "xpacd"))
-    xpac_off, base = layout.instruction_address[xpac], cer[0].cpu.pc
+    xpac_off, base = layout.instruction_address[s.auth_slot_inst], cer[0].cpu.pc
     vreg = s.committed_inst.operands[0].value
     creg = s.committed_inst.operands[1].value if len(s.committed_inst.operands) > 1 else None
     best = None

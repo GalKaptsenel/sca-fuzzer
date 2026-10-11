@@ -8,20 +8,22 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-from src.aarch64.aarch64_kernel import LocalHWExecutor
+from src.aarch64.aarch64_kernel import HWExecutor, TargetInfo
 
 
 class _Stub:
+    """The id_aa64pfr1_el1 carrier the device-agnostic capability method reads, via TargetInfo — the
+    same path both the local and remote backends report, so one check covers both."""
     def __init__(self, pfr1: int) -> None:
         self._pfr1 = pfr1
 
-    def _read_sysfs(self, name: str) -> str:
-        assert name == "system/id_aa64pfr1_el1", name
-        return f"0x{self._pfr1:016x}"
+    def target_info(self) -> TargetInfo:
+        return TargetInfo(sandbox_base=0, code_base=0, tcr_el1=0, id_aa64isar1_el1=0,
+                          id_aa64isar2_el1=0, id_aa64pfr1_el1=self._pfr1)
 
 
 def _supported(pfr1: int) -> bool:
-    return LocalHWExecutor.mte_tag_checking_supported(_Stub(pfr1))
+    return HWExecutor.mte_tag_checking_supported(_Stub(pfr1))
 
 
 class MteCapabilityTest(unittest.TestCase):

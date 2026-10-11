@@ -118,19 +118,28 @@ class ExecutorMemory(bytes):
         return int.from_bytes(self[offset:offset+size], byteorder=byteorder, signed=False)
 
 
-# The raw system registers the kernel module exports for the PAC model (/sys/executor/system/<name>).
-_PAC_REGISTERS = ("tcr_el1", "id_aa64isar1_el1", "id_aa64isar2_el1")
+# The raw feature system registers the kernel module exports (/sys/executor/system/<name>): the PAC
+# model (tcr/isar1/isar2, decoded by aarch64_qarma) and the MTE feature field (id_aa64pfr1_el1).
+_SYSTEM_REGISTERS = ("tcr_el1", "id_aa64isar1_el1", "id_aa64isar2_el1", "id_aa64pfr1_el1")
+
+# ID_AA64PFR1_EL1.MTE (bits [11:8]): 0 none, 1 FEAT_MTE (instructions only), >= 2 FEAT_MTE2 (tag checking).
+_MTE_FEAT_MTE2 = 2
+
+
+def _mte_feature(id_aa64pfr1_el1: int) -> int:
+    return (id_aa64pfr1_el1 >> 8) & 0xF
 
 
 @dataclass(frozen=True)
 class TargetInfo:
-    """Static target state the generation side needs: the sandbox/code bases and the raw PAC-relevant
-    system registers (decoded by aarch64_qarma.decode_registers)."""
+    """Static target state the generation side needs: the sandbox/code bases and the raw feature system
+    registers (PAC regs decoded by aarch64_qarma; id_aa64pfr1_el1 carries the MTE feature field)."""
     sandbox_base: int
     code_base: int
     tcr_el1: int
     id_aa64isar1_el1: int
     id_aa64isar2_el1: int
+    id_aa64pfr1_el1: int
 
 
 def _parse_midr_el1(cpu_info: str) -> int:
@@ -158,6 +167,13 @@ class HWExecutor(ABC):
     def cpu_midr(self) -> int:
         """MIDR_EL1 of the measuring core — its implementation identity (hence its PAC/QARMA)."""
         raise NotImplementedError()
+
+    def mte_tag_checking_supported(self) -> bool:
+        """Whether the measuring core enforces MTE tag checks (FEAT_MTE2+). FEAT_MTE (1) has the tag
+        instructions but no checking, and 0 has no MTE; neither can run MTE non-interference, and a
+        signature over a tagged pointer the hardware ignores FPAC-faults the kernel. Device-agnostic: it
+        reads the same TargetInfo both backends report, so the remote path works too."""
+        return _mte_feature(self.target_info().id_aa64pfr1_el1) >= _MTE_FEAT_MTE2
 
 
 class TestCaseRegion(ExecutorRegion):
@@ -455,17 +471,10 @@ class LocalHWExecutor(HWExecutor):
 
     def target_info(self) -> TargetInfo:
         return TargetInfo(sandbox_base=self.sandbox_base, code_base=self.code_base,
-                          **{reg: int(self._read_sysfs(f"system/{reg}"), 16) for reg in _PAC_REGISTERS})
+                          **{reg: int(self._read_sysfs(f"system/{reg}"), 16) for reg in _SYSTEM_REGISTERS})
 
     def cpu_midr(self) -> int:
         return _parse_midr_el1(self._read_sysfs("system/cpu_info"))
-
-    def mte_tag_checking_supported(self) -> bool:
-        """Whether the CPU enforces MTE tag checks: ID_AA64PFR1_EL1.MTE (bits [11:8]) >= 2 (FEAT_MTE2).
-        A value of 1 (FEAT_MTE) has the tag instructions but no checking, and 0 has no MTE; neither can
-        run MTE non-interference, and signing a pointer whose tag the hardware ignores FPAC-faults it."""
-        mte_field = (int(self._read_sysfs("system/id_aa64pfr1_el1"), 16) >> 8) & 0xF
-        return mte_field >= 2
 
     def run_batch(self, units: List[TraceUnit], n_reps: int) -> List[List[List[HWMeasurement]]]:
         results = []
@@ -591,7 +600,7 @@ class RemoteHWExecutor(HWExecutor):
             sandbox = self._conn.shell(f"cat {self._cfg.sysfs}/print_sandbox_base", privileged=True)
             code = self._conn.shell(f"cat {self._cfg.sysfs}/print_code_base", privileged=True)
             regs = {reg: int(self._conn.shell(f"cat {self._cfg.sysfs}/system/{reg}", privileged=True), 16)
-                    for reg in _PAC_REGISTERS}
+                    for reg in _SYSTEM_REGISTERS}
             self._info = TargetInfo(sandbox_base=int(sandbox, 16), code_base=int(code, 16), **regs)
         return self._info
 

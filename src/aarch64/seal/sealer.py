@@ -58,6 +58,14 @@ def _encode(inst: Instruction) -> int:
     raise GeneratorException(f"cannot encode seal instruction {inst.name!r}")
 
 
+def _slot_relocs(offsets, insts: List[Instruction]) -> List[Relocation]:
+    """Relocations placing each rendered instruction at its slot offset; the two must match one-for-one
+    (slot positions are recorded in slot order), so a length mismatch is a bug and raises."""
+    if len(offsets) != len(insts):
+        raise GeneratorException(f"slot size mismatch: {len(offsets)} offsets, {len(insts)} instructions")
+    return [Relocation(off, _encode(i)) for off, i in zip(offsets, insts)]
+
+
 # ==================================================================================================
 # Sealing — one location; pure seal(value); exposes the facts the resolver reads
 # ==================================================================================================
@@ -81,10 +89,9 @@ class Sealing(abc.ABC):
     def emul_entries(self, offsets: List[int],
                      genuine_insts: List[Instruction]) -> List[Tuple[int, int]]:
         """(offset, instruction word) the CE materializes at this slot to reproduce the genuine render:
-        the genuine instruction at each slot position that differs from the placeholder. Positions
-        already in their genuine form in the placeholder (the sandbox clamp, a canonical canon/branch
-        slot, an unreached slot) emit nothing. So `placeholder + emul_table` is byte-for-byte the genuine
-        render — the emulation is the genuine instructions verbatim, no concern-specific knowledge."""
+        the genuine instruction at each slot position that differs from the placeholder. A position
+        already in its genuine form in the placeholder (the sandbox clamp, a canonical canon/branch slot,
+        an unreached slot) emits nothing."""
         if not len(offsets) == len(genuine_insts) == len(self.slot_insts):
             raise GeneratorException(
                 f"{type(self).__name__} slot size mismatch: {len(offsets)} offsets, "
@@ -140,11 +147,9 @@ class PacSealing(Sealing):
         return self.slot_insts[self._enc.n_sig_movks]
 
     def canonicalize_slot(self) -> List[Instruction]:
-        """A signature-independent render that canonicalizes the pointer exactly as the genuine AUT*
-        (and its revert XPAC) do — XPAC at the auth position, and again after the access when reverting.
-        The inert all-NOP placeholder leaves any MTE tag on the pointer; the genuine render strips it
-        through these XPACs, so the PAC-signing resolution pass splices this to read the genuine pointer
-        and context (needed when PAC composes with MTE). Signature-independent, so it needs no sigs."""
+        """The signature-independent canonicalization a passing AUT* (and its revert XPAC) performs:
+        XPAC at the auth position, and again after the access when reverting. The resolution pass splices
+        it to read the genuine, MTE-tag-stripped pointer the inert placeholder would leave tagged."""
         xpac_mn = _AUTH_TO_XPAC[self.committed_inst.name.lower()]
         before = [make_nop() for _ in range(self._enc.n_sig_movks)] \
             + [self._enc.make_xpac_inst(xpac_mn, self.value_reg)]
@@ -425,13 +430,16 @@ class ResolvedSealingTestCase:
         """The CE instruction-emulation table for this input: at each value-seal slot position, the
         exact genuine instruction (`MOVK`/`AUT*`/`XPAC`/`ADDG`/`EOR`) the CE materializes over the
         placeholder. So the CE traces object_code once and sees the genuine render — no separate
-        genuine trace. Sandbox clamps carry no slot offsets and are skipped — they are already genuine
-        in the placeholder. Every value seal has offsets and a captured genuine render; a missing render
-        raises `KeyError` (never silently skipped)."""
+        genuine trace. Only the sandbox clamp carries no slot offsets (it is already genuine in the
+        placeholder); any other seal reaching here without offsets is a bug and raises, as does a value
+        seal with no captured genuine render (`KeyError`) — never silently skipped."""
         entries: List[Tuple[int, int]] = []
         for r in self._entries:
             offs = self._offsets.get(id(r.sealing))
             if offs is None:
+                if not isinstance(r.sealing, SandboxSealing):
+                    raise GeneratorException(
+                        f"value seal {type(r.sealing).__name__} has no slot offsets to emulate")
                 continue
             entries += r.sealing.emul_entries(list(offs), self._genuine_insts[id(r.sealing)])
         return pack_emul_table(entries)
@@ -472,8 +480,7 @@ class ResolvedSealingTestCase:
                 value = rng.choice(noncanon)
             else:
                 value = r.value
-            relocs += [Relocation(off, _encode(i))
-                       for off, i in zip(offs, r.sealing.seal(value, rng, r.value))]
+            relocs += _slot_relocs(offs, r.sealing.seal(value, rng, r.value))
         return tuple(relocs)
 
     def _solve_relocations(self, offsets: Dict[int, Tuple[int, ...]], rng: random.Random, decoy: bool,
@@ -488,7 +495,7 @@ class ResolvedSealingTestCase:
             insts = r.sealing.seal(value, rng, r.value)
             if record is not None:
                 record[id(r.sealing)] = insts
-            relocs += [Relocation(off, _encode(i)) for off, i in zip(offs, insts)]
+            relocs += _slot_relocs(offs, insts)
         return tuple(relocs)
 
     @property
@@ -898,10 +905,10 @@ class MtePacSealedTestCase(SealedTestCase):
         # pointer and context; the genuine render strips it (the AUT*/revert XPAC), so without this a
         # later AUT* signs over an MTE-tagged pointer that the genuine trace canonicalizes — a wrong
         # signature (architectural FPAC). Both splices are signature-independent, so no sigs are needed.
-        mte_reloc = [Relocation(off, _encode(i)) for r in mte
-                     for off, i in zip(offsets[id(r.sealing)], r.sealing.seal(r.value, None, r.value))]
-        pac_reloc = [Relocation(off, _encode(i)) for s in self._pac
-                     for off, i in zip(offsets[id(s)], s.canonicalize_slot())]
+        mte_reloc = [rel for r in mte
+                     for rel in _slot_relocs(offsets[id(r.sealing)], r.sealing.seal(r.value, None, r.value))]
+        pac_reloc = [rel for s in self._pac
+                     for rel in _slot_relocs(offsets[id(s)], s.canonicalize_slot())]
         cer_b = self._trace_bytes_fn(apply_relocations(object_code, mte_reloc + pac_reloc), inp)
         keys = _input_pac_keys(inp)
         pac = [_Resolved(s, *_resolve_pac(s, cer_b, self._layout, self._signer, keys, self._salt))

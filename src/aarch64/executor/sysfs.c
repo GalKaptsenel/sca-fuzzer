@@ -30,41 +30,41 @@ static ssize_t print_code_base_show(struct kobject *kobj, struct kobj_attribute 
 /* Raw PAC/MTE-relevant system registers, decoded per the ARM ARM in userland (aarch64_qarma.py,
  * aarch64_kernel.py). A test case may run on any online CPU, so each is read on every one and the read
  * fails if any core disagrees. ID_AA64PFR1_EL1 carries the MTE feature field (bits [11:8]). */
-enum pac_reg {
-    PAC_REG_TCR_EL1,
-    PAC_REG_ID_AA64ISAR1_EL1,
-    PAC_REG_ID_AA64ISAR2_EL1,
-    PAC_REG_ID_AA64PFR1_EL1,
+enum sys_reg {
+    SYS_REG_TCR_EL1,
+    SYS_REG_ID_AA64ISAR1_EL1,
+    SYS_REG_ID_AA64ISAR2_EL1,
+    SYS_REG_ID_AA64PFR1_EL1,
 };
 
-static uint64_t read_pac_reg(enum pac_reg reg) {
+static uint64_t read_sys_reg(enum sys_reg reg) {
     switch (reg) {
-    case PAC_REG_TCR_EL1:          return read_sysreg(tcr_el1);
-    case PAC_REG_ID_AA64ISAR1_EL1: return read_sysreg_s(SYS_ID_AA64ISAR1_EL1);
-    case PAC_REG_ID_AA64ISAR2_EL1: return read_sysreg_s(SYS_ID_AA64ISAR2_EL1);
-    case PAC_REG_ID_AA64PFR1_EL1:  return read_sysreg_s(SYS_ID_AA64PFR1_EL1);
+    case SYS_REG_TCR_EL1:          return read_sysreg(tcr_el1);
+    case SYS_REG_ID_AA64ISAR1_EL1: return read_sysreg_s(SYS_ID_AA64ISAR1_EL1);
+    case SYS_REG_ID_AA64ISAR2_EL1: return read_sysreg_s(SYS_ID_AA64ISAR2_EL1);
+    case SYS_REG_ID_AA64PFR1_EL1:  return read_sysreg_s(SYS_ID_AA64PFR1_EL1);
     }
     BUG();
 }
 
-struct pac_reg_check {
-    enum pac_reg reg;
+struct sys_reg_check {
+    enum sys_reg reg;
     uint64_t reference;
     atomic_t mismatch;
 };
 
-static void pac_reg_check_cpu(void *arg) {
-    struct pac_reg_check *check = arg;
-    if (read_pac_reg(check->reg) != check->reference) {
+static void sys_reg_check_cpu(void *arg) {
+    struct sys_reg_check *check = arg;
+    if (read_sys_reg(check->reg) != check->reference) {
         atomic_set(&check->mismatch, 1);
     }
 }
 
-static ssize_t pac_reg_show_uniform(enum pac_reg reg, const char *name, char *buf) {
-    struct pac_reg_check check = { .reg = reg };
+static ssize_t sys_reg_show_uniform(enum sys_reg reg, const char *name, char *buf) {
+    struct sys_reg_check check = { .reg = reg };
     atomic_set(&check.mismatch, 0);
-    check.reference = read_pac_reg(reg);
-    on_each_cpu(pac_reg_check_cpu, &check, 1);
+    check.reference = read_sys_reg(reg);
+    on_each_cpu(sys_reg_check_cpu, &check, 1);
     if (0 != atomic_read(&check.mismatch)) {
         module_err("%s differs across CPUs -- PAC behaviour is CPU-dependent\n", name);
         return -EIO;
@@ -73,19 +73,19 @@ static ssize_t pac_reg_show_uniform(enum pac_reg reg, const char *name, char *bu
 }
 
 static ssize_t tcr_el1_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
-    return pac_reg_show_uniform(PAC_REG_TCR_EL1, "TCR_EL1", buf);
+    return sys_reg_show_uniform(SYS_REG_TCR_EL1, "TCR_EL1", buf);
 }
 
 static ssize_t id_aa64isar1_el1_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
-    return pac_reg_show_uniform(PAC_REG_ID_AA64ISAR1_EL1, "ID_AA64ISAR1_EL1", buf);
+    return sys_reg_show_uniform(SYS_REG_ID_AA64ISAR1_EL1, "ID_AA64ISAR1_EL1", buf);
 }
 
 static ssize_t id_aa64isar2_el1_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
-    return pac_reg_show_uniform(PAC_REG_ID_AA64ISAR2_EL1, "ID_AA64ISAR2_EL1", buf);
+    return sys_reg_show_uniform(SYS_REG_ID_AA64ISAR2_EL1, "ID_AA64ISAR2_EL1", buf);
 }
 
 static ssize_t id_aa64pfr1_el1_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
-    return pac_reg_show_uniform(PAC_REG_ID_AA64PFR1_EL1, "ID_AA64PFR1_EL1", buf);
+    return sys_reg_show_uniform(SYS_REG_ID_AA64PFR1_EL1, "ID_AA64PFR1_EL1", buf);
 }
 
 static ssize_t enable_pre_run_flush_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {

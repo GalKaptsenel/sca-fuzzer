@@ -222,6 +222,8 @@ class RemoteSetupTest(unittest.TestCase):
                 return "0x0000000000000000"
             if "system/id_aa64isar2_el1" in cmd:
                 return "0x0000000000003100"
+            if "system/id_aa64pfr1_el1" in cmd:
+                return "0x0000000000000000"
             return ""
         conn.shell.side_effect = shell
         return conn, cfg
@@ -293,7 +295,8 @@ class BackendTransparencyTest(unittest.TestCase):
         ex._current_tc_bytes = lambda: b"TC"
         ex.device = mock.create_autospec(k.HWExecutor, instance=True)
         ex.device.target_info.return_value = TargetInfo(
-            sandbox_base=0x1000, code_base=0x2000, tcr_el1=0, id_aa64isar1_el1=0, id_aa64isar2_el1=0)
+            sandbox_base=0x1000, code_base=0x2000, tcr_el1=0, id_aa64isar1_el1=0, id_aa64isar2_el1=0,
+            id_aa64pfr1_el1=0)
         ex.device.run_batch.return_value = [[[HWMeasurement(3, (0, 0, 0))]]]
 
         self.assertEqual(ex.read_base_addresses(), (0x1000, 0x2000))

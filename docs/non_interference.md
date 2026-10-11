@@ -25,7 +25,7 @@ each a register-only op:
 |---------|--------------------------|---------------|
 | `SandboxSealing` | `AND mask ; ADD x29` | same (the clamp is value-independent) |
 | `PacSealing` | `NOP ; NOP` (inert — the pointer stays the canonical clamped base) | `MOVK sig ; AUT*` (or the `XPAC` strip, with prob `pac_strip_prob`) |
-| `MteSealing` | `NOP` | `ADDG reg, reg, #0, #delta` (retag the pointer to the cell tag) |
+| `MteSealing` | `NOP [; NOP]` (inert) | `ADDG #delta [; ADDG #back]` (retag to the cell tag before the access, then re-converge after — `back`=0 for genuine, non-zero for a decoy; the second op only when the access preserves its base) |
 
 The placeholder emits no `AUT*`/`XPAC`/`PAC*` — it is the inert, arch-safe baseline the contract
 executor traces. The signature is precomputed by the resolver and loaded with `MOVK`s; `PAC*` is a
@@ -46,10 +46,12 @@ index/displacement cancellation.
 - **`SealedTestCase.resolve(input)`** runs the contract-executor trace via the injected `trace_fn`
   and computes each sealing's value — PAC: sign the reached pointer plus a pool of mask-verified wrong
   signatures that provably fail AUTH; MTE: classify the accessed cell's allocation tag and the
-  speculation depth — returning a `ResolvedSealingTestCase`. **A single placeholder trace suffices for
-  every primitive:** the CE models no MTE tag-check fault and applies an *after-access tag correction*
-  (`contract_executor/simulation_hook.c`), so the placeholder trace already carries each accessed
-  pointer's genuine allocation tag at every PAC auth — no genuine-tag re-trace is needed.
+  speculation depth — returning a `ResolvedSealingTestCase`. PAC-only, MTE-only, canonicality,
+  branch-target and PTE resolve from one placeholder trace. **PAC+MTE needs two passes:** pass A
+  (placeholder) resolves the MTE tag deltas and PAC nesting; pass B re-traces with the genuine MTE
+  retags *and* the PAC canonicalization (`XPAC`) spliced in, so each `AUT*` signs over the exact pointer
+  and context the genuine binary presents (its MTE tag stripped) — otherwise, under a profile whose PAC
+  field overlaps the MTE tag (TBI-off instruction keys), a later `AUT*` would FPAC.
 - **`ResolvedSealingTestCase.emul_table`** turns that single placeholder trace into the genuine
   contract: for each value-seal slot position it carries the *exact* genuine instruction
   (`MOVK`/`AUT*`/`XPAC`/`ADDG`), which the CE materializes over the NOP placeholder as it reaches the
@@ -57,8 +59,9 @@ index/displacement cancellation.
   is assembled; the CE needs no knowledge of PAC/MTE.
 - **`ResolvedSealingTestCase.genuine()`** seals every slot with its correct value. **`.decoy()`**
   perturbs a random non-empty subset of the *speculative* (never-architectural) slots with a failing
-  value and seals the correct value everywhere else. The `Sandbox` clamp is never perturbed; MTE is
-  never stripped. `MTE_INITIAL_TAG = 6` is the uniform region tag, shared by kernel + CE + model.
+  value and seals the correct value everywhere else. The `Sandbox` clamp is never perturbed; MTE always
+  re-converges to the cell tag after the access. `MTE_INITIAL_TAG = 6` is the uniform region tag, shared
+  by kernel + CE + model.
 
 ## 4. Executors
 

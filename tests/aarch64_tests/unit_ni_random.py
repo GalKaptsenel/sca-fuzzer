@@ -96,8 +96,8 @@ class NiRandomCoverageTest(unittest.TestCase):
             return min(ns) if ns else None
 
         def auth_off(s):
-            xpac = next(i for i in s.slot_insts if i.name.lower() in ("xpaci", "xpacd"))
-            return layout.instruction_address[xpac]
+            # the AUT*/strip slot position (a NOP in the inert placeholder), the resolver's sign landmark
+            return layout.instruction_address[s.auth_slot_inst]
 
         for s in pac:
             self.assertEqual(min_nesting_at(auth_off(s)) != 0, by_sealing[id(s)].speculative,

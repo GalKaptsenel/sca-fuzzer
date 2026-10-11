@@ -587,14 +587,12 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                 "non-interference fuzzing needs a PAC or MTE instruction category, or "
                 "enable_canonicality / enable_branch_target_sealing / enable_pte_fuzzing, enabled")
 
-        # MTE sealing retags pointers and relies on the CPU checking those tags. On a CPU without
-        # FEAT_MTE2 the tag is not enforced, the seal is meaningless, and (composed with PAC on a
-        # TBI-off instruction key) a baked signature over a tagged pointer FPAC-faults the kernel. Refuse
-        # up front rather than risk the box -- MTE non-interference belongs on MTE-capable hardware.
-        if "mte" in self._primitives and not self.device.mte_tag_checking_supported():
-            raise GeneratorException(
-                "MTE non-interference needs FEAT_MTE2 (tag checking); this CPU reports "
-                "ID_AA64PFR1_EL1.MTE < 2, so MTE primitives cannot run here")
+        # MTE sealing retags pointers and relies on the CPU checking those tags; without FEAT_MTE2 the
+        # tag is not enforced and (composed with PAC on a TBI-off instruction key) a baked signature over
+        # a tagged pointer FPAC-faults the kernel. Capture the capability here (device-agnostic, no
+        # failure) and refuse in the hardware-run path: device-free MTE modeling (resolution, CE traces)
+        # stays usable, only running a binary on a non-MTE2 CPU is refused.
+        self._mte_hw_runnable = "mte" not in self._primitives or self.device.mte_tag_checking_supported()
 
         # The PAC profile (and the VA size PAC/canonicality share) must match the executing machine: a
         # wrong value makes the signature/strip mismatch the CPU's AUT* -> FPAC panic.
@@ -878,6 +876,10 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         executor does, so the artifact store can print each measurement's asm). The exact machine code a
         boosted variant ran differs per seal, but that is recorded separately via
         reconstruct_enacted_code(); Measurement.test_case must stay a TestCase, not bytes."""
+        if not self._mte_hw_runnable:
+            raise GeneratorException(
+                "MTE non-interference needs FEAT_MTE2 (tag checking); this CPU reports "
+                "ID_AA64PFR1_EL1.MTE < 2, so an MTE sealed test case cannot run on hardware here")
         if not exec_inputs or self.test_case is None:
             return [], []
         return self._trace_exec_inputs(exec_inputs, n_reps), [self.test_case] * len(exec_inputs)
