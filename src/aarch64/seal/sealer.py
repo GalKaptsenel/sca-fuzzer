@@ -8,6 +8,7 @@
 import abc
 import copy
 import random
+import struct
 from typing import Dict, List, Optional, Set, Tuple
 
 from ...config import CONF
@@ -19,11 +20,17 @@ from .primitives import (make_nop, index_instructions, inst_at, _SANDBOX_MASK,
 from .pac import (PacSign, PacSigner, build_pac_specs, _AUTH_TO_PAC, _AUTH_TO_XPAC, _read_reg)
 from ..aarch64_target_desc import SANDBOX_BASE_REGISTER
 from ..aarch64_printer import Aarch64ASMLayout
-from ..aarch64_relocations import (NOP_WORD, xpac_word, addg_word, movk_word, aut_word, pac_word,
+from ..aarch64_relocations import (NOP_WORD, xpac_word, addg_word, movk_word, aut_word,
                                     eor_imm_word, Relocation, apply_relocations)
 
 
 M = (1 << 64) - 1
+
+
+def pack_emul_table(entries: List[Tuple[int, int]]) -> bytes:
+    """The CE instruction-emulation table: (code offset, instruction word) pairs, 2 little-endian
+    u32 each (matching struct emul_entry in contract_executor/instruction_emulator.h)."""
+    return b"".join(struct.pack("<2I", off, word) for off, word in entries)
 
 
 def _reg_num(reg: str) -> int:
@@ -40,9 +47,6 @@ def _encode(inst: Instruction) -> int:
     if mn.startswith("aut"):
         rn = _reg_num(inst.operands[1].value) if len(inst.operands) > 1 else 31
         return aut_word(mn, _reg_num(inst.operands[0].value), rn)
-    if mn.startswith("pac"):
-        rn = _reg_num(inst.operands[1].value) if len(inst.operands) > 1 else 31
-        return pac_word(mn, _reg_num(inst.operands[0].value), rn)
     if mn == "movk":
         return movk_word(_reg_num(inst.operands[0].value),
                          int(inst.operands[1].value), int(inst.operands[2].value))
@@ -67,15 +71,30 @@ class Sealing(abc.ABC):
         self.slot_locs: List = []
 
     @abc.abstractmethod
-    def seal(self, value: Optional[int], rng: Optional[random.Random]) -> List[Instruction]:
+    def seal(self, value: Optional[int], rng: Optional[random.Random],
+             correct: Optional[int] = None) -> List[Instruction]:
         """The instructions sealing this location with `value` (None -> the arch-safe placeholder).
-        `rng` seeds any render choice; None only for the placeholder, which has none."""
+        `rng` seeds any render choice; None only for the placeholder, which has none. `correct` is the
+        genuine value the render must re-converge to after the access (used by seals whose perturbation
+        is not stripped before the access, e.g. MTE); None leaves no re-convergence."""
 
-    def ce_lowering(self) -> List[Instruction]:
-        """Real instructions to splice at this slot for one faithful (genuine-equivalent) CE trace,
-        emulated by the CE's per-instruction hooks and concretized against the live state. One per
-        slot member. The default is the placeholder itself (no value emulation needed)."""
-        return list(self.slot_insts)
+    def emul_entries(self, offsets: List[int],
+                     genuine_insts: List[Instruction]) -> List[Tuple[int, int]]:
+        """(offset, instruction word) the CE materializes at this slot to reproduce the genuine render:
+        the genuine instruction at each slot position that differs from the placeholder. Positions
+        already in their genuine form in the placeholder (the sandbox clamp, a canonical canon/branch
+        slot, an unreached slot) emit nothing. So `placeholder + emul_table` is byte-for-byte the genuine
+        render — the emulation is the genuine instructions verbatim, no concern-specific knowledge."""
+        if not len(offsets) == len(genuine_insts) == len(self.slot_insts):
+            raise GeneratorException(
+                f"{type(self).__name__} slot size mismatch: {len(offsets)} offsets, "
+                f"{len(genuine_insts)} genuine, {len(self.slot_insts)} placeholder")
+        entries: List[Tuple[int, int]] = []
+        for off, genuine, placeholder in zip(offsets, genuine_insts, self.slot_insts):
+            word = _encode(genuine)
+            if word != _encode(placeholder):
+                entries.append((off, word))
+        return entries
 
 
 class SandboxSealing(Sealing):
@@ -89,7 +108,8 @@ class SandboxSealing(Sealing):
         self._base_reg = base_reg
         self.slot_insts = self.seal(None, None)   # seal itself with its placeholder = the slot to fill
 
-    def seal(self, value: Optional[int], rng: Optional[random.Random]) -> List[Instruction]:
+    def seal(self, value: Optional[int], rng: Optional[random.Random],
+             correct: Optional[int] = None) -> List[Instruction]:
         return [Instruction("and", True, "", False,
                             template=f"AND {self.value_reg}, {self.value_reg}, {self._mask}"),
                 Instruction("add", True, "", False,
@@ -97,9 +117,11 @@ class SandboxSealing(Sealing):
 
 
 class PacSealing(Sealing):
-    """Authenticate a pointer register. `seal(sig)` emits the signature MOVK + the auth (or, prob
-    `CONF.pac_strip_prob`, the arch-safe strip); `seal(None)` is the placeholder. `committed_inst` is
-    exposed for the resolver."""
+    """Authenticate a pointer register. `seal(sig)` emits the signature MOVK + the committed AUT* (or,
+    prob `CONF.pac_strip_prob`, the arch-safe XPAC strip); `seal(None)` is the all-NOP placeholder (the
+    pointer stays the canonical clamped base, so no strip is needed to keep the placeholder trace safe).
+    No PAC* is ever emitted — the signature is precomputed by the resolver and loaded with MOVKs, not
+    re-signed. `committed_inst` is the exact AUT* the generator committed to, exposed for the resolver."""
 
     def __init__(self, value_reg: str, committed_inst: Instruction, encoder: PacSign,
                  revert: bool = False) -> None:
@@ -109,67 +131,63 @@ class PacSealing(Sealing):
         self._enc = encoder
         self._revert = revert
         self.n_before = encoder.n_sig_movks + 1   # signature MOVKs + the AUT*/strip (before the access)
-        self.slot_insts = self.seal(None, None)   # placeholder: before [+ after XPAC]
+        self.slot_insts = self.seal(None, None)   # placeholder: all NOP (before [+ after])
 
-    def seal(self, value: Optional[int], rng: Optional[random.Random]) -> List[Instruction]:
+    @property
+    def auth_slot_inst(self) -> Instruction:
+        """The before-access slot member at the AUT*/strip position (a NOP in the placeholder): the
+        point the resolver signs over (the signed pointer is live there, just before the access)."""
+        return self.slot_insts[self._enc.n_sig_movks]
+
+    def canonicalize_slot(self) -> List[Instruction]:
+        """A signature-independent render that canonicalizes the pointer exactly as the genuine AUT*
+        (and its revert XPAC) do — XPAC at the auth position, and again after the access when reverting.
+        The inert all-NOP placeholder leaves any MTE tag on the pointer; the genuine render strips it
+        through these XPACs, so the PAC-signing resolution pass splices this to read the genuine pointer
+        and context (needed when PAC composes with MTE). Signature-independent, so it needs no sigs."""
+        xpac_mn = _AUTH_TO_XPAC[self.committed_inst.name.lower()]
+        before = [make_nop() for _ in range(self._enc.n_sig_movks)] \
+            + [self._enc.make_xpac_inst(xpac_mn, self.value_reg)]
+        if not self._revert:
+            return before
+        return before + [self._enc.make_xpac_inst(xpac_mn, self.value_reg)]
+
+    def seal(self, value: Optional[int], rng: Optional[random.Random],
+             correct: Optional[int] = None) -> List[Instruction]:
         auth_mn = self.committed_inst.name.lower()
         ctx_reg = self.committed_inst.operands[1].value if len(self.committed_inst.operands) > 1 else None
-        xpac = self._enc.make_xpac_inst(_AUTH_TO_XPAC[auth_mn], self.value_reg)
         if value is None:
-            before = [make_nop() for _ in range(self._enc.n_sig_movks)] + [xpac]
+            before = [make_nop() for _ in range(self.n_before)]
         else:
             movks = self._enc.make_sig_movks(self.value_reg, value)
-            before = movks + ([xpac] if rng.random() < CONF.pac_strip_prob
+            before = movks + ([self._enc.make_xpac_inst(_AUTH_TO_XPAC[auth_mn], self.value_reg)]
+                              if rng.random() < CONF.pac_strip_prob
                               else [self._enc.make_auth_inst(auth_mn, self.value_reg, ctx_reg)])
         if not self._revert:
             return before
-        # After the access, strip the register back to a canonical pointer: XPAC clears the PAC field,
-        # so genuine (already stripped by the AUT*) is unchanged and decoy (failed AUT* leaving FPAC
-        # bits) is re-canonicalized -> both agree downstream. A separate XPAC instance (not the
-        # before one) so slot positions stay one-for-one.
-        return before + [self._enc.make_xpac_inst(_AUTH_TO_XPAC[auth_mn], self.value_reg)]
-
-    def _ctx_reg(self) -> Optional[str]:
-        return self.committed_inst.operands[1].value if len(self.committed_inst.operands) > 1 else None
-
-    def _pac_inst(self, mnemonic: str, ctx_reg: Optional[str]) -> Instruction:
-        template = f"{mnemonic.upper()} {self.value_reg}" + (f", {ctx_reg}" if ctx_reg else "")
-        inst = (Instruction(mnemonic, True, "", False, template=template)
-                .add_op(RegisterOperand(self.value_reg, 64, False, True)))
-        if ctx_reg:
-            inst.add_op(RegisterOperand(ctx_reg, 64, True, False))
-        return inst
-
-    def ce_lowering(self) -> List[Instruction]:
-        # Sign with a real PAC* (the CE concretizes the signature under the input's keys), NOP-pad to
-        # the signature-MOVK width, then the real AUT* — so the traced pointer, taint and post-slot
-        # state match the genuine sign+auth. The after-XPAC (revert) is identical to the genuine render.
-        auth_mn = self.committed_inst.name.lower()
-        ctx_reg = self._ctx_reg()
-        before = ([self._pac_inst(_AUTH_TO_PAC[auth_mn], ctx_reg)]
-                  + [make_nop() for _ in range(self._enc.n_sig_movks - 1)]
-                  + [self._enc.make_auth_inst(auth_mn, self.value_reg, ctx_reg)])
-        if not self._revert:
-            return before
-        return before + [self._enc.make_xpac_inst(_AUTH_TO_XPAC[auth_mn], self.value_reg)]
+        # After the access, re-canonicalize with XPAC: genuine (authed/stripped clean) is unchanged, a
+        # decoy (failed AUT* leaving FPAC bits) is restored, so both agree downstream. The placeholder
+        # never left canonical, so this position is NOP there too.
+        after = make_nop() if value is None else self._enc.make_xpac_inst(_AUTH_TO_XPAC[auth_mn], self.value_reg)
+        return before + [after]
 
 
 class MteSealing(Sealing):
-    """Retag a pointer register onto its cell's allocation tag: `seal(delta)` emits one ADDG that adds
-    the 4-bit delta to the pointer's tag right before the access (or [NOP] when 0/None), so the access
-    is tag-checked against a matching granule. There is NO retag-back: the matched (checked) tag then
-    propagates through the rest of the test-case logic — exactly as the CE's after-access tag correction
-    models a genuine ADDG — so the placeholder and genuine traces agree on every later tag store's
-    committed granule tag, and no pointer is ever left at the sandbox base's Unchecked tag. A decoy's
-    wrong tag lives only on the speculative path it perturbs and is rolled back with that speculation.
-    `access_inst` is exposed for the resolver (its accessed cell's tag is the genuine tag)."""
+    """Retag a pointer register onto its cell's allocation tag for one access, then re-converge.
+    `seal(delta, correct)` emits an ADDG adding the 4-bit delta to the pointer's tag right before the
+    access (a matching granule for genuine, a mismatch for a decoy), then a second ADDG adding the
+    complement `correct-delta` back — ADDG #0 for genuine, non-zero for a decoy. Both variants thus
+    end at the real cell tag, so the leak is confined to the access and the matched tag still
+    propagates to later tag stores. `access_inst` is exposed for the resolver (the accessed cell's
+    tag is the genuine tag)."""
 
-    def __init__(self, value_reg: str, access_inst: Instruction) -> None:
+    def __init__(self, value_reg: str, access_inst: Instruction, base_preserved: bool) -> None:
         super().__init__()
         self.value_reg = value_reg
         self.access_inst = access_inst
+        self._base_preserved = base_preserved   # the access leaves its base intact -> re-convergeable
         self.n_before = 1
-        self.slot_insts = self.seal(None, None)   # placeholder: [before]
+        self.slot_insts = self.seal(None, None)   # placeholder: [before (+ after if base_preserved)]
 
     def _addg(self, delta: int) -> Instruction:
         return (Instruction("addg", True, "", False,
@@ -179,9 +197,16 @@ class MteSealing(Sealing):
                 .add_op(ImmediateOperand("0", 6))
                 .add_op(ImmediateOperand(str(delta), 4)))
 
-    def seal(self, value: Optional[int], rng: Optional[random.Random]) -> List[Instruction]:
-        delta = 0 if value is None else value % 16
-        return [self._addg(delta) if delta else make_nop()]
+    def seal(self, value: Optional[int], rng: Optional[random.Random],
+             correct: Optional[int] = None) -> List[Instruction]:
+        # ADDG the applied delta before the access; when the base survives it, ADDG the complement back
+        # to the cell tag after (0 for genuine, correct-value for a decoy), re-converging every variant.
+        if value is None:
+            return [make_nop(), make_nop()] if self._base_preserved else [make_nop()]
+        if not self._base_preserved:
+            return [self._addg(value % 16)]
+        back = 0 if correct is None else (correct - value) % 16
+        return [self._addg(value % 16), self._addg(back)]
 
 
 def _mask_runs(mask: int) -> List[int]:
@@ -281,7 +306,8 @@ class CanonSealing(Sealing):
                 .add_op(RegisterOperand(self.value_reg, 64, True, False))
                 .add_op(ImmediateOperand(str(run), 64)))
 
-    def seal(self, value: Optional[int], rng: Optional[random.Random]) -> List[Instruction]:
+    def seal(self, value: Optional[int], rng: Optional[random.Random],
+             correct: Optional[int] = None) -> List[Instruction]:
         # One op before the access (the flip), and — when the base survives the access — the SAME flip
         # after it (EOR is its own inverse) to restore the base, so the decoy matches the baseline
         # downstream. genuine (value None/0) fills a NOP at each position; the resolver offers exactly
@@ -346,7 +372,8 @@ class BranchTargetSealing(Sealing):
                 .add_op(RegisterOperand(self.value_reg, 64, True, False))
                 .add_op(ImmediateOperand(str(mask), 64)))
 
-    def seal(self, value: Optional[int], rng: Optional[random.Random]) -> List[Instruction]:
+    def seal(self, value: Optional[int], rng: Optional[random.Random],
+             correct: Optional[int] = None) -> List[Instruction]:
         return [self._eor(value) if value else make_nop()]
 
 
@@ -376,8 +403,10 @@ class ResolvedSealingTestCase:
         self._object_code = object_code
         self._offsets = offsets
         self._salt = salt
+        self._genuine_insts: Dict[int, List[Instruction]] = {}   # per value seal: its genuine render
         genuine_rng = stable_rng(self.collapse_key, salt)   # class-invariant render choices
-        self._genuine = self._solve_relocations(offsets, genuine_rng, decoy=False)
+        self._genuine = self._solve_relocations(offsets, genuine_rng, decoy=False,
+                                                record=self._genuine_insts)
 
     @staticmethod
     def _decoy_subset(eligible: List[_Resolved], rng: random.Random) -> set:
@@ -390,6 +419,22 @@ class ResolvedSealingTestCase:
     @property
     def object_code(self) -> bytes:
         return self._object_code
+
+    @property
+    def emul_table(self) -> bytes:
+        """The CE instruction-emulation table for this input: at each value-seal slot position, the
+        exact genuine instruction (`MOVK`/`AUT*`/`XPAC`/`ADDG`/`EOR`) the CE materializes over the
+        placeholder. So the CE traces object_code once and sees the genuine render — no separate
+        genuine trace. Sandbox clamps carry no slot offsets and are skipped — they are already genuine
+        in the placeholder. Every value seal has offsets and a captured genuine render; a missing render
+        raises `KeyError` (never silently skipped)."""
+        entries: List[Tuple[int, int]] = []
+        for r in self._entries:
+            offs = self._offsets.get(id(r.sealing))
+            if offs is None:
+                continue
+            entries += r.sealing.emul_entries(list(offs), self._genuine_insts[id(r.sealing)])
+        return pack_emul_table(entries)
 
     def genuine(self) -> Tuple[Relocation, ...]:
         return self._genuine
@@ -427,11 +472,12 @@ class ResolvedSealingTestCase:
                 value = rng.choice(noncanon)
             else:
                 value = r.value
-            relocs += [Relocation(off, _encode(i)) for off, i in zip(offs, r.sealing.seal(value, rng))]
+            relocs += [Relocation(off, _encode(i))
+                       for off, i in zip(offs, r.sealing.seal(value, rng, r.value))]
         return tuple(relocs)
 
-    def _solve_relocations(self, offsets: Dict[int, Tuple[int, ...]],
-                           rng: random.Random, decoy: bool) -> Tuple[Relocation, ...]:
+    def _solve_relocations(self, offsets: Dict[int, Tuple[int, ...]], rng: random.Random, decoy: bool,
+                           record: Optional[Dict[int, List[Instruction]]] = None) -> Tuple[Relocation, ...]:
         perturb = self._decoy_subset(self._eligible(), rng) if decoy else set()
         relocs: List[Relocation] = []
         for r in self._entries:
@@ -439,7 +485,10 @@ class ResolvedSealingTestCase:
             if offs is None:
                 continue
             value = rng.choice(r.alts) if r in perturb else r.value
-            relocs += [Relocation(off, _encode(i)) for off, i in zip(offs, r.sealing.seal(value, rng))]
+            insts = r.sealing.seal(value, rng, r.value)
+            if record is not None:
+                record[id(r.sealing)] = insts
+            relocs += [Relocation(off, _encode(i)) for off, i in zip(offs, insts)]
         return tuple(relocs)
 
     @property
@@ -468,21 +517,21 @@ def _input_pac_keys(inp) -> Tuple[int, ...]:
 
 def _resolve_pac(s: PacSealing, cer, layout, signer: PacSigner, keys: Tuple[int, ...], salt: int
                  ) -> Tuple[Optional[int], List[int], Optional[int]]:
-    """A PacSealing's value from a trace: sign the pointer that reaches the sealing's XPAC, plus a pool
-    of wrong signatures that fail AUTH. When the XPAC is never reached, the slot is still decoy-eligible
-    (HW may speculate deeper than the model): forge the pool over the sandbox base, whose PAC-field-window
-    bits every clamped sandbox pointer shares, so the decoy MOVKs preserve the pointer's non-field bits
-    and the after-XPAC re-converges — exactly as the reached case does. (value, alts, spec_nesting)."""
+    """A PacSealing's value from a trace: sign the pointer that reaches the sealing's auth position, plus
+    a pool of wrong signatures that fail AUTH. When that position is never reached, the slot is still
+    decoy-eligible (HW may speculate deeper than the model): forge the pool over the sandbox base, whose
+    PAC-field-window bits every clamped sandbox pointer shares, so the decoy MOVKs preserve the pointer's
+    non-field bits and the after-XPAC re-converges — exactly as the reached case does.
+    (value, alts, spec_nesting)."""
     correct_sig, alts, spec = None, [], None
     if not cer or s.committed_inst is None:
         return correct_sig, alts, spec
-    xpac = next(i for i in s.slot_insts if i.name.lower() in ("xpaci", "xpacd"))
-    xpac_off, code_base = layout.instruction_address[xpac], cer[0].cpu.pc
+    auth_off, code_base = layout.instruction_address[s.auth_slot_inst], cer[0].cpu.pc
     pac_mn = _AUTH_TO_PAC[s.committed_inst.name.lower()]
     value_reg = s.committed_inst.operands[0].value
     ctx_reg = s.committed_inst.operands[1].value if len(s.committed_inst.operands) > 1 else None
     for ite in cer:
-        if ite.cpu.pc - code_base != xpac_off:
+        if ite.cpu.pc - code_base != auth_off:
             continue
         depth = ite.metadata.speculation_nesting
         if spec is None or depth < spec:
@@ -524,7 +573,7 @@ def _resolve_mte(s: MteSealing, cer, layout) -> Tuple[Optional[int], List[int], 
     if cer and s.access_inst is not None:
         access_off, code_base = layout.instruction_address[s.access_inst], cer[0].cpu.pc
         for ite in cer:
-            if not ite.metadata.has_memory_access or ite.cpu.pc - code_base != access_off:
+            if not ite.metadata.has_sandbox_memory_access or ite.cpu.pc - code_base != access_off:
                 continue
             nest = ite.metadata.speculation_nesting
             ma = ite.metadata.memory_access
@@ -559,7 +608,7 @@ def _resolve_canon(s: "CanonSealing", cer, layout) -> Tuple[Optional[int], List[
     if cer and s.access_inst is not None:
         access_off, code_base = layout.instruction_address[s.access_inst], cer[0].cpu.pc
         for ite in cer:
-            if not ite.metadata.has_memory_access or ite.cpu.pc - code_base != access_off:
+            if not ite.metadata.has_sandbox_memory_access or ite.cpu.pc - code_base != access_off:
                 continue
             nest = ite.metadata.speculation_nesting
             if spec is None or nest < spec:
@@ -620,18 +669,6 @@ class SealedTestCase:
     def object_code(self) -> bytes:
         """The assembled skeleton (placeholder slots, no resolved values); input-independent."""
         return self._assemble(self._tc)
-
-    @property
-    def ce_object_code(self) -> bytes:
-        """The skeleton with each value seal's slot filled with its CE lowering (real instructions the
-        CE emulates and concretizes against the live state): one faithful genuine-equivalent program,
-        input-independent, traced once per input. Sandbox clamps are already in the skeleton."""
-        value_sealings = [s for s in self._sealings() if not isinstance(s, SandboxSealing)]
-        offsets = _slot_offsets(self._tc, self._layout, value_sealings)
-        relocs = [Relocation(off, _encode(inst))
-                  for s in value_sealings
-                  for off, inst in zip(offsets[id(s)], s.ce_lowering())]
-        return apply_relocations(self.object_code, relocs)
 
     def _insert_slots(self, data_sites: List) -> None:
         """Insert this concern's value sealings around each data-access site."""
@@ -697,10 +734,11 @@ class MteSealedTestCase(SealedTestCase):
         super().__init__(sealed_tc, trace_fn, assemble, sandbox_sealings, data_sites)
 
     def _insert_slots(self, data_sites) -> None:
-        for inst, bb, mem_reg, offset_subs, _ in data_sites:
-            s = MteSealing(mem_reg, inst)
+        for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
+            s = MteSealing(mem_reg, inst, base_preserved)
             self._mte.append(s)
-            _insert(bb, inst, offset_subs, s.slot_insts)   # cancel offset, then retag onto the cell tag
+            _insert(bb, inst, offset_subs, s.slot_insts[:s.n_before])   # cancel offset, then retag
+            _place_after(bb, inst, s.slot_insts[s.n_before:])           # ADDG the complement back to the cell tag
 
     def _sealings(self) -> List[Sealing]:
         return self._sandbox + self._mte
@@ -833,13 +871,13 @@ class MtePacSealedTestCase(SealedTestCase):
     def _insert_slots(self, data_sites) -> None:
         for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
             p = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc, base_preserved)
-            m = MteSealing(mem_reg, inst)
+            m = MteSealing(mem_reg, inst, base_preserved)
             self._pac.append(p)
             self._mte.append(m)
             # before: auth the base, cancel the offset, retag onto the cell tag (retag closest to the access)
-            _insert(bb, inst, p.slot_insts[:p.n_before], offset_subs, m.slot_insts)
-            # after: the PAC XPAC re-converges the decoy.
-            _place_after(bb, inst, p.slot_insts[p.n_before:])
+            _insert(bb, inst, p.slot_insts[:p.n_before], offset_subs, m.slot_insts[:m.n_before])
+            # after: MTE ADDG re-converges to the cell tag, then PAC XPAC strips — both re-converge the decoy.
+            _place_after(bb, inst, m.slot_insts[m.n_before:] + p.slot_insts[p.n_before:])
         _seal_auths(self._tc, self._enc, self._auth_specs, self._pac)
 
     def _sealings(self) -> List[Sealing]:
@@ -855,12 +893,16 @@ class MtePacSealedTestCase(SealedTestCase):
         object_code = self._assemble(self._tc)
         offsets = _slot_offsets(self._tc, self._layout, self._pac + self._mte)
 
-        # Pass B (genuine-tag): re-trace with the genuine MTE retags spliced in (PAC left as the
-        # placeholder XPAC, which equals a passing AUT*, so nothing FPACs). Now every AUT*'s context
-        # register carries its real tag, so PAC signs over the true genuine (pointer, context).
-        mte_reloc = [Relocation(off, _encode(i))
-                     for r in mte for off, i in zip(offsets[id(r.sealing)], r.sealing.seal(r.value, None))]
-        cer_b = self._trace_bytes_fn(apply_relocations(object_code, mte_reloc), inp)
+        # Pass B (genuine-tag): re-trace with the genuine MTE retags AND the PAC canonicalization (XPAC
+        # at each auth/revert) spliced in. The inert all-NOP placeholder would leave the MTE tag on the
+        # pointer and context; the genuine render strips it (the AUT*/revert XPAC), so without this a
+        # later AUT* signs over an MTE-tagged pointer that the genuine trace canonicalizes — a wrong
+        # signature (architectural FPAC). Both splices are signature-independent, so no sigs are needed.
+        mte_reloc = [Relocation(off, _encode(i)) for r in mte
+                     for off, i in zip(offsets[id(r.sealing)], r.sealing.seal(r.value, None, r.value))]
+        pac_reloc = [Relocation(off, _encode(i)) for s in self._pac
+                     for off, i in zip(offsets[id(s)], s.canonicalize_slot())]
+        cer_b = self._trace_bytes_fn(apply_relocations(object_code, mte_reloc + pac_reloc), inp)
         keys = _input_pac_keys(inp)
         pac = [_Resolved(s, *_resolve_pac(s, cer_b, self._layout, self._signer, keys, self._salt))
                for s in self._pac]

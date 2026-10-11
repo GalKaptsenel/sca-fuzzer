@@ -435,7 +435,7 @@ static bool run_ce_simple(
 static instr_trace_entry_t *find_mem_entry(ce_result_t *res, int n) {
     int found = 0;
     for (int i = 0; i < res->n_entries; ++i) {
-        if (res->entries[i].metadata.has_memory_access) {
+        if (res->entries[i].metadata.has_sandbox_memory_access) {
             if (found == n) return &res->entries[i];
             ++found;
         }
@@ -447,7 +447,7 @@ static instr_trace_entry_t *find_mem_entry(ce_result_t *res, int n) {
 static int count_mem_entries(const ce_result_t *res) {
     int c = 0;
     for (int i = 0; i < res->n_entries; ++i) {
-        if (res->entries[i].metadata.has_memory_access) ++c;
+        if (res->entries[i].metadata.has_sandbox_memory_access) ++c;
     }
     return c;
 }
@@ -464,7 +464,7 @@ static int count_spec_entries(const ce_result_t *res) {
 /* Helper: does any memory access in the trace touch effective address `ea`? */
 static int mem_ea_present(const ce_result_t *res, uint64_t ea) {
     for (int i = 0; i < res->n_entries; ++i) {
-        if (res->entries[i].metadata.has_memory_access &&
+        if (res->entries[i].metadata.has_sandbox_memory_access &&
             res->entries[i].metadata.memory_access.effective_address == ea) return 1;
     }
     return 0;
@@ -890,12 +890,12 @@ static void test_integration_store_then_load(void) {
     EXPECT_EQ(ma1->metadata.memory_access.before,     (uint64_t)0);
 }
 
-/* ---- GROUP 10: NOP has has_memory_access=0 ----------------------------- */
+/* ---- GROUP 10: NOP has has_sandbox_memory_access=0 ----------------------------- */
 
 static void test_integration_nop_no_mem(void) {
     /*
      * Code: NOP; LDR X0,[X29]
-     * Two trace entries total: NOP entry (has_memory_access=0) and LDR entry (=1).
+     * Two trace entries total: NOP entry (has_sandbox_memory_access=0) and LDR entry (=1).
      */
     uint32_t code[] = { enc_nop(), enc_ldr_reg(0, 29) };
 
@@ -914,11 +914,11 @@ static void test_integration_nop_no_mem(void) {
     /* Expect at least 2 trace entries total (NOP + LDR) */
     EXPECT(res.n_entries >= 2);
 
-    /* Find NOP entry: first entry with has_memory_access==0 */
+    /* Find NOP entry: first entry with has_sandbox_memory_access==0 */
     int nop_idx = -1, ldr_idx = -1;
     for (int i = 0; i < res.n_entries; ++i) {
-        if (!res.entries[i].metadata.has_memory_access && nop_idx < 0) nop_idx = i;
-        if ( res.entries[i].metadata.has_memory_access && ldr_idx < 0) ldr_idx = i;
+        if (!res.entries[i].metadata.has_sandbox_memory_access && nop_idx < 0) nop_idx = i;
+        if ( res.entries[i].metadata.has_sandbox_memory_access && ldr_idx < 0) ldr_idx = i;
     }
 
     EXPECT(nop_idx >= 0);
@@ -2305,7 +2305,7 @@ static void test_integration_cond_nesting_cap(void) {
 static int saw_load_value(ce_result_t *res, uint64_t val) {
     for (int i = 0; i < res->n_entries; ++i) {
         instr_trace_entry_t *e = &res->entries[i];
-        if (e->metadata.has_memory_access && !e->metadata.memory_access.is_write
+        if (e->metadata.has_sandbox_memory_access && !e->metadata.memory_access.is_write
             && e->metadata.memory_access.before == val) return 1;
     }
     return 0;
@@ -2313,7 +2313,7 @@ static int saw_load_value(ce_result_t *res, uint64_t val) {
 static int saw_spec_load_value(ce_result_t *res, uint64_t val) {
     for (int i = 0; i < res->n_entries; ++i) {
         instr_trace_entry_t *e = &res->entries[i];
-        if (e->metadata.has_memory_access && !e->metadata.memory_access.is_write
+        if (e->metadata.has_sandbox_memory_access && !e->metadata.memory_access.is_write
             && e->metadata.speculation_nesting > 0
             && e->metadata.memory_access.before == val) return 1;
     }
@@ -2337,7 +2337,7 @@ static int saw_spec_reg_value(ce_result_t *res, int reg, uint64_t val) {
 static int count_loads(ce_result_t *res) {
     int c = 0;
     for (int i = 0; i < res->n_entries; ++i)
-        if (res->entries[i].metadata.has_memory_access && !res->entries[i].metadata.memory_access.is_write)
+        if (res->entries[i].metadata.has_sandbox_memory_access && !res->entries[i].metadata.memory_access.is_write)
             ++c;
     return c;
 }
@@ -2408,7 +2408,7 @@ static int count_spec_load_value(ce_result_t *res, uint64_t val) {
     int c = 0;
     for (int i = 0; i < res->n_entries; ++i) {
         instr_trace_entry_t *e = &res->entries[i];
-        if (e->metadata.has_memory_access && !e->metadata.memory_access.is_write
+        if (e->metadata.has_sandbox_memory_access && !e->metadata.memory_access.is_write
             && e->metadata.speculation_nesting > 0
             && e->metadata.memory_access.before == val) ++c;
     }
@@ -2889,7 +2889,7 @@ static void test_integration_cond_bpas_store_encloses_branch(void) {
         int found = 0;
         for (int i = 0; i < r.n_entries; ++i) {
             instr_trace_entry_t *e = &r.entries[i];
-            if (e->metadata.has_memory_access && !e->metadata.memory_access.is_write
+            if (e->metadata.has_sandbox_memory_access && !e->metadata.memory_access.is_write
                 && e->metadata.speculation_nesting == 2
                 && e->metadata.memory_access.before == ORIG) found = 1;
         }

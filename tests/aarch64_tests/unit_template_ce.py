@@ -68,7 +68,7 @@ class TemplateCETest(unittest.TestCase):
 
     @staticmethod
     def _mem_count(trace):
-        return sum(1 for ite in trace if ite.metadata.has_memory_access)
+        return sum(1 for ite in trace if ite.metadata.has_sandbox_memory_access)
 
     def test_fixed_loads_are_the_only_memory_accesses(self):
         from src.aarch64.template import Template, Mem, specs

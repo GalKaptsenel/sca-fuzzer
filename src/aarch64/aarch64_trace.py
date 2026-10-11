@@ -103,7 +103,7 @@ class InstrMetadata:
     def __init__(self, buf: memoryview, offset: int):
         off = offset
 
-        (self.instr_index, self.has_memory_access,
+        (self.instr_index, self.has_sandbox_memory_access,
          self.speculation_nesting, self.is_pair, self.window_id) = self._STRUCT.unpack_from(buf, offset)
         off += self._STRUCT.size
 
@@ -118,14 +118,14 @@ class InstrMetadata:
 
     def accesses(self):
         """The memory accesses this instruction performs (0, 1, or 2 for LDP/STP)."""
-        if not self.has_memory_access:
+        if not self.has_sandbox_memory_access:
             return []
         return [self.memory_access, self.memory_access2] if self.is_pair else [self.memory_access]
 
     def __repr__(self):
         return (f"<InstrMetadata idx={self.instr_index} "
                 f"speculation_nesting={self.speculation_nesting} "
-                f"has_mem={self.has_memory_access} pair={self.is_pair} "
+                f"has_mem={self.has_sandbox_memory_access} pair={self.is_pair} "
                 f"{self.memory_access}>")
 
     def pretty_print(self, indent=0):
@@ -133,7 +133,7 @@ class InstrMetadata:
         print(f"{prefix}InstrMetadata:")
         print(f"{prefix}  Index: {self.instr_index}")
         print(f"{prefix}  Speculation nesting: {self.speculation_nesting}")
-        print(f"{prefix}  Has memory access: {self.has_memory_access}")
+        print(f"{prefix}  Has memory access: {self.has_sandbox_memory_access}")
         for acc in self.accesses():
             acc.pretty_print(indent + 2)
 

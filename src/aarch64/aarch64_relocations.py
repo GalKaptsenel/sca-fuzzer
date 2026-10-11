@@ -66,6 +66,17 @@ def addg_word(rd: int, tag_delta: int) -> int:
     return 0x91800000 | ((tag_delta & 0xF) << 10) | ((rd & 0x1F) << 5) | (rd & 0x1F)
 
 
+_PAC_OPCODES = {
+    "pacia": 0xDAC10000, "pacib": 0xDAC10400, "pacda": 0xDAC10800, "pacdb": 0xDAC10C00,
+    "paciza": 0xDAC123E0, "pacizb": 0xDAC127E0, "pacdza": 0xDAC12BE0, "pacdzb": 0xDAC12FE0,
+}
+
+
+def pac_word(mnemonic: str, rd: int, rn: int) -> int:
+    """PAC* over Rd with Rn as context (rn=31 for the Z-variants, which take no context)."""
+    return _PAC_OPCODES[mnemonic] | ((rn & 0x1F) << 5) | (rd & 0x1F)
+
+
 def is_addg(word: int) -> bool:
     return ((word >> 22) & 0x3FF) == _ADDG_ID
 
@@ -108,18 +119,6 @@ def eor_imm_word(rd: int, rn: int, value: int) -> int:
     n_bit, immr, imms = encode_bitmask_imm64(value)
     return (0xD2000000 | (n_bit << 22) | (immr << 16) | (imms << 10)
             | ((rn & 0x1F) << 5) | (rd & 0x1F))
-
-
-# PAC* sign base opcodes (Rd=Rn=0); the Z-variants bake Rn=31, so OR-ing rn=31 there is a no-op.
-_PAC_OPCODES = {
-    "pacia": 0xDAC10000, "pacib": 0xDAC10400, "pacda": 0xDAC10800, "pacdb": 0xDAC10C00,
-    "paciza": 0xDAC123E0, "pacizb": 0xDAC127E0, "pacdza": 0xDAC12BE0, "pacdzb": 0xDAC12FE0,
-}
-
-
-def pac_word(mnemonic: str, rd: int, rn: int) -> int:
-    """PAC* over Rd with Rn as context (rn=31 for the Z-variants, which take no context)."""
-    return _PAC_OPCODES[mnemonic] | ((rn & 0x1F) << 5) | (rd & 0x1F)
 
 
 # AUT* base opcodes (Rd=Rn=0); the Z-variants bake Rn=31, so OR-ing rn=31 there is a no-op.

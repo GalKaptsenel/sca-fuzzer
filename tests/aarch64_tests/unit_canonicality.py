@@ -32,7 +32,7 @@ def _asm_word(text: str) -> int:
 class _Ite:
     def __init__(self, pc, nesting, has_mem):
         self.cpu = types.SimpleNamespace(pc=pc)
-        self.metadata = types.SimpleNamespace(speculation_nesting=nesting, has_memory_access=has_mem)
+        self.metadata = types.SimpleNamespace(speculation_nesting=nesting, has_sandbox_memory_access=has_mem)
 
 
 class BitmaskEncoderTest(unittest.TestCase):

@@ -24,8 +24,12 @@ each a register-only op:
 | Sealing | placeholder `seal(None)` | `seal(value)` |
 |---------|--------------------------|---------------|
 | `SandboxSealing` | `AND mask ; ADD x29` | same (the clamp is value-independent) |
-| `PacSealing` | `NOP ; XPAC*` (strip → canonical) | `MOVK sig ; AUT*` (or the strip, with prob `_STRIP_PROB`) |
+| `PacSealing` | `NOP ; NOP` (inert — the pointer stays the canonical clamped base) | `MOVK sig ; AUT*` (or the `XPAC` strip, with prob `pac_strip_prob`) |
 | `MteSealing` | `NOP` | `ADDG reg, reg, #0, #delta` (retag the pointer to the cell tag) |
+
+The placeholder emits no `AUT*`/`XPAC`/`PAC*` — it is the inert, arch-safe baseline the contract
+executor traces. The signature is precomputed by the resolver and loaded with `MOVK`s; `PAC*` is a
+generation-only instruction and never appears in the instrumentation.
 
 **Only `SandboxSealing` clamps memory** — PAC/MTE never sandbox. Within one site the clamp must come
 **first**: its `AND` mask clears the top bits where the PAC signature lives, so a clamp after an auth
@@ -46,6 +50,11 @@ index/displacement cancellation.
   every primitive:** the CE models no MTE tag-check fault and applies an *after-access tag correction*
   (`contract_executor/simulation_hook.c`), so the placeholder trace already carries each accessed
   pointer's genuine allocation tag at every PAC auth — no genuine-tag re-trace is needed.
+- **`ResolvedSealingTestCase.emul_table`** turns that single placeholder trace into the genuine
+  contract: for each value-seal slot position it carries the *exact* genuine instruction
+  (`MOVK`/`AUT*`/`XPAC`/`ADDG`), which the CE materializes over the NOP placeholder as it reaches the
+  offset. `placeholder + emul_table` is byte-for-byte the genuine render, so no separate genuine trace
+  is assembled; the CE needs no knowledge of PAC/MTE.
 - **`ResolvedSealingTestCase.genuine()`** seals every slot with its correct value. **`.decoy()`**
   perturbs a random non-empty subset of the *speculative* (never-architectural) slots with a failing
   value and seals the correct value everywhere else. The `Sandbox` clamp is never perturbed; MTE is

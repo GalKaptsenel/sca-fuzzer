@@ -552,7 +552,7 @@ class FuzzerGeneric(Fuzzer):
             def mem_accesses(cer):
                 acc = []
                 for ite in cer:
-                    if ite.metadata.has_memory_access:
+                    if ite.metadata.has_sandbox_memory_access:
                         ma = ite.metadata.memory_access
                         acc.append((ite.cpu.pc, ma.effective_address, ma.element_size,
                                     'R' if not ma.is_write else 'W',

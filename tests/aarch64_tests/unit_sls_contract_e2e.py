@@ -83,7 +83,7 @@ class SlsContractE2ETest(unittest.TestCase):
                     for e in trace(tc_bytes, mem, regs, SLS, 4):
                         if e.metadata.speculation_nesting > 0:
                             cls.sls_spec += 1
-                            if e.metadata.has_memory_access:
+                            if e.metadata.has_sandbox_memory_access:
                                 cls.sls_spec_mem += 1
 
     def test_seq_never_speculates(self):

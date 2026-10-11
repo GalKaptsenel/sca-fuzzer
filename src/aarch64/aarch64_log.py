@@ -33,7 +33,7 @@ def _fmt_ce_entry(ite, code_base: int) -> str:
             if 0 <= n <= 30:
                 reg_parts.append(f"x{n}={ite.cpu.gpr[n]:016x}")
     ea = (f"  EA=0x{ite.metadata.memory_access.effective_address:016x}"
-          if ite.metadata.has_memory_access else "")
+          if ite.metadata.has_sandbox_memory_access else "")
     return f"[{nest}]+{offset:04x}  {disas:<28}  {'  '.join(reg_parts)}{ea}"
 
 

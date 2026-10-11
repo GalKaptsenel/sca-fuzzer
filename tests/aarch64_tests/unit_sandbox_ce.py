@@ -60,7 +60,7 @@ class SandboxStaysInRegionTest(unittest.TestCase):
                 ex = cls._ContractExecution(tc_bytes, mem, regs, cls._SimArch.RVZR_ARCH_AARCH64, 0, 0,
                                             req_mem_base_virt=BASE, execution_clauses=cls._SEQ)
                 for ite in ce.run(ex):
-                    if ite.metadata.has_memory_access:
+                    if ite.metadata.has_sandbox_memory_access:
                         off = ite.metadata.memory_access.effective_address - BASE
                         cls.offsets.append(off)
                         if not (0 <= off <= MASK):
@@ -102,7 +102,7 @@ class SandboxOffsetInvariantTest(unittest.TestCase):
             ex = ContractExecution(tc, mem, bytes(regs), SimArch.RVZR_ARCH_AARCH64, 0, 0,
                                    req_mem_base_virt=BASE, execution_clauses=ExecutionClause.SEQ)
             ea = next(ite.metadata.memory_access.effective_address
-                      for ite in ce.run(ex) if ite.metadata.has_memory_access)
+                      for ite in ce.run(ex) if ite.metadata.has_sandbox_memory_access)
             self.assertEqual(ea - BASE, R & MASK, f"x0={R:#x}")
 
 

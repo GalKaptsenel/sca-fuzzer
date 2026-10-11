@@ -89,7 +89,7 @@ def main(vdir):
     def split_lines(c):
         arch, spec = set(), set()
         for ite in c:
-            if ite.metadata.has_memory_access:
+            if ite.metadata.has_sandbox_memory_access:
                 line = ((ite.metadata.memory_access.effective_address - ite.cpu.gpr[29]) // 64) % 64
                 (arch if ite.metadata.speculation_nesting == 0 else spec).add(line)
         return arch, spec

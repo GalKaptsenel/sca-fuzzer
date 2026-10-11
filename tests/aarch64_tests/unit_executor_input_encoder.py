@@ -252,9 +252,10 @@ class InputWireRoundTrip(unittest.TestCase):
             self.assertEqual(back.serialize(), ei.serialize())
 
     def test_contract_execution_encode_envelope(self):
-        """ContractExecution.encode emits an 18*u64 envelope + code + an input initialization whose
-        memory == main‖faulty and gpr round-trip; this is what the CE binary parses. The envelope's
-        trailing sizes are code_size (env[14]), data_size (env[15]), input_init_size (env[16])."""
+        """ContractExecution.encode emits a 19*u64 envelope + code + an input initialization + the
+        instruction-emulation table; memory == main‖faulty and gpr round-trip; this is what the CE
+        binary parses. The envelope's trailing sizes are code_size (env[14]), data_size (env[15]),
+        input_init_size (env[16]), emul_table_size (env[17]); env[18] is reserved."""
         from src.aarch64.aarch64_contract_executor import ContractExecution, SimArch, RVZRCE_MAGIC
         memory = bytes((i % 256 for i in range(MAIN_AREA_SIZE + FAULTY_AREA_SIZE)))  # 8192
         registers = bytes((i % 251 for i in range(GPR_SUBREGION_SIZE)))              # 64
@@ -263,18 +264,33 @@ class InputWireRoundTrip(unittest.TestCase):
                                req_mem_base_virt=0x1000)
         msg = ce.encode()
 
-        env = struct.unpack_from("<18Q", msg, 0)
+        env = struct.unpack_from("<19Q", msg, 0)
         self.assertEqual(env[0], RVZRCE_MAGIC)        # magic
-        code_size, data_size, init_size = env[14], env[15], env[16]
+        code_size, data_size, init_size, emul_size = env[14], env[15], env[16], env[17]
         self.assertEqual(code_size, len(code))
         self.assertEqual(data_size, 0)                # no dispatch-table data trailing the code here
-        self.assertEqual(len(msg), 18 * 8 + code_size + init_size)
-        self.assertEqual(msg[18 * 8:18 * 8 + code_size], code)
+        self.assertEqual(emul_size, 0)                # no emulation table on this execution
+        self.assertEqual(len(msg), 19 * 8 + code_size + init_size + emul_size)
+        self.assertEqual(msg[19 * 8:19 * 8 + code_size], code)
 
-        init = msg[18 * 8 + code_size:]
+        init = msg[19 * 8 + code_size:len(msg) - emul_size]
         _, sections = _parse(init)
         self.assertEqual(sections[wire.SEC_MEMORY_MAIN] + sections[wire.SEC_MEMORY_FAULTY], memory)
         self.assertEqual(sections[wire.SEC_GPR], registers[:GPR_SUBREGION_SIZE])
+
+    def test_contract_execution_encode_emul_table_trails(self):
+        """A non-empty emul_table is reported in env[17] and appended verbatim after the input init."""
+        from src.aarch64.aarch64_contract_executor import ContractExecution, SimArch
+        memory = bytes((i % 256 for i in range(MAIN_AREA_SIZE + FAULTY_AREA_SIZE)))
+        registers = bytes((i % 251 for i in range(GPR_SUBREGION_SIZE)))
+        code = b"\x1f\x20\x03\xd5" * 2                                               # two NOPs
+        emul = struct.pack("<2I", 4, 0xd503201f)                                     # emulate a NOP at off 4
+        ce = ContractExecution(code, memory, registers, SimArch.RVZR_ARCH_AARCH64, 0, 0,
+                               req_mem_base_virt=0x1000, emul_table=emul)
+        msg = ce.encode()
+        env = struct.unpack_from("<19Q", msg, 0)
+        self.assertEqual(env[17], len(emul))          # emul_table_size
+        self.assertEqual(msg[len(msg) - len(emul):], emul)
 
 
 if __name__ == "__main__":

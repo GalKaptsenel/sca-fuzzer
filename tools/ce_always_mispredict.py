@@ -34,7 +34,7 @@ def sets(tr):
     arch, spec = set(), set()
     for ite in tr:
         m = ite.metadata
-        if m.has_memory_access:
+        if m.has_sandbox_memory_access:
             s = ((m.memory_access.effective_address - ite.cpu.gpr[29]) // 64) % 64
             (arch if m.speculation_nesting == 0 else spec).add(s)
     return sorted(arch), sorted(spec)

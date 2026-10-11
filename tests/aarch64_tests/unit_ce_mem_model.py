@@ -84,7 +84,7 @@ def _cache_set_seq():
     t = _trace_metadata()
     x29 = t[0].cpu.gpr[29]
     return [((a.effective_address - x29) // 64) % 64
-            for ite in t if ite.metadata.has_memory_access
+            for ite in t if ite.metadata.has_sandbox_memory_access
             for a in ite.metadata.accesses()]
 
 
@@ -93,7 +93,7 @@ class CEMemModelTest(unittest.TestCase):
 
     def test_pair_records_two_adjacent_elements(self):
         t = _trace_metadata()
-        pairs = [ite.metadata for ite in t if ite.metadata.has_memory_access and ite.metadata.is_pair]
+        pairs = [ite.metadata for ite in t if ite.metadata.has_sandbox_memory_access and ite.metadata.is_pair]
         self.assertEqual(len(pairs), 2, "expected LDP and STP to be flagged as pairs")
         for m in pairs:
             self.assertEqual(len(m.accesses()), 2, "a pair must record two accesses")

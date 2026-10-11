@@ -1,13 +1,14 @@
 """Device-free harness to compare two contract-executor traces field by field.
 
 Drives the contract_executor binary directly (no /dev/executor) with a fixed sandbox base and a
-fixed PAC profile, so a sealed test case can be traced in its CE lowering and in a relocated form
-and the two traces compared. The redesign's property — one CE trace equals the genuine trace in
-every consumed field — is asserted via equal ctraces and taints.
+fixed PAC profile, so a sealed test case can be traced under its emulation table and in a relocated
+form and the two compared. The redesign's property — the placeholder under its emulation table IS
+the genuine render — is asserted both as byte-identical machine code and as equal ctraces and taints.
 
 Importable helper (no test cases here), reusable by the a-priori equivalence and safety tests.
 """
 import os
+import struct
 import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -87,7 +88,8 @@ class CESession:
     def _pac_profile(self):
         return PROFILE if "pac" in self._primitives else None
 
-    def trace_bytes(self, code: bytes, inp, nesting: int = 8, data_size: Optional[int] = None):
+    def trace_bytes(self, code: bytes, inp, nesting: int = 8, data_size: Optional[int] = None,
+                    emul_table: bytes = b""):
         memory, regs = _ce_memory_regs(inp)
         execution = ContractExecution(
             code, memory, regs, SimArch.RVZR_ARCH_AARCH64, nesting, 0,
@@ -95,7 +97,8 @@ class CESession:
             branch_predictor=BranchPredictor.NONE,
             mte_tags=self._mte_tags(), pac_keys=self._pac_keys(inp),
             pac_profile=self._pac_profile(),
-            data_size=self._data_size if data_size is None else data_size)
+            data_size=self._data_size if data_size is None else data_size,
+            emul_table=emul_table)
         return self._svc.run(execution)
 
     def trace_tc(self, tc, inp):
@@ -107,6 +110,17 @@ class CESession:
                            trace_bytes_fn=self.trace_bytes)
 
 
+def materialize_emul_table(placeholder: bytes, emul_table: bytes) -> bytes:
+    """What the CE traces: the placeholder with each emulation entry's instruction word written at its
+    code offset. The CE does this write per entry as it reaches the offset; done up front in Python it
+    is the whole genuine machine code, so a test can compare it byte-for-byte to the relocated render."""
+    code = bytearray(placeholder)
+    for i in range(0, len(emul_table), 8):
+        off, word = struct.unpack_from("<2I", emul_table, i)
+        code[off:off + 4] = struct.pack("<I", word)
+    return bytes(code)
+
+
 def entry_fields(ite) -> Tuple:
     """The contract-observable state of one trace entry: PC-offset, encoding, all registers, flags,
     speculation nesting, and every memory access (address, size, direction, value, tag)."""
@@ -114,7 +128,7 @@ def entry_fields(ite) -> Tuple:
     accesses = tuple((a.effective_address, a.element_size, a.is_write, a.is_atomic, a.after,
                       a.allocation_tag) for a in ite.metadata.accesses())
     return (c.encoding, tuple(c.gpr), c.sp, c.nzcv, ite.metadata.speculation_nesting,
-            ite.metadata.has_memory_access, accesses)
+            ite.metadata.has_sandbox_memory_access, accesses)
 
 
 def diff_traces(a, b) -> List[str]:

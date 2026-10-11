@@ -79,7 +79,7 @@ class TestMteTagStoreEffect(unittest.TestCase):
         ns = types.SimpleNamespace
         regs = list(gpr) + [0] * (31 - len(gpr))
         return ns(cpu=ns(pc=0, encoding=encoding, gpr=regs, sp=0),
-                  metadata=ns(has_memory_access=True,
+                  metadata=ns(has_sandbox_memory_access=True,
                               memory_access=ns(effective_address=0x4000_0000)))
 
     def test_non_store_is_none(self):

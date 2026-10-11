@@ -54,7 +54,7 @@ def main(VD):
         arch, spec, seen = [], [], set()
         for ite in c:
             m = ite.metadata
-            if not m.has_memory_access:
+            if not m.has_sandbox_memory_access:
                 continue
             ea = m.memory_access.effective_address; off = (ea - ite.cpu.gpr[29]) & 0xffffffff
             cs = (off // 64) % 64

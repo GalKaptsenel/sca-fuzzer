@@ -356,10 +356,9 @@ static instr_trace_entry_t* log_sim_state(struct simulation_state* sim_state) {
 	entry->cpu.sp = sim_state->cpu_state.sp;
 	entry->cpu.pc = sim_state->cpu_state.pc;
 	entry->cpu.nzcv = sim_state->cpu_state.nzcv;
-	/* Read from sim_input.code (original, never patched during hook execution)
-	 * rather than from the live sim_code.code, which pac_sign_hook / auth_verify_hook
-	 * may have already NOP'd.  sim_input.code is not updated until after all hooks
-	 * return (base_hook_c copies sim_code → sim_input after the hook loop). */
+	/* Read the logged encoding from sim_input.code rather than the live sim_code.code, which
+	 * pac_sign_hook / auth_verify_hook may have already NOP'd. The instruction emulator writes the
+	 * genuine word into sim_input.code too, so the logged encoding is the emulated instruction. */
 	uintptr_t pc_offset = sim_state->cpu_state.pc - (uintptr_t)simulation.sim_code.code;
 	entry->cpu.encoding = *(uint32_t*)(simulation.sim_input.code + pc_offset);
 	entry->cpu.extra_data_size = 0;
@@ -376,8 +375,10 @@ static instr_trace_entry_t* log_sim_state(struct simulation_state* sim_state) {
 	 * by ADR+LDRSW): it is an ordinary memory access whose cache set is fixed by the table's page offset
 	 * (base-independent, so it matches the kernel) and varies with the input-hashed index — a real
 	 * observation, not to be hidden. */
-	int is_contract_access = mi.is_mem;
-	entry->metadata.has_memory_access = is_contract_access ? 1 : 0;
+	/* MTE tag-memory ops (LDG/STG family) touch separate tag storage, not the data cache, so they
+	 * are not sandbox (data) accesses and do not belong in the contract footprint. */
+	int is_contract_access = mi.is_mem && !mte_is_mem_tag_access(entry->cpu.encoding);
+	entry->metadata.has_sandbox_memory_access = is_contract_access ? 1 : 0;
 	entry->metadata.is_pair = (is_contract_access && mi.is_pair) ? 1 : 0;
 
 	if(is_contract_access) {

@@ -1,7 +1,7 @@
-"""A-priori equivalence property: one CE trace of a sealed test case's CE lowering (real
-instructions the CE emulates and concretizes) equals the genuine relocated trace — equal
-ctrace, equal taint, and no divergence outside the seal slots. Device-free: drives the CE binary
-directly. The redesign reuses this single trace instead of a separate genuine trace.
+"""A-priori equivalence property: the placeholder test case under its emulation table IS the genuine
+render — byte-identical machine code, hence identical ctrace and taint — for each sealing primitive.
+Device-free: drives the CE binary directly. The redesign reuses this single trace instead of a
+separate genuine trace.
 """
 import copy
 import os
@@ -13,7 +13,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from src.config import CONF
 from src.aarch64.aarch64_relocations import apply_relocations
 from src.aarch64.aarch64_trace import compute_ctrace, compute_taint
-from src.aarch64.seal.sealer import _slot_offsets
 import tests.aarch64_tests.ce_equivalence as eq
 
 _ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
@@ -23,66 +22,177 @@ _MAX_TEST_CASES = 64
 
 
 @unittest.skipUnless(eq.ce_available(), "needs the contract-executor binary")
-class TraceEquivalencePacTest(unittest.TestCase):
+class _EquivalenceBase:
+    CONFIG = None
+    PRIMITIVES = None
+    VA_SIZE = None   # set for canon/branch-target (device-free; otherwise taken from the device)
+    EXTRA_CONF = {}
+    PROFILE = None   # override the shared PAC profile (signer + CE) for this class; None keeps default
+    PROGRAM_SEED = _PROGRAM_SEED
+    INPUT_SEED = _INPUT_SEED
 
     @classmethod
     def setUpClass(cls):
         from src.isa_loader import InstructionSet
         from src.aarch64.aarch64_generator import Aarch64RandomGenerator
         cls._saved_conf = copy.deepcopy(CONF._borg_shared_state)
-        CONF.load(os.path.join(_ROOT, "config_pac.yml"))
+        CONF.load(os.path.join(_ROOT, cls.CONFIG))
+        if cls.VA_SIZE is not None:
+            CONF.va_size = cls.VA_SIZE
+        for k, v in cls.EXTRA_CONF.items():
+            setattr(CONF, k, v)
+        cls._saved_profile = eq.PROFILE
+        if cls.PROFILE is not None:
+            eq.PROFILE = cls.PROFILE
         isa = InstructionSet(os.path.join(_ROOT, "base.json"), CONF.instruction_categories)
-        cls.gen = Aarch64RandomGenerator(isa, _PROGRAM_SEED)
-        cls.sess = eq.CESession({"pac"})
+        cls.gen = Aarch64RandomGenerator(isa, cls.PROGRAM_SEED)
+        cls.sess = eq.CESession(cls.PRIMITIVES)
         cls.sealer = cls.sess.sealer(cls.gen)
         cls.tmp = tempfile.mkdtemp()
-        cls._seal_a_pac_test_case()
+        cls._seal_a_test_case()
 
     @classmethod
     def tearDownClass(cls):
         cls.sess.stop()
+        eq.PROFILE = cls._saved_profile
         CONF._borg_shared_state.clear()
         CONF._borg_shared_state.update(cls._saved_conf)
 
     @classmethod
-    def _seal_a_pac_test_case(cls):
+    def _has_seals(cls, sealed, resolved):
+        return bool(resolved.emul_table)
+
+    @classmethod
+    def _respawn(cls):
+        cls.sess.stop()
+        cls.sess = eq.CESession(cls.PRIMITIVES)
+        cls.sealer = cls.sess.sealer(cls.gen)
+
+    @classmethod
+    def _seal_a_test_case(cls):
+        from src import factory
+        probe = factory.get_input_generator(cls.INPUT_SEED).generate(1)[0]
         for _ in range(_MAX_TEST_CASES):
             tc = cls.gen.create_test_case(os.path.join(cls.tmp, "t.asm"), disable_assembler=True)
             cls.sess.set_data_size(eq._dispatch_data_size(tc))
             sealed = cls.sealer.seal(tc)
-            if sealed._pac:
+            # A few randomly-generated indirect-call test cases make an ARCHITECTURAL out-of-sandbox
+            # data access, which the CE rejects by design (a pre-existing sandbox-completeness limit for
+            # indirect calls, orthogonal to sealing). Detect it by tracing the bare placeholder — no
+            # emulation, no resolution — so the only thing that can fail is the CE being unable to trace
+            # the test case at all; such a test case is skipped. Resolution and the emulated-vs-genuine
+            # comparison below run unguarded, so a sealing bug surfaces instead of being masked.
+            try:
+                cls.sess.trace_bytes(sealed.object_code, probe)
+            except RuntimeError:
+                cls._respawn()
+                continue
+            resolved = sealed.resolve(probe)
+            if cls._has_seals(sealed, resolved):
                 cls.sealed = sealed
                 return
-        raise AssertionError(f"no PAC-sealed test case in {_MAX_TEST_CASES} (seed {_PROGRAM_SEED})")
+        raise AssertionError(f"no CE-traceable sealed test case in {_MAX_TEST_CASES} "
+                             f"(seed {cls.PROGRAM_SEED})")
 
-    def _slot_offsets(self):
-        offs = set()
-        for s, o in _slot_offsets(self.sealed._tc, self.sealed._layout, self.sealed._pac).items():
-            offs |= set(o)
-        return offs
-
-    def test_ce_lowering_matches_genuine_on_consumed_fields(self):
+    def test_emulated_placeholder_matches_genuine(self):
         from src import factory
-        ce_code = self.sealed.ce_object_code
-        slot_offs = self._slot_offsets()
-        inputs = factory.get_input_generator(_INPUT_SEED).generate(8)
+        placeholder = self.sealed.object_code
+        inputs = factory.get_input_generator(self.INPUT_SEED).generate(8)
         checked = 0
         for inp in inputs:
             resolved = self.sealed.resolve(inp)
             genuine_code = apply_relocations(resolved.object_code, resolved.genuine())
-            cer_ce = self.sess.trace_bytes(ce_code, inp)
+            cer_ce = self.sess.trace_bytes(placeholder, inp, emul_table=resolved.emul_table)
             cer_g = self.sess.trace_bytes(genuine_code, inp)
 
+            # The emulation IS the genuine render: the placeholder with the table materialized is the
+            # genuine machine code byte-for-byte (no PAC*, no approximation).
+            self.assertEqual(eq.materialize_emul_table(placeholder, resolved.emul_table), genuine_code,
+                             "emulated machine code differs from the genuine render")
+            # ...so the traces agree in every consumed field: identical ctrace and taint.
             self.assertEqual(len(list(cer_ce)), len(list(cer_g)), "entry counts differ")
             self.assertEqual(compute_ctrace(cer_ce), compute_ctrace(cer_g), "ctrace differs")
             self.assertEqual(compute_taint(cer_ce).tobytes(), compute_taint(cer_g).tobytes(),
                              "taint differs")
-
-            for line in eq.diff_traces(cer_ce, cer_g):
-                off = int(line.split("pc_off=0x")[1].split(":")[0], 16)
-                self.assertIn(off, slot_offs, f"divergence outside a seal slot: {line}")
             checked += 1
         self.assertGreater(checked, 0)
+
+
+class TraceEquivalencePacTest(_EquivalenceBase, unittest.TestCase):
+    CONFIG = "config_pac.yml"
+    PRIMITIVES = {"pac"}
+
+
+class TraceEquivalencePacStripTest(_EquivalenceBase, unittest.TestCase):
+    # pac_strip_prob=1.0 forces every genuine auth to render as the arch-safe XPAC strip instead of an
+    # AUT*, so the emulation materializes MOVK+XPAC; byte-identity then exercises the strip path that
+    # the default (strip_prob=0) PAC test never reaches.
+    CONFIG = "config_pac.yml"
+    PRIMITIVES = {"pac"}
+    EXTRA_CONF = {"pac_strip_prob": 1.0}
+
+
+class TraceEquivalencePacMteDeviceProfileTest(_EquivalenceBase, unittest.TestCase):
+    # The N3's real PAC profile: tbid1=1 disables TBI for INSTRUCTION keys, so the PAC field extends
+    # into the top byte and overlaps the MTE tag [59:56]. The resolver must sign over the pointer the
+    # genuine binary presents (its MTE tag stripped by the AUT*/revert XPAC), not the inert placeholder's
+    # tagged pointer — otherwise every later AUT* FPACs. The suite's default profile (generic_qarma=0,
+    # tbid1=0, constpacfield=0) does NOT exercise this entanglement, so this profile is the regression.
+    CONFIG = "config_pac_mte.yml"
+    PRIMITIVES = {"pac", "mte"}
+    VA_SIZE = 48
+    PROFILE = eq.qarma.profile(qarma_version=3, generic_qarma_version=3, auth_level=5,
+                               va_size0=48, va_size1=48, tbi0=True, tbi1=True,
+                               tbid0=False, tbid1=True, constpacfield=True, mtx0=False, mtx1=False)
+    # Seeds whose test case authenticates a pointer that an MTE retag has tagged — the slot that FPACs
+    # without the canonicalization splice. A generic seed may not exercise the entanglement.
+    PROGRAM_SEED = 469530
+    INPUT_SEED = 2665689131
+
+
+class TraceEquivalenceMteTest(_EquivalenceBase, unittest.TestCase):
+    CONFIG = "config_mte.yml"
+    PRIMITIVES = {"mte"}
+
+
+class TraceEquivalencePacMteTest(_EquivalenceBase, unittest.TestCase):
+    CONFIG = "config_pac_mte.yml"
+    PRIMITIVES = {"pac", "mte"}
+
+
+# Canonicality and branch-target carry no dynamic value: their genuine baseline is the canonical /
+# valid-target NOP placeholder (the flip is the decoy relocation), so they emit no emulation and the
+# placeholder trace already is the genuine trace. PTE seals no code (SandboxSealedTestCase); the
+# genuine/decoy difference is the page-table environment, not the trace. These confirm the empty-
+# emulation path yields genuine == placeholder.
+class TraceEquivalenceCanonTest(_EquivalenceBase, unittest.TestCase):
+    CONFIG = "config_canon.yml"
+    PRIMITIVES = {"canon"}
+    VA_SIZE = 48
+
+    @classmethod
+    def _has_seals(cls, sealed, resolved):
+        return bool(sealed._canon)
+
+
+class TraceEquivalenceBranchTargetTest(_EquivalenceBase, unittest.TestCase):
+    CONFIG = "config_canon_indirect.yml"
+    PRIMITIVES = {"branch_target"}
+    VA_SIZE = 48
+    EXTRA_CONF = {"indirect_call_probability": 1.0}
+
+    @classmethod
+    def _has_seals(cls, sealed, resolved):
+        return bool(sealed._bt)
+
+
+class TraceEquivalencePteTest(_EquivalenceBase, unittest.TestCase):
+    CONFIG = "config_pte_oracle.yml"
+    PRIMITIVES = set()
+
+    @classmethod
+    def _has_seals(cls, sealed, resolved):
+        return bool(sealed._sandbox)
 
 
 if __name__ == "__main__":

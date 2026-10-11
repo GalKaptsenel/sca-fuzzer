@@ -181,14 +181,14 @@ class UnreachedPacForgeTest(SealResolutionDeterminismTest):
     class _Ite:
         def __init__(self, cpu):
             self.cpu = cpu
-            self.metadata = SimpleNamespace(speculation_nesting=0, has_memory_access=False,
+            self.metadata = SimpleNamespace(speculation_nesting=0, has_sandbox_memory_access=False,
                                             memory_access=None)
 
     class _Layout:
-        instruction_address = collections.defaultdict(lambda: 0x40)   # xpac at a nonzero offset
+        instruction_address = collections.defaultdict(lambda: 0x40)   # auth position at a nonzero offset
 
     def _unreached_cer(self):
-        # one entry whose pc never equals code_base + xpac_off (0 != 0x40) -> the XPAC is never matched
+        # one entry whose pc never equals code_base + auth_off (0 != 0x40) -> the slot is never reached
         return [self._Ite(self._Cpu(pc=0, base=self._SANDBOX_BASE))]
 
     def test_unreached_pac_is_eligible_and_reconverges(self):
@@ -230,7 +230,7 @@ class PacFieldWindowTest(unittest.TestCase):
 
     def test_one_window_slot_and_fill(self):
         ps = self._sealing(0x7F << 48)                                    # 48-bit VA: PAC in top window
-        self.assertEqual([i.name.lower() for i in ps.seal(None, None)], ["nop", "xpaci"])
+        self.assertEqual([i.name.lower() for i in ps.seal(None, None)], ["nop", "nop"])
         signed = 0x0022000012345678
         movks = [i for i in ps.seal(signed, random.Random(0)) if i.name.lower() == "movk"]
         self.assertEqual([(int(m.operands[2].value), int(m.operands[1].value)) for m in movks],
@@ -238,7 +238,7 @@ class PacFieldWindowTest(unittest.TestCase):
 
     def test_two_window_slot_and_fill(self):
         ps = self._sealing((0x7F << 48) | (0xFF << 40))                   # narrow VA: field reaches below 48
-        self.assertEqual([i.name.lower() for i in ps.seal(None, None)], ["nop", "nop", "xpaci"])
+        self.assertEqual([i.name.lower() for i in ps.seal(None, None)], ["nop", "nop", "nop"])
         signed = 0x0022c20012345678
         movks = [i for i in ps.seal(signed, random.Random(0)) if i.name.lower() == "movk"]
         self.assertEqual({int(m.operands[2].value): int(m.operands[1].value) for m in movks},

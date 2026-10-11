@@ -38,7 +38,7 @@ typedef struct {
 
 typedef struct {
 	uint64_t instr_index;		// instruction index in trace
-	uint64_t has_memory_access;		// boolean: the instruction accesses memory
+	uint64_t has_sandbox_memory_access;		// boolean: the instruction accesses memory
 	uint64_t speculation_nesting;	// Speculation nesting (0 for no speculation)
 	uint64_t is_pair;		// boolean: LDP/STP — memory_access2 (element 1) is also valid
 	uint64_t window_id;		// unique id of the innermost live window (0 = architectural), never reused

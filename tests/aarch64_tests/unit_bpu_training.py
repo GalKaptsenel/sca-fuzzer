@@ -47,7 +47,7 @@ def _ite(pc: int, encoding: int, nesting: int = 0, has_mem: bool = False):
     ite          = types.SimpleNamespace()
     ite.cpu      = types.SimpleNamespace(pc=pc, encoding=encoding)
     ite.metadata = types.SimpleNamespace(speculation_nesting=nesting,
-                                         has_memory_access=has_mem)
+                                         has_sandbox_memory_access=has_mem)
     return ite
 
 
