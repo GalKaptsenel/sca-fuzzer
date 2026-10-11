@@ -136,8 +136,9 @@ class PacSealing(Sealing):
         genuine revert XPAC after the access when reverting. The resolver traces this in resolve-mode,
         where the CE canonicalizes the AUT* (like the speculative path) instead of verify-or-abort — so
         no pre-signing is needed and no FPAC can fire. The AUT* word is the genuine one, so this one
-        trace is faithful to the genuine binary (identical ctrace/taint) AND exposes the canonical
-        pointer/context the resolver signs over."""
+        trace matches the genuine binary's ctrace exactly and its taint up to a safe superset (with
+        pac_strip_prob>0 a genuine XPAC strip reads no context, while this AUT* does), AND exposes the
+        canonical pointer/context the resolver signs over."""
         auth_mn = self.committed_inst.name.lower()
         ctx_reg = self.committed_inst.operands[1].value if len(self.committed_inst.operands) > 1 else None
         before = [make_nop() for _ in range(self._enc.n_sig_movks)] \
@@ -193,10 +194,10 @@ class MteSealing(Sealing):
 
     def resolve_slot(self) -> List[Instruction]:
         """The resolution render: a tag-neutral ADDG (#0) at each slot position. The ADDG word carries
-        the genuine retag's taint (the delta is a constant either way, so the taint is delta-independent),
-        making the resolution trace taint-faithful to the genuine binary; #0 leaves the pointer tag
-        unchanged, so the resolver reads the same cell/pointer tags the inert placeholder would. The
-        genuine binary applies the resolved delta instead."""
+        the genuine retag's taint (the delta is a constant either way, so the retag-op taint is
+        delta-independent), so the trace's MTE taint is a safe superset of the genuine binary's, never
+        narrower; #0 leaves the pointer tag unchanged, so the resolver reads the same cell/pointer tags
+        the inert placeholder would. The genuine binary applies the resolved delta instead."""
         return [self._addg(0) for _ in self.slot_insts]
 
     def seal(self, value: Optional[int], rng: Optional[random.Random],
@@ -400,9 +401,10 @@ class ResolvedSealingTestCase:
     correctly; `decoy()` seals the architectural slots correctly, with no guarantees on the other slots.
     `cer` is the resolution trace itself: each value seal's resolution render spliced over the
     placeholder (the committed AUT* at auth sites, a tag-neutral ADDG at MTE sites, the placeholder
-    otherwise). It matches the genuine binary's contract exactly in ctrace, and in taint up to the MTE
-    retag delta (which only widens it), so it doubles as the genuine contract trace; no separate genuine
-    trace is run."""
+    otherwise). It matches the genuine binary's ctrace exactly; its taint is a safe superset — widened
+    only by the MTE retag delta and, with pac_strip_prob>0, by the resolution AUT* reading context a
+    genuine XPAC strip would not. So it doubles as the genuine contract trace; no separate genuine trace
+    is run."""
 
     def __init__(self, entries: List[_Resolved], object_code: bytes,
                  offsets: Dict[int, Tuple[int, ...]], salt: int,
