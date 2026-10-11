@@ -82,6 +82,12 @@ class Sealing(abc.ABC):
         genuine value the render must re-converge to after the access (used by seals whose perturbation
         is not stripped before the access, e.g. MTE); None leaves no re-convergence."""
 
+    def resolve_slot(self) -> List[Instruction]:
+        """The instructions spliced at this slot for the single resolution trace. Default: the
+        placeholder itself (a NOP-over-NOP identity), overridden by seals whose genuine render differs
+        before the access (PAC's committed AUT*, MTE's tag-neutral ADDG)."""
+        return list(self.slot_insts)
+
 
 class SandboxSealing(Sealing):
     """Clamp a base register into the input region: [AND reg, #mask; ADD reg, base]. Needs no runtime
@@ -392,8 +398,9 @@ class ResolvedSealingTestCase:
     """One input's resolution. `object_code` is the assembled base; `genuine()`/`decoy()` are the
     relocations that turn it into a variant (apply with apply_relocations). `genuine()` seals every slot
     correctly; `decoy()` seals the architectural slots correctly, with no guarantees on the other slots.
-    `cer` is the resolution trace itself — faithful to the genuine render (the auth sites carry the
-    genuine AUT*), so it doubles as the genuine contract trace; no separate genuine trace is run."""
+    `cer` is the resolution trace itself — faithful to the genuine binary (the spliced render matches
+    it: the committed AUT* at auth sites, the placeholder itself otherwise), so it doubles as the
+    genuine contract trace; no separate genuine trace is run."""
 
     def __init__(self, entries: List[_Resolved], object_code: bytes,
                  offsets: Dict[int, Tuple[int, ...]], salt: int,
@@ -479,7 +486,7 @@ class ResolvedSealingTestCase:
         """The sealing class of the resolved input: per-entry (value, speculative). Two inputs share
         a sealed TC iff every slot resolves to the same value with the same speculative status (so the
         same genuine fill is arch-safe for both, and decoy perturbs the same slots). Sandbox entries
-        are constant across inputs (value None, non-speculative) so they never split classes."""
+        carry the same value (None) for every input, so they never split classes."""
         return tuple((r.value, r.speculative) for r in self._entries)
 
 
@@ -635,7 +642,7 @@ class SealedTestCase:
     def __init__(self, sealed_tc: TestCase, assemble, sandbox_sealings: List[SandboxSealing],
                  data_sites: List, trace_bytes_fn) -> None:
         self._tc = sealed_tc
-        self._trace_bytes_fn = trace_bytes_fn              # (machine code, input, resolve_auth) -> cer
+        self._trace_bytes_fn = trace_bytes_fn              # (machine code, input, canonicalize_auth) -> cer
         self._assemble = assemble                          # tc -> machine code, for the skeleton
         self._sandbox = sandbox_sealings
         self._salt = random.randrange(1 << 64)             # per-test-case; seeds deterministic forgery
@@ -652,9 +659,8 @@ class SealedTestCase:
         """The assembled skeleton (placeholder slots, no resolved values); input-independent."""
         return self._assemble(self._tc)
 
-    # The resolution trace canonicalizes every architectural AUT* instead of verifying it, so an
-    # unsigned pointer never FPACs. A concern that pre-signs and wants verification during resolution
-    # overrides this to False.
+    # The resolution trace canonicalizes every architectural AUT* instead of verifying it; a concern
+    # that pre-signs can override to False to verify during resolution.
     _resolve_auth: bool = True
 
     def _insert_slots(self, data_sites: List) -> None:
@@ -669,12 +675,6 @@ class SealedTestCase:
         Empty for sandbox-only (PTE)."""
         return []
 
-    def _render_sealings(self) -> List[Sealing]:
-        """The value seals whose resolution render (committed AUT* / tag-neutral ADDG) is spliced into
-        the resolution trace. Empty when the placeholder is already the genuine render (canon / branch
-        target / sandbox)."""
-        return []
-
     def _resolve_entries(self, inp, cer) -> List[_Resolved]:
         """Resolve this concern's value seals from the single resolution trace `cer`. Default: none."""
         return []
@@ -687,22 +687,15 @@ class SealedTestCase:
         entries = self._clamp_entries(self._sandbox) + self._resolve_entries(inp, cer)
         return ResolvedSealingTestCase(entries, object_code, offsets, self._salt, cer)
 
-    def _resolve_relocs(self, offsets: Dict[int, Tuple[int, ...]]) -> List[Relocation]:
-        return self._resolve_relocs_for(self._render_sealings(), offsets)
-
-    @staticmethod
-    def _resolve_relocs_for(sealings: List[Sealing],
-                            offsets: Dict[int, Tuple[int, ...]]) -> List[Relocation]:
-        """Relocations placing each seal's resolution render (`resolve_slot`) at its slot offsets."""
-        return [rel for s in sealings for rel in _slot_relocs(offsets[id(s)], s.resolve_slot())]
-
     def _resolve_trace(self, inp, offsets: Dict[int, Tuple[int, ...]]) -> Tuple[bytes, "ContractExecutionResult"]:
-        """The single per-input trace: the placeholder with the resolution render spliced in, run in
-        resolve-mode. The committed AUT* makes it faithful to the genuine binary, so its trace is reused
-        as the genuine contract trace. Returns (object_code, cer)."""
+        """The single per-input trace: each value seal's resolution render (`resolve_slot`) spliced over
+        the placeholder, traced in resolve-mode. The committed AUT* makes it faithful to the genuine
+        binary, so its trace is reused as the genuine contract trace. Returns (object_code, cer)."""
         object_code = self._assemble(self._tc)
-        cer = self._trace_bytes_fn(apply_relocations(object_code, self._resolve_relocs(offsets)),
-                                   inp, resolve_auth=self._resolve_auth)
+        relocs = [rel for s in self._value_sealings()
+                  for rel in _slot_relocs(offsets[id(s)], s.resolve_slot())]
+        cer = self._trace_bytes_fn(apply_relocations(object_code, relocs),
+                                   inp, canonicalize_auth=self._resolve_auth)
         return object_code, cer
 
     @staticmethod
@@ -744,9 +737,6 @@ class PacSealedTestCase(SealedTestCase):
     def _value_sealings(self) -> List[Sealing]:
         return self._pac
 
-    def _render_sealings(self) -> List[Sealing]:
-        return self._pac
-
     def _resolve_entries(self, inp, cer) -> List[_Resolved]:
         keys = _input_pac_keys(inp)
         return [_Resolved(s, *_resolve_pac(s, cer, self._layout, self._signer, keys, self._salt))
@@ -771,9 +761,6 @@ class MteSealedTestCase(SealedTestCase):
         return self._sandbox + self._mte
 
     def _value_sealings(self) -> List[Sealing]:
-        return self._mte
-
-    def _render_sealings(self) -> List[Sealing]:
         return self._mte
 
     def _resolve_entries(self, inp, cer) -> List[_Resolved]:
@@ -906,9 +893,6 @@ class MtePacSealedTestCase(SealedTestCase):
     def _value_sealings(self) -> List[Sealing]:
         return self._pac + self._mte
 
-    def _render_sealings(self) -> List[Sealing]:
-        return self._pac + self._mte
-
     def _resolve_entries(self, inp, cer) -> List[_Resolved]:
         # One trace. The CE tags every accessed pointer from its simulated tag memory
         # (simulation_hook.c), so the genuine MTE retags need no splice here. The committed AUT* at each
@@ -1002,8 +986,10 @@ class Sealer:
         if self._primitives == frozenset({"pac"}):
             return PacSealedTestCase(tc, self._assemble, sandbox, data_sites,
                                      self._signer, self._enc, self._auth_specs, tr)
-        return MtePacSealedTestCase(tc, self._assemble, sandbox, data_sites,
-                                    self._signer, self._enc, self._auth_specs, tr)
+        if self._primitives == frozenset({"pac", "mte"}):
+            return MtePacSealedTestCase(tc, self._assemble, sandbox, data_sites,
+                                        self._signer, self._enc, self._auth_specs, tr)
+        raise GeneratorException(f"no sealed test case for primitives {set(self._primitives)}")
 
 
 def _insert(bb, anchor, *groups) -> None:
@@ -1156,7 +1142,7 @@ class SandboxWalk:
 
 def make_sealer(generator, assemble, primitives, signer, trace_bytes_fn) -> Sealer:
     """The Sealer for the active primitives. `assemble(tc) -> bytes` assembles the object code;
-    `trace_bytes_fn(code, input, resolve_auth) -> cer` runs the single per-input resolution trace of
+    `trace_bytes_fn(code, input, canonicalize_auth) -> cer` runs the single per-input resolution trace of
     already-assembled machine code; `signer` is the PAC signer used by resolve when 'pac' is active
     (None otherwise)."""
     prims = frozenset(primitives)

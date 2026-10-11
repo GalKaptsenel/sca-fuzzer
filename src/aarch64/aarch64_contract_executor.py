@@ -133,7 +133,7 @@ class ContractExecution:
     pac_keys: Optional[PacKeys] = None    # per-input PAC keys, or None
     pac_profile: Optional[PacProfile] = None   # target PAC profile the CE models auth with, or None
     data_size: int = 0    # trailing read-only bytes of machine_code (dispatch tables): loaded but not hooked
-    resolve_auth: bool = False   # canonicalize architectural AUT* instead of verify-or-abort (resolution trace)
+    canonicalize_auth: bool = False   # strip an architectural AUT* instead of verify-or-abort
 
     def encode(self) -> bytes:
         """
@@ -176,11 +176,11 @@ class ContractExecution:
             pac_profile_word = ((p.iterations & 0xff) | ((p.t1sz & 0xff) << 8)
                                 | (int(bool(p.tbi0)) << 16) | (int(bool(p.tbi1)) << 17)
                                 | (int(bool(p.tbid0)) << 18) | (int(bool(p.tbid1)) << 19)
-                                | ((p.level & 0xf) << 20) | (int(p.constpacfield) << 26)
+                                | ((p.level & 0xf) << 20) | ((int(p.constpacfield) & 1) << 26)
                                 | ((p.t0sz & 0xff) << 32) | ((p.generic_iterations & 0xff) << 40))
             config_flags |= ConfigFlags.CONFIG_FLAG_PAC_PROFILE
 
-        if self.resolve_auth:
+        if self.canonicalize_auth:
             config_flags |= ConfigFlags.CONFIG_FLAG_CANONICALIZE_AUTH
 
         # memory = main‖faulty; the gpr register slots are the GPR section (CE reads only those).

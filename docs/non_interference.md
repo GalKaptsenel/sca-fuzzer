@@ -49,17 +49,18 @@ index/displacement cancellation.
   signatures that provably fail AUTH; MTE: classify the accessed cell's allocation tag and the
   speculation depth — returning a `ResolvedSealingTestCase`. The resolution trace is the placeholder
   with the committed `AUT*` spliced at each auth position and a tag-neutral `ADDG` at each MTE position,
-  traced in **resolve mode** (`CONFIG_FLAG_RESOLVE_AUTH`): the CE canonicalizes every architectural
-  `AUT*` like the speculative path instead of verify-or-abort, so an unsigned pointer never FPAC-faults
-  and the resolver reads the canonical pointer/context off this trace and signs it. Because the auth
-  sites carry the genuine `AUT*` word, this one trace is faithful to the genuine binary and doubles as
-  the genuine contract trace — no separate genuine run (see `.cer`).
+  traced with `CONFIG_FLAG_CANONICALIZE_AUTH`: the CE strips every architectural `AUT*` like the
+  speculative path instead of verify-or-abort, so an unsigned pointer never FPAC-faults and the resolver
+  reads the canonical pointer/context off this trace and signs it. Because the auth sites carry the
+  genuine `AUT*` word, this one trace is faithful to the genuine binary and doubles as the genuine
+  contract trace — no separate genuine run (see `.cer`).
 - **`ResolvedSealingTestCase.cer`** is that resolution trace, reused as the genuine contract trace
   (`compute_ctrace`/`compute_taint`). Its ctrace equals the genuine binary's exactly; its taint equals
-  it for PAC/canonicality/branch-target/PTE and is a safe superset for MTE (the genuine `ADDG #delta`
-  gives the pointer the cell tag, which the taint model's `effective_address − sandbox_base` offset
-  drops — so the resolution trace, keeping the base tag, marks *more* input bytes, never fewer). The CE
-  needs no knowledge of PAC/MTE.
+  it for canonicality/branch-target/PTE and plain PAC, and is a safe superset for MTE and PAC with
+  `pac_strip_prob>0`. (MTE: the genuine `ADDG #delta` gives the pointer the cell tag, which the taint
+  model's `effective_address − sandbox_base` offset drops; PAC strip: a genuine `XPAC` reads no context
+  while the resolution `AUT*` does. Either way the resolution trace marks *more* input bytes, never
+  fewer.) The CE needs no knowledge of PAC/MTE.
 - **`ResolvedSealingTestCase.genuine()`** seals every slot with its correct value (`MOVK` signature +
   `AUT*`, genuine `ADDG` retag). **`.decoy()`**
   perturbs a random non-empty subset of the *speculative* (never-architectural) slots with a failing

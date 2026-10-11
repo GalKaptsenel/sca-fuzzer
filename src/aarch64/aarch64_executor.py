@@ -330,7 +330,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
                            mte_tags: Optional[List[int]] = None,
                            pac_keys: Optional[PacKeys] = None,
                            pac_profile: Optional[qarma.PacProfile] = None,
-                           resolve_auth: bool = False) -> ContractExecution:
+                           canonicalize_auth: bool = False) -> ContractExecution:
         tc_memory, tc_regs = _ce_memory_regs(inp)
         return ContractExecution(
             tc_bytes, tc_memory, tc_regs, SimArch.RVZR_ARCH_AARCH64,
@@ -343,7 +343,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
             pac_keys=pac_keys,
             pac_profile=pac_profile,
             data_size=self._dispatch_data_size(),
-            resolve_auth=resolve_auth,
+            canonicalize_auth=canonicalize_auth,
         )
 
     def _measure(self, exec_inputs: List[ExecutorInput], n_reps: int) -> List[HTrace]:
@@ -661,10 +661,11 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         words = self._pac_keys_words(inp)
         return None if words is None else PacKeys(*words)
 
-    def _ce_trace(self, tc_bytes: bytes, inp: Input, resolve_auth: bool = False) -> ContractExecutionResult:
-        """One CE trace of the machine code `tc_bytes` for `inp`. With `resolve_auth` the CE canonicalizes
-        every architectural AUT* (like the speculative path) instead of verify-or-abort — the resolution
-        mode in which the sealer traces the placeholder-with-committed-AUT*, so an unsigned pointer never
+    def _ce_trace(self, tc_bytes: bytes, inp: Input,
+                  canonicalize_auth: bool = False) -> ContractExecutionResult:
+        """One CE trace of the machine code `tc_bytes` for `inp`. With `canonicalize_auth` the CE strips
+        every architectural AUT* (like the speculative path) instead of verify-or-abort — the mode in
+        which the sealer traces the placeholder-with-committed-AUT*, so an unsigned pointer never
         FPAC-faults. Sealing always traces at max speculation depth: a shallower pass would classify
         deep-speculative slots as unreached and under-decoy them, missing leaks."""
         if self._sandbox_base is None:
@@ -672,7 +673,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         return self._contract_executor.run(self._make_ce_execution(
             tc_bytes, inp, self._sandbox_base, CONF.model_max_nesting, CONF.model_max_spec_window,
             ExecutionClause.COND, mte_tags=self._mte_tags_for(inp), pac_keys=self._input_pac_keys(inp),
-            pac_profile=self._pac_profile_value, resolve_auth=resolve_auth))
+            pac_profile=self._pac_profile_value, canonicalize_auth=canonicalize_auth))
 
     # ------------------------------------------------------------------ lifecycle
     def load_test_case(self, test_case: TestCase):
@@ -705,10 +706,8 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             log.ensure_flushed()
 
             resolved = self._resolve(inp)
-            # The resolution trace is the genuine contract trace (one run per input). It runs in
-            # resolve-mode (canonicalizes, never verifies), so it no longer re-checks the genuine
-            # signatures in software: correctness rests on the resolver computing them under the CE's
-            # own QARMA/keys/profile (the device-free equivalence test verify-traces the genuine binary).
+            # The resolution trace is the genuine contract trace (one run per input); it canonicalizes
+            # rather than verifies, so genuine signatures are not re-checked in software (see ce_equivalence).
             cer = resolved.cer
             ce_traces.append(cer)
 
