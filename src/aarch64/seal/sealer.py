@@ -861,10 +861,10 @@ class BranchTargetSealedTestCase(SealedTestCase):
 
 class MtePacSealedTestCase(SealedTestCase):
     """Sandbox clamp + PAC auth + MTE retag per data access, plus a PAC auth per standalone AUT*.
-    The MTE retag (ADDG) is placed LAST — after the offset-cancel SUBs, immediately before the access
-    — so no address op runs between the retag and the access. The CE's after-access tag correction is
-    then positionally equivalent to the genuine retag, so the placeholder trace already carries the
-    genuine tag at every later AUT*; PAC resolves over that single trace, no genuine-tag re-trace."""
+    The CE tags each accessed pointer from its simulated tag memory (the after-access tag correction),
+    so one resolution trace — the placeholder with the PAC auth/revert canonicalization spliced in, so
+    a later AUT* sees the genuine tag-stripped pointer — yields both the MTE tag deltas and the PAC
+    signatures. No separate genuine-tag re-trace."""
 
     def __init__(self, sealed_tc, trace_fn, assemble, sandbox_sealings, data_sites, signer, enc,
                  auth_specs, trace_bytes_fn=None) -> None:
@@ -891,27 +891,19 @@ class MtePacSealedTestCase(SealedTestCase):
         return self._sandbox + self._pac + self._mte
 
     def resolve(self, inp) -> ResolvedSealingTestCase:
-        # Pass A (placeholder): resolve the context-independent values — MTE tag deltas + PAC
-        # speculation-nesting. PAC contexts must NOT be signed off this trace: an AUT*'s context
-        # register may itself be MTE-retagged by another seal, and the placeholder renders those
-        # retags as NOPs, so the register carries the wrong tag here.
-        cer = self._trace_fn(self._tc, inp)
-        mte = [_Resolved(s, *_resolve_mte(s, cer, self._layout)) for s in self._mte]
+        # One trace. The CE tags every accessed pointer from its simulated tag memory
+        # (simulation_hook.c), so the genuine MTE retags need no splice here. Only the PAC
+        # canonicalization (XPAC at each auth/revert) is spliced, so a later AUT* signs over the
+        # genuine, tag-stripped pointer, not the residual tag the inert placeholder would leave. MTE
+        # tag deltas and PAC signatures both resolve off this single trace.
         object_code = self._assemble(self._tc)
         offsets = _slot_offsets(self._tc, self._layout, self._pac + self._mte)
-
-        # Pass B (genuine-tag): re-trace with the genuine MTE retags AND the PAC canonicalization (XPAC
-        # at each auth/revert) spliced in. The inert all-NOP placeholder would leave the MTE tag on the
-        # pointer and context; the genuine render strips it (the AUT*/revert XPAC), so without this a
-        # later AUT* signs over an MTE-tagged pointer that the genuine trace canonicalizes — a wrong
-        # signature (architectural FPAC). Both splices are signature-independent, so no sigs are needed.
-        mte_reloc = [rel for r in mte
-                     for rel in _slot_relocs(offsets[id(r.sealing)], r.sealing.seal(r.value, None, r.value))]
         pac_reloc = [rel for s in self._pac
                      for rel in _slot_relocs(offsets[id(s)], s.canonicalize_slot())]
-        cer_b = self._trace_bytes_fn(apply_relocations(object_code, mte_reloc + pac_reloc), inp)
+        cer = self._trace_bytes_fn(apply_relocations(object_code, pac_reloc), inp)
         keys = _input_pac_keys(inp)
-        pac = [_Resolved(s, *_resolve_pac(s, cer_b, self._layout, self._signer, keys, self._salt))
+        mte = [_Resolved(s, *_resolve_mte(s, cer, self._layout)) for s in self._mte]
+        pac = [_Resolved(s, *_resolve_pac(s, cer, self._layout, self._signer, keys, self._salt))
                for s in self._pac]
 
         entries = self._clamp_entries(self._sandbox) + pac + mte
