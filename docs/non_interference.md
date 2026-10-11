@@ -52,8 +52,8 @@ index/displacement cancellation.
   traced with `CONFIG_FLAG_CANONICALIZE_AUTH`: the CE strips every architectural `AUT*` like the
   speculative path instead of verify-or-abort, so an unsigned pointer never FPAC-faults and the resolver
   reads the canonical pointer/context off this trace and signs it. Because the auth sites carry the
-  genuine `AUT*` word, this one trace is faithful to the genuine binary and doubles as the genuine
-  contract trace — no separate genuine run (see `.cer`).
+  genuine `AUT*` word, this one trace matches the genuine binary's ctrace exactly (taint a safe
+  superset — see `.cer`) and doubles as the genuine contract trace — no separate genuine run.
 - **`ResolvedSealingTestCase.cer`** is that resolution trace, reused as the genuine contract trace
   (`compute_ctrace`/`compute_taint`). Its ctrace equals the genuine binary's exactly; its taint equals
   it for canonicality/branch-target/PTE and plain PAC, and is a safe superset for MTE and PAC with

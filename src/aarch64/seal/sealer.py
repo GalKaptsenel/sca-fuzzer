@@ -88,6 +88,12 @@ class Sealing(abc.ABC):
         before the access (PAC's committed AUT*, MTE's tag-neutral ADDG)."""
         return list(self.slot_insts)
 
+    def forced_alts(self, alts: List[int]) -> List[int]:
+        """The subset of `alts` the forced-bad (cross-input priming) lane may pick. Default: all of
+        them — every alt is a guaranteed failure (a wrong PAC signature, a mismatched MTE tag).
+        Overridden where some alts are a weaker fault than that lane wants."""
+        return list(alts)
+
 
 class SandboxSealing(Sealing):
     """Clamp a base register into the input region: [AND reg, #mask; ADD reg, base]. Needs no runtime
@@ -379,6 +385,11 @@ class BranchTargetSealing(Sealing):
              correct: Optional[int] = None) -> List[Instruction]:
         return [self._eor(value) if value else make_nop()]
 
+    def forced_alts(self, alts: List[int]) -> List[int]:
+        # The forced-bad lane wants a non-canonical target (high-bit mask), not a {1,2,3} low-bit
+        # misalignment, which is a weaker (PC-alignment) fault.
+        return [a for a in alts if a > 3] or list(alts)
+
 
 # ==================================================================================================
 # ResolvedSealingTestCase — one input's resolution; mints genuine / decoy hardware test cases
@@ -453,11 +464,10 @@ class ResolvedSealingTestCase:
         return bool(self._eligible())
 
     def forced_noncanon(self) -> Tuple[Relocation, ...]:
-        """Like decoy(), but perturb EVERY eligible (speculative) slot with a guaranteed NON-CANONICAL
-        alt -- a high-bit fault mask (>3), never a low-bit {1,2,3} misalignment, never the identity the
-        random decoy may pick. The "bad" lane of the cross-input priming search (cross_input.py): a truly
-        non-canonical target so a predecessor either trains a predictor entry or faults, never silently
-        matches the genuine lane."""
+        """Like decoy(), but perturb EVERY eligible (speculative) slot with a guaranteed-bad alt (each
+        sealing's `forced_alts`), never the identity the random decoy may pick. The "bad" lane of the
+        cross-input priming search (cross_input.py): a predecessor either trains a predictor entry or
+        faults, never silently matches the genuine lane."""
         rng = stable_rng(self.collapse_key, self._salt, "forced-noncanon")
         eligible = set(self._eligible())
         relocs: List[Relocation] = []
@@ -466,8 +476,7 @@ class ResolvedSealingTestCase:
             if offs is None:
                 continue
             if r in eligible:
-                noncanon = [a for a in r.alts if a > 3] or list(r.alts)  # high-bit masks (drop misalign)
-                value = rng.choice(noncanon)
+                value = rng.choice(r.sealing.forced_alts(r.alts))
             else:
                 value = r.value
             relocs += _slot_relocs(offs, r.sealing.seal(value, rng, r.value))
@@ -695,8 +704,9 @@ class SealedTestCase:
 
     def _resolve_trace(self, inp, offsets: Dict[int, Tuple[int, ...]]) -> Tuple[bytes, "ContractExecutionResult"]:
         """The single per-input trace: each value seal's resolution render (`resolve_slot`) spliced over
-        the placeholder, traced in resolve-mode. The committed AUT* makes it faithful to the genuine
-        binary, so its trace is reused as the genuine contract trace. Returns (object_code, cer)."""
+        the placeholder, traced in resolve-mode. The committed AUT* makes its ctrace exact and its taint
+        a safe superset of the genuine binary's, so its trace is reused as the genuine contract trace.
+        Returns (object_code, cer)."""
         object_code = self._assemble(self._tc)
         relocs = [rel for s in self._value_sealings()
                   for rel in _slot_relocs(offsets[id(s)], s.resolve_slot())]
@@ -884,8 +894,8 @@ class MtePacSealedTestCase(SealedTestCase):
     def _resolve_entries(self, inp, cer) -> List[_Resolved]:
         # One trace. The CE tags every accessed pointer from its simulated tag memory
         # (simulation_hook.c), so the genuine MTE retags need no splice here. The committed AUT* at each
-        # auth position (resolve-mode: canonicalizes instead of verify-or-abort) makes the trace faithful
-        # to the genuine binary. MTE tag deltas and PAC signatures both resolve off this single trace.
+        # auth position (resolve-mode: canonicalizes instead of verify-or-abort) keeps the trace's ctrace
+        # exact. MTE tag deltas and PAC signatures both resolve off this single trace.
         keys = _input_pac_keys(inp)
         pac = [_Resolved(s, *_resolve_pac(s, cer, self._layout, self._signer, keys, self._salt))
                for s in self._pac]

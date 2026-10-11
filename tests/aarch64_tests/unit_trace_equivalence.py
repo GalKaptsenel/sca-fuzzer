@@ -80,7 +80,7 @@ class _EquivalenceBase:
             # A few randomly-generated indirect-call test cases make an ARCHITECTURAL out-of-sandbox
             # data access, which the CE rejects by design (a pre-existing sandbox-completeness limit for
             # indirect calls, orthogonal to sealing). Detect it by tracing the bare placeholder — no
-            # no resolution — so the only thing that can fail is the CE being unable to trace the test
+            # resolution — so the only thing that can fail is the CE being unable to trace the test
             # case at all; such a test case is skipped. Resolution and the resolution-vs-genuine
             # comparison below run unguarded, so a sealing bug surfaces instead of being masked.
             try:
@@ -107,7 +107,8 @@ class _EquivalenceBase:
 
             # The genuine binary traces without an FPAC (the resolver's signatures are correct) and its
             # contract trace equals the resolution trace in the observable — identical entry count and
-            # ctrace. So the one resolution trace is a faithful genuine trace: no separate genuine run.
+            # ctrace (taint a safe superset). So the one resolution trace stands in as the genuine trace:
+            # no separate genuine run.
             self.assertEqual(len(list(cer_res)), len(list(cer_g)),
                              "entry counts differ:\n" + "\n".join(eq.diff_traces(cer_res, cer_g)))
             self.assertEqual(compute_ctrace(cer_res), compute_ctrace(cer_g),
