@@ -1,4 +1,5 @@
 #include "pac_sign_plugin.h"
+#include "simulation.h"
 #include "simulation_state.h"
 #include "simulation_execution_clause_hook.h"
 
@@ -315,8 +316,11 @@ void *auth_verify_hook(struct simulation_state *sim_state)
 
     uint64_t result;
     int spec = is_in_speculation();
+    int resolve = (simulation.sim_input.hdr.config.flags & CONFIG_FLAG_RESOLVE_AUTH) != 0;
 
-    if (spec) {
+    if (spec || resolve) {
+        // Speculative, or sealing-resolution: canonicalize (the resolver signs over this; the pointer
+        // was never pre-signed, so there is nothing to verify and nothing can FPAC).
         result = sw_pac_xpac(ptr, auth_type_is_instr(atype));
     } else {
         result = model_auth(atype, ptr, ctx, sim_state->cpu_state.pc);

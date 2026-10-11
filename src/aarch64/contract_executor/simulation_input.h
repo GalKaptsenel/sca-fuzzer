@@ -27,6 +27,10 @@ enum config_flags {
 	CONFIG_FLAG_REQ_MEM_BASE_PHYS	= 1 << 2,
 	CONFIG_FLAG_REQ_MEM_BASE_VIRT	= 1 << 3,
 	CONFIG_FLAG_PAC_PROFILE		= 1 << 4,
+	/* Sealing resolution: an architectural AUT* canonicalizes the pointer (like the speculative path)
+	 * instead of verify-or-abort. The pointer is not pre-signed (no MOVK), so the resolver reads the
+	 * canonical pointer/context off this one trace and computes the signature itself. */
+	CONFIG_FLAG_RESOLVE_AUTH	= 1 << 5,
 };
 
 /* Contracts are COMPOSABLE: `configuration.execution_clauses` is a BITMASK of clauses, so

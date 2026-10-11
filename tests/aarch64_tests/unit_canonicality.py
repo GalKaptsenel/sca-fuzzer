@@ -181,7 +181,7 @@ class GenuineDecoyTest(unittest.TestCase):
         s = S.CanonSealing("x1", object(), self.pool, revert=True)   # 2-word slot (flip + revert)
         entry = S._Resolved(s, None, self.pool, spec_nesting)
         offsets = {id(s): (0, 4)}
-        return S.ResolvedSealingTestCase([entry], self.object_code, offsets, salt=123)
+        return S.ResolvedSealingTestCase([entry], self.object_code, offsets, salt=123, cer=None)
 
     def test_genuine_all_nop(self):
         r = self._resolved(spec_nesting=3)

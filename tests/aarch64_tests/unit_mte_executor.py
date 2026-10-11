@@ -15,8 +15,8 @@ class SandboxedCeCrashTest(unittest.TestCase):
         ex._sealed = mock.Mock()
         ex._resolve_cache = {}
         ex._nesting = 0
-        # resolve() runs a CE trace internally (via the sealer's trace_fn); a crash there must
-        # propagate, not be swallowed.
+        # resolve() runs the CE resolution trace internally; a crash there must propagate, not be
+        # swallowed.
         ex._sealed.resolve.side_effect = RuntimeError("CE crashed")
         ex.read_base_addresses = mock.Mock(return_value=(0x1000, 0x2000))
         return ex

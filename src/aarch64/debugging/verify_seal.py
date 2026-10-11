@@ -93,7 +93,7 @@ for case in range(NCASES):
 
     # ---- PAC per-slot HW correctness ----
     if KIND in ("pac", "both"):
-        cer = list(ex._seal_trace(ex._sealed._tc, inp))
+        cer = list(resolved.cer)   # the resolution trace (the genuine contract trace)
         for s in ex._sealed._pac:
             e = entries.get(id(s))
             rc = read_ptr_ctx(s, cer, ex._sealed._layout)

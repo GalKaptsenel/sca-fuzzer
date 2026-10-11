@@ -27,9 +27,9 @@ each a register-only op:
 | `PacSealing` | `NOP ; NOP` (inert — the pointer stays the canonical clamped base) | `MOVK sig ; AUT*` (or the `XPAC` strip, with prob `pac_strip_prob`) |
 | `MteSealing` | `NOP [; NOP]` (inert) | `ADDG #delta [; ADDG #back]` (retag to the cell tag before the access, then re-converge after — `back`=0 for genuine, non-zero for a decoy; the second op only when the access preserves its base) |
 
-The placeholder emits no `AUT*`/`XPAC`/`PAC*` — it is the inert, arch-safe baseline the contract
-executor traces. The signature is precomputed by the resolver and loaded with `MOVK`s; `PAC*` is a
-generation-only instruction and never appears in the instrumentation.
+The placeholder emits no `AUT*`/`XPAC`/`PAC*` — it is the inert, arch-safe baseline. The hardware
+`genuine()` render loads the precomputed signature with `MOVK`s and keeps the committed `AUT*`; `PAC*`
+is a generation-only instruction and never appears in the instrumentation.
 
 **Only `SandboxSealing` clamps memory** — PAC/MTE never sandbox. Within one site the clamp must come
 **first**: its `AND` mask clears the top bits where the PAC signature lives, so a clamp after an auth
@@ -43,21 +43,24 @@ index/displacement cancellation.
   dataflow decides which memory bases still need an in-region clamp), inserts the arch-safe
   placeholders, and returns a `SealedTestCase`. Standalone generator-emitted `AUT*` instructions are
   each replaced by a `PacSealing` (a register-only auth site the memory walk doesn't reach).
-- **`SealedTestCase.resolve(input)`** runs the contract-executor trace via the injected `trace_fn`
+- **`SealedTestCase.resolve(input)`** runs **one** contract-executor trace — the *resolution trace* —
   and computes each sealing's value — PAC: sign the reached pointer plus a pool of mask-verified wrong
   signatures that provably fail AUTH; MTE: classify the accessed cell's allocation tag and the
-  speculation depth — returning a `ResolvedSealingTestCase`. PAC-only, MTE-only, canonicality,
-  branch-target and PTE resolve from one placeholder trace. **PAC+MTE needs two passes:** pass A
-  (placeholder) resolves the MTE tag deltas and PAC nesting; pass B re-traces with the genuine MTE
-  retags *and* the PAC canonicalization (`XPAC`) spliced in, so each `AUT*` signs over the exact pointer
-  and context the genuine binary presents (its MTE tag stripped) — otherwise, under a profile whose PAC
-  field overlaps the MTE tag (TBI-off instruction keys), a later `AUT*` would FPAC.
-- **`ResolvedSealingTestCase.emul_table`** turns that single placeholder trace into the genuine
-  contract: for each value-seal slot position it carries the *exact* genuine instruction
-  (`MOVK`/`AUT*`/`XPAC`/`ADDG`), which the CE materializes over the NOP placeholder as it reaches the
-  offset. `placeholder + emul_table` is byte-for-byte the genuine render, so no separate genuine trace
-  is assembled; the CE needs no knowledge of PAC/MTE.
-- **`ResolvedSealingTestCase.genuine()`** seals every slot with its correct value. **`.decoy()`**
+  speculation depth — returning a `ResolvedSealingTestCase`. The resolution trace is the placeholder
+  with the committed `AUT*` spliced at each auth position and a tag-neutral `ADDG` at each MTE position,
+  traced in **resolve mode** (`CONFIG_FLAG_RESOLVE_AUTH`): the CE canonicalizes every architectural
+  `AUT*` like the speculative path instead of verify-or-abort, so an unsigned pointer never FPAC-faults
+  and the resolver reads the canonical pointer/context off this trace and signs it. Because the auth
+  sites carry the genuine `AUT*` word, this one trace is faithful to the genuine binary and doubles as
+  the genuine contract trace — no separate genuine run (see `.cer`).
+- **`ResolvedSealingTestCase.cer`** is that resolution trace, reused as the genuine contract trace
+  (`compute_ctrace`/`compute_taint`). Its ctrace equals the genuine binary's exactly; its taint equals
+  it for PAC/canonicality/branch-target/PTE and is a safe superset for MTE (the genuine `ADDG #delta`
+  gives the pointer the cell tag, which the taint model's `effective_address − sandbox_base` offset
+  drops — so the resolution trace, keeping the base tag, marks *more* input bytes, never fewer). The CE
+  needs no knowledge of PAC/MTE.
+- **`ResolvedSealingTestCase.genuine()`** seals every slot with its correct value (`MOVK` signature +
+  `AUT*`, genuine `ADDG` retag). **`.decoy()`**
   perturbs a random non-empty subset of the *speculative* (never-architectural) slots with a failing
   value and seals the correct value everywhere else. The `Sandbox` clamp is never perturbed; MTE always
   re-converges to the cell tag after the access. `MTE_INITIAL_TAG = 6` is the uniform region tag, shared

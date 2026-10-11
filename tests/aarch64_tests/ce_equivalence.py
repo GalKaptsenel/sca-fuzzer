@@ -1,14 +1,13 @@
 """Device-free harness to compare two contract-executor traces field by field.
 
 Drives the contract_executor binary directly (no /dev/executor) with a fixed sandbox base and a
-fixed PAC profile, so a sealed test case can be traced under its emulation table and in a relocated
-form and the two compared. The redesign's property — the placeholder under its emulation table IS
-the genuine render — is asserted both as byte-identical machine code and as equal ctraces and taints.
+fixed PAC profile, so a sealed test case's single resolution trace can be compared against a trace of
+its relocated genuine binary. The one-run property — the resolution trace IS the genuine contract
+trace — is asserted as equal ctraces and taints (and the genuine binary tracing without an FPAC).
 
 Importable helper (no test cases here), reusable by the a-priori equivalence and safety tests.
 """
 import os
-import struct
 import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -89,7 +88,7 @@ class CESession:
         return PROFILE if "pac" in self._primitives else None
 
     def trace_bytes(self, code: bytes, inp, nesting: int = 8, data_size: Optional[int] = None,
-                    emul_table: bytes = b""):
+                    resolve_auth: bool = False):
         memory, regs = _ce_memory_regs(inp)
         execution = ContractExecution(
             code, memory, regs, SimArch.RVZR_ARCH_AARCH64, nesting, 0,
@@ -98,27 +97,13 @@ class CESession:
             mte_tags=self._mte_tags(), pac_keys=self._pac_keys(inp),
             pac_profile=self._pac_profile(),
             data_size=self._data_size if data_size is None else data_size,
-            emul_table=emul_table)
+            resolve_auth=resolve_auth)
         return self._svc.run(execution)
 
-    def trace_tc(self, tc, inp):
-        return self.trace_bytes(_assemble(tc), inp, data_size=_dispatch_data_size(tc))
-
     def sealer(self, generator):
-        return make_sealer(generator, self.trace_tc, _assemble, self._primitives,
+        return make_sealer(generator, _assemble, self._primitives,
                            make_signer() if "pac" in self._primitives else None,
                            trace_bytes_fn=self.trace_bytes)
-
-
-def materialize_emul_table(placeholder: bytes, emul_table: bytes) -> bytes:
-    """What the CE traces: the placeholder with each emulation entry's instruction word written at its
-    code offset. The CE does this write per entry as it reaches the offset; done up front in Python it
-    is the whole genuine machine code, so a test can compare it byte-for-byte to the relocated render."""
-    code = bytearray(placeholder)
-    for i in range(0, len(emul_table), 8):
-        off, word = struct.unpack_from("<2I", emul_table, i)
-        code[off:off + 4] = struct.pack("<I", word)
-    return bytes(code)
 
 
 def entry_fields(ite) -> Tuple:

@@ -24,10 +24,10 @@ def _stub_generator():
 class SandboxOnlySealerTest(unittest.TestCase):
     def test_empty_primitives_allowed_unknown_rejected(self):
         # empty set = sandbox-only sealing (PTE standalone); must construct without raising.
-        sealer = make_sealer(_stub_generator(), None, None, set(), None)
+        sealer = make_sealer(_stub_generator(), None, set(), None, None)
         self.assertIsInstance(sealer, Sealer)
         with self.assertRaises(ValueError):
-            make_sealer(_stub_generator(), None, None, {"bogus"}, None)
+            make_sealer(_stub_generator(), None, {"bogus"}, None, None)
 
     def test_sandbox_only_is_a_sealed_test_case(self):
         # it plugs into the same SealedTestCase machinery the executor drives.

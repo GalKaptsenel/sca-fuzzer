@@ -90,7 +90,7 @@ class SealResolutionDeterminismTest(unittest.TestCase):
         alts = [0x1111 << 48, 0x2222 << 48, 0x3333 << 48, 0x4444 << 48]
         entry = _Resolved(ps, _CORRECT, alts, spec_nesting=5)
         offsets = {id(ps): (0, 4)}                 # seal() emits two words (MOVK + AUTH/XPAC)
-        return ResolvedSealingTestCase([entry], bytes(16), offsets, salt)
+        return ResolvedSealingTestCase([entry], bytes(16), offsets, salt, cer=None)
 
     def test_pac_seal_strip_is_seed_deterministic(self):
         ps = self._pac_sealing()
@@ -128,7 +128,7 @@ class NullDecoyEligibilityTest(SealResolutionDeterminismTest):
     def _one_slot(self, spec_nesting, alts) -> ResolvedSealingTestCase:
         ps = self._pac_sealing()
         entry = _Resolved(ps, _CORRECT, alts, spec_nesting=spec_nesting)
-        return ResolvedSealingTestCase([entry], bytes(16), {id(ps): (0, 4)}, salt=0x55)
+        return ResolvedSealingTestCase([entry], bytes(16), {id(ps): (0, 4)}, salt=0x55, cer=None)
 
     _ALTS = [0x1111 << 48, 0x2222 << 48, 0x3333 << 48]
 

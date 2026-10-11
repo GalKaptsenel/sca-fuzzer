@@ -43,7 +43,8 @@ class SealOrderingTest(unittest.TestCase):
         """Generate (over a few seeds) a sealed TC that has at least one MTE data-access site."""
         for seed in range(12):
             gen = Aarch64RandomGenerator(self.isa, seed)
-            sealer = make_sealer(gen, lambda tc, inp: None, lambda tc: b"", primitives, _MaskSigner())
+            sealer = make_sealer(gen, lambda tc: b"", primitives, _MaskSigner(),
+                                 lambda code, inp, resolve_auth=False: None)
             path = os.path.join(tempfile.mkdtemp(), "t.asm")
             sealed = sealer.seal(gen.create_test_case(path, disable_assembler=True))
             if sealed._mte:

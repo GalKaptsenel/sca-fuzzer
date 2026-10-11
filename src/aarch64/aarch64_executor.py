@@ -330,7 +330,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
                            mte_tags: Optional[List[int]] = None,
                            pac_keys: Optional[PacKeys] = None,
                            pac_profile: Optional[qarma.PacProfile] = None,
-                           emul_table: bytes = b"") -> ContractExecution:
+                           resolve_auth: bool = False) -> ContractExecution:
         tc_memory, tc_regs = _ce_memory_regs(inp)
         return ContractExecution(
             tc_bytes, tc_memory, tc_regs, SimArch.RVZR_ARCH_AARCH64,
@@ -343,7 +343,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
             pac_keys=pac_keys,
             pac_profile=pac_profile,
             data_size=self._dispatch_data_size(),
-            emul_table=emul_table,
+            resolve_auth=resolve_auth,
         )
 
     def _measure(self, exec_inputs: List[ExecutorInput], n_reps: int) -> List[HTrace]:
@@ -611,9 +611,9 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             signer = PacSigner(lambda ptr, ctx, mn, keys: qarma.sign(ptr, ctx, mn, keys, profile),
                                lambda ptr, mn: qarma.pac_field_mask(ptr, profile, qarma.is_instr_key(mn)))
 
-        # The sealer owns all sealing + resolution; it traces via _seal_trace and assembles object
-        # code via _assemble_tc.
-        self._sealer = make_sealer(generator, self._seal_trace, lambda tc: self._assemble_tc(tc)[0],
+        # The sealer owns all sealing + resolution; it assembles object code via _assemble_tc and runs
+        # the single per-input resolution trace via _ce_trace.
+        self._sealer = make_sealer(generator, lambda tc: self._assemble_tc(tc)[0],
                                    self._primitives, signer, trace_bytes_fn=self._ce_trace)
 
         # Per-test-case sealed placeholder, populated by load_test_case(); the CE-trace context the
@@ -661,22 +661,18 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         words = self._pac_keys_words(inp)
         return None if words is None else PacKeys(*words)
 
-    def _ce_trace(self, tc_bytes: bytes, inp: Input, emul_table: bytes = b"") -> ContractExecutionResult:
-        """One CE trace of the machine code `tc_bytes` for `inp`. With `emul_table` the CE materializes
-        each genuine instruction over the placeholder as it reaches the offset, so tracing the
-        placeholder yields the genuine render. Sealing always traces at max speculation depth: a
-        shallower pass would classify deep-speculative slots as unreached and under-decoy them, missing
-        leaks."""
+    def _ce_trace(self, tc_bytes: bytes, inp: Input, resolve_auth: bool = False) -> ContractExecutionResult:
+        """One CE trace of the machine code `tc_bytes` for `inp`. With `resolve_auth` the CE canonicalizes
+        every architectural AUT* (like the speculative path) instead of verify-or-abort — the resolution
+        mode in which the sealer traces the placeholder-with-committed-AUT*, so an unsigned pointer never
+        FPAC-faults. Sealing always traces at max speculation depth: a shallower pass would classify
+        deep-speculative slots as unreached and under-decoy them, missing leaks."""
         if self._sandbox_base is None:
             self._sandbox_base, _ = self.read_base_addresses()
         return self._contract_executor.run(self._make_ce_execution(
             tc_bytes, inp, self._sandbox_base, CONF.model_max_nesting, CONF.model_max_spec_window,
             ExecutionClause.COND, mte_tags=self._mte_tags_for(inp), pac_keys=self._input_pac_keys(inp),
-            pac_profile=self._pac_profile_value, emul_table=emul_table))
-
-    def _seal_trace(self, tc: TestCase, inp: Input) -> ContractExecutionResult:
-        """The sealer's trace_fn: assemble the placeholder TC and run one CE trace."""
-        return self._ce_trace(self._assemble_tc(tc)[0], inp)
+            pac_profile=self._pac_profile_value, resolve_auth=resolve_auth))
 
     # ------------------------------------------------------------------ lifecycle
     def load_test_case(self, test_case: TestCase):
@@ -709,7 +705,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             log.ensure_flushed()
 
             resolved = self._resolve(inp)
-            cer = self._ce_trace(resolved.object_code, inp, emul_table=resolved.emul_table)
+            cer = resolved.cer   # the resolution trace is the genuine contract trace (one run per input)
             ce_traces.append(cer)
 
             log_ce_trace(log, "BASELINE", inp_idx, list(cer))
@@ -759,8 +755,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         refuse such a test case rather than risk it. Read off the genuine baseline CE trace."""
         key = inp.identity()
         if key not in self._spec_reach_cache:
-            resolved = self._resolve(inp)
-            cer = self._ce_trace(resolved.object_code, inp, emul_table=resolved.emul_table)
+            cer = self._resolve(inp).cer   # the genuine contract trace
             base, _ = self.read_base_addresses()
             reached = any(
                 self._page_map.spec_only_intersecting(

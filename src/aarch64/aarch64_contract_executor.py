@@ -27,6 +27,7 @@ class ConfigFlags(IntFlag):
     CONFIG_FLAG_REQ_MEM_BASE_PHYS   = 1 << 2
     CONFIG_FLAG_REQ_MEM_BASE_VIRT   = 1 << 3
     CONFIG_FLAG_PAC_PROFILE         = 1 << 4
+    CONFIG_FLAG_RESOLVE_AUTH        = 1 << 5   # canonicalize architectural AUT* (resolution trace)
 
 
 class SimArch(IntEnum):
@@ -133,6 +134,7 @@ class ContractExecution:
     pac_profile: Optional[PacProfile] = None   # target PAC profile the CE models auth with, or None
     data_size: int = 0    # trailing read-only bytes of machine_code (dispatch tables): loaded but not hooked
     emul_table: bytes = b""   # instruction-emulation table: (code offset, instruction word) pairs, or empty
+    resolve_auth: bool = False   # canonicalize architectural AUT* instead of verify-or-abort (resolution trace)
 
     def encode(self) -> bytes:
         """
@@ -178,6 +180,9 @@ class ContractExecution:
                                 | ((p.level & 0xf) << 20) | (int(p.constpacfield) << 26)
                                 | ((p.t0sz & 0xff) << 32) | ((p.generic_iterations & 0xff) << 40))
             config_flags |= ConfigFlags.CONFIG_FLAG_PAC_PROFILE
+
+        if self.resolve_auth:
+            config_flags |= ConfigFlags.CONFIG_FLAG_RESOLVE_AUTH
 
         # memory = main‖faulty; the gpr register slots are the GPR section (CE reads only those).
         input_init = build_input_init(self.memory[:MAIN_AREA_SIZE], self.memory[MAIN_AREA_SIZE:],

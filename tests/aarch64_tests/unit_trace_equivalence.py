@@ -1,7 +1,7 @@
-"""A-priori equivalence property: the placeholder test case under its emulation table IS the genuine
-render — byte-identical machine code, hence identical ctrace and taint — for each sealing primitive.
-Device-free: drives the CE binary directly. The redesign reuses this single trace instead of a
-separate genuine trace.
+"""A-priori equivalence property: the single resolution trace IS the genuine contract trace — the
+genuine binary (correctly pre-signed) traces without an FPAC and produces identical ctrace and taint —
+for each sealing primitive. Device-free: drives the CE binary directly. The one-run design reuses this
+resolution trace instead of running a separate genuine trace.
 """
 import copy
 import os
@@ -60,7 +60,8 @@ class _EquivalenceBase:
 
     @classmethod
     def _has_seals(cls, sealed, resolved):
-        return bool(resolved.emul_table)
+        from src.aarch64.seal.sealer import SandboxSealing
+        return any(not isinstance(s, SandboxSealing) for s in sealed._sealings())
 
     @classmethod
     def _respawn(cls):
@@ -79,8 +80,8 @@ class _EquivalenceBase:
             # A few randomly-generated indirect-call test cases make an ARCHITECTURAL out-of-sandbox
             # data access, which the CE rejects by design (a pre-existing sandbox-completeness limit for
             # indirect calls, orthogonal to sealing). Detect it by tracing the bare placeholder — no
-            # emulation, no resolution — so the only thing that can fail is the CE being unable to trace
-            # the test case at all; such a test case is skipped. Resolution and the emulated-vs-genuine
+            # no resolution — so the only thing that can fail is the CE being unable to trace the test
+            # case at all; such a test case is skipped. Resolution and the resolution-vs-genuine
             # comparison below run unguarded, so a sealing bug surfaces instead of being masked.
             try:
                 cls.sess.trace_bytes(sealed.object_code, probe)
@@ -94,26 +95,36 @@ class _EquivalenceBase:
         raise AssertionError(f"no CE-traceable sealed test case in {_MAX_TEST_CASES} "
                              f"(seed {cls.PROGRAM_SEED})")
 
-    def test_emulated_placeholder_matches_genuine(self):
+    def test_resolution_trace_matches_genuine(self):
         from src import factory
-        placeholder = self.sealed.object_code
         inputs = factory.get_input_generator(self.INPUT_SEED).generate(8)
         checked = 0
         for inp in inputs:
             resolved = self.sealed.resolve(inp)
             genuine_code = apply_relocations(resolved.object_code, resolved.genuine())
-            cer_ce = self.sess.trace_bytes(placeholder, inp, emul_table=resolved.emul_table)
-            cer_g = self.sess.trace_bytes(genuine_code, inp)
+            cer_res = resolved.cer                              # the single resolution trace
+            cer_g = self.sess.trace_bytes(genuine_code, inp)    # the pre-signed genuine binary, verify-mode
 
-            # The emulation IS the genuine render: the placeholder with the table materialized is the
-            # genuine machine code byte-for-byte (no PAC*, no approximation).
-            self.assertEqual(eq.materialize_emul_table(placeholder, resolved.emul_table), genuine_code,
-                             "emulated machine code differs from the genuine render")
-            # ...so the traces agree in every consumed field: identical ctrace and taint.
-            self.assertEqual(len(list(cer_ce)), len(list(cer_g)), "entry counts differ")
-            self.assertEqual(compute_ctrace(cer_ce), compute_ctrace(cer_g), "ctrace differs")
-            self.assertEqual(compute_taint(cer_ce).tobytes(), compute_taint(cer_g).tobytes(),
-                             "taint differs")
+            # The genuine binary traces without an FPAC (the resolver's signatures are correct) and its
+            # contract trace equals the resolution trace in the observable — identical entry count and
+            # ctrace. So the one resolution trace is a faithful genuine trace: no separate genuine run.
+            self.assertEqual(len(list(cer_res)), len(list(cer_g)),
+                             "entry counts differ:\n" + "\n".join(eq.diff_traces(cer_res, cer_g)))
+            self.assertEqual(compute_ctrace(cer_res), compute_ctrace(cer_g),
+                             "ctrace differs:\n" + "\n".join(eq.diff_traces(cer_res, cer_g)))
+            tr, tg = compute_taint(cer_res).tobytes(), compute_taint(cer_g).tobytes()
+            if "mte" in self.PRIMITIVES:
+                # The resolution pointer keeps the sandbox base's tag, so compute_taint's memory-offset
+                # formula (effective_address - sandbox_base_register) cancels the tag and marks the input
+                # byte the access reads. The genuine binary's ADDG #delta gives the pointer the cell tag,
+                # so that same subtraction leaves a (delta<<56) term, lands the offset outside the region,
+                # and drops the byte — the genuine-binary oracle UNDER-counts. The resolution taint is the
+                # complete, correct one (production uses it); it is a strict superset of the genuine
+                # oracle's — assert containment, not equality.
+                self.assertTrue(all(g == 0 or r != 0 for r, g in zip(tr, tg)),
+                                "genuine taint not covered by the resolution taint")
+            else:
+                self.assertEqual(tr, tg, "taint differs")
             checked += 1
         self.assertGreater(checked, 0)
 
@@ -161,18 +172,14 @@ class TraceEquivalencePacMteTest(_EquivalenceBase, unittest.TestCase):
 
 
 # Canonicality and branch-target carry no dynamic value: their genuine baseline is the canonical /
-# valid-target NOP placeholder (the flip is the decoy relocation), so they emit no emulation and the
-# placeholder trace already is the genuine trace. PTE seals no code (SandboxSealedTestCase); the
-# genuine/decoy difference is the page-table environment, not the trace. These confirm the empty-
-# emulation path yields genuine == placeholder.
+# valid-target NOP placeholder (the flip is the decoy relocation), so the resolution trace already is
+# the genuine trace. PTE seals no code (SandboxSealedTestCase); the genuine/decoy difference is the
+# page-table environment, not the trace. These confirm the no-value-seal path yields genuine ==
+# resolution trace.
 class TraceEquivalenceCanonTest(_EquivalenceBase, unittest.TestCase):
     CONFIG = "config_canon.yml"
     PRIMITIVES = {"canon"}
     VA_SIZE = 48
-
-    @classmethod
-    def _has_seals(cls, sealed, resolved):
-        return bool(sealed._canon)
 
 
 class TraceEquivalenceBranchTargetTest(_EquivalenceBase, unittest.TestCase):
@@ -180,10 +187,6 @@ class TraceEquivalenceBranchTargetTest(_EquivalenceBase, unittest.TestCase):
     PRIMITIVES = {"branch_target"}
     VA_SIZE = 48
     EXTRA_CONF = {"indirect_call_probability": 1.0}
-
-    @classmethod
-    def _has_seals(cls, sealed, resolved):
-        return bool(sealed._bt)
 
 
 class TraceEquivalencePteTest(_EquivalenceBase, unittest.TestCase):
