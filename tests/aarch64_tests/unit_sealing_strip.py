@@ -42,7 +42,7 @@ class SealingStripPolicyTest(unittest.TestCase):
 
     def test_pac_seal_none_is_inert(self):
         # The placeholder does nothing: it leaves the pointer the canonical clamped base, so it is pure
-        # NOPs (no auth, no strip, no sign). The genuine render overwrites it per the emulation table.
+        # NOPs (no auth, no strip, no sign). The genuine render overwrites it via genuine() relocations.
         ps = self._pac_sealing()
         self.assertTrue(all(n == "nop" for n in _names(ps.seal(None, None))))
 

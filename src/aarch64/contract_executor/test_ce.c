@@ -599,7 +599,7 @@ static void test_payload_size(void) {
 /* ======================================================================== */
 
 static void test_struct_sizes(void) {
-    /* struct configuration: 9 fields × 8 bytes = 72 bytes */
+    /* struct configuration: 10 fields × 8 bytes = 80 bytes */
     EXPECT_EQ(sizeof(struct configuration), (size_t)80);
 
     /* struct input_header: 18 u64 = magic+version+arch+flags(4) + config(10)

@@ -8,7 +8,10 @@
 import abc
 import copy
 import random
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..aarch64_contract_executor import ContractExecutionResult
 
 from ...config import CONF
 from ...util import stable_rng
@@ -393,7 +396,8 @@ class ResolvedSealingTestCase:
     genuine AUT*), so it doubles as the genuine contract trace; no separate genuine trace is run."""
 
     def __init__(self, entries: List[_Resolved], object_code: bytes,
-                 offsets: Dict[int, Tuple[int, ...]], salt: int, cer) -> None:
+                 offsets: Dict[int, Tuple[int, ...]], salt: int,
+                 cer: Optional["ContractExecutionResult"]) -> None:
         self._entries = entries
         self._object_code = object_code
         self._offsets = offsets
@@ -415,7 +419,7 @@ class ResolvedSealingTestCase:
         return self._object_code
 
     @property
-    def cer(self):
+    def cer(self) -> Optional["ContractExecutionResult"]:
         """The resolution trace, reused as the genuine contract trace (see the class docstring)."""
         return self._cer
 
@@ -648,6 +652,11 @@ class SealedTestCase:
         """The assembled skeleton (placeholder slots, no resolved values); input-independent."""
         return self._assemble(self._tc)
 
+    # The resolution trace canonicalizes every architectural AUT* instead of verifying it, so an
+    # unsigned pointer never FPACs. A concern that pre-signs and wants verification during resolution
+    # overrides this to False.
+    _resolve_auth: bool = True
+
     def _insert_slots(self, data_sites: List) -> None:
         """Insert this concern's value sealings around each data-access site."""
         raise NotImplementedError
@@ -655,22 +664,45 @@ class SealedTestCase:
     def _sealings(self) -> List[Sealing]:
         raise NotImplementedError
 
-    def resolve(self, inp) -> ResolvedSealingTestCase:
-        raise NotImplementedError
-
-    def _resolve_relocs(self, offsets: Dict[int, Tuple[int, ...]]) -> List[Relocation]:
-        """Relocations splicing the resolution render over the placeholder for the resolution trace.
-        Default: none (no auth site). PAC concerns override it to place the committed AUT* at each auth
-        position (resolve-mode canonicalizes it — no MOVK, no FPAC)."""
+    def _value_sealings(self) -> List[Sealing]:
+        """The non-sandbox value seals this concern resolves (their slots carry the decoy-able values).
+        Empty for sandbox-only (PTE)."""
         return []
 
-    def _resolve_trace(self, inp, offsets: Dict[int, Tuple[int, ...]]) -> Tuple[bytes, object]:
+    def _render_sealings(self) -> List[Sealing]:
+        """The value seals whose resolution render (committed AUT* / tag-neutral ADDG) is spliced into
+        the resolution trace. Empty when the placeholder is already the genuine render (canon / branch
+        target / sandbox)."""
+        return []
+
+    def _resolve_entries(self, inp, cer) -> List[_Resolved]:
+        """Resolve this concern's value seals from the single resolution trace `cer`. Default: none."""
+        return []
+
+    def resolve(self, inp) -> ResolvedSealingTestCase:
+        """One CE trace per input: splice the resolution render, trace in resolve-mode, read the values
+        off it, and reuse that same trace as the genuine contract trace (`cer`)."""
+        offsets = _slot_offsets(self._tc, self._layout, self._value_sealings())
+        object_code, cer = self._resolve_trace(inp, offsets)
+        entries = self._clamp_entries(self._sandbox) + self._resolve_entries(inp, cer)
+        return ResolvedSealingTestCase(entries, object_code, offsets, self._salt, cer)
+
+    def _resolve_relocs(self, offsets: Dict[int, Tuple[int, ...]]) -> List[Relocation]:
+        return self._resolve_relocs_for(self._render_sealings(), offsets)
+
+    @staticmethod
+    def _resolve_relocs_for(sealings: List[Sealing],
+                            offsets: Dict[int, Tuple[int, ...]]) -> List[Relocation]:
+        """Relocations placing each seal's resolution render (`resolve_slot`) at its slot offsets."""
+        return [rel for s in sealings for rel in _slot_relocs(offsets[id(s)], s.resolve_slot())]
+
+    def _resolve_trace(self, inp, offsets: Dict[int, Tuple[int, ...]]) -> Tuple[bytes, "ContractExecutionResult"]:
         """The single per-input trace: the placeholder with the resolution render spliced in, run in
-        resolve-mode. Faithful to the genuine binary, so its trace is reused as the genuine contract
-        trace. Returns (object_code, cer)."""
+        resolve-mode. The committed AUT* makes it faithful to the genuine binary, so its trace is reused
+        as the genuine contract trace. Returns (object_code, cer)."""
         object_code = self._assemble(self._tc)
         cer = self._trace_bytes_fn(apply_relocations(object_code, self._resolve_relocs(offsets)),
-                                   inp, resolve_auth=True)
+                                   inp, resolve_auth=self._resolve_auth)
         return object_code, cer
 
     @staticmethod
@@ -709,17 +741,16 @@ class PacSealedTestCase(SealedTestCase):
     def _sealings(self) -> List[Sealing]:
         return self._sandbox + self._pac
 
-    def _resolve_relocs(self, offsets) -> List[Relocation]:
-        return [rel for s in self._pac for rel in _slot_relocs(offsets[id(s)], s.resolve_slot())]
+    def _value_sealings(self) -> List[Sealing]:
+        return self._pac
 
-    def resolve(self, inp) -> ResolvedSealingTestCase:
-        offsets = _slot_offsets(self._tc, self._layout, self._pac)
-        object_code, cer = self._resolve_trace(inp, offsets)
+    def _render_sealings(self) -> List[Sealing]:
+        return self._pac
+
+    def _resolve_entries(self, inp, cer) -> List[_Resolved]:
         keys = _input_pac_keys(inp)
-        pac = [_Resolved(s, *_resolve_pac(s, cer, self._layout, self._signer, keys, self._salt))
-               for s in self._pac]
-        entries = self._clamp_entries(self._sandbox) + pac
-        return ResolvedSealingTestCase(entries, object_code, offsets, self._salt, cer)
+        return [_Resolved(s, *_resolve_pac(s, cer, self._layout, self._signer, keys, self._salt))
+                for s in self._pac]
 
 
 class MteSealedTestCase(SealedTestCase):
@@ -739,15 +770,14 @@ class MteSealedTestCase(SealedTestCase):
     def _sealings(self) -> List[Sealing]:
         return self._sandbox + self._mte
 
-    def _resolve_relocs(self, offsets) -> List[Relocation]:
-        return [rel for s in self._mte for rel in _slot_relocs(offsets[id(s)], s.resolve_slot())]
+    def _value_sealings(self) -> List[Sealing]:
+        return self._mte
 
-    def resolve(self, inp) -> ResolvedSealingTestCase:
-        offsets = _slot_offsets(self._tc, self._layout, self._mte)
-        object_code, cer = self._resolve_trace(inp, offsets)
-        mte = [_Resolved(s, *_resolve_mte(s, cer, self._layout)) for s in self._mte]
-        entries = self._clamp_entries(self._sandbox) + mte
-        return ResolvedSealingTestCase(entries, object_code, offsets, self._salt, cer)
+    def _render_sealings(self) -> List[Sealing]:
+        return self._mte
+
+    def _resolve_entries(self, inp, cer) -> List[_Resolved]:
+        return [_Resolved(s, *_resolve_mte(s, cer, self._layout)) for s in self._mte]
 
 
 class SandboxSealedTestCase(SealedTestCase):
@@ -763,11 +793,6 @@ class SandboxSealedTestCase(SealedTestCase):
 
     def _sealings(self) -> List[Sealing]:
         return list(self._sandbox)
-
-    def resolve(self, inp) -> ResolvedSealingTestCase:
-        object_code, cer = self._resolve_trace(inp, {})
-        return ResolvedSealingTestCase(self._clamp_entries(self._sandbox), object_code, {},
-                                       self._salt, cer)
 
 
 class CanonSealedTestCase(SealedTestCase):
@@ -802,12 +827,11 @@ class CanonSealedTestCase(SealedTestCase):
     def _sealings(self) -> List[Sealing]:
         return self._sandbox + self._canon
 
-    def resolve(self, inp) -> ResolvedSealingTestCase:
-        offsets = _slot_offsets(self._tc, self._layout, self._canon)
-        object_code, cer = self._resolve_trace(inp, offsets)
-        canon = [_Resolved(s, *_resolve_canon(s, cer, self._layout)) for s in self._canon]
-        entries = self._clamp_entries(self._sandbox) + canon
-        return ResolvedSealingTestCase(entries, object_code, offsets, self._salt, cer)
+    def _value_sealings(self) -> List[Sealing]:
+        return self._canon
+
+    def _resolve_entries(self, inp, cer) -> List[_Resolved]:
+        return [_Resolved(s, *_resolve_canon(s, cer, self._layout)) for s in self._canon]
 
 
 class BranchTargetSealedTestCase(SealedTestCase):
@@ -842,12 +866,11 @@ class BranchTargetSealedTestCase(SealedTestCase):
     def _sealings(self) -> List[Sealing]:
         return self._sandbox + self._bt
 
-    def resolve(self, inp) -> ResolvedSealingTestCase:
-        offsets = _slot_offsets(self._tc, self._layout, self._bt)
-        object_code, cer = self._resolve_trace(inp, offsets)
-        bt = [_Resolved(s, *_resolve_branch_target(s, cer, self._layout)) for s in self._bt]
-        entries = self._clamp_entries(self._sandbox) + bt
-        return ResolvedSealingTestCase(entries, object_code, offsets, self._salt, cer)
+    def _value_sealings(self) -> List[Sealing]:
+        return self._bt
+
+    def _resolve_entries(self, inp, cer) -> List[_Resolved]:
+        return [_Resolved(s, *_resolve_branch_target(s, cer, self._layout)) for s in self._bt]
 
 
 class MtePacSealedTestCase(SealedTestCase):
@@ -880,24 +903,22 @@ class MtePacSealedTestCase(SealedTestCase):
     def _sealings(self) -> List[Sealing]:
         return self._sandbox + self._pac + self._mte
 
-    def _resolve_relocs(self, offsets) -> List[Relocation]:
-        return [rel for s in (self._pac + self._mte)
-                for rel in _slot_relocs(offsets[id(s)], s.resolve_slot())]
+    def _value_sealings(self) -> List[Sealing]:
+        return self._pac + self._mte
 
-    def resolve(self, inp) -> ResolvedSealingTestCase:
+    def _render_sealings(self) -> List[Sealing]:
+        return self._pac + self._mte
+
+    def _resolve_entries(self, inp, cer) -> List[_Resolved]:
         # One trace. The CE tags every accessed pointer from its simulated tag memory
         # (simulation_hook.c), so the genuine MTE retags need no splice here. The committed AUT* at each
         # auth position (resolve-mode: canonicalizes instead of verify-or-abort) makes the trace faithful
-        # to the genuine binary. MTE tag deltas, PAC signatures, and the genuine contract trace all come
-        # off this single trace.
-        offsets = _slot_offsets(self._tc, self._layout, self._pac + self._mte)
-        object_code, cer = self._resolve_trace(inp, offsets)
+        # to the genuine binary. MTE tag deltas and PAC signatures both resolve off this single trace.
         keys = _input_pac_keys(inp)
-        mte = [_Resolved(s, *_resolve_mte(s, cer, self._layout)) for s in self._mte]
         pac = [_Resolved(s, *_resolve_pac(s, cer, self._layout, self._signer, keys, self._salt))
                for s in self._pac]
-        entries = self._clamp_entries(self._sandbox) + pac + mte
-        return ResolvedSealingTestCase(entries, object_code, offsets, self._salt, cer)
+        mte = [_Resolved(s, *_resolve_mte(s, cer, self._layout)) for s in self._mte]
+        return pac + mte
 
 
 # ==================================================================================================

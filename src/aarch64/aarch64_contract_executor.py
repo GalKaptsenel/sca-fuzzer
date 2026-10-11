@@ -27,7 +27,7 @@ class ConfigFlags(IntFlag):
     CONFIG_FLAG_REQ_MEM_BASE_PHYS   = 1 << 2
     CONFIG_FLAG_REQ_MEM_BASE_VIRT   = 1 << 3
     CONFIG_FLAG_PAC_PROFILE         = 1 << 4
-    CONFIG_FLAG_RESOLVE_AUTH        = 1 << 5   # canonicalize architectural AUT* (resolution trace)
+    CONFIG_FLAG_CANONICALIZE_AUTH   = 1 << 5   # strip an architectural AUT* instead of verify-or-abort
 
 
 class SimArch(IntEnum):
@@ -181,7 +181,7 @@ class ContractExecution:
             config_flags |= ConfigFlags.CONFIG_FLAG_PAC_PROFILE
 
         if self.resolve_auth:
-            config_flags |= ConfigFlags.CONFIG_FLAG_RESOLVE_AUTH
+            config_flags |= ConfigFlags.CONFIG_FLAG_CANONICALIZE_AUTH
 
         # memory = main‖faulty; the gpr register slots are the GPR section (CE reads only those).
         input_init = build_input_init(self.memory[:MAIN_AREA_SIZE], self.memory[MAIN_AREA_SIZE:],

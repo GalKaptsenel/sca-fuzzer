@@ -113,18 +113,20 @@ class _EquivalenceBase:
             self.assertEqual(compute_ctrace(cer_res), compute_ctrace(cer_g),
                              "ctrace differs:\n" + "\n".join(eq.diff_traces(cer_res, cer_g)))
             tr, tg = compute_taint(cer_res).tobytes(), compute_taint(cer_g).tobytes()
-            if "mte" in self.PRIMITIVES:
-                # The resolution pointer keeps the sandbox base's tag, so compute_taint's memory-offset
-                # formula (effective_address - sandbox_base_register) cancels the tag and marks the input
-                # byte the access reads. The genuine binary's ADDG #delta gives the pointer the cell tag,
-                # so that same subtraction leaves a (delta<<56) term, lands the offset outside the region,
-                # and drops the byte — the genuine-binary oracle UNDER-counts. The resolution taint is the
-                # complete, correct one (production uses it); it is a strict superset of the genuine
-                # oracle's — assert containment, not equality.
+            if "mte" not in self.PRIMITIVES and CONF.pac_strip_prob == 0:
+                # Renders are taint-identical: resolution AUT* == genuine AUT* (no strip), no retag.
+                self.assertEqual(tr, tg, "taint differs")
+            else:
+                # The resolution taint is a safe SUPERSET of the genuine binary's — assert containment.
+                #  * MTE: the genuine ADDG #delta gives the pointer the cell tag, so compute_taint's
+                #    (effective_address - sandbox_base_register) offset leaves a (delta<<56) term, lands
+                #    outside the region, and drops the byte the access reads; the resolution pointer keeps
+                #    the base tag and marks it. The genuine-binary oracle UNDER-counts.
+                #  * pac_strip_prob>0: a genuine XPAC strip reads no context, while the resolution AUT*
+                #    does, so resolution additionally marks the ctx bytes at stripped slots.
+                # Production uses the resolution taint, which is the complete, correct one.
                 self.assertTrue(all(g == 0 or r != 0 for r, g in zip(tr, tg)),
                                 "genuine taint not covered by the resolution taint")
-            else:
-                self.assertEqual(tr, tg, "taint differs")
             checked += 1
         self.assertGreater(checked, 0)
 
@@ -136,8 +138,8 @@ class TraceEquivalencePacTest(_EquivalenceBase, unittest.TestCase):
 
 class TraceEquivalencePacStripTest(_EquivalenceBase, unittest.TestCase):
     # pac_strip_prob=1.0 forces every genuine auth to render as the arch-safe XPAC strip instead of an
-    # AUT*, so the emulation materializes MOVK+XPAC; byte-identity then exercises the strip path that
-    # the default (strip_prob=0) PAC test never reaches.
+    # AUT*, exercising the strip path the default (strip_prob=0) PAC test never reaches. The resolution
+    # render still uses the committed AUT* (reads ctx), so its taint is a superset of the strip genuine's.
     CONFIG = "config_pac.yml"
     PRIMITIVES = {"pac"}
     EXTRA_CONF = {"pac_strip_prob": 1.0}

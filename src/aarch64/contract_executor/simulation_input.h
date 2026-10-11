@@ -27,10 +27,9 @@ enum config_flags {
 	CONFIG_FLAG_REQ_MEM_BASE_PHYS	= 1 << 2,
 	CONFIG_FLAG_REQ_MEM_BASE_VIRT	= 1 << 3,
 	CONFIG_FLAG_PAC_PROFILE		= 1 << 4,
-	/* Sealing resolution: an architectural AUT* canonicalizes the pointer (like the speculative path)
-	 * instead of verify-or-abort. The pointer is not pre-signed (no MOVK), so the resolver reads the
-	 * canonical pointer/context off this one trace and computes the signature itself. */
-	CONFIG_FLAG_RESOLVE_AUTH	= 1 << 5,
+	/* Treat an architectural AUT* like the speculative path: canonicalize the pointer (strip the PAC
+	 * field) instead of verify-or-abort, so an unsigned pointer never faults. */
+	CONFIG_FLAG_CANONICALIZE_AUTH	= 1 << 5,
 };
 
 /* Contracts are COMPOSABLE: `configuration.execution_clauses` is a BITMASK of clauses, so
@@ -71,8 +70,10 @@ struct configuration {
 	uint64_t requested_mem_base_virt;
 	uint64_t execution_clauses;        /* bitmask of EXEC_CLAUSE_*; 0 = seq (no speculation) */
 	uint64_t branch_predictor;         /* enum branch_predictor_id; used iff EXEC_CLAUSE_BPU */
-	uint64_t pac_profile;              /* packed PAC profile, applied iff CONFIG_FLAG_PAC_PROFILE
-	                                    * (iterations | tsz<<8 | tbi0<<16 | tbi1<<17 | pauth2<<24) */
+	uint64_t pac_profile;              /* packed PAC profile, applied iff CONFIG_FLAG_PAC_PROFILE (see
+	                                    * pac_profile_init): iterations | t1sz<<8 | tbi0<<16 | tbi1<<17 |
+	                                    * tbid0<<18 | tbid1<<19 | level<<20 | constpacfield<<26 |
+	                                    * t0sz<<32 | generic_iterations<<40 */
 };
 
 /* Envelope for one contract-executor message: exec-params (config) + code + a shared input initialization

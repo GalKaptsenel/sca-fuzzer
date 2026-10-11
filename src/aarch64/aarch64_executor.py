@@ -705,7 +705,11 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             log.ensure_flushed()
 
             resolved = self._resolve(inp)
-            cer = resolved.cer   # the resolution trace is the genuine contract trace (one run per input)
+            # The resolution trace is the genuine contract trace (one run per input). It runs in
+            # resolve-mode (canonicalizes, never verifies), so it no longer re-checks the genuine
+            # signatures in software: correctness rests on the resolver computing them under the CE's
+            # own QARMA/keys/profile (the device-free equivalence test verify-traces the genuine binary).
+            cer = resolved.cer
             ce_traces.append(cer)
 
             log_ce_trace(log, "BASELINE", inp_idx, list(cer))

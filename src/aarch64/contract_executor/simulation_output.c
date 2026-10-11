@@ -356,9 +356,8 @@ static instr_trace_entry_t* log_sim_state(struct simulation_state* sim_state) {
 	entry->cpu.sp = sim_state->cpu_state.sp;
 	entry->cpu.pc = sim_state->cpu_state.pc;
 	entry->cpu.nzcv = sim_state->cpu_state.nzcv;
-	/* Read the logged encoding from sim_input.code rather than the live sim_code.code, which
-	 * pac_sign_hook / auth_verify_hook may have already NOP'd. The instruction emulator writes the
-	 * genuine word into sim_input.code too, so the logged encoding is the emulated instruction. */
+	/* Read the logged encoding from sim_input.code (the pristine loaded copy) rather than the live
+	 * sim_code.code, which pac_sign_hook / auth_verify_hook may have already NOP'd. */
 	uintptr_t pc_offset = sim_state->cpu_state.pc - (uintptr_t)simulation.sim_code.code;
 	entry->cpu.encoding = *(uint32_t*)(simulation.sim_input.code + pc_offset);
 	entry->cpu.extra_data_size = 0;

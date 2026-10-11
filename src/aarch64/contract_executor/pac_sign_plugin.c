@@ -316,11 +316,11 @@ void *auth_verify_hook(struct simulation_state *sim_state)
 
     uint64_t result;
     int spec = is_in_speculation();
-    int resolve = (simulation.sim_input.hdr.config.flags & CONFIG_FLAG_RESOLVE_AUTH) != 0;
+    int canonicalize = (simulation.sim_input.hdr.config.flags & CONFIG_FLAG_CANONICALIZE_AUTH) != 0;
 
-    if (spec || resolve) {
-        // Speculative, or sealing-resolution: canonicalize (the resolver signs over this; the pointer
-        // was never pre-signed, so there is nothing to verify and nothing can FPAC).
+    if (spec || canonicalize) {
+        // Speculative, or canonicalize-auth mode: strip the PAC field instead of verifying it, so an
+        // unsigned pointer has nothing to verify and cannot FPAC.
         result = sw_pac_xpac(ptr, auth_type_is_instr(atype));
     } else {
         result = model_auth(atype, ptr, ctx, sim_state->cpu_state.pc);
