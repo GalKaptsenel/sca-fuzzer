@@ -833,9 +833,10 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         return self.variants_for_input(inp)[NIVariant.BASELINE]
 
     def noncanon_variant(self, inp: Input) -> ExecutorInput:
-        """The input's baseline test case sealed to force every speculative branch target
-        NON-canonical (see ResolvedSealingTestCase.forced_noncanon) -- the guaranteed-"bad" lane of the
-        cross-input priming search, since the random decoy may be identity/misaligned and thus still train."""
+        """The input's baseline test case sealed to force every eligible speculative slot to a
+        guaranteed-bad alt -- wrong PAC signature / mismatched MTE tag / non-canonical target (see
+        ResolvedSealingTestCase.forced_noncanon) -- the guaranteed-"bad" lane of the cross-input priming
+        search, since the random decoy may pick the identity and thus still train."""
         resolved = self._resolve(inp)
         return ExecutorInput(inp, code_reloc=resolved.forced_noncanon(),
                              mte_tags=self._mte_tags_for(inp), pac_keys=self._pac_keys_words(inp),
