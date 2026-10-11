@@ -37,7 +37,6 @@ SRCS = \
   pac_sign_plugin.c \
   qarma.c \
   mte_tag_plugin.c \
-  instruction_emulator.c \
   tage_py.c \
   main.c
 

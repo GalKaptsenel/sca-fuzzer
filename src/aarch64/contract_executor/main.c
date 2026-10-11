@@ -4,7 +4,6 @@
 #include "simulation_execution_clause_hook.h"
 #include "pac_sign_plugin.h"
 #include "mte_tag_plugin.h"
-#include "instruction_emulator.h"
 #include "tage_py.h"
 #include "call_stack.h"
 #include <signal.h>
@@ -17,7 +16,6 @@ extern uint64_t base_hook_c_target;
 
 simulation_hook_fn hooks_to_install[] = {
 	execution_clause_hook,
-	instruction_emulator_hook,
 	pac_sign_hook,
 	auth_verify_hook,
 	xpac_hook,

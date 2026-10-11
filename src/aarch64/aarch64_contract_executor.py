@@ -133,7 +133,6 @@ class ContractExecution:
     pac_keys: Optional[PacKeys] = None    # per-input PAC keys, or None
     pac_profile: Optional[PacProfile] = None   # target PAC profile the CE models auth with, or None
     data_size: int = 0    # trailing read-only bytes of machine_code (dispatch tables): loaded but not hooked
-    emul_table: bytes = b""   # instruction-emulation table: (code offset, instruction word) pairs, or empty
     resolve_auth: bool = False   # canonicalize architectural AUT* instead of verify-or-abort (resolution trace)
 
     def encode(self) -> bytes:
@@ -216,13 +215,11 @@ class ContractExecution:
         data += code_size.to_bytes(8, 'little')
         data += data_size.to_bytes(8, 'little')
         data += input_init_size.to_bytes(8, 'little')
-        data += len(self.emul_table).to_bytes(8, 'little')
 
         data += (0).to_bytes(8, 'little') # Reserved
 
         data += self.machine_code
         data += input_init
-        data += self.emul_table
 
         return bytes(data)
 
