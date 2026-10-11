@@ -39,7 +39,7 @@ index/displacement cancellation.
 ## 3. Sealer + per-input resolution
 
 - **`make_sealer(generator, assemble, primitives, signer, trace_bytes_fn)`** picks the concrete
-  `Sealer`. `trace_bytes_fn(code, input, resolve_auth)` runs the single per-input resolution trace.
+  `Sealer`. `trace_bytes_fn(code, input, canonicalize_auth)` runs the single per-input resolution trace.
   `seal(tc)` walks the TC (the `SandboxWalk` taint
   dataflow decides which memory bases still need an in-region clamp), inserts the arch-safe
   placeholders, and returns a `SealedTestCase`. Standalone generator-emitted `AUT*` instructions are

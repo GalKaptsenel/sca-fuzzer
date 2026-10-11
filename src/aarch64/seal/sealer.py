@@ -398,9 +398,11 @@ class ResolvedSealingTestCase:
     """One input's resolution. `object_code` is the assembled base; `genuine()`/`decoy()` are the
     relocations that turn it into a variant (apply with apply_relocations). `genuine()` seals every slot
     correctly; `decoy()` seals the architectural slots correctly, with no guarantees on the other slots.
-    `cer` is the resolution trace itself — faithful to the genuine binary (the spliced render matches
-    it: the committed AUT* at auth sites, the placeholder itself otherwise), so it doubles as the
-    genuine contract trace; no separate genuine trace is run."""
+    `cer` is the resolution trace itself: each value seal's resolution render spliced over the
+    placeholder (the committed AUT* at auth sites, a tag-neutral ADDG at MTE sites, the placeholder
+    otherwise). It matches the genuine binary's contract exactly in ctrace, and in taint up to the MTE
+    retag delta (which only widens it), so it doubles as the genuine contract trace; no separate genuine
+    trace is run."""
 
     def __init__(self, entries: List[_Resolved], object_code: bytes,
                  offsets: Dict[int, Tuple[int, ...]], salt: int,
@@ -668,7 +670,9 @@ class SealedTestCase:
         raise NotImplementedError
 
     def _sealings(self) -> List[Sealing]:
-        raise NotImplementedError
+        """Every sealing whose slot positions must be recorded: the sandbox clamps plus this concern's
+        value seals."""
+        return self._sandbox + self._value_sealings()
 
     def _value_sealings(self) -> List[Sealing]:
         """The non-sandbox value seals this concern resolves (their slots carry the decoy-able values).
@@ -731,9 +735,6 @@ class PacSealedTestCase(SealedTestCase):
             _place_after(bb, inst, s.slot_insts[s.n_before:])           # XPAC back to canonical (re-converge)
         _seal_auths(self._tc, self._enc, self._auth_specs, self._pac)
 
-    def _sealings(self) -> List[Sealing]:
-        return self._sandbox + self._pac
-
     def _value_sealings(self) -> List[Sealing]:
         return self._pac
 
@@ -757,9 +758,6 @@ class MteSealedTestCase(SealedTestCase):
             _insert(bb, inst, offset_subs, s.slot_insts[:s.n_before])   # cancel offset, then retag
             _place_after(bb, inst, s.slot_insts[s.n_before:])           # ADDG the complement back to the cell tag
 
-    def _sealings(self) -> List[Sealing]:
-        return self._sandbox + self._mte
-
     def _value_sealings(self) -> List[Sealing]:
         return self._mte
 
@@ -777,9 +775,6 @@ class SandboxSealedTestCase(SealedTestCase):
     def _insert_slots(self, data_sites) -> None:
         for inst, bb, _mem_reg, offset_subs, _base_preserved in data_sites:
             _insert(bb, inst, offset_subs)   # pin each access to its clamped base; no value seal
-
-    def _sealings(self) -> List[Sealing]:
-        return list(self._sandbox)
 
 
 class CanonSealedTestCase(SealedTestCase):
@@ -810,9 +805,6 @@ class CanonSealedTestCase(SealedTestCase):
             self._canon.append(s)
             _insert(bb, inst, offset_subs, s.slot_insts[:1])   # cancel offset, then flip (last before)
             _place_after(bb, inst, s.slot_insts[1:])           # restore the base right after (re-converge)
-
-    def _sealings(self) -> List[Sealing]:
-        return self._sandbox + self._canon
 
     def _value_sealings(self) -> List[Sealing]:
         return self._canon
@@ -850,9 +842,6 @@ class BranchTargetSealedTestCase(SealedTestCase):
                     self._bt.append(s)
                     _insert(bb, inst, s.slot_insts)   # flip right before the BLR
 
-    def _sealings(self) -> List[Sealing]:
-        return self._sandbox + self._bt
-
     def _value_sealings(self) -> List[Sealing]:
         return self._bt
 
@@ -886,9 +875,6 @@ class MtePacSealedTestCase(SealedTestCase):
             # after: MTE ADDG re-converges to the cell tag, then PAC XPAC strips — both re-converge the decoy.
             _place_after(bb, inst, m.slot_insts[m.n_before:] + p.slot_insts[p.n_before:])
         _seal_auths(self._tc, self._enc, self._auth_specs, self._pac)
-
-    def _sealings(self) -> List[Sealing]:
-        return self._sandbox + self._pac + self._mte
 
     def _value_sealings(self) -> List[Sealing]:
         return self._pac + self._mte
