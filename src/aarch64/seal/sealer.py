@@ -19,8 +19,8 @@ from .primitives import (make_nop, index_instructions, inst_at, _SANDBOX_MASK,
 from .pac import (PacSign, PacSigner, build_pac_specs, _AUTH_TO_PAC, _AUTH_TO_XPAC, _read_reg)
 from ..aarch64_target_desc import SANDBOX_BASE_REGISTER
 from ..aarch64_printer import Aarch64ASMLayout
-from ..aarch64_relocations import (NOP_WORD, xpac_word, addg_word, movk_word, aut_word, eor_imm_word,
-                                    Relocation, apply_relocations)
+from ..aarch64_relocations import (NOP_WORD, xpac_word, addg_word, movk_word, aut_word, pac_word,
+                                    eor_imm_word, Relocation, apply_relocations)
 
 
 M = (1 << 64) - 1
@@ -40,6 +40,9 @@ def _encode(inst: Instruction) -> int:
     if mn.startswith("aut"):
         rn = _reg_num(inst.operands[1].value) if len(inst.operands) > 1 else 31
         return aut_word(mn, _reg_num(inst.operands[0].value), rn)
+    if mn.startswith("pac"):
+        rn = _reg_num(inst.operands[1].value) if len(inst.operands) > 1 else 31
+        return pac_word(mn, _reg_num(inst.operands[0].value), rn)
     if mn == "movk":
         return movk_word(_reg_num(inst.operands[0].value),
                          int(inst.operands[1].value), int(inst.operands[2].value))
@@ -67,6 +70,12 @@ class Sealing(abc.ABC):
     def seal(self, value: Optional[int], rng: Optional[random.Random]) -> List[Instruction]:
         """The instructions sealing this location with `value` (None -> the arch-safe placeholder).
         `rng` seeds any render choice; None only for the placeholder, which has none."""
+
+    def ce_lowering(self) -> List[Instruction]:
+        """Real instructions to splice at this slot for one faithful (genuine-equivalent) CE trace,
+        emulated by the CE's per-instruction hooks and concretized against the live state. One per
+        slot member. The default is the placeholder itself (no value emulation needed)."""
+        return list(self.slot_insts)
 
 
 class SandboxSealing(Sealing):
@@ -118,6 +127,30 @@ class PacSealing(Sealing):
         # so genuine (already stripped by the AUT*) is unchanged and decoy (failed AUT* leaving FPAC
         # bits) is re-canonicalized -> both agree downstream. A separate XPAC instance (not the
         # before one) so slot positions stay one-for-one.
+        return before + [self._enc.make_xpac_inst(_AUTH_TO_XPAC[auth_mn], self.value_reg)]
+
+    def _ctx_reg(self) -> Optional[str]:
+        return self.committed_inst.operands[1].value if len(self.committed_inst.operands) > 1 else None
+
+    def _pac_inst(self, mnemonic: str, ctx_reg: Optional[str]) -> Instruction:
+        template = f"{mnemonic.upper()} {self.value_reg}" + (f", {ctx_reg}" if ctx_reg else "")
+        inst = (Instruction(mnemonic, True, "", False, template=template)
+                .add_op(RegisterOperand(self.value_reg, 64, False, True)))
+        if ctx_reg:
+            inst.add_op(RegisterOperand(ctx_reg, 64, True, False))
+        return inst
+
+    def ce_lowering(self) -> List[Instruction]:
+        # Sign with a real PAC* (the CE concretizes the signature under the input's keys), NOP-pad to
+        # the signature-MOVK width, then the real AUT* — so the traced pointer, taint and post-slot
+        # state match the genuine sign+auth. The after-XPAC (revert) is identical to the genuine render.
+        auth_mn = self.committed_inst.name.lower()
+        ctx_reg = self._ctx_reg()
+        before = ([self._pac_inst(_AUTH_TO_PAC[auth_mn], ctx_reg)]
+                  + [make_nop() for _ in range(self._enc.n_sig_movks - 1)]
+                  + [self._enc.make_auth_inst(auth_mn, self.value_reg, ctx_reg)])
+        if not self._revert:
+            return before
         return before + [self._enc.make_xpac_inst(_AUTH_TO_XPAC[auth_mn], self.value_reg)]
 
 
@@ -587,6 +620,18 @@ class SealedTestCase:
     def object_code(self) -> bytes:
         """The assembled skeleton (placeholder slots, no resolved values); input-independent."""
         return self._assemble(self._tc)
+
+    @property
+    def ce_object_code(self) -> bytes:
+        """The skeleton with each value seal's slot filled with its CE lowering (real instructions the
+        CE emulates and concretizes against the live state): one faithful genuine-equivalent program,
+        input-independent, traced once per input. Sandbox clamps are already in the skeleton."""
+        value_sealings = [s for s in self._sealings() if not isinstance(s, SandboxSealing)]
+        offsets = _slot_offsets(self._tc, self._layout, value_sealings)
+        relocs = [Relocation(off, _encode(inst))
+                  for s in value_sealings
+                  for off, inst in zip(offsets[id(s)], s.ce_lowering())]
+        return apply_relocations(self.object_code, relocs)
 
     def _insert_slots(self, data_sites: List) -> None:
         """Insert this concern's value sealings around each data-access site."""

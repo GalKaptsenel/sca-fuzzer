@@ -110,6 +110,18 @@ def eor_imm_word(rd: int, rn: int, value: int) -> int:
             | ((rn & 0x1F) << 5) | (rd & 0x1F))
 
 
+# PAC* sign base opcodes (Rd=Rn=0); the Z-variants bake Rn=31, so OR-ing rn=31 there is a no-op.
+_PAC_OPCODES = {
+    "pacia": 0xDAC10000, "pacib": 0xDAC10400, "pacda": 0xDAC10800, "pacdb": 0xDAC10C00,
+    "paciza": 0xDAC123E0, "pacizb": 0xDAC127E0, "pacdza": 0xDAC12BE0, "pacdzb": 0xDAC12FE0,
+}
+
+
+def pac_word(mnemonic: str, rd: int, rn: int) -> int:
+    """PAC* over Rd with Rn as context (rn=31 for the Z-variants, which take no context)."""
+    return _PAC_OPCODES[mnemonic] | ((rn & 0x1F) << 5) | (rd & 0x1F)
+
+
 # AUT* base opcodes (Rd=Rn=0); the Z-variants bake Rn=31, so OR-ing rn=31 there is a no-op.
 _AUT_OPCODES = {
     "autia": 0xDAC11000, "autib": 0xDAC11400, "autda": 0xDAC11800, "autdb": 0xDAC11C00,
