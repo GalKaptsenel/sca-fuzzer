@@ -587,6 +587,15 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                 "non-interference fuzzing needs a PAC or MTE instruction category, or "
                 "enable_canonicality / enable_branch_target_sealing / enable_pte_fuzzing, enabled")
 
+        # MTE sealing retags pointers and relies on the CPU checking those tags. On a CPU without
+        # FEAT_MTE2 the tag is not enforced, the seal is meaningless, and (composed with PAC on a
+        # TBI-off instruction key) a baked signature over a tagged pointer FPAC-faults the kernel. Refuse
+        # up front rather than risk the box -- MTE non-interference belongs on MTE-capable hardware.
+        if "mte" in self._primitives and not self.device.mte_tag_checking_supported():
+            raise GeneratorException(
+                "MTE non-interference needs FEAT_MTE2 (tag checking); this CPU reports "
+                "ID_AA64PFR1_EL1.MTE < 2, so MTE primitives cannot run here")
+
         # The PAC profile (and the VA size PAC/canonicality share) must match the executing machine: a
         # wrong value makes the signature/strip mismatch the CPU's AUT* -> FPAC panic.
         self._pac_profile_value: Optional[qarma.PacProfile] = None

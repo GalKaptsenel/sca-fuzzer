@@ -27,12 +27,14 @@ static ssize_t print_code_base_show(struct kobject *kobj, struct kobj_attribute 
     return scnprintf(buf, PAGE_SIZE,"%px\n", base);
 }
 
-/* Raw PAC-relevant system registers, decoded per the ARM ARM in userland (aarch64_qarma.py). A test case
- * may run on any online CPU, so each is read on every one and the read fails if any core disagrees. */
+/* Raw PAC/MTE-relevant system registers, decoded per the ARM ARM in userland (aarch64_qarma.py,
+ * aarch64_kernel.py). A test case may run on any online CPU, so each is read on every one and the read
+ * fails if any core disagrees. ID_AA64PFR1_EL1 carries the MTE feature field (bits [11:8]). */
 enum pac_reg {
     PAC_REG_TCR_EL1,
     PAC_REG_ID_AA64ISAR1_EL1,
     PAC_REG_ID_AA64ISAR2_EL1,
+    PAC_REG_ID_AA64PFR1_EL1,
 };
 
 static uint64_t read_pac_reg(enum pac_reg reg) {
@@ -40,6 +42,7 @@ static uint64_t read_pac_reg(enum pac_reg reg) {
     case PAC_REG_TCR_EL1:          return read_sysreg(tcr_el1);
     case PAC_REG_ID_AA64ISAR1_EL1: return read_sysreg_s(SYS_ID_AA64ISAR1_EL1);
     case PAC_REG_ID_AA64ISAR2_EL1: return read_sysreg_s(SYS_ID_AA64ISAR2_EL1);
+    case PAC_REG_ID_AA64PFR1_EL1:  return read_sysreg_s(SYS_ID_AA64PFR1_EL1);
     }
     BUG();
 }
@@ -79,6 +82,10 @@ static ssize_t id_aa64isar1_el1_show(struct kobject *kobj, struct kobj_attribute
 
 static ssize_t id_aa64isar2_el1_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
     return pac_reg_show_uniform(PAC_REG_ID_AA64ISAR2_EL1, "ID_AA64ISAR2_EL1", buf);
+}
+
+static ssize_t id_aa64pfr1_el1_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+    return pac_reg_show_uniform(PAC_REG_ID_AA64PFR1_EL1, "ID_AA64PFR1_EL1", buf);
 }
 
 static ssize_t enable_pre_run_flush_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
@@ -294,6 +301,7 @@ static struct kobj_attribute print_code_base_attribute = __ATTR(print_code_base,
 static struct kobj_attribute tcr_el1_attribute = __ATTR(tcr_el1, 0444, tcr_el1_show, NULL);
 static struct kobj_attribute id_aa64isar1_el1_attribute = __ATTR(id_aa64isar1_el1, 0444, id_aa64isar1_el1_show, NULL);
 static struct kobj_attribute id_aa64isar2_el1_attribute = __ATTR(id_aa64isar2_el1, 0444, id_aa64isar2_el1_show, NULL);
+static struct kobj_attribute id_aa64pfr1_el1_attribute = __ATTR(id_aa64pfr1_el1, 0444, id_aa64pfr1_el1_show, NULL);
 static struct kobj_attribute enable_pre_run_flush_attribute = __ATTR(enable_pre_run_flush, 0644,enable_pre_run_flush_show, enable_pre_run_flush_store);
 static struct kobj_attribute enable_phr_flush_attribute = __ATTR(enable_phr_flush, 0644,enable_phr_flush_show, enable_phr_flush_store);
 static struct kobj_attribute enable_view_rotation_attribute = __ATTR(enable_view_rotation, 0644,enable_view_rotation_show, enable_view_rotation_store);
@@ -433,6 +441,7 @@ static struct attribute *system_attributes[] = {
 	&tcr_el1_attribute.attr,
 	&id_aa64isar1_el1_attribute.attr,
 	&id_aa64isar2_el1_attribute.attr,
+	&id_aa64pfr1_el1_attribute.attr,
 	NULL,
 };
 

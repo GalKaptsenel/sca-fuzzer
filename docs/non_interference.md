@@ -65,7 +65,9 @@ index/displacement cancellation.
 - **`Aarch64NonInterferenceExecutor`** (`aarch64_executor.py`) — detect active primitives, seal the TC,
   pin PAC keys (so this process's `pac_sign` and the contract executor share key material), and per
   input mint a `BASELINE` (genuine) + `DECOY` variant; run both on hardware. The per-input htrace
-  difference between baseline and decoy is the leak.
+  difference between baseline and decoy is the leak. MTE primitives are refused up front unless the CPU
+  reports FEAT_MTE2 (`ID_AA64PFR1_EL1.MTE >= 2`): without tag checking the seal is meaningless and,
+  composed with PAC, a baked signature over a tagged pointer FPAC-faults the kernel.
 - **`Aarch64RegularSealedExecutor`** (extends the NI executor) — regular fuzzing with PAC/MTE. Inputs
   are grouped into *sealing classes* (identical resolved values across all slots); each class runs one
   shared sealed TC, minted once with a per-class coin (`_DECOY_PROB`) choosing the all-genuine form or

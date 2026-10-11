@@ -460,6 +460,13 @@ class LocalHWExecutor(HWExecutor):
     def cpu_midr(self) -> int:
         return _parse_midr_el1(self._read_sysfs("system/cpu_info"))
 
+    def mte_tag_checking_supported(self) -> bool:
+        """Whether the CPU enforces MTE tag checks: ID_AA64PFR1_EL1.MTE (bits [11:8]) >= 2 (FEAT_MTE2).
+        A value of 1 (FEAT_MTE) has the tag instructions but no checking, and 0 has no MTE; neither can
+        run MTE non-interference, and signing a pointer whose tag the hardware ignores FPAC-faults it."""
+        mte_field = (int(self._read_sysfs("system/id_aa64pfr1_el1"), 16) >> 8) & 0xF
+        return mte_field >= 2
+
     def run_batch(self, units: List[TraceUnit], n_reps: int) -> List[List[List[HWMeasurement]]]:
         results = []
         for unit in units:
