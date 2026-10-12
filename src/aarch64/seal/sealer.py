@@ -37,9 +37,22 @@ EMUL_OP_MTE_RETAG = 2
 
 
 def pack_emul_table(rows: List[Tuple[int, int, int]]) -> bytes:
-    """The CE emulation table: rows of (first-slot offset, slot byte size, op id), 3 little-endian u32
-    each (struct emul_row)."""
+    """The CE emulation table: rows of (first-slot offset, owned byte size, op id), 3 little-endian u32
+    each (struct emul_row). A row owns [offset, offset+size); the op's anchor instruction (the committed
+    AUT*, the guarded access) sits at offset+size."""
     return b"".join(struct.pack("<3I", off, size, op) for off, size, op in rows)
+
+
+def _pac_emul_rows(pac, offsets) -> List[Tuple[int, int, int]]:
+    """A PAC_AUTH row per auth site: the op owns the signature MOVK slots; the committed AUT* anchor
+    sits at offset+size (the last placed slot)."""
+    return [(offsets[id(s)][0], (s.n_before - 1) * 4, EMUL_OP_PAC_AUTH) for s in pac]
+
+
+def _mte_emul_rows(mte, offsets) -> List[Tuple[int, int, int]]:
+    """An MTE_RETAG row per access: the op owns the retag ADDG slot; the guarded access anchor sits at
+    offset+size."""
+    return [(offsets[id(s)][0], s.n_before * 4, EMUL_OP_MTE_RETAG) for s in mte]
 
 
 def _reg_num(reg: str) -> int:
@@ -212,11 +225,10 @@ class MteSealing(Sealing):
                 .add_op(ImmediateOperand(str(delta), 4)))
 
     def resolve_slot(self) -> List[Instruction]:
-        """The resolution render: a tag-neutral ADDG (#0) at each slot position. The ADDG word carries
-        the genuine retag's taint (the delta is a constant either way, so the retag-op taint is
-        delta-independent), so the trace's MTE taint is a safe superset of the genuine binary's, never
-        narrower; #0 leaves the pointer tag unchanged, so the resolver reads the same cell/pointer tags
-        the inert placeholder would. The genuine binary applies the resolved delta instead."""
+        """The resolution render: a tag-neutral ADDG (#0) at each slot position. The EMUL_OP_MTE_RETAG
+        op-emulator overwrites the before-access slot with the real retag (ADDG to the cell tag) on each
+        reach, so the trace runs the genuine retag; the after-access slot keeps ADDG #0, the genuine
+        re-converge back to the cell tag."""
         return [self._addg(0) for _ in self.slot_insts]
 
     def seal(self, value: Optional[int], rng: Optional[random.Random],
@@ -423,12 +435,11 @@ class ResolvedSealingTestCase:
     """One input's resolution. `object_code` is the assembled base; `genuine()`/`decoy()` are the
     relocations that turn it into a variant (apply with apply_relocations). `genuine()` seals every slot
     correctly; `decoy()` seals the architectural slots correctly, with no guarantees on the other slots.
-    `cer` is the resolution trace itself: each value seal's resolution render spliced over the
-    placeholder (the committed AUT* at auth sites, a tag-neutral ADDG at MTE sites, the placeholder
-    otherwise). It matches the genuine binary's ctrace exactly; its taint is a safe superset — widened
-    only by the MTE retag delta and, with pac_strip_prob>0, by the resolution AUT* reading context a
-    genuine XPAC strip would not. So it doubles as the genuine contract trace; no separate genuine trace
-    is run."""
+    `cer` is the resolution trace itself: the CE op-emulators materialize each site's genuine op in
+    place (the signed AUT* at auth sites, the real retag ADDG at MTE sites), so the trace runs the
+    genuine render and matches the genuine binary's ctrace and taint exactly. (Only with
+    pac_strip_prob>0 is the taint a safe superset: a genuine XPAC strip reads no context the resolution
+    AUT* does.) So it doubles as the genuine contract trace; no separate genuine trace is run."""
 
     def __init__(self, entries: List[_Resolved], object_code: bytes,
                  offsets: Dict[int, Tuple[int, ...]], salt: int,
@@ -582,35 +593,33 @@ def _wrong_sigs(correct_sig: int, mask: int, salt: int) -> List[int]:
 
 
 def _resolve_mte(s: MteSealing, cer, layout) -> Tuple[Optional[int], List[int], Optional[int]]:
-    """An MteSealing's tag delta from a trace: classify the accessed cell's allocation tag and the
-    pointer's own tag at the guarded access; the genuine delta brings the pointer to the cell tag,
-    alternatives are every other tag (a mismatch). (value, alts, spec_nesting)."""
-    correct_tag, ptr_tag, spec = None, None, None
-    if cer and s.access_inst is not None:
-        access_off, code_base = layout.instruction_address[s.access_inst], cer[0].cpu.pc
-        for ite in cer:
-            if not ite.metadata.has_sandbox_memory_access or ite.cpu.pc - code_base != access_off:
-                continue
-            nest = ite.metadata.speculation_nesting
-            ma = ite.metadata.memory_access
+    """An MteSealing's tag delta from a trace: the retag the EMUL_OP_MTE_RETAG op-emulator materialized
+    (it reads the granule's tag from the CE's tag memory and plants `ADDG #0, #delta` to reach it, same
+    as the genuine binary) plus the alternatives that mismatch. The delta is read back from that planted
+    ADDG; the effective address's unretagged tag is `cell - delta`. (value, alts, spec_nesting)."""
+    retag_off = layout.instruction_address[s.slot_insts[0]]      # the materialized retag ADDG slot
+    access_off, code_base = layout.instruction_address[s.access_inst], cer[0].cpu.pc if cer else 0
+    delta, cell, spec = None, None, None
+    for ite in (cer or []):
+        off, nest = ite.cpu.pc - code_base, ite.metadata.speculation_nesting
+        if off == retag_off and (delta is None or nest == 0):
+            delta = (ite.cpu.encoding >> 10) & 0xF              # ADDG uimm4 = the retag delta
+        if ite.metadata.has_sandbox_memory_access and off == access_off:
             if spec is None or nest < spec:
                 spec = int(nest)
-            # The CE reports the granule's real allocation tag per access (seeded from the input tags,
-            # updated by STGs, speculation rolled back) -- the same value the hardware holds. Read it
-            # straight from the trace instead of re-deriving the tag memory in Python.
-            if nest == 0 or correct_tag is None:
-                correct_tag, ptr_tag = ma.allocation_tag, (ma.effective_address >> 56) & 0xF
-    if correct_tag is None or ptr_tag is None:
-        # unreached in the placeholder trace: genuine applies no retag (value None -> NOP), so any
-        # nonzero delta is a valid decoy should HW speculate deeper than the model reached.
+            if nest == 0 or cell is None:
+                cell = ite.metadata.memory_access.allocation_tag   # the granule's tag the CE holds
+    if delta is None or cell is None:
+        # unreached in the trace: genuine applies no retag (value None -> NOP), so any nonzero delta is
+        # a valid decoy should HW speculate deeper than the model reached.
         return None, list(range(1, 16)), spec
-    delta = (correct_tag - ptr_tag) % 16
-    # A decoy whose retagged pointer lands on tag 0 or 15 cannot leak: the executor runs with
+    ea_tag = (cell - delta) % 16
+    # A decoy whose retagged access lands on tag 0 or 15 cannot leak: the executor runs with
     # TCR_EL1.TCMA1 set, which makes an EL1 access through a tag-0b0000 or tag-0b1111 ("match-all")
-    # pointer Tag-UNCHECKED — the hardware silently skips the tag comparison, so the intended mismatch
+    # address Tag-UNCHECKED — the hardware silently skips the tag comparison, so the intended mismatch
     # never happens and the decoy behaves identically to the genuine access. Offer only deltas whose
-    # resulting tag (ptr_tag + d) is a genuinely-checked value in 1..14.
-    alts = [d for d in range(16) if d != delta and (ptr_tag + d) % 16 not in (0, 15)]
+    # resulting tag (ea_tag + d) is a genuinely-checked value in 1..14.
+    alts = [d for d in range(16) if d != delta and (ea_tag + d) % 16 not in (0, 15)]
     return delta, alts, spec
 
 
@@ -774,7 +783,7 @@ class PacSealedTestCase(SealedTestCase):
         return self._pac
 
     def _emul_rows(self, offsets) -> List[Tuple[int, int, int]]:
-        return [(offsets[id(s)][0], s.n_before * 4, EMUL_OP_PAC_AUTH) for s in self._pac]
+        return _pac_emul_rows(self._pac, offsets)
 
     def _resolve_entries(self, inp, cer) -> List[_Resolved]:
         keys = _input_pac_keys(inp)
@@ -798,6 +807,9 @@ class MteSealedTestCase(SealedTestCase):
 
     def _value_sealings(self) -> List[Sealing]:
         return self._mte
+
+    def _emul_rows(self, offsets) -> List[Tuple[int, int, int]]:
+        return _mte_emul_rows(self._mte, offsets)
 
     def _resolve_entries(self, inp, cer) -> List[_Resolved]:
         return [_Resolved(s, *_resolve_mte(s, cer, self._layout)) for s in self._mte]
@@ -918,7 +930,7 @@ class MtePacSealedTestCase(SealedTestCase):
         return self._pac + self._mte
 
     def _emul_rows(self, offsets) -> List[Tuple[int, int, int]]:
-        return [(offsets[id(s)][0], s.n_before * 4, EMUL_OP_PAC_AUTH) for s in self._pac]
+        return _pac_emul_rows(self._pac, offsets) + _mte_emul_rows(self._mte, offsets)
 
     def _resolve_entries(self, inp, cer) -> List[_Resolved]:
         # One trace. The CE tags every accessed pointer from its simulated tag memory

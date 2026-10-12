@@ -49,16 +49,17 @@ index/displacement cancellation.
   signatures that provably fail AUTH; MTE: classify the accessed cell's allocation tag and the
   speculation depth — returning a `ResolvedSealingTestCase`. The trace carries an **emulation table**:
   rows of `(first-slot offset, size, op id)` the CE materializes in place as it reaches each site on the
-  architectural path. For PAC the `EMUL_OP_PAC_AUTH` op-emulator reads the committed `AUT*`,
-  signs the canonical pointer it reads (QARMA, the input's keys), and writes the signature MOVKs into the
-  site's junk slots — so the `AUT*` then verifies and canonicalizes as ordinary code. The result is the
-  genuine render running for real; the resolver reads the canonical pointer/context the `AUT*` leaves and
-  signs it independently (both the CE and Python compute the signature; nothing is reported back).
+  reach (speculative and architectural — each reach re-materializes for the state actually present).
+  `EMUL_OP_PAC_AUTH` reads the committed `AUT*`, signs the canonical pointer it reads (QARMA, the input's
+  keys), and writes the signature MOVKs into the site's slots — so the `AUT*` then verifies and
+  canonicalizes as ordinary code. `EMUL_OP_MTE_RETAG` reads the granule's tag from the CE's tag memory
+  and plants the retag `ADDG #0, #delta` so the access tag-matches. Each site's idle slots hold `UDF`,
+  so a slot that ever executes un-materialized faults loudly. The resolver reads the values back off the
+  trace (the canonical pointer/context for PAC, the planted retag's delta for MTE).
 - **`ResolvedSealingTestCase.cer`** is that resolution trace, reused as the genuine contract trace
   (`compute_ctrace`/`compute_taint`) — no separate genuine run. Because the real genuine instructions
-  execute in it, its ctrace and taint equal the genuine binary's exactly for PAC/canonicality/
-  branch-target/PTE. (MTE still splices a tag-neutral `ADDG` rather than the cell-tag retag, so its
-  taint is a safe superset until an `EMUL_OP_MTE_RETAG` op-emulator materializes the retag too.)
+  execute in it, its ctrace and taint equal the genuine binary's exactly (only with `pac_strip_prob>0`
+  is the taint a safe superset — a genuine `XPAC` strip reads no context the resolution `AUT*` does).
 - **`ResolvedSealingTestCase.genuine()`** seals every slot with its correct value (`MOVK` signature +
   `AUT*`, genuine `ADDG` retag). **`.decoy()`**
   perturbs a random non-empty subset of the *speculative* (never-architectural) slots with a failing

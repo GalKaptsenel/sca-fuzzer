@@ -1,6 +1,7 @@
 #include "instruction_emulator.h"
 #include "simulation.h"
 #include "pac_sign_plugin.h"
+#include "mte_tag_plugin.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,8 +23,9 @@ static void udf_fill(uint32_t base, uint32_t n_slots)
     }
 }
 
-/* Reset every site's materialized slots to the idle UDF filler, once before each trace. The last slot
- * of a site holds its real op (the committed AUT*) and is never touched here. */
+/* Reset every site's materialized slots to the idle UDF filler, once before each trace. A row owns
+ * exactly [offset, offset+size); the op's "anchor" instruction (the committed AUT*, the access) sits at
+ * offset+size and is never touched here. */
 void emul_reset(void)
 {
     const uint8_t* raw = simulation.sim_input.emul_table;
@@ -33,7 +35,7 @@ void emul_reset(void)
     const struct emul_row* rows = (const struct emul_row*)raw;
     size_t n = simulation.sim_input.emul_table_size / sizeof(struct emul_row);
     for (size_t i = 0; i < n; ++i) {
-        udf_fill(rows[i].offset / 4, rows[i].size / 4 - 1);
+        udf_fill(rows[i].offset / 4, rows[i].size / 4);
     }
 }
 
@@ -49,10 +51,13 @@ void* instruction_emulator_hook(struct simulation_state* sim_state)
 
     for (size_t i = 0; i < n; ++i) {
         if (rows[i].offset == off) {
-            /* reaching the site: materialize the genuine op for the pointer currently in the register */
+            /* reaching the site: materialize the genuine op for the state currently in the register */
             switch (rows[i].op) {
                 case EMUL_OP_PAC_AUTH:
                     pac_emulate_auth(sim_state, rows[i].offset, rows[i].size);
+                    break;
+                case EMUL_OP_MTE_RETAG:
+                    mte_emulate_retag(sim_state, rows[i].offset, rows[i].size);
                     break;
                 default:
                     fprintf(stderr, "[CE FATAL] emulation row %zu: unknown op %u -- aborting\n",
@@ -63,7 +68,7 @@ void* instruction_emulator_hook(struct simulation_state* sim_state)
         }
         if ((uintptr_t)rows[i].offset + rows[i].size == off) {
             /* left the site: restore the idle UDF filler so a later bug can't run stale bytes */
-            udf_fill(rows[i].offset / 4, rows[i].size / 4 - 1);
+            udf_fill(rows[i].offset / 4, rows[i].size / 4);
         }
     }
     return NULL;

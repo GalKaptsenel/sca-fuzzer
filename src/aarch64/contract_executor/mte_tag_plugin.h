@@ -28,4 +28,7 @@ int     mte_is_mem_tag_access(uint32_t enc);
 int  mte_tag_log_enabled(void);
 void mte_tagmem_log(const char* when, long seq);
 
+/* op-emulator for EMUL_OP_MTE_RETAG: plant the retag ADDG (to the accessed cell's tag) into the slot. */
+void mte_emulate_retag(struct simulation_state *sim_state, uintptr_t offset, uint32_t size);
+
 #endif // MTE_TAG_PLUGIN_H

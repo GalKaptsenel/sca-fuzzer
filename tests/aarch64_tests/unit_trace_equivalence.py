@@ -114,18 +114,14 @@ class _EquivalenceBase:
             self.assertEqual(compute_ctrace(cer_res), compute_ctrace(cer_g),
                              "ctrace differs:\n" + "\n".join(eq.diff_traces(cer_res, cer_g)))
             tr, tg = compute_taint(cer_res).tobytes(), compute_taint(cer_g).tobytes()
-            if "mte" not in self.PRIMITIVES and CONF.pac_strip_prob == 0:
-                # Renders are taint-identical: resolution AUT* == genuine AUT* (no strip), no retag.
+            if CONF.pac_strip_prob == 0:
+                # Every site runs its real genuine op in the trace (op-emulators materialize the signed
+                # AUT* and the real retag ADDG), so the taint is exact.
                 self.assertEqual(tr, tg, "taint differs")
             else:
-                # The resolution taint is a safe SUPERSET of the genuine binary's — assert containment.
-                #  * MTE: the genuine ADDG #delta gives the pointer the cell tag, so compute_taint's
-                #    (effective_address - sandbox_base_register) offset leaves a (delta<<56) term, lands
-                #    outside the region, and drops the byte the access reads; the resolution pointer keeps
-                #    the base tag and marks it. The genuine-binary oracle UNDER-counts.
-                #  * pac_strip_prob>0: a genuine XPAC strip reads no context, while the resolution AUT*
-                #    does, so resolution additionally marks the ctx bytes at stripped slots.
-                # Production uses the resolution taint, which is the complete, correct one.
+                # pac_strip_prob>0: a genuine XPAC strip reads no context, while the resolution AUT* does,
+                # so the resolution taint is a safe SUPERSET at those stripped slots (production uses it;
+                # over-tainting never misses a dependency) — assert containment.
                 self.assertTrue(all(g == 0 or r != 0 for r, g in zip(tr, tg)),
                                 "genuine taint not covered by the resolution taint")
             checked += 1

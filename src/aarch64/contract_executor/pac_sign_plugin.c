@@ -332,16 +332,17 @@ void *auth_verify_hook(struct simulation_state *sim_state)
  * as ordinary code. The sig windows match the sealer's make_sig_movks (same profile/keys). */
 void pac_emulate_auth(struct simulation_state *sim_state, uintptr_t offset, uint32_t size)
 {
-    if (NULL == sim_state || size < 4) { return; }
+    if (NULL == sim_state) { return; }
     uint32_t *live   = (uint32_t *)simulation.sim_code.code;    // executed
     uint32_t *shadow = (uint32_t *)simulation.sim_input.code;   // the logger reads encodings from here
     uint32_t base = (uint32_t)(offset / 4);
-    uint32_t n_slots = size / 4 - 1;                            // MOVK slots before the real AUT*
+    uint32_t n_slots = size / 4;                                // the MOVK slots this row owns
+    uint32_t anchor = base + n_slots;                           // the committed AUT*, just past them
 
     uint32_t rd, rn;
-    auth_type_t atype = classify_auth(shadow[base + n_slots], &rd, &rn);
-    if (AUTH_NONE == atype) {                                  // last slot not an AUT* (shouldn't happen
-        for (uint32_t i = 0; i < n_slots; ++i) {               // in resolve); leave the sig slots inert
+    auth_type_t atype = classify_auth(shadow[anchor], &rd, &rn);
+    if (AUTH_NONE == atype) {                                  // anchor not an AUT* (shouldn't happen in
+        for (uint32_t i = 0; i < n_slots; ++i) {               // resolve); leave the sig slots inert
             live[base + i] = shadow[base + i] = 0xD503201FU;
         }
         return;
