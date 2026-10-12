@@ -672,6 +672,7 @@ class SealedTestCase:
         self._assemble = assemble                          # tc -> machine code, for the skeleton
         self._sandbox = sandbox_sealings
         self._salt = random.randrange(1 << 64)             # per-test-case; seeds deterministic forgery
+        self._resolved: Dict = {}                          # input identity -> its ResolvedSealingTestCase
         self._insert_slots(data_sites)                            # subclass inserts its value sealings, in order
         _record_positions(self._tc, self._sealings())      # AFTER every slot is inserted
         self._layout = Aarch64ASMLayout(self._tc)
@@ -709,12 +710,19 @@ class SealedTestCase:
         return []
 
     def resolve(self, inp) -> ResolvedSealingTestCase:
-        """One CE trace per input: splice the resolution render, trace in resolve-mode, read the values
-        off it, and reuse that same trace as the genuine contract trace (`cer`)."""
+        """One CE trace per input (memoized by input identity): materialize the genuine render via the
+        emulation table, read the values off that trace, and reuse it as the genuine contract trace
+        (`cer`). Order-independent — the first genuine()/decoy() of an input's class runs the trace."""
+        key = inp.identity()
+        cached = self._resolved.get(key)
+        if cached is not None:
+            return cached
         offsets = _slot_offsets(self._tc, self._layout, self._value_sealings())
         object_code, cer = self._resolve_trace(inp, offsets)
         entries = self._clamp_entries(self._sandbox) + self._resolve_entries(inp, cer)
-        return ResolvedSealingTestCase(entries, object_code, offsets, self._salt, cer)
+        resolved = ResolvedSealingTestCase(entries, object_code, offsets, self._salt, cer)
+        self._resolved[key] = resolved
+        return resolved
 
     def _resolve_trace(self, inp, offsets: Dict[int, Tuple[int, ...]]) -> Tuple[bytes, "ContractExecutionResult"]:
         """The single per-input trace. Each value seal's resolution render (`resolve_slot`) is spliced

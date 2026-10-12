@@ -620,8 +620,6 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         # sealer's resolve uses (captured per with_taints call).
         self._sealed: Optional[SealedTestCase] = None
         self._sandbox_base: Optional[int] = None
-        # Memo of the pure resolve, keyed by input. Reset per test case.
-        self._resolve_cache: Dict[Tuple, ResolvedSealingTestCase] = {}
 
         # PTE (page-table) ENVIRONMENT fuzzing: a standalone axis (no code seal). When enabled, each
         # decoy variant additionally fuzzes the page-table state of the spec-only page(s); the
@@ -635,10 +633,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         self._spec_reach_cache: Dict[Tuple, bool] = {}
 
     def _resolve(self, inp: Input) -> ResolvedSealingTestCase:
-        key = inp.identity()
-        if key not in self._resolve_cache:
-            self._resolve_cache[key] = self._sealed.resolve(inp)
-        return self._resolve_cache[key]
+        return self._sealed.resolve(inp)   # the sealed TC memoizes per input identity
 
     def _mte_tags_for(self, inp: Input) -> Optional[List[int]]:
         """Uniform initial tags the sandbox is loaded with when MTE is active (else None — leave tag
@@ -684,8 +679,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         log.register("pac_hw",      "ni/hw.log",       min_verbosity=1)
         result = super().load_test_case(test_case)
         log_start_test_case(log, self._tc_counter)
-        self._sealed = self._sealer.seal(self.test_case)
-        self._resolve_cache = {}
+        self._sealed = self._sealer.seal(self.test_case)   # fresh per-TC, memoizes its own resolves
         log.ensure_flushed()
         return result
 
