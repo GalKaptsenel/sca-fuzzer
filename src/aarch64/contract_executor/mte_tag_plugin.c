@@ -232,21 +232,27 @@ uint8_t mte_tagmem_tag_at(uintptr_t addr) {
 }
 
 /* op-emulator EMUL_OP_MTE_RETAG: the row owns the retag ADDG slot(s); the access it guards is the
- * anchor just past them. Retag the access's base register so the effective address's tag matches the
- * accessed cell's allocation tag (ADDG Xn, Xn, #0, #delta, delta = cell_tag - ea_tag) as the genuine
- * binary does. The tag is read from the simulated tag memory at the current effective address. */
-void mte_emulate_retag(struct simulation_state *sim_state, uintptr_t offset, uint32_t size) {
-	/* An MTE_RETAG row only exists when MTE sealing is active, so tag memory is seeded; a missing one
-	 * (or a malformed row) is a bug, not a tolerable state — fail loud, as the op dispatch does. */
-	if (NULL == sim_state || 0 == size || !mte_tagmem_active()) {
-		fprintf(stderr, "[CE FATAL] mte_emulate_retag: sim_state=%p size=%u tagmem_active=%d -- aborting\n",
-			(void *)sim_state, size, mte_tagmem_active());
-		abort();
-	}
+ * anchor just past them. IDLE fills the slots with UDF; MATERIALIZE retags the access's base register
+ * so the effective address's tag matches the accessed cell's allocation tag (ADDG Xn, Xn, #0, #delta,
+ * delta = cell_tag - ea_tag) as the genuine binary does, reading the tag from the simulated tag memory
+ * at the current effective address. The op owns both phases; the dispatcher only routes them. */
+void mte_emulate_retag(struct simulation_state *sim_state, uintptr_t offset, uint32_t size,
+		       emul_phase_t phase) {
 	uint32_t *live   = (uint32_t *)simulation.sim_code.code;
 	uint32_t *shadow = (uint32_t *)simulation.sim_input.code;   // the logger reads encodings from here
 	uint32_t base = (uint32_t)(offset / 4);
 	uint32_t n_slots = size / 4;
+	if (EMUL_PHASE_IDLE == phase) {
+		emul_udf_fill(base, n_slots);
+		return;
+	}
+	/* An MTE_RETAG row only exists when MTE sealing is active, so tag memory is seeded; a missing one
+	 * is a bug, not a tolerable state — fail loud, as the op dispatch does. */
+	if (NULL == sim_state || !mte_tagmem_active()) {
+		fprintf(stderr, "[CE FATAL] mte_emulate_retag: sim_state=%p tagmem_active=%d -- aborting\n",
+			(void *)sim_state, mte_tagmem_active());
+		abort();
+	}
 	uint32_t access = shadow[base + n_slots];                   // the access, just past the retag slot
 	uint32_t rn = get_rn(access);                               // the base register it (and the retag) use
 	struct cpu_state *cpu = &sim_state->cpu_state;
@@ -254,6 +260,11 @@ void mte_emulate_retag(struct simulation_state *sim_state, uintptr_t offset, uin
 	for (uint32_t r = 0; r < 31; ++r) { tcs.gpr[r] = cpu_state_read_base_reg(cpu, r); }
 	tcs.sp = cpu->sp;
 	uintptr_t ea = (uintptr_t)parse_memory_access_instruction(access, &tcs).effective_address;
+	if (ce_granule(ea) < 0) {                                   // the access must land in the tagged span
+		fprintf(stderr, "[CE FATAL] mte_emulate_retag: EA 0x%lx outside the tagged span -- aborting\n",
+			(unsigned long)ea);
+		abort();
+	}
 	uint32_t cell = mte_tagmem_tag_at(ea);                      // tag of the granule the access touches
 	/* Adding delta to Rn's tag shifts the effective address's tag by the same delta (EA = Rn + offset,
 	 * so EA += delta<<56); target the EA tag, not Rn's own — they differ for a register-offset access. */

@@ -2,6 +2,7 @@
 #define PAC_SIGN_PLUGIN_H
 
 #include "simulation_hook.h"
+#include "instruction_emulator.h"
 
 /*
  * Must be called once at process startup (before any IPC requests are served)
@@ -42,8 +43,10 @@ void *pac_sign_hook(struct simulation_state *sim_state);
  */
 void *auth_verify_hook(struct simulation_state *sim_state);
 
-/* op-emulator for EMUL_OP_PAC_AUTH: plant the signature MOVKs into the site's junk slots. */
-void pac_emulate_auth(struct simulation_state *sim_state, uintptr_t offset, uint32_t size);
+/* op-emulator for EMUL_OP_PAC_AUTH: IDLE fills the junk slots with UDF, MATERIALIZE plants the
+ * signature MOVKs so the committed AUT* verifies. */
+void pac_emulate_auth(struct simulation_state *sim_state, uintptr_t offset, uint32_t size,
+                      emul_phase_t phase);
 
 void *xpac_hook(struct simulation_state *sim_state);
 

@@ -1,4 +1,5 @@
 #include "pac_sign_plugin.h"
+#include "instruction_emulator.h"
 #include "simulation.h"
 #include "simulation_state.h"
 #include "simulation_execution_clause_hook.h"
@@ -327,16 +328,25 @@ void *auth_verify_hook(struct simulation_state *sim_state)
     return (void*)(sim_state->cpu_state.pc + 4);
 }
 
-/* op-emulator EMUL_OP_PAC_AUTH: the site's slots are [junk x n, real AUT*]; sign the pointer the AUT*
- * reads and write the signature MOVKs into the junk slots, so the AUT* then verifies and canonicalizes
- * as ordinary code. The sig windows match the sealer's make_sig_movks (same profile/keys). */
-void pac_emulate_auth(struct simulation_state *sim_state, uintptr_t offset, uint32_t size)
+/* op-emulator EMUL_OP_PAC_AUTH: the site's slots are [junk x n, real AUT*]. IDLE fills the junk slots
+ * with UDF; MATERIALIZE signs the pointer the AUT* reads and writes the signature MOVKs into them, so
+ * the AUT* then verifies and canonicalizes as ordinary code. The sig windows match the sealer's
+ * make_sig_movks (same profile/keys). The op owns both phases; the dispatcher only routes them. */
+void pac_emulate_auth(struct simulation_state *sim_state, uintptr_t offset, uint32_t size,
+                      emul_phase_t phase)
 {
-    if (NULL == sim_state) { return; }
-    uint32_t *live   = (uint32_t *)simulation.sim_code.code;    // executed
-    uint32_t *shadow = (uint32_t *)simulation.sim_input.code;   // the logger reads encodings from here
     uint32_t base = (uint32_t)(offset / 4);
     uint32_t n_slots = size / 4;                                // the MOVK slots this row owns
+    if (EMUL_PHASE_IDLE == phase) {
+        emul_udf_fill(base, n_slots);
+        return;
+    }
+    if (NULL == sim_state) {
+        fprintf(stderr, "[CE FATAL] pac_emulate_auth: materialize with NULL sim_state -- aborting\n");
+        abort();
+    }
+    uint32_t *live   = (uint32_t *)simulation.sim_code.code;    // executed
+    uint32_t *shadow = (uint32_t *)simulation.sim_input.code;   // the logger reads encodings from here
     uint32_t anchor = base + n_slots;                           // the committed AUT*, just past them
 
     uint32_t rd, rn;

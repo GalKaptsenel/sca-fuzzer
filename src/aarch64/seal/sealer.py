@@ -424,15 +424,16 @@ class SignExtSealing(CanonSealing):
     but flipping bit 55 (the TTBR0/TTBR1 regime selector that canonicality leaves untouched) rather than
     [54:VA]. `seal(mask)` EORs bit 55 in right before the access, so the regime selector disagrees with
     the never-flipped sign-extension bits [54:VA] — a translation fault under TBI on or off — and EORs it
-    back after (when the base survives). The top byte [63:56] is NOT flipped: it is TBI-ignored, so a
-    flip there would not fault. `seal(None/0)` is the canonical placeholder (NOPs)."""
+    back after (when the base survives). The top byte [63:56] is NOT flipped: bit 55 alone already
+    faults under TBI on or off, whereas a top-byte flip faults only with TBI off (it is ignored when TBI
+    is on), so the pool keeps the one TBI-robust bit. `seal(None/0)` is the canonical placeholder (NOPs)."""
 
 
 def _signext_mask_pool() -> List[int]:
     """The sign-extension flip mask: bit 55 alone. Flipping the regime selector makes it disagree with
     the sign-extension bits [54:VA], which are never flipped — a guaranteed translation fault under TBI
-    on or off. The top byte [63:56] is TBI-ignored (no fault when flipped), so it is excluded, exactly
-    as CanonSealing excludes it from the other direction."""
+    on or off. The top byte [63:56] is excluded: bit 55 alone already faults either way, whereas a
+    top-byte flip faults only with TBI off (it is ignored when TBI is on)."""
     return [_SIGNEXT_BIT]
 
 
@@ -621,16 +622,31 @@ def _resolve_mte(s: MteSealing, cer, layout) -> Tuple[Optional[int], List[int], 
         return None, list(range(1, 16)), None
     retag_off = layout.instruction_address[s.slot_insts[0]]      # the materialized retag ADDG slot
     access_off, code_base = layout.instruction_address[s.access_inst], cer[0].cpu.pc
-    delta, cell, spec = None, None, None
+    # The genuine render bakes ONE delta; prefer an architectural (nest==0) reach, falling back to the
+    # first reach when the site is speculative-only. A site reached architecturally more than once with
+    # disagreeing tags (a loop whose granule is retagged between iterations) cannot be sealed with a
+    # single delta — fail loud rather than silently bake one that mismatches the others.
+    arch_deltas, arch_cells, first_delta, first_cell, spec = set(), set(), None, None, None
     for ite in cer:
         off, nest = ite.cpu.pc - code_base, ite.metadata.speculation_nesting
-        if off == retag_off and (delta is None or nest == 0):
-            delta = (ite.cpu.encoding >> 10) & 0xF              # ADDG uimm4 = the retag delta
+        if off == retag_off:
+            d = (ite.cpu.encoding >> 10) & 0xF                 # ADDG uimm4 = the retag delta
+            first_delta = d if first_delta is None else first_delta
+            if 0 == nest:
+                arch_deltas.add(d)
         if ite.metadata.has_sandbox_memory_access and off == access_off:
             if spec is None or nest < spec:
                 spec = int(nest)
-            if nest == 0 or cell is None:
-                cell = ite.metadata.memory_access.allocation_tag   # the granule's tag the CE holds
+            c = ite.metadata.memory_access.allocation_tag      # the granule's tag the CE holds
+            first_cell = c if first_cell is None else first_cell
+            if 0 == nest:
+                arch_cells.add(c)
+    if len(arch_deltas) > 1 or len(arch_cells) > 1:
+        raise GeneratorException(
+            f"MTE site at offset {retag_off} reached architecturally with disagreeing tags "
+            f"(deltas={sorted(arch_deltas)}, cells={sorted(arch_cells)}); cannot bake one retag")
+    delta = next(iter(arch_deltas), first_delta)
+    cell = next(iter(arch_cells), first_cell)
     if delta is None or cell is None:
         # unreached in the trace: genuine applies no retag (value None -> NOP), so any nonzero delta is
         # a valid decoy should HW speculate deeper than the model reached.
@@ -985,7 +1001,11 @@ class PacSignExtSealedTestCase(SealedTestCase):
         super().__init__(sealed_tc, assemble, sandbox_sealings, data_sites, trace_bytes_fn)
 
     def _insert_slots(self, data_sites) -> None:
-        pool = _signext_mask_pool()   # validated once; shared by every slot in this test case
+        # Every access must be PAC-authenticated for arch-safety, so pac_seal_prob (the fraction of
+        # accesses to seal) is incompatible with this composed primitive — fail loud rather than ignore it.
+        if CONF.pac_seal_prob != 1.0:
+            raise GeneratorException("pac+signext seals every access; set pac_seal_prob = 1.0")
+        pool = _signext_mask_pool()   # shared by every slot in this test case
         rng = random.Random(self._salt)
         for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
             p = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc, base_preserved)

@@ -33,7 +33,8 @@ is the inert placeholder, a decoy EORs one pool mask in and back. `SignExtSealin
 with PAC (`enable_signext`, PAC category required): per access a `PacSealing` authenticates the base and
 the sign-ext flip inverts bit 55 on the speculative decoy, so the regime selector disagrees with the
 never-flipped sign-extension bits `[54:VA]` — a translation fault under TBI on or off. The top byte
-`[63:56]` is TBI-ignored and so is never flipped. Only the PAC auth is materialized by the emulation table.
+`[63:56]` is never flipped (bit 55 already faults either way; a top-byte flip faults only with TBI off).
+Only the PAC auth is materialized by the emulation table.
 
 The placeholder emits no `AUT*`/`XPAC`/`PAC*` — it is the inert, arch-safe baseline. The hardware
 `genuine()` render loads the precomputed signature with `MOVK`s and keeps the committed `AUT*`; `PAC*`

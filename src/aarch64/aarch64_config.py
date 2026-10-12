@@ -251,8 +251,8 @@ canonicality_mask: Optional[int] = None
 # flipping bit 55 (the TTBR0/TTBR1 regime selector) right before a PAC-authenticated access, then flip
 # it back. The regime selector then disagrees with the never-flipped sign-extension bits [54:VA], so the
 # address is non-canonical in either regime and under TBI on or off — a translation fault. The top byte
-# [63:56] is TBI-ignored and so is never flipped. Needs the PAC category active (the sign-ext flip
-# composes with the per-access PAC auth, exercising the PAC-field / sign-extension overlap).
+# [63:56] is never flipped: bit 55 already faults either way, while a top-byte flip faults only with TBI
+# off. Needs the PAC category active (the sign-ext flip composes with the per-access PAC auth).
 enable_signext: bool = False
 signext_seal_prob: float = 1.0
 

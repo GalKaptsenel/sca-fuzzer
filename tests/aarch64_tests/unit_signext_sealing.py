@@ -28,7 +28,7 @@ class SignExtPoolTest(unittest.TestCase):
         for m in S._signext_mask_pool():
             self.assertFalse(m & _TOP_BYTE, f"{m:#x} is in the TBI-ignored top byte")
 
-    def test_bit_55_flip_faults_regardless_of_tbi(self):
+    def test_bit_55_flip_disagrees_with_sign_extension(self):
         # a canonical TTBR1 pointer has bit55=1 and sign-extension bits [54:VA] all 1; flipping bit 55
         # makes the regime selector (now 0) disagree with [54:VA] (still 1) -> non-canonical in either
         # regime and whether or not the top byte is ignored (TBI on/off).

@@ -6,26 +6,40 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-/* AArch64 permanently-undefined (UDF #0): the idle filler for a site's materialized slots. The CE
- * restores the live code from sim_input every instruction step, so a slot is re-materialized to the
+/* AArch64 permanently-undefined (UDF #0): the idle filler an op-emulator plants into its slots. The CE
+ * restores the live code from sim_input every instruction step, so a site is re-materialized to the
  * genuine op on every reach (architectural OR speculative) — each reach signs/retags the pointer that
  * is actually there, so the AUT* always verifies and the single trace is the genuine render on both
  * paths. Between reaches the slots hold UDF: if one ever executes without being materialized (a bug),
  * it faults loudly instead of running stale bytes. */
 #define UDF_WORD 0x00000000U
 
-static void udf_fill(uint32_t base, uint32_t n_slots)
+void emul_udf_fill(uint32_t first_slot, uint32_t n_slots)
 {
     uint32_t* live   = (uint32_t*)simulation.sim_code.code;
     uint32_t* shadow = (uint32_t*)simulation.sim_input.code;
     for (uint32_t i = 0; i < n_slots; ++i) {
-        live[base + i] = shadow[base + i] = UDF_WORD;
+        live[first_slot + i] = shadow[first_slot + i] = UDF_WORD;
     }
 }
 
-/* Reset every site's materialized slots to the idle UDF filler, once before each trace. A row owns
- * exactly [offset, offset+size); the op's "anchor" instruction (the committed AUT*, the access) sits at
- * offset+size and is never touched here. */
+/* Route a site phase to its op-emulator; the op owns everything it does with the slots. */
+static void emul_route(struct simulation_state* sim_state, const struct emul_row* row, emul_phase_t phase)
+{
+    switch (row->op) {
+        case EMUL_OP_PAC_AUTH:
+            pac_emulate_auth(sim_state, row->offset, row->size, phase);
+            break;
+        case EMUL_OP_MTE_RETAG:
+            mte_emulate_retag(sim_state, row->offset, row->size, phase);
+            break;
+        default:
+            fprintf(stderr, "[CE FATAL] emulation row: unknown op %u -- aborting\n", row->op);
+            abort();
+    }
+}
+
+/* Idle every site before the trace. IDLE needs no live state, so sim_state is NULL here. */
 void emul_reset(void)
 {
     const uint8_t* raw = simulation.sim_input.emul_table;
@@ -35,7 +49,7 @@ void emul_reset(void)
     const struct emul_row* rows = (const struct emul_row*)raw;
     size_t n = simulation.sim_input.emul_table_size / sizeof(struct emul_row);
     for (size_t i = 0; i < n; ++i) {
-        udf_fill(rows[i].offset / 4, rows[i].size / 4);
+        emul_route(NULL, &rows[i], EMUL_PHASE_IDLE);
     }
 }
 
@@ -51,24 +65,11 @@ void* instruction_emulator_hook(struct simulation_state* sim_state)
 
     for (size_t i = 0; i < n; ++i) {
         if (rows[i].offset == off) {
-            /* reaching the site: materialize the genuine op for the state currently in the register */
-            switch (rows[i].op) {
-                case EMUL_OP_PAC_AUTH:
-                    pac_emulate_auth(sim_state, rows[i].offset, rows[i].size);
-                    break;
-                case EMUL_OP_MTE_RETAG:
-                    mte_emulate_retag(sim_state, rows[i].offset, rows[i].size);
-                    break;
-                default:
-                    fprintf(stderr, "[CE FATAL] emulation row %zu: unknown op %u -- aborting\n",
-                            i, rows[i].op);
-                    abort();
-            }
+            emul_route(sim_state, &rows[i], EMUL_PHASE_MATERIALIZE);
             return NULL;   /* re-run this PC, now the materialized instruction */
         }
         if ((uintptr_t)rows[i].offset + rows[i].size == off) {
-            /* left the site: restore the idle UDF filler so a later bug can't run stale bytes */
-            udf_fill(rows[i].offset / 4, rows[i].size / 4);
+            emul_route(sim_state, &rows[i], EMUL_PHASE_IDLE);   /* left the site: back to idle */
         }
     }
     return NULL;

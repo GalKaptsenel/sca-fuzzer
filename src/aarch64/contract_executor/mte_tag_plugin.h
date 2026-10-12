@@ -2,6 +2,7 @@
 #define MTE_TAG_PLUGIN_H
 
 #include "simulation.h"
+#include "instruction_emulator.h"
 
 void mte_tag_plugin_init(void);
 void mte_tag_plugin_cleanup(void);
@@ -28,7 +29,9 @@ int     mte_is_mem_tag_access(uint32_t enc);
 int  mte_tag_log_enabled(void);
 void mte_tagmem_log(const char* when, long seq);
 
-/* op-emulator for EMUL_OP_MTE_RETAG: plant the retag ADDG (to the accessed cell's tag) into the slot. */
-void mte_emulate_retag(struct simulation_state *sim_state, uintptr_t offset, uint32_t size);
+/* op-emulator for EMUL_OP_MTE_RETAG: IDLE fills the slot with UDF, MATERIALIZE plants the retag ADDG
+ * (to the accessed cell's tag). */
+void mte_emulate_retag(struct simulation_state *sim_state, uintptr_t offset, uint32_t size,
+		       emul_phase_t phase);
 
 #endif // MTE_TAG_PLUGIN_H

@@ -1,6 +1,7 @@
 instruction_set: aarch64
 # PAC + sign-extension NI fuzzing: each memory access is PAC-authenticated, and the speculative decoy
-# also breaks the authed pointer's sign-extension (a [63:55] flip) so it faults. Needs the PAC category.
+# also breaks the authed pointer's sign-extension (a bit-55 / regime-selector flip) so it faults. Needs
+# the PAC category.
 instruction_categories:
   - PAC
   - BASE-ARITH

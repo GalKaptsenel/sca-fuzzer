@@ -7,11 +7,13 @@
 
 /* The emulation table materializes the genuine instructions of a sealing site in place, during the
  * trace. Each row is (code byte offset of the first slot, total slot size in bytes, op-emulator id).
- * On reaching an unprocessed row the CE dispatches by `op` to a general op-emulator that reads the
- * state + the site's real instruction (the last slot), computes the value (QARMA signature, MTE cell
- * tag), and writes the genuine instructions into the junk slots, then runs them as ordinary code. The
- * CE knows nothing about sealing — only how to emulate these ops. The table is OPTIONAL and orthogonal
- * to the speculation contract; the caller chooses both. */
+ * The dispatcher is a pure event router: from PC vs row geometry it raises two phases per row and
+ * forwards them to the op-emulator named by `op`. The op-emulator owns its whole site — it decides
+ * whether and which slots to fill with idle UDF, and plants the genuine instructions (QARMA signature,
+ * MTE retag) for the state currently in the registers. There is no stored per-row state: both phases
+ * are a pure function of PC, so re-reaches and speculation rollback need no bookkeeping. The CE knows
+ * nothing about sealing — only how to route to these ops. The table is OPTIONAL and orthogonal to the
+ * speculation contract; the caller chooses both. */
 
 enum emul_op {
 	EMUL_OP_NONE      = 0,
@@ -39,12 +41,27 @@ static inline int emul_table_valid(const uint8_t* table, size_t size, size_t cod
 	return 1;
 }
 
-/* Reset the per-message "row already emulated" state. Called once before each trace. */
+/* The site-lifecycle phase the dispatcher hands an op-emulator. IDLE: restore the site's idle filler
+ * (the op decides whether and which slots to UDF); MATERIALIZE: plant the genuine instructions for the
+ * state currently in the registers. The signature every op-emulator implements. */
+typedef enum {
+	EMUL_PHASE_IDLE = 0,
+	EMUL_PHASE_MATERIALIZE = 1,
+} emul_phase_t;
+
+typedef void (*emul_op_fn)(struct simulation_state* sim_state, uintptr_t offset, uint32_t size,
+                           emul_phase_t phase);
+
+/* The idle filler (UDF #0) an op-emulator plants into the `n_slots` 4-byte slots it owns, starting at
+ * code word `first_slot`. A slot that ever executes un-materialized then faults loudly. */
+void emul_udf_fill(uint32_t first_slot, uint32_t n_slots);
+
+/* Set every row's site to its idle filler. Called once before each trace. */
 void emul_reset(void);
 
-/* Per-instruction hook: when PC reaches an unprocessed row's offset, run its op-emulator (planting the
- * genuine instructions in place) and mark the row processed. Install BEFORE the per-op PAC/MTE hooks
- * and the trace logger. */
+/* Per-instruction hook: route the two site phases to the owning op-emulator — MATERIALIZE when PC is at
+ * a row's first slot, IDLE when PC has just left the row's last slot. Install BEFORE the per-op PAC/MTE
+ * hooks and the trace logger. */
 void* instruction_emulator_hook(struct simulation_state* sim_state);
 
 #endif /* INSTRUCTION_EMULATOR_H */
