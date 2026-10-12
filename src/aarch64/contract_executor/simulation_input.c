@@ -174,6 +174,7 @@ int simulation_input_load_fd(int fd, struct simulation_input* sim_input) {
 		sim_input->emul_table_size = sim_input->hdr.emul_table_size;
 		if (!emul_table_valid(sim_input->emul_table, sim_input->emul_table_size,
 		                      sim_input->hdr.code_size)) {
+			fprintf(stderr, "Malformed emulation table!\n");
 			goto load_fd_fail;
 		}
 	}
