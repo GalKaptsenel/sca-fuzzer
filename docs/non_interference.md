@@ -26,13 +26,14 @@ each a register-only op:
 | `SandboxSealing` | `AND mask ; ADD x29` | same (the clamp is value-independent) |
 | `PacSealing` | `NOP ; NOP` (inert — the pointer stays the canonical clamped base) | `MOVK sig ; AUT*` (or the `XPAC` strip, with prob `pac_strip_prob`) |
 | `MteSealing` | `NOP [; NOP]` (inert) | `ADDG #delta [; ADDG #back]` (retag to the cell tag before the access, then re-converge after — `back`=0 for genuine, non-zero for a decoy; the second op only when the access preserves its base) |
-| `CanonSealing` / `SignExtSealing` | `NOP [; NOP]` (inert — canonical pointer) | `EOR #mask [; EOR #mask]` (flip a non-canonical mask before the access, re-converge after when the base survives; `CanonSealing` flips `[54:VA]`, `SignExtSealing` flips `[63:55]`) |
+| `CanonSealing` / `SignExtSealing` | `NOP [; NOP]` (inert — canonical pointer) | `EOR #mask [; EOR #mask]` (flip a non-canonical mask before the access, re-converge after when the base survives; `CanonSealing` flips `[54:VA]`, `SignExtSealing` flips bit 55 — the regime selector) |
 
 A flip sealing (`CanonSealing`, `SignExtSealing`) carries no per-input value and no CE emulator: genuine
 is the inert placeholder, a decoy EORs one pool mask in and back. `SignExtSealing` is only used composed
 with PAC (`enable_signext`, PAC category required): per access a `PacSealing` authenticates the base and
-the sign-ext flip breaks its `[63:55]` sign-extension on the speculative decoy, so only the PAC auth is
-materialized by the emulation table.
+the sign-ext flip inverts bit 55 on the speculative decoy, so the regime selector disagrees with the
+never-flipped sign-extension bits `[54:VA]` — a translation fault under TBI on or off. The top byte
+`[63:56]` is TBI-ignored and so is never flipped. Only the PAC auth is materialized by the emulation table.
 
 The placeholder emits no `AUT*`/`XPAC`/`PAC*` — it is the inert, arch-safe baseline. The hardware
 `genuine()` render loads the precomputed signature with `MOVK`s and keeps the committed `AUT*`; `PAC*`

@@ -248,13 +248,13 @@ canonicality_seal_prob: float = 1.0
 canonicality_mask: Optional[int] = None
 
 # SignExtSealing (composed with PAC): on the speculative decoy, break a pointer's sign-extension by
-# flipping a bit in [63:55] — the regime-selector / top-byte bits canonicality leaves untouched — right
-# before a PAC-authenticated access, then flip it back. The resulting address is non-canonical in either
-# translation regime and under TBI on or off, so it faults. Needs the PAC category active (the sign-ext
-# flip composes with the per-access PAC auth, exercising the PAC-field / sign-extension overlap).
+# flipping bit 55 (the TTBR0/TTBR1 regime selector) right before a PAC-authenticated access, then flip
+# it back. The regime selector then disagrees with the never-flipped sign-extension bits [54:VA], so the
+# address is non-canonical in either regime and under TBI on or off — a translation fault. The top byte
+# [63:56] is TBI-ignored and so is never flipped. Needs the PAC category active (the sign-ext flip
+# composes with the per-access PAC auth, exercising the PAC-field / sign-extension overlap).
 enable_signext: bool = False
 signext_seal_prob: float = 1.0
-signext_mask: Optional[int] = None     # fixed sign-ext flip (a single bit in [63:55]), or None = pool
 
 # BranchTargetSealing: on the speculative decoy, corrupt an indirect call's target register before the
 # BLR so it becomes non-canonical (high bits, like canonicality) and/or misaligned (low bits [1:0] ->

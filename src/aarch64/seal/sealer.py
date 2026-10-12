@@ -416,26 +416,24 @@ class BranchTargetSealing(Sealing):
         return [a for a in alts if a > 3] or list(alts)
 
 
+_SIGNEXT_BIT = 1 << 55   # the regime-selector / sign bit: the one bit non-canonical under TBI on or off
+
+
 class SignExtSealing(CanonSealing):
     """Break a pointer's sign-extension for ONE speculative access, then restore it — like CanonSealing
-    but flipping a bit in [63:55] (the regime-selector / top-byte bits canonicality leaves untouched)
-    rather than [54:VA]. `seal(mask)` EORs the bit in right before the access, making the address
-    non-canonical in either regime and under TBI on or off (a guaranteed translation fault), and EORs it
-    back after (when the base survives). `seal(None/0)` is the canonical placeholder (NOPs)."""
+    but flipping bit 55 (the TTBR0/TTBR1 regime selector that canonicality leaves untouched) rather than
+    [54:VA]. `seal(mask)` EORs bit 55 in right before the access, so the regime selector disagrees with
+    the never-flipped sign-extension bits [54:VA] — a translation fault under TBI on or off — and EORs it
+    back after (when the base survives). The top byte [63:56] is NOT flipped: it is TBI-ignored, so a
+    flip there would not fault. `seal(None/0)` is the canonical placeholder (NOPs)."""
 
 
 def _signext_mask_pool() -> List[int]:
-    """The sign-extension flip masks: each a single bit in [63:55]. Flipping one makes that bit disagree
-    with the other eight (which stay equal), so the pointer is non-canonical in either regime and under
-    TBI on or off — a guaranteed translation fault. A single bit is a valid logical immediate (one EOR).
-    If signext_mask is set, the pool is that one fixed bit."""
-    fault = ((1 << 9) - 1) << 55   # bits [63:55]
-    if CONF.signext_mask is not None:
-        m = CONF.signext_mask & M
-        if 0 == m or (m & ~fault) or m & (m - 1):
-            raise GeneratorException(f"signext_mask 0x{m:016x} must be a single bit in [63:55]")
-        return [m]
-    return [1 << b for b in range(55, 64)]
+    """The sign-extension flip mask: bit 55 alone. Flipping the regime selector makes it disagree with
+    the sign-extension bits [54:VA], which are never flipped — a guaranteed translation fault under TBI
+    on or off. The top byte [63:56] is TBI-ignored (no fault when flipped), so it is excluded, exactly
+    as CanonSealing excludes it from the other direction."""
+    return [_SIGNEXT_BIT]
 
 
 # ==================================================================================================
@@ -619,10 +617,12 @@ def _resolve_mte(s: MteSealing, cer, layout) -> Tuple[Optional[int], List[int], 
     (it reads the granule's tag from the CE's tag memory and plants `ADDG #0, #delta` to reach it, same
     as the genuine binary) plus the alternatives that mismatch. The delta is read back from that planted
     ADDG; the effective address's unretagged tag is `cell - delta`. (value, alts, spec_nesting)."""
+    if not cer:
+        return None, list(range(1, 16)), None
     retag_off = layout.instruction_address[s.slot_insts[0]]      # the materialized retag ADDG slot
-    access_off, code_base = layout.instruction_address[s.access_inst], cer[0].cpu.pc if cer else 0
+    access_off, code_base = layout.instruction_address[s.access_inst], cer[0].cpu.pc
     delta, cell, spec = None, None, None
-    for ite in (cer or []):
+    for ite in cer:
         off, nest = ite.cpu.pc - code_base, ite.metadata.speculation_nesting
         if off == retag_off and (delta is None or nest == 0):
             delta = (ite.cpu.encoding >> 10) & 0xF              # ADDG uimm4 = the retag delta
@@ -968,10 +968,12 @@ class MtePacSealedTestCase(SealedTestCase):
 
 class PacSignExtSealedTestCase(SealedTestCase):
     """Sandbox clamp + PAC auth + a sign-extension flip per data access, plus a PAC auth per standalone
-    AUT*. The flip (SignExtSealing) is the low-bit analogue-free partner to PAC: it carries no per-input
-    value and no CE emulator, so only the PAC auth is materialized by the emulation table; the single
-    resolution trace (the committed AUT* at each auth position, the canonical placeholder at each flip)
-    yields the PAC signatures and the genuine contract trace, and the decoy splices the flip EOR in."""
+    AUT*. Every access is PAC-authenticated (the baked signature keeps it arch-safe, as in
+    MtePacSealedTestCase); the flip (SignExtSealing) is a flip seal — no per-input value, no CE emulator —
+    added with probability `signext_seal_prob`, so only the PAC auth is materialized by the emulation
+    table. The single resolution trace (the committed AUT* at each auth position, the canonical
+    placeholder at each flip) yields the PAC signatures and the genuine contract trace; the decoy splices
+    the flip EOR in."""
 
     def __init__(self, sealed_tc, assemble, sandbox_sealings, data_sites, signer, enc,
                  auth_specs, trace_bytes_fn) -> None:

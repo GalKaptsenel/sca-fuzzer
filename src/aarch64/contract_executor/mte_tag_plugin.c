@@ -225,8 +225,8 @@ int mte_tagmem_active(void) {
 	return NULL != g_tagmem;
 }
 
-/* Allocation tag of the granule holding kernel-space address `addr` (for the after-access tag
- * correction in the fixup path); 0 outside the tagged span / when no tag memory exists. */
+/* Allocation tag of the granule holding kernel-space address `addr` (the after-access tag correction
+ * and the retag op-emulator's cell source); 0 outside the tagged span / when no tag memory exists. */
 uint8_t mte_tagmem_tag_at(uintptr_t addr) {
 	return ce_tag_at(addr);
 }
@@ -236,8 +236,12 @@ uint8_t mte_tagmem_tag_at(uintptr_t addr) {
  * accessed cell's allocation tag (ADDG Xn, Xn, #0, #delta, delta = cell_tag - ea_tag) as the genuine
  * binary does. The tag is read from the simulated tag memory at the current effective address. */
 void mte_emulate_retag(struct simulation_state *sim_state, uintptr_t offset, uint32_t size) {
-	if (NULL == sim_state || 0 == size) {
-		return;
+	/* An MTE_RETAG row only exists when MTE sealing is active, so tag memory is seeded; a missing one
+	 * (or a malformed row) is a bug, not a tolerable state — fail loud, as the op dispatch does. */
+	if (NULL == sim_state || 0 == size || !mte_tagmem_active()) {
+		fprintf(stderr, "[CE FATAL] mte_emulate_retag: sim_state=%p size=%u tagmem_active=%d -- aborting\n",
+			(void *)sim_state, size, mte_tagmem_active());
+		abort();
 	}
 	uint32_t *live   = (uint32_t *)simulation.sim_code.code;
 	uint32_t *shadow = (uint32_t *)simulation.sim_input.code;   // the logger reads encodings from here
@@ -250,7 +254,7 @@ void mte_emulate_retag(struct simulation_state *sim_state, uintptr_t offset, uin
 	for (uint32_t r = 0; r < 31; ++r) { tcs.gpr[r] = cpu_state_read_base_reg(cpu, r); }
 	tcs.sp = cpu->sp;
 	uintptr_t ea = (uintptr_t)parse_memory_access_instruction(access, &tcs).effective_address;
-	uint32_t cell = mte_tagmem_active() ? mte_tagmem_tag_at(ea) : 0u;   // tag of the granule the access touches
+	uint32_t cell = mte_tagmem_tag_at(ea);                      // tag of the granule the access touches
 	/* Adding delta to Rn's tag shifts the effective address's tag by the same delta (EA = Rn + offset,
 	 * so EA += delta<<56); target the EA tag, not Rn's own — they differ for a register-offset access. */
 	uint32_t ea_tag = (uint32_t)((ea >> 56) & 0xFu);

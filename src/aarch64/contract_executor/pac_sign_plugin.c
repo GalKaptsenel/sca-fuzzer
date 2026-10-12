@@ -341,11 +341,10 @@ void pac_emulate_auth(struct simulation_state *sim_state, uintptr_t offset, uint
 
     uint32_t rd, rn;
     auth_type_t atype = classify_auth(shadow[anchor], &rd, &rn);
-    if (AUTH_NONE == atype) {                                  // anchor not an AUT* (shouldn't happen in
-        for (uint32_t i = 0; i < n_slots; ++i) {               // resolve); leave the sig slots inert
-            live[base + i] = shadow[base + i] = 0xD503201FU;
-        }
-        return;
+    if (AUTH_NONE == atype) {                                  // anchor must be the committed AUT*; if it
+        fprintf(stderr, "[CE FATAL] pac_emulate_auth: anchor 0x%08x at offset %lu not an AUT* "
+                "-- aborting\n", shadow[anchor], (unsigned long)offset);   // is not, the row is malformed
+        abort();
     }
     require_pac_state(auth_mnemonic(atype), true, sim_state->cpu_state.pc);
 
