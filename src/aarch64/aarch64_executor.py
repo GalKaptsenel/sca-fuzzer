@@ -579,9 +579,14 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         # canonicality is a category-independent seal of existing memory accesses; its own flag
         if CONF.enable_canonicality:
             self._primitives.add("canon")
+        # sign-extension sealing composes with PAC (a top-byte / regime flip on an authed pointer)
+        if CONF.enable_signext:
+            self._primitives.add("signext")
         # branch-target sealing corrupts indirect-call targets; its own flag (needs indirect calls)
         if CONF.enable_branch_target_sealing:
             self._primitives.add("branch_target")
+        if "signext" in self._primitives and "pac" not in self._primitives:
+            raise GeneratorException("enable_signext needs the PAC instruction category active")
         if not self._primitives and not CONF.enable_pte_fuzzing:
             raise GeneratorException(
                 "non-interference fuzzing needs a PAC or MTE instruction category, or "

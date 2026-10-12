@@ -181,6 +181,11 @@ class TraceEquivalenceCanonTest(_EquivalenceBase, unittest.TestCase):
     VA_SIZE = 48
 
 
+class TraceEquivalencePacSignExtTest(_EquivalenceBase, unittest.TestCase):
+    CONFIG = "config_pac_signext.yml"
+    PRIMITIVES = {"pac", "signext"}
+
+
 class TraceEquivalenceBranchTargetTest(_EquivalenceBase, unittest.TestCase):
     CONFIG = "config_canon_indirect.yml"
     PRIMITIVES = {"branch_target"}

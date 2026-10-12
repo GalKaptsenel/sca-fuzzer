@@ -416,6 +416,28 @@ class BranchTargetSealing(Sealing):
         return [a for a in alts if a > 3] or list(alts)
 
 
+class SignExtSealing(CanonSealing):
+    """Break a pointer's sign-extension for ONE speculative access, then restore it — like CanonSealing
+    but flipping a bit in [63:55] (the regime-selector / top-byte bits canonicality leaves untouched)
+    rather than [54:VA]. `seal(mask)` EORs the bit in right before the access, making the address
+    non-canonical in either regime and under TBI on or off (a guaranteed translation fault), and EORs it
+    back after (when the base survives). `seal(None/0)` is the canonical placeholder (NOPs)."""
+
+
+def _signext_mask_pool() -> List[int]:
+    """The sign-extension flip masks: each a single bit in [63:55]. Flipping one makes that bit disagree
+    with the other eight (which stay equal), so the pointer is non-canonical in either regime and under
+    TBI on or off — a guaranteed translation fault. A single bit is a valid logical immediate (one EOR).
+    If signext_mask is set, the pool is that one fixed bit."""
+    fault = ((1 << 9) - 1) << 55   # bits [63:55]
+    if CONF.signext_mask is not None:
+        m = CONF.signext_mask & M
+        if 0 == m or (m & ~fault) or m & (m - 1):
+            raise GeneratorException(f"signext_mask 0x{m:016x} must be a single bit in [63:55]")
+        return [m]
+    return [1 << b for b in range(55, 64)]
+
+
 # ==================================================================================================
 # ResolvedSealingTestCase — one input's resolution; mints genuine / decoy hardware test cases
 # ==================================================================================================
@@ -944,6 +966,54 @@ class MtePacSealedTestCase(SealedTestCase):
         return pac + mte
 
 
+class PacSignExtSealedTestCase(SealedTestCase):
+    """Sandbox clamp + PAC auth + a sign-extension flip per data access, plus a PAC auth per standalone
+    AUT*. The flip (SignExtSealing) is the low-bit analogue-free partner to PAC: it carries no per-input
+    value and no CE emulator, so only the PAC auth is materialized by the emulation table; the single
+    resolution trace (the committed AUT* at each auth position, the canonical placeholder at each flip)
+    yields the PAC signatures and the genuine contract trace, and the decoy splices the flip EOR in."""
+
+    def __init__(self, sealed_tc, assemble, sandbox_sealings, data_sites, signer, enc,
+                 auth_specs, trace_bytes_fn) -> None:
+        self._signer = signer
+        self._enc = enc
+        self._auth_specs = auth_specs
+        self._pac: List[PacSealing] = []
+        self._signext: List[SignExtSealing] = []
+        super().__init__(sealed_tc, assemble, sandbox_sealings, data_sites, trace_bytes_fn)
+
+    def _insert_slots(self, data_sites) -> None:
+        pool = _signext_mask_pool()   # validated once; shared by every slot in this test case
+        rng = random.Random(self._salt)
+        for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
+            p = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc, base_preserved)
+            self._pac.append(p)
+            if rng.random() >= CONF.signext_seal_prob:
+                _insert(bb, inst, p.slot_insts[:p.n_before], offset_subs)
+                _place_after(bb, inst, p.slot_insts[p.n_before:])
+                continue
+            s = SignExtSealing(mem_reg, inst, pool, base_preserved)
+            self._signext.append(s)
+            # before: auth the base, cancel the offset, break sign-extension (flip closest to the access)
+            _insert(bb, inst, p.slot_insts[:p.n_before], offset_subs, s.slot_insts[:1])
+            # after: restore the base, then PAC XPAC strips — both re-converge the decoy.
+            _place_after(bb, inst, s.slot_insts[1:] + p.slot_insts[p.n_before:])
+        _seal_auths(self._tc, self._enc, self._auth_specs, self._pac)
+
+    def _value_sealings(self) -> List[Sealing]:
+        return self._pac + self._signext
+
+    def _emul_rows(self, offsets) -> List[Tuple[int, int, int]]:
+        return _pac_emul_rows(self._pac, offsets)
+
+    def _resolve_entries(self, inp, cer) -> List[_Resolved]:
+        keys = _input_pac_keys(inp)
+        pac = [_Resolved(s, *_resolve_pac(s, cer, self._layout, self._signer, keys, self._salt))
+               for s in self._pac]
+        signext = [_Resolved(s, *_resolve_canon(s, cer, self._layout)) for s in self._signext]
+        return pac + signext
+
+
 # ==================================================================================================
 # Sealer — walk the TC, create the sealings, insert their placeholders
 # ==================================================================================================
@@ -1028,6 +1098,9 @@ class Sealer:
         if self._primitives == frozenset({"pac", "mte"}):
             return MtePacSealedTestCase(tc, self._assemble, sandbox, data_sites,
                                         self._signer, self._enc, self._auth_specs, tr)
+        if self._primitives == frozenset({"pac", "signext"}):
+            return PacSignExtSealedTestCase(tc, self._assemble, sandbox, data_sites,
+                                            self._signer, self._enc, self._auth_specs, tr)
         raise GeneratorException(f"no sealed test case for primitives {set(self._primitives)}")
 
 
@@ -1186,6 +1259,7 @@ def make_sealer(generator, assemble, primitives, signer, trace_bytes_fn) -> Seal
     (None otherwise)."""
     prims = frozenset(primitives)
     if prims not in (frozenset(), frozenset({"canon"}), frozenset({"branch_target"}),
-                     frozenset({"mte"}), frozenset({"pac"}), frozenset({"pac", "mte"})):
+                     frozenset({"mte"}), frozenset({"pac"}), frozenset({"pac", "mte"}),
+                     frozenset({"pac", "signext"})):
         raise ValueError(f"unsupported seal primitives: {primitives!r}")
     return Sealer(generator, assemble, prims, signer, trace_bytes_fn)

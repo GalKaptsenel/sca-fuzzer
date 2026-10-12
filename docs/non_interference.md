@@ -26,6 +26,13 @@ each a register-only op:
 | `SandboxSealing` | `AND mask ; ADD x29` | same (the clamp is value-independent) |
 | `PacSealing` | `NOP ; NOP` (inert — the pointer stays the canonical clamped base) | `MOVK sig ; AUT*` (or the `XPAC` strip, with prob `pac_strip_prob`) |
 | `MteSealing` | `NOP [; NOP]` (inert) | `ADDG #delta [; ADDG #back]` (retag to the cell tag before the access, then re-converge after — `back`=0 for genuine, non-zero for a decoy; the second op only when the access preserves its base) |
+| `CanonSealing` / `SignExtSealing` | `NOP [; NOP]` (inert — canonical pointer) | `EOR #mask [; EOR #mask]` (flip a non-canonical mask before the access, re-converge after when the base survives; `CanonSealing` flips `[54:VA]`, `SignExtSealing` flips `[63:55]`) |
+
+A flip sealing (`CanonSealing`, `SignExtSealing`) carries no per-input value and no CE emulator: genuine
+is the inert placeholder, a decoy EORs one pool mask in and back. `SignExtSealing` is only used composed
+with PAC (`enable_signext`, PAC category required): per access a `PacSealing` authenticates the base and
+the sign-ext flip breaks its `[63:55]` sign-extension on the speculative decoy, so only the PAC auth is
+materialized by the emulation table.
 
 The placeholder emits no `AUT*`/`XPAC`/`PAC*` — it is the inert, arch-safe baseline. The hardware
 `genuine()` render loads the precomputed signature with `MOVK`s and keeps the committed `AUT*`; `PAC*`
@@ -92,8 +99,9 @@ never contaminate the auth context before the `AUT*` reads it.
 ## 6. Running it + the debug table
 
 Configs (`fuzzer: non-interference`, categories pick the primitive): `config_pac.yml` (PAC),
-`config_mte.yml` (MTE), `config_pac_mte.yml` (both). For regular fuzzing with PAC/MTE, use a
-`fuzzer: basic` config with the same categories.
+`config_mte.yml` (MTE), `config_pac_mte.yml` (both), `config_pac_signext.yml` (PAC + sign-extension flip,
+`enable_signext`). For regular fuzzing with PAC/MTE, use a `fuzzer: basic` config with the same
+categories.
 
 ```sh
 VENV=/home/gal_k_1_1998/revizor/revizor-venv/bin/python   # tests/revizor need this interpreter
