@@ -1,27 +1,39 @@
 #include "instruction_emulator.h"
 #include "simulation.h"
-#include "simulation_execution_clause_hook.h"
 #include "pac_sign_plugin.h"
-#include <stdlib.h>
+#include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
-/* Per-message "row already emulated" flags: an emulated row stays materialized in the code (code
- * memory is not checkpointed), so a speculative re-entry runs the planted instructions directly
- * instead of re-invoking the op-emulator. Reset once before each trace. */
-static uint8_t *g_done = NULL;
-static size_t   g_done_n = 0;
+/* AArch64 permanently-undefined (UDF #0): the idle filler for a site's materialized slots. The CE
+ * restores the live code from sim_input every instruction step, so a slot is re-materialized to the
+ * genuine op on every reach (architectural OR speculative) — each reach signs/retags the pointer that
+ * is actually there, so the AUT* always verifies and the single trace is the genuine render on both
+ * paths. Between reaches the slots hold UDF: if one ever executes without being materialized (a bug),
+ * it faults loudly instead of running stale bytes. */
+#define UDF_WORD 0x00000000U
 
+static void udf_fill(uint32_t base, uint32_t n_slots)
+{
+    uint32_t* live   = (uint32_t*)simulation.sim_code.code;
+    uint32_t* shadow = (uint32_t*)simulation.sim_input.code;
+    for (uint32_t i = 0; i < n_slots; ++i) {
+        live[base + i] = shadow[base + i] = UDF_WORD;
+    }
+}
+
+/* Reset every site's materialized slots to the idle UDF filler, once before each trace. The last slot
+ * of a site holds its real op (the committed AUT*) and is never touched here. */
 void emul_reset(void)
 {
-    free(g_done);
-    g_done = NULL;
-    g_done_n = simulation.sim_input.emul_table_size / sizeof(struct emul_row);
-    if (0 != g_done_n) {
-        g_done = calloc(g_done_n, 1);
-        if (NULL == g_done) {
-            fprintf(stderr, "[CE FATAL] emul_reset: out of memory for %zu rows\n", g_done_n);
-            abort();
-        }
+    const uint8_t* raw = simulation.sim_input.emul_table;
+    if (NULL == raw) {
+        return;
+    }
+    const struct emul_row* rows = (const struct emul_row*)raw;
+    size_t n = simulation.sim_input.emul_table_size / sizeof(struct emul_row);
+    for (size_t i = 0; i < n; ++i) {
+        udf_fill(rows[i].offset / 4, rows[i].size / 4 - 1);
     }
 }
 
@@ -31,32 +43,28 @@ void* instruction_emulator_hook(struct simulation_state* sim_state)
     if (NULL == sim_state || NULL == raw) {
         return NULL;
     }
-    /* Materialize only on the architectural path: the value signed/retagged into the slot must be the
-     * architectural one (a speculative pre-reach would capture a wrong-path pointer). A speculative
-     * reach before materialization runs the inert junk slots + a speculative AUT* (which strips, never
-     * verifies), so it is safe; once materialized, the planted code persists and runs under speculation
-     * too. */
-    if (0 != is_in_speculation()) {
-        return NULL;
-    }
     const struct emul_row* rows = (const struct emul_row*)raw;
+    size_t n = simulation.sim_input.emul_table_size / sizeof(struct emul_row);
     uintptr_t off = sim_state->cpu_state.pc - (uintptr_t)simulation.sim_code.code;
 
-    for (size_t i = 0; i < g_done_n; ++i) {
-        if (rows[i].offset != off || 0 != g_done[i]) {
-            continue;
+    for (size_t i = 0; i < n; ++i) {
+        if (rows[i].offset == off) {
+            /* reaching the site: materialize the genuine op for the pointer currently in the register */
+            switch (rows[i].op) {
+                case EMUL_OP_PAC_AUTH:
+                    pac_emulate_auth(sim_state, rows[i].offset, rows[i].size);
+                    break;
+                default:
+                    fprintf(stderr, "[CE FATAL] emulation row %zu: unknown op %u -- aborting\n",
+                            i, rows[i].op);
+                    abort();
+            }
+            return NULL;   /* re-run this PC, now the materialized instruction */
         }
-        g_done[i] = 1;
-        switch (rows[i].op) {
-            case EMUL_OP_PAC_AUTH:
-                pac_emulate_auth(sim_state, rows[i].offset, rows[i].size);
-                break;
-            default:
-                fprintf(stderr, "[CE FATAL] emulation row %zu: unknown op %u -- aborting\n",
-                        i, rows[i].op);
-                abort();
+        if ((uintptr_t)rows[i].offset + rows[i].size == off) {
+            /* left the site: restore the idle UDF filler so a later bug can't run stale bytes */
+            udf_fill(rows[i].offset / 4, rows[i].size / 4 - 1);
         }
-        return NULL;   /* continue; the now-materialized instruction at this PC runs normally */
     }
     return NULL;
 }

@@ -337,13 +337,15 @@ void pac_emulate_auth(struct simulation_state *sim_state, uintptr_t offset, uint
     uint32_t *shadow = (uint32_t *)simulation.sim_input.code;   // the logger reads encodings from here
     uint32_t base = (uint32_t)(offset / 4);
     uint32_t n_slots = size / 4 - 1;                            // MOVK slots before the real AUT*
-    for (uint32_t i = 0; i < n_slots; ++i) {                    // default NOP (covers a non-AUT* last slot)
-        live[base + i] = shadow[base + i] = 0xD503201FU;
-    }
 
     uint32_t rd, rn;
     auth_type_t atype = classify_auth(shadow[base + n_slots], &rd, &rn);
-    if (AUTH_NONE == atype) { return; }
+    if (AUTH_NONE == atype) {                                  // last slot not an AUT* (shouldn't happen
+        for (uint32_t i = 0; i < n_slots; ++i) {               // in resolve); leave the sig slots inert
+            live[base + i] = shadow[base + i] = 0xD503201FU;
+        }
+        return;
+    }
     require_pac_state(auth_mnemonic(atype), true, sim_state->cpu_state.pc);
 
     uint64_t ctx = read_xreg(&sim_state->cpu_state, rn);
@@ -352,11 +354,18 @@ void pac_emulate_auth(struct simulation_state *sim_state, uintptr_t offset, uint
     // so model_auth's re-sign of xpac(rd) reproduces exactly what the MOVKs plant.
     uint64_t canonical = sw_pac_xpac(read_xreg(&sim_state->cpu_state, rd), is_instr);
     uint64_t signed_ptr = sw_pac_sign(auth_to_pac(atype), canonical, ctx);
-    uint64_t field = qarma_pac_field_mask(canonical, g_pac_profile, is_instr);
 
+    // The sig MOVK windows span the PAC field over BOTH VA halves and address+instruction keys — the
+    // same union the sealer's make_sig_movks allocated slots for — so one MOVK per junk slot, matching
+    // the genuine binary's render exactly (no inert leftover slot).
+    uint64_t span = 0;
+    for (int ii = 0; ii <= 1; ++ii) {
+        span |= qarma_pac_field_mask(0, g_pac_profile, ii);
+        span |= qarma_pac_field_mask((uint64_t)1 << 55, g_pac_profile, ii);
+    }
     uint32_t slot = 0;
     for (int sh = 0; sh <= 48 && slot < n_slots; sh += 16) {
-        if (0 == (field & (0xFFFFull << sh))) { continue; }
+        if (0 == (span & (0xFFFFull << sh))) { continue; }
         uint32_t movk = 0xF2800000U | ((uint32_t)(sh / 16) << 21)
                       | (((uint32_t)((signed_ptr >> sh) & 0xFFFF)) << 5) | (rd & 0x1FU);
         live[base + slot] = shadow[base + slot] = movk;
