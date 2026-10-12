@@ -250,7 +250,7 @@ int main() {
 		                 0 != (CONFIG_FLAG_PAC_PROFILE & simulation.sim_input.hdr.config.flags));
 
 		g_iter_phase = 2; /* simulation */
-		emul_reset(); /* fresh "row already emulated" state for this test case */
+		emul_reset(); /* idle every emulation-table site before this test case's trace */
 		call_stack_reset(); /* fresh architectural call stack for this test case */
 		/* Seed the architectural SP to the sandbox stack top (mirrors the kernel's
 		 * get_stack_base_address = top of upper_overflow), so emulated frame spills land in the sandbox. */

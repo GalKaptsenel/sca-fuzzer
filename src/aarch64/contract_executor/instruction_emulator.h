@@ -17,13 +17,13 @@
 
 enum emul_op {
 	EMUL_OP_NONE      = 0,
-	EMUL_OP_PAC_AUTH  = 1,   /* [MOVK(sig) x n, AUT*]: sign the pointer, write the sig MOVKs          */
-	EMUL_OP_MTE_RETAG = 2,   /* [ADDG set, access, ADDG back]: retag the pointer to the cell tag       */
+	EMUL_OP_PAC_AUTH  = 1,   /* slots [MOVK(sig) x n], anchor AUT*: write the sig MOVKs so AUT* verifies */
+	EMUL_OP_MTE_RETAG = 2,   /* slot [ADDG], anchor access: retag the pointer to the accessed cell tag   */
 };
 
 struct emul_row {
-	uint32_t offset;   /* byte offset of the first slot in the code */
-	uint32_t size;     /* total bytes of the site's slots (>= 4; last 4 bytes are the real op) */
+	uint32_t offset;   /* byte offset of the first slot the row owns */
+	uint32_t size;     /* bytes of the slots the row owns (>= 4); the op's anchor sits at offset+size */
 	uint32_t op;       /* enum emul_op */
 };
 
@@ -33,8 +33,9 @@ static inline int emul_table_valid(const uint8_t* table, size_t size, size_t cod
 	}
 	const struct emul_row* rows = (const struct emul_row*)table;
 	for (size_t i = 0; i < size / sizeof(struct emul_row); ++i) {
+		/* The anchor instruction sits at offset+size, so it (its 4 bytes) must itself lie in the code. */
 		if (0 != rows[i].offset % 4 || 0 == rows[i].size || 0 != rows[i].size % 4 ||
-		    (uint64_t)rows[i].offset + rows[i].size > code_size) {
+		    (uint64_t)rows[i].offset + rows[i].size + 4 > code_size) {
 			return 0;
 		}
 	}
@@ -43,12 +44,13 @@ static inline int emul_table_valid(const uint8_t* table, size_t size, size_t cod
 
 /* The site-lifecycle phase the dispatcher hands an op-emulator. IDLE: restore the site's idle filler
  * (the op decides whether and which slots to UDF); MATERIALIZE: plant the genuine instructions for the
- * state currently in the registers. The signature every op-emulator implements. */
+ * state currently in the registers. */
 typedef enum {
 	EMUL_PHASE_IDLE = 0,
 	EMUL_PHASE_MATERIALIZE = 1,
 } emul_phase_t;
 
+/* The signature every op-emulator implements; the dispatcher routes by op id through this type. */
 typedef void (*emul_op_fn)(struct simulation_state* sim_state, uintptr_t offset, uint32_t size,
                            emul_phase_t phase);
 

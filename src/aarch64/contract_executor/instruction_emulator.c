@@ -23,20 +23,22 @@ void emul_udf_fill(uint32_t first_slot, uint32_t n_slots)
     }
 }
 
+/* The op-emulator for each `enum emul_op`, indexed by op id (a hole stays NULL). Keying the table by
+ * op makes a signature drift a compile error and the dispatch a single typed call. */
+static const emul_op_fn emul_ops[] = {
+    [EMUL_OP_PAC_AUTH]  = pac_emulate_auth,
+    [EMUL_OP_MTE_RETAG] = mte_emulate_retag,
+};
+
 /* Route a site phase to its op-emulator; the op owns everything it does with the slots. */
 static void emul_route(struct simulation_state* sim_state, const struct emul_row* row, emul_phase_t phase)
 {
-    switch (row->op) {
-        case EMUL_OP_PAC_AUTH:
-            pac_emulate_auth(sim_state, row->offset, row->size, phase);
-            break;
-        case EMUL_OP_MTE_RETAG:
-            mte_emulate_retag(sim_state, row->offset, row->size, phase);
-            break;
-        default:
-            fprintf(stderr, "[CE FATAL] emulation row: unknown op %u -- aborting\n", row->op);
-            abort();
+    emul_op_fn op = (row->op < sizeof(emul_ops) / sizeof(emul_ops[0])) ? emul_ops[row->op] : NULL;
+    if (NULL == op) {
+        fprintf(stderr, "[CE FATAL] emulation row: unknown op %u -- aborting\n", row->op);
+        abort();
     }
+    op(sim_state, row->offset, row->size, phase);
 }
 
 /* Idle every site before the trace. IDLE needs no live state, so sim_state is NULL here. */
