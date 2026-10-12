@@ -88,7 +88,7 @@ class CESession:
         return PROFILE if "pac" in self._primitives else None
 
     def trace_bytes(self, code: bytes, inp, nesting: int = 8, data_size: Optional[int] = None,
-                    canonicalize_auth: bool = False):
+                    emul_table: bytes = b""):
         memory, regs = _ce_memory_regs(inp)
         execution = ContractExecution(
             code, memory, regs, SimArch.RVZR_ARCH_AARCH64, nesting, 0,
@@ -97,7 +97,7 @@ class CESession:
             mte_tags=self._mte_tags(), pac_keys=self._pac_keys(inp),
             pac_profile=self._pac_profile(),
             data_size=self._data_size if data_size is None else data_size,
-            canonicalize_auth=canonicalize_auth)
+            emul_table=emul_table)
         return self._svc.run(execution)
 
     def sealer(self, generator):

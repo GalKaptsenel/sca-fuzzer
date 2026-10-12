@@ -223,3 +223,10 @@ uint64_t qarma_strip(uint64_t ptr, struct pac_profile p, int is_instr)
     uint64_t mask = bmask(bottom, top - bottom);
     return half ? (ptr | mask) : (ptr & ~mask);
 }
+
+uint64_t qarma_pac_field_mask(uint64_t ptr, struct pac_profile p, int is_instr)
+{
+    int bottom = bottom_pac_bit(selbit_of(ptr, p, is_instr), p);
+    uint64_t field = bmask(bottom, 55 - bottom);   /* [54:bottom] */
+    return effective_tbi(ptr, p, is_instr) ? field : (field | bmask(56, 8));
+}

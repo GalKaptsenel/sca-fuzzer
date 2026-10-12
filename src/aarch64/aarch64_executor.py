@@ -330,7 +330,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
                            mte_tags: Optional[List[int]] = None,
                            pac_keys: Optional[PacKeys] = None,
                            pac_profile: Optional[qarma.PacProfile] = None,
-                           canonicalize_auth: bool = False) -> ContractExecution:
+                           emul_table: bytes = b"") -> ContractExecution:
         tc_memory, tc_regs = _ce_memory_regs(inp)
         return ContractExecution(
             tc_bytes, tc_memory, tc_regs, SimArch.RVZR_ARCH_AARCH64,
@@ -343,7 +343,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
             pac_keys=pac_keys,
             pac_profile=pac_profile,
             data_size=self._dispatch_data_size(),
-            canonicalize_auth=canonicalize_auth,
+            emul_table=emul_table,
         )
 
     def _measure(self, exec_inputs: List[ExecutorInput], n_reps: int) -> List[HTrace]:
@@ -662,18 +662,18 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         return None if words is None else PacKeys(*words)
 
     def _ce_trace(self, tc_bytes: bytes, inp: Input,
-                  canonicalize_auth: bool = False) -> ContractExecutionResult:
-        """One CE trace of the machine code `tc_bytes` for `inp`. With `canonicalize_auth` the CE strips
-        every architectural AUT* (like the speculative path) instead of verify-or-abort — the mode in
-        which the sealer traces the placeholder-with-committed-AUT*, so an unsigned pointer never
-        FPAC-faults. Sealing always traces at max speculation depth: a shallower pass would classify
-        deep-speculative slots as unreached and under-decoy them, missing leaks."""
+                  emul_table: bytes = b"") -> ContractExecutionResult:
+        """One CE trace of the machine code `tc_bytes` for `inp`. With `emul_table` the CE materializes
+        each sealing site's genuine instructions in place as it reaches the offset (op-emulators sign /
+        retag from the run's state), so the single trace is the genuine render. Sealing always traces at
+        max speculation depth: a shallower pass would classify deep-speculative slots as unreached and
+        under-decoy them, missing leaks."""
         if self._sandbox_base is None:
             self._sandbox_base, _ = self.read_base_addresses()
         return self._contract_executor.run(self._make_ce_execution(
             tc_bytes, inp, self._sandbox_base, CONF.model_max_nesting, CONF.model_max_spec_window,
             ExecutionClause.COND, mte_tags=self._mte_tags_for(inp), pac_keys=self._input_pac_keys(inp),
-            pac_profile=self._pac_profile_value, canonicalize_auth=canonicalize_auth))
+            pac_profile=self._pac_profile_value, emul_table=emul_table))
 
     # ------------------------------------------------------------------ lifecycle
     def load_test_case(self, test_case: TestCase):

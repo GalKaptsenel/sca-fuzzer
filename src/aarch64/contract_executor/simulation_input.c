@@ -1,6 +1,7 @@
 #include <stdbool.h>
 #include <errno.h>
 #include "simulation_input.h"
+#include "instruction_emulator.h"
 #include "userapi/executor_input_format.h"
 
 static int read_full(int fd, void* buf, size_t size) {
@@ -42,7 +43,7 @@ int simulation_input_validate_header(const struct input_header* hdr) {
 	}
 
 	if (MAX_PAYLOAD_SIZE < hdr->code_size || MAX_PAYLOAD_SIZE < hdr->data_size ||
-	    MAX_PAYLOAD_SIZE < hdr->input_init_size) {
+	    MAX_PAYLOAD_SIZE < hdr->input_init_size || MAX_PAYLOAD_SIZE < hdr->emul_table_size) {
 		return -1;
 	}
 
@@ -51,7 +52,7 @@ int simulation_input_validate_header(const struct input_header* hdr) {
 
 size_t simulation_input_payload_size(const struct input_header* hdr) {
 	if(NULL == hdr) return 0;
-	return hdr->code_size + hdr->data_size + hdr->input_init_size;
+	return hdr->code_size + hdr->data_size + hdr->input_init_size + hdr->emul_table_size;
 }
 
 /* Parse the shared input initialization (executor_input_format) into sim_input: memory = main || faulty,
@@ -162,6 +163,21 @@ int simulation_input_load_fd(int fd, struct simulation_input* sim_input) {
 		}
 	}
 
+	if (0 != sim_input->hdr.emul_table_size) {
+		sim_input->emul_table = malloc(sim_input->hdr.emul_table_size);
+		if (NULL == sim_input->emul_table) {
+			goto load_fd_fail;
+		}
+		if (0 > read_full(fd, sim_input->emul_table, sim_input->hdr.emul_table_size)) {
+			goto load_fd_fail;
+		}
+		sim_input->emul_table_size = sim_input->hdr.emul_table_size;
+		if (!emul_table_valid(sim_input->emul_table, sim_input->emul_table_size,
+		                      sim_input->hdr.code_size)) {
+			goto load_fd_fail;
+		}
+	}
+
 	free(input_init);
 	return 0;
 
@@ -247,7 +263,7 @@ int simulation_input_from_file(FILE* f, struct simulation_input* sim_input) {
 	}
 
 	if (payload_len < sizeof(sim_input->hdr) + sim_input->hdr.code_size + sim_input->hdr.data_size
-	                  + sim_input->hdr.input_init_size) {
+	                  + sim_input->hdr.input_init_size + sim_input->hdr.emul_table_size) {
 		fprintf(stderr, "Payload truncated!\n");
 		ret = -1;
 		goto simulation_input_from_file_err;
@@ -274,6 +290,23 @@ int simulation_input_from_file(FILE* f, struct simulation_input* sim_input) {
 		current_ptr += sim_input->hdr.input_init_size;
 	}
 
+	if (0 != sim_input->hdr.emul_table_size) {
+		sim_input->emul_table = malloc(sim_input->hdr.emul_table_size);
+		if (NULL == sim_input->emul_table) {
+			ret = -1;
+			goto simulation_input_from_file_err;
+		}
+		memcpy(sim_input->emul_table, current_ptr, sim_input->hdr.emul_table_size);
+		sim_input->emul_table_size = sim_input->hdr.emul_table_size;
+		current_ptr += sim_input->hdr.emul_table_size;
+		if (!emul_table_valid(sim_input->emul_table, sim_input->emul_table_size,
+		                      sim_input->hdr.code_size)) {
+			fprintf(stderr, "Malformed emulation table!\n");
+			ret = -1;
+			goto simulation_input_from_file_err;
+		}
+	}
+
 	goto simulation_input_from_file_success;
 
 simulation_input_from_file_err:
@@ -294,6 +327,7 @@ void simulation_input_free(struct simulation_input* sim_input) {
 	free(sim_input->memory);
 	free(sim_input->regs);
 	free(sim_input->mte_tags);
+	free(sim_input->emul_table);
 
 	memset(sim_input, 0, sizeof(*sim_input));
 }

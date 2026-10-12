@@ -8,6 +8,7 @@
 import abc
 import copy
 import random
+import struct
 from typing import Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -27,6 +28,18 @@ from ..aarch64_relocations import (NOP_WORD, xpac_word, addg_word, movk_word, au
 
 
 M = (1 << 64) - 1
+
+# Op-emulator ids for the CE emulation table; mirror `enum emul_op` in
+# contract_executor/instruction_emulator.h. The CE materializes a site's genuine instructions in place
+# during the trace by dispatching on these.
+EMUL_OP_PAC_AUTH = 1
+EMUL_OP_MTE_RETAG = 2
+
+
+def pack_emul_table(rows: List[Tuple[int, int, int]]) -> bytes:
+    """The CE emulation table: rows of (first-slot offset, slot byte size, op id), 3 little-endian u32
+    each (struct emul_row)."""
+    return b"".join(struct.pack("<3I", off, size, op) for off, size, op in rows)
 
 
 def _reg_num(reg: str) -> int:
@@ -655,7 +668,7 @@ class SealedTestCase:
     def __init__(self, sealed_tc: TestCase, assemble, sandbox_sealings: List[SandboxSealing],
                  data_sites: List, trace_bytes_fn) -> None:
         self._tc = sealed_tc
-        self._trace_bytes_fn = trace_bytes_fn              # (machine code, input, canonicalize_auth) -> cer
+        self._trace_bytes_fn = trace_bytes_fn              # (machine code, input, emul_table) -> cer
         self._assemble = assemble                          # tc -> machine code, for the skeleton
         self._sandbox = sandbox_sealings
         self._salt = random.randrange(1 << 64)             # per-test-case; seeds deterministic forgery
@@ -671,10 +684,6 @@ class SealedTestCase:
     def object_code(self) -> bytes:
         """The assembled skeleton (placeholder slots, no resolved values); input-independent."""
         return self._assemble(self._tc)
-
-    # The resolution trace canonicalizes every architectural AUT* instead of verifying it; a concern
-    # that pre-signs can override to False to verify during resolution.
-    _resolve_auth: bool = True
 
     def _insert_slots(self, data_sites: List) -> None:
         """Insert this concern's value sealings around each data-access site."""
@@ -694,6 +703,11 @@ class SealedTestCase:
         """Resolve this concern's value seals from the single resolution trace `cer`. Default: none."""
         return []
 
+    def _emul_rows(self, offsets: Dict[int, Tuple[int, ...]]) -> List[Tuple[int, int, int]]:
+        """Emulation-table rows (first-slot offset, byte size, op id) for the sites whose genuine code
+        the CE materializes during the trace. Default: none; PAC concerns override it."""
+        return []
+
     def resolve(self, inp) -> ResolvedSealingTestCase:
         """One CE trace per input: splice the resolution render, trace in resolve-mode, read the values
         off it, and reuse that same trace as the genuine contract trace (`cer`)."""
@@ -703,15 +717,16 @@ class SealedTestCase:
         return ResolvedSealingTestCase(entries, object_code, offsets, self._salt, cer)
 
     def _resolve_trace(self, inp, offsets: Dict[int, Tuple[int, ...]]) -> Tuple[bytes, "ContractExecutionResult"]:
-        """The single per-input trace: each value seal's resolution render (`resolve_slot`) spliced over
-        the placeholder, traced in resolve-mode. The committed AUT* makes its ctrace exact and its taint
-        a safe superset of the genuine binary's, so its trace is reused as the genuine contract trace.
-        Returns (object_code, cer)."""
+        """The single per-input trace. Each value seal's resolution render (`resolve_slot`) is spliced
+        over the placeholder — this carries the site's real op (the committed AUT*, the access) into the
+        code so the CE op-emulators can read it — and the emulation table drives those emulators to
+        materialize the genuine instructions (sign the pointer, retag) in place. The result is the true
+        genuine render, so its trace is reused as the genuine contract trace. Returns (object_code, cer)."""
         object_code = self._assemble(self._tc)
         relocs = [rel for s in self._value_sealings()
                   for rel in _slot_relocs(offsets[id(s)], s.resolve_slot())]
-        cer = self._trace_bytes_fn(apply_relocations(object_code, relocs),
-                                   inp, canonicalize_auth=self._resolve_auth)
+        cer = self._trace_bytes_fn(apply_relocations(object_code, relocs), inp,
+                                   emul_table=pack_emul_table(self._emul_rows(offsets)))
         return object_code, cer
 
     @staticmethod
@@ -749,6 +764,9 @@ class PacSealedTestCase(SealedTestCase):
 
     def _value_sealings(self) -> List[Sealing]:
         return self._pac
+
+    def _emul_rows(self, offsets) -> List[Tuple[int, int, int]]:
+        return [(offsets[id(s)][0], s.n_before * 4, EMUL_OP_PAC_AUTH) for s in self._pac]
 
     def _resolve_entries(self, inp, cer) -> List[_Resolved]:
         keys = _input_pac_keys(inp)
@@ -890,6 +908,9 @@ class MtePacSealedTestCase(SealedTestCase):
 
     def _value_sealings(self) -> List[Sealing]:
         return self._pac + self._mte
+
+    def _emul_rows(self, offsets) -> List[Tuple[int, int, int]]:
+        return [(offsets[id(s)][0], s.n_before * 4, EMUL_OP_PAC_AUTH) for s in self._pac]
 
     def _resolve_entries(self, inp, cer) -> List[_Resolved]:
         # One trace. The CE tags every accessed pointer from its simulated tag memory
@@ -1140,7 +1161,7 @@ class SandboxWalk:
 
 def make_sealer(generator, assemble, primitives, signer, trace_bytes_fn) -> Sealer:
     """The Sealer for the active primitives. `assemble(tc) -> bytes` assembles the object code;
-    `trace_bytes_fn(code, input, canonicalize_auth) -> cer` runs the single per-input resolution trace of
+    `trace_bytes_fn(code, input, emul_table) -> cer` runs the single per-input resolution trace of
     already-assembled machine code; `signer` is the PAC signer used by resolve when 'pac' is active
     (None otherwise)."""
     prims = frozenset(primitives)

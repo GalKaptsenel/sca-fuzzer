@@ -315,12 +315,9 @@ void *auth_verify_hook(struct simulation_state *sim_state)
     uint64_t ctx = read_xreg(&sim_state->cpu_state, rn);
 
     uint64_t result;
-    int spec = is_in_speculation();
-    int canonicalize = (simulation.sim_input.hdr.config.flags & CONFIG_FLAG_CANONICALIZE_AUTH) != 0;
-
-    if (spec || canonicalize) {
-        // Speculative, or canonicalize-auth mode: strip the PAC field instead of verifying it, so an
-        // unsigned pointer has nothing to verify and cannot FPAC.
+    if (is_in_speculation()) {
+        // Speculative: strip the PAC field instead of verifying it (a wrong signature on a wrong-path
+        // AUT* must not be observable as a fault).
         result = sw_pac_xpac(ptr, auth_type_is_instr(atype));
     } else {
         result = model_auth(atype, ptr, ctx, sim_state->cpu_state.pc);
@@ -328,6 +325,43 @@ void *auth_verify_hook(struct simulation_state *sim_state)
     write_xreg(&sim_state->cpu_state, rd, result);
 
     return (void*)(sim_state->cpu_state.pc + 4);
+}
+
+/* op-emulator EMUL_OP_PAC_AUTH: the site's slots are [junk x n, real AUT*]; sign the pointer the AUT*
+ * reads and write the signature MOVKs into the junk slots, so the AUT* then verifies and canonicalizes
+ * as ordinary code. The sig windows match the sealer's make_sig_movks (same profile/keys). */
+void pac_emulate_auth(struct simulation_state *sim_state, uintptr_t offset, uint32_t size)
+{
+    if (NULL == sim_state || size < 4) { return; }
+    uint32_t *live   = (uint32_t *)simulation.sim_code.code;    // executed
+    uint32_t *shadow = (uint32_t *)simulation.sim_input.code;   // the logger reads encodings from here
+    uint32_t base = (uint32_t)(offset / 4);
+    uint32_t n_slots = size / 4 - 1;                            // MOVK slots before the real AUT*
+    for (uint32_t i = 0; i < n_slots; ++i) {                    // default NOP (covers a non-AUT* last slot)
+        live[base + i] = shadow[base + i] = 0xD503201FU;
+    }
+
+    uint32_t rd, rn;
+    auth_type_t atype = classify_auth(shadow[base + n_slots], &rd, &rn);
+    if (AUTH_NONE == atype) { return; }
+    require_pac_state(auth_mnemonic(atype), true, sim_state->cpu_state.pc);
+
+    uint64_t ctx = read_xreg(&sim_state->cpu_state, rn);
+    int is_instr = auth_type_is_instr(atype);
+    // Sign the canonical pointer the AUT* will verify (strip any stray high bits first, as AUT* does),
+    // so model_auth's re-sign of xpac(rd) reproduces exactly what the MOVKs plant.
+    uint64_t canonical = sw_pac_xpac(read_xreg(&sim_state->cpu_state, rd), is_instr);
+    uint64_t signed_ptr = sw_pac_sign(auth_to_pac(atype), canonical, ctx);
+    uint64_t field = qarma_pac_field_mask(canonical, g_pac_profile, is_instr);
+
+    uint32_t slot = 0;
+    for (int sh = 0; sh <= 48 && slot < n_slots; sh += 16) {
+        if (0 == (field & (0xFFFFull << sh))) { continue; }
+        uint32_t movk = 0xF2800000U | ((uint32_t)(sh / 16) << 21)
+                      | (((uint32_t)((signed_ptr >> sh) & 0xFFFF)) << 5) | (rd & 0x1FU);
+        live[base + slot] = shadow[base + slot] = movk;
+        ++slot;
+    }
 }
 
 void *xpac_hook(struct simulation_state *sim_state)

@@ -27,7 +27,6 @@ class ConfigFlags(IntFlag):
     CONFIG_FLAG_REQ_MEM_BASE_PHYS   = 1 << 2
     CONFIG_FLAG_REQ_MEM_BASE_VIRT   = 1 << 3
     CONFIG_FLAG_PAC_PROFILE         = 1 << 4
-    CONFIG_FLAG_CANONICALIZE_AUTH   = 1 << 5   # strip an architectural AUT* instead of verify-or-abort
 
 
 class SimArch(IntEnum):
@@ -133,7 +132,7 @@ class ContractExecution:
     pac_keys: Optional[PacKeys] = None    # per-input PAC keys, or None
     pac_profile: Optional[PacProfile] = None   # target PAC profile the CE models auth with, or None
     data_size: int = 0    # trailing read-only bytes of machine_code (dispatch tables): loaded but not hooked
-    canonicalize_auth: bool = False   # strip an architectural AUT* instead of verify-or-abort
+    emul_table: bytes = b""   # emulation table: rows of (offset, size, op) the CE materializes in place, or empty
 
     def encode(self) -> bytes:
         """
@@ -180,9 +179,6 @@ class ContractExecution:
                                 | ((p.t0sz & 0xff) << 32) | ((p.generic_iterations & 0xff) << 40))
             config_flags |= ConfigFlags.CONFIG_FLAG_PAC_PROFILE
 
-        if self.canonicalize_auth:
-            config_flags |= ConfigFlags.CONFIG_FLAG_CANONICALIZE_AUTH
-
         # memory = main‖faulty; the gpr register slots are the GPR section (CE reads only those).
         input_init = build_input_init(self.memory[:MAIN_AREA_SIZE], self.memory[MAIN_AREA_SIZE:],
                                 self.registers[:GPR_SUBREGION_SIZE],
@@ -215,11 +211,13 @@ class ContractExecution:
         data += code_size.to_bytes(8, 'little')
         data += data_size.to_bytes(8, 'little')
         data += input_init_size.to_bytes(8, 'little')
+        data += len(self.emul_table).to_bytes(8, 'little')
 
         data += (0).to_bytes(8, 'little') # Reserved
 
         data += self.machine_code
         data += input_init
+        data += self.emul_table
 
         return bytes(data)
 

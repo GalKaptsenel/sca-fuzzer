@@ -35,4 +35,8 @@ uint64_t qarma_addpac(uint64_t ptr, uint64_t modifier,
 /* ARM Strip (XPAC): replace the PAC field with copies of ptr<55>. */
 uint64_t qarma_strip(uint64_t ptr, struct pac_profile p, int is_instr);
 
+/* The bits AddPAC writes the PAC into for `ptr`: [54:bottom], plus [63:56] when TBI is off. The
+ * MOVK-signature slots span exactly the 16-bit windows this mask touches. */
+uint64_t qarma_pac_field_mask(uint64_t ptr, struct pac_profile p, int is_instr);
+
 #endif /* CE_QARMA_H */

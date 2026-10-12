@@ -39,28 +39,26 @@ index/displacement cancellation.
 ## 3. Sealer + per-input resolution
 
 - **`make_sealer(generator, assemble, primitives, signer, trace_bytes_fn)`** picks the concrete
-  `Sealer`. `trace_bytes_fn(code, input, canonicalize_auth)` runs the single per-input resolution trace.
-  `seal(tc)` walks the TC (the `SandboxWalk` taint
-  dataflow decides which memory bases still need an in-region clamp), inserts the arch-safe
-  placeholders, and returns a `SealedTestCase`. Standalone generator-emitted `AUT*` instructions are
-  each replaced by a `PacSealing` (a register-only auth site the memory walk doesn't reach).
+  `Sealer`. `trace_bytes_fn(code, input, emul_table)` runs the single per-input resolution trace.
+  `seal(tc)` walks the TC (the `SandboxWalk` taint dataflow decides which memory bases still need an
+  in-region clamp), inserts the arch-safe placeholders, and returns a `SealedTestCase`. Standalone
+  generator-emitted `AUT*` instructions are each replaced by a `PacSealing` (a register-only auth site
+  the memory walk doesn't reach).
 - **`SealedTestCase.resolve(input)`** runs **one** contract-executor trace — the *resolution trace* —
   and computes each sealing's value — PAC: sign the reached pointer plus a pool of mask-verified wrong
   signatures that provably fail AUTH; MTE: classify the accessed cell's allocation tag and the
-  speculation depth — returning a `ResolvedSealingTestCase`. The resolution trace is the placeholder
-  with the committed `AUT*` spliced at each auth position and a tag-neutral `ADDG` at each MTE position,
-  traced with `CONFIG_FLAG_CANONICALIZE_AUTH`: the CE strips every architectural `AUT*` like the
-  speculative path instead of verify-or-abort, so an unsigned pointer never FPAC-faults and the resolver
-  reads the canonical pointer/context off this trace and signs it. Because the auth sites carry the
-  genuine `AUT*` word, this one trace matches the genuine binary's ctrace exactly (taint a safe
-  superset — see `.cer`) and doubles as the genuine contract trace — no separate genuine run.
+  speculation depth — returning a `ResolvedSealingTestCase`. The trace carries an **emulation table**:
+  rows of `(first-slot offset, size, op id)` the CE materializes in place as it reaches each site on the
+  architectural path. For PAC the `EMUL_OP_PAC_AUTH` op-emulator reads the committed `AUT*`,
+  signs the canonical pointer it reads (QARMA, the input's keys), and writes the signature MOVKs into the
+  site's junk slots — so the `AUT*` then verifies and canonicalizes as ordinary code. The result is the
+  genuine render running for real; the resolver reads the canonical pointer/context the `AUT*` leaves and
+  signs it independently (both the CE and Python compute the signature; nothing is reported back).
 - **`ResolvedSealingTestCase.cer`** is that resolution trace, reused as the genuine contract trace
-  (`compute_ctrace`/`compute_taint`). Its ctrace equals the genuine binary's exactly; its taint equals
-  it for canonicality/branch-target/PTE and plain PAC, and is a safe superset for MTE and PAC with
-  `pac_strip_prob>0`. (MTE: the genuine `ADDG #delta` gives the pointer the cell tag, which the taint
-  model's `effective_address − sandbox_base` offset drops; PAC strip: a genuine `XPAC` reads no context
-  while the resolution `AUT*` does. Either way the resolution trace marks *more* input bytes, never
-  fewer.) The CE needs no knowledge of PAC/MTE.
+  (`compute_ctrace`/`compute_taint`) — no separate genuine run. Because the real genuine instructions
+  execute in it, its ctrace and taint equal the genuine binary's exactly for PAC/canonicality/
+  branch-target/PTE. (MTE still splices a tag-neutral `ADDG` rather than the cell-tag retag, so its
+  taint is a safe superset until an `EMUL_OP_MTE_RETAG` op-emulator materializes the retag too.)
 - **`ResolvedSealingTestCase.genuine()`** seals every slot with its correct value (`MOVK` signature +
   `AUT*`, genuine `ADDG` retag). **`.decoy()`**
   perturbs a random non-empty subset of the *speculative* (never-architectural) slots with a failing

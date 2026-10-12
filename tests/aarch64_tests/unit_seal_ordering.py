@@ -44,7 +44,7 @@ class SealOrderingTest(unittest.TestCase):
         for seed in range(12):
             gen = Aarch64RandomGenerator(self.isa, seed)
             sealer = make_sealer(gen, lambda tc: b"", primitives, _MaskSigner(),
-                                 lambda code, inp, canonicalize_auth=False: None)
+                                 lambda code, inp, emul_table=b"": None)
             path = os.path.join(tempfile.mkdtemp(), "t.asm")
             sealed = sealer.seal(gen.create_test_case(path, disable_assembler=True))
             if sealed._mte:

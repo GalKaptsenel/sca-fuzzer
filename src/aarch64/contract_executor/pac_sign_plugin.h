@@ -42,6 +42,9 @@ void *pac_sign_hook(struct simulation_state *sim_state);
  */
 void *auth_verify_hook(struct simulation_state *sim_state);
 
+/* op-emulator for EMUL_OP_PAC_AUTH: plant the signature MOVKs into the site's junk slots. */
+void pac_emulate_auth(struct simulation_state *sim_state, uintptr_t offset, uint32_t size);
+
 void *xpac_hook(struct simulation_state *sim_state);
 
 #endif /* PAC_SIGN_PLUGIN_H */

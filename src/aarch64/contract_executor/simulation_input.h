@@ -27,9 +27,6 @@ enum config_flags {
 	CONFIG_FLAG_REQ_MEM_BASE_PHYS	= 1 << 2,
 	CONFIG_FLAG_REQ_MEM_BASE_VIRT	= 1 << 3,
 	CONFIG_FLAG_PAC_PROFILE		= 1 << 4,
-	/* Treat an architectural AUT* like the speculative path: canonicalize the pointer (strip the PAC
-	 * field) instead of verify-or-abort, so an unsigned pointer never faults. */
-	CONFIG_FLAG_CANONICALIZE_AUTH	= 1 << 5,
 };
 
 /* Contracts are COMPOSABLE: `configuration.execution_clauses` is a BITMASK of clauses, so
@@ -92,12 +89,15 @@ struct input_header {
                            * loaded into the executable region but never hooked or executed. 0 = none. */
     uint64_t input_init_size;   /* bytes of the input initialization following the code + data */
 
+    uint64_t emul_table_size;   /* bytes of the emulation table following the input init: rows of
+                                 * (offset, size, op) the op-emulators materialize in place; 0 = none */
+
     uint64_t reserved;    /* must be 0 */
 };
 
 /* Wire ABI must match the Python encoder (ContractExecution.encode). */
 _Static_assert(sizeof(struct configuration) == 10 * sizeof(uint64_t), "configuration ABI mismatch");
-_Static_assert(sizeof(struct input_header) == 18 * sizeof(uint64_t), "input_header ABI mismatch");
+_Static_assert(sizeof(struct input_header) == 19 * sizeof(uint64_t), "input_header ABI mismatch");
 
 /* ============================
  * In-memory representation
@@ -115,6 +115,8 @@ struct simulation_input {
     size_t   mte_tag_count;
     uint64_t pac_keys[10];
     bool     pac_keys_present;
+    uint8_t *emul_table;      /* raw emulation-table bytes (rows of struct emul_row), or NULL */
+    size_t   emul_table_size;
 };
 
 /* ============================
