@@ -26,3 +26,10 @@ contract_execution_clause:
   - cond
 
 executor_pinned_core: 90
+
+# --- explicit measurement knobs (no reliance on defaults) ---
+contract_observation_clause: l1d
+executor_mode: P+P
+enable_pre_run_flush: true
+executor_warmups: 5
+enable_priming: true

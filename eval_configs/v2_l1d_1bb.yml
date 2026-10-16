@@ -1,0 +1,39 @@
+# Spectre-v2 (indirect branch TARGET mispredict in the BTB) / L1D — explicit config.
+# The ONLY speculation source is the multi-target dispatch whose BTB target is mispredicted among
+# >=2 candidates; the wrong target's secret-dependent load leaks on L1D. Not a v1-style cond mispredict:
+# no BASE-BRANCH at all. Complexity is bounded by keeping the dispatch targets tiny leaf functions
+# (entry + 2 targets, function_size_shrink, max_calls_per_function 1) WHILE modeling nesting fully (30).
+instruction_set: aarch64
+instruction_categories:
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-BITFIELD
+  - BASE-CONDSEL
+  - BASE-MEM-LOAD
+  - BASE-MEM-STORE
+program_size: 24
+min_bb_per_function: 1
+max_bb_per_function: 1          # single BB per function (user: try v2 with only 1 bb)
+min_successors_per_bb: 1
+max_successors_per_bb: 1
+fuzzer: basic
+input_generator: aarch64-nzcv
+executor_mode: P+P
+enable_pre_run_flush: false
+executor_warmups: 5
+min_functions_per_test_case: 3
+max_functions_per_test_case: 3          # entry + exactly 2 callee targets -> dispatch has >=2 BTB candidates
+function_call_probability: 0.9
+max_calls_per_function: 1               # >=2 total calls stays bounded
+function_size_shrink: 0.3               # targets tiny -> effectively leaf (no room to call further targets)
+indirect_call_probability: 1.0
+dispatch_call_probability: 1.0          # multi-target dispatch -> indirect branch CAN mispredict in the BTB
+contract_execution_clause:
+  - cond
+  - bpas
+contract_observation_clause: l1d
+model_min_nesting: 1
+model_max_nesting: 30                    # model nesting ALL THE WAY (under-modeling would yield false v2 violations)
+executor_pinned_core: 90
+enable_priming: true

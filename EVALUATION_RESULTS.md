@@ -53,9 +53,9 @@ Device staging: /data/local/tmp/executor_userland , /data/local/tmp/revizor-exec
 | Spectre-v2 (indirect) / L1D    | `config_live_v2b.yml`          | contract permits v1+v4 -> remaining leak = indirect-target (v2) |
 | Spectre-v2 (indirect) / BTB    | `config_spectre_v2_leftover.yml` | v2 via BTB carrier + enable_cross_input_priming (generalized-priming-only) |
 | Spectre-v4 (store bypass) / L1D| `config_live_v4.yml`           | permits v1 + enable_speculative_store_bypass -> store-bypass = v4 |
-| Canonicality / cache-TLB       | `config_canon.yml`             | NI fuzzer, enable_canonicality, sealed ordinary loads/stores (mem -> L1D/TLB) |
+| Canonicality / L1D       | `config_canon.yml`             | NI fuzzer, enable_canonicality, sealed ordinary loads/stores (mem -> L1D/TLB) |
 | Canonicality / BTB             | `config_canon_cip_ni.yml`      | branch-target-sealing + cross-input priming (BTB leftover surfaces as an L1D cache divergence); unpinned by design |
-| AUT* sign bit / cache-TLB      | `config_pac_signext.yml`       | NI fuzzer, enable_signext |
+| AUT* sign bit / L1D      | `config_pac_signext.yml`       | NI fuzzer, enable_signext |
 
 **BTB vs cache channel selection (per Gal):**
 - cache/TLB channel: `enable_cross_input_priming: true` + target functions DO access memory.
@@ -119,9 +119,9 @@ Spectre-v1 (cond) / L1D          N3: ____           ____ / ____                _
 Spectre-v2 (indirect) / L1D      N3: ____           ____ / ____                ____  ____   ____  (MachB)
 Spectre-v2 (indirect) / BTB      N3: ____           ____ / ____                ____  ____   ____  (MachB)
 Spectre-v4 (store bypass) / L1D  N3: ____           ____ / ____                ____  ____   ____  (MachB)
-Canonicality / cache-TLB         N3: ____           ____ / ____                ____  ____   ____  (MachB)
+Canonicality / L1D         N3: ____           ____ / ____                ____  ____   ____  (MachB)
 Canonicality / BTB               N3: ____           ____ / ____                ____  ____   X3=cross?  (MachB)
-AUT* sign bit / cache-TLB        N3: ____           ____ / ____                ____  ____   ____  n/a
+AUT* sign bit / L1D        N3: ____           ____ / ____                ____  ____   ____  n/a
 (check / cross / n/a; T_max = 3600 s; R = 20)
 ```
 
@@ -142,3 +142,21 @@ Blind canary:                    v1 __/20   v4 __/20   rsb __/20
 OpenSSL RSA-2048:                ____/2048 bits   wall-clock ____ h   (--samples 1500)
 SMC/BTB (appendix):              SMC effect ____   CFP-RCTX control ____
 ```
+
+---
+## FILLED RESULTS (updated as phases complete)
+
+### Table 7.2 — N3 TTD + N3 reproduction (COMPLETE; R=20, T_max=3600s, pinned core 90, host quiet)
+| Violation / Channel              | TTD N3 mean±sd (R=20) | tc-to-violation mean[min-max] | N3    | A715 | X3  | AlderLake |
+|----------------------------------|-----------------------|-------------------------------|-------|------|-----|-----------|
+| Spectre-v1 (cond) / L1D          | 53.9 ± 22.1 s         | 86.7 [6-221]                  | check | TBD  | TBD | (Mach B)  |
+| Spectre-v2 (indirect target) / L1D | 79.9 ± 77.6 s       | 4.4 [1-11]                    | check | TBD  | TBD | (Mach B)  |
+| Spectre-v4 (store bypass) / L1D  | 32.3 ± 9.8 s          | 30.2 [2-132]                  | check | TBD  | TBD | (Mach B)  |
+| Canonicality / L1D               | 42.9 ± 23.1 s         | 77.8 [5-295]                  | check | TBD  | TBD | (Mach B)  |
+| AUT* sign bit / L1D              | 54.5 ± 39.9 s         | 66.8 [1-234]                  | check | TBD  | TBD | n/a       |
+| Spectre-v2 (indirect) / BTB      | (BTB phase)           | (BTB phase)                   | TBD   | TBD  | TBD | (Mach B)  |
+| Canonicality / BTB               | (BTB phase)           | (BTB phase)                   | TBD   | TBD  | X3=cross? | (Mach B) |
+
+Notes: all 5 L1D/PAC rows detect 20/20 on N3 (genuine, survive priming; v2 independently CE-triaged genuine).
+v2 TTD sd large: violation found in ~4 tc but full-nesting(30) CE model is heavy per tc. v1 fastest-growing
+in tc (86 tc) since N3 cond-branch mispredict needs the un-primed branch (enable_pre_run_flush:false).

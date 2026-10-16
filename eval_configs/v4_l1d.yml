@@ -24,3 +24,7 @@ contract_execution_clause:
 enable_speculative_store_bypass: true
 
 executor_pinned_core: 90
+
+# --- explicit measurement knobs ---
+contract_observation_clause: l1d
+enable_priming: true
