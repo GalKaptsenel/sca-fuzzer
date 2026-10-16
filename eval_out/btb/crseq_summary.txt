@@ -1,0 +1,5 @@
+[20:24:12] crseq canon_crseq_btb rep1: wall=132s tc=131 pair=none viol=0
+[20:26:25] crseq canon_crseq_btb rep2: wall=133s tc=118 pair=none viol=0
+[20:28:36] crseq canon_crseq rep1: wall=131s tc=1283 pair=none viol=0
+[20:30:48] crseq canon_crseq rep2: wall=132s tc=1310 pair=none viol=0
+ALL DONE 20:30:48

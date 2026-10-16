@@ -124,3 +124,10 @@
 [2026-10-16 18:34:39] [v2-1bb] single-BB v2: 23 tc / 77s / 0 violations -> WEAKER than 1-2bb (which detects in 4-11 tc). Keep 1-2bb v2_l1d canonical.
 [2026-10-16 18:40:42] [v2_btb] cross-input memtargets probe 322s: localized 3+5 candidates, ALL "no leaking pair -> false positive". => cross_input_leaks_only correctly suppresses self-inflicted v2; random v2_btb found NO genuine cross-input leak in 322s (rare without branch-target sealing). Try canon_cip_ni (designed, sealing).
 [2026-10-16 18:48:04] [canon_btb CRASH root cause] CE FATAL kaddr2uaddr: 0xa8f outside sandbox at spec_nesting=0 -> branch-target-sealing+dispatch generator emits an ARCHITECTURAL access out of sandbox. CE correctly fail-louds. Generator/sealing masking bug on the architectural path.
+[2026-10-16 19:41:39] [canon_btb RESOLVED] REAL random fuzzing (no template) canon_btb.yml -i8: CONFIRMED cross-input leak leaker0->detector3 in 9s/5tc. Cross-input BTB restored (matches original ~30s).
+[2026-10-16 19:41:39] [ttd pid=89466] === TTD campaign START rows: canon_btb:eval_configs/canon_btb.yml:8 ===
+[2026-10-16 19:41:39] [ttd pid=89466] ROW canon_btb cfg=eval_configs/canon_btb.yml inputs=8 R=20 Tmax=3600
+[2026-10-16 19:43:15] [plan] after canon_btb TTD: (1) integrity triage of a confirmed canon_btb violation; (2) canon_btb_nossb.yml random (v1 window, no SSB); (3) v2_btb.yml random -i8 (Spectre-v2/BTB cross-input)
+[2026-10-16 19:47:44] [btb canon_btb pid=91349] START row=canon_btb cfg=eval_configs/canon_btb.yml inputs=8 R=6 cap=300s
+[2026-10-16 19:52:46] [btb canon_btb pid=91349]   canon_btb run1 det=0 wall=302.3s tc=341 pair=none
+[2026-10-16 20:03:08] [canon_btb SSB-on fully-random] partial: 0 confirmed cross-input leaks in 386 tc  (rate low; fully-random gadget rare). Template path (ssb_i8) is the reliable one.

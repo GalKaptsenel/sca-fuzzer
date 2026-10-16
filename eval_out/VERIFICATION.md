@@ -82,3 +82,34 @@ TWO compounding regressions:
  (2) -i too large (100/400) diluted the leaker->prober class structure; original used -i 8 (small).
  (+) generator crash fix (sealer.py): re-clamp base registers after a BL/BLR (callee clobbers them).
 NEXT: real random fuzzing (no template) with small -i to auto-detect it (user's end goal).
+
+## CROSS-INPUT BTB — REPRODUCIBILITY CONFIRMED (2026-10-16 20:08)
+Replayed randC's exact seed (program_generator_seed=799067, input_gen_seed=79352157) via
+eval_out/btb/randC/rerun.yaml -> IDENTICAL: "CONFIRMED cross-input leak, leaking pair 0 -> detecting
+pair 3", tc 5, 9s (eval_out/btb/reseed/violation-261016-200835). DETERMINISTIC + HW-reproducible.
+The earlier "0 in ~250 tc" fully-random runs were genuine SEED VARIANCE (randC's seed forms a
+cross-input gadget at tc5; most seeds don't for hundreds of tc). Regime verified live-correct
+(view_rotation=0/phr_flush=0/ssbs=1/unpinned during detection) -> NOT a flush regression. Honest:
+the leak is real + reproducible; its per-random-seed occurrence is low (gadget rarity).
+
+## CROSS-INPUT BTB — v2 + no-SSB (v1) fully-random (2026-10-16 20:10)
+- v2_btb.yml (Spectre-v2, no canonicality sealing, SSB on, cross_input_leaks_only) fully-random: 0 cross-input
+  leaks in 44 tc/98s (candidates localized, all non-cross-input -> false positive). Rare, like canon random.
+- canon_btb_nossb.yml (v1 window, SSB mitigation present) fully-random: 0 confirmed in ~600s. Rarer (v1 needs
+  a mispredicting branch AND a cross-input gadget; fixed-PC doesn't mispredict on N3, random diverse PCs do but
+  the combination is uncommon).
+CONCLUSION: cross-input canonicality-over-BTB leak is REAL + REPRODUCIBLE (template ssb_i8 + gadget seed
+799067 deterministic 9s). Fully-random auto-detection across arbitrary seeds is rare (gadget rarity), v1 rarer.
+v2/BTB uses the same carrier; a clean v2 demo needs a gadget seed/template (folded into the audit).
+
+## CROSS-INPUT BTB — restrictiveness hypothesis TESTED & RULED OUT (2026-10-16 20:3x)
+cr-seq (contract [seq], less restrictive) fully-random, -i 8:
+  BTB-carrier+seq : rep1 131tc->0, rep2 118tc->0
+  ordinary-canon+seq: rep1 1283tc->0, rep2 (see summary)->0
+CONCLUSION: the narrow contract [cond,bpas] was NOT the cause — [seq] also yields 0 in random. Ordinary-load
+canonicality has NO cross-input carrier (ordinary loads don't persist state across inputs) so 0 is expected
+even at 1283 tc; the BTB (indirect sealed TARGET) is the only cross-input carrier, and that gadget is RARE in
+random programs. Not a config/contract/regime bug (regime live-verified view_rotation=0/phr_flush=0; [seq]
+ruled out restrictiveness). The leak is REAL + REPRODUCIBLE on a gadget seed (799067, 9s) and RELIABLE via the
+template (canon_oracle_ssb, 6s x2 CONFIRMED leaker 2->detector 3); fully-random auto-detection across arbitrary
+seeds is seed-dependent/rare because the specific speculative-sealed-indirect-target gadget forms uncommonly.

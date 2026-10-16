@@ -34,3 +34,5 @@ enable_cross_input_priming: true          # generalized priming (replaces standa
 cross_input_priming_localizer: optimal    # tight boundary (t*)
 cross_input_leaks_only: true              # FORCE strictly cross-input (no self-inflicted) leaks
 inputs_per_class: 4
+
+enable_speculative_store_bypass: true   # open SSB/v4 window so the indirect call speculates

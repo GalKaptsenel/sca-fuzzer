@@ -171,3 +171,10 @@ Measured linear scan     9.42   35.48  131.50      (~O(k), matches analytic k)
 R = all boundary positions; probes = distinct memoized HW batch measurements. Full HW cost = probes x reps x 2 dirs + 2 reverify.
 Note: exp_search = galloping + bisection ("optimal"/"any" localizer). For a RECENT cross-input trainer it beats a
 plain bisection (const ~4 vs log2(k+1)); for a distant boundary it costs up to ~2*log2(k) (gallop + bisect).
+
+### Table 7.2 — Canon/BTB + v2/BTB rows (cross-input, N3)
+| Violation / Channel        | N3 result | detail |
+|----------------------------|-----------|--------|
+| Canonicality / BTB         | check (template/seed), rare (fully-random) | template canon_oracle_ssb: CONFIRMED cross-input leak ~6s, reproducible (leaker->detector, strictly cross-input); gadget seed 799067: 9s deterministic. Fully-random auto-detect: seed-dependent/rare (gadget uncommon), NOT a contract/regime bug ([seq] & [cond,bpas] both rare; regime live-verified). |
+| Spectre-v2 / BTB           | check (same carrier), rare (fully-random) | same BTB cross-input carrier; leaked bit = predicted target (no canonicality seal). Template-reliable; fully-random rare. |
+Fixes that restored it: aarch64_fuzzer.py (regime wraps detection, not just localization) + sealer.py (re-clamp base after BL/BLR). Committed 2c3b18e3.

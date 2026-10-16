@@ -38,3 +38,5 @@ enable_cross_input_priming: true
 cross_input_priming_localizer: optimal
 cross_input_leaks_only: true
 inputs_per_class: 4
+
+enable_speculative_store_bypass: true   # open the SSB/v4 window so the indirect call speculates
