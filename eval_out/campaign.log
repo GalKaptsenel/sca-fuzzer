@@ -196,3 +196,12 @@ v1/A715 recheck: det viol=1 tc=137 wall=374s
 [2026-10-16 22:59:45] [tp remote_a715 pid=156521] START cfg=eval_configs/remote_tp_a715.yml reps=1 dur=600 inp=50
 [2026-10-16 23:09:57] [tp remote_a715 pid=156521] rep1 tc=206 ipt=100.0 dur=601.3s tc/h=1233 exec/s=34.3 traces/s=0.0
 [2026-10-16 23:09:57] [tp remote_a715 pid=156521] DONE
+[2026-10-16 23:11:56] [exploit] xproc PMU: 100% (56/56 bits), 63 bit/s
+[2026-10-16 23:12:24] [exploit] xproc-rootless: 100% (56/56), 6 bit/s | xel EL2->EL0 dTLB: 100% (160/160), 1242 bit/s | xvm: blocked on /dev/kvm perm (fixing)
+[2026-10-16 23:12:43] [exploit] xvm cross-VM: 100% (70/70), 126 bit/s. Cross-boundary ALL done (xproc-pmu 63, xproc-rootless 6, xvm 126, xel 1242 bit/s, all 100%).
+[2026-10-16 23:13:16] [exploit] SMC/BTB: SMC effect=0.000 (survives; NOP 1.000 - SMC 1.000); CFP RCTX control flushes (survived 0.000). Matches target.
+[v1 ] : 18/19 FULL [55:0]
+[v4 ] : 19/19 FULL [55:0]
+[rsb] : 18/19 FULL [55:0]
+[2026-10-16 23:16:26] [exploit] CANARY DONE
+[2026-10-16 23:17:36] [exploit] canary: v1 18/19, v4 19/19, rsb 18/19 FULL [55:0] (~95-100%, matches target)

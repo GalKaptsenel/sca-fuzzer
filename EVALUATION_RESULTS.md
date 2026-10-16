@@ -221,3 +221,15 @@ Remote per-tc ~2.8s (adb). ABI-2 Pixel module (built on N3 from GKI), verified l
 | Local CT-COND-BPAS | 7,838 | 218 | 2,190 | |
 | Local heavy-NI (nest30+dispatch) | ~200-250 | | | complex-contract anchor |
 Remote-loopback-N3 not feasible via adb (N3=Debian, no adbd); overhead quantified via per-tc delta.
+
+### §7.5/7.6 — end-to-end exploits (N3, isolated core 90)
+| exploit | accuracy | rate | note |
+|---------|----------|------|------|
+| Cross-process EL0->EL0 (BTB), PMU       | 100% (56/56 bits) | 63 bit/s   | 8/8 rounds, 7-bit secret (target ~100%/~65) |
+| Cross-process EL0->EL0 (BTB), rootless  | 100% (56/56)      | 6 bit/s    | --samples 800 (target ~90-100%/~7) |
+| Cross-VM guest->host (BTB)              | 100% (70/70)      | 126 bit/s  | --victim-branches 16 (target ~100%/~130) |
+| Cross-privilege EL2->EL0 (L1 dTLB)      | 100% (160/160)    | 1242 bit/s | 16-bit secret (target ~100%/~1230) |
+| Blind stack canary [55:0]               | v1 18/19, v4 19/19, rsb 18/19 FULL | — | fresh random canary/launch (target v1 20/20, rsb 19/20, v4 18/20) |
+| OpenSSL RSA-2048 ROP                    | (running, ~5.5h)  | —          | --samples 1500 (target ~2044/2048=99.8%, ~5.5h) |
+| SMC/BTB (appendix)                      | SMC effect 0.000  | —          | NOP 1.000 - SMC 1.000; CFP RCTX control flushes (survived 0.000) |
+All cross-boundary + SMC match targets. OpenSSL pending. All PoCs from ~/arm-disclosure/pocs (built on N3).
