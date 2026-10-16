@@ -113,3 +113,12 @@ random programs. Not a config/contract/regime bug (regime live-verified view_rot
 ruled out restrictiveness). The leak is REAL + REPRODUCIBLE on a gadget seed (799067, 9s) and RELIABLE via the
 template (canon_oracle_ssb, 6s x2 CONFIRMED leaker 2->detector 3); fully-random auto-detection across arbitrary
 seeds is seed-dependent/rare because the specific speculative-sealed-indirect-target gadget forms uncommonly.
+
+## v2/BTB vs Canonicality/BTB — honest status (2026-10-16 22:28)
+- Canonicality/BTB: SOLID. Working template canon_oracle_ssb.py (CONFIRMED cross-input every run: pairs
+  0->2, 2->3, 4->6) + fully-random 12/20 (60%) + 2 triage-GENUINE. Leaked axis = target canonicality.
+- Pure Spectre-v2/BTB (leaked bit = which target, NO canonicality sealing): NOT cleanly demonstrated.
+  Fully-random v2_btb_3t = 0/3. Template canon_oracle_btb.py does NOT detect (0 violations at -i8 AND -i50,
+  49 classes) -> that template is non-working; canon_oracle_ssb.py is the working BTB template but its axis
+  is canonicality. The BTB which-target CARRIER is demonstrated (shared by both rows); the pure-v2 CONTENT
+  variant was not independently surfaced on N3. (Fold a dedicated pure-v2 template into the audit if needed.)
