@@ -191,3 +191,5 @@
 [2026-10-16 22:50:44] [remote] canon_cachetlb/x3 det=1 wall=48s tc=1 viol=1
 [2026-10-16 22:51:24] [remote] aut_signext/x3 det=1 wall=40s tc=1 viol=1
 [2026-10-16 22:51:24] [remote] DONE
+v1/A715 recheck: det viol=1 tc=137 wall=374s
+[2026-10-16 22:59:45] [remote] A4/A5 COMPLETE: A715 5/5 + X3 5/5 all L1D/PAC rows reproduce (v1/A715 check @137tc recheck). AUT* check on both cores.

@@ -204,7 +204,7 @@ v2_btb_3t (pure Spectre-v2 / BTB, no sealing) fully-random: 0/3 (rare; needs the
 ### Table 7.2 — remote A4 (Cortex-A715=core4) + A5 (Cortex-X3=core8) reproduction (L1D/PAC rows)
 | Violation / Channel | N3 | A715 | X3 | detail |
 |---------------------|----|----|----|--------|
-| Spectre-v1 / L1D    | check | cross? (0 in 107tc/311s — rechecking longer cap) | check (44s,1tc) | v1 X3-fast / A715-slow: core-dependent cond-branch BPU |
+| Spectre-v1 / L1D    | check | check (137tc recheck; first run cap-limited @107tc) | check (44s,1tc) | v1 A715 needs more tc than X3: core-dependent cond-branch BPU, but reproduces |
 | Spectre-v2 / L1D    | check | check (126s) | check (185s) | |
 | Spectre-v4 / L1D    | check | check (92s)  | check (45s)  | |
 | Canonicality / L1D  | check | check (96s)  | check (48s)  | |
