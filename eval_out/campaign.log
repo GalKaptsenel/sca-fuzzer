@@ -121,3 +121,6 @@
 [2026-10-16 18:23:47] [ttd pid=18069]   aut_signext run20 rc=1 det=1 wall=39.4s tc=37 viol=1
 [2026-10-16 18:23:47] [ttd pid=18069] ROW aut_signext DONE (20 runs)
 [2026-10-16 18:23:47] [ttd pid=18069] === TTD campaign DONE ===
+[2026-10-16 18:34:39] [v2-1bb] single-BB v2: 23 tc / 77s / 0 violations -> WEAKER than 1-2bb (which detects in 4-11 tc). Keep 1-2bb v2_l1d canonical.
+[2026-10-16 18:40:42] [v2_btb] cross-input memtargets probe 322s: localized 3+5 candidates, ALL "no leaking pair -> false positive". => cross_input_leaks_only correctly suppresses self-inflicted v2; random v2_btb found NO genuine cross-input leak in 322s (rare without branch-target sealing). Try canon_cip_ni (designed, sealing).
+[2026-10-16 18:48:04] [canon_btb CRASH root cause] CE FATAL kaddr2uaddr: 0xa8f outside sandbox at spec_nesting=0 -> branch-target-sealing+dispatch generator emits an ARCHITECTURAL access out of sandbox. CE correctly fail-louds. Generator/sealing masking bug on the architectural path.

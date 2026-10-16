@@ -31,3 +31,24 @@
 - `tools/triage.py` SIGBUSes on dispatch/multi-target test cases: it omits `data_size` so the 8-byte
   dispatch table is parsed as code and faults at the BLR. Workaround added: `tools/v2_ce_ladder.py`
   (passes data_size=8; base reproduces the saved contract hash exactly). Fix triage.py to honor data_size.
+
+## REMOTE BLOCKER (Pixel module ABI) — 2026-10-16
+- Pixel /data/local/tmp/revizor-executor.ko (Sep build) reports abi_version=1; Oct codebase expects
+  EXECUTOR_ABI_VERSION=2 (src/aarch64/executor/userapi/executor_user_api.h). Remote fuzzer _check_abi_version
+  would raise "device executor ABI 1 != expected 2; reload the module". So remote A4/A5 is BLOCKED until an
+  ABI-2 .ko is built for the Pixel kernel (vermagic 5.15.137-android14-11-gbc062a78e195).
+- Repo _LOCAL_MODULE is N3-only (vermagic 6.12.111). build_pixel8.sh needs ~/pixel-kernel/out +
+  ~/toolchains/llvm-bin (on laptop box B), absent on N3.
+- Userland OK: _LOCAL_USERLAND is static aarch64 (runs on Android), ABI-2, fuzzer pushes it fresh.
+- ACTION: attempt to build an ABI-2 Pixel .ko on N3 (download matching GKI android14-5.15.137 + LLVM);
+  if infeasible (exact Module.symvers/vermagic match needs the Pixel kernel tree), remote stays prepped
+  and documented, to run once an ABI-2 .ko exists. DO NOT fake remote with mismatched ABI (would be garbage).
+
+## A6 localization — integrity note (2026-10-16)
+- exp_search (cross_input.py) docstring claims "Cost O(log d)... never worse than a plain bisection". MEASURED:
+  for a distant boundary (d~k) it does ~2*log2(k) probes (k=12: up to 9 vs pure-bisection 4), i.e. WORSE than a
+  plain bisection over the full range. It IS O(log d) and beats bisection for RECENT (near-hi) boundaries (~4,
+  const in k). The "never worse than plain bisection" claim holds only for recent/close boundaries; flag for doc fix.
+- Measured via eval_scripts/a6_localization_cost.py importing the REAL localizers (no reimplementation),
+  synthetic single-boundary oracle, counting distinct memoized probes. Device-independent (localizer cost is
+  determined by k and boundary position, not the HW).

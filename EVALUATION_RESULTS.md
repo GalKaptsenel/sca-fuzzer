@@ -160,3 +160,14 @@ SMC/BTB (appendix):              SMC effect ____   CFP-RCTX control ____
 Notes: all 5 L1D/PAC rows detect 20/20 on N3 (genuine, survive priming; v2 independently CE-triaged genuine).
 v2 TTD sd large: violation found in ~4 tc but full-nesting(30) CE model is heavy per tc. v1 fastest-growing
 in tc (86 tc) since N3 cond-branch mispredict needs the un-primed branch (enable_pre_run_flush:false).
+
+### Table 7.3 — localization cost (COMPLETE; device-independent, real exp_search/linear_scan localizers)
+                         k=12   k=64   k=256
+Binary search (analytic)   4      7      9        (ceil(log2(k+1)), pure bisection)
+Measured binary (gallop):
+  recent-trainer (near hi)  4      4      4        <- realistic case: O(log distance), ~const in k (galloping win)
+  uniform-over-positions  7.50   12.14  16.04      (mean; worst ~2*log2(k) for a distant boundary)
+Measured linear scan     9.42   35.48  131.50      (~O(k), matches analytic k)
+R = all boundary positions; probes = distinct memoized HW batch measurements. Full HW cost = probes x reps x 2 dirs + 2 reverify.
+Note: exp_search = galloping + bisection ("optimal"/"any" localizer). For a RECENT cross-input trainer it beats a
+plain bisection (const ~4 vs log2(k+1)); for a distant boundary it costs up to ~2*log2(k) (gallop + bisect).

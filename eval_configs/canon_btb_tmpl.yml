@@ -1,0 +1,41 @@
+# Canonicality / BTB CROSS-INPUT (explicit; fixes config_canon_cip_ni which defaulted indirect=0).
+# Indirect multi-target dispatch with branch-TARGET sealing: the indirect-call target address is sealed
+# canonical vs non-canonical per boosted lane. A canonical leaker input trains a BTB target entry; a
+# later ct-equal prober speculatively jumps to the mistrained target -> cross-input leftover that
+# standard priming discards and cross_input_priming localizes. cross_input_leaks_only keeps strictly
+# non-self boundaries (the flag reason must be a leaker!=prober pair).
+instruction_set: aarch64
+instruction_categories:
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-CONDSEL
+  - BASE-BRANCH
+  - BASE-MEM-LOAD
+  - BASE-MEM-STORE
+fuzzer: non-interference
+input_generator: aarch64-nzcv
+executor_mode: P+P
+program_size: 24
+min_functions_per_test_case: 3
+max_functions_per_test_case: 4           # entry + 2-3 target functions (>=2 BTB candidates)
+function_call_probability: 0.9
+max_calls_per_function: 1
+indirect_call_probability: 1.0           # FIX: config_canon_cip_ni defaulted this to 0.0 -> no targets
+dispatch_call_probability: 1.0           # multi-target dispatch -> >=2 BTB candidates to mispredict among
+enable_branch_target_sealing: true
+branch_target_seal_prob: 1.0
+branch_target_seal_misalign: true
+contract_execution_clause:
+  - cond
+  - bpas
+contract_observation_clause: l1d
+model_min_nesting: 1
+model_max_nesting: 30
+enable_pre_run_flush: false
+executor_pinned_core: -1
+executor_sample_sizes: [100, 500]
+enable_cross_input_priming: true
+cross_input_priming_localizer: optimal
+cross_input_leaks_only: true
+inputs_per_class: 4

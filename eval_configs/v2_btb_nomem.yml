@@ -1,0 +1,36 @@
+# Spectre-v2 / BTB CROSS-INPUT with MEMORY-FREE targets (isolate pure cross-input BTB).
+# Targets are starved to ~1-2 instructions (function_size_shrink tiny) so they cannot hold a LDR/STR
+# -> NO same-input v2 path; the ONLY possible leak is cross-input BTB training (leaker trains the
+# dispatch target; a later ct-equal prober's speculation changes). cross_input_leaks_only=true keeps
+# strictly non-self boundaries. Verify by disassembly that targets contain no LDR/STR.
+instruction_set: aarch64
+instruction_categories:
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-CONDSEL
+  - BASE-MEM-LOAD
+  - BASE-MEM-STORE
+fuzzer: basic
+input_generator: aarch64-nzcv
+executor_mode: P+P
+program_size: 32
+min_functions_per_test_case: 3
+max_functions_per_test_case: 4          # entry + 2-3 callee TARGETS (>=2 BTB candidates, try 3)
+function_call_probability: 0.9
+max_calls_per_function: 1
+function_size_shrink: 0.08              # targets tiny -> no room for a load (memory-free targets)
+indirect_call_probability: 1.0
+dispatch_call_probability: 1.0
+contract_execution_clause:
+  - cond
+  - bpas
+contract_observation_clause: l1d
+model_min_nesting: 1
+model_max_nesting: 30
+enable_pre_run_flush: false
+executor_pinned_core: -1
+enable_cross_input_priming: true
+cross_input_priming_localizer: optimal
+cross_input_leaks_only: true
+inputs_per_class: 4
