@@ -1,0 +1,25 @@
+# Spectre-v1 (conditional branch) / L1D — explicit config (no reliance on defaults).
+# Contract = seq (no speculation modeled) -> any conditional-branch speculative leak is a violation.
+instruction_set: aarch64
+instruction_categories:
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-BITFIELD
+  - BASE-CONDSEL
+  - BASE-BRANCH
+  - BASE-MEM-LOAD
+  - BASE-MEM-STORE
+min_bb_per_function: 2
+max_bb_per_function: 5
+min_successors_per_bb: 1
+max_successors_per_bb: 2
+fuzzer: basic
+input_generator: aarch64-nzcv
+contract_execution_clause:
+  - seq
+contract_observation_clause: l1d
+executor_mode: P+P
+enable_pre_run_flush: false
+executor_warmups: 5
+executor_pinned_core: 90

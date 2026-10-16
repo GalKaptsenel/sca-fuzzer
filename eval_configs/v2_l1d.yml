@@ -1,0 +1,33 @@
+# Spectre-v2 (indirect branch target) / L1D — explicit config (no reliance on defaults).
+# Contract permits cond (v1) + bpas (v4); with indirect/dispatch calls present, a remaining
+# violation isolates a branch-target (v2) speculative leak observed on the L1D channel.
+instruction_set: aarch64
+instruction_categories:
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-BITFIELD
+  - BASE-CONDSEL
+  - BASE-BRANCH
+  - BASE-MEM-LOAD
+  - BASE-MEM-STORE
+min_bb_per_function: 2
+max_bb_per_function: 4
+min_successors_per_bb: 1
+max_successors_per_bb: 2
+fuzzer: basic
+input_generator: aarch64-nzcv
+executor_mode: P+P
+enable_pre_run_flush: false
+executor_warmups: 5
+min_functions_per_test_case: 3
+max_functions_per_test_case: 3
+function_call_probability: 0.5
+max_calls_per_function: 1
+indirect_call_probability: 1.0
+dispatch_call_probability: 1.0
+contract_execution_clause:
+  - cond
+  - bpas
+contract_observation_clause: l1d
+executor_pinned_core: 90

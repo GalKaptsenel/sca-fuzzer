@@ -1,0 +1,8 @@
+[2026-10-16 16:38:16] [setup] ===== EVALUATION CAMPAIGN (Machine A: N3 + Pixel8) =====
+[2026-10-16 16:38:16] [setup] pivot: eval-measurements @ daca5968 (pre-PTE); PTE WIP saved on ni-emulation-table-pacmte @ 471f87e7
+[2026-10-16 16:38:16] [setup] CE rebuilt from reverted tree; test_ce 1536/1536 pass
+[2026-10-16 16:38:16] [setup] N3 device loaded; Pixel8 shiba reachable via adb tunnel (serial 47061FDJH001K3), rooted Magisk28, A715=core4 X3=core8
+[2026-10-16 16:38:16] [probe] canon_cachetlb detects ~22s | v4_l1d ~30s (tc26 v1) | aut_signext ~28s (tc16 v1)
+[2026-10-16 16:38:16] [probe] v1_l1d NO detect 60s (tc222 v0) | v2_l1d NO clean result 90s (timeout)
+[2026-10-16 16:38:16] [config] Canon/BTB = config_canon_cip_ni.yml (confirmed); v2/BTB = config_spectre_v2_leftover.yml
+[2026-10-16 16:38:16] [probe] launched v1_mt/v2_mt mistraining probes (bg bbl2x8vzm)
