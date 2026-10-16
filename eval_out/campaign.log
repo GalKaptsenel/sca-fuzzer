@@ -131,3 +131,8 @@
 [2026-10-16 19:47:44] [btb canon_btb pid=91349] START row=canon_btb cfg=eval_configs/canon_btb.yml inputs=8 R=6 cap=300s
 [2026-10-16 19:52:46] [btb canon_btb pid=91349]   canon_btb run1 det=0 wall=302.3s tc=341 pair=none
 [2026-10-16 20:03:08] [canon_btb SSB-on fully-random] partial: 0 confirmed cross-input leaks in 386 tc  (rate low; fully-random gadget rare). Template path (ssb_i8) is the reliable one.
+[2026-10-16 20:33:06] [btb canon_btb_3t pid=110106] START row=canon_btb_3t cfg=eval_configs/canon_btb_3t.yml inputs=50 R=3 cap=180s
+[2026-10-16 20:35:12] [btb canon_btb_3t pid=110106]   canon_btb_3t run1 det=1 wall=125.8s tc=8 pair=24->27
+[2026-10-16 20:36:43] [btb canon_btb_3t pid=110106]   canon_btb_3t run2 det=1 wall=90.4s tc=2 pair=23->24
+[2026-10-16 20:37:54] [btb canon_btb_3t pid=110106]   canon_btb_3t run3 det=1 wall=70.9s tc=3 pair=32->36
+[2026-10-16 20:37:54] [btb canon_btb_3t pid=110106] DONE row=canon_btb_3t
