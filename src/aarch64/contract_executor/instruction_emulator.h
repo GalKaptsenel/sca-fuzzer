@@ -16,9 +16,12 @@
  * speculation contract; the caller chooses both. */
 
 enum emul_op {
-	EMUL_OP_NONE      = 0,
-	EMUL_OP_PAC_AUTH  = 1,   /* slots [MOVK(sig) x n], anchor AUT*: write the sig MOVKs so AUT* verifies */
-	EMUL_OP_MTE_RETAG = 2,   /* slot [ADDG], anchor access: retag the pointer to the accessed cell tag   */
+	EMUL_OP_NONE             = 0,
+	EMUL_OP_PAC_AUTH         = 1,   /* slots [MOVK(sig) x n], anchor AUT*: write the sig MOVKs so AUT* verifies */
+	EMUL_OP_MTE_RETAG        = 2,   /* slot [ADDG], anchor access: retag the pointer to the accessed cell tag   */
+	EMUL_OP_ARCH_CONFINE_MAIN = 3, /* slot [confine AND], anchor ADD Xn,Xn,x29: on a retiring (nesting==0)
+	                                * reach confine the clamped offset to the `main` page (the faulty page is
+	                                * then reachable only speculatively); a speculative reach leaves it full. */
 };
 
 struct emul_row {

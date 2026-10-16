@@ -1,10 +1,13 @@
 #include "instruction_emulator.h"
 #include "simulation.h"
+#include "simulation_execution_clause_hook.h"
 #include "pac_sign_plugin.h"
 #include "mte_tag_plugin.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+#define NOP_WORD 0xD503201FU
 
 /* AArch64 permanently-undefined (UDF #0): the idle filler an op-emulator plants into its slots. The CE
  * restores the live code from sim_input every instruction step, so a site is re-materialized to the
@@ -23,11 +26,32 @@ void emul_udf_fill(uint32_t first_slot, uint32_t n_slots)
     }
 }
 
+/* op-emulator EMUL_OP_ARCH_CONFINE_MAIN: the slot holds the committed confine `AND Xn,Xn,#main_mask`
+ * (rendered by the sealer; all geometry stays in Python). The emulator only gates it by nesting — a
+ * speculative reach (nesting>0) NOPs it so the access may reach the faulty page; IDLE and an
+ * architectural reach keep it (confine to main). shadow holds the committed AND and is never
+ * overwritten, so each reach restores from it. The op owns its idle: the safe default is the confine
+ * present, not UDF. */
+static void arch_confine_main_emulate(struct simulation_state* sim_state, uintptr_t offset,
+                                      uint32_t size, emul_phase_t phase)
+{
+    (void)sim_state;
+    uint32_t* live   = (uint32_t*)simulation.sim_code.code;
+    const uint32_t* shadow = (const uint32_t*)simulation.sim_input.code;
+    uint32_t base = (uint32_t)(offset / 4);
+    uint32_t n_slots = size / 4;
+    int unconfine = (EMUL_PHASE_MATERIALIZE == phase) && (spec_nesting() > 0);
+    for (uint32_t i = 0; i < n_slots; ++i) {
+        live[base + i] = unconfine ? NOP_WORD : shadow[base + i];
+    }
+}
+
 /* The op-emulator for each `enum emul_op`, indexed by op id (a hole stays NULL). Keying the table by
  * op makes a signature drift a compile error and the dispatch a single typed call. */
 static const emul_op_fn emul_ops[] = {
-    [EMUL_OP_PAC_AUTH]  = pac_emulate_auth,
-    [EMUL_OP_MTE_RETAG] = mte_emulate_retag,
+    [EMUL_OP_PAC_AUTH]          = pac_emulate_auth,
+    [EMUL_OP_MTE_RETAG]         = mte_emulate_retag,
+    [EMUL_OP_ARCH_CONFINE_MAIN] = arch_confine_main_emulate,
 };
 
 /* Route a site phase to its op-emulator; the op owns everything it does with the slots. */

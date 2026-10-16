@@ -17,14 +17,14 @@ if TYPE_CHECKING:
 from ...config import CONF
 from ...util import stable_rng
 from ...interfaces import (Instruction, TestCase, BasicBlock, GeneratorException,
-                          RegisterOperand, ImmediateOperand)
+                          RegisterOperand, ImmediateOperand, MAIN_AREA_SIZE)
 from .primitives import (make_nop, index_instructions, inst_at, _SANDBOX_MASK,
                            _SandboxInstrumentationBase)
 from .pac import (PacSign, PacSigner, build_pac_specs, _AUTH_TO_PAC, _AUTH_TO_XPAC, _read_reg)
 from ..aarch64_target_desc import SANDBOX_BASE_REGISTER
 from ..aarch64_printer import Aarch64ASMLayout
 from ..aarch64_relocations import (NOP_WORD, xpac_word, addg_word, movk_word, aut_word,
-                                    eor_imm_word, Relocation, apply_relocations)
+                                    eor_imm_word, and_imm_word, Relocation, apply_relocations)
 
 
 M = (1 << 64) - 1
@@ -34,6 +34,7 @@ M = (1 << 64) - 1
 # during the trace by dispatching on these.
 EMUL_OP_PAC_AUTH = 1
 EMUL_OP_MTE_RETAG = 2
+EMUL_OP_ARCH_CONFINE_MAIN = 3
 
 
 def pack_emul_table(rows: List[Tuple[int, int, int]]) -> bytes:
@@ -53,6 +54,11 @@ def _mte_emul_rows(mte, offsets) -> List[Tuple[int, int, int]]:
     """An MTE_RETAG row per access: the op owns the retag ADDG slot; the guarded access anchor sits at
     offset+size."""
     return [(offsets[id(s)][0], s.n_before * 4, EMUL_OP_MTE_RETAG) for s in mte]
+
+
+def _confine_emul_rows(confines, offsets) -> List[Tuple[int, int, int]]:
+    """TEMP (PTE): an ARCH_CONFINE_MAIN row per confine site — the op owns the single confine-AND slot."""
+    return [(offsets[id(c)][0], 4, EMUL_OP_ARCH_CONFINE_MAIN) for c in confines]
 
 
 def _reg_num(reg: str) -> int:
@@ -76,6 +82,9 @@ def _encode(inst: Instruction) -> int:
         return addg_word(_reg_num(inst.operands[0].value), int(inst.operands[3].value))
     if mn == "eor":
         return eor_imm_word(_reg_num(inst.operands[0].value), _reg_num(inst.operands[1].value),
+                            int(inst.operands[2].value))
+    if mn == "and":
+        return and_imm_word(_reg_num(inst.operands[0].value), _reg_num(inst.operands[1].value),
                             int(inst.operands[2].value))
     raise GeneratorException(f"cannot encode seal instruction {inst.name!r}")
 
@@ -138,6 +147,54 @@ class SandboxSealing(Sealing):
                             template=f"AND {self.value_reg}, {self.value_reg}, {self._mask}"),
                 Instruction("add", True, "", False,
                             template=f"ADD {self.value_reg}, {self.value_reg}, {self._base_reg}")]
+
+
+# The confine masks the clamped OFFSET (between the sandbox AND and the +base ADD) down to the `main`
+# page. Clearing the low log2(_CONFINE_ALIGN) bits as well bounds a ≤16-byte access away from the
+# main||faulty boundary, so it cannot spill into faulty. Derived from the page geometry (a power-of-two
+# `main` page) so it generalises if the page map changes.
+_CONFINE_ALIGN = 16
+
+
+def _confine_mask(main_size: int) -> int:
+    if main_size & (main_size - 1):
+        raise GeneratorException(f"confine needs a power-of-two main page size (got {main_size})")
+    return (main_size - 1) & ~(_CONFINE_ALIGN - 1)
+
+
+class ConfineSealing(Sealing):
+    """Confine ONE memory access to the `main` page on the retiring path, sitting between the sandbox
+    clamp's `AND` and its `+base ADD` so it masks the offset. `seal(mask)` emits `AND reg,reg,#mask`
+    (confine to main); `seal(None)` emits a `NOP` (no confine — the access may reach `faulty`
+    speculatively). The resolver sets the value per access: `mask` for an access reached architecturally
+    (arch-safe by construction — the decoy's fuzzed faulty PTE can never fault a retiring access), `None`
+    for an access not on the retiring path (unreached, or reached only speculatively — the faulty probe,
+    left free to reach faulty on a HW speculative path). The same op is rendered in genuine and decoy
+    (the PTE environment is the fuzzed axis, not this clamp). `access_inst` is exposed for the resolver."""
+
+    def __init__(self, value_reg: str, access_inst: Instruction, mask: int) -> None:
+        super().__init__()
+        self.value_reg = value_reg
+        self.access_inst = access_inst
+        self._mask = mask
+        self.slot_insts = self.seal(None, None)   # placeholder: a single NOP slot
+
+    def _and(self) -> Instruction:
+        return (Instruction("and", True, "", False,
+                            template=f"AND {self.value_reg}, {self.value_reg}, #{self._mask}")
+                .add_op(RegisterOperand(self.value_reg, 64, False, True))
+                .add_op(RegisterOperand(self.value_reg, 64, True, False))
+                .add_op(ImmediateOperand(str(self._mask), 64)))
+
+    def resolve_slot(self) -> List[Instruction]:
+        """The resolution render: the committed confine `AND`. The EMUL_OP_ARCH_CONFINE_MAIN op-emulator
+        keeps it on an architectural reach (confine to main) and NOPs it on a speculative reach (so the
+        faulty probe reaches faulty), so the single trace is consistent with the baked per-access render."""
+        return [self._and()]
+
+    def seal(self, value: Optional[int], rng: Optional[random.Random],
+             correct: Optional[int] = None) -> List[Instruction]:
+        return [self._and()] if value else [make_nop()]
 
 
 class PacSealing(Sealing):
@@ -696,6 +753,25 @@ def _resolve_branch_target(s: "BranchTargetSealing", cer, layout) -> Tuple[Optio
     return None, list(s.pool), spec
 
 
+def _resolve_confine(c: "ConfineSealing", cer, layout) -> Tuple[Optional[int], List[int], Optional[int]]:
+    """TEMP (PTE): a ConfineSealing's value from the genuine (architectural) contract trace. Confine ONLY
+    an access that is reached ARCHITECTURALLY (min nesting == 0): masking it to `main` keeps the retiring
+    path off the faulty page. An access that is not reached architecturally (unreached, or reached only
+    speculatively) is left unconfined (value None -> NOP): it never executes on the retiring path, so it
+    poses no arch-safety risk, and staying unconfined lets a HW speculative access reach faulty (the PTE
+    leak). Never decoy-perturbed (alts always empty). (value, alts, spec_nesting)."""
+    spec = None
+    if cer and c.access_inst is not None:
+        access_off, code_base = layout.instruction_address[c.access_inst], cer[0].cpu.pc
+        for ite in cer:
+            if ite.metadata.has_sandbox_memory_access and ite.cpu.pc - code_base == access_off:
+                nest = ite.metadata.speculation_nesting
+                if spec is None or nest < spec:
+                    spec = int(nest)
+    value = c._mask if spec == 0 else None   # arch-reached -> confine to main; else leave unconfined
+    return value, [], spec
+
+
 def _slot_offsets(tc: TestCase, layout, sealings: List["Sealing"]) -> Dict[int, Tuple[int, ...]]:
     """{id(sealing): its slot byte offsets in the assembled template}. Positions are one-for-one across
     fills, so an offset taken from the placeholder holds for every variant."""
@@ -858,11 +934,31 @@ class SandboxSealedTestCase(SealedTestCase):
     Used when the genuine/decoy difference lives entirely in the run environment (PTE fuzzing): the
     test case still needs its accesses clamped and its object code assembled, but nothing is sealed
     with a per-input value. resolve() has no values to compute, but still traces the placeholder once
-    so the genuine contract trace is available (the environment axis fuzzes the run, not the code)."""
+    so the genuine contract trace is available (the environment axis fuzzes the run, not the code).
+
+    TEMP (PTE fuzzing): carries per-access ConfineSealings (inserted by the walk between each clamp's
+    AND and +base ADD). The resolver confines retiring accesses to `main` (so the arch path never
+    touches faulty) while the speculative-only faulty probe stays unconfined. A first-cut to generalise
+    later (geometry from the page map, the speculative-only pool, cleaner clamp integration)."""
+
+    def __init__(self, sealed_tc, assemble, sandbox_sealings, data_sites, trace_bytes_fn,
+                 confines=()) -> None:
+        self._confine = list(confines)
+        super().__init__(sealed_tc, assemble, sandbox_sealings, data_sites, trace_bytes_fn)
 
     def _insert_slots(self, data_sites) -> None:
         for inst, bb, _mem_reg, offset_subs, _base_preserved in data_sites:
-            _insert(bb, inst, offset_subs)   # pin each access to its clamped base; no value seal
+            _insert(bb, inst, offset_subs)   # pin each access to its clamped base; the confine (if any)
+            # was already wedged into the clamp by the walk; its value is resolved per input.
+
+    def _value_sealings(self) -> List[Sealing]:
+        return self._confine
+
+    def _emul_rows(self, offsets) -> List[Tuple[int, int, int]]:
+        return _confine_emul_rows(self._confine, offsets)
+
+    def _resolve_entries(self, inp, cer) -> List[_Resolved]:
+        return [_Resolved(c, *_resolve_confine(c, cer, self._layout)) for c in self._confine]
 
 
 class CanonSealedTestCase(SealedTestCase):
@@ -1102,12 +1198,15 @@ class Sealer:
 
     def seal(self, test_case: TestCase) -> SealedTestCase:
         tc = copy.deepcopy(test_case)
-        sandbox, data_sites = self._walk.sandbox(tc)
+        # TEMP (PTE fuzzing): confine retiring accesses to `main` via the per-access ConfineSealing, so
+        # the arch path can never touch the faulty page (a first-cut; to be generalised later).
+        confine = not self._primitives and CONF.enable_pte_fuzzing
+        sandbox, data_sites, confines = self._walk.sandbox(tc, confine=confine)
         tr = self._trace_bytes_fn
         if not self._primitives:
             # No code seal: only the sandbox clamp. The genuine/decoy difference (if any) comes
             # the environment axis (PTE fuzzing), not by code.
-            return SandboxSealedTestCase(tc, self._assemble, sandbox, data_sites, tr)
+            return SandboxSealedTestCase(tc, self._assemble, sandbox, data_sites, tr, confines)
         if self._primitives == frozenset({"canon"}):
             return CanonSealedTestCase(tc, self._assemble, sandbox, data_sites, tr)
         if self._primitives == frozenset({"branch_target"}):
@@ -1196,20 +1295,32 @@ class SandboxWalk:
         mask = f"#0x{(-align) & ((1 << 64) - 1):x}"        # ~(align - 1), a 64-bit bitmask immediate
         return [Instruction("and", True, "", False, template=f"AND {reg}, {reg}, {mask}")]
 
-    def sandbox(self, tc: TestCase) -> Tuple[List[SandboxSealing], List]:
+    def sandbox(self, tc: TestCase, confine: bool = False) -> Tuple[List[SandboxSealing], List, List]:
         """The sandbox-taint dataflow + clamping. Decides which memory bases need an in-region clamp
         (the clamp is not idempotent, so a base already in-region is not re-clamped) and inserts a
         SandboxSealing for each (16B-aligned for STG). STG/LDG are handled fully here (clamp + the
         index/displacement cancellation, since they take no value sealing). A data access only gets
         its clamp inserted here and yields a site — (access, bb, mem_reg, offset_subs) — so the host
         sealer can place its value sealings between the clamp and the cancellation. Returns
-        (sandbox_sealings, data_sites)."""
-        addr, base, sandbox, data_sites = self._addr, SANDBOX_BASE_REGISTER, [], []
+        (sandbox_sealings, data_sites, confine_sealings).
+
+        TEMP (PTE fuzzing): when `confine`, a ConfineSealing is wedged between each data-access clamp's
+        AND and +base ADD; the host resolves it to confine retiring accesses to `main`. A first-cut
+        (page geometry from MAIN_AREA_SIZE, per-clamp classification) to be generalised later."""
+        addr, base, sandbox, data_sites, confines = self._addr, SANDBOX_BASE_REGISTER, [], [], []
+        confine_mask = _confine_mask(MAIN_AREA_SIZE)
 
         def clamp(reg, mask):
             s = SandboxSealing(reg, mask, base)   # seals its own placeholder on construction
             sandbox.append(s)
             return s.slot_insts
+
+        def clamp_confined(reg, mask, access):
+            """TEMP: [AND #mask ; confine ; ADD base] — the confine slot sits on the offset."""
+            and_inst, add_inst = clamp(reg, mask)
+            c = ConfineSealing(reg, access, confine_mask)
+            confines.append(c)
+            return [and_inst] + c.slot_insts + [add_inst]
 
         for func in tc.functions:
             prefixes = []                       # (access, bb, insts) the walk inserts itself
@@ -1246,7 +1357,9 @@ class SandboxWalk:
                                         curr = curr | frozenset([norm_mem])
                             else:                                    # data access: clamp now, value later
                                 if norm_mem not in curr:
-                                    prefixes.append((inst, bb, clamp(mem_reg, self._addr_mask(inst))))
+                                    insts = (clamp_confined(mem_reg, self._addr_mask(inst), inst)
+                                             if confine else clamp(mem_reg, self._addr_mask(inst)))
+                                    prefixes.append((inst, bb, insts))
                                     if not modifies_base:
                                         curr = curr | frozenset([norm_mem])
                                 else:                                # base already in-region: re-align it
@@ -1271,7 +1384,7 @@ class SandboxWalk:
             for anchor, bb, insts in prefixes:   # clamps (and STG/LDG cancellation) go in before value
                 for i in insts:
                     bb.insert_before(anchor, i)
-        return sandbox, data_sites
+        return sandbox, data_sites, confines
 
 
 def make_sealer(generator, assemble, primitives, signer, trace_bytes_fn) -> Sealer:

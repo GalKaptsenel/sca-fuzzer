@@ -110,6 +110,14 @@ def eor_imm_word(rd: int, rn: int, value: int) -> int:
             | ((rn & 0x1F) << 5) | (rd & 0x1F))
 
 
+def and_imm_word(rd: int, rn: int, value: int) -> int:
+    """AND Xd, Xn, #value (64-bit logical immediate). Raises via encode_bitmask_imm64 if `value` is
+    not an encodable bitmask immediate."""
+    n_bit, immr, imms = encode_bitmask_imm64(value)
+    return (0x92000000 | (n_bit << 22) | (immr << 16) | (imms << 10)
+            | ((rn & 0x1F) << 5) | (rd & 0x1F))
+
+
 # AUT* base opcodes (Rd=Rn=0); the Z-variants bake Rn=31, so OR-ing rn=31 there is a no-op.
 _AUT_OPCODES = {
     "autia": 0xDAC11000, "autib": 0xDAC11400, "autda": 0xDAC11800, "autdb": 0xDAC11C00,
