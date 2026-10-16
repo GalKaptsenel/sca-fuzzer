@@ -178,3 +178,10 @@ plain bisection (const ~4 vs log2(k+1)); for a distant boundary it costs up to ~
 | Canonicality / BTB         | check (template/seed), rare (fully-random) | template canon_oracle_ssb: CONFIRMED cross-input leak ~6s, reproducible (leaker->detector, strictly cross-input); gadget seed 799067: 9s deterministic. Fully-random auto-detect: seed-dependent/rare (gadget uncommon), NOT a contract/regime bug ([seq] & [cond,bpas] both rare; regime live-verified). |
 | Spectre-v2 / BTB           | check (same carrier), rare (fully-random) | same BTB cross-input carrier; leaked bit = predicted target (no canonicality seal). Template-reliable; fully-random rare. |
 Fixes that restored it: aarch64_fuzzer.py (regime wraps detection, not just localization) + sealer.py (re-clamp base after BL/BLR). Committed 2c3b18e3.
+
+### Canon/BTB fully-random reproducibility (eval_configs/canon_btb_3t.yml: >=3 targets, -i 50, 180s cap)
+R=20: 12/20 detected (60%) within cap; mean TTD(detectors)=84.0s. 12 DISTINCT cross-input gadgets:
+  39->41 26->30 24->25 38->40 21->28 25->27 36->38 19->29 34->36 30->38 41->43 32->34.
+Plus: template canon_oracle_ssb ~6s reliable; gadget seed 799067 deterministic 9s; 2 real-fuzzed
+violations triage-verified GENUINE cross-input BTB (24->27, 23->24). Rate bounded by -i 50 per-tc cost
+(~10 tc/180s); fewer targets (2) / fewer inputs (8) => rare. HW controlled-swap: pending (next, device free).

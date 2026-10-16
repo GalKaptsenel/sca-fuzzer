@@ -142,3 +142,21 @@
 [2026-10-16 20:49:07] [btb canon_btb_3t_r20 pid=111282]   canon_btb_3t_r20 run3 det=0 wall=186.3s tc=6 pair=none
 [2026-10-16 20:49:31] [btb canon_btb_3t_r20 pid=111282]   canon_btb_3t_r20 run4 det=1 wall=23.8s tc=2 pair=39->41
 [2026-10-16 20:52:29] [triage DONE] BOTH real-fuzzed cross-input BTB violations GENUINE: A(24->27), B(23->24). CE+static: gadget, speculative-only sealed BLR, cross-input proven at code level (detector held fixed), noise+artifact ruled out. HW controlled-swap PENDING device. R=20 run4 detected 39->41 (2tc/24s).
+[2026-10-16 20:52:40] [btb canon_btb_3t_r20 pid=111282]   canon_btb_3t_r20 run5 det=0 wall=189.2s tc=7 pair=none
+[2026-10-16 20:55:48] [btb canon_btb_3t_r20 pid=111282]   canon_btb_3t_r20 run6 det=0 wall=187.2s tc=3 pair=none
+[2026-10-16 20:56:41] [btb canon_btb_3t_r20 pid=111282]   canon_btb_3t_r20 run7 det=1 wall=53.1s tc=4 pair=26->30
+[2026-10-16 20:58:08] [btb canon_btb_3t_r20 pid=111282]   canon_btb_3t_r20 run8 det=1 wall=87.4s tc=2 pair=24->25
+[2026-10-16 21:01:13] [btb canon_btb_3t_r20 pid=111282]   canon_btb_3t_r20 run9 det=0 wall=185.2s tc=11 pair=none
+[2026-10-16 21:04:54] [btb canon_btb_3t_r20 pid=111282]   canon_btb_3t_r20 run10 det=0 wall=221.0s tc=10 pair=none
+[2026-10-16 21:08:04] [btb canon_btb_3t_r20 pid=111282]   canon_btb_3t_r20 run11 det=1 wall=189.2s tc=10 pair=38->40
+[2026-10-16 21:10:40] [btb canon_btb_3t_r20 pid=111282]   canon_btb_3t_r20 run12 det=1 wall=156.4s tc=8 pair=21->28
+[2026-10-16 21:11:24] [btb canon_btb_3t_r20 pid=111282]   canon_btb_3t_r20 run13 det=1 wall=43.6s tc=2 pair=25->27
+[2026-10-16 21:12:03] [btb canon_btb_3t_r20 pid=111282]   canon_btb_3t_r20 run14 det=1 wall=39.5s tc=2 pair=36->38
+[2026-10-16 21:13:34] [btb canon_btb_3t_r20 pid=111282]   canon_btb_3t_r20 run15 det=1 wall=90.9s tc=7 pair=19->29
+[2026-10-16 21:15:04] [btb canon_btb_3t_r20 pid=111282]   canon_btb_3t_r20 run16 det=1 wall=89.9s tc=4 pair=34->36
+[2026-10-16 21:15:50] [btb canon_btb_3t_r20 pid=111282]   canon_btb_3t_r20 run17 det=1 wall=46.2s tc=2 pair=30->38
+[2026-10-16 21:17:50] [btb canon_btb_3t_r20 pid=111282]   canon_btb_3t_r20 run18 det=1 wall=119.9s tc=4 pair=41->43
+[2026-10-16 21:20:55] [btb canon_btb_3t_r20 pid=111282]   canon_btb_3t_r20 run19 det=0 wall=184.6s tc=7 pair=none
+[2026-10-16 21:22:03] [btb canon_btb_3t_r20 pid=111282]   canon_btb_3t_r20 run20 det=1 wall=67.9s tc=3 pair=32->34
+[2026-10-16 21:22:03] [btb canon_btb_3t_r20 pid=111282] DONE row=canon_btb_3t_r20
+[2026-10-16 21:22:52] [canon_btb R=20 DONE] 12/20 (60%) within 180s cap, mean TTD 84s, 12 distinct cross-input gadgets. Fully-random reliable with >=3 targets + -i50.
