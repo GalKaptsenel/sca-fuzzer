@@ -1,0 +1,376 @@
+# Violation Report
+
+* Test Case ID: 818
+* Detected: 16.10.26 at 21:30:45
+
+* Time to detection: 419.643403
+* Statistics:
+Test Cases: 819
+Inputs per test case: 100.0
+Violations: 7
+Effectiveness: 
+  Total Cls: 49.6
+  Effective Cls: 49.6
+Discarded Test Cases:
+  Speculation Filter: 0
+  Observation Filter: 0
+  Fast Path: 809
+  Max Nesting Check: 1
+  Tainting Check: 0
+  Priming swap-test (early): 1
+  Large Sample Check: 0
+  Priming swap-test: 0
+Hardware Tracing Errors: 0
+
+
+## Generation Properties
+* Program seed: 157563
+* Input seed: 3178829666
+* Faulty page properties:
+  - Actor main:
+    * PTE: 
+
+## Counterexample Inputs
+
+Input #15
+* Hardware trace:
+ ^............^...........^....^................................^ [499]
+^^...........^...........^....^................................^ [1]
+
+* Contract trace (hash): 9224498220229459969
+
+Input #21
+* Hardware trace:
+ ^............^...........^....^................................^ [251]
+^.......^....^...........^....^................................^ [249]
+
+* Contract trace (hash): 9224498220229459969
+
+Input #29
+* Hardware trace:
+ ^............^...........^....^................................^ [500]
+
+* Contract trace (hash): 9224498220229459969
+
+Input #65
+* Hardware trace:
+ ^............^...........^....^................................^ [500]
+
+* Contract trace (hash): 9224498220229459969
+
+Input #71
+* Hardware trace:
+ ^.......^....^...........^....^................................^ [393]
+^............^...........^....^................................^ [107]
+
+* Contract trace (hash): 9224498220229459969
+
+Input #79
+* Hardware trace:
+ ^............^...........^....^................................^ [464]
+^............^...........^....^........................^.......^ [36]
+
+* Contract trace (hash): 9224498220229459969
+
+## Branch Training
+* Branch training: not set
+
+Input #0:
+  * No trained branches
+
+Input #1:
+  * No trained branches
+
+Input #2:
+  * No trained branches
+
+Input #3:
+  * No trained branches
+
+Input #4:
+  * No trained branches
+
+Input #5:
+  * No trained branches
+
+Input #6:
+  * No trained branches
+
+Input #7:
+  * No trained branches
+
+Input #8:
+  * No trained branches
+
+Input #9:
+  * No trained branches
+
+Input #10:
+  * No trained branches
+
+Input #11:
+  * No trained branches
+
+Input #12:
+  * No trained branches
+
+Input #13:
+  * No trained branches
+
+Input #14:
+  * No trained branches
+
+Input #15:
+  * No trained branches
+
+Input #16:
+  * No trained branches
+
+Input #17:
+  * No trained branches
+
+Input #18:
+  * No trained branches
+
+Input #19:
+  * No trained branches
+
+Input #20:
+  * No trained branches
+
+Input #21:
+  * No trained branches
+
+Input #22:
+  * No trained branches
+
+Input #23:
+  * No trained branches
+
+Input #24:
+  * No trained branches
+
+Input #25:
+  * No trained branches
+
+Input #26:
+  * No trained branches
+
+Input #27:
+  * No trained branches
+
+Input #28:
+  * No trained branches
+
+Input #29:
+  * No trained branches
+
+Input #30:
+  * No trained branches
+
+Input #31:
+  * No trained branches
+
+Input #32:
+  * No trained branches
+
+Input #33:
+  * No trained branches
+
+Input #34:
+  * No trained branches
+
+Input #35:
+  * No trained branches
+
+Input #36:
+  * No trained branches
+
+Input #37:
+  * No trained branches
+
+Input #38:
+  * No trained branches
+
+Input #39:
+  * No trained branches
+
+Input #40:
+  * No trained branches
+
+Input #41:
+  * No trained branches
+
+Input #42:
+  * No trained branches
+
+Input #43:
+  * No trained branches
+
+Input #44:
+  * No trained branches
+
+Input #45:
+  * No trained branches
+
+Input #46:
+  * No trained branches
+
+Input #47:
+  * No trained branches
+
+Input #48:
+  * No trained branches
+
+Input #49:
+  * No trained branches
+
+Input #50:
+  * No trained branches
+
+Input #51:
+  * No trained branches
+
+Input #52:
+  * No trained branches
+
+Input #53:
+  * No trained branches
+
+Input #54:
+  * No trained branches
+
+Input #55:
+  * No trained branches
+
+Input #56:
+  * No trained branches
+
+Input #57:
+  * No trained branches
+
+Input #58:
+  * No trained branches
+
+Input #59:
+  * No trained branches
+
+Input #60:
+  * No trained branches
+
+Input #61:
+  * No trained branches
+
+Input #62:
+  * No trained branches
+
+Input #63:
+  * No trained branches
+
+Input #64:
+  * No trained branches
+
+Input #65:
+  * No trained branches
+
+Input #66:
+  * No trained branches
+
+Input #67:
+  * No trained branches
+
+Input #68:
+  * No trained branches
+
+Input #69:
+  * No trained branches
+
+Input #70:
+  * No trained branches
+
+Input #71:
+  * No trained branches
+
+Input #72:
+  * No trained branches
+
+Input #73:
+  * No trained branches
+
+Input #74:
+  * No trained branches
+
+Input #75:
+  * No trained branches
+
+Input #76:
+  * No trained branches
+
+Input #77:
+  * No trained branches
+
+Input #78:
+  * No trained branches
+
+Input #79:
+  * No trained branches
+
+Input #80:
+  * No trained branches
+
+Input #81:
+  * No trained branches
+
+Input #82:
+  * No trained branches
+
+Input #83:
+  * No trained branches
+
+Input #84:
+  * No trained branches
+
+Input #85:
+  * No trained branches
+
+Input #86:
+  * No trained branches
+
+Input #87:
+  * No trained branches
+
+Input #88:
+  * No trained branches
+
+Input #89:
+  * No trained branches
+
+Input #90:
+  * No trained branches
+
+Input #91:
+  * No trained branches
+
+Input #92:
+  * No trained branches
+
+Input #93:
+  * No trained branches
+
+Input #94:
+  * No trained branches
+
+Input #95:
+  * No trained branches
+
+Input #96:
+  * No trained branches
+
+Input #97:
+  * No trained branches
+
+Input #98:
+  * No trained branches
+
+Input #99:
+  * No trained branches

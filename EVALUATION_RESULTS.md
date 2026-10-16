@@ -185,3 +185,18 @@ R=20: 12/20 detected (60%) within cap; mean TTD(detectors)=84.0s. 12 DISTINCT cr
 Plus: template canon_oracle_ssb ~6s reliable; gadget seed 799067 deterministic 9s; 2 real-fuzzed
 violations triage-verified GENUINE cross-input BTB (24->27, 23->24). Rate bounded by -i 50 per-tc cost
 (~10 tc/180s); fewer targets (2) / fewer inputs (8) => rare. HW controlled-swap: pending (next, device free).
+
+### Table 7.1 — throughput LOCAL (N3, 1 isolated core 90, stock basic fuzzer)
+| contract | reps | tc/hour (mean) | exec/s (mean) | traces/s (mean) | inputs/tc |
+|----------|------|----------------|---------------|-----------------|-----------|
+| CT-SEQ   | 2 (600s) | 9,151 (7895, 10408) | 254 | 4,223 | 100 (eff) |
+| CT-COND  | 2 (400s) | 12,171 (12177, 12165) | 338 | 3,407 | 100 |
+| CT-COND-BPAS | 2 (400s) | 7,838 (7810, 7865) | 218 | 2,190 | 100 |
+| heavy-NI (sealing+dispatch+nest30) | — | ~200-250 (anchor) | | | 100 |
+Execution = (test-case x input) pair. traces/s = fuzzer-reported (x reps). Remote (3-way) + CT-COND rows pending.
+
+Contract-vs-throughput note: traces/s is the clean monotonic contract-cost indicator (seq 4,223 >
+cond 3,407 > cond+bpas 2,190 -> richer contract = more CE model time per measurement). tc/h is noisier
+(seq 9,151; cond 12,171; cond+bpas 7,838) because boosting/effective-classes differ by contract. Simple
+contracts ~8-12k tc/h; the heavy-NI contract (deep nesting + dispatch) is the ~40x drop to ~200 tc/h.
+v2_btb_3t (pure Spectre-v2 / BTB, no sealing) fully-random: 0/3 (rare; needs the template demo).

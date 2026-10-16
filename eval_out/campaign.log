@@ -160,3 +160,22 @@
 [2026-10-16 21:22:03] [btb canon_btb_3t_r20 pid=111282]   canon_btb_3t_r20 run20 det=1 wall=67.9s tc=3 pair=32->34
 [2026-10-16 21:22:03] [btb canon_btb_3t_r20 pid=111282] DONE row=canon_btb_3t_r20
 [2026-10-16 21:22:52] [canon_btb R=20 DONE] 12/20 (60%) within 180s cap, mean TTD 84s, 12 distinct cross-input gadgets. Fully-random reliable with >=3 targets + -i50.
+[2026-10-16 21:23:44] [tp local pid=119393] START cfg=eval_configs/tp_local.yml reps=2 dur=600 inp=50
+[2026-10-16 21:33:45] [tp local pid=119393] rep1 tc=1316 ipt=100.0 dur=600.1s tc/h=7895 exec/s=219.3 traces/s=4384.3
+[2026-10-16 21:43:55] [tp local pid=119393] rep2 tc=1757 ipt=100.0 dur=607.7s tc/h=10408 exec/s=289.1 traces/s=4061.0
+[2026-10-16 21:43:55] [tp local pid=119393] DONE
+[2026-10-16 21:44:57] [phase4b] START (v2_btb_3t confirm + tp_cond + tp_condbpas)
+[2026-10-16 21:44:57] [btb v2_btb_3t pid=131622] START row=v2_btb_3t cfg=eval_configs/v2_btb_3t.yml inputs=50 R=3 cap=240s
+[2026-10-16 21:49:57] [btb v2_btb_3t pid=131622]   v2_btb_3t run1 det=0 wall=300.3s tc=NA pair=none
+[2026-10-16 21:54:58] [btb v2_btb_3t pid=131622]   v2_btb_3t run2 det=0 wall=300.6s tc=NA pair=none
+[2026-10-16 21:59:59] [btb v2_btb_3t pid=131622]   v2_btb_3t run3 det=0 wall=300.5s tc=NA pair=none
+[2026-10-16 21:59:59] [btb v2_btb_3t pid=131622] DONE row=v2_btb_3t
+[2026-10-16 21:59:59] [tp cond pid=133619] START cfg=eval_configs/tp_cond.yml reps=2 dur=400 inp=50
+[2026-10-16 22:06:40] [tp cond pid=133619] rep1 tc=1353 ipt=100.0 dur=400.0s tc/h=12177 exec/s=338.2 traces/s=3410.0
+[2026-10-16 22:13:22] [tp cond pid=133619] rep2 tc=1352 ipt=100.0 dur=400.1s tc/h=12165 exec/s=337.9 traces/s=3404.5
+[2026-10-16 22:13:22] [tp cond pid=133619] DONE
+[2026-10-16 22:13:22] [tp condbpas pid=143360] START cfg=eval_configs/tp_condbpas.yml reps=2 dur=400 inp=50
+[2026-10-16 22:20:03] [tp condbpas pid=143360] rep1 tc=868 ipt=100.0 dur=400.1s tc/h=7810 exec/s=216.9 traces/s=2187.2
+[2026-10-16 22:26:45] [tp condbpas pid=143360] rep2 tc=875 ipt=100.0 dur=400.5s tc/h=7865 exec/s=218.5 traces/s=2192.3
+[2026-10-16 22:26:45] [tp condbpas pid=143360] DONE
+[2026-10-16 22:26:45] [phase4b] DONE
