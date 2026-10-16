@@ -179,3 +179,15 @@
 [2026-10-16 22:26:45] [tp condbpas pid=143360] rep2 tc=875 ipt=100.0 dur=400.5s tc/h=7865 exec/s=218.5 traces/s=2192.3
 [2026-10-16 22:26:45] [tp condbpas pid=143360] DONE
 [2026-10-16 22:26:45] [phase4b] DONE
+[2026-10-16 22:31:24] [remote] START A4(A715=4)+A5(X3=8) rows: v1_l1d v2_l1d v4_l1d canon_cachetlb aut_signext
+[2026-10-16 22:36:35] [remote] v1_l1d/a715 det=0 wall=311s tc=107 viol=0
+[2026-10-16 22:38:41] [remote] v2_l1d/a715 det=1 wall=126s tc=4 viol=1
+[2026-10-16 22:40:13] [remote] v4_l1d/a715 det=1 wall=92s tc=10 viol=1
+[2026-10-16 22:41:49] [remote] canon_cachetlb/a715 det=1 wall=96s tc=20 viol=1
+[2026-10-16 22:45:22] [remote] aut_signext/a715 det=1 wall=213s tc=70 viol=1
+[2026-10-16 22:46:06] [remote] v1_l1d/x3 det=1 wall=44s tc=1 viol=1
+[2026-10-16 22:49:11] [remote] v2_l1d/x3 det=1 wall=185s tc=2 viol=1
+[2026-10-16 22:49:56] [remote] v4_l1d/x3 det=1 wall=45s tc=1 viol=1
+[2026-10-16 22:50:44] [remote] canon_cachetlb/x3 det=1 wall=48s tc=1 viol=1
+[2026-10-16 22:51:24] [remote] aut_signext/x3 det=1 wall=40s tc=1 viol=1
+[2026-10-16 22:51:24] [remote] DONE

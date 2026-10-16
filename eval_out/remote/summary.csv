@@ -1,0 +1,11 @@
+row,core,detected,wall_s,test_cases,violations
+v1_l1d,a715,0,311,107,0
+v2_l1d,a715,1,126,4,1
+v4_l1d,a715,1,92,10,1
+canon_cachetlb,a715,1,96,20,1
+aut_signext,a715,1,213,70,1
+v1_l1d,x3,1,44,1,1
+v2_l1d,x3,1,185,2,1
+v4_l1d,x3,1,45,1,1
+canon_cachetlb,x3,1,48,1,1
+aut_signext,x3,1,40,1,1

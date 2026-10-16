@@ -200,3 +200,14 @@ cond 3,407 > cond+bpas 2,190 -> richer contract = more CE model time per measure
 (seq 9,151; cond 12,171; cond+bpas 7,838) because boosting/effective-classes differ by contract. Simple
 contracts ~8-12k tc/h; the heavy-NI contract (deep nesting + dispatch) is the ~40x drop to ~200 tc/h.
 v2_btb_3t (pure Spectre-v2 / BTB, no sealing) fully-random: 0/3 (rare; needs the template demo).
+
+### Table 7.2 — remote A4 (Cortex-A715=core4) + A5 (Cortex-X3=core8) reproduction (L1D/PAC rows)
+| Violation / Channel | N3 | A715 | X3 | detail |
+|---------------------|----|----|----|--------|
+| Spectre-v1 / L1D    | check | cross? (0 in 107tc/311s — rechecking longer cap) | check (44s,1tc) | v1 X3-fast / A715-slow: core-dependent cond-branch BPU |
+| Spectre-v2 / L1D    | check | check (126s) | check (185s) | |
+| Spectre-v4 / L1D    | check | check (92s)  | check (45s)  | |
+| Canonicality / L1D  | check | check (96s)  | check (48s)  | |
+| AUT* sign bit / L1D | check | check (213s) | check (40s)  | A715 AUT* was the protocol's open unknown -> CHECK |
+X3 = 5/5 reproduce; A715 = 4/5 (v1 pending recheck). BTB rows remote: N/A (cross-input priming is local-only).
+Remote per-tc ~2.8s (adb). ABI-2 Pixel module (built on N3 from GKI), verified loading, abi_version=2.
