@@ -100,6 +100,23 @@ class CrossInputPrimingMixin(_MixinBase):
     _CROSS_INPUT_PRIMING_REGIME: Tuple[Tuple[str, str], ...] = (
         ("enable_pre_run_flush", "0"), ("enable_view_rotation", "0"), ("enable_phr_flush", "1"))
 
+    def fuzzing_round(self, test_case: TestCase, inputs: List[Input],
+                      ignore_list: Optional[List[int]] = None) -> Optional[Violation]:
+        """Cross-input priming must measure the CANDIDATE-DETECTION pass under the SAME executor regime it
+        uses for localization (_CROSS_INPUT_PRIMING_REGIME), not just the localization pass. The regime
+        keeps the microarchitectural leftover alive across inputs (no per-input BPU flush/view rotation,
+        the SSB window open, unpinned); without it the detection measurement runs under the default regime
+        (e.g. ssbs off, so a v4/SSB-window BTB leftover never forms), the leftover is absent, no candidate
+        is ever flagged, and localization never runs. Wrapping the whole round makes detection and
+        localization see the same leftover. Off by default -> the plain round (standard priming)."""
+        if not CONF.enable_cross_input_priming:
+            return super().fuzzing_round(test_case, inputs, ignore_list)
+        if not regime_controllable(self.executor):
+            raise ConfigException("enable_cross_input_priming requires a local HW executor with sysfs "
+                                  "regime control; set enable_cross_input_priming = False for remote.")
+        with executor_regime(self.executor, self._CROSS_INPUT_PRIMING_REGIME):
+            return super().fuzzing_round(test_case, inputs, ignore_list)
+
     def _priming(self, violations: List[Violation], inputs: List[Input]) -> List[Violation]:
         """When enable_cross_input_priming is set, REPLACE standard priming with the generalized-priming
         localization over boosted lanes. Priming asks "does the divergence follow the detecting pair's own

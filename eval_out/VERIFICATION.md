@@ -52,3 +52,33 @@
 - Measured via eval_scripts/a6_localization_cost.py importing the REAL localizers (no reimplementation),
   synthetic single-boundary oracle, counting distinct memoized probes. Device-independent (localizer cost is
   determined by k and boundary position, not the HW).
+
+## CROSS-INPUT BTB REGRESSION — ROOT CAUSE (2026-10-16)
+Symptom: cross-input BTB leftover gives 0 divergence / 0 violations (template canon_oracle_btb.py and
+random canon_btb) even with ssbs=1, pre_run_flush=0. Seal/boost/priming plumbing verified correct.
+ROOT CAUSE: the leftover regime (view_rotation=0, phr_flush=0) is applied ONLY inside _priming
+(aarch64_fuzzer.py:128, the LOCALIZATION step via executor_regime(_CROSS_INPUT_PRIMING_REGIME)), NOT
+around the INITIAL candidate-detection measurement (aarch64_fuzzer.py:275 main trace loop). view_rotation
+& phr_flush default to PRE_RUN_FLUSH_DEFAULT=1 (executor.c:94-96) and are NOT written from CONF at init
+(aarch64_kernel.py init writes only pin, pre_run_flush, ssbs). So the detection measurement runs with
+view_rotation=1 -> BTB invalidated per input -> cross-input leftover WIPED before a candidate is flagged
+-> _priming never runs -> 0 violations. (Matches memory project_btb_leftover_template_automatic killer bug:
+old _maybe_scan_leftovers wrapped the whole scan in the regime; new cross_input_priming wraps only
+localization.) Independent of v1/v4 window and of pinning.
+FIX: apply _CROSS_INPUT_PRIMING_REGIME around the detection measurement loop when enable_cross_input_priming
+is set (or add CONF enable_view_rotation/enable_phr_flush driven at init). Then template should surface the
+leftover; then fix the generator kaddr2uaddr crash for real random fuzzing.
+
+## CROSS-INPUT BTB — RESOLVED (2026-10-16 19:39)
+CONFIRMED cross-input leak via templates/canon_oracle_ssb.py + eval_out/btb/tmpl_ssbs.yml + -i 8:
+  "cross-input priming: CONFIRMED cross-input leak, leaking pair 0 -> detecting pair 2" (Violations:1).
+  Genuine cross-input: leaker(0) != detector(2); cross_input_leaks_only=true (strictly non-self).
+  Violation: eval_out/btb/ssb_i8/violation-261016-193925.
+TWO compounding regressions:
+ (1) detection ran under flush regime: _CROSS_INPUT_PRIMING_REGIME (view_rotation=0/phr_flush=0) was
+     applied only around localization (_priming), not the initial detection measurement; view_rotation
+     defaults to 1 and is not CONF-driven at init -> BTB flushed per input -> leftover wiped. FIX:
+     aarch64_fuzzer.py:117 wraps the detection path in the regime too (subagent).
+ (2) -i too large (100/400) diluted the leaker->prober class structure; original used -i 8 (small).
+ (+) generator crash fix (sealer.py): re-clamp base registers after a BL/BLR (callee clobbers them).
+NEXT: real random fuzzing (no template) with small -i to auto-detect it (user's end goal).

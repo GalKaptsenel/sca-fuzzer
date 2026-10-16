@@ -1267,6 +1267,13 @@ class SandboxWalk:
                                 else curr - frozenset([dreg])
                         else:
                             curr = curr - frozenset([dreg])
+                    # A call transfers to a generated callee that may clobber any caller register (only
+                    # the sandbox base x29 and the frame-spilled x30 are preserved), so no clamped base
+                    # survives it: drop every in-region fact and force a re-clamp of any base used after
+                    # the call. Without this a base clamped before the call and clobbered by the callee
+                    # is reused unclamped -> an architectural out-of-sandbox access (CE fail-loud).
+                    if inst.is_call:
+                        curr = frozenset()
                 taint_out[bb] = curr
             for anchor, bb, insts in prefixes:   # clamps (and STG/LDG cancellation) go in before value
                 for i in insts:
