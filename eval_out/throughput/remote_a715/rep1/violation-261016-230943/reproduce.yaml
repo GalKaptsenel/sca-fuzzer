@@ -1,0 +1,39 @@
+instruction_set: aarch64
+instruction_categories:
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-BITFIELD
+  - BASE-CONDSEL
+  - BASE-BRANCH
+  - BASE-MEM-LOAD
+  - BASE-MEM-STORE
+  - BASE-FLAGOP
+  - BASE-BITCOUNT
+  - BASE-CRC
+  - BASE-BITBYTE
+min_bb_per_function: 2
+max_bb_per_function: 5
+max_successors_per_bb: 2
+min_successors_per_bb: 1
+fuzzer: basic
+input_generator: aarch64-nzcv
+enable_pre_run_flush: 1
+executor_warmups: 5
+input_gen_seed: 0
+
+
+# --- remote (Pixel) execution, pinned to device core 4 ---
+executor_remote: true
+executor_remote_transport: adb
+executor_remote_host: 127.0.0.1
+executor_remote_port: 5037
+executor_remote_device: /dev/executor
+executor_remote_sysfs: /sys/executor
+executor_remote_userland: /data/local/tmp/executor_userland
+executor_remote_module: /data/local/tmp/revizor-executor.ko
+executor_pinned_core: 4
+
+# Overwrite some of the configuration options to reproduce the violation
+input_gen_seed: 1992000440
+inputs_per_class: 1

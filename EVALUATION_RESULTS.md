@@ -211,3 +211,13 @@ v2_btb_3t (pure Spectre-v2 / BTB, no sealing) fully-random: 0/3 (rare; needs the
 | AUT* sign bit / L1D | check | check (213s) | check (40s)  | A715 AUT* was the protocol's open unknown -> CHECK |
 X3 = 5/5 reproduce; A715 = 4/5 (v1 pending recheck). BTB rows remote: N/A (cross-input priming is local-only).
 Remote per-tc ~2.8s (adb). ABI-2 Pixel module (built on N3 from GKI), verified loading, abi_version=2.
+
+### Table 7.1 — throughput COMPLETE
+| variant | tc/hour | exec/s | traces/s | note |
+|---------|---------|--------|----------|------|
+| Local N3 (CT-SEQ) | 9,151 | 254 | 4,223 | 1 isolated core |
+| Remote Pixel A715 (CT-SEQ) | 1,233 | 34.3 | — | ~7.4x slower; ~2.5s adb+device overhead/tc |
+| Local CT-COND | 12,171 | 338 | 3,407 | |
+| Local CT-COND-BPAS | 7,838 | 218 | 2,190 | |
+| Local heavy-NI (nest30+dispatch) | ~200-250 | | | complex-contract anchor |
+Remote-loopback-N3 not feasible via adb (N3=Debian, no adbd); overhead quantified via per-tc delta.
