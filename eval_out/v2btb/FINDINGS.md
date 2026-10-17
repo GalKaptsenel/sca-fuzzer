@@ -58,3 +58,6 @@ programs rarely produce. This is structural, not bad luck — more tries/CF-rich
 **USER DECISION: strictly NO seal.** We do NOT add a which-target seal. The template is the reliable pure-v2
 (no-seal) demonstrator; the random path stays the plain fuzzer with many tries (accepted as rare). A random
 hit, if found, is a genuine chance SSB-gated spec-only dispatch.
+
+## Random final best-effort (2026-10-17)
+rand_final (rand4 richer-CF, -i50, CT-SEQ, no seal): 201 programs in 1 h, Violations=0, confirmed cross-input=0. Combined with rand1-4 => no-seal fully-random pure-v2/BTB NOT surfaced (structurally rare, root-caused). Template remains the reliable demonstrator (TTD 20/20).

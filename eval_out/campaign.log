@@ -257,3 +257,6 @@ v1/A715 recheck: det viol=1 tc=137 wall=374s
 [2026-10-17 01:22:02] [#11] template TTD R=20 COMPLETE: 20/20 detected, mean 71.3s (36.9-155.5s), distinct cross-input pairs each run
 [2026-10-17 01:22:37] [#12] A7 raw-artifact re-runs START (quiet core 90)
 [2026-10-17 01:25:38] [#12] A7 raw artifacts SAVED (fresh, core 90): xproc 56/56@51b/s, rootless 54/56@5b/s, xvm 70/70@125b/s, xel 160/160@1240b/s, smc effect 0.000. Table updated with honest fresh numbers.
+[2026-10-17 01:25:57] [#11 v2-btb] RANDOM best-effort FINAL (rand4 richer-CF, -i50) stop-at-first cap3600 — last no-seal try before OpenSSL
+[2026-10-17 02:26:01] [#11 rand_final] DONE rc=0 wall=3604s viol=0 tc=201 hit=[]
+[2026-10-17 02:26:32] [#11 rand_final] FINAL: TestCases=201 Violations=0 confirmed_crossinput=0 — no-seal random v2/BTB NOT found (structurally rare, as root-caused)

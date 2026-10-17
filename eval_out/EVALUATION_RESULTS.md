@@ -39,7 +39,7 @@ KEY: force CT-SEQ so the speculative dispatch/target is beyond-contract -> targe
 | deterministic reproduce x3 | 3/3 identical pair 0->11 (seeds prog 716170 / input 2522819617) |
 | template under random config (capability) | CONFIRMED leaking 4 -> detecting 5, 13.6 s |
 | TTD (R=20, template) | 20/20 detected (100%), mean 71.3 s, range 36.9–155.5 s, distinct cross-input pair each run |
-| fully-random (no template) | CLOSED — structurally rare (0 confirmed / 4 configs). Plain-fuzzer ct-equal boosting cannot toggle an ARCHITECTURAL dispatch; only a chance SSB-gated spec-only dispatch is localizable. No seal per user decision. |
+| fully-random (no template) | CLOSED — structurally rare (0 confirmed across rand1-4 + rand_final = 201 programs / 1 h, and more). Plain-fuzzer ct-equal boosting cannot toggle an ARCHITECTURAL dispatch; only a chance SSB-gated spec-only dispatch is localizable. No seal per user decision. |
 
 ## Canonicality over the BTB (for contrast — leaked axis = target canonicality, uses the seal)
 Fully-random canon_btb_3t.yml (NI fuzzer + branch_target_sealing): 12/20 (60%) within cap, 2 triage-GENUINE.
