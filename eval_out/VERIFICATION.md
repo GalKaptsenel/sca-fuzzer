@@ -122,3 +122,30 @@ seeds is seed-dependent/rare because the specific speculative-sealed-indirect-ta
   49 classes) -> that template is non-working; canon_oracle_ssb.py is the working BTB template but its axis
   is canonicality. The BTB which-target CARRIER is demonstrated (shared by both rows); the pure-v2 CONTENT
   variant was not independently surfaced on N3. (Fold a dedicated pure-v2 template into the audit if needed.)
+
+## SUPERSEDED (2026-10-17) — pure Spectre-v2/BTB now CONFIRMED via CT-SEQ
+The "NOT cleanly demonstrated" verdict above predates the CT-SEQ breakthrough and is SUPERSEDED. Pure
+Spectre-v2/BTB (which-target, NO sealing, NO PAC) IS confirmed on the template templates/spectre_v2_btb.py
+under CT-SEQ: forcing contract [seq] makes the speculative dispatch/target beyond-contract so the
+target-selecting bits are untainted and boosting creates the within-class which-target toggle. tfuzz -i100
+= 1 viol/57s, cross-input leaking 0->detecting 11, deterministic reproduce 3/3. See eval_out/v2btb/FINDINGS.md.
+Fully-random (no-template) detection remains structurally rare (plain-fuzzer ct-equal boosting cannot toggle
+an ARCHITECTURAL dispatch) and was NOT achieved; per user decision we add no seal. canon_oracle_btb.py
+non-working note above still stands.
+
+## REMOTE BLOCKER RESOLVED (2026-10-17) — supersedes the 2026-10-16 "BLOCKED" note above
+The ABI-2 Pixel module WAS built and installed (from the GKI tree, cross-compiled; artifact
+~/pixel-mod-build/revizor-executor-abi2.ko, pushed to /data/local/tmp/revizor-executor.ko — same path, ABI-2
+content replacing the Sep ABI-1 build). VERIFIED on device 2026-10-17: `adb shell cat
+/sys/executor/system/abi_version` = 2, matching the repo's EXECUTOR_ABI_VERSION=2, so _check_abi_version does
+NOT raise and the remote runs executed against a matching ABI (NOT the "garbage" mismatch the note warned
+against). All remote rows (eval_out/remote/*, eval_out/remote_a510_x3/*) are therefore valid. The "BLOCKED"
+section above is stale and superseded.
+
+## REMOTE A715 5/5 — reconciliation (2026-10-17)
+eval_out/remote/summary.csv shows v1_l1d/a715 det=0 (missed at 107 tc / 311 s, the 300 s cap). The "A715 5/5"
+headline rests on a RECHECK with a larger budget: v1/a715 detected at 137 tc / 374 s (campaign.log
+"v1/A715 recheck: det viol=1 tc=137"). Honest statement: A715 = 4/5 within the first 300 s cap; the 5th (v1)
+reproduces on recheck at 137 tc — v1 on the A715 is marginal (core-dependent BPU; A715 needs more test cases
+than X3), consistent with [[project_n3_fixed_branch_no_mispredict]]-style per-core behavior. summary.csv was
+not re-folded; treat A715 v1 as "reproduced on recheck", not first-cap.

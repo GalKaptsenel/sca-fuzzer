@@ -239,3 +239,9 @@ v1/A715 recheck: det viol=1 tc=137 wall=374s
 [2026-10-17 01:02:21] [ttd-tmpl v2_btb_tmpl]   run4 rc=1 det=1 wall=50.2s tc=1 viol=1 kind=cross-input 13->14
 [2026-10-17 01:02:57] [ttd-tmpl v2_btb_tmpl]   run5 rc=1 det=1 wall=36.9s tc=1 viol=1 kind=cross-input 2->3
 [2026-10-17 01:03:43] [ttd-tmpl v2_btb_tmpl]   run6 rc=1 det=1 wall=45.4s tc=1 viol=1 kind=cross-input 10->12
+[2026-10-17 01:04:20] [ttd-tmpl v2_btb_tmpl]   run7 rc=1 det=1 wall=37.0s tc=1 viol=1 kind=cross-input 3->4
+[2026-10-17 01:05:44] [ttd-tmpl v2_btb_tmpl]   run8 rc=1 det=1 wall=83.7s tc=1 viol=1 kind=cross-input 2->3
+[2026-10-17 01:08:17] [ttd-tmpl v2_btb_tmpl]   run9 rc=1 det=1 wall=153.7s tc=1 viol=1 kind=cross-input 0->10
+[2026-10-17 01:09:43] [ttd-tmpl v2_btb_tmpl]   run10 rc=1 det=1 wall=85.4s tc=1 viol=1 kind=cross-input 10->11
+[2026-10-17 01:11:56] [ttd-tmpl v2_btb_tmpl]   run11 rc=1 det=1 wall=133.7s tc=1 viol=1 kind=cross-input 0->1
+[2026-10-17 01:12:33] [ttd-tmpl v2_btb_tmpl]   run12 rc=1 det=1 wall=36.9s tc=1 viol=1 kind=cross-input 59->60

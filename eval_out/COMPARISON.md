@@ -22,7 +22,7 @@ Units used:
 | **Hide & Seek with Spectres** (EuroS&P'23, arXiv 2301.07642) | Intel i5-6500 (Core6), i7-8650U (Core8), E-2288G (Xeon); AMD EPYC 7543P, x86-64 | CT-SEQ (+ the filters) | 100 | Reports **speedup, not tc/h**: "two orders of magnitude" faster; 130M test-case executions over 13 ISA subsets in **16 h** (orig. Revizor would need **">2 months"**); detection-time reduced by **factor 10-50** | Derived from campaign (see note A): ~**81k tc/h** / ~**2,257 exec/s** optimized vs ~**0.9k tc/h** / ~**25 exec/s** baseline — spans 13 heterogeneous subsets, most tc filtered cheaply; NOT a per-tc fully-executed rate | Fig.1 caption L231-237; L136-143; L242-244 of hs dump |
 | **Flowvizor** (ASPLOS'27, Technion) | Intel i5-12500 (Alder Lake / Golden Cove P-core); comparison runs on AMD Zen 3, x86-64 | CT-SEQ; CT-(AM-COND) baseline; BPU-oracle | 40 | Reports campaign size in **"runs"**, not tc/h: benchmark = 10K programs x 40 inputs = **400K runs** per test-case size; per-tc end-to-end ~50-150 ms (conditional-branch microbenchmark, Fig.11) | No tc/h stated; Fig.11 per-tc time implies order-of ~10 tc/s for the short conditional-branch microbenchmark — not a representative campaign rate (reset/short-tc dominated) | §8 L1450-1472; L315-319; Fig.11 L1600-1620 of flowvizor dump |
 | **Ours** (this work) | **ARM Neoverse-N3**, single isolated core (core 90), local, stock basic fuzzer, AArch64 | **CT-SEQ** (simplest) | **100** (effective, after lane-boosting) | **1316 tc in 600.1 s** | **7,895 tc/h**; **219.3 exec/s**; **4,384 traces/s** | measured N3 run |
-| **Ours** (this work) | ARM Neoverse-N3, single isolated core, AArch64 | **Heavy NI** (branch-target sealing + multi-target dispatch + `model_max_nesting=30`) | 100 | **~15-17 s / test-case** | **~200-250 tc/h** (complex-contract anchor) | measured N3 run |
+| **Ours** (this work) | ARM Neoverse-N3, single isolated core, AArch64 | **Heavy NI** (branch-target sealing + multi-target dispatch + `model_max_nesting=30`) | 100 | **~15-17 s / test-case** | **~200-250 tc/h** (complex-contract anchor) | ESTIMATE from the ~15-17 s/tc anchor — NOT a logged throughput campaign (the measured throughput runs are the CT-SEQ/CT-COND/CT-COND-BPAS rows) |
 | **Ours** (this work) | ARM Neoverse-N3, single isolated core, AArch64 | **CT-COND**, **CT-COND-BPAS** | 100 | *measurement in progress* | *TBD — expected between the SEQ and heavy-NI rows as contract complexity rises* | to append |
 
 **Note A (H&S derivation, shown for completeness, treat with caution).** The H&S campaign is
@@ -72,18 +72,24 @@ over R>=10 independent input-generation seeds.** (ASPLOS: mean over 10; ours: R=
 |---|---|---|
 | Spectre-V1 | 4m 51s | within our 32-80 s band |
 | Spectre-V4 | 73m 25s (longest; needs long spec window / hard-to-train predictor) | within our 32-80 s band |
-| Spectre-V2 | (not time-measured in ASPLOS) | within our 32-80 s band |
+| Spectre-V2 (v2_l1d.yml: random, standard priming, [cond,bpas], 2-target BLR dispatch) | (not time-measured in ASPLOS) | within our 32-80 s band (R=20 mean 79.9 s) |
+
+Note: this Spectre-V2 TTD row is the standard-priming L1D v2 gadget (eval_configs/v2_l1d.yml) and is DISTINCT
+from the pure which-target / no-sealing BTB template result (templates/spectre_v2_btb.py, CT-SEQ, cross-input
+priming), whose own TTD is tracked separately in EVALUATION_RESULTS.md.
 | MDS-type | 7m 40s | n/a on N3 |
 | LVI-type | 5m 35s | n/a on N3 |
-| Canonicality | (not in ASPLOS) | **≈10 s** (paper §Eval) |
+| Canonicality | (not in ASPLOS) | **42.9 s** (R=20 mean, canon_l1d); ≈10 s is the template rediscovery, cited separately (paper §Eval) |
 | AUT*/PAC | (not in ASPLOS) | within our 32-80 s band |
 
 - ASPLOS summary (L1265): **"Revizor detected most violations in under 10 minutes."** The notable
   exception is V4 at 73m 25s because it needs a long speculation window and a predictor that is hard
   to mistrain.
-- **Ours on N3: mean 32-80 s** for Spectre-V1/V2/V4/canon/AUT* (R=20) — i.e. **all under ~90 s**,
-  comfortably inside the "<10 min" envelope, and markedly faster for V4-class leaks than the ASPLOS
-  V4 figure (again, a different CPU/predictor — report as "also fast", not as a tool speedup).
+- **Ours on N3: per-leak R=20 MEANS 32-80 s** for Spectre-V1/V2/V4/canon/AUT* — comfortably inside the
+  "<10 min" envelope. This is the per-row MEAN, not a per-run bound: individual runs range higher
+  (v2_l1d mean 79.9 s but max 361.9 s — one outlier; aut runs to ~144 s; v1 to ~122 s). So state "row
+  means under ~90 s", NOT "all runs under 90 s". Markedly faster for V4-class leaks than the ASPLOS V4
+  figure too (different CPU/predictor — report as "also fast", not as a tool speedup).
 - Beyond ASPLOS we also record **test-cases-to-violation** (not just wall-clock), a finer-grained
   reproducibility metric than ASPLOS's wall-clock-only Table 4; ASPLOS reports inputs-to-violation
   only for manually-written PoCs (Table 5, "few inputs / less than a second").

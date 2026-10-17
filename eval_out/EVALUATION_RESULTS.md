@@ -14,5 +14,5 @@ dispatch beyond-contract -> those bits untainted -> boosting varies them -> the 
 | template | v2_btb_seq.yml + templates/spectre_v2_btb.py, -i100 | CONFIRMED cross-input leaking 0 -> detecting 11, 1 viol / 57s |
 | template, deterministic reproduce x3 | pinned prog 716170 / input 2522819617 | 3/3 identical pair 0->11 |
 | template under random config (capability check) | v2_btb_seq_rand.yml, -i50 | CONFIRMED leaking 4 -> detecting 5, 1 viol / 13.6s (config is capable) |
-| fully-random (no template) | v2_btb_seq_rand2.yml, -i100 | IN PROGRESS (rand gadget rarer than canonicality; needs tries) |
+| fully-random (no template) | v2_btb_seq_rand[1-4].yml | CLOSED — structurally rare (0 confirmed across 4 configs); plain-fuzzer ct-equal boosting cannot toggle an architectural dispatch. No seal per user decision; template is the demonstrator. A long best-effort campaign still runs for a chance SSB-gated spec-only hit. |
 | TTD (R=20) | template | PENDING |
