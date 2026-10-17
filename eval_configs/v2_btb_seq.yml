@@ -1,0 +1,42 @@
+# Spectre-v2 (indirect branch) over the BTB — CT-SEQ TEMPLATE path (templates/spectre_v2_btb.py).
+# CT-SEQ: no speculation modeled, so the speculative dispatch/target is beyond-contract and its
+# selecting bits are UNTAINTED -> boosting varies them -> within-class which-target toggle.
+# PURE which-target: three canonical targets that access NO memory themselves and return distinct offsets;
+# the victim loads from the returned offset AFTER the call, so which target the BTB predicts selects the
+# L1D set. A leaker input trains BTB[blr]->its target; a later ct-equal prober mispredicts to it and its
+# distinct set reveals the leaker's choice. Detected by generalized (cross-input) priming, dropped by
+# standard priming. NO branch-target sealing (that would make it the canonicality leak), NO PAC.
+# Basic fuzzer => boosted RANDOM-DATA lanes (inputs_per_class members per contract class); SSB/v4 window.
+instruction_set: aarch64
+instruction_categories:
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-CONDSEL
+  - BASE-BRANCH
+  - BASE-MEM-LOAD
+  - BASE-MEM-STORE
+fuzzer: basic
+input_generator: aarch64-nzcv
+executor_mode: P+P
+program_size: 24
+min_functions_per_test_case: 4
+max_functions_per_test_case: 5            # entry + 3 target functions
+function_call_probability: 0.9
+max_calls_per_function: 1
+indirect_call_probability: 1.0
+dispatch_call_probability: 1.0
+contract_execution_clause:
+  - seq
+contract_observation_clause: l1d
+model_min_nesting: 1
+model_max_nesting: 30                      # nesting modeled all the way (a surviving leak is beyond-contract = v2)
+enable_pre_run_flush: false                # preserve cross-input BTB training across inputs within a trace
+executor_pinned_core: -1                   # unpinned (per canon_cip_ni: pinning raises the residual)
+executor_sample_sizes: [100, 500]
+enable_cross_input_priming: true           # generalized priming (replaces standard priming)
+cross_input_priming_localizer: optimal
+cross_input_leaks_only: true               # FORCE strictly cross-input (flag reason = leaker!=prober)
+inputs_per_class: 4
+enable_speculative_store_bypass: true      # open SSB/v4 window so the indirect call speculates
+function_size_shrink: 0.5

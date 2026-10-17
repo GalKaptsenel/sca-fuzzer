@@ -1,0 +1,42 @@
+# Spectre-v2 (indirect branch) / real BTB — FULLY RANDOM (no template), CT-SEQ.
+# CT-SEQ makes the speculative dispatch/target beyond-contract so the target-selecting bits are UNTAINTED;
+# boosting then varies them, giving each contract class members that train the BTB to different targets ->
+# which-target cross-input leak. No sealing. Low avg_mem_accesses cuts self-inflicted v2 in random targets.
+# A canonical leaker input trains a BTB entry; a later ct-equal prober input speculatively jumps to the
+# mistrained target. Standard priming discards this cross-input leftover; cross_input_priming localizes it.
+# cross_input_leaks_only:true forces STRICTLY cross-input (non-self) leaks -> no "self-inflicted" same-input
+# violation counts, so a surviving violation is genuinely a cross-input BTB training leak.
+instruction_set: aarch64
+instruction_categories:
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-CONDSEL
+  - BASE-BRANCH
+  - BASE-MEM-LOAD
+  - BASE-MEM-STORE
+fuzzer: basic
+input_generator: aarch64-nzcv
+executor_mode: P+P
+program_size: 24
+min_functions_per_test_case: 5
+max_functions_per_test_case: 6
+function_call_probability: 0.9
+max_calls_per_function: 1
+indirect_call_probability: 1.0
+dispatch_call_probability: 1.0
+contract_execution_clause:
+  - seq
+contract_observation_clause: l1d
+model_min_nesting: 1
+model_max_nesting: 30                     # nesting modeled all the way (a surviving leak is beyond-contract = v2)
+enable_pre_run_flush: false               # preserve cross-input BTB training across inputs within a trace
+executor_pinned_core: -1                  # unpinned: pinning raises the non-canonical residual (per canon_cip_ni)
+enable_cross_input_priming: true          # generalized priming (replaces standard priming)
+cross_input_priming_localizer: optimal    # tight boundary (t*)
+cross_input_leaks_only: true              # FORCE strictly cross-input (no self-inflicted) leaks
+inputs_per_class: 4
+
+enable_speculative_store_bypass: true   # open SSB/v4 window so the indirect call speculates
+function_size_shrink: 0.5
+avg_mem_accesses: 10

@@ -205,3 +205,37 @@ v1/A715 recheck: det viol=1 tc=137 wall=374s
 [rsb] : 18/19 FULL [55:0]
 [2026-10-16 23:16:26] [exploit] CANARY DONE
 [2026-10-16 23:17:36] [exploit] canary: v1 18/19, v4 19/19, rsb 18/19 FULL [55:0] (~95-100%, matches target)
+[2026-10-16 23:23:48] [exploit] OpenSSL STOPPED by user request (reorder: run last). progress preserved in eval_out/exploit_rsa/
+[2026-10-16 23:25:39] [remote10] START A510(eff=0)+X3(prime=8) rows: v1_l1d v2_l1d v4_l1d canon_cachetlb aut_signext
+[2026-10-16 23:26:18] [remote10] v1_l1d/a510(cpu0) det=1 wall=39s tc=1 viol=1
+[2026-10-16 23:27:12] [remote10] v2_l1d/a510(cpu0) det=1 wall=54s tc=1 viol=1
+[2026-10-16 23:27:49] [remote10] v4_l1d/a510(cpu0) det=1 wall=37s tc=1 viol=1
+[2026-10-16 23:28:31] [remote10] canon_cachetlb/a510(cpu0) det=1 wall=42s tc=1 viol=1
+[2026-10-16 23:28:53] [remote10] aut_signext/a510(cpu0) det=1 wall=22s tc=1 viol=1
+[2026-10-16 23:29:36] [remote10] v1_l1d/x3(cpu8) det=1 wall=43s tc=1 viol=1
+[2026-10-16 23:33:19] [#11 v2-btb] template sanity tfuzz -n1 -i100
+[2026-10-16 23:35:37] [remote10] v2_l1d/x3(cpu8) det=0 wall=361s tc=NA viol=NA
+[2026-10-16 23:36:21] [remote10] v4_l1d/x3(cpu8) det=1 wall=44s tc=1 viol=1
+[2026-10-16 23:36:51] [#11 v2-btb] template (architectural blr) tfuzz -n3 -i100
+[2026-10-16 23:37:04] [remote10] canon_cachetlb/x3(cpu8) det=1 wall=43s tc=1 viol=1
+[2026-10-16 23:37:38] [remote10] aut_signext/x3(cpu8) det=1 wall=34s tc=1 viol=1
+[2026-10-16 23:37:38] [remote10] DONE
+[2026-10-16 23:41:20] [#11 v2-btb] canon_oracle_ssb under BASIC no-seal (=pure which-target v2) tfuzz -n5 -i100
+[2026-10-16 23:45:26] [#11 v2-btb] CT-SEQ speculative template tfuzz -n3 -i100 (user insight)
+[2026-10-16 23:47:01] [#10] remote A510+X3 DONE: A510 5/5 (v1/v2/v4/canon/aut); X3 4/5 (v2_l1d hit 361s cap, BPU per-core)
+[2026-10-16 23:47:01] [#11] CT-SEQ template CONFIRMED pure v2/BTB cross-input: leaking 0 -> detecting 11 (57s, seed prog716170 inp2522819617)
+[2026-10-16 23:47:35] [#11 triage] deterministic reproduce x3 (pinned seeds)
+[2026-10-16 23:52:05] [#11 v2-btb] RANDOM (no template) CT-SEQ fuzz -i50, stop-at-first, cap1200
+[2026-10-16 23:58:23] [#11] stopped rand1 (0 viol @ ~17tc) to run config-capability diagnostic (template under random config)
+[2026-10-16 23:58:44] [#11 diag] template UNDER random config (capability check) -i50
+[2026-10-17 00:00:08] [#11 v2-btb] RANDOM rand2 (ipc6,4tgt,-i100) CT-SEQ, stop-at-first, cap1800
+[2026-10-17 00:05:02] [#11 v2-btb] RANDOM rand3 (ipc4,4tgt,-i50,avgmem10) CT-SEQ stop-at-first cap2400 — churn many programs
+[2026-10-17 00:30:39] [#11 v2-btb] RANDOM rand4 (richer CF: 2-4BB, 2succ; CT-SEQ, no seal, 4tgt, -i50) stop-at-first cap2400
+[2026-10-17 00:57:36] [#11] USER DECISION: strictly NO seal. Template = reliable pure-v2 demonstrator; random = plain fuzzer, many tries (rare). NI-seal vehicle NOT used. (NI probe confirmed vehicle=29.8s but discarded per no-seal.)
+[2026-10-17 00:57:36] [ttd-tmpl v2_btb_tmpl] === TTD-TMPL START cfg=eval_configs/v2_btb_seq.yml tmpl=templates/spectre_v2_btb.py inputs=100 cap=300 R=20 ===
+[2026-10-17 00:58:18] [ttd-tmpl v2_btb_tmpl]   run1 rc=1 det=1 wall=42.0s tc=1 viol=1 kind=cross-input 0->1
+[2026-10-17 01:00:53] [ttd-tmpl v2_btb_tmpl]   run2 rc=1 det=1 wall=155.5s tc=1 viol=1 kind=cross-input 65->71
+[2026-10-17 01:01:30] [ttd-tmpl v2_btb_tmpl]   run3 rc=1 det=1 wall=37.0s tc=1 viol=1 kind=cross-input 12->13
+[2026-10-17 01:02:21] [ttd-tmpl v2_btb_tmpl]   run4 rc=1 det=1 wall=50.2s tc=1 viol=1 kind=cross-input 13->14
+[2026-10-17 01:02:57] [ttd-tmpl v2_btb_tmpl]   run5 rc=1 det=1 wall=36.9s tc=1 viol=1 kind=cross-input 2->3
+[2026-10-17 01:03:43] [ttd-tmpl v2_btb_tmpl]   run6 rc=1 det=1 wall=45.4s tc=1 viol=1 kind=cross-input 10->12
