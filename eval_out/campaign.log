@@ -245,3 +245,15 @@ v1/A715 recheck: det viol=1 tc=137 wall=374s
 [2026-10-17 01:09:43] [ttd-tmpl v2_btb_tmpl]   run10 rc=1 det=1 wall=85.4s tc=1 viol=1 kind=cross-input 10->11
 [2026-10-17 01:11:56] [ttd-tmpl v2_btb_tmpl]   run11 rc=1 det=1 wall=133.7s tc=1 viol=1 kind=cross-input 0->1
 [2026-10-17 01:12:33] [ttd-tmpl v2_btb_tmpl]   run12 rc=1 det=1 wall=36.9s tc=1 viol=1 kind=cross-input 59->60
+[2026-10-17 01:13:17] [ttd-tmpl v2_btb_tmpl]   run13 rc=1 det=1 wall=43.6s tc=1 viol=1 kind=cross-input 7->8
+[2026-10-17 01:13:57] [ttd-tmpl v2_btb_tmpl]   run14 rc=1 det=1 wall=40.2s tc=1 viol=1 kind=cross-input 3->4
+[2026-10-17 01:14:43] [ttd-tmpl v2_btb_tmpl]   run15 rc=1 det=1 wall=45.4s tc=1 viol=1 kind=cross-input 13->15
+[2026-10-17 01:15:46] [ttd-tmpl v2_btb_tmpl]   run16 rc=1 det=1 wall=63.4s tc=1 viol=1 kind=cross-input 15->16
+[2026-10-17 01:16:36] [ttd-tmpl v2_btb_tmpl]   run17 rc=1 det=1 wall=50.2s tc=1 viol=1 kind=cross-input 1->2
+[2026-10-17 01:17:50] [ttd-tmpl v2_btb_tmpl]   run18 rc=1 det=1 wall=73.6s tc=1 viol=1 kind=cross-input 13->14
+[2026-10-17 01:20:39] [ttd-tmpl v2_btb_tmpl]   run19 rc=1 det=1 wall=168.7s tc=1 viol=1 kind=cross-input 7->9
+[2026-10-17 01:21:22] [ttd-tmpl v2_btb_tmpl]   run20 rc=1 det=1 wall=43.7s tc=1 viol=1 kind=cross-input 13->14
+[2026-10-17 01:21:22] [ttd-tmpl v2_btb_tmpl] === TTD-TMPL DONE (20 reps) ===
+[2026-10-17 01:22:02] [#11] template TTD R=20 COMPLETE: 20/20 detected, mean 71.3s (36.9-155.5s), distinct cross-input pairs each run
+[2026-10-17 01:22:37] [#12] A7 raw-artifact re-runs START (quiet core 90)
+[2026-10-17 01:25:38] [#12] A7 raw artifacts SAVED (fresh, core 90): xproc 56/56@51b/s, rootless 54/56@5b/s, xvm 70/70@125b/s, xel 160/160@1240b/s, smc effect 0.000. Table updated with honest fresh numbers.
