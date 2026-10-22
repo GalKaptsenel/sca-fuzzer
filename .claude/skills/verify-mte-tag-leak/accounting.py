@@ -81,7 +81,7 @@ elig = {r.sealing.value_reg for r in res._entries
 cer = ex._contract_executor.run(ex._make_ce_execution(
     code, inp, ex._sandbox_base, CONF.model_max_nesting, CONF.model_max_spec_window,
     ExecutionClause.COND | ExecutionClause.BPAS, mte_tags=ex._mte_tags_for(inp),
-    pac_keys=ex._pac_keys, pac_profile=ex._pac_profile_value))
+    pac_keys=ex._input_pac_keys(inp), pac_profile=ex._pac_profile_value))
 cb = cer[0].cpu.pc
 arch, spec = {}, {}
 for ite in cer:

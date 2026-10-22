@@ -6,9 +6,17 @@ Method: verify-mte-tag-leak skill. Local accounting first; arch-prefetch-dominat
 are prefetcher/measurement noise).
 
 ## Standing conclusion
-Two suspects proven noise via controlled tag sweep (MATCH tag never separates): inp14 (143526, x0) and
-inp0 (154155, x4). A speculative tag mismatch does NOT cause v1 speculation-shrinkage here. Definitive
-next step (not done): official TikTag PoC as a positive control.
+The random-fuzzer suspects below are noise (controlled tag sweep, MATCH tag never separates): inp14
+(143526, x0) and inp0 (154155, x4). The fuzzer does not generate the conditions TikTag-v1 needs on the
+X3, so it finds only prefetcher/measurement noise under MteSealing.
+
+TikTag-v1 IS reproducible and detected through the executor with a purpose-built test case: see
+`TIKTAG_V1_EXECUTOR.md` and `tiktag_v1_executor.py`. The test case carries the full measurement (a
+training loop whose last iteration is the attack, a serial `orr`-chain latency gate, and a probe-free
+read set). On core 8 the read set stays L1-resident only for the tag matching the sealed granule (and
+the TCMA-unchecked tag), and the surviving checked tag tracks the sealed tag across reseals (5, 9, 10),
+with separation about +0.67 to +0.70. The official TikTag PoC is the positive control (G1 on the X3,
+G2 on the A715).
 
 ## Per-violation verdicts
 | violation | counterexamples | perturbed reg | verdict | basis |

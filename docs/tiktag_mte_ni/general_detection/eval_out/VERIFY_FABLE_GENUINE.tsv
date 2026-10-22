@@ -1,0 +1,2 @@
+violation-261022-155905	GENUINE	set 9 (base x1): match delta 7=1.00 dominates checked mismatches (max 0.04)
+violation-261022-160128	GENUINE	set 39 (base x5): match delta 7=0.58 dominates checked mismatches (max 0.10)
