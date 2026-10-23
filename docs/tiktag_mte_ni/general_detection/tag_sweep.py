@@ -1,81 +1,87 @@
 #!/usr/bin/env python3
-"""Genuineness control (verify-mte-tag-leak tag-tracking): take the fuzzer's genuine sealed variant of
-one input, and patch ONLY the speculative guess-load's retag ADDG uimm4 to each delta 0..15, measuring
-the probe (set 32) residency per delta. A real tag-CHECK leak keeps the probe present only when the
-retagged tag MATCHES the granule (and for the TCMA-unchecked tags 0/15 whose check is skipped), and
-absent for every checked mismatch. Noise / a non-tag artifact would fire uniformly across deltas.
+"""Pointer-tag sweep of one decoyed seal (polarity + tag-check test). Hold the seal's address (uimm6) and
+sweep its pointer-tag delta uimm4 0..15; the pointer tag = (base_ptr_tag + uimm4) % 16 where base_ptr_tag
+is read from the genuine (uimm4 that matches memory). For each uimm4 read all 64 sets at the tail
+(fixed prefix) and report residency at the probe sets + the width of the lit stream. A genuine tag-check
+transmit: the stream is ABSENT at the match tag (pointer tag == memory tag) and present at mismatches;
+TCMA-unchecked pointer tags 0/15 behave like no-check. Prints the implied pointer tag and match flag.
 
-Usage: tag_sweep.py -s base.json -c <hw.yml> -t <template.asm> [--retag-off 0x90] [--reps 3000]
+Usage: tag_sweep.py <cfg> <vd> <sus> <gate 0xNN> <probe_sets csv> [--reps N] [--prefix P] [--repeat R]
+                    [--memtag M] [--thr 0.5] [--u6 K]
 """
-import argparse
+import glob
 import os
 import sys
 
-ADDG_X5_BASE = 0x918000A5   # ADDG x5, x5, #0, #0 ; uimm4 in bits [13:10]
+ADDG_OP = 0x91800000
 
 
-def residency32(htrace):
-    raw = htrace.raw
-    if not raw:
-        return 0.0
-    return sum((int(r) >> 32) & 1 for r in raw) / len(raw)
+def residency(ht, nsets=64):
+    raw = ht.raw
+    return [0.0] * nsets if not raw else [sum((int(r) >> s) & 1 for r in raw) / len(raw) for s in range(nsets)]
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("-s", "--spec", required=True)
-    ap.add_argument("-c", "--config", required=True)
-    ap.add_argument("-t", "--template", required=True)
-    ap.add_argument("--retag-off", default="0x90")
-    ap.add_argument("--reps", type=int, default=3000)
-    ap.add_argument("--n", type=int, default=1)
-    ap.add_argument("--repo", default="/home/gal_k_1_1998/revizor/sca-fuzzer")
-    a = ap.parse_args()
-    off = int(a.retag_off, 16)
-
-    repo = os.path.abspath(a.repo)
+    cfg, vd = os.path.abspath(sys.argv[1]), os.path.abspath(sys.argv[2])
+    sus = int(sys.argv[3]); gate = int(sys.argv[4], 16)
+    probes = [int(x) for x in sys.argv[5].split(",")]
+    reps = int(sys.argv[sys.argv.index("--reps") + 1]) if "--reps" in sys.argv else 2000
+    P = int(sys.argv[sys.argv.index("--prefix") + 1]) if "--prefix" in sys.argv else 14
+    R = int(sys.argv[sys.argv.index("--repeat") + 1]) if "--repeat" in sys.argv else 1
+    memtag = int(sys.argv[sys.argv.index("--memtag") + 1]) if "--memtag" in sys.argv else 6
+    thr = float(sys.argv[sys.argv.index("--thr") + 1]) if "--thr" in sys.argv else 0.5
+    u6 = int(sys.argv[sys.argv.index("--u6") + 1]) if "--u6" in sys.argv else 0
+    repo = "/home/gal_k_1_1998/revizor/sca-fuzzer"
     sys.path.insert(0, repo)
-    spec, config, template = map(os.path.abspath, (a.spec, a.config, a.template))
-
     from src.config import CONF
-    CONF.load(config)
+    CONF.load(cfg)
     from src import factory
-    from src.aarch64.aarch64_executor_input_encoder import ExecutorInput
+    from src.aarch64.aarch64_executor_input_encoder import deserialize, ExecutorInput
+    wd = "/tmp/tag_sweep_wd"; os.makedirs(wd, exist_ok=True); os.chdir(wd)
+    fz = factory.get_fuzzer(os.path.join(repo, "base.json"), wd, f"{vd}/generated.asm", "")
+    fz.initialize_modules()
+    ex = fz.executor
+    ex.load_test_case(fz.asm_parser.parse_file(f"{vd}/generated.asm"))
 
-    wd = "/tmp/tag_sweep_wd"
-    os.makedirs(wd, exist_ok=True)
-    os.chdir(wd)
+    def load(i):
+        return deserialize(open(glob.glob(f"{vd}/input_{i:04d}.*")[0], "rb").read()).input_
 
-    fuzzer = factory.get_fuzzer(spec, wd, template, "")
-    fuzzer.initialize_modules()
-    tc = fuzzer.generator.create_test_case_from_template(template)
-    ex = fuzzer.executor
-    ex.load_test_case(tc)
-    inputs = fuzzer.input_gen.generate(a.n)
+    inp = load(sus)
+    g = ex.genuine_variant(inp)
+    Reloc = type(g.code_reloc[0]); relocs = list(g.code_reloc)
+    k = next(j for j, r in enumerate(relocs) if (r.value & 0xFFC00000) == ADDG_OP and r.offset == gate)
+    C = (relocs[k].value >> 10) & 0xF          # genuine uimm4 (match)
+    base_ptr_tag = (memtag - C) % 16            # pointer tag produced by uimm4=0
 
-    for ii, inp in enumerate(inputs):
-        gen = ex.genuine_variant(inp)
-        relocs = list(gen.code_reloc)
-        # find the retag reloc at the speculative guess-load's before-slot
-        idx = [k for k, r in enumerate(relocs) if r.offset == off]
-        if not idx:
-            addg = [(k, hex(r.offset), hex(r.value & 0xffffffff)) for k, r in enumerate(relocs)
-                    if (r.value & 0xFFC003FF) == (ADDG_X5_BASE & 0xFFC003FF)]
-            print(f"input {ii}: no reloc at off {hex(off)}; addg-x5 relocs: {addg}")
-            continue
-        k = idx[0]
-        Reloc = type(relocs[k])
-        print(f"\ninput {ii} seed={getattr(inp,'seed','?')} reps={a.reps} retag_off={hex(off)}")
-        res = {}
-        for delta in range(16):
-            r2 = list(relocs)
-            r2[k] = Reloc(off, ADDG_X5_BASE | (delta << 10), relocs[k].rtype)
-            ei = ExecutorInput(gen.input_, code_reloc=tuple(r2), mte_tags=gen.mte_tags,
-                               pac_keys=gen.pac_keys, bpu_training=gen.bpu_training,
-                               env_plan=gen.env_plan)
-            ht, _ = ex.trace_test_case([ei], a.reps)
-            res[delta] = residency32(ht[0])
-        print("  probe32 by retag delta: " + " ".join(f"{d}:{res[d]:.2f}" for d in range(16)))
+    def mk(u4v):
+        plan = list(relocs)
+        v = plan[k].value
+        v = (v & ~(0xF << 10)) | ((u4v & 0xF) << 10)
+        v = (v & ~(0x3F << 16)) | ((u6 & 0x3F) << 16)
+        plan[k] = Reloc(plan[k].offset, v, plan[k].rtype)
+        return ExecutorInput(g.input_, code_reloc=tuple(plan), mte_tags=g.mte_tags,
+                             pac_keys=g.pac_keys, bpu_training=g.bpu_training, env_plan=g.env_plan)
+
+    others = [i for i in range(P + 6) if i != sus][:P]
+    prefix = [ex.genuine_variant(load(i)) for i in others]
+
+    def tail(v):
+        hts, _ = ex.trace_test_case(prefix + [v], reps)
+        return residency(hts[-1])
+
+    print(f"{os.path.basename(vd)} sus#{sus} gate=0x{gate:x} genuine_uimm4(match)={C} memtag={memtag} "
+          f"u6={u6} reps={reps} repeat={R} thr={thr}")
+    print(f"pointer tag = ({base_ptr_tag} + uimm4) % 16 ; MATCH when pointer tag == {memtag} (uimm4={C}); "
+          f"TCMA-unchecked when pointer tag in (0,15)")
+    print(f"{'u4':>3} {'ptag':>4} {'flag':>9} | " + " ".join(f"s{p}" for p in probes) + " | streamwidth")
+    for u4 in range(16):
+        ptag = (base_ptr_tag + u4) % 16
+        flag = "MATCH" if ptag == memtag else ("UNCHK" if ptag in (0, 15) else "mismatch")
+        for rep in range(R):
+            res = tail(mk(u4))
+            lit = [s for s in range(64) if res[s] > thr]
+            pv = " ".join(f"{res[p]:.2f}" for p in probes)
+            print(f"{u4:>3} {ptag:>4} {flag:>9} | {pv} | n={len(lit)} [{min(lit) if lit else '-'}..{max(lit) if lit else '-'}]")
 
 
 if __name__ == "__main__":

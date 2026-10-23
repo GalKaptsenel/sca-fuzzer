@@ -1,0 +1,15 @@
+sandbox base 0xffffff8873821000  core 8  iters 512  ldnum 16  gap 80  read set 32  reps 60
+
+sealed granule tag 5
+  0:0.02 1:0.00 2:0.00 3:0.00 4:0.03 5:0.65 6:0.00 7:0.00 8:0.02 9:0.05 10:0.00 11:0.00 12:0.00 13:0.02 14:0.00 15:0.68
+  matching tag 5 residency 0.65  checked-mismatch max 0.05 mean 0.01  separation +0.60  DETECTED
+
+sealed granule tag 9
+  0:0.02 1:0.03 2:0.00 3:0.03 4:0.02 5:0.02 6:0.00 7:0.00 8:0.02 9:0.70 10:0.02 11:0.02 12:0.02 13:0.00 14:0.02 15:0.78
+  matching tag 9 residency 0.70  checked-mismatch max 0.03 mean 0.01  separation +0.67  DETECTED
+
+sealed granule tag 10
+  0:0.02 1:0.02 2:0.00 3:0.00 4:0.02 5:0.02 6:0.00 7:0.02 8:0.02 9:0.03 10:0.67 11:0.00 12:0.00 13:0.03 14:0.00 15:0.70
+  matching tag 10 residency 0.67  checked-mismatch max 0.03 mean 0.01  separation +0.63  DETECTED
+
+TikTag-v1 DETECTED on core 8 for sealed tags [5, 9, 10]

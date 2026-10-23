@@ -1,0 +1,4 @@
+MAIN=0xffffff8873821000 T=5 read=32 ldnum=16 gap=80 reps=40 core=8 (internal-loop iters sweep)
+iters=   8  MATCH=0.62  checked-mm max=0.07 mean=0.01  sep=+0.55  DETECT
+iters=  32  MATCH=0.65  checked-mm max=0.05 mean=0.02  sep=+0.60  DETECT
+iters=  64  MATCH=0.75  checked-mm max=0.05 mean=0.01  sep=+0.70  DETECT

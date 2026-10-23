@@ -1,0 +1,10 @@
+MAIN=0xffffff8873821000 T=5 read set=32 warm set=48 ldnum=2 iters=512 reps=60 core=8
+--- gap=80 ldnum=16 sealed-tag(match)=5 ---
+0:0.00 1:0.03 2:0.00 3:0.03 4:0.00 5:0.72 6:0.05 7:0.05 8:0.02 9:0.00 10:0.02 11:0.00 12:0.02 13:0.02 14:0.03 15:0.72
+   MATCH(tag5)=0.72  checked-mismatch max=0.05 mean=0.02  sep=+0.67  argmax(checked)=tag5 == MATCH  *** DETECTED ***
+--- gap=80 ldnum=16 sealed-tag(match)=9 ---
+0:0.02 1:0.02 2:0.02 3:0.02 4:0.02 5:0.00 6:0.00 7:0.02 8:0.00 9:0.72 10:0.02 11:0.00 12:0.03 13:0.02 14:0.00 15:0.58
+   MATCH(tag9)=0.72  checked-mismatch max=0.03 mean=0.01  sep=+0.68  argmax(checked)=tag9 == MATCH  *** DETECTED ***
+--- gap=80 ldnum=16 sealed-tag(match)=10 ---
+0:0.00 1:0.00 2:0.00 3:0.00 4:0.02 5:0.02 6:0.00 7:0.00 8:0.03 9:0.00 10:0.73 11:0.05 12:0.05 13:0.00 14:0.00 15:0.67
+   MATCH(tag10)=0.73  checked-mismatch max=0.05 mean=0.01  sep=+0.68  argmax(checked)=tag10 == MATCH  *** DETECTED ***

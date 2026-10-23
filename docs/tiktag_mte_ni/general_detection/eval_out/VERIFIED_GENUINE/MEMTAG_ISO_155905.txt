@@ -1,0 +1,21 @@
+
+userskel_155905_iso suspect#5 divset=9 reps=2000 default_memtag=6
+genuine baseline divset res=1.00; speculative granules=[0, 8, 36, 108, 134, 200, 227, 256, 364, 419, 452, 463, 485]
+PHASE A (retag one spec granule -> mismatch, |delta| on divset):
+  granule   0: memtag 6->13  divset 1.00->1.00  |d|=0.00
+  granule   8: memtag 6->13  divset 1.00->0.98  |d|=0.02
+  granule  36: memtag 6->13  divset 1.00->1.00  |d|=0.00
+  granule 108: memtag 6->13  divset 1.00->1.00  |d|=0.00
+  granule 134: memtag 6->13  divset 1.00->0.87  |d|=0.13
+  granule 200: memtag 6->13  divset 1.00->1.00  |d|=0.00
+  granule 227: memtag 6->13  divset 1.00->1.00  |d|=0.00
+  granule 256: memtag 6->13  divset 1.00->1.00  |d|=0.00
+  granule 364: memtag 6->13  divset 1.00->1.00  |d|=0.00
+  granule 419: memtag 6->13  divset 1.00->1.00  |d|=0.00
+  granule 452: memtag 6->13  divset 1.00->1.00  |d|=0.00
+  granule 463: memtag 6->13  divset 1.00->1.00  |d|=0.00
+  granule 485: memtag 6->13  divset 1.00->0.87  |d|=0.13
+relevant speculative granule = 134
+PHASE B (retag granule 134 memtag 0..15, pointer genuine; divset residency):
+   0:0.85 1:0.87 2:0.86 3:0.88 4:0.88 5:0.86 6:1.00 7:0.87 8:0.54 9:0.87 10:0.71 11:0.87 12:0.86 13:0.82 14:0.76 15:0.79
+   memtag=default(6) -> 1.00 ; mean(other checked) -> 0.82 ; min/max other -> 0.54/0.88

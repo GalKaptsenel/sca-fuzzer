@@ -1,0 +1,38 @@
+=== tco_force=0 (checks ON) ===
+--- tco=0 rep1 ---
+ set | gen@tail dec@tail (tag, same slot) | gen@head dec@head | pos(gen tail-head)
+   1 |   0.00    1.00  (Δtag=+1.00)   |   0.00    1.00   | Δpos=-0.00  -> TAG-gain
+   4 |   0.03    1.00  (Δtag=+0.97)   |   0.00    1.00   | Δpos=+0.02  -> TAG-gain
+   8 |   0.01    1.00  (Δtag=+0.99)   |   0.00    0.95   | Δpos=+0.01  -> TAG-gain
+   9 |   0.00    1.00  (Δtag=+1.00)   |   0.00    0.95   | Δpos=+0.00  -> TAG-gain
+--- tco=0 rep2 ---
+ set | gen@tail dec@tail (tag, same slot) | gen@head dec@head | pos(gen tail-head)
+   1 |   0.00    1.00  (Δtag=+1.00)   |   0.00    1.00   | Δpos=-0.00  -> TAG-gain
+   4 |   0.03    1.00  (Δtag=+0.97)   |   0.01    1.00   | Δpos=+0.02  -> TAG-gain
+   8 |   0.01    1.00  (Δtag=+0.99)   |   0.01    0.95   | Δpos=-0.00  -> TAG-gain
+   9 |   0.00    1.00  (Δtag=+1.00)   |   0.00    0.95   | Δpos=+0.00  -> TAG-gain
+--- tco=0 rep3 ---
+ set | gen@tail dec@tail (tag, same slot) | gen@head dec@head | pos(gen tail-head)
+   1 |   0.00    1.00  (Δtag=+0.99)   |   0.00    1.00   | Δpos=+0.00  -> TAG-gain
+   4 |   0.03    1.00  (Δtag=+0.97)   |   0.00    1.00   | Δpos=+0.03  -> TAG-gain
+   8 |   0.02    1.00  (Δtag=+0.98)   |   0.00    0.96   | Δpos=+0.01  -> TAG-gain
+   9 |   0.00    1.00  (Δtag=+1.00)   |   0.00    0.97   | Δpos=+0.00  -> TAG-gain
+=== tco_force=1 (checks OFF) ===
+--- tco=1 rep1 ---
+ set | gen@tail dec@tail (tag, same slot) | gen@head dec@head | pos(gen tail-head)
+   1 |   0.00    0.00  (Δtag=+0.00)   |   0.00    0.00   | Δpos=+0.00  -> flat
+   4 |   0.03    0.02  (Δtag=-0.01)   |   0.00    0.00   | Δpos=+0.03  -> flat
+   8 |   0.01    0.01  (Δtag=+0.00)   |   0.00    0.00   | Δpos=+0.01  -> flat
+   9 |   0.00    0.00  (Δtag=-0.00)   |   0.00    0.00   | Δpos=+0.00  -> flat
+--- tco=1 rep2 ---
+ set | gen@tail dec@tail (tag, same slot) | gen@head dec@head | pos(gen tail-head)
+   1 |   0.00    0.00  (Δtag=+0.00)   |   0.00    0.00   | Δpos=-0.00  -> flat
+   4 |   0.03    0.02  (Δtag=-0.00)   |   0.00    0.00   | Δpos=+0.02  -> flat
+   8 |   0.01    0.01  (Δtag=+0.00)   |   0.01    0.00   | Δpos=-0.00  -> flat
+   9 |   0.00    0.00  (Δtag=+0.00)   |   0.00    0.00   | Δpos=-0.00  -> flat
+--- tco=1 rep3 ---
+ set | gen@tail dec@tail (tag, same slot) | gen@head dec@head | pos(gen tail-head)
+   1 |   0.02    0.00  (Δtag=-0.02)   |   0.00    0.00   | Δpos=+0.02  -> flat
+   4 |   0.05    0.03  (Δtag=-0.01)   |   0.00    0.01   | Δpos=+0.05  -> flat
+   8 |   0.02    0.01  (Δtag=-0.00)   |   0.00    0.00   | Δpos=+0.02  -> flat
+   9 |   0.01    0.00  (Δtag=-0.01)   |   0.00    0.00   | Δpos=+0.01  -> flat

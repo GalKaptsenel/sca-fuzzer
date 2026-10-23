@@ -1,0 +1,12 @@
+
+WARNING: [fuzzer] Running in non-interference mode.
+violation-261023-072421 suspect#1 decoy=noncanon reps=3000 prefix=14
+ set | gen@tail dec@tail (tag, same slot) | gen@head dec@head | pos(gen tail-head)
+   1 |   0.00    1.00  (Δtag=+1.00)   |   0.00    1.00   | Δpos=+0.00  -> TAG-gain
+   4 |   0.04    1.00  (Δtag=+0.96)   |   0.00    1.00   | Δpos=+0.04  -> TAG-gain
+   5 |   0.11    0.72  (Δtag=+0.60)   |   0.00    0.91   | Δpos=+0.11  -> TAG-gain
+   6 |   0.08    1.00  (Δtag=+0.92)   |   0.00    1.00   | Δpos=+0.08  -> TAG-gain
+   8 |   0.03    1.00  (Δtag=+0.97)   |   0.00    0.96   | Δpos=+0.03  -> TAG-gain
+   9 |   0.00    1.00  (Δtag=+1.00)   |   0.00    0.94   | Δpos=+0.00  -> TAG-gain
+  10 |   0.01    1.00  (Δtag=+0.99)   |   0.00    1.00   | Δpos=+0.01  -> TAG-gain
+  11 |   0.00    1.00  (Δtag=+1.00)   |   0.00    0.94   | Δpos=+0.00  -> TAG-gain

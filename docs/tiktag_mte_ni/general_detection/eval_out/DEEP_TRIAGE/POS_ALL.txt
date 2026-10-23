@@ -1,0 +1,38 @@
+===== ctrl_pos_tag 004926 (suspect #5, sets 27,30,36) =====
+
+violation-261023-004926 suspect#5 decoy=decoy0 reps=3000 prefix=14
+ set | gen@tail dec@tail (tag, same slot) | gen@head dec@head | pos(gen tail-head)
+  27 |   0.19    0.15  (Δtag=-0.04)   |   0.01    0.02   | Δpos=+0.18  -> position-only
+  30 |   0.07    0.04  (Δtag=-0.03)   |   0.01    0.01   | Δpos=+0.06  -> flat
+  36 |   0.03    0.03  (Δtag=-0.00)   |   0.01    0.02   | Δpos=+0.02  -> flat
+===== ctrl_pos_tag 010423 (suspect #5, sets 1,5,32,53,54) =====
+
+violation-261023-010423 suspect#5 decoy=decoy0 reps=3000 prefix=14
+ set | gen@tail dec@tail (tag, same slot) | gen@head dec@head | pos(gen tail-head)
+   1 |   0.05    0.05  (Δtag=-0.00)   |   0.01    0.01   | Δpos=+0.04  -> flat
+   5 |   0.06    0.07  (Δtag=+0.01)   |   0.00    0.01   | Δpos=+0.05  -> flat
+  32 |   0.05    0.07  (Δtag=+0.02)   |   0.02    0.01   | Δpos=+0.03  -> flat
+  53 |   0.07    0.07  (Δtag=-0.01)   |   0.00    0.01   | Δpos=+0.07  -> flat
+  54 |   0.11    0.10  (Δtag=-0.02)   |   0.05    0.04   | Δpos=+0.07  -> flat
+===== ctrl_pos_tag 032456 (suspect #2, sets 5,11,12,17,21,49) =====
+
+violation-261023-032456 suspect#2 decoy=decoy0 reps=3000 prefix=14
+ set | gen@tail dec@tail (tag, same slot) | gen@head dec@head | pos(gen tail-head)
+   5 |   0.18    0.12  (Δtag=-0.06)   |   0.01    0.01   | Δpos=+0.17  -> position-only
+  11 |   0.10    0.03  (Δtag=-0.06)   |   0.00    0.00   | Δpos=+0.09  -> flat
+  12 |   0.11    0.04  (Δtag=-0.07)   |   0.00    0.00   | Δpos=+0.11  -> flat
+  17 |   0.84    0.74  (Δtag=-0.11)   |   0.58    0.57   | Δpos=+0.26  -> position-only
+  21 |   0.22    0.09  (Δtag=-0.14)   |   0.01    0.01   | Δpos=+0.21  -> position-only
+  49 |   0.07    0.01  (Δtag=-0.06)   |   0.01    0.01   | Δpos=+0.06  -> flat
+===== ctrl_pos_tag 062913 (suspect #5, sets 38,50) =====
+
+violation-261023-062913 suspect#5 decoy=decoy0 reps=3000 prefix=14
+ set | gen@tail dec@tail (tag, same slot) | gen@head dec@head | pos(gen tail-head)
+  38 |   0.06    0.06  (Δtag=+0.00)   |   0.01    0.00   | Δpos=+0.05  -> flat
+  50 |   0.09    0.07  (Δtag=-0.02)   |   0.01    0.01   | Δpos=+0.08  -> flat
+===== ctrl_pos_tag 061958 (suspect #5, sets 5,17) =====
+
+violation-261023-061958 suspect#5 decoy=decoy0 reps=3000 prefix=14
+ set | gen@tail dec@tail (tag, same slot) | gen@head dec@head | pos(gen tail-head)
+   5 |   0.13    0.20  (Δtag=+0.07)   |   0.00    0.02   | Δpos=+0.13  -> flat
+  17 |   0.00    0.02  (Δtag=+0.02)   |   0.00    0.01   | Δpos=+0.00  -> flat

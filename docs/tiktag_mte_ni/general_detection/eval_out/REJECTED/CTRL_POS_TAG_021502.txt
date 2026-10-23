@@ -1,0 +1,11 @@
+
+WARNING: [fuzzer] Running in non-interference mode.
+violation-261023-021502 suspect#0 decoy=decoy0 reps=3000 prefix=14
+ set | gen@tail dec@tail (tag, same slot) | gen@head dec@head | pos(gen tail-head)
+   6 |   0.00    0.00  (Δtag=-0.00)   |   0.01    0.04   | Δpos=-0.00  -> flat
+  18 |   0.01    0.00  (Δtag=-0.00)   |   0.01    0.06   | Δpos=-0.01  -> flat
+  32 |   0.55    0.93  (Δtag=+0.37)   |   0.81    0.78   | Δpos=-0.26  -> TAG
+  51 |   0.00    0.00  (Δtag=-0.00)   |   0.01    0.06   | Δpos=-0.01  -> flat
+  52 |   0.01    0.00  (Δtag=-0.01)   |   0.02    0.15   | Δpos=-0.01  -> flat
+  56 |   0.02    0.00  (Δtag=-0.01)   |   0.02    0.15   | Δpos=-0.01  -> flat
+  58 |   0.01    0.00  (Δtag=-0.01)   |   0.01    0.10   | Δpos=+0.00  -> flat

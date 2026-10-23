@@ -1,0 +1,76 @@
+   0:	d503201f 	nop
+   4:	5400002f 	b.nv	0x8
+   8:	ba4dd80b 	ccmn	x0, #0xd, #0xb, le
+   c:	5400002f 	b.nv	0x10
+  10:	6a210041 	bics	w1, w2, w1
+  14:	927c2042 	and	x2, x2, #0x1ff0
+  18:	8b1d0042 	add	x2, x2, x29
+  1c:	cb010042 	sub	x2, x2, x1
+  20:	91801c42 	addg	x2, x2, #0x0, #0x7
+  24:	b8216845 	str	w5, [x2, x1]
+  28:	91800042 	addg	x2, x2, #0x0, #0x0
+  2c:	12163842 	and	w2, w2, #0x1fffc00
+  30:	9a820025 	csel	x5, x1, x2, eq	// eq = none
+  34:	14000001 	b	0x38
+  38:	da825002 	csinv	x2, x0, x2, pl	// pl = nfrst
+  3c:	35000043 	cbnz	w3, 0x44
+  40:	5400042f 	b.nv	0xc4
+  44:	ba5c0824 	ccmn	x1, #0x1c, #0x4, eq	// eq = none
+  48:	4a000004 	eor	w4, w0, w0
+  4c:	927c2042 	and	x2, x2, #0x1ff0
+  50:	8b1d0042 	add	x2, x2, x29
+  54:	91801c42 	addg	x2, x2, #0x0, #0x7
+  58:	28b69444 	stp	w4, w5, [x2], #-76
+  5c:	d18120a1 	subg	x1, x5, #0x10, #0x8
+  60:	927c2000 	and	x0, x0, #0x1ff0
+  64:	8b1d0000 	add	x0, x0, x29
+  68:	d12e4000 	sub	x0, x0, #0xb90
+  6c:	d96b9803 	stzg	x3, [x0, #2960]
+  70:	14000001 	b	0x74
+  74:	5400002f 	b.nv	0x78
+  78:	927c2000 	and	x0, x0, #0x1ff0
+  7c:	8b1d0000 	add	x0, x0, x29
+  80:	91801c00 	addg	x0, x0, #0x0, #0x7
+  84:	f809d405 	str	x5, [x0], #157
+  88:	927c2021 	and	x1, x1, #0x1ff0
+  8c:	8b1d0021 	add	x1, x1, x29
+  90:	91801c21 	addg	x1, x1, #0x0, #0x7
+  94:	b804e423 	str	w3, [x1], #78
+  98:	927c2042 	and	x2, x2, #0x1ff0
+  9c:	8b1d0042 	add	x2, x2, x29
+  a0:	d9e00842 	stz2g	x2, [x2]
+  a4:	927c2000 	and	x0, x0, #0x1ff0
+  a8:	8b1d0000 	add	x0, x0, x29
+  ac:	cb010000 	sub	x0, x0, x1
+  b0:	91801c00 	addg	x0, x0, #0x0, #0x7
+  b4:	b8216805 	str	w5, [x0, x1]
+  b8:	91800000 	addg	x0, x0, #0x0, #0x0
+  bc:	b6d00040 	tbz	x0, #58, 0xc4
+  c0:	5400034e 	b.al	0x128
+  c4:	5a81a022 	cinv	w2, w1, lt	// lt = tstop
+  c8:	927c2021 	and	x1, x1, #0x1ff0
+  cc:	8b1d0021 	add	x1, x1, x29
+  d0:	913f4021 	add	x1, x1, #0xfd0
+  d4:	d9703025 	ldg	x5, [x1, #-4048]
+  d8:	927c2063 	and	x3, x3, #0x1ff0
+  dc:	8b1d0063 	add	x3, x3, x29
+  e0:	d9600061 	ldg	x1, [x3]
+  e4:	1ac10841 	udiv	w1, w2, w1
+  e8:	ca000065 	eor	x5, x3, x0
+  ec:	14000001 	b	0xf0
+  f0:	927c2084 	and	x4, x4, #0x1ff0
+  f4:	8b1d0084 	add	x4, x4, x29
+  f8:	91803484 	addg	x4, x4, #0x0, #0xd
+  fc:	b84de482 	ldr	w2, [x4], #222
+ 100:	ba44508b 	ccmn	x4, x4, #0xb, pl	// pl = nfrst
+ 104:	927c2021 	and	x1, x1, #0x1ff0
+ 108:	8b1d0021 	add	x1, x1, x29
+ 10c:	91800821 	addg	x1, x1, #0x0, #0x2
+ 110:	f9000022 	str	x2, [x1]
+ 114:	91801421 	addg	x1, x1, #0x0, #0x5
+ 118:	927c2042 	and	x2, x2, #0x1ff0
+ 11c:	8b1d0042 	add	x2, x2, x29
+ 120:	91801c42 	addg	x2, x2, #0x0, #0x7
+ 124:	29400442 	ldp	w2, w1, [x2]
+ 128:	d503201f 	nop
+ 12c:	14000001 	b	0x130

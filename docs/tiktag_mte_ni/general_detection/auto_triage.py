@@ -32,6 +32,7 @@ ACCOUNTING = os.path.join(REPO, ".claude/skills/verify-mte-tag-leak/accounting.p
 TRIAGE_SWEEP = os.path.join(HERE, "triage_sweep.py")
 SEP = 0.20        # match must beat every checked mismatch by this
 MATCH_MIN = 0.30  # and the match residency must be at least this
+DEFAULT_MEMTAG = 6  # MTE_INITIAL_DEFAULT_TAG; the uniform genuine memory tag (src/aarch64/aarch64_mte.py)
 
 
 def _run(args):
@@ -104,13 +105,17 @@ def parse_sweep(txt):
 
 
 def classify_sweep(gd, sweep):
-    """Return (verdict, detail). TCMA-unchecked absolute tags are 0 and 15; here the sweep is over the
-    retag DELTA, so we treat deltas 0 and 15 as the candidate TCMA-unchecked ones and require the match
-    to dominate the remaining CHECKED mismatches."""
+    """Return (verdict, detail). TCMA-unchecked absolute tags are 0 and 15. The sweep is over the retag
+    DELTA, and pointer tag = base_tag + delta; at the match delta the pointer tag equals the genuine
+    memory tag (DEFAULT_MEMTAG), so base_tag = (DEFAULT_MEMTAG - gd) % 16. Exclude the DELTAS that map to
+    tags 0/15 (tag space, not delta space) and require the match to dominate the remaining CHECKED
+    mismatches."""
     if gd is None or gd not in sweep:
         gd = max(sweep, key=sweep.get)
     match = sweep[gd]
-    checked_mm = [v for d, v in sweep.items() if d != gd and d not in (0, 15)]
+    base_tag = (DEFAULT_MEMTAG - gd) % 16
+    tcma_deltas = {d for d in sweep if (base_tag + d) % 16 in (0, 15)}
+    checked_mm = [v for d, v in sweep.items() if d != gd and d not in tcma_deltas]
     hi_mm = max(checked_mm) if checked_mm else 0.0
     if match >= MATCH_MIN and (match - hi_mm) >= SEP:
         return "GENUINE", f"match delta {gd}={match:.2f} dominates checked mismatches (max {hi_mm:.2f})"
@@ -135,6 +140,20 @@ def main():
     report = [f"# auto_triage: {os.path.basename(vd)}", "",
               f"config: {cfg}", f"suspect input: #{sus}", f"reps: {reps}", "",
               "## Step 1+2 (accounting)", "```", acc.strip(), "```", ""]
+
+    # FAIL LOUD: a crashed accounting must not be read as "no spec sets -> NOISE" (fail-open). If the
+    # subprocess raised, abort to ERROR so the verdict is never a silent NOISE on empty defaults.
+    if "Traceback (most recent call last)" in acc or "FileNotFoundError" in acc or "ModuleNotFound" in acc:
+        verdict = "ERROR"
+        reason = ("accounting.py crashed (see Step 1+2 output) — triage ABORTED, NOT classified NOISE. "
+                  "Fix accounting before trusting any verdict for this violation.")
+        report += ["", f"## VERDICT: {verdict}", reason]
+        open(f"{vd}/AUTO_TRIAGE.md", "w").write("\n".join(report) + "\n")
+        print(f"{os.path.basename(vd)}  VERDICT={verdict}  :: {reason}")
+        if ledger:
+            with open(ledger, "a") as fh:
+                fh.write(f"{os.path.basename(vd)}\t{verdict}\t{reason}\n")
+        sys.exit(3)
 
     verdict, reason, sweeps = "NOISE", "", []
     if not tag_only:

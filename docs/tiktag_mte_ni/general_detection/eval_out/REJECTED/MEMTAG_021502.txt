@@ -1,0 +1,18 @@
+
+WARNING: [fuzzer] Running in non-interference mode.
+violation-261023-021502 suspect#0 divset=52 reps=1500 default_memtag=6
+genuine baseline divset res=0.00; speculative granules=[17, 54, 69, 171, 261, 339, 442, 503, 508]
+PHASE A (retag one spec granule -> mismatch, |delta| on divset):
+  granule  17: memtag 6->13  divset 0.00->0.03  |d|=0.03
+  granule  54: memtag 6->13  divset 0.00->0.01  |d|=0.01
+  granule  69: memtag 6->13  divset 0.00->0.01  |d|=0.01
+  granule 171: memtag 6->13  divset 0.00->0.09  |d|=0.09
+  granule 261: memtag 6->13  divset 0.00->0.06  |d|=0.06
+  granule 339: memtag 6->13  divset 0.00->0.01  |d|=0.01
+  granule 442: memtag 6->13  divset 0.00->0.99  |d|=0.99
+  granule 503: memtag 6->13  divset 0.00->0.98  |d|=0.98
+  granule 508: memtag 6->13  divset 0.00->0.91  |d|=0.91
+relevant speculative granule = 442
+PHASE B (retag granule 442 memtag 0..15, pointer genuine; divset residency):
+   0:0.99 1:0.99 2:0.99 3:0.99 4:0.99 5:0.99 6:0.01 7:0.99 8:0.99 9:0.99 10:1.00 11:0.99 12:1.00 13:0.99 14:0.99 15:1.00
+   memtag=default(6) -> 0.01 ; mean(other checked) -> 0.99 ; min/max other -> 0.99/1.00

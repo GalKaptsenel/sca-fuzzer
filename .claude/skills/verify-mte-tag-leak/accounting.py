@@ -7,7 +7,7 @@ CE per-set accounting (arch/spec demands + prefetch streams), and — for each d
 is a prefetch stream of a SPECULATIVE tag-sealed access and which base register gates it. The printed
 REG + LEAK sets feed ctrl_sweep.py."""
 import sys, glob, os, re, itertools
-REPO = "/home/gal_k_1_1998/sca-fuzzer"
+REPO = "/home/gal_k_1_1998/revizor/sca-fuzzer"
 sys.path.insert(0, REPO)
 from src.config import CONF
 CFG, VD, SUS = sys.argv[1], sys.argv[2], int(sys.argv[3])
@@ -71,9 +71,12 @@ else:
 
 # --- Step 2: CE per-set accounting (local) ---
 fz = NoninterferenceFuzzer("base.json", REPO); fz.initialize_modules()
-ex = fz.executor; ex._sandbox_base = 0xffffff8864da1000
+ex = fz.executor; ex._sandbox_base = 0xffff8873821000
 sealed = ex._sealer.seal(fz.asm_parser.parse_file(f"{VD}/generated.asm"))
-inp = deserialize(open(f"{VD}/input_{SUS:04d}.bin", "rb").read()).input_
+_inp_files = glob.glob(f"{VD}/input_{SUS:04d}.reif") or glob.glob(f"{VD}/input_{SUS:04d}.bin")
+if not _inp_files:
+    raise FileNotFoundError(f"no input_{SUS:04d}.reif or .bin in {VD}")
+inp = deserialize(open(_inp_files[0], "rb").read()).input_
 res = sealed.resolve(inp)
 code = apply_relocations(res.object_code, res.genuine())
 elig = {r.sealing.value_reg for r in res._entries

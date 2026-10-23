@@ -1,0 +1,14 @@
+
+WARNING: [fuzzer] Running in non-interference mode.
+violation-261023-072421 set=9 gate=0x120 C=7 base_tag=15 d(tag6)=7 d(tag9)=10 reps=2000
+retag each granule->9; MATCH should move set 9 suppression from d=7 to d=10
+  granule  287 -> T=9: set9@d7(tag6)=0.00  set9@d10(tag9)=1.00
+  granule  305 -> T=9: set9@d7(tag6)=1.00  set9@d10(tag9)=0.00  <-- TRACKS (match moved to d_T)
+  granule  189 -> T=9: set9@d7(tag6)=0.00  set9@d10(tag9)=1.00
+  granule  286 -> T=9: set9@d7(tag6)=0.00  set9@d10(tag9)=1.00
+  granule  288 -> T=9: set9@d7(tag6)=0.00  set9@d10(tag9)=1.00
+  granule  304 -> T=9: set9@d7(tag6)=0.00  set9@d10(tag9)=1.00
+  granule  306 -> T=9: set9@d7(tag6)=0.01  set9@d10(tag9)=1.00
+  granule  190 -> T=9: set9@d7(tag6)=0.00  set9@d10(tag9)=1.00
+  granule  188 -> T=9: set9@d7(tag6)=0.00  set9@d10(tag9)=1.00
+  granule  255 -> T=9: set9@d7(tag6)=0.97  set9@d10(tag9)=0.97

@@ -1,0 +1,8 @@
+
+WARNING: [fuzzer] Running in non-interference mode.
+violation-261023-072421 suspect#1 set=9 granule=287 cell_tag=6 reps=2000 prefix=14 gate=0x120 correct=7 base@tail=0.00
+rows=memtag T (STG granule), cols=store-pointer delta 0..15 at TAIL; genuine match delta per T = (C+T-cell_tag)%16
+  T= 3 match_delta= 4 dip= 7 peak= 2  0:0.00 1:1.00 2:1.00 3:1.00 4:1.00 5:1.00 6:1.00 7:0.00 8:1.00 9:1.00 10:1.00 11:1.00 12:1.00 13:1.00 14:1.00 15:1.00
+  T= 6 match_delta= 7 dip= 7 peak= 2  0:0.01 1:1.00 2:1.00 3:1.00 4:1.00 5:1.00 6:1.00 7:0.00 8:1.00 9:1.00 10:1.00 11:1.00 12:1.00 13:1.00 14:1.00 15:1.00
+  T= 9 match_delta=10 dip= 7 peak= 2  0:0.00 1:1.00 2:1.00 3:1.00 4:1.00 5:1.00 6:1.00 7:0.01 8:1.00 9:1.00 10:1.00 11:1.00 12:1.00 13:1.00 14:1.00 15:1.00
+  T=12 match_delta=13 dip= 7 peak= 2  0:0.00 1:1.00 2:1.00 3:1.00 4:1.00 5:1.00 6:1.00 7:0.00 8:1.00 9:1.00 10:1.00 11:1.00 12:1.00 13:1.00 14:1.00 15:1.00

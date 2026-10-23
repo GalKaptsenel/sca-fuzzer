@@ -1,0 +1,98 @@
+
+enacted_test0000.bin:     file format binary
+
+
+Disassembly of section .data:
+
+0000000000000000 <.data>:
+   0:	nop
+   4:	ccmp	x0, x1, #0xc, eq	// eq = none
+   8:	and	x4, x4, #0xfffffffffc00003f
+   c:	and	x4, x4, #0x1ff0
+  10:	add	x4, x4, x29
+  14:	sub	x4, x4, #0xfff
+  18:	sub	x4, x4, #0xfff
+  1c:	sub	x4, x4, #0xfff
+  20:	sub	x4, x4, #0x69f
+  24:	addg	x4, x4, #0x0, #0x7
+  28:	ldr	w5, [x4, #13980]
+  2c:	addg	x4, x4, #0x0, #0x0
+  30:	b.nv	0x34
+  34:	and	x4, x4, #0x1ff0
+  38:	add	x4, x4, x29
+  3c:	addg	x4, x4, #0x0, #0x7
+  40:	stp	x1, x0, [x4], #312
+  44:	b.al	0x48
+  48:	and	x1, x1, #0x1ff0
+  4c:	add	x1, x1, x29
+  50:	stzg	x1, [x1], #816
+  54:	csinc	w5, w1, w2, vs
+  58:	and	x5, x5, #0x1ff0
+  5c:	add	x5, x5, x29
+  60:	addg	x5, x5, #0x0, #0x7
+  64:	ldr	w0, [x5], #-215
+  68:	cbnz	w0, 0x70
+  6c:	b	0x14c
+  70:	and	x5, x5, #0x1ff0
+  74:	add	x5, x5, x29
+  78:	addg	x5, x5, #0x0, #0x7
+  7c:	ldr	x0, [x5], #-96
+  80:	and	x3, x3, #0x1ff0
+  84:	add	x3, x3, x29
+  88:	sub	x3, x3, #0xfff
+  8c:	sub	x3, x3, #0xfff
+  90:	sub	x3, x3, #0xfff
+  94:	sub	x3, x3, #0x903
+  98:	addg	x3, x3, #0x0, #0x7
+  9c:	ldr	w3, [x3, #14592]
+  a0:	csel	x0, x0, x4, mi	// mi = first
+  a4:	b.nv	0xa8
+  a8:	udiv	w3, w4, w3
+  ac:	and	x1, x1, #0x1ff0
+  b0:	add	x1, x1, x29
+  b4:	sub	x1, x1, x5
+  b8:	addg	x1, x1, #0x0, #0x7
+  bc:	ldr	w3, [x1, x5]
+  c0:	addg	x1, x1, #0x0, #0x0
+  c4:	csneg	x4, x1, x4, gt
+  c8:	eor	w5, w5, #0x40
+  cc:	tbnz	w5, #23, 0xd4
+  d0:	b.nv	0x14c
+  d4:	ccmp	x2, x4, #0xc, gt
+  d8:	csinv	w4, w2, w1, pl	// pl = nfrst
+  dc:	and	x2, x2, #0x1ff0
+  e0:	add	x2, x2, x29
+  e4:	stz2g	x3, [x2], #-2848
+  e8:	bics	w1, w5, w3
+  ec:	b	0xf0
+  f0:	orr	w1, w1, w1, lsl #19
+  f4:	and	x4, x4, #0x1ff0
+  f8:	add	x4, x4, x29
+  fc:	sub	x4, x4, #0xfff
+ 100:	sub	x4, x4, #0xfff
+ 104:	sub	x4, x4, #0xfff
+ 108:	sub	x4, x4, #0xfff
+ 10c:	sub	x4, x4, #0xfff
+ 110:	sub	x4, x4, #0xfff
+ 114:	sub	x4, x4, #0xa8e
+ 118:	addg	x4, x4, #0x0, #0x7
+ 11c:	ldr	x5, [x4, #27272]
+ 120:	addg	x4, x4, #0x0, #0x0
+ 124:	and	x3, x3, #0x1ff0
+ 128:	add	x3, x3, x29
+ 12c:	stzg	x0, [x3], #576
+ 130:	and	x2, x2, #0x1ff0
+ 134:	add	x2, x2, x29
+ 138:	addg	x2, x2, #0x0, #0x7
+ 13c:	stp	w4, w4, [x2]
+ 140:	addg	x2, x2, #0x0, #0x0
+ 144:	b.mi	0x14c  // b.first
+ 148:	b.al	0x164
+ 14c:	csinc	w0, w0, w5, ge	// ge = tcont
+ 150:	and	x4, x4, #0x1ff0
+ 154:	add	x4, x4, x29
+ 158:	add	x4, x4, #0x2f
+ 15c:	addg	x4, x4, #0x0, #0x7
+ 160:	str	w1, [x4, #-47]!
+ 164:	nop
+ 168:	b.al	0x16c

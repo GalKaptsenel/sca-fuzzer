@@ -1,0 +1,51 @@
+######## memtag_track 155905 (set 9) ########
+
+userskel_155905 suspect#5 divset=9 reps=2000 default_memtag=6
+genuine baseline divset res=1.00; speculative granules=[0, 17, 36, 71, 104, 108, 115, 134, 158, 178, 256, 264, 364, 397, 430, 441, 477, 485]
+PHASE A (retag one spec granule -> mismatch, |delta| on divset):
+  granule   0: memtag 6->13  divset 1.00->1.00  |d|=0.00
+  granule  17: memtag 6->13  divset 1.00->1.00  |d|=0.00
+  granule  36: memtag 6->13  divset 1.00->1.00  |d|=0.00
+  granule  71: memtag 6->13  divset 1.00->1.00  |d|=0.00
+  granule 104: memtag 6->13  divset 1.00->1.00  |d|=0.00
+  granule 108: memtag 6->13  divset 1.00->1.00  |d|=0.00
+  granule 115: memtag 6->13  divset 1.00->1.00  |d|=0.00
+  granule 134: memtag 6->13  divset 1.00->0.88  |d|=0.12
+  granule 158: memtag 6->13  divset 1.00->1.00  |d|=0.00
+  granule 178: memtag 6->13  divset 1.00->1.00  |d|=0.00
+  granule 256: memtag 6->13  divset 1.00->1.00  |d|=0.00
+  granule 264: memtag 6->13  divset 1.00->1.00  |d|=0.00
+  granule 364: memtag 6->13  divset 1.00->1.00  |d|=0.00
+  granule 397: memtag 6->13  divset 1.00->1.00  |d|=0.00
+  granule 430: memtag 6->13  divset 1.00->1.00  |d|=0.00
+  granule 441: memtag 6->13  divset 1.00->1.00  |d|=0.00
+  granule 477: memtag 6->13  divset 1.00->1.00  |d|=0.00
+  granule 485: memtag 6->13  divset 1.00->0.89  |d|=0.11
+relevant speculative granule = 134
+PHASE B (retag granule 134 memtag 0..15, pointer genuine; divset residency):
+   0:0.73 1:0.88 2:0.50 3:0.87 4:0.86 5:0.88 6:1.00 7:0.87 8:0.61 9:0.83 10:0.87 11:0.68 12:0.86 13:0.86 14:0.85 15:0.56
+   memtag=default(6) -> 1.00 ; mean(other checked) -> 0.80 ; min/max other -> 0.50/0.88
+
+######## memtag_track 160128 (set 39) ########
+
+userskel_160128 suspect#5 divset=39 reps=2000 default_memtag=6
+genuine baseline divset res=0.57; speculative granules=[0, 14, 128, 149, 169, 191, 254, 314, 410, 412, 415, 447, 503]
+PHASE A (retag one spec granule -> mismatch, |delta| on divset):
+  granule   0: memtag 6->13  divset 0.57->0.00  |d|=0.57
+  granule  14: memtag 6->13  divset 0.57->0.34  |d|=0.24
+  granule 128: memtag 6->13  divset 0.57->0.53  |d|=0.05
+  granule 149: memtag 6->13  divset 0.57->1.00  |d|=0.43
+  granule 169: memtag 6->13  divset 0.57->1.00  |d|=0.42
+  granule 191: memtag 6->13  divset 0.57->1.00  |d|=0.43
+  granule 254: memtag 6->13  divset 0.57->0.26  |d|=0.31
+  granule 314: memtag 6->13  divset 0.57->0.55  |d|=0.02
+  granule 410: memtag 6->13  divset 0.57->0.57  |d|=0.00
+  granule 412: memtag 6->13  divset 0.57->0.59  |d|=0.02
+  granule 415: memtag 6->13  divset 0.57->0.59  |d|=0.01
+  granule 447: memtag 6->13  divset 0.57->0.60  |d|=0.02
+  granule 503: memtag 6->13  divset 0.57->0.54  |d|=0.03
+relevant speculative granule = 0
+PHASE B (retag granule 0 memtag 0..15, pointer genuine; divset residency):
+   0:0.00 1:0.00 2:0.00 3:0.01 4:0.00 5:0.00 6:0.59 7:0.01 8:0.00 9:0.00 10:0.00 11:0.00 12:0.02 13:0.00 14:0.00 15:0.00
+   memtag=default(6) -> 0.59 ; mean(other checked) -> 0.00 ; min/max other -> 0.00/0.02
+

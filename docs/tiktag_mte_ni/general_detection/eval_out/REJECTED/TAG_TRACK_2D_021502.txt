@@ -1,0 +1,9 @@
+
+WARNING: [fuzzer] Running in non-interference mode.
+violation-261023-021502 set=52 granule=442 cell_tag=6 reps=1500
+gate=paired seal off=0x118 x4 correct=7
+2D: rows=memory tag T (STG granule), cols=pointer delta 0..15; dip = tag MATCH
+  T= 3 predicted_match_delta= 4 measured_dip= 4  0:0.04 1:0.99 2:0.99 3:0.99 4:0.04 5:0.99 6:0.99 7:0.99 8:0.99 9:0.99 10:0.99 11:0.99 12:0.99 13:0.99 14:0.99 15:1.00
+  T= 6 predicted_match_delta= 7 measured_dip= 7  0:0.04 1:0.99 2:1.00 3:1.00 4:0.99 5:0.99 6:0.99 7:0.06 8:0.98 9:0.99 10:0.98 11:0.99 12:0.99 13:0.99 14:0.99 15:0.99
+  T= 9 predicted_match_delta=10 measured_dip=10  0:0.00 1:0.99 2:0.98 3:0.99 4:0.99 5:0.99 6:0.99 7:0.99 8:0.99 9:0.99 10:0.01 11:0.99 12:0.99 13:0.99 14:1.00 15:0.99
+  T=12 predicted_match_delta=13 measured_dip=13  0:0.01 1:0.99 2:0.99 3:0.99 4:0.99 5:0.99 6:1.00 7:0.99 8:0.99 9:0.99 10:0.99 11:0.98 12:0.99 13:0.01 14:0.99 15:0.99

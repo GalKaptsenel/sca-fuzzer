@@ -1,0 +1,12 @@
+===== sham/confound: granule 255 (arch store @0x94) and 305 (spec gate), T=6 (genuine) =====
+
+fuzzer_072421 set=9 gate=0x120 C=7 base_tag=15 d(tag6)=7 d(tag6)=7 reps=2000
+retag each granule->6; MATCH should move set 9 suppression from d=7 to d=7
+  granule  255 -> T=6: set9@d7(tag6)=0.00  set9@d7(tag6)=0.01
+  granule  305 -> T=6: set9@d7(tag6)=0.01  set9@d7(tag6)=0.00
+===== T=9 (mismatch): 255=confound (tag-independent), 305=tracks =====
+
+fuzzer_072421 set=9 gate=0x120 C=7 base_tag=15 d(tag6)=7 d(tag9)=10 reps=2000
+retag each granule->9; MATCH should move set 9 suppression from d=7 to d=10
+  granule  255 -> T=9: set9@d7(tag6)=0.97  set9@d10(tag9)=0.97
+  granule  305 -> T=9: set9@d7(tag6)=1.00  set9@d10(tag9)=0.00  <-- TRACKS (match moved to d_T)

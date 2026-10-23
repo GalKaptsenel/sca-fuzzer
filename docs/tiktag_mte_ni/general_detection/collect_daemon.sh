@@ -18,6 +18,13 @@ SERIAL=47061FDJH001K3
 SLEEP=45
 STALL_LIMIT=4          # heartbeats with no fuzz.log growth -> treat as hung
 mkdir -p "$BASE"
+# SINGLE-INSTANCE LOCK: only one daemon may ever run (prevents the watchdog/@reboot from spawning a
+# second daemon -> two fuzz -> parallel /dev/executor access). A second launch fails flock and exits.
+exec 9>"$BASE/daemon.lock"
+if ! flock -n 9; then
+  echo "[$(date -u +%FT%TZ)] another collect_daemon holds the lock; exiting (no duplicate)" >> "$LOG"
+  exit 0
+fi
 echo $$ > "$BASE/daemon.pid"
 log(){ echo "[$(date -u +%FT%TZ)] $*" >> "$LOG"; }
 FUZZ_PID=""
@@ -49,18 +56,25 @@ stop_fuzz(){
   FUZZ_PID=""; : > "$BASE/fuzz.pid"
 }
 recover_dev(){
-  timeout 45 adb -s "$SERIAL" shell su -c \
-    'rmmod revizor_executor 2>/dev/null; insmod /data/local/tmp/revizor-executor.ko; chmod 777 /dev/executor; chmod -R a+rw /sys/executor' >> "$LOG" 2>&1 \
-    && log "device module reloaded" || log "device reload FAILED"
+  # su 0 -c (NOT bare `su -c`, which under magisk runs with ZERO effective caps -> insmod EPERM).
+  # No shell keywords (if/then/fi): adb re-tokenizes the string so the device sh would see `su 0 -c if`
+  # and choke on the bare `then`. An unconditional insmod is safe — if the module is already loaded it
+  # fails harmlessly with EEXIST and the LIVE module is left untouched (we NEVER rmmod a working device,
+  # which bit us once). Then (re)chmod the nodes.
+  timeout 45 adb -s "$SERIAL" shell su 0 -c \
+    'insmod /data/local/tmp/revizor-executor.ko 2>/dev/null; chmod 777 /dev/executor 2>/dev/null; chmod -R a+rw /sys/executor 2>/dev/null; ls /dev/executor' >> "$LOG" 2>&1 \
+    && log "device recover attempted (insmod-if-absent + chmod; ls result above)" || log "device recover cmd failed"
 }
 
 trap 'stop_fuzz; log "DAEMON EXIT"; exit 0' TERM INT
 log "DAEMON START pid=$$ cfg=$(basename "$CFG") sleep=${SLEEP}s"
 start_fuzz
 while true; do
-  timeout 20 adb -s "$SERIAL" shell true >/dev/null 2>&1 || log "touch FAIL (device unreachable)"
   if [ -f "$PAUSE" ]; then
     [ -n "$FUZZ_PID" ] && kill -0 "$FUZZ_PID" 2>/dev/null && stop_fuzz
+    # keepalive ONLY while paused — during an active run the fuzzer's own adb traffic keeps the tunnel
+    # warm, and an extra concurrent `adb shell` interleaves with its batch reads (bad-magic responses).
+    timeout 20 adb -s "$SERIAL" shell true >/dev/null 2>&1 || log "touch FAIL (device unreachable, paused)"
     log "PAUSED (triage borrowing device); holding"
   else
     if [ -z "$FUZZ_PID" ] || ! kill -0 "$FUZZ_PID" 2>/dev/null; then

@@ -1,0 +1,12 @@
+######## tag_track 155905 set9 (decoyed-gate pointer sweep + memtag tracking) ########
+
+userskel_155905 suspect#5 divset=9 reps=2000 ntags=512
+decoyed (speculative) gate offsets: ['0x104', '0x110', '0x118', '0x124', '0x150', '0x158', '0x164', '0x16c', '0x178', '0x190', '0x198', '0x1b4', '0x1bc', '0x1c8', '0xbc', '0xdc', '0xfc']
+gating pointer ADDG off=0xdc Xd=x5 genuine_delta d0=7 (baseline divset res=1.00)
+guess-load granule index=256 (default mem tag=6)
+mem_tag | expected_peak | pointer-delta sweep (divset residency) | peak | d0_res | TRACKS?
+  T= 6 | exp  7 | 0:0.00 1:0.00 2:0.00 3:0.00 4:0.03 5:0.00 6:0.02 7:1.00 8:0.07 9:0.01 10:0.00 11:0.03 12:0.00 13:0.00 14:0.00 15:0.03 | peak 7 | d0=1.00 | YES
+  T= 3 | exp  4 | 0:0.00 1:0.03 2:0.00 3:0.00 4:0.00 5:0.00 6:0.00 7:1.00 8:0.02 9:0.00 10:0.00 11:0.00 12:0.00 13:0.01 14:0.00 15:0.00 | peak 7 | d0=1.00 | NO
+  T= 9 | exp 10 | 0:0.00 1:0.01 2:0.00 3:0.01 4:0.00 5:0.00 6:0.00 7:1.00 8:0.00 9:0.00 10:0.00 11:0.01 12:0.03 13:0.04 14:0.00 15:0.00 | peak 7 | d0=1.00 | NO
+  T=12 | exp 13 | 0:0.00 1:0.01 2:0.00 3:0.02 4:0.02 5:0.01 6:0.03 7:1.00 8:0.00 9:0.00 10:0.01 11:0.00 12:0.00 13:0.00 14:0.03 15:0.03 | peak 7 | d0=1.00 | NO
+VALIDITY: FAIL — changing the granule tag did NOT move delta d0; the mem-tag patch did not reach the CHECKED granule (control invalid, NOT evidence either way).

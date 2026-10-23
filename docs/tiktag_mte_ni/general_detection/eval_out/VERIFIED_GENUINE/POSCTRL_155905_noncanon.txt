@@ -1,0 +1,5 @@
+
+WARNING: [fuzzer] Running in non-interference mode.
+userskel_155905 suspect#5 decoy=noncanon reps=3000 prefix=14
+ set | gen@tail dec@tail (tag, same slot) | gen@head dec@head | pos(gen tail-head)
+   9 |   1.00    0.00  (Δtag=-1.00)   |   1.00    0.00   | Δpos=-0.00  -> position-only

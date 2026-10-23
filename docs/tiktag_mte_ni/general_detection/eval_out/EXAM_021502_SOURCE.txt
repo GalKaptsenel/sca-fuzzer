@@ -1,0 +1,18 @@
+######## 021502 gain-set 56: which decoyed gate + tag-dependence ########
+decoyed (speculative) gate offsets: ['0x15c']
+gating pointer ADDG off=0x15c Xd=x4 genuine_delta d0=7 (baseline divset res=0.04)
+guess-load granule index=171 (default mem tag=6)
+VALIDITY: FAIL — changing the granule tag did NOT move delta d0; the mem-tag patch did not reach the CHECKED granule (control invalid, NOT evidence either way).
+
+######## 021502 gain-set 6: which decoyed gate + tag-dependence ########
+decoyed (speculative) gate offsets: ['0x15c']
+gating pointer ADDG off=0x15c Xd=x4 genuine_delta d0=7 (baseline divset res=0.00)
+guess-load granule index=171 (default mem tag=6)
+VALIDITY: FAIL — changing the granule tag did NOT move delta d0; the mem-tag patch did not reach the CHECKED granule (control invalid, NOT evidence either way).
+
+######## 021502 gain-set 52: which decoyed gate + tag-dependence ########
+decoyed (speculative) gate offsets: ['0x15c']
+gating pointer ADDG off=0x15c Xd=x4 genuine_delta d0=7 (baseline divset res=0.00)
+guess-load granule index=171 (default mem tag=6)
+VERDICT: SUSPECT — patch moved the granule (d0 collapsed) but the peak did NOT track the new memory tag; not a clean pointer-vs-memory match.
+

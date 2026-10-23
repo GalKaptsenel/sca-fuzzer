@@ -69,17 +69,43 @@ def main():
                              pac_keys=g.pac_keys, bpu_training=g.bpu_training, env_plan=g.env_plan)
 
     # --- Step 1: find the pointer retag ADDG gating the diverging set (knockout at default tag) ---
-    addg = [(k, r) for k, r in enumerate(relocs) if (r.value & 0xFFC00000) == ADDG_OP]
+    # CORRECTNESS: restrict to the DECOYED gates — ADDGs whose tag differs between the genuine baseline
+    # and a decoy enacted binary. These are the speculative tag-sealed gates; architectural pre-branch
+    # ADDGs (identical in genuine and decoy, e.g. off 0x1c) must NOT be swept (they gate arch accesses).
+    import glob as _glob
+    _en = sorted(_glob.glob(f"{vd}/enacted_test*.bin"))
+    _b = open(_en[0], "rb").read()
+    _diff = set()
+    for _d in _en[1:]:
+        _o = open(_d, "rb").read()
+        for _i in range(0, min(len(_b), len(_o)), 4):
+            if _b[_i:_i + 4] != _o[_i:_i + 4]:
+                _diff.add(_i)
+    addg = [(k, r) for k, r in enumerate(relocs)
+            if (r.value & 0xFFC00000) == ADDG_OP and r.offset in _diff]
+    if not addg:
+        print("no DECOYED ADDG gate found (diff set empty); abort")
+        return
+    print(f"decoyed (speculative) gate offsets: {sorted(hex(r.offset) for _, r in addg)}")
     base_res = res(ex.trace_test_case([g], reps)[0][0], dset)
-    knock = []
-    for k, r in addg:
-        d0 = (r.value >> 10) & 0xF
-        plan = list(relocs)
-        plan[k] = Reloc(r.offset, (r.value & ~(0xF << 10)) | (((d0 + 1) & 0xF) << 10), r.rtype)
-        rr = res(ex.trace_test_case([ei(plan, g.mte_tags)], reps)[0][0], dset)
-        knock.append((base_res - rr, k, r, d0))
-    knock.sort(reverse=True)
-    _, K, R, D0 = knock[0]
+    gate_off = int(sys.argv[sys.argv.index("--gate-off") + 1], 16) if "--gate-off" in sys.argv else None
+    if gate_off is not None:
+        sel = [(k, r) for k, r in addg if r.offset == gate_off]
+        if not sel:
+            print(f"gate 0x{gate_off:x} is not a decoyed ADDG (decoyed offsets only); abort")
+            return
+        K, R = sel[0]
+        D0 = (R.value >> 10) & 0xF
+    else:
+        knock = []
+        for k, r in addg:
+            d0 = (r.value >> 10) & 0xF
+            plan = list(relocs)
+            plan[k] = Reloc(r.offset, (r.value & ~(0xF << 10)) | (((d0 + 1) & 0xF) << 10), r.rtype)
+            rr = res(ex.trace_test_case([ei(plan, g.mte_tags)], reps)[0][0], dset)
+            knock.append((base_res - rr, k, r, d0))
+        knock.sort(reverse=True)
+        _, K, R, D0 = knock[0]
     vreg = R.value & 0x1f  # ADDG Xd = the sealed GUESS pointer register the checked load uses as base
     print(f"gating pointer ADDG off=0x{R.offset:x} Xd=x{vreg} genuine_delta d0={D0} "
           f"(baseline divset res={base_res:.2f})")

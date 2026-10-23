@@ -1,0 +1,32 @@
+
+WARNING: [fuzzer] Running in non-interference mode.
+
+INFO: [fuzzer] Starting at 17:26:18
+
+INFO: [fuzzer] seeds — program:361142 input:4094207035
+⟳ F+R  1 tc · 7s · 0.13 tc/s · 0.0 traces/s · 1 filtered · 0 violations[K⟳ F+R  1 tc · 7s · 0.13 tc/s · 0.0 traces/s · 1 filtered · 0 violations → slow path…[K⟳ F+R  2 tc · 22s · 0.09 tc/s · 0.0 traces/s · 1 filtered · 0 violations[K⟳ F+R  2 tc · 22s · 0.09 tc/s · 0.0 traces/s · 1 filtered · 0 violations → slow path…[K⟳ F+R  2 tc · 22s · 0.09 tc/s · 0.0 traces/s · 1 filtered · 0 violations → priming 7…[K
+================================ Statistics ===================================
+
+Test Cases: 3
+Inputs per test case: 32.0
+Violations: 1
+Effectiveness: 
+  Total Cls: 8.0
+  Effective Cls: 8.0
+Discarded Test Cases:
+  Speculation Filter: 0
+  Observation Filter: 0
+  Fast Path: 1
+  Max Nesting Check: 1
+  Tainting Check: 0
+  Priming swap-test (early): 0
+  Large Sample Check: 0
+  Priming swap-test: 0
+Hardware Tracing Errors: 0
+
+Duration: 46.3
+Traces/s: 0.0
+Finished at 17:27:05
+
+Re-run this exact session:
+  python3 revizor.py fuzz -s base.json -c docs/tiktag_mte_ni/general_detection/eval_out/user_tmpl_skel3/rerun.yaml -n 20 -i 8 --nonstop -w docs/tiktag_mte_ni/general_detection/eval_out/user_tmpl_skel3

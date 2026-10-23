@@ -1,0 +1,53 @@
+# Step 1: TikTag-v1 as an NI ASM-template internal-loop gadget. Conditional-branch (cond) window, MTE
+# sealer supplies genuine (matching) vs decoy (mismatched) tag. No branch mistraining (deprecated on X3).
+# Pinned Cortex-X3 (core 8). Analyser threshold lowered + larger sample sizes for the probabilistic
+# (~0.6-0.8) TikTag signal, per the coordinator's analyser lever.
+instruction_set: aarch64
+instruction_categories:
+  - MTE
+  - MTE-TAGMEM
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-BITFIELD
+  - BASE-CONDSEL
+  - BASE-BRANCH
+  - BASE-MEM-LOAD
+  - BASE-MEM-STORE
+min_bb_per_function: 5
+max_bb_per_function: 5
+max_successors_per_bb: 2
+min_successors_per_bb: 1
+fuzzer: non-interference
+input_generator: aarch64-nzcv
+
+contract_execution_clause:
+  - cond
+contract_observation_clause: l1d
+
+model_min_nesting: 1
+model_max_nesting: 40
+
+executor_mode: F+R
+executor_pinned_core: 8
+superbatch_size: 1
+enable_pre_run_flush: true
+inputs_per_class: 4
+executor_sample_sizes: [2000]
+analyser_outliers_threshold: 0.05
+
+executor_remote: true
+executor_remote_transport: adb
+executor_remote_host: 127.0.0.1
+executor_remote_port: 5037
+executor_remote_device: /dev/executor
+executor_remote_sysfs: /sys/executor
+executor_remote_userland: /data/local/tmp/executor_userland
+executor_remote_module: /data/local/tmp/revizor-executor.ko
+
+# HW run: open the window at the arch-taken branch via kernel branch mistraining (no loop needed).
+enable_branch_mistraining: false
+
+# Overwrite some of the configuration options to reproduce the violation
+input_gen_seed: 3756116716
+inputs_per_class: 4

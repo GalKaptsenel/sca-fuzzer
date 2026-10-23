@@ -1,0 +1,23 @@
+MAIN=0xffffff8873821000 T=5 ldnum=16 gap=80 iters=128 reps=40 core=8
+
+=== (A) reach / skip / spec (read set 32) ===
+  reach  (architectural probe to set 32): residency 1.00  [expect ~1.0]
+  skip   (no probe):                      residency 0.03  [expect ~0.0]
+  spec   (match tag 5, probe speculative-only): residency 0.68  [expect high]
+  spec   (mismatch tag 0):                        residency 0.00  [expect ~0.0]
+
+=== (B) read-set independence: same sweep at read set 24 ===
+  0:0.05 3:0.00 5:0.65 9:0.00 15:0.80  (sealed T=5)
+  match 5=0.65  checked-mm max=0.05  tcma15=0.80  sep=+0.60
+
+=== (C) graded refills: per-set L1/L2 refill deltas (read set 32) ===
+  match T=5    set32  [set L1main L1faulty L2main L2faulty] = 32 0 1 0 0
+  mismatch 0   set32  [set L1main L1faulty L2main L2faulty] = 32 3 1 1 1
+  tcma 15      set32  [set L1main L1faulty L2main L2faulty] = 32 0 1 0 0
+
+=== (D) finer clock: match vs mismatch at reload_timer_shift cycle thresholds ===
+  shift=7 (<128 cyc=hit): match=0.85 mismatch0=0.12 tcma15=0.80
+  shift=8 (<256 cyc=hit): match=1.00 mismatch0=0.65 tcma15=1.00
+  shift=9 (<512 cyc=hit): match=1.00 mismatch0=0.82 tcma15=1.00
+
+DONE

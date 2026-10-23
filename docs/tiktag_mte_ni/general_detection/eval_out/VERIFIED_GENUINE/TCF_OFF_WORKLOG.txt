@@ -1,0 +1,32 @@
+[2026-10-23T10:45:48Z] TAG-CHECK-OFF (TCO) causality test for 072421 — worklog
+PLAN: add runtime-writable module_param tco_force (default 0=current); per measurement window,
+  tco_force? enable_TCO_bit() (checks OFF) : disable_TCO_bit() (checks ON). Rebuild via build_pixel8.sh,
+  backup device .ko, rmmod+insmod (su 0), A/B toggle via /sys/module/revizor_executor/parameters/tco_force,
+  then restore original .ko. Campaign PAUSED, sole device user.
+--- verify device .ko matches this source tree ---
+local abi2 md5:   5c8dfec2646f075c0328a6de2fa77602
+executor-src .ko: 5c8dfec2646f075c0328a6de2fa77602
+device .ko md5:
+5c8dfec2646f075c0328a6de2fa77602  /data/local/tmp/revizor-executor.ko
+--- loaded module name + is it live? ---
+revizor_executor      385024  0 
+crw-rw-rw- 1 root root 486,   0 2024-11-10 22:36 /dev/executor
+--- source parity: executor-src/measurement.c vs repo ---
+measurement.c IDENTICAL
+[2026-10-23T10:48:05Z] STAGE 1: swap in test module (tco_force build)
+no fuzz (ok)
+5c8dfec2646f075c0328a6de2fa77602  /data/local/tmp/revizor-executor.ko.ORIG
+executor-src/revizor-executor.ko: 1 file pushed, 0 skipped. 432.1 MB/s (3696728 bytes in 0.008s)
+LOADED:
+revizor_executor      385024  0 
+crwxrwxrwx 1 root root 486,   0 2024-11-11 13:52 /dev/executor
+PARAM:
+0
+[2026-10-23T10:53:14Z] STAGE 3: restore ORIGINAL module
+orig_path_md5: 5c8dfec2646f075c0328a6de2fa77602 /data/local/tmp/revizor-executor.ko
+RELOADED:
+revizor_executor      385024  0 
+crwxrwxrwx 1 root root 486,   0 2024-11-11 13:57 /dev/executor
+tco_param_should_be_absent:
+cat: /sys/module/revizor_executor/parameters/tco_force: No such file or directory
+cleaned_test_artifacts

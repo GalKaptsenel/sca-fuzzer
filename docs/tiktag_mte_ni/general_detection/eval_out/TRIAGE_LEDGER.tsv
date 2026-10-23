@@ -1,0 +1,9 @@
+violation-261022-172705	NOISE	no speculative tag-sealed diverging set — every HW diverging set is an architectural demand or its prefetch stream (CE spec-only sets=[]); prefetcher/batch false positive
+violation-261023-021502	NOISE-ARTIFACT	CONFIRMED by full device verification battery (campaign paused): gd_check gate-independent -> set 52 not divergent; apparent sets[6,51,56,58] divergence is BATCH POSITION (ctrl_pos_tag: genuine==decoy at a fixed slot); set 32 shows no pointer-vs-memory tag tracking (ctrl_store_track on decoyed gate 0x15c + granule 69 = flat ~0.93, no match-delta, unstable baseline). No genuine speculative tag-check channel. Original set-52/0x118 claim was an architectural-MTE artifact (wrong, non-decoyed gate). Evidence in eval_out/REJECTED/.
+violation-261023-000605	NOISE	gd_check gate-independent: NO genuine-vs-decoy divergence (4000 reps). prefetcher/batch false positive.
+violation-261023-051434	NOISE	gd_check: NO divergence (4000 reps). prefetcher/batch false positive.
+violation-261023-004926	NOISE-ARTIFACT	gd_check gain set27 (0.01->0.24) but fixed-slot control (ctrl_pos_tag) Δtag=-0.04 (decoy not higher), Δpos=+0.18 -> BATCH POSITION not tag. UNVERIFIED gain-flavor claim refuted.
+violation-261023-010423	NOISE-ARTIFACT	gd_check gain sets1/32/53/54 but fixed-slot Δtag~=0 (+-0.02), driven by position (Δpos +0.03..0.07). UNVERIFIED gain-flavor claim refuted.
+violation-261023-032456	NOISE-ARTIFACT	gd_check BIG gains (set49 0.02->0.72, set17 0.70->0.97) are ENTIRELY batch position: fixed-slot control Δtag NEGATIVE (-0.06/-0.11, decoy lower), Δpos +0.06..0.26. UNVERIFIED gain-flavor claim refuted.
+violation-261023-061958	NOISE	gd_check decoy0 gains set5/17 but decoy1+noncanon EMPTY (inconsistent); fixed-slot Δtag +0.07/+0.02 sub-threshold, mostly position. Not genuine.
+violation-261023-062913	NOISE-ARTIFACT	gd_check gain set38/50 but fixed-slot Δtag~=0, position-driven (Δpos +0.05/+0.08). Not genuine.

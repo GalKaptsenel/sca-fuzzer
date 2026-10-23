@@ -1,0 +1,33 @@
+===== ctrl_pos_tag vs RANDOM decoy1 (fixed slot) =====
+
+violation-261023-072421 suspect#1 decoy=decoy1 reps=3000 prefix=14
+ set | gen@tail dec@tail (tag, same slot) | gen@head dec@head | pos(gen tail-head)
+   1 |   0.00    1.00  (Δtag=+1.00)   |   0.00    1.00   | Δpos=-0.00  -> TAG-gain
+   4 |   0.02    1.00  (Δtag=+0.98)   |   0.00    1.00   | Δpos=+0.02  -> TAG-gain
+   5 |   0.11    0.68  (Δtag=+0.57)   |   0.00    0.92   | Δpos=+0.11  -> TAG-gain
+   6 |   0.05    1.00  (Δtag=+0.95)   |   0.00    1.00   | Δpos=+0.05  -> TAG-gain
+   8 |   0.01    1.00  (Δtag=+0.99)   |   0.00    0.95   | Δpos=+0.01  -> TAG-gain
+   9 |   0.00    1.00  (Δtag=+1.00)   |   0.00    0.95   | Δpos=+0.00  -> TAG-gain
+  10 |   0.00    1.00  (Δtag=+1.00)   |   0.00    1.00   | Δpos=+0.00  -> TAG-gain
+  11 |   0.00    1.00  (Δtag=+1.00)   |   0.00    0.95   | Δpos=+0.00  -> TAG-gain
+===== ce_set_class (arch vs spec for these sets + decoyed seals) =====
+
+violation-261023-072421 suspect#1
+architectural sets (nesting0): [3, 7, 21, 23, 63]
+speculative-only sets (nesting>0, NOT arch): [0, 12, 47]
+
+set 1: UNTOUCHED-by-CE
+
+set 4: UNTOUCHED-by-CE
+
+set 5: UNTOUCHED-by-CE
+
+set 6: UNTOUCHED-by-CE
+
+set 8: UNTOUCHED-by-CE
+
+set 9: UNTOUCHED-by-CE
+
+set 10: UNTOUCHED-by-CE
+
+set 11: UNTOUCHED-by-CE

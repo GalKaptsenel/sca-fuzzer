@@ -1,0 +1,5 @@
+
+WARNING: [fuzzer] Running in non-interference mode.
+
+input 0 seed=2182373525 reps=1500 retag_off=0x90
+  probe32 by retag delta: 0:0.73 1:0.03 2:0.07 3:0.08 4:0.01 5:0.07 6:0.01 7:0.04 8:0.01 9:0.63 10:0.02 11:0.04 12:0.03 13:0.03 14:0.02 15:0.05
