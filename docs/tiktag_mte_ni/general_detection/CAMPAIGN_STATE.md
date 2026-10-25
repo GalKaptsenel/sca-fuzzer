@@ -1,5 +1,11 @@
 # Autonomous TikTag campaign — state & standing orders
 
+> **STOPPED by the user on 2026-10-25 ~12:19 UTC.** Collect daemon (pid 1708) terminated cleanly
+> (DAEMON EXIT logged); tick scheduler (Claude cron 3430142c) deleted; crontab `@reboot campaign_boot.sh`
+> removed (backed up to eval_out/collect/crontab_backup_*.txt); no fuzzer running; device left canonical
+> (module md5 5c8dfec, /dev/executor present). The automation will NOT relaunch on reboot. To restart:
+> re-add the @reboot line and re-create the tick cron, then `campaign_boot.sh`. Do not auto-resume.
+
 GOAL: collect real TikTag-v1 (and other MTE tag) leaks via fully-random MTE non-interference fuzzing on
 the Pixel-8 Cortex-X3, triage each with 100% integrity, keep only GENUINE ones, disassemble and root-cause
 them, and loop forever until the user explicitly says stop. No fallbacks, no lying, re-check everything,
