@@ -15,10 +15,9 @@ them, and loop forever until the user explicitly says stop. No fallbacks, no lyi
 verify no noise, use controlled "games" (the all-tags sweep) for PoCs. Think outside the box.
 
 ## Timezone / phases
-- Server clock is UTC. User local = UTC+3. User token reset = 10:20 PM local = **19:20 UTC**.
-- COLLECT phase (now .. 19:20 UTC): only collect violations (cheap). Keep my own token use minimal.
-- TRIAGE phase (>= 19:20 UTC): triage collected violations, disassemble GENUINE ones, then keep
-  collecting + triaging in a loop, forever.
+- Server clock is UTC. User local = UTC+3.
+- NO time gate (user lifted the 19:20 UTC gate, reaffirmed 2026-10-25): triage continuously, on my own
+  judgment, whenever a violation lacks a ledger row. Collect + triage in a loop, forever.
 
 ## Moving parts (all under docs/tiktag_mte_ni/general_detection/)
 - `collect_daemon.sh` -> eval_out/collect/ : self-healing fuzz --nonstop collector + Pixel keepalive +
@@ -50,8 +49,7 @@ verify no noise, use controlled "games" (the all-tags sweep) for PoCs. Think out
    - PID-safety: never pattern-kill; only kill PIDs read from daemon.pid/fuzz.pid and verified via
      /proc/<pid>/exe (python) and cmdline (revizor.py fuzz); exclude bash/pgrep/grep lines.
    The daemon now runs SLEEP=45s with a hang detector (restart if fuzz.log stops growing for 4 cycles).
-3. If UTC < 19:20: stop here (token-light). Do NOT triage.
-4. If UTC >= 19:20 (TRIAGE phase):
+3. TRIAGE (no time gate): for every violation lacking a TRIAGE_LEDGER row, triage with the full battery.
    a. Run `bash triage_batch.sh` (pauses collection, triages all new violations, resumes).
    b. For each NEW violation marked GENUINE in the ledger: disassemble the gadget
       (objdump the enacted_test / walk generated.asm), identify the leaking speculative tag-checked load
@@ -61,9 +59,9 @@ verify no noise, use controlled "games" (the all-tags sweep) for PoCs. Think out
       the match-vs-checked-mismatch separation by eye).
    c. Update the "## Progress log" below with counts + any genuine finds.
 5. NEVER stop the campaign on my own. Only the user stops it.
-6. AGENTS / MULTI-MODEL: only AFTER 19:20 UTC (token reset) may I spawn subagents or consult multiple
-   models — for triaging batches in parallel, adversarially re-verifying a GENUINE find, root-causing by
-   disassembly, or hunting novel tag-leak variants. Before 19:20, stay token-light (health only).
+6. AGENTS / MULTI-MODEL: allowed anytime (no time gate) — spawn subagents or consult multiple models for
+   triaging batches in parallel, adversarially re-verifying a GENUINE find, root-causing by disassembly,
+   or hunting novel tag-leak variants. Be token-aware but not gated.
    Think outside the box: new gadget shapes, other tag preconditions, other observation channels.
 
 ## Integrity rules (hard)
@@ -112,7 +110,7 @@ verify no noise, use controlled "games" (the all-tags sweep) for PoCs. Think out
   progress confirmed (cpu + fuzz.log bytes advancing), rate ~0.12 tc/s early in a fresh F+R session. Host
   crontab (@reboot + */5 watchdog) and in-session triage tick re-armed. Device: Pixel 8 remote. USER
   STANDING ORDER: fully autonomous; NEVER reboot device/box without asking (post-restart needs manual
-  tunnel recovery). Collect-only until the 19:20 UTC triage gate.
+  tunnel recovery). No time gate: triage pending violations on judgment, continuously.
 - [init] Collector launching; genuine baseline already established from the USER TEMPLATE
   (user_mte_skeleton): eval_out/VERIFIED_GENUINE/userskel_155905 (set 9 spec-only, sweep 7:1.00) and
   userskel_160128 (set 39 spec-only, 7:0.58) — both independently confirmed GENUINE TikTag-v1.
