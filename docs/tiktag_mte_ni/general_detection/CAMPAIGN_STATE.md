@@ -82,6 +82,17 @@ verify no noise, use controlled "games" (the all-tags sweep) for PoCs. Think out
   NOT retire). If the access retires or faults -> ARCHITECTURAL -> REJECT, however clean the separation.
   When any control is invalid or the evidence is incomplete, verdict = QUESTIONABLE/INCONCLUSIVE -- never
   force GENUINE or NOISE.
+- SWEEP MUST RE-MERGE (user, 2026-10-25): when the sweep perturbs a sealed site's before-ADDG to a
+  delta, it MUST also set the paired after-ADDG so the base tag re-converges to the CORRECT cell tag
+  ("as if the access used the correct tag") -- only the access sees the perturbed tag, downstream is
+  unchanged. Perturbing before-only corrupts the downstream tag and fabricates artifacts (e.g. the
+  182532 "inverted δ4-11" that vanished under correct re-merge). triage_sweep.py now does this; the
+  broken ctrl_sweep.py is DELETED -- never resurrect it. Tool validated on 155905 (delta7=1.00).
+- CHECK NO EXCEPTION TAKEN (user, 2026-10-25): a tag may legitimately decide a FLOW; the only
+  disqualifier is an ARCHITECTURAL divergence between genuine and decoy. So before stamping GENUINE,
+  PMU-confirm the sealed access takes NO architectural exception (EXC_TAKEN=0) and does not retire
+  (INST_RETIRED flat) on the firing delta -- a retiring MTE fault (EXC_TAKEN=1 / INST_RETIRED jump) is
+  the 072421 architectural artifact, not a speculative leak.
 - Don't trust a single measurement; the all-tags sweep (16 deltas) IS the recheck. Re-run if marginal.
 - Log before and after every experiment; persist every artifact; never fabricate a result.
 - Destructive ops (kill) must target explicit PIDs verified as python revizor procs; never broad patterns.
