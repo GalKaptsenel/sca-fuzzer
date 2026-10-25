@@ -30,7 +30,13 @@ verify no noise, use controlled "games" (the all-tags sweep) for PoCs. Think out
   GENUINE requires: tag-only; a diverging set that is CE spec-only (or prefetch of a speculative tag-sealed
   access); and the matching CHECKED tag dominating every checked mismatch (TCMA tags 0/15 excluded).
 - Config: `s24_mte_random.yml` (fully random, cond, view_rotation ON via enable_pre_run_flush:true,
-  mistraining OFF, inputs_per_class 4, sample 2000, pinned X3 core 8).
+  mistraining OFF, inputs_per_class 2, sample 1000, bb 3-4, superbatch 1, pinned X3 core 8).
+  THROUGHPUT TUNE (2026-10-25): bb 6-10->3-4, ipc 4->2, sample 2000->1000 raised the rate from
+  ~0.12-0.18 to ~0.55 tc/s (~3-4x). Generation cost is negligible (bb count barely matters); the cost is
+  the on-device measurement over adb, which scales with inputs_per_class x sample_reps. superbatch_size
+  stays 1: on the remote adb path a window is one adb exec but the device still measures each unit
+  sequentially, so superbatch only amortizes the small adb-exec overhead (sb2/sb4 measured SLOWER; big
+  values add latency-to-first-result and wedge risk with no speedup).
 
 ## What each 30-min cron tick must do (standing orders)
 1. Re-read THIS file first (anti-drift). 
@@ -104,6 +110,13 @@ verify no noise, use controlled "games" (the all-tags sweep) for PoCs. Think out
 - accounting.py latent bugs: wrong REPO const + hardcoded sandbox_base (fix opportunistically).
 
 ## Progress log
+- [2026-10-25 ~15:55 UTC] THROUGHPUT TUNE adopted (user-requested). Benchmarked on device (campaign paused
+  cleanly, PID-safe, then resumed): template tfuzz 0.33 tc/s, s24-old 0.18, tuned 0.52. Root cause of
+  slowness: on-device measurement over adb (inputs_per_class x sample_reps), NOT block count (generation
+  = 47 ms/tc either way). Superbatch tested (user asked): sb2~0.23, sb4~0.38 -> raising it does NOT help
+  (device measures each unit sequentially; only the small adb-exec overhead is amortized), so kept at 1.
+  Applied ipc 4->2, sample 2000->1000, bb 6-10->3-4 to s24; campaign now ~0.55 tc/s (fuzz 37170), triaged
+  backlog still 0. All triaged violations to date are NOISE/REJECTED; no genuine random find yet.
 - [2026-10-25 ~15:08 UTC] RESUMED on the fixed CE (commit 1171e1ba: tag-preservation fix + de-merge op
   removed; 072421-class false positives eliminated, 155905 detection preserved; regression
   unit_mte_tag_preserve.py). Daemon pid 26950, fuzz pid 29773 (session_20261025_150749), no PAUSE, real

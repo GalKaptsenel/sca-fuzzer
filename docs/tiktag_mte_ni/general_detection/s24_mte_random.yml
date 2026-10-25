@@ -14,8 +14,8 @@ instruction_categories:
   - BASE-BRANCH
   - BASE-MEM-LOAD
   - BASE-MEM-STORE
-min_bb_per_function: 6
-max_bb_per_function: 10
+min_bb_per_function: 3
+max_bb_per_function: 4
 max_successors_per_bb: 2
 min_successors_per_bb: 1
 fuzzer: non-interference
@@ -32,8 +32,8 @@ executor_mode: F+R
 executor_pinned_core: 8
 superbatch_size: 1
 enable_pre_run_flush: true
-inputs_per_class: 4
-executor_sample_sizes: [2000]
+inputs_per_class: 2
+executor_sample_sizes: [1000]
 analyser_outliers_threshold: 0.05
 
 executor_remote: true
