@@ -1,0 +1,14 @@
+
+WARNING: [fuzzer] Running in non-interference mode.
+userskel_155905 sus#5 reps=2000 prefix=14 repeat=3 thr=0.5
+PMU cols: pmutest=[INST_RETIRED, EXC_TAKEN, MEM_ACCESS]  canonical=[L2D_REFILL, MEM_ACCESS, BR_MIS]
+   variant run | s9 | width |         c0         c1         c2
+  baseline   0 | 1.00 | n=61[0..63] |      63.00       0.00      11.20
+  baseline   1 | 1.00 | n=7[0..57] |      63.00       0.00      11.15
+  baseline   2 | 1.00 | n=7[0..57] |      63.00       0.00      11.15
+    decoy0   0 | 0.02 | n=6[0..57] |      63.00       0.00      11.00
+    decoy0   1 | 0.15 | n=6[0..57] |      63.00       0.00      11.00
+    decoy0   2 | 0.07 | n=6[0..57] |      63.00       0.00      10.99
+  noncanon   0 | 0.93 | n=62[0..63] |      63.00       0.00      10.99
+  noncanon   1 | 0.93 | n=62[0..63] |      63.00       0.00      11.00
+  noncanon   2 | 0.00 | n=6[0..57] |      63.00       0.00      11.00

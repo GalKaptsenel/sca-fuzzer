@@ -1,0 +1,65 @@
+================================================================
+[2026-10-25T11:49:51Z] DEVICE SESSION START (in-session, no agents) — tasks: (1) 155905 INST_RETIRED/EXC_TAKEN; (2) 072421 ESR/FAR handler read
+[2026-10-25T11:49:51Z] sole actor: main session. agent aac07a7cdddbd84ef STOPPED. campaign PAUSE file present, no fuzzer.
+[2026-10-25T11:49:51Z] STEP: freeze daemon 1708 keepalive (SIGSTOP) so I am the only adb user
+[2026-10-25T11:49:52Z] daemon 1708 state now:
+    PID STAT CMD
+   1708 Ts   bash /home/gal_k_1_1998/revizor/sca-fuzzer/docs/tiktag_mte_ni/general_detection/collect_daemon.sh
+[2026-10-25T11:49:52Z] STEP: verify device reachable + module canonical (adb -s, no server restart)
+device
+crw-rw-rw- 1 root root 486,   0 2024-11-13 13:59 /dev/executor
+5c8dfec2646f075c0328a6de2fa77602  /data/local/tmp/revizor-executor.ko
+[2026-10-25T11:55:21Z] STEP: push pmutest ko (md5 e8ee8bd29ac4a3f0604911ecc41dade8) to /data/local/tmp/revizor-executor-pmutest.ko
+/home/gal_k_1_1998/pixel-mod-build/executor-src-pmutest/revizor-executor.ko: 1 file pushed, 0 skipped. 444.5 MB/s (3696160 bytes in 0.008s)
+[2026-10-25T11:55:24Z] verify pushed md5 on device:
+e8ee8bd29ac4a3f0604911ecc41dade8  /data/local/tmp/revizor-executor-pmutest.ko
+[2026-10-25T11:55:26Z] STEP: swap module (rmmod canonical [refcount 0] -> insmod pmutest -> chmod)
+insmod: failed to load /data/local/tmp/revizor-executor-pmutest.ko: Operation not permitted
+chmod: /dev/executor: No such file or directory
+chmod: /sys/executor: No such file or directory
+RC=1
+ls: /dev/executor: No such file or directory
+[2026-10-25T11:55:27Z] dmesg tail (check clean load, no oops):
+[162329.633924] google_battery: MSC_LOGIC temp_idx:2->2, vbatt_idx:2->2, fv=4350000->4350000, cc_max=5380000, ui=30000 cv_cnt=0 ov_cnt=0
+[162329.662483] healthd: battery l=80 v=4168 t=25.8 h=2 st=4 c=-5625 fc=4914000 cc=24 chg=u
+[162329.682568] MSC_HEALTH: deadline_s=-1 deadline at -1
+[162333.722445] st21nfc 0-0008: Error: Switched from IDLE to IDLE!: 9ad03fc, ntf=0
+[162335.941909] executor: executor is being unloaded.
+[162335.943067] executor: Unregistered device number MAJOR: 486, MINOR: 0 and deleted cdev
+[162336.988670] init: Untracked pid 11420 exited with status 0
+[162336.988798] init: Untracked pid 11420 did not have an associated service entry and will not be reaped
+[2026-10-25T11:56:14Z] STEP: insmod pmutest in its OWN su 0 -c (insmod-first, daemon-proven pattern)
+[2026-10-25T11:56:15Z] insmod exit via separate check; now chmod + verify:
+revizor_executor      385024  0 
+crwxrwxrwx 1 root root 486,   0 2024-11-13 15:00 /dev/executor
+[2026-10-25T11:56:42Z] STEP: run pmu_variant.py 155905 set9 (pmutest module: c0=INST_RETIRED c1=EXC_TAKEN c2=MEM_ACCESS) reps2000 x3 -> eval_out/PMU_155905_pmutest.txt
+[2026-10-25T11:57:49Z] EXIT code 0 ; output:
+
+WARNING: [fuzzer] Running in non-interference mode.
+userskel_155905 sus#5 reps=2000 prefix=14 repeat=3 thr=0.5
+PMU cols: pmutest=[INST_RETIRED, EXC_TAKEN, MEM_ACCESS]  canonical=[L2D_REFILL, MEM_ACCESS, BR_MIS]
+   variant run | s9 | width |         c0         c1         c2
+  baseline   0 | 1.00 | n=61[0..63] |      63.00       0.00      11.20
+  baseline   1 | 1.00 | n=7[0..57] |      63.00       0.00      11.15
+  baseline   2 | 1.00 | n=7[0..57] |      63.00       0.00      11.15
+    decoy0   0 | 0.02 | n=6[0..57] |      63.00       0.00      11.00
+    decoy0   1 | 0.15 | n=6[0..57] |      63.00       0.00      11.00
+    decoy0   2 | 0.07 | n=6[0..57] |      63.00       0.00      10.99
+  noncanon   0 | 0.93 | n=62[0..63] |      63.00       0.00      10.99
+  noncanon   1 | 0.93 | n=62[0..63] |      63.00       0.00      11.00
+  noncanon   2 | 0.00 | n=6[0..57] |      63.00       0.00      11.00
+[2026-10-25T11:59:29Z] TASK1 155905 DONE -> GENUINE SPECULATIVE confirmed (EXC_TAKEN=0 both; INST_RETIRED=63 both; set9 1.00 match / ~0.07 mismatch)
+[2026-10-25T11:59:29Z] STEP: restore canonical module (rmmod pmutest -> insmod canonical insmod-first -> chmod)
+[2026-10-25T11:59:29Z] confirm canonical ko present on device:
+5c8dfec2646f075c0328a6de2fa77602  /data/local/tmp/revizor-executor.ko
+[2026-10-25T11:59:36Z] verify canonical loaded + nodes:
+revizor_executor      385024  0 
+crwxrwxrwx 1 root root 486,   0 2024-11-13 15:03 /dev/executor
+[162584.708890] init: Untracked pid 11925 exited with status 0
+[162584.709025] init: Untracked pid 11925 did not have an associated service entry and will not be reaped
+[162585.970443] init: Untracked pid 11944 exited with status 0
+[162585.970724] init: Untracked pid 11944 did not have an associated service entry and will not be reaped
+[2026-10-25T12:00:53Z] STEP: SIGCONT daemon 1708 -> normal paused rest-state (PAUSE file present, keepalive resumes, NO fuzzer)
+    PID STAT CMD
+   1708 Ss   bash /home/gal_k_1_1998/revizor/sca-fuzzer/docs/tiktag_mte_ni/general_detection/collect_daemon.sh
+[2026-10-25T12:00:54Z] device canonical (md5 5c8dfec loaded); agent off-device; task1 155905 done.
