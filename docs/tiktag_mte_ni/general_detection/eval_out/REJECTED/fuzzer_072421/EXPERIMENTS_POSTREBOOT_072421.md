@@ -30,10 +30,12 @@ only when the faulting access retires. So the sealed access retired and faulted 
 
 The "speculative TikTag" label came from the CE per-instruction trace (input_0001_trace_log.txt), which
 places the three sealed accesses at speculation nesting 1 and exits the architectural path at 0x0c0. The
-hardware committed-instruction count (match=84) exceeds the CE committed path (48) by the size of
-bb_0.7/0.8 plus the window fences, so on silicon the architectural path enters bb_0.7/0.8. The CE branch
-resolution (the TBZ) diverges from hardware. Verdict triangulated: INST_RETIRED jump, EXC_TAKEN 0->1,
-and committed-count = full gadget path.
+match committed count (84) does NOT by itself decide whether the seals retire: it is harness-size-dependent
+and is consistent with both the full path through bb_0.7/0.8 and the CE's short exit-at-0xc0 path plus
+harness. The architectural verdict rests on EXC_TAKEN 0->1 and the INST_RETIRED jump on mismatch (a precise
+MTE fault fires only on a retired access), not on the committed-count. Which committed access faults, and
+why it is architecturally reached while the CE/sealer treat the seals as speculative, is open and needs the
+ESR/ELR handler read-out.
 
 What holds throughout: a genuine tag-controlled cache leak whose cause is the MTE tag check
 (tag-check-off collapse holds). What is overturned is the mechanism label: on silicon the transmit is

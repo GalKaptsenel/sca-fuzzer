@@ -295,13 +295,21 @@ only on a CHECKED-tag mismatch; baseline at the TCMA-unchecked tag ptag15 and at
 confirmation would read ESR_EL1/FAR_EL1/TFSR_EL1 in the handler (another module rebuild; not done). The
 ARCHITECTURAL reclassification does not depend on the class; the tag-check gating does.
 
-## OFFLINE CONFIRMATION (committed-instruction count) -> reading A, architectural confirmed
-CE trace (input_0001_trace_log.txt): nesting-0 (committed) path = 48 instrs, exits at 0xc0 (b.al); bb_0.7/0.8
-(0xc4..0x124) appear ONLY at nesting>0 (CE models them speculative). BUT hardware INST_RETIRED on MATCH = 84
->> 48. The ~36-instr gap matches bb_0.7/0.8 (25 instrs) + window fences/harness (~8-10); it does NOT match
-the CE's 48-instr exit-at-0xc0 path. => on hardware the gadget ARCHITECTURALLY executes bb_0.7/0.8 (CE
-branch-model error); the sealed access in bb_0.8 retires and faults on mismatch (reading A). Reading B (a
-separate speculative leak with the PMU tripping a different arch access) is NOT supported: 84 != 48.
-Architectural verdict triangulated: INST_RETIRED jump + EXC_TAKEN 0->1 + committed-count = full gadget path.
-LESSON: the CE's nesting classification is NOT ground truth for the hardware architectural path; a
-speculative-leak claim must check committed-instruction count / INST_RETIRED against the hardware path.
+## WHAT IS PINNED vs NOT (correction of an earlier over-stated committed-count note)
+SOLID (the architectural classification): on a genuine mismatch EXC_TAKEN goes 0->1 and INST_RETIRED jumps
+(84 -> ~195k). On AArch64 a squashed speculative access cannot take an architectural exception, so the
+exception is raised by a RETIRED (committed) access: an architectural MTE tag-check fault + its handler.
+That is enough to classify 072421 as architectural, not a speculative TikTag leak.
+
+NOT PINNED (retract the earlier "committed-count confirms reading A"): an earlier note here argued match
+INST_RETIRED=84 >> the CE's nesting-0 path (48) proved hardware architecturally executes bb_0.7/0.8. That
+was over-stated. 84 is harness-size-dependent and is ALSO consistent with the CE's short arch path (exit at
+0xc0) plus harness, i.e. the seals not retiring on a match - which would AGREE with the CE. So the
+committed-count does NOT decide reading A vs B.
+
+OPEN sub-mechanism: WHICH committed access faults, and why it is architecturally reached when the CE and
+sealer treat the seals as speculative (nesting 1, arch path exits at 0xc0). Because the tag is TBI, genuine
+and decoy share control flow, so an architectural fault on the decoy means the decoy perturbed the tag of
+an architecturally-reached access that the sealer/CE marked speculative - a CE-vs-HW reachability
+disagreement. The decisive confirmation is an ESR_EL1/ELR_EL1/FAR_EL1 handler read-out on a mismatch
+(ELR = the faulting PC); not yet run. The REJECTED (architectural) verdict does not depend on it.
