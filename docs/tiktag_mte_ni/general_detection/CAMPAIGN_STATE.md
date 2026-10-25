@@ -123,10 +123,14 @@ verify no noise, use controlled "games" (the all-tags sweep) for PoCs. Think out
   ~2026-10-26 17:43 UTC, complete autonomy. Config = s24_mte_random.yml (fully random `fuzz`, bb 3-4,
   ipc 2, sample 1000, rotation on, cond, MTE, core 8, mistraining off). daemon 26950, fuzz 59645, 0.56
   tc/s. Crontab (@reboot + */5) + tick 7cac380c armed. Triage on judgment (no time gate), 100% integrity,
-  NEVER reboot device/box without asking. NOTE from this session's experiments: fully-random is LOW-YIELD
-  -- a genuine TikTag leak needs a CLEAN input-derived offset-0 sealed load in the speculative shadow of a
-  LATE-RESOLVING branch; with-load user_mte_skeleton confirms at ~tc7, noload (random shadow loads only) =
-  0/31 tc, fully-random essentially never builds that shape. So expect mostly NOISE; triage accordingly.
+  NEVER reboot device/box without asking. NOTE: fully-random is LOW-YIELD mainly because it rarely builds
+  a LATE-RESOLVING branch (a slow chain feeding the condition = a wide spec window) -- that is fuzzing's
+  job to hit by chance, not a bug. CORRECTION (retract earlier over-claim): the "clean offset-0 LDR[x5]
+  IS the leak site" statement is WRONG -- the sandbox pass CANCELS the index/offset/extend on every
+  access (aarch64_generator.sandbox_memory_access -> _make_offset_sub_insts), so the generated-asm offset
+  is cosmetic and fixed vs random loads share the same EA form x29+(base&mask); with-load=1/7 vs
+  noload=0/31 is within variance, NOT proof the fixed load matters (155905's leaker base was x1, a random
+  fill). Generator memory-op generation is NOT buggy. Expect mostly NOISE from random; triage accordingly.
 - [2026-10-25 ~17:30 UTC] else_ builder + v1-middle: ROOT-CAUSED a CE infinite loop, then REVERTED
   (user: stop here). Added a template-builder else_ (not-taken block) to express user_mte_skeleton's
   v1 fall-through shadow in Python; it built correct asm but WEDGED the contract_executor in an infinite
