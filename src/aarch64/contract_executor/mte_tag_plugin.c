@@ -411,15 +411,18 @@ void* mte_emulator_hook(struct simulation_state* sim_state)
 		}
 		case MTE_SUBG: {
 			/*
-			 * SUBG Xd, Xn, #uimm6, #uimm4: symmetric to ADDG but subtracts.
-			 * Tag wraps mod 16 via & 0xF (unsigned underflow is well-defined).
+			 * SUBG Xd, Xn, #uimm6, #uimm4: subtracts uimm6*16 from the ADDRESS only. The tag is
+			 * ChooseNonExcludedTag(start_tag, uimm4, GCR_EL1.Exclude) -- the SAME tag operation as
+			 * ADDG, which ADDS uimm4 (mod 16, skipping excluded tags). With GCR_EL1.Exclude == 0
+			 * (the executor clears it) this is (start_tag + uimm4) & 0xF. SUBG differs from ADDG
+			 * ONLY in the address direction, NOT in the tag direction.
 			 */
 			uint64_t xn    = cpu_state_read_base_reg(state, rn);
 			uint64_t uimm6 = (enc >> 16) & 0x3Fu;
 			uint64_t uimm4 = (enc >> 10) & 0xFu;
 			uint64_t addr56   = ((xn & 0x00FFFFFFFFFFFFFFu) - (uimm6 << 4))
 			                    & 0x00FFFFFFFFFFFFFFu;
-			uint64_t new_tag  = ((xn >> 56) - uimm4) & 0xFu;
+			uint64_t new_tag  = ((xn >> 56) + uimm4) & 0xFu;
 			uint64_t result   = (xn & 0xF000000000000000u) | (new_tag << 56) | addr56;
 			cpu_state_write_base_reg(state, rd, result);
 			break;

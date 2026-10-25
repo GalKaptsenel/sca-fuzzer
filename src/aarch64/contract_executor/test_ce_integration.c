@@ -3069,8 +3069,10 @@ static void test_integration_mte_subg(void) {
     instr_trace_entry_t *e = find_mem_entry(&res, 0);
     EXPECT(e != NULL);
     if (!e) return;
-    /* addr 0x1010-0x10=0x1000, tag 3-1=2, attr F → 0xF200000000001000 */
-    EXPECT_EQ(e->cpu.gpr[0], UINT64_C(0xF200000000001000));
+    /* SUBG subtracts the ADDRESS (0x1010-0x10=0x1000) but ADDS uimm4 to the TAG
+     * (ChooseNonExcludedTag, same as ADDG): tag 3+1=4, attr F → 0xF400000000001000.
+     * Regression for the SUBG tag-sign bug (was 3-1=2). */
+    EXPECT_EQ(e->cpu.gpr[0], UINT64_C(0xF400000000001000));
 }
 
 /* LDG X<rt>, [X<rn>] (offset 0). */

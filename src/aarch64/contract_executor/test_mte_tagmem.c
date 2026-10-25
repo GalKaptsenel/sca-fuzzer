@@ -222,16 +222,36 @@ int main(void) {
 	CHECK(get_reg(2) == (0x2ull | (1ull << 3)), "GMI: Xm | (1<<Xn.tag) = 0xA, got %#lx",
 	      (unsigned long)get_reg(2));
 
-	/* ---- ADDG / SUBG update address and tag independently (no carry between them) ---- */
+	/* ---- ADDG / SUBG update address and tag independently (no carry between them). The TAG is
+	 *      ChooseNonExcludedTag(start_tag, uimm4, GCR_EL1.Exclude): ADDG and SUBG BOTH *add* uimm4
+	 *      to the tag (mod 16, Exclude=0); SUBG differs from ADDG only in subtracting the ADDRESS.
+	 *      REGRESSION: SUBG once subtracted uimm4 from the tag (wrong sign). That mis-resolved
+	 *      tag-dependent branches (e.g. TBZ on a tag bit), so the CE marked an architectural,
+	 *      tag-gated access as speculative and the sealer decoyed a retiring load -> false NI
+	 *      positive. ---- */
 	memset(&SS, 0, sizeof(SS));
 	set_reg(1, ((uint64_t)0x1 << 56) | 0x1000ull);
 	run(e_addg(2, 1, 2, 3));   /* addr += 2*16, tag += 3 */
 	CHECK(get_reg(2) == (((uint64_t)0x4 << 56) | 0x1020ull), "ADDG: tag 4, addr 0x1020, got %#lx",
 	      (unsigned long)get_reg(2));
 	set_reg(1, ((uint64_t)0x8 << 56) | 0x1000ull);
-	run(e_subg(2, 1, 1, 3));   /* addr -= 16, tag -= 3 */
-	CHECK(get_reg(2) == (((uint64_t)0x5 << 56) | 0x0FF0ull), "SUBG: tag 5, addr 0x0FF0, got %#lx",
+	run(e_subg(2, 1, 1, 3));   /* addr -= 16, tag += 3 (NOT -3) */
+	CHECK(get_reg(2) == (((uint64_t)0xB << 56) | 0x0FF0ull), "SUBG: tag 0xB (8+3), addr 0x0FF0, got %#lx",
 	      (unsigned long)get_reg(2));
+	/* ADDG and SUBG apply the SAME tag offset (both +uimm4); only the address direction differs. */
+	set_reg(1, ((uint64_t)0x6 << 56) | 0x2000ull);
+	run(e_addg(2, 1, 0, 5));
+	uint64_t addg_tag = (get_reg(2) >> 56) & 0xF;
+	set_reg(1, ((uint64_t)0x6 << 56) | 0x2000ull);
+	run(e_subg(2, 1, 0, 5));
+	uint64_t subg_tag = (get_reg(2) >> 56) & 0xF;
+	CHECK(addg_tag == 0xB && subg_tag == 0xB, "ADDG/SUBG same tag +5 -> 0xB (got ADDG %u SUBG %u)",
+	      (unsigned)addg_tag, (unsigned)subg_tag);
+	/* the exact gadget that exposed the bug: start tag 6, uimm4 14 -> (6+14)&0xF = 4 (bit 59 clears) */
+	set_reg(1, ((uint64_t)0x6 << 56) | 0x3000ull);
+	run(e_subg(2, 1, 0, 14));
+	CHECK(((get_reg(2) >> 56) & 0xF) == 0x4, "SUBG tag wrap: (6+14)&0xF = 4, got %u",
+	      (unsigned)((get_reg(2) >> 56) & 0xF));
 
 	/* ---- SUBP / SUBPS: 56-bit signed pointer difference ---- */
 	memset(&SS, 0, sizeof(SS));
