@@ -294,3 +294,14 @@ the exception's class is specifically the MTE synchronous tag-check fault - from
 only on a CHECKED-tag mismatch; baseline at the TCMA-unchecked tag ptag15 and at match). A direct class
 confirmation would read ESR_EL1/FAR_EL1/TFSR_EL1 in the handler (another module rebuild; not done). The
 ARCHITECTURAL reclassification does not depend on the class; the tag-check gating does.
+
+## OFFLINE CONFIRMATION (committed-instruction count) -> reading A, architectural confirmed
+CE trace (input_0001_trace_log.txt): nesting-0 (committed) path = 48 instrs, exits at 0xc0 (b.al); bb_0.7/0.8
+(0xc4..0x124) appear ONLY at nesting>0 (CE models them speculative). BUT hardware INST_RETIRED on MATCH = 84
+>> 48. The ~36-instr gap matches bb_0.7/0.8 (25 instrs) + window fences/harness (~8-10); it does NOT match
+the CE's 48-instr exit-at-0xc0 path. => on hardware the gadget ARCHITECTURALLY executes bb_0.7/0.8 (CE
+branch-model error); the sealed access in bb_0.8 retires and faults on mismatch (reading A). Reading B (a
+separate speculative leak with the PMU tripping a different arch access) is NOT supported: 84 != 48.
+Architectural verdict triangulated: INST_RETIRED jump + EXC_TAKEN 0->1 + committed-count = full gadget path.
+LESSON: the CE's nesting classification is NOT ground truth for the hardware architectural path; a
+speculative-leak claim must check committed-instruction count / INST_RETIRED against the hardware path.
