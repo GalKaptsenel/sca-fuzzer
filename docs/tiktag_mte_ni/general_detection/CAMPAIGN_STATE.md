@@ -119,6 +119,16 @@ verify no noise, use controlled "games" (the all-tags sweep) for PoCs. Think out
 - accounting.py latent bugs: wrong REPO const + hardcoded sandbox_base (fix opportunistically).
 
 ## Progress log
+- [2026-10-25 ~19:30 UTC] First violation of the 24h run (violation-261025-182532) triaged -> NOISE, and
+  it exposed + fixed TWO triage-tool bugs. (1) accounting.py used a RELATIVE base.json -> false ERROR
+  verdict under triage_batch's cwd; fixed to absolute. (2) triage_sweep.py measured the suspect ALONE
+  (no cross-input priming) -> invalid control; fixed to run the batch's other inputs as a PRIMING PREFIX
+  (per user: "run all prior inputs as priming does") and read the suspect slot. Re-triaged with the VALID
+  primed sweep: NO spec-sealed set shows a match-dominant TikTag signature (sets 7/5/9 flat; set 0 shows
+  an INVERTED tag-RANGE block delta4-11=1.00 with genuine delta0 low = an addressing effect, not a tag-
+  check); HW divergence dominated by arch-demand prefetch streams -> prefetcher/batch NOISE. Did NOT rush
+  to noise (fixed priming first, valid control). ANOMALY for later: set-0 tag-range/addressing block.
+  Commits: accounting+triage_sweep fix 7bf53e60.
 - [2026-10-25 ~17:43 UTC] NEW 24h AUTONOMOUS GRANT (user): run fully-random MTE-NI fuzzing until
   ~2026-10-26 17:43 UTC, complete autonomy. Config = s24_mte_random.yml (fully random `fuzz`, bb 3-4,
   ipc 2, sample 1000, rotation on, cond, MTE, core 8, mistraining off). daemon 26950, fuzz 59645, 0.56
