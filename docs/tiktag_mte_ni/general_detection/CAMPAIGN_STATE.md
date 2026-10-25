@@ -1,10 +1,13 @@
 # Autonomous TikTag campaign — state & standing orders
 
-> **STOPPED by the user on 2026-10-25 ~12:19 UTC.** Collect daemon (pid 1708) terminated cleanly
-> (DAEMON EXIT logged); tick scheduler (Claude cron 3430142c) deleted; crontab `@reboot campaign_boot.sh`
-> removed (backed up to eval_out/collect/crontab_backup_*.txt); no fuzzer running; device left canonical
-> (module md5 5c8dfec, /dev/executor present). The automation will NOT relaunch on reboot. To restart:
-> re-add the @reboot line and re-create the tick cron, then `campaign_boot.sh`. Do not auto-resume.
+> **RESUMED by the user on 2026-10-25 ~14:46 UTC** (after a user-directed stop earlier the same day),
+> now running on the CE with the MTE tag-preservation fix (commit e7f41de8): a tagged access preserves
+> the base register's tag instead of stamping the accessed cell's tag, so the CE's branch resolution
+> matches hardware. This eliminates the 072421-class false positive (an architecturally-reached seal was
+> mis-classified speculative, decoyed, and faulted on hardware). Genuine speculative detection (155905)
+> is preserved; regression: tests/aarch64_tests/unit_mte_tag_preserve.py. Device: Pixel 8, remote over
+> the adb tunnel; module md5 5c8dfec. Self-healing daemon + host crontab (@reboot + */5 watchdog) +
+> in-session triage tick re-armed.
 
 GOAL: collect real TikTag-v1 (and other MTE tag) leaks via fully-random MTE non-interference fuzzing on
 the Pixel-8 Cortex-X3, triage each with 100% integrity, keep only GENUINE ones, disassemble and root-cause
@@ -41,7 +44,9 @@ verify no noise, use controlled "games" (the all-tags sweep) for PoCs. Think out
      (not just fuzz_pid present). The daemon auto-restarts on `stall>=4`; if you see a hang it did not
      catch, force it: kill the tracked fuzz PID (verified python revizor) and let the daemon restart.
    - device reachable? `timeout 15 adb -s 47061FDJH001K3 shell true`. If not, the daemon's touch logs
-     "touch FAIL"; try a module reload (recover_dev) only if the device is truly stuck.
+     "touch FAIL"; try a module reload (recover_dev) only if the device is truly stuck. NEVER `adb reboot`
+     (nor reboot the GCP box) to clear a wedge: after a device restart the tunnel needs manual user
+     intervention. If rmmod/insmod/chmod recovery does not clear it, STOP and ASK the user — do not reboot.
    - PID-safety: never pattern-kill; only kill PIDs read from daemon.pid/fuzz.pid and verified via
      /proc/<pid>/exe (python) and cmdline (revizor.py fuzz); exclude bash/pgrep/grep lines.
    The daemon now runs SLEEP=45s with a hang detector (restart if fuzz.log stops growing for 4 cycles).
@@ -67,6 +72,9 @@ verify no noise, use controlled "games" (the all-tags sweep) for PoCs. Think out
 - Don't trust a single measurement; the all-tags sweep (16 deltas) IS the recheck. Re-run if marginal.
 - Log before and after every experiment; persist every artifact; never fabricate a result.
 - Destructive ops (kill) must target explicit PIDs verified as python revizor procs; never broad patterns.
+- NEVER reboot the device or the GCP box without first asking the user (standing order, 2026-10-25): a
+  device restart requires manual intervention to restore the laptop->Pixel adb tunnel, which is out of our
+  control. Device recovery is rmmod/insmod/chmod only; if that does not clear a wedge, ask — never reboot.
 
 ## Pending verification asks (do in TRIAGE phase, first)
 1. GRANULE-TAG TRACKING CONTROL (gold-standard genuineness) on the genuine ones (155905, 160128) AND
@@ -98,6 +106,13 @@ verify no noise, use controlled "games" (the all-tags sweep) for PoCs. Think out
 - accounting.py latent bugs: wrong REPO const + hardcoded sandbox_base (fix opportunistically).
 
 ## Progress log
+- [2026-10-25 ~15:08 UTC] RESUMED on the fixed CE (commit 1171e1ba: tag-preservation fix + de-merge op
+  removed; 072421-class false positives eliminated, 155905 detection preserved; regression
+  unit_mte_tag_preserve.py). Daemon pid 26950, fuzz pid 29773 (session_20261025_150749), no PAUSE, real
+  progress confirmed (cpu + fuzz.log bytes advancing), rate ~0.12 tc/s early in a fresh F+R session. Host
+  crontab (@reboot + */5 watchdog) and in-session triage tick re-armed. Device: Pixel 8 remote. USER
+  STANDING ORDER: fully autonomous; NEVER reboot device/box without asking (post-restart needs manual
+  tunnel recovery). Collect-only until the 19:20 UTC triage gate.
 - [init] Collector launching; genuine baseline already established from the USER TEMPLATE
   (user_mte_skeleton): eval_out/VERIFIED_GENUINE/userskel_155905 (set 9 spec-only, sweep 7:1.00) and
   userskel_160128 (set 39 spec-only, 7:0.58) — both independently confirmed GENUINE TikTag-v1.
