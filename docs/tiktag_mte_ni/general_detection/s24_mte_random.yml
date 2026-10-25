@@ -8,9 +8,6 @@ instruction_categories:
   - MTE-TAGMEM
   - BASE-ARITH
   - BASE-LOGICAL
-  - BASE-SHIFT
-  - BASE-BITFIELD
-  - BASE-CONDSEL
   - BASE-BRANCH
   - BASE-MEM-LOAD
   - BASE-MEM-STORE
