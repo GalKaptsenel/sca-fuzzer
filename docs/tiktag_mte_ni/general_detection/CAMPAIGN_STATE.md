@@ -110,6 +110,17 @@ verify no noise, use controlled "games" (the all-tags sweep) for PoCs. Think out
 - accounting.py latent bugs: wrong REPO const + hardcoded sandbox_base (fix opportunistically).
 
 ## Progress log
+- [2026-10-25 ~16:20 UTC] TEMPLATE RE-CONFIRM + NO-REGRESSION CHECK (user-requested; campaign paused
+  PID-safe, then resumed). (1) Known genuine userskel_155905 reproduces its textbook separation via the
+  trusted triage_sweep.py: set 9, genuine delta 7 = 1.00, all mismatches <=0.06 -> NO regression in the
+  CE/sealer path (commits e7f41de8/1171e1ba clean). (2) The skill tool ctrl_sweep.py is BIT-ROTTED
+  (hard-codes REPO=/home/gal_k_1_1998/sca-fuzzer missing /revizor/, stale seal() call) -> it built wrong
+  sealed inputs and SATURATED set 9 across all tags (false alarm, NOT a real regression). Prefer
+  triage_sweep.py / auto_triage.py; ctrl_sweep.py needs a rewrite or retire. (3) tfuzz on
+  user_mte_skeleton reproduced a genuine-CLASS leak (violation-261025-160600, scratchpad): pointer-tag
+  sweep set 60, match = genuine tag 0.97 vs mismatches <=0.15 (one 0.33 outlier). Granule-tag TRACKING
+  control INVALID (guess-granule finder returns wrong granule, same limitation as the 155905 baseline
+  control) -> INCONCLUSIVE, NOT stamped genuine; needs PMU confirm or the fixed granule finder.
 - [2026-10-25 ~15:55 UTC] THROUGHPUT TUNE adopted (user-requested). Benchmarked on device (campaign paused
   cleanly, PID-safe, then resumed): template tfuzz 0.33 tc/s, s24-old 0.18, tuned 0.52. Root cause of
   slowness: on-device measurement over adb (inputs_per_class x sample_reps), NOT block count (generation
