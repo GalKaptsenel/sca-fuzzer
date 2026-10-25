@@ -110,6 +110,19 @@ verify no noise, use controlled "games" (the all-tags sweep) for PoCs. Think out
 - accounting.py latent bugs: wrong REPO const + hardcoded sandbox_base (fix opportunistically).
 
 ## Progress log
+- [2026-10-25 ~17:30 UTC] else_ builder + v1-middle: ROOT-CAUSED a CE infinite loop, then REVERTED
+  (user: stop here). Added a template-builder else_ (not-taken block) to express user_mte_skeleton's
+  v1 fall-through shadow in Python; it built correct asm but WEDGED the contract_executor in an infinite
+  loop at nesting 1 (reproduced DEVICE-FREE via scratchpad/ce_repro.py). Bisected: ANY else_ hangs
+  (tiny/dense shadow, empty/non-empty taken, forced/random cond all hang), while plain if_ body and the
+  generator's own multi-BB holes do NOT. CAUSE: else_ inherited if_'s conditional+unconditional
+  terminator pair -> an asymmetric diamond (not-taken edge goes through an extra block before
+  reconverging) the CE's speculation-window reconvergence can't close. user_mte_skeleton avoids it with a
+  SINGLE conditional-skip + FALL-THROUGH shadow (the generator's native CE-safe pattern). Fix would be a
+  fall-through-shadow primitive (NOT if_/else_) or hardening the CE window logic; user chose to stop.
+  Reverted builder.py; removed mte_v1_middle.py + user_mte_sdivonly.asm. NET for the whole middle-step
+  thread: user_mte_skeleton (v1 window + tfuzz-random shadow) IS the working middle step; a slow chain
+  helps ONLY when it feeds the mispredicting branch; the CE loops on the else_ asymmetric-diamond CFG.
 - [2026-10-25 ~16:55 UTC] COUPLED middle-step bench + corrected understanding. templates/
   mte_coupled_middle.py (SSB window via if_ + random LOAD hole in the shadow) = 38 tc, 1 candidate, 0
   confirmed -> the SSB/if_ window barely speculates with random holes around it (a random ALU prologue
