@@ -73,6 +73,15 @@ verify no noise, use controlled "games" (the all-tags sweep) for PoCs. Think out
 ## Integrity rules (hard)
 - 100% genuine only. A violation is GENUINE only if it passes the full pipeline AND the leaking set is
   spec-only AND the checked-tag separation is clean. Prefetcher/batch/arch-demand divergences = NOISE.
+- CALIBRATE BOTH WAYS (user, 2026-10-25): do NOT be quick to call NOISE (a candidate that fails priming
+  once may be marginal, not noise -- recheck with the controls), and do NOT be too sure of REAL. A clean
+  tag-separating sweep is NECESSARY BUT NOT SUFFICIENT: 072421 was tag-dependent and cleanly separated
+  yet turned out ARCHITECTURAL (PMU: the access RETIRED, INST_RETIRED 84->~195k, EXC_TAKEN 0->1 = a sync
+  MTE fault taken), not a speculative shrink. So before GENUINE, CONFIRM SPECULATIVE via PMU: on the
+  MISMATCH variant EXC_TAKEN must stay 0 (no fault taken) AND INST_RETIRED must stay flat (access does
+  NOT retire). If the access retires or faults -> ARCHITECTURAL -> REJECT, however clean the separation.
+  When any control is invalid or the evidence is incomplete, verdict = QUESTIONABLE/INCONCLUSIVE -- never
+  force GENUINE or NOISE.
 - Don't trust a single measurement; the all-tags sweep (16 deltas) IS the recheck. Re-run if marginal.
 - Log before and after every experiment; persist every artifact; never fabricate a result.
 - Destructive ops (kill) must target explicit PIDs verified as python revizor procs; never broad patterns.
