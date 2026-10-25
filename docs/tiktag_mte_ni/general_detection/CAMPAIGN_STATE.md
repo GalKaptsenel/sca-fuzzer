@@ -110,6 +110,14 @@ verify no noise, use controlled "games" (the all-tags sweep) for PoCs. Think out
 - accounting.py latent bugs: wrong REPO const + hardcoded sandbox_base (fix opportunistically).
 
 ## Progress log
+- [2026-10-25 ~17:43 UTC] NEW 24h AUTONOMOUS GRANT (user): run fully-random MTE-NI fuzzing until
+  ~2026-10-26 17:43 UTC, complete autonomy. Config = s24_mte_random.yml (fully random `fuzz`, bb 3-4,
+  ipc 2, sample 1000, rotation on, cond, MTE, core 8, mistraining off). daemon 26950, fuzz 59645, 0.56
+  tc/s. Crontab (@reboot + */5) + tick 7cac380c armed. Triage on judgment (no time gate), 100% integrity,
+  NEVER reboot device/box without asking. NOTE from this session's experiments: fully-random is LOW-YIELD
+  -- a genuine TikTag leak needs a CLEAN input-derived offset-0 sealed load in the speculative shadow of a
+  LATE-RESOLVING branch; with-load user_mte_skeleton confirms at ~tc7, noload (random shadow loads only) =
+  0/31 tc, fully-random essentially never builds that shape. So expect mostly NOISE; triage accordingly.
 - [2026-10-25 ~17:30 UTC] else_ builder + v1-middle: ROOT-CAUSED a CE infinite loop, then REVERTED
   (user: stop here). Added a template-builder else_ (not-taken block) to express user_mte_skeleton's
   v1 fall-through shadow in Python; it built correct asm but WEDGED the contract_executor in an infinite
