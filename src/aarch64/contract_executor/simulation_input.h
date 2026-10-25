@@ -27,6 +27,7 @@ enum config_flags {
 	CONFIG_FLAG_REQ_MEM_BASE_PHYS	= 1 << 2,
 	CONFIG_FLAG_REQ_MEM_BASE_VIRT	= 1 << 3,
 	CONFIG_FLAG_PAC_PROFILE		= 1 << 4,
+	CONFIG_FLAG_MTE_PROFILE		= 1 << 5,
 };
 
 /* Contracts are COMPOSABLE: `configuration.execution_clauses` is a BITMASK of clauses, so
@@ -71,6 +72,8 @@ struct configuration {
 	                                    * pac_profile_init): iterations | t1sz<<8 | tbi0<<16 | tbi1<<17 |
 	                                    * tbid0<<18 | tbid1<<19 | level<<20 | constpacfield<<26 |
 	                                    * t0sz<<32 | generic_iterations<<40 */
+	uint64_t mte_profile;              /* packed MTE profile, applied iff CONFIG_FLAG_MTE_PROFILE: bit 0
+	                                    * = native (host runs MTE), else emulate (strip tag + restore) */
 };
 
 /* Envelope for one contract-executor message: exec-params (config) + code + a shared input initialization
@@ -96,8 +99,8 @@ struct input_header {
 };
 
 /* Wire ABI must match the Python encoder (ContractExecution.encode). */
-_Static_assert(sizeof(struct configuration) == 10 * sizeof(uint64_t), "configuration ABI mismatch");
-_Static_assert(sizeof(struct input_header) == 19 * sizeof(uint64_t), "input_header ABI mismatch");
+_Static_assert(sizeof(struct configuration) == 11 * sizeof(uint64_t), "configuration ABI mismatch");
+_Static_assert(sizeof(struct input_header) == 20 * sizeof(uint64_t), "input_header ABI mismatch");
 
 /* ============================
  * In-memory representation

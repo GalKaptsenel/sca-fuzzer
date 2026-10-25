@@ -32,7 +32,7 @@ from .seal.environment import (default_sandbox_page_map, PteFuzzPolicy, Environm
 from .aarch64_relocations import apply_relocations, Relocation
 from .aarch64_contract_executor import (ContractExecution, ContractExecutorService,
                                         ExecutionClause, SUPPORTED_EXECUTION_CLAUSES,
-                                        BranchPredictor, EXECUTION_CLAUSE_MAP, SimArch)
+                                        BranchPredictor, EXECUTION_CLAUSE_MAP, SimArch, MteProfile)
 from .aarch64_disasm import disassemble_instruction, is_conditional_branch, build_register_role_map
 from .aarch64_trace import compute_ctrace, compute_taint, ContractExecutionResult
 from .aarch64_input_layout import _input_bytes_with_pstate, REGISTER_REGION_OFFSET
@@ -342,6 +342,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
             mte_tags=mte_tags,
             pac_keys=pac_keys,
             pac_profile=pac_profile,
+            mte_profile=MteProfile(native=CONF.mte_native),
             data_size=self._dispatch_data_size(),
             emul_table=emul_table,
         )

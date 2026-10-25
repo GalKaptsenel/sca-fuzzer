@@ -8,6 +8,11 @@ void mte_tag_plugin_init(void);
 void mte_tag_plugin_cleanup(void);
 void* mte_emulator_hook(struct simulation_state* sim_state);
 
+/* MTE profile (CONFIG_FLAG_MTE_PROFILE). mte_native(): the host runs MTE, so the retag ADDG and tagged
+ * access execute natively; otherwise the CE strips the tag to form the host address and restores it. */
+void mte_profile_init(uint64_t word, bool present);
+bool mte_native(void);
+
 /* Per-input MTE tag memory (one allocation tag per 16B granule), seeded from the input's MTE_TAGS
  * section. Present only in MTE-test mode (initial != NULL); otherwise there is no tag memory. The
  * speculation engine snapshots/restores it at each checkpoint for misspeculation rollback. */
@@ -29,9 +34,7 @@ int     mte_is_mem_tag_access(uint32_t enc);
 int  mte_tag_log_enabled(void);
 void mte_tagmem_log(const char* when, long seq);
 
-/* op-emulator for EMUL_OP_MTE_RETAG: IDLE fills the slot with UDF, MATERIALIZE plants the retag ADDG
- * (to the accessed cell's tag). */
-void mte_emulate_retag(struct simulation_state *sim_state, uintptr_t offset, uint32_t size,
-		       emul_phase_t phase);
+/* Granule index of a tagged address in the CE tag memory, or -1 if outside the tagged span. */
+long ce_granule(uintptr_t addr);
 
 #endif // MTE_TAG_PLUGIN_H

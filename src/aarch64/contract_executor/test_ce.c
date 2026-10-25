@@ -599,12 +599,12 @@ static void test_payload_size(void) {
 /* ======================================================================== */
 
 static void test_struct_sizes(void) {
-    /* struct configuration: 10 fields × 8 bytes = 80 bytes */
-    EXPECT_EQ(sizeof(struct configuration), (size_t)80);
+    /* struct configuration: 11 fields × 8 bytes = 88 bytes (pac_profile + mte_profile) */
+    EXPECT_EQ(sizeof(struct configuration), (size_t)88);
 
-    /* struct input_header: 19 u64 = magic+version+arch+flags(4) + config(10)
-     *   + code_size+data_size+input_init_size+emul_table_size+reserved(5) = 152 bytes */
-    EXPECT_EQ(sizeof(struct input_header), (size_t)152);
+    /* struct input_header: 20 u64 = magic+version+arch+flags(4) + config(11)
+     *   + code_size+data_size+input_init_size+emul_table_size+reserved(5) = 160 bytes */
+    EXPECT_EQ(sizeof(struct input_header), (size_t)160);
 
     /* input_header starts with magic at offset 0 */
     EXPECT_EQ(offsetof(struct input_header, magic), (size_t)0);

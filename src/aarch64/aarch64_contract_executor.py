@@ -4,7 +4,7 @@ File: AArch64 contract-executor (CE) service — request encoding and CE process
 import select
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Optional, NamedTuple
 from dataclasses import dataclass
 from enum import IntFlag, IntEnum
 from .contract_executor.stream_ipc import StreamIPC
@@ -27,6 +27,7 @@ class ConfigFlags(IntFlag):
     CONFIG_FLAG_REQ_MEM_BASE_PHYS   = 1 << 2
     CONFIG_FLAG_REQ_MEM_BASE_VIRT   = 1 << 3
     CONFIG_FLAG_PAC_PROFILE         = 1 << 4
+    CONFIG_FLAG_MTE_PROFILE         = 1 << 5
 
 
 class SimArch(IntEnum):
@@ -113,6 +114,13 @@ _MSG_RESPONSE = 2
 # GPRs per CE trace entry: x0..x30 (x30=lr at gpr[30]); pinned by the CE's simulation_state.h.
 AARCH64_NUM_GPRS = 31
 
+class MteProfile(NamedTuple):
+    """The MTE state the CE models. native = the CE host implements FEAT_MTE, so the retag ADDG and the
+    tagged access run natively; otherwise the CE strips the tag to form the host address and restores it
+    after the access."""
+    native: bool
+
+
 @dataclass(slots=True)
 class ContractExecution:
     machine_code: bytes
@@ -131,6 +139,7 @@ class ContractExecution:
     mte_tags: Optional[list] = None       # per-input MTE tags (one per 16B granule), or None
     pac_keys: Optional[PacKeys] = None    # per-input PAC keys, or None
     pac_profile: Optional[PacProfile] = None   # target PAC profile the CE models auth with, or None
+    mte_profile: Optional[MteProfile] = None   # MTE state the CE models, or None (emulate, tag stripped)
     data_size: int = 0    # trailing read-only bytes of machine_code (dispatch tables): loaded but not hooked
     emul_table: bytes = b""   # emulation table: rows of (offset, size, op) the CE materializes in place, or empty
 
@@ -179,6 +188,11 @@ class ContractExecution:
                                 | ((p.t0sz & 0xff) << 32) | ((p.generic_iterations & 0xff) << 40))
             config_flags |= ConfigFlags.CONFIG_FLAG_PAC_PROFILE
 
+        mte_profile_word = 0
+        if self.mte_profile is not None:
+            mte_profile_word = int(bool(self.mte_profile.native))
+            config_flags |= ConfigFlags.CONFIG_FLAG_MTE_PROFILE
+
         # memory = main‖faulty; the gpr register slots are the GPR section (CE reads only those).
         input_init = build_input_init(self.memory[:MAIN_AREA_SIZE], self.memory[MAIN_AREA_SIZE:],
                                 self.registers[:GPR_SUBREGION_SIZE],
@@ -207,6 +221,7 @@ class ContractExecution:
         data += (int(self.execution_clauses)).to_bytes(8, 'little')
         data += (int(self.branch_predictor)).to_bytes(8, 'little')
         data += (pac_profile_word).to_bytes(8, 'little')
+        data += (mte_profile_word).to_bytes(8, 'little')
 
         data += code_size.to_bytes(8, 'little')
         data += data_size.to_bytes(8, 'little')

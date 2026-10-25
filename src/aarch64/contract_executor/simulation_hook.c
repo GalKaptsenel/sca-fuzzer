@@ -302,12 +302,11 @@ void base_hook_c(struct cpu_state* state) {
 		int load_aliases = mi.is_load && rn != AARCH64_SP_REG &&
 		    (mi.target_register == rn || (mi.is_pair && mi.rt2_register == rn));
 
-		/* MTE-test mode (not SP): give the pointer the accessed cell's tag before the access, as the
-		 * genuine ADDG does, so a store of it writes the tagged value. */
-		if (!load_aliases && mte_tagmem_active() && rn != AARCH64_SP_REG) {
-			uint8_t cell_tag = mte_tagmem_tag_at(ea);
-			restore_val = (base_orig & ~(0xFull << 56)) | ((uintptr_t)cell_tag << 56);
-		}
+		/* Host without FEAT_MTE: a tagged pointer is not a usable address and we do not assume TBI drops
+		 * the top byte, so the tag is masked off to form the host address for the access (kaddr2uaddr,
+		 * below) and re-merged after -- restore_val keeps base_orig's tag, so it propagates faithfully to
+		 * later instructions. A FEAT_MTE host (mte_native, guarded at profile init) runs the access
+		 * tagged instead. */
 
 		/* Rebase so the hardware-computed EA lands exactly on the translated (clean) EA; the native
 		 * access then never relies on EL0 TBI to drop a stray top byte. A load from the executable image

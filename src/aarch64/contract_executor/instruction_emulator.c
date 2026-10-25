@@ -2,6 +2,7 @@
 #include "simulation.h"
 #include "pac_sign_plugin.h"
 #include "mte_tag_plugin.h"
+#include "mte_seal_plugin.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,8 +27,9 @@ void emul_udf_fill(uint32_t first_slot, uint32_t n_slots)
 /* The op-emulator for each `enum emul_op`, indexed by op id (a hole stays NULL). Keying the table by
  * op makes a signature drift a compile error and the dispatch a single typed call. */
 static const emul_op_fn emul_ops[] = {
-    [EMUL_OP_PAC_AUTH]  = pac_emulate_auth,
-    [EMUL_OP_MTE_RETAG] = mte_emulate_retag,
+    [EMUL_OP_PAC_AUTH]    = pac_emulate_auth,
+    [EMUL_OP_MTE_RETAG]   = mte_emulate_retag,
+    [EMUL_OP_MTE_DEMERGE] = mte_emulate_demerge,
 };
 
 /* Route a site phase to its op-emulator; the op owns everything it does with the slots. */

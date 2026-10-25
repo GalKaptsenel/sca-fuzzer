@@ -19,6 +19,7 @@ enum emul_op {
 	EMUL_OP_NONE      = 0,
 	EMUL_OP_PAC_AUTH  = 1,   /* slots [MOVK(sig) x n], anchor AUT*: write the sig MOVKs so AUT* verifies */
 	EMUL_OP_MTE_RETAG = 2,   /* slot [ADDG], anchor access: retag the pointer to the accessed cell tag   */
+	EMUL_OP_MTE_DEMERGE = 3, /* slot [ADDG] after the access: re-converge the pointer tag to the cell tag */
 };
 
 struct emul_row {

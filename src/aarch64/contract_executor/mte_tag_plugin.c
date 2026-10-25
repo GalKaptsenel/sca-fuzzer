@@ -7,6 +7,11 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/auxv.h>
+
+#ifndef HWCAP2_MTE
+#define HWCAP2_MTE (1UL << 18)
+#endif
 
 /* GMID_EL1.BS — log2 of the LDGM/STGM tag-block size, in granules. Fixed to 4 (a 16-granule,
  * 256-byte block), the known default for ARM Neoverse server, ARM Cortex High-Performance, and ARM
@@ -15,6 +20,19 @@
 #define MTE_GMID_BS             4u
 #define MTE_TAG_BLOCK_GRANULES  (1u << MTE_GMID_BS)   /* tags per LDGM/STGM block */
 #define MTE_TAG_BLOCK_BYTES     (MTE_TAG_BLOCK_GRANULES * 16u)
+
+static bool g_mte_native = false;
+
+void mte_profile_init(uint64_t word, bool present) {
+	g_mte_native = present && (0 != (word & 1u));
+	if (g_mte_native && 0 == (getauxval(AT_HWCAP2) & HWCAP2_MTE)) {
+		fprintf(stderr, "[CE FATAL] mte_native requested but the CE host does not implement FEAT_MTE "
+			"(HWCAP2_MTE absent): native MTE execution is unavailable -- aborting\n");
+		abort();
+	}
+}
+
+bool mte_native(void) { return g_mte_native; }
 
 /*
  * MTE instruction emulation for the Contract Executor.
@@ -180,7 +198,7 @@ void mte_tagmem_restore(const uint8_t* src) {
 }
 
 /* Granule index of kernel-space address `addr`, or -1 if outside the tagged span. */
-static long ce_granule(uintptr_t addr) {
+long ce_granule(uintptr_t addr) {
 	uintptr_t a = addr & 0x00FFFFFFFFFFFFFFu;
 	if (NULL == g_tagmem || a < g_tagmem_base) {
 		return -1;
@@ -229,51 +247,6 @@ int mte_tagmem_active(void) {
  * and the retag op-emulator's cell source); 0 outside the tagged span / when no tag memory exists. */
 uint8_t mte_tagmem_tag_at(uintptr_t addr) {
 	return ce_tag_at(addr);
-}
-
-/* op-emulator EMUL_OP_MTE_RETAG: the row owns the retag ADDG slot(s); the access it guards is the
- * anchor just past them. IDLE fills the slots with UDF; MATERIALIZE retags the access's base register
- * so the effective address's tag matches the accessed cell's allocation tag (ADDG Xn, Xn, #0, #delta,
- * delta = cell_tag - ea_tag) as the genuine binary does, reading the tag from the simulated tag memory
- * at the current effective address. The op owns both phases; the dispatcher only routes them. */
-void mte_emulate_retag(struct simulation_state *sim_state, uintptr_t offset, uint32_t size,
-		       emul_phase_t phase) {
-	uint32_t *live   = (uint32_t *)simulation.sim_code.code;
-	uint32_t *shadow = (uint32_t *)simulation.sim_input.code;   // the logger reads encodings from here
-	uint32_t base = (uint32_t)(offset / 4);
-	uint32_t n_slots = size / 4;
-	if (EMUL_PHASE_IDLE == phase) {
-		emul_udf_fill(base, n_slots);
-		return;
-	}
-	/* An MTE_RETAG row only exists when MTE sealing is active, so tag memory is seeded; a missing one
-	 * is a bug, not a tolerable state — fail loud, as the op dispatch does. */
-	if (NULL == sim_state || !mte_tagmem_active()) {
-		fprintf(stderr, "[CE FATAL] mte_emulate_retag: sim_state=%p tagmem_active=%d -- aborting\n",
-			(void *)sim_state, mte_tagmem_active());
-		abort();
-	}
-	uint32_t access = shadow[base + n_slots];                   // the access, just past the retag slot
-	uint32_t rn = get_rn(access);                               // the base register it (and the retag) use
-	struct cpu_state *cpu = &sim_state->cpu_state;
-	trace_cpu_state_t tcs = { 0 };
-	for (uint32_t r = 0; r < 31; ++r) { tcs.gpr[r] = cpu_state_read_base_reg(cpu, r); }
-	tcs.sp = cpu->sp;
-	uintptr_t ea = (uintptr_t)parse_memory_access_instruction(access, &tcs).effective_address;
-	if (ce_granule(ea) < 0) {                                   // the access must land in the tagged span
-		fprintf(stderr, "[CE FATAL] mte_emulate_retag: EA 0x%lx outside the tagged span -- aborting\n",
-			(unsigned long)ea);
-		abort();
-	}
-	uint32_t cell = mte_tagmem_tag_at(ea);                      // tag of the granule the access touches
-	/* Adding delta to Rn's tag shifts the effective address's tag by the same delta (EA = Rn + offset,
-	 * so EA += delta<<56); target the EA tag, not Rn's own — they differ for a register-offset access. */
-	uint32_t ea_tag = (uint32_t)((ea >> 56) & 0xFu);
-	uint32_t delta = (cell - ea_tag) & 0xFu;
-	uint32_t addg = 0x91800000U | ((uint32_t)delta << 10) | (rn << 5) | rn;
-	for (uint32_t i = 0; i < n_slots; ++i) {
-		live[base + i] = shadow[base + i] = addg;
-	}
 }
 
 int mte_tag_log_enabled(void) {

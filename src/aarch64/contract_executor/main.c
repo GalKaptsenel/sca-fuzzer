@@ -249,6 +249,9 @@ int main() {
 		pac_profile_init(simulation.sim_input.hdr.config.pac_profile,
 		                 0 != (CONFIG_FLAG_PAC_PROFILE & simulation.sim_input.hdr.config.flags));
 
+		mte_profile_init(simulation.sim_input.hdr.config.mte_profile,
+		                 0 != (CONFIG_FLAG_MTE_PROFILE & simulation.sim_input.hdr.config.flags));
+
 		g_iter_phase = 2; /* simulation */
 		emul_reset(); /* idle every emulation-table site before this test case's trace */
 		call_stack_reset(); /* fresh architectural call stack for this test case */

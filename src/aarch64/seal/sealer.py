@@ -34,6 +34,7 @@ M = (1 << 64) - 1
 # during the trace by dispatching on these.
 EMUL_OP_PAC_AUTH = 1
 EMUL_OP_MTE_RETAG = 2
+EMUL_OP_MTE_DEMERGE = 3
 
 
 def pack_emul_table(rows: List[Tuple[int, int, int]]) -> bytes:
@@ -50,9 +51,16 @@ def _pac_emul_rows(pac, offsets) -> List[Tuple[int, int, int]]:
 
 
 def _mte_emul_rows(mte, offsets) -> List[Tuple[int, int, int]]:
-    """An MTE_RETAG row per access: the op owns the retag ADDG slot; the guarded access anchor sits at
-    offset+size."""
-    return [(offsets[id(s)][0], s.n_before * 4, EMUL_OP_MTE_RETAG) for s in mte]
+    """Per sealed access: a RETAG row owning the before-access ADDG slot (the access anchor sits at
+    offset+size), and, when the base is preserved, a DEMERGE row owning the after-access ADDG slot (the
+    access sits immediately before it) that re-converges the pointer tag to the cell tag."""
+    rows: List[Tuple[int, int, int]] = []
+    for s in mte:
+        offs = offsets[id(s)]
+        rows.append((offs[0], s.n_before * 4, EMUL_OP_MTE_RETAG))
+        if len(offs) > 1:
+            rows.append((offs[1], 4, EMUL_OP_MTE_DEMERGE))
+    return rows
 
 
 def _reg_num(reg: str) -> int:

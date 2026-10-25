@@ -123,7 +123,7 @@ _option_values = {
     ],
     'contract_execution_clause': [
         "seq", "no_speculation", "cond", "conditional_br_misprediction", "bpas", "bpu_neoverse_n3",
-        "barrier", "sls",
+        "barrier", "sls", "rsb", "return_misprediction",
     ],
 }
 
@@ -242,6 +242,10 @@ pac_tbid0: Optional[bool] = None
 pac_tbid1: Optional[bool] = None
 pac_mtx0: Optional[bool] = None
 pac_mtx1: Optional[bool] = None
+
+# True: the CE host implements FEAT_MTE, so the retag ADDG and tagged access run natively. False
+# (default): emulate -- the CE strips the tag to form the host address and restores it after the access.
+mte_native: bool = False
 
 enable_canonicality: bool = False
 canonicality_seal_prob: float = 1.0
