@@ -110,6 +110,16 @@ verify no noise, use controlled "games" (the all-tags sweep) for PoCs. Think out
 - accounting.py latent bugs: wrong REPO const + hardcoded sandbox_base (fix opportunistically).
 
 ## Progress log
+- [2026-10-25 ~16:38 UTC] ABLATION — "SDIV chain only, rest random" (user). Python template
+  templates/mte_sdiv_only.py: fixed 16-deep SDIV latency chain, then one multi-BB Hole(ANY) so the
+  generator wires RANDOM conditional branches + random MTE-sealed memory (the branches condition on
+  random regs, NOT the chain -> the chain is FLOATING). Result: 33 tc, 0 confirmed, no violation dir
+  saved -- vs the full template (chain FEEDS the branch + sealed load in its shadow) which saved a
+  genuine-class candidate in ~17 tc. Conclusion (one run each, probabilistic, but consistent with the
+  mechanism): a slow chain only widens the window when it FEEDS the mispredicting branch; a floating
+  chain does nothing. So the real middle step = make the branch condition LATE-RESOLVING (dependent on a
+  slow chain) AND put a sealable load in its speculative shadow, otherwise random -- not merely "insert
+  SDIVs".
 - [2026-10-25 ~16:20 UTC] TEMPLATE RE-CONFIRM + NO-REGRESSION CHECK (user-requested; campaign paused
   PID-safe, then resumed). (1) Known genuine userskel_155905 reproduces its textbook separation via the
   trusted triage_sweep.py: set 9, genuine delta 7 = 1.00, all mismatches <=0.06 -> NO regression in the
