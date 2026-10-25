@@ -70,7 +70,7 @@ else:
     diverge = []
 
 # --- Step 2: CE per-set accounting (local) ---
-fz = NoninterferenceFuzzer("base.json", REPO); fz.initialize_modules()
+fz = NoninterferenceFuzzer(os.path.join(REPO, "base.json"), REPO); fz.initialize_modules()
 ex = fz.executor; ex._sandbox_base = 0xffff8873821000
 sealed = ex._sealer.seal(fz.asm_parser.parse_file(f"{VD}/generated.asm"))
 _inp_files = glob.glob(f"{VD}/input_{SUS:04d}.reif") or glob.glob(f"{VD}/input_{SUS:04d}.bin")

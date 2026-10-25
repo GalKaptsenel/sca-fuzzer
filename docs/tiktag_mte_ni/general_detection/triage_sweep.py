@@ -45,9 +45,25 @@ def main():
         return ExecutorInput(g.input_, code_reloc=tuple(plan), mte_tags=g.mte_tags,
                              pac_keys=g.pac_keys, bpu_training=g.bpu_training, env_plan=g.env_plan)
 
+    # Priming prefix: run the batch's OTHER inputs (their genuine/baseline variants) BEFORE the suspect,
+    # reproducing the cross-input priming the campaign measures under. Without it the branch window may
+    # never open, making an unprimed sweep an INVALID control (not noise). `--no-prime` disables it.
+    import re as _re
+    prefix = []
+    if "--no-prime" not in sys.argv:
+        others = sorted({int(m.group(1)) for p in glob.glob(f"{vd}/input_0*.*")
+                         for m in [_re.search(r'input_(\d+)\.', os.path.basename(p))] if m})
+        for k in others:
+            if k == sus:
+                continue
+            kb = open(glob.glob(f"{vd}/input_{k:04d}.*")[0], "rb").read()
+            prefix.append(ex.genuine_variant(deserialize(kb).input_))
+    slot = -1 if prefix else 0
+    print(f"  priming prefix: {len(prefix)} prior inputs; measuring suspect at slot {slot}")
+
     # all ADDG retag relocs (candidate per-load before/after slots)
     addg = [(k, r) for k, r in enumerate(relocs) if (r.value & 0xFFC00000) == ADDG_OP]
-    base = res(ex.trace_test_case([g], reps)[0][0], dset)
+    base = res(ex.trace_test_case(prefix + [g], reps)[0][slot], dset)
     print(f"{vd.split('/')[-1]} suspect#{sus} divset={dset} reps={reps}  genuine baseline res={base:.2f}")
     print(f"  {len(addg)} ADDG retag relocs")
 
@@ -56,7 +72,7 @@ def main():
     for k, r in addg:
         d0 = (r.value >> 10) & 0xF
         plan = list(relocs); plan[k] = Reloc(r.offset, (r.value & ~(0xF << 10)) | (((d0 + 1) & 0xF) << 10), r.rtype)
-        rr = res(ex.trace_test_case([ei(plan)], reps)[0][0], dset)
+        rr = res(ex.trace_test_case(prefix + [ei(plan)], reps)[0][slot], dset)
         knock.append((base - rr, k, r, d0, rr))
     knock.sort(reverse=True)
     print("  top knockouts (drop, off, genuine_delta, res):")
@@ -68,7 +84,7 @@ def main():
     sweep = {}
     for d in range(16):
         plan = list(relocs); plan[k] = Reloc(r.offset, (r.value & ~(0xF << 10)) | (d << 10), r.rtype)
-        sweep[d] = res(ex.trace_test_case([ei(plan)], reps)[0][0], dset)
+        sweep[d] = res(ex.trace_test_case(prefix + [ei(plan)], reps)[0][slot], dset)
     print(f"  SWEEP leaking off=0x{r.offset:x} (genuine delta={d0}): divset {dset} residency by delta 0..15:")
     print("   " + " ".join(f"{d}:{sweep[d]:.2f}" for d in range(16)))
 
