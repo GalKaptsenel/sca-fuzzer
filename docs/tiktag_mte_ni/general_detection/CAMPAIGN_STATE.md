@@ -89,10 +89,14 @@ verify no noise, use controlled "games" (the all-tags sweep) for PoCs. Think out
   182532 "inverted δ4-11" that vanished under correct re-merge). triage_sweep.py now does this; the
   broken ctrl_sweep.py is DELETED -- never resurrect it. Tool validated on 155905 (delta7=1.00).
 - CHECK NO EXCEPTION TAKEN (user, 2026-10-25): a tag may legitimately decide a FLOW; the only
-  disqualifier is an ARCHITECTURAL divergence between genuine and decoy. So before stamping GENUINE,
-  PMU-confirm the sealed access takes NO architectural exception (EXC_TAKEN=0) and does not retire
-  (INST_RETIRED flat) on the firing delta -- a retiring MTE fault (EXC_TAKEN=1 / INST_RETIRED jump) is
-  the 072421 architectural artifact, not a speculative leak.
+  disqualifier is an ARCHITECTURAL divergence between genuine and decoy. Before stamping GENUINE, the
+  decoy's sealed access must take NO architectural exception and NOT retire. The DEFAULT PMU pfc[0] =
+  INST_RETIRED is the decider and is already available (no config_pfc/EXC_TAKEN reload needed): if the
+  decoy's INST_RETIRED is FLAT vs baseline -> no exception/retirement (speculative, OK); if it JUMPS
+  (extra instructions retired = the MTE fault handler ran) -> ARCHITECTURAL 072421-class -> REJECT,
+  however reproducible the divergence. (182532: INST_RETIRED 10->102 = architectural; 195407: didn't
+  even reproduce under Step-3 = batch artifact.) RECURRING CLASS: any sealed access that retires
+  architecturally faults on the decoy tag and gets NI-flagged though it is not a speculative leak.
 - Don't trust a single measurement; the all-tags sweep (16 deltas) IS the recheck. Re-run if marginal.
 - Log before and after every experiment; persist every artifact; never fabricate a result.
 - Destructive ops (kill) must target explicit PIDs verified as python revizor procs; never broad patterns.
@@ -130,6 +134,15 @@ verify no noise, use controlled "games" (the all-tags sweep) for PoCs. Think out
 - accounting.py latent bugs: wrong REPO const + hardcoded sandbox_base (fix opportunistically).
 
 ## Progress log
+- [2026-10-25 ~20:50 UTC] 24h-run triage, 2 violations, NEITHER genuine (methodology hardened hard by
+  user). (a) FIXED the sweep: triage_sweep now PRIMES (prior inputs) and RE-MERGES (before=delta +
+  after=correct-delta so base re-converges "as if correct tag used"); deleted the broken ctrl_sweep;
+  validated on 155905 (delta7=1.00). (b) Added step3_repro.py = mandatory FIRST step: reproduce the
+  exact baseline-vs-decoy divergence under a controlled fixed prefix + prefix-invariance test. Results:
+  195407 does NOT reproduce under Step-3 (batch/position artifact) -> NOISE; 182532 DOES reproduce
+  (real, context-independent) but decoy INST_RETIRED 10->102 (+92, not flat) = mismatched sealed access
+  retires+faults -> ARCHITECTURAL 072421-class, NOT a speculative leak. Lesson re-affirmed: real!=noise
+  (my early 182532 noise call was wrong), and INST_RETIRED-flat is the arch-vs-speculative decider.
 - [2026-10-25 ~19:30 UTC] First violation of the 24h run (violation-261025-182532) triaged -> NOISE, and
   it exposed + fixed TWO triage-tool bugs. (1) accounting.py used a RELATIVE base.json -> false ERROR
   verdict under triage_batch's cwd; fixed to absolute. (2) triage_sweep.py measured the suspect ALONE
