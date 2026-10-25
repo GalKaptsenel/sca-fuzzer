@@ -110,6 +110,18 @@ verify no noise, use controlled "games" (the all-tags sweep) for PoCs. Think out
 - accounting.py latent bugs: wrong REPO const + hardcoded sandbox_base (fix opportunistically).
 
 ## Progress log
+- [2026-10-25 ~16:55 UTC] COUPLED middle-step bench + corrected understanding. templates/
+  mte_coupled_middle.py (SSB window via if_ + random LOAD hole in the shadow) = 38 tc, 1 candidate, 0
+  confirmed -> the SSB/if_ window barely speculates with random holes around it (a random ALU prologue
+  can clobber the store/load alias regs x1/x4/x5, so no window forms). CORRECTION: my earlier
+  "dependent-load transmit" explanation was WRONG -- user_mte_skeleton's shadow (bb_0.1) is just
+  random_instructions.8.4.2 + LDR[x5] + random_instructions.16.8.3, i.e. random loads + one load, no
+  transmit. Why user_mte_skeleton works and the variants don't: (1) WINDOW = Spectre-v1, slow SDIV chain
+  -> ORR x9,#1 -> CBNZ always-taken-arch -> shadow bb_0.1 is the spec-only FALL-THROUGH (proven,
+  reliable); the floating-SDIV and SSB variants broke this. (2) DENSE shadow: ~13 sandboxed+sealed loads
+  vs ~1. Takeaway: user_mte_skeleton IS the working middle step (v1 window + tfuzz-random shadow);
+  diversify by varying fills / window depth / a LIBRARY of v1-window skeletons, NOT by swapping the
+  window.
 - [2026-10-25 ~16:38 UTC] ABLATION — "SDIV chain only, rest random" (user). Python template
   templates/mte_sdiv_only.py: fixed 16-deep SDIV latency chain, then one multi-BB Hole(ANY) so the
   generator wires RANDOM conditional branches + random MTE-sealed memory (the branches condition on
