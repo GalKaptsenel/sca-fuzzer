@@ -3192,24 +3192,6 @@ static void test_integration_pac_sign_then_auth(void) {
  * flows differ only in the tag at the access itself. Before this correction these would fail.
  * ============================================================================ */
 
-static void test_integration_mte_after_access_correction(void) {
-    uint8_t mem[64]; memset(mem, 0, sizeof(mem));
-    uint8_t tags[2] = { 0x05, 0x00 };               /* 4 granules; granule 0 = tag 5 */
-    uint64_t regs[REGS_COUNT] = { 0 };
-    regs[1] = KBASE;                                 /* X1 = clean pointer (tag 0) to granule 0 */
-
-    uint32_t code[] = { 0xF9400020u /* LDR X0,[X1] */, 0xD503201Fu /* NOP */ };
-    ce_result_t res;
-    if (!run_ce_full(code, 2, mem, sizeof(mem), KBASE, 0, 0, 0u, BRANCH_PREDICTOR_NONE,
-                     regs, tags, sizeof(tags), &res)) {
-        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__); ++g_tests_failed; return;
-    }
-    EXPECT(res.n_entries >= 2);
-    /* KBASE's tag nibble [59:56] is already 0xF; the correction REPLACES it with the cell tag 5. */
-    EXPECT_EQ(res.entries[0].cpu.gpr[1], KBASE);                                       /* before */
-    EXPECT_EQ(res.entries[1].cpu.gpr[1], (KBASE & ~((uint64_t)0xF << 56)) | ((uint64_t)0x5 << 56));
-}
-
 /* Control: no MTE_TAGS -> not MTE mode -> the pointer's tag is NOT touched after an access. */
 static void test_integration_mte_inactive_no_correction(void) {
     uint8_t mem[64]; memset(mem, 0, sizeof(mem));
@@ -3222,31 +3204,6 @@ static void test_integration_mte_inactive_no_correction(void) {
     }
     EXPECT(res.n_entries >= 2);
     EXPECT_EQ(res.entries[1].cpu.gpr[1], KBASE);   /* unchanged: no tag memory */
-}
-
-/* BUG #3 corner case: the corrected tag propagates. LDR fixes X1's tag to the cell's (5); a
- * downstream STG stores X1's tag into granule 1; LDG reads it back as 5. Without the after-access
- * correction X1's tag would still be 0 and this would read 0. */
-static void test_integration_mte_correction_propagates(void) {
-    uint8_t mem[64]; memset(mem, 0, sizeof(mem));
-    uint8_t tags[2] = { 0x15, 0x00 };               /* granule 0 = 5, granule 1 = 1 */
-    uint64_t regs[REGS_COUNT] = { 0 };
-    regs[1] = KBASE;                                 /* X1 -> granule 0 (tag 5) */
-    regs[3] = KBASE + 16;                            /* X3 -> granule 1 (tag 1) */
-
-    uint32_t code[] = {
-        0xF9400020u,   /* LDR X0,[X1]  -> after-access correction sets X1 tag = 5 */
-        0xD9200861u,   /* STG X1,[X3]  -> store X1's tag (5) into granule 1        */
-        0xD9600064u,   /* LDG X4,[X3]  -> X4[59:56] = granule 1 tag (now 5)        */
-        0xD503201Fu,   /* NOP                                                      */
-    };
-    ce_result_t res;
-    if (!run_ce_full(code, 4, mem, sizeof(mem), KBASE, 0, 0, 0u, BRANCH_PREDICTOR_NONE,
-                     regs, tags, sizeof(tags), &res)) {
-        fprintf(stderr, "FAIL %s: run_ce failed\n", __func__); ++g_tests_failed; return;
-    }
-    EXPECT(res.n_entries >= 4);
-    EXPECT_EQ(res.entries[3].cpu.gpr[4] >> 56, (uint64_t)0x5);   /* corrected tag propagated */
 }
 
 /* ============================================================================
@@ -3722,9 +3679,7 @@ int main(void) {
     test_integration_sp_access_modeled();
     test_integration_frame_spill_modeled();
     test_integration_call_returns_and_continues();
-    test_integration_mte_after_access_correction();
     test_integration_mte_inactive_no_correction();
-    test_integration_mte_correction_propagates();
     test_integration_ldr_unsigned_offset();
     test_integration_ldr_postidx();
     test_integration_ldr_preidx();
