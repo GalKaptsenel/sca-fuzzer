@@ -227,3 +227,61 @@ TEST (queued; device offline): PMU EXC_TAKEN (0x09) match vs mismatch (does an e
 read TFSR_EL1 after the window (tag-fault recorded?). Predict if clean spec tag-check stream: EXC_TAKEN~0,
 burst still tracks the granule. If EXC_TAKEN rises -> abort/recovery-driven (still tag-gated + speculative,
 relabel the transmit). Security verdict (MTE tag leaks via cache) holds either way; this refines mechanism.
+
+## OPEN (counter semantics): is MEM_ACCESS(0x13) speculative-inclusive or retired-only?
+The ~54k mismatch figure is from PMU event 0x13 (MEM_ACCESS). The module comment "demand (not prefetch)"
+distinguishes core-issued vs prefetcher-issued, NOT speculative vs retired. If 0x13 is speculative-inclusive,
+54k = speculative burst (speculative-only holds). If 0x13 is RETIRED-only, 54k would be committed accesses
+-> would CONTRADICT speculative-only and support an architectural exception/handler. MEM_ACCESS=12 on match
+is ambiguous (retired-only, or short match window). DECISIVE counter-independent test (QUEUED, device offline):
+read INST_RETIRED (0x08, unambiguously retired) match vs mismatch; control flow is tag-independent (TBI) so
+it should be IDENTICAL if the 54k never retires (=> speculative) and JUMP if committed (=> architectural).
+Run with EXC_TAKEN(0x09) + TFSR_EL1. Until then, the burst's speculative nature rests on the (unverified)
+0x13 semantics; the gadget-accesses-never-retire result (match MEM=12 = arch count, tag-independent control
+flow, no panic) is separate and still holds for the SEALED ACCESSES, but the 54k burst's retired-vs-spec
+split is not independently confirmed.
+
+## RETRACTION / CAVEAT (user-flagged): the ~54k MEM_ACCESS figure is UNVERIFIED — do not rely on it
+The "MEM_ACCESS 12 -> ~54,000 on mismatch" came from pmu_diff.py (mean-per-rep of PMU event 0x13), relayed
+without verifying the counter's window/accumulation semantics. A ~4500x amplification from a 76-instruction
+gadget (~12 arch mem-ops) is IMPLAUSIBLE for one speculative window and is NOT explained. It could be a real
+replay storm OR a counting artifact (accumulation over the internal rounds loop / reload harness inclusion /
+overflow / unexpected 0x13 semantics). match=12 (=arch mem-op count) hints the PFC is test-case-window-scoped
+(reload excluded), but that is not confirmed. => CONSEQUENCE: the derived claims "it is a speculative ACCESS
+BURST, not a quiet HW prefetcher" and the "~4500x vs ~10x" ratio are NOT established and must not be cited;
+the TRANSMIT mechanism (replay burst vs prefetcher vs other) is UNRESOLVED. GENUINENESS is UNAFFECTED: it
+rests on cache-RESIDENCY controls (tag-only diff, present-on-mismatch set block, granule tracking 4/4,
+anchor-move, tag-check-off collapse) which do not depend on any PMU count. TO FIX: verify what window the PFC
+covers + whether it accumulates over rounds; use INST_RETIRED(0x08) and EXC_TAKEN(0x09) (unambiguous); clean
+re-measure MEM_ACCESS with the reload excluded. Until then treat the burst magnitude as unknown.
+
+## FURTHER CAVEAT (user): match=12 vs mismatch=54k are mutually inconsistent -> PMU account set aside
+If MEM_ACCESS counted speculative accesses, MATCH should exceed 12 (bb_0.7/0.8 speculatively execute on
+match too, tag-independent window) -> but match=12.0 exactly => looks retired-only. If retired-only, 54k on
+mismatch is IMPOSSIBLE (identical arch control flow, exits at 0xc0 before bb_0.7/0.8; nothing commits 54k).
+The two readings are mutually exclusive => the PMU figures are NOT cleanly interpretable; 54k is almost
+certainly a counting artifact (rounds-loop accumulation / reload inside the counted window on mismatch /
+overflow). ENTIRE MEM_ACCESS-based mechanism narrative (burst size, "access burst not prefetcher") is SET
+ASIDE. NOTE: "sealed accesses never retire" does NOT depend on the PMU -- it rests on STATIC control flow
+(b.al exit at 0xc0 precedes bb_0.7/0.8; branch tag-independent); match=12 was corroboration, not the basis.
+Transmit mechanism + magnitude: UNKNOWN pending clean measurement (INST_RETIRED 0x08 + EXC_TAKEN 0x09 +
+verified PFC window/accumulation). Genuineness unaffected (residency controls only).
+
+## *** RECLASSIFIED (INST_RETIRED/EXC_TAKEN, device, 3 reps): ARCHITECTURAL MTE FAULT, NOT speculative ***
+Decisive hardware counters (EXPERIMENTS_POSTREBOOT_072421.md), gate 0x120, 3 reps:
+  match(ptag6): INST_RETIRED 84, EXC_TAKEN 0, MEM_ACCESS 12
+  unchecked(ptag15, TCMA-exempt): 84, 0, 12  (internal control: wrong pointer tag but no check -> baseline)
+  MISMATCH: INST_RETIRED ~195,000 (+2300x), EXC_TAKEN ~1, MEM_ACCESS ~55,000
+=> On a genuine mismatch, ~195k instructions RETIRE (committed) and a SYNCHRONOUS exception is TAKEN. The
+transmit is an ARCHITECTURAL MTE tag-check FAULT + its handler (~195k committed instrs, ~55k accesses;
+caught by the executor fault handler, no panic), gated by the tag check (ptag15 unchecked = baseline). The
+sealed accesses RETIRE -> they are NOT speculative. This CONTRADICTS the earlier "speculative-only /
+bb_0.7-0.8 never retire / TikTag-v1-class" verdict. The CE's nesting>=1 was a MODEL error (hardware retires
+those blocks). Everything else reconciles under the architectural-fault reading: present-on-mismatch = fault
+only on mismatch; granule "tracking"/anchor-move = the handler touching the faulting granule region; TCO-off
+collapse = no check -> no fault -> no handler; P+P saturation = the large handler evicting broadly.
+VERDICT CHANGE: 072421 is NOT a genuine speculative TikTag leak. It is an NI-METHODOLOGY ARTIFACT: the
+sealer/CE labeled an architecturally-retiring tagged access as a speculative (decoy-eligible) seal, so the
+decoy injects a REAL architectural MTE fault, whose handler footprint trips the htrace comparison. Tag
+dependence + tag-check causation are real; the SPECULATIVE mechanism is refuted. To move out of
+VERIFIED_GENUINE -> REJECTED after the agent's writeup lands. (Reps: 3, internal control clean.)

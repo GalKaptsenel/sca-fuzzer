@@ -1,0 +1,51 @@
+### Experiment 3: INST_RETIRED / EXC_TAKEN / MEM_ACCESS (test module pfc0/1/2)
+## gate 0x120 seal D, u4 7(match)/8(mismatch)/0(unchecked), 3 reps
+
+WARNING: [fuzzer] Running in non-interference mode.
+fuzzer_072421 sus#1 gate=0x120 genuine_uimm4(match)=7 memtag=6 u6=0 reps=2000 prefix=14 repeat=3 thr=0.5
+ptag=(15+u4)%16; MATCH@ptag6(u4=7); UNCHK@ptag0/15
+pfc0=L2D_CACHE_REFILL  pfc1=MEM_ACCESS(demand)  pfc2=BR_MIS_PRED   excess=pfc0-pfc1
+ u4 ptag     flag run | s1 s3 s4 s9 s12 s20 s28 s40 | width |       L2D    MEMACC    BRMIS    excess
+  7    6    MATCH   0 | 0.01 1.00 0.03 0.01 1.00 0.01 0.01 0.03 | n=9[0..63] |     84.00      0.00    12.00     84.00
+  7    6    MATCH   1 | 0.19 1.00 0.48 0.11 1.00 0.45 0.54 0.67 | n=35[0..63] |     84.00      0.00    12.00     84.00
+  7    6    MATCH   2 | 0.16 1.00 0.38 0.34 1.00 0.29 0.76 0.91 | n=35[0..63] |     84.00      0.00    12.00     84.00
+  8    7  mismtch   0 | 0.03 0.02 1.00 1.00 1.00 1.00 0.90 0.16 | n=29[2..63] | 193878.01      1.01 54776.88 193877.00
+  8    7  mismtch   1 | 0.00 0.00 1.00 1.00 1.00 1.00 0.88 0.05 | n=29[2..63] | 194701.69      1.02 54968.35 194700.67
+  8    7  mismtch   2 | 0.07 0.04 1.00 1.00 1.00 1.00 0.86 0.26 | n=28[2..63] | 197226.78      1.00 55498.81 197225.77
+  0   15    UNCHK   0 | 0.03 1.00 0.69 0.57 0.97 0.64 0.82 0.98 | n=46[0..63] |     84.00      0.00    12.00     84.00
+  0   15    UNCHK   1 | 0.03 1.00 0.03 0.02 0.98 0.04 0.04 0.06 | n=9[0..63] |     84.00      0.00    12.00     84.00
+  0   15    UNCHK   2 | 0.11 1.00 0.75 0.44 0.98 0.78 0.65 0.97 | n=45[0..63] |     84.00      0.00    12.00     84.00
+
+## gate 0xf8 seal A, 16-delta sweep, 1 rep
+
+WARNING: [fuzzer] Running in non-interference mode.
+fuzzer_072421 sus#1 gate=0xf8 genuine_uimm4(match)=7 memtag=6 u6=0 reps=2000 prefix=14 repeat=1 thr=0.5
+ptag=(15+u4)%16; MATCH@ptag6(u4=7); UNCHK@ptag0/15
+pfc0=L2D_CACHE_REFILL  pfc1=MEM_ACCESS(demand)  pfc2=BR_MIS_PRED   excess=pfc0-pfc1
+ u4 ptag     flag run | s0 s1 s4 s9 s12 | width |       L2D    MEMACC    BRMIS    excess
+  0   15    UNCHK   0 | 1.00 0.01 0.05 0.02 1.00 | n=9[0..63] |     84.00      0.00    12.00     84.00
+  1    0    UNCHK   0 | 1.00 0.99 1.00 1.00 1.00 | n=17[0..63] | 196029.15      1.01 55388.98 196028.13
+  2    1  mismtch   0 | 1.00 0.99 1.00 1.00 1.00 | n=17[0..63] | 196667.61      1.00 55421.33 196666.60
+  3    2  mismtch   0 | 1.00 0.99 1.00 1.00 1.00 | n=17[0..63] | 194956.97      1.00 55039.93 194955.97
+  4    3  mismtch   0 | 1.00 1.00 1.00 1.00 1.00 | n=17[0..63] | 195394.54      1.00 55264.75 195393.53
+  5    4  mismtch   0 | 1.00 0.99 1.00 1.00 1.00 | n=17[0..63] | 193149.34      1.00 54685.31 193148.33
+  6    5  mismtch   0 | 1.00 0.99 1.00 1.00 1.00 | n=17[0..63] | 198166.17      1.01 55912.18 198165.16
+  7    6    MATCH   0 | 1.00 0.02 0.10 0.08 1.00 | n=9[0..63] |     84.00      0.00    12.00     84.00
+  8    7  mismtch   0 | 1.00 0.99 1.00 1.00 1.00 | n=17[0..63] | 194977.68      1.01 55127.23 194976.67
+  9    8  mismtch   0 | 1.00 1.00 1.00 1.00 1.00 | n=17[0..63] | 189936.23      1.00 53976.09 189935.23
+ 10    9  mismtch   0 | 1.00 0.99 1.00 1.00 1.00 | n=17[0..63] | 199194.38      1.00 56050.60 199193.37
+ 11   10  mismtch   0 | 1.00 1.00 1.00 1.00 1.00 | n=17[0..63] | 194346.20      1.01 54993.80 194345.19
+ 12   11  mismtch   0 | 1.00 0.99 1.00 1.00 1.00 | n=17[0..63] | 193744.64      1.01 54810.74 193743.63
+ 13   12  mismtch   0 | 1.00 0.99 1.00 1.00 1.00 | n=17[0..63] | 196726.44      1.00 55447.26 196725.43
+ 14   13  mismtch   0 | 1.00 0.99 1.00 1.00 1.00 | n=17[0..63] | 194602.42      1.00 55074.58 194601.42
+ 15   14  mismtch   0 | 1.00 1.00 1.00 1.00 1.00 | n=17[0..63] | 192059.10      1.00 54342.74 192058.09
+
+## canonical module reverify after restore (pfc2 = BR_MIS again)
+
+WARNING: [fuzzer] Running in non-interference mode.
+fuzzer_072421 sus#1 gate=0x120 genuine_uimm4(match)=7 memtag=6 u6=0 reps=2000 prefix=14 repeat=1 thr=0.5
+ptag=(15+u4)%16; MATCH@ptag6(u4=7); UNCHK@ptag0/15
+pfc0=L2D_CACHE_REFILL  pfc1=MEM_ACCESS(demand)  pfc2=BR_MIS_PRED   excess=pfc0-pfc1
+ u4 ptag     flag run | s1 s3 s9 | width |       L2D    MEMACC    BRMIS    excess
+  7    6    MATCH   0 | 0.00 1.00 0.00 | n=9[0..63] |      8.70     12.00     5.00     -3.30
+  8    7  mismtch   0 | 0.00 0.00 1.00 | n=29[2..63] |     93.64  54568.21   100.82 -54474.58

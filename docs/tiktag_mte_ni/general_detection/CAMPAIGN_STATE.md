@@ -311,3 +311,32 @@ Mechanism-proof agent results (writeup: eval_out/VERIFIED_GENUINE/MECHANISM_PROO
 Arch exception handler ruled out (accesses never retire; device didn't panic). Speculative abort-recovery
 runahead NOT yet excluded. Anchor-move argues against a fixed-handler footprint (burst tracks the data
 granule). QUEUED device test (when Pixel back): PMU EXC_TAKEN(0x09) + TFSR_EL1 read, match vs mismatch.
+
+## [2026-10-23 ~15:55 UTC] OPEN (user): MEM_ACCESS(0x13) spec-inclusive or retired-only? -> queue INST_RETIRED
+If 0x13 is retired-only, the 54k mismatch burst would be COMMITTED (contradicts speculative-only). Decisive
+counter-independent test: INST_RETIRED(0x08) match vs mismatch (identical => burst didn't retire => spec;
+jump => architectural). Run with EXC_TAKEN(0x09)+TFSR_EL1 when device returns.
+
+## [2026-10-23 ~16:05 UTC] CAVEAT: the ~54k MEM_ACCESS figure is UNVERIFIED (user-flagged, implausible)
+pmu_diff 0x13 mean-per-rep; 12->54k = ~4500x from a 76-instr gadget = implausible, counting semantics not
+verified (rounds-loop accumulation? reload included? overflow? 0x13 window?). The "access burst not
+prefetcher" conclusion built on it is NOT established -> transmit mechanism UNRESOLVED. Genuineness unaffected
+(rests on residency controls). FIX: verify PFC window/accumulation; INST_RETIRED + EXC_TAKEN; clean re-measure.
+
+## [2026-10-25 ~10:50 UTC] *** 072421 RECLASSIFIED: ARCHITECTURAL MTE FAULT, NOT a speculative leak ***
+Post-reboot device experiments (both the Pixel [adb reboot by proof agent] and the GCP box [deliberate
+instance Stop ~41h] came back). Exp1: leak reproduced on a fresh boot/module (Δtag+1,Δpos0, 3 reps). Exp2:
+reproduces under P+P too (eviction on mismatch; saturates). Exp3 DECISIVE (INST_RETIRED/EXC_TAKEN PMU test
+module, 3 reps): mismatch -> INST_RETIRED 84->~195k (COMMITTED work), EXC_TAKEN 0->1 (synchronous MTE fault
+TAKEN); ptag15-unchecked control stays baseline 84/0/12 (so the tag CHECK gates it, and tag0 IS checked).
+=> transmit is an ARCHITECTURAL MTE tag-check fault + handler (~195k retired instrs, ~55k accesses), NOT a
+speculative burst. The sealed accesses RETIRE. CE "nesting>=1 speculative" was a MODEL error vs hardware.
+072421 is therefore NOT a genuine speculative TikTag leak -> it is an NI-METHODOLOGY ARTIFACT: an
+architecturally-retiring tagged access was mislabeled as a speculative (decoy-eligible) seal, so the decoy
+injects a real architectural fault whose handler footprint trips the htrace diff. Tag-dependence + tag-check
+causation real; speculative mechanism REFUTED. ACTION: move eval_out/VERIFIED_GENUINE/fuzzer_072421 ->
+eval_out/REJECTED after the agent's EXPERIMENTS_POSTREBOOT writeup; SIGCONT daemon 1708. BROADER: the NI
+pipeline/sealer can mislabel an arch-retiring tagged access as speculative -> a GENUINE-detector must verify
+the gated access does NOT retire (INST_RETIRED/EXC_TAKEN) before any speculative claim. (155905 remains the
+only template-genuine; it was validated by shrink polarity + spec-only set, but per this lesson its
+INST_RETIRED/EXC_TAKEN should also be checked before firm claims.)

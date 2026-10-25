@@ -1,0 +1,28 @@
+### Experiment 1: re-confirmation across the reboot (Flush and Reload), 3 reps
+--- exp1_rep1.txt ---
+
+WARNING: [fuzzer] Running in non-interference mode.
+fuzzer_072421 suspect#1 decoy=noncanon reps=3000 prefix=14
+ set | gen@tail dec@tail (tag, same slot) | gen@head dec@head | pos(gen tail-head)
+   1 |   0.00    0.99  (Δtag=+0.99)   |   0.00    0.99   | Δpos=-0.00  -> TAG-gain
+   4 |   0.07    1.00  (Δtag=+0.93)   |   0.00    1.00   | Δpos=+0.07  -> TAG-gain
+   8 |   0.05    1.00  (Δtag=+0.95)   |   0.00    0.99   | Δpos=+0.05  -> TAG-gain
+   9 |   0.02    1.00  (Δtag=+0.98)   |   0.00    1.00   | Δpos=+0.02  -> TAG-gain
+--- exp1_rep2.txt ---
+
+WARNING: [fuzzer] Running in non-interference mode.
+fuzzer_072421 suspect#1 decoy=noncanon reps=3000 prefix=14
+ set | gen@tail dec@tail (tag, same slot) | gen@head dec@head | pos(gen tail-head)
+   1 |   0.00    0.99  (Δtag=+0.99)   |   0.00    0.99   | Δpos=-0.00  -> TAG-gain
+   4 |   0.02    1.00  (Δtag=+0.98)   |   0.00    1.00   | Δpos=+0.02  -> TAG-gain
+   8 |   0.01    1.00  (Δtag=+0.99)   |   0.00    1.00   | Δpos=+0.01  -> TAG-gain
+   9 |   0.00    1.00  (Δtag=+1.00)   |   0.00    1.00   | Δpos=-0.00  -> TAG-gain
+--- exp1_rep3.txt ---
+
+WARNING: [fuzzer] Running in non-interference mode.
+fuzzer_072421 suspect#1 decoy=noncanon reps=3000 prefix=14
+ set | gen@tail dec@tail (tag, same slot) | gen@head dec@head | pos(gen tail-head)
+   1 |   0.00    1.00  (Δtag=+1.00)   |   0.00    1.00   | Δpos=+0.00  -> TAG-gain
+   4 |   0.05    1.00  (Δtag=+0.95)   |   0.00    1.00   | Δpos=+0.05  -> TAG-gain
+   8 |   0.01    1.00  (Δtag=+0.99)   |   0.00    1.00   | Δpos=+0.01  -> TAG-gain
+   9 |   0.00    1.00  (Δtag=+1.00)   |   0.00    1.00   | Δpos=+0.00  -> TAG-gain
