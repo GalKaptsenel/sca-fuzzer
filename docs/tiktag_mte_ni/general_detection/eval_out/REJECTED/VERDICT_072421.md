@@ -285,3 +285,12 @@ sealer/CE labeled an architecturally-retiring tagged access as a speculative (de
 decoy injects a REAL architectural MTE fault, whose handler footprint trips the htrace comparison. Tag
 dependence + tag-check causation are real; the SPECULATIVE mechanism is refuted. To move out of
 VERIFIED_GENUINE -> REJECTED after the agent's writeup lands. (Reps: 3, internal control clean.)
+
+## Precision boundary (measured vs inferred)
+DIRECTLY MEASURED (EXC_TAKEN 0x09 + INST_RETIRED 0x08, both retired/architectural-only events): on a
+genuine mismatch exactly one architectural exception is TAKEN and ~195k instructions RETIRE (committed) -
+so the divergent work is architectural, not a non-retiring speculative burst. INFERRED (not read out): that
+the exception's class is specifically the MTE synchronous tag-check fault - from the gating pattern (fires
+only on a CHECKED-tag mismatch; baseline at the TCMA-unchecked tag ptag15 and at match). A direct class
+confirmation would read ESR_EL1/FAR_EL1/TFSR_EL1 in the handler (another module rebuild; not done). The
+ARCHITECTURAL reclassification does not depend on the class; the tag-check gating does.
