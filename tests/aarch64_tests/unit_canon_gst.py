@@ -20,25 +20,27 @@ _MASKS = [0x7F << 48, 0x3F << 49]                                        # non-c
 
 
 class SlotRenderTest(unittest.TestCase):
-    """UMOV (load the mask from GST register v31) + EOR (apply it): constant words, no immediate."""
+    """UMOV (load the mask from a GST vector lane) + shifted EOR (apply it): constant words, no
+    immediate. The masks live in [54:48], so the lane is one byte (UMOV.b) and the EOR shifts it back
+    into place (lsl #48) — the smallest access that covers the field."""
 
     def test_canon_pre_and_post_are_umov_eor(self):
         s = CanonSealing("x1", _ACCESS, _MASKS, revert=True, gst=VectorGlobalSealTable(256))
         self.assertEqual([i.template for i in s.slot_insts],
-                         ["UMOV x27, v31.d[0]", "EOR x1, x1, x27",
-                          "UMOV x27, v31.d[0]", "EOR x1, x1, x27"])
+                         ["UMOV w27, v31.b[0]", "EOR x1, x1, x27, lsl #48",
+                          "UMOV w27, v31.b[0]", "EOR x1, x1, x27, lsl #48"])
         self.assertEqual(s.n_before, 2)
 
     def test_canon_no_revert_is_pre_only(self):
         s = CanonSealing("x1", _ACCESS, _MASKS, revert=False, gst=VectorGlobalSealTable(256))
         self.assertEqual([i.template for i in s.slot_insts],
-                         ["UMOV x27, v31.d[0]", "EOR x1, x1, x27"])
+                         ["UMOV w27, v31.b[0]", "EOR x1, x1, x27, lsl #48"])
 
     def test_branch_target_reconverges(self):
         s = BranchTargetSealing("x28", _ACCESS, _MASKS, gst=VectorGlobalSealTable(256))
         self.assertEqual([i.template for i in s.slot_insts],
-                         ["UMOV x27, v31.d[0]", "EOR x28, x28, x27",
-                          "UMOV x27, v31.d[0]", "EOR x28, x28, x27"])
+                         ["UMOV w27, v31.b[0]", "EOR x28, x28, x27, lsl #48",
+                          "UMOV w27, v31.b[0]", "EOR x28, x28, x27, lsl #48"])
 
     def test_two_seals_get_distinct_lanes(self):
         gst = VectorGlobalSealTable(256)

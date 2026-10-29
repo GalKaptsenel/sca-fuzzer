@@ -83,11 +83,19 @@ class SealValueApplyTest(unittest.TestCase):
         templates = [i.template for i in v.apply(self.f.allocate(v.width), "x0", "x9")]
         self.assertEqual(templates, ["UMOV w9, v31.b[0]", "BFI x0, x9, #56, #4"])
 
-    def test_mask_flip_loads_then_eor(self):
-        v = MaskFlip()
-        self.assertEqual(v.width, 8)
+    def test_mask_flip_window_loads_then_shifted_eor(self):
+        # A mask confined to [54:48] packs into one byte; the EOR shifts it back into place.
+        v = MaskFlip(lo=48, nbits=7)
+        self.assertEqual(v.width, 1)
+        self.assertEqual(v.encode(0x7F << 48), 0x7F)
         templates = [i.template for i in v.apply(self.f.allocate(v.width), "x0", "x9")]
-        self.assertEqual(templates, ["UMOV x9, v31.d[0]", "EOR x0, x0, x9"])
+        self.assertEqual(templates, ["UMOV w9, v31.b[0]", "EOR x0, x0, x9, lsl #48"])
+
+    def test_mask_flip_low_window_needs_no_shift(self):
+        v = MaskFlip(lo=0, nbits=8)
+        self.assertEqual(v.encode(0xAB), 0xAB)
+        templates = [i.template for i in v.apply(self.f.allocate(v.width), "x0", "x9")]
+        self.assertEqual(templates, ["UMOV w9, v31.b[0]", "EOR x0, x0, x9"])
 
 
 if __name__ == "__main__":

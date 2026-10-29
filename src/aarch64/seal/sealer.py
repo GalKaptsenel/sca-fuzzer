@@ -23,7 +23,7 @@ from ...interfaces import (Instruction, TestCase, BasicBlock, GeneratorException
                           SIMD_SUBREGION_SIZE)
 from .primitives import _SANDBOX_MASK, _SandboxInstrumentationBase
 from .pac import PacSign, PacSigner, build_pac_specs, _AUTH_TO_PAC, _read_reg
-from .global_seal_table import GlobalSealTable, VectorGlobalSealTable, Location
+from .global_seal_table import GlobalSealTable, VectorGlobalSealTable, GSTImage, Location
 from .seal_values import SealValue, MaskFlip
 from ..aarch64_target_desc import SANDBOX_BASE_REGISTER, SEAL_SCRATCH_REGISTER
 from ..aarch64_printer import Aarch64ASMLayout
@@ -53,6 +53,25 @@ class Sealing(abc.ABC):
 
     def __init__(self) -> None:
         self.slot_insts: List[Instruction] = []
+
+    def store_into(self, image: GSTImage, applied: Optional[int], genuine: Optional[int]) -> None:
+        """Write this seal's lane(s) into the per-input GST image. `applied` is the value this variant
+        applies (the genuine value, or a decoy alt); `genuine` is the always-correct value, for a seal
+        with an after-access re-converge lane. A single-lane seal stores only `applied` and ignores
+        `genuine`; None means "no perturbation" (encoded as 0)."""
+        image.store(self.location, self.value.encode(0 if applied is None else applied))
+
+
+def _mask_window(masks: List[int]) -> Tuple[int, int]:
+    """The (lo, nbits) bounding window of a pool of flip masks: lo is the lowest set bit across them,
+    nbits spans up to the highest. A MaskFlip stores its value in this window, right-aligned."""
+    bits = 0
+    for m in masks:
+        bits |= m
+    if 0 == bits:
+        raise GeneratorException("empty flip-mask pool")
+    lo = (bits & -bits).bit_length() - 1
+    return lo, bits.bit_length() - lo
 
 
 class SandboxSealing(Sealing):
@@ -163,7 +182,7 @@ class CanonSealing(Sealing):
         self.value_reg = value_reg
         self.access_inst = access_inst
         self.pool = pool
-        self.value = MaskFlip()
+        self.value = MaskFlip(*_mask_window(pool))
         self.location = gst.allocate(self.value.width)
         pre = self.value.apply(self.location, value_reg, SEAL_SCRATCH_REGISTER)
         self.n_before = len(pre)
@@ -217,7 +236,7 @@ class BranchTargetSealing(Sealing):
         self.value_reg = value_reg
         self.branch_inst = branch_inst
         self.pool = pool
-        self.value = MaskFlip()
+        self.value = MaskFlip(*_mask_window(pool))
         self.location = gst.allocate(self.value.width)
         pre = self.value.apply(self.location, value_reg, SEAL_SCRATCH_REGISTER)
         self.n_before = len(pre)
@@ -311,15 +330,14 @@ class ResolvedSealingTestCase:
         return bool(self._eligible())
 
     def _build_image(self, rng: random.Random, decoy: bool) -> bytes:
-        """The SIMD section bytes for one variant: store each value seal's value into the GST image at
-        its Location — the genuine value, or a random alt for a perturbed speculative slot. The genuine
-        value of a canonicality / branch-target seal is "no perturbation" (resolver value None), which
-        is mask 0. Every entry here is a value seal, so its Location is always set."""
+        """The SIMD section bytes for one variant: each value seal writes its lane(s) — the genuine
+        value, or a random alt for a perturbed speculative slot. The genuine value of a canonicality /
+        branch-target seal is "no perturbation" (resolver value None), which is mask 0."""
         perturb = self._decoy_subset(self._eligible(), rng) if decoy else set()
         image = self._gst.blank_image()
         for r in self._entries:
-            value = rng.choice(r.alts) if r in perturb else r.value
-            image.store(r.sealing.location, 0 if value is None else value)
+            applied = rng.choice(r.alts) if r in perturb else r.value
+            r.sealing.store_into(image, applied, r.value)
         return image.to_section().content
 
     @property
