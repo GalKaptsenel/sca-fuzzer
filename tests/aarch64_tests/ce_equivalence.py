@@ -42,7 +42,8 @@ def ce_available() -> bool:
 
 def make_signer() -> PacSigner:
     return PacSigner(lambda ptr, ctx, mn, keys: qarma.sign(ptr, ctx, mn, keys, PROFILE),
-                     lambda ptr, mn: qarma.pac_field_mask(ptr, PROFILE, qarma.is_instr_key(mn)))
+                     lambda ptr, mn: qarma.pac_field_mask(ptr, PROFILE, qarma.is_instr_key(mn)),
+                     lambda ptr, mn: qarma.strip(ptr, PROFILE, qarma.is_instr_key(mn)))
 
 
 def _dispatch_data_size(tc) -> int:

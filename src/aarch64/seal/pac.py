@@ -94,15 +94,19 @@ class PacSigner:
     being resolved. `field_mask(ptr, mn)` is the exact PAC field AddPAC writes for `ptr`, so a forgery
     confined to it provably fails AUTH."""
 
-    def __init__(self, pac_sign, field_mask):
+    def __init__(self, pac_sign, field_mask, strip):
         self._pac_sign = pac_sign       # pac_sign(ptr, ctx, mnemonic, key_words) -> signed 64-bit
         self._field_mask = field_mask   # field_mask(ptr, mnemonic) -> PAC field bits of ptr
+        self._strip = strip             # strip(ptr, mnemonic) -> ptr with the PAC field canonicalized
 
     def sign(self, ptr: int, ctx: int, mn: str, keys: Tuple[int, ...]) -> int:
         return self._pac_sign(ptr, ctx, mn, keys)
 
     def field_mask(self, ptr: int, mn: str) -> int:
         return self._field_mask(ptr, mn)
+
+    def strip(self, ptr: int, mn: str) -> int:
+        return self._strip(ptr, mn)
 
     def field_span(self) -> int:
         """Union of the PAC fields of both VA halves under every key: the bits a signature can touch."""

@@ -144,10 +144,40 @@ class PacSealing(Sealing):
 
 
 class MteSealing(Sealing):
-    """MTE seal: pending GST migration (needs the op-emulator inject-value change + HW validation)."""
+    """Retag a pointer onto its cell's allocation tag for one access, then re-converge. The fixed slot
+    BFIs the applied tag from the GST into the pointer's tag field [59:56] before the access (genuine =
+    the cell tag, so it matches; a decoy = a mismatching tag), and, when the access preserves its base,
+    BFIs the cell tag back after, so every variant ends at the real cell tag and the leak is confined to
+    the access. The CE op injects both lanes (the cell tag read from its tag memory); on a FEAT_MTE host
+    the BFIs and the tagged access run natively."""
 
-    def __init__(self, *args, **kwargs) -> None:
-        raise NotImplementedError(_MIGRATION_PENDING)
+    def __init__(self, value_reg: str, access_inst: Instruction, base_preserved: bool,
+                 gst: GlobalSealTable) -> None:
+        super().__init__()
+        self.value_reg = value_reg
+        self.access_inst = access_inst
+        self.value = MteTag()
+        self.location = gst.allocate(self.value.width)                 # the applied-tag lane
+        pre = self.value.apply(self.location, value_reg, SEAL_SCRATCH_REGISTER)
+        self.n_before = len(pre)
+        self._cell_location = gst.allocate(self.value.width) if base_preserved else None
+        post = (self.value.apply(self._cell_location, value_reg, SEAL_SCRATCH_REGISTER)
+                if base_preserved else [])
+        self.slot_insts = pre + post
+
+    def store_into(self, image: GSTImage, applied: Optional[int], genuine: Optional[int]) -> None:
+        image.store(self.location, self.value.encode(0 if applied is None else applied))
+        if self._cell_location is not None:   # the re-converge lane always carries the genuine cell tag
+            image.store(self._cell_location, self.value.encode(0 if genuine is None else genuine))
+
+    def emul_row(self, layout: "Aarch64ASMLayout") -> Tuple[int, int, int, int, int, int, int]:
+        """The MTE_RETAG row the CE uses to inject the accessed cell's tag into the applied lane (and the
+        re-converge lane, when present). The op reads the cell tag at the access's effective address."""
+        first = layout.instruction_address[self.slot_insts[0]]
+        anchor = layout.instruction_address[self.access_inst]
+        applied = self.location.byte_range().start
+        cell = self._cell_location.byte_range().start if self._cell_location is not None else applied
+        return (first, anchor - first, EMUL_OP_MTE_RETAG, applied, cell, 0, 1)
 
 
 def _mask_runs(mask: int) -> List[int]:
@@ -437,12 +467,14 @@ def _resolve_pac(s: PacSealing, cer, layout, signer: PacSigner, keys: Tuple[int,
             spec = depth
         if correct_sig is not None and depth != 0:   # architectural occurrence is authoritative
             continue
-        ptr = _read_reg(ite.cpu, value_reg)           # canonical: read before the slot's BFI signs it
+        # Sign the pointer with its PAC field stripped (as the committed AUT* does before verifying),
+        # so a field that overlaps an MTE tag or top-byte bits signs over the same canonical pointer.
+        ptr = signer.strip(_read_reg(ite.cpu, value_reg), pac_mn)
         cval = _read_reg(ite.cpu, ctx_reg) if ctx_reg is not None else 0
         correct_sig = signer.sign(ptr, cval, pac_mn, keys)
         alts = _wrong_sigs(correct_sig, signer.field_mask(ptr, pac_mn), salt)
     if correct_sig is None:                          # unreached: forge over the shared sandbox base
-        base_ptr = _read_reg(cer[0].cpu, SANDBOX_BASE_REGISTER)
+        base_ptr = signer.strip(_read_reg(cer[0].cpu, SANDBOX_BASE_REGISTER), pac_mn)
         alts = _wrong_sigs(signer.sign(base_ptr, 0, pac_mn, keys), signer.field_mask(base_ptr, pac_mn), salt)
     return correct_sig, alts, spec
 
@@ -465,51 +497,38 @@ def _wrong_sigs(correct_sig: int, mask: int, salt: int) -> List[int]:
 
 
 def _resolve_mte(s: MteSealing, cer, layout) -> Tuple[Optional[int], List[int], Optional[int]]:
-    """An MteSealing's tag delta from a trace: the retag the EMUL_OP_MTE_RETAG op-emulator materialized
-    (it reads the granule's tag from the CE's tag memory and plants `ADDG #0, #delta` to reach it, same
-    as the genuine binary) plus the alternatives that mismatch. The delta is read back from that planted
-    ADDG; the effective address's unretagged tag is `cell - delta`. (value, alts, spec_nesting)."""
+    """An MteSealing's applied tag from a trace: the accessed cell's allocation tag (the CE injects it
+    into the applied lane, so the genuine access's pointer tag matches), plus the mismatching tags a
+    decoy can apply. Prefer an architectural (nest==0) reach; fail loud if the site is reached
+    architecturally with disagreeing cell tags (one slot cannot carry two). A decoy tag of 0 or 15 is
+    excluded: TCR_EL1.TCMA1 makes an access through a tag-0b0000/0b1111 pointer Tag-UNCHECKED, so the
+    intended mismatch never happens and the decoy would behave identically to the genuine access.
+    (value, alts, spec_nesting)."""
     if not cer:
-        return None, list(range(1, 16)), None
-    retag_off = layout.instruction_address[s.slot_insts[0]]      # the materialized retag ADDG slot
+        return None, [], None
     access_off, code_base = layout.instruction_address[s.access_inst], cer[0].cpu.pc
-    # The genuine render bakes ONE delta; prefer an architectural (nest==0) reach, falling back to the
-    # first reach when the site is speculative-only. A site reached architecturally more than once with
-    # disagreeing tags (a loop whose granule is retagged between iterations) cannot be sealed with a
-    # single delta — fail loud rather than silently bake one that mismatches the others.
-    arch_deltas, arch_cells, first_delta, first_cell, spec = set(), set(), None, None, None
+    arch_cells, first_cell, spec = set(), None, None
     for ite in cer:
         off, nest = ite.cpu.pc - code_base, ite.metadata.speculation_nesting
-        if off == retag_off:
-            d = (ite.cpu.encoding >> 10) & 0xF                 # ADDG uimm4 = the retag delta
-            first_delta = d if first_delta is None else first_delta
-            if 0 == nest:
-                arch_deltas.add(d)
         if ite.metadata.has_sandbox_memory_access and off == access_off:
+            c = ite.metadata.memory_access.allocation_tag      # the granule's tag the CE holds
+            if 0xFF == c:                                      # no tag modelled for this address
+                continue
             if spec is None or nest < spec:
                 spec = int(nest)
-            c = ite.metadata.memory_access.allocation_tag      # the granule's tag the CE holds
+            c &= 0xF
             first_cell = c if first_cell is None else first_cell
             if 0 == nest:
                 arch_cells.add(c)
-    if len(arch_deltas) > 1 or len(arch_cells) > 1:
+    if len(arch_cells) > 1:
         raise GeneratorException(
-            f"MTE site at offset {retag_off} reached architecturally with disagreeing tags "
-            f"(deltas={sorted(arch_deltas)}, cells={sorted(arch_cells)}); cannot bake one retag")
-    delta = next(iter(arch_deltas), first_delta)
+            f"MTE site at offset {access_off} reached architecturally with disagreeing cell tags "
+            f"({sorted(arch_cells)}); cannot seal one applied tag")
     cell = next(iter(arch_cells), first_cell)
-    if delta is None or cell is None:
-        # unreached in the trace: genuine applies no retag (value None -> NOP), so any nonzero delta is
-        # a valid decoy should HW speculate deeper than the model reached.
-        return None, list(range(1, 16)), spec
-    ea_tag = (cell - delta) % 16
-    # A decoy whose retagged access lands on tag 0 or 15 cannot leak: the executor runs with
-    # TCR_EL1.TCMA1 set, which makes an EL1 access through a tag-0b0000 or tag-0b1111 ("match-all")
-    # address Tag-UNCHECKED — the hardware silently skips the tag comparison, so the intended mismatch
-    # never happens and the decoy behaves identically to the genuine access. Offer only deltas whose
-    # resulting tag (ea_tag + d) is a genuinely-checked value in 1..14.
-    alts = [d for d in range(16) if d != delta and (ea_tag + d) % 16 not in (0, 15)]
-    return delta, alts, spec
+    if cell is None:                                           # unreached in the trace
+        return None, [], spec
+    alts = [t for t in range(1, 15) if t != cell]
+    return cell, alts, spec
 
 
 def _resolve_canon(s: "CanonSealing", cer, layout) -> Tuple[Optional[int], List[int], Optional[int]]:
@@ -678,13 +697,16 @@ class MteSealedTestCase(SealedTestCase):
 
     def _insert_slots(self, data_sites) -> None:
         for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
-            s = MteSealing(mem_reg, inst, base_preserved)
+            s = MteSealing(mem_reg, inst, base_preserved, self._gst)
             self._mte.append(s)
-            _insert(bb, inst, offset_subs, s.slot_insts[:s.n_before])   # cancel offset, then retag
-            _place_after(bb, inst, s.slot_insts[s.n_before:])           # ADDG the complement back to the cell tag
+            _insert(bb, inst, offset_subs, s.slot_insts[:s.n_before])   # cancel offset, then apply the tag
+            _place_after(bb, inst, s.slot_insts[s.n_before:])           # BFI the cell tag back (re-converge)
 
     def _value_sealings(self) -> List[Sealing]:
         return self._mte
+
+    def _emul_rows(self) -> List[Tuple[int, int, int, int, int, int, int]]:
+        return [s.emul_row(self._layout) for s in self._mte]
 
     def _resolve_entries(self, inp, cer) -> List[_Resolved]:
         return [_Resolved(s, *_resolve_mte(s, cer, self._layout)) for s in self._mte]
@@ -777,9 +799,9 @@ class BranchTargetSealedTestCase(SealedTestCase):
 
 class MtePacSealedTestCase(SealedTestCase):
     """Sandbox clamp + PAC auth + MTE retag per data access, plus a PAC auth per standalone AUT*.
-    The CE tags each accessed pointer from its simulated tag memory (the after-access tag correction),
-    so one resolution trace — the placeholder with the committed AUT* at each auth position (resolve-mode
-    canonicalizes it) — yields the MTE tag deltas, the PAC signatures, AND the genuine contract trace."""
+    The CE injects both per-input values into the GST image — each PAC site's signature and each MTE
+    site's accessed-cell tag — during the single resolution trace, which is also the genuine contract
+    trace; the PAC signatures and MTE tags both resolve off it."""
 
     def __init__(self, sealed_tc, assemble, sandbox_sealings, data_sites, signer, enc,
                  auth_specs, trace_bytes_fn) -> None:
@@ -795,16 +817,20 @@ class MtePacSealedTestCase(SealedTestCase):
         for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
             p = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc, self._signer,
                            self._gst, strip=False)
-            m = MteSealing(mem_reg, inst, base_preserved)
+            m = MteSealing(mem_reg, inst, base_preserved, self._gst)
             self._pac.append(p)
             self._mte.append(m)
-            # before: auth the base, cancel the offset, retag onto the cell tag (retag closest to the access)
+            # before: auth the base, cancel the offset, apply the cell tag (retag closest to the access)
             _insert(bb, inst, p.slot_insts, offset_subs, m.slot_insts[:m.n_before])
             # after: MTE re-converges the pointer tag to the cell tag (the decoy re-converges too)
             _place_after(bb, inst, m.slot_insts[m.n_before:])
 
     def _value_sealings(self) -> List[Sealing]:
         return self._pac + self._mte
+
+    def _emul_rows(self) -> List[Tuple[int, int, int, int, int, int, int]]:
+        pac = [r for r in (s.emul_row(self._layout) for s in self._pac) if r is not None]
+        return pac + [s.emul_row(self._layout) for s in self._mte]
 
     def _resolve_entries(self, inp, cer) -> List[_Resolved]:
         # One trace. The CE tags every accessed pointer from its simulated tag memory

@@ -614,7 +614,8 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         if self._pac_profile_value is not None:
             profile = self._pac_profile_value
             signer = PacSigner(lambda ptr, ctx, mn, keys: qarma.sign(ptr, ctx, mn, keys, profile),
-                               lambda ptr, mn: qarma.pac_field_mask(ptr, profile, qarma.is_instr_key(mn)))
+                               lambda ptr, mn: qarma.pac_field_mask(ptr, profile, qarma.is_instr_key(mn)),
+                               lambda ptr, mn: qarma.strip(ptr, profile, qarma.is_instr_key(mn)))
 
         # The sealer owns all sealing + resolution; it assembles object code via _assemble_tc and runs
         # the single per-input resolution trace via _ce_trace.
