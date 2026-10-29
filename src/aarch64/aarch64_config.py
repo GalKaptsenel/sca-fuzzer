@@ -26,11 +26,11 @@ _option_values = {
         'speculative-exception',
     ],
     # When the speculative-exception fuzzer is selected, which input regime to run (no default):
-    # 'identical' = inputs byte-identical except the carrier registers; 'full' = fuzz as regular,
-    # the carrier registers tainted per the contract like any other input.
+    # 'strict' = inputs byte-identical except the seal-value vector registers; 'contract_driven' =
+    # fuzz as regular, those registers tainted per the contract like any other input.
     'speculative_exception_mode': [
-        'identical',
-        'full',
+        'strict',
+        'contract_driven',
     ],
     # AArch64 adds the NZCV-aware input generator to the common set.
     'input_generator': [
@@ -276,11 +276,8 @@ branch_target_seal_prob: float = 1.0
 branch_target_canon_mask: Optional[int] = None   # fixed non-canonical high-bit run, or None = pool
 branch_target_seal_misalign: bool = True          # include the low-bit misalignment axis in the pool
 
-# Speculative-exception fuzzing (all primitives): how many high vector registers (v31, v30, ...) are
-# reserved to carry per-input seal preconditions. Larger = more concurrent seals per test case.
-speculative_exception_carrier_count: int = 4
-# The input regime for the speculative-exception fuzzer. REQUIRED (no default) when that fuzzer is
-# selected; validated against _option_values. None here forces an explicit choice in the config.
+# The input regime for the speculative-exception fuzzer: 'strict' or 'contract_driven'. REQUIRED
+# (no default) when that fuzzer is selected.
 speculative_exception_mode: Optional[str] = None
 
 # PTE (page-table entry) fuzzing: a speculative-exception environment axis where genuine/decoy differ

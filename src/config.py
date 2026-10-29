@@ -522,15 +522,9 @@ class Conf:
             raise ConfigException("input_gen_entropy_bits must be between 1 and 32 bits")
         if self.min_successors_per_bb > self.max_successors_per_bb:
             raise ConfigException("min_successors_per_bb is larger than max_successors_per_bb")
-        if self.fuzzer == "speculative-exception":
-            if self.speculative_exception_mode is None:
-                raise ConfigException("speculative_exception_mode must be set (identical|full) for "
-                                      "the speculative-exception fuzzer")
-            from .interfaces import SIMD_SUBREGION_SIZE
-            max_regs = SIMD_SUBREGION_SIZE // 16
-            if not 1 <= self.speculative_exception_carrier_count <= max_regs:
-                raise ConfigException(
-                    f"speculative_exception_carrier_count must be in [1, {max_regs}]")
+        if self.fuzzer == "speculative-exception" and self.speculative_exception_mode is None:
+            raise ConfigException("speculative_exception_mode must be set (strict|contract_driven) "
+                                  "for the speculative-exception fuzzer")
 
     def set_to_arch_defaults(self):
         """ Set config options according to the architecture-specific defaults """

@@ -32,26 +32,14 @@ class SpecExceptionConfigTest(unittest.TestCase):
             CONF._value_sanity_check()
 
     def test_mode_set_passes_sanity_check(self):
-        CONF.speculative_exception_mode = "identical"
+        CONF.speculative_exception_mode = "strict"
         CONF._value_sanity_check()                       # no raise
-        CONF.speculative_exception_mode = "full"
+        CONF.speculative_exception_mode = "contract_driven"
         CONF._value_sanity_check()
 
     def test_invalid_mode_value_rejected(self):
         with self.assertRaises(ConfigException):
             CONF.safe_set("speculative_exception_mode", "bogus")
-
-    def test_carrier_count_out_of_range_rejected(self):
-        CONF.speculative_exception_mode = "identical"
-        for bad in (0, 17):
-            CONF.speculative_exception_carrier_count = bad
-            with self.assertRaises(ConfigException):
-                CONF._value_sanity_check()
-
-    def test_carrier_count_in_range_ok(self):
-        CONF.speculative_exception_mode = "full"
-        CONF.speculative_exception_carrier_count = 16
-        CONF._value_sanity_check()                       # no raise
 
 
 class RenameSafetyTest(unittest.TestCase):
