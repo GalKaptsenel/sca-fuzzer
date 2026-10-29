@@ -289,7 +289,7 @@ class Dashboard:
             y += 1
             if stat.ni_inputs:
                 vpi = stat.tc_variants / stat.ni_inputs
-                line(y, 1, f"variants/input (NI) {vpi:.1f}")
+                line(y, 1, f"variants/input (speculative-exception) {vpi:.1f}")
                 y += 1
             line(y, 1, f"filtered {filtered}")
             y += 1

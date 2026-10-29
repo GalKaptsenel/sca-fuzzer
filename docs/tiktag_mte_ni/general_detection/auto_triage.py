@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Full MTE/TikTag non-interference triage for a saved violation, with an explicit verdict.
+"""Full MTE/TikTag speculative-exception triage for a saved violation, with an explicit verdict.
 
 Orchestrates the proven scripts and applies a conservative classifier:
   1. accounting.py  (local CE, no device): tag-only diff; CE arch vs SPECULATIVE-ONLY sets; and for each

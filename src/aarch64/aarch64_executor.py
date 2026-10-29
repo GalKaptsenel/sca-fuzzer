@@ -60,7 +60,7 @@ def _ce_memory_regs(inp) -> Tuple[bytes, bytes]:
 # ==================================================================================================
 
 
-class NIVariant:
+class SpecExcVariant:
     """Per-input variant names compared on hardware. `DECOY` is a template; `decoy_n(i)` names the nth
     decoy."""
     BASELINE = "baseline"
@@ -68,7 +68,7 @@ class NIVariant:
 
     @staticmethod
     def decoy_n(i: int) -> str:
-        return NIVariant.DECOY.format(i=i)
+        return SpecExcVariant.DECOY.format(i=i)
 
 
 # ==================================================================================================
@@ -469,11 +469,11 @@ class Aarch64LocalExecutor(Aarch64Executor):
 
 
 # ==================================================================================================
-# Common non-interference base: generic CE-analysis and CE-trace table-printing helpers,
-# shared by the PAC and MTE non-interference executors.
+# Common speculative-exception base: generic CE-analysis and CE-trace table-printing helpers,
+# shared by the PAC and MTE speculative-exception executors.
 # ==================================================================================================
-class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
-    """The non-interference executor for whatever primitives are active: PAC and/or MTE (enabled by
+class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
+    """The speculative-exception executor for whatever primitives are active: PAC and/or MTE (enabled by
     an instruction category) and/or canonicality (enabled by CONF.enable_canonicality, since it adds
     no instructions — it seals existing memory accesses). It seals the test case with the active
     value-seals — the memory pass composes [Sandbox(, PacSign)(, MteTag) | Canon], and PAC also seals
@@ -590,7 +590,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
             raise GeneratorException("enable_signext needs the PAC instruction category active")
         if not self._primitives and not CONF.enable_pte_fuzzing:
             raise GeneratorException(
-                "non-interference fuzzing needs a PAC or MTE instruction category, or "
+                "speculative-exception fuzzing needs a PAC or MTE instruction category, or "
                 "enable_canonicality / enable_branch_target_sealing / enable_pte_fuzzing, enabled")
 
         # MTE sealing retags pointers and relies on the CPU checking those tags; without FEAT_MTE2 the
@@ -782,14 +782,14 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                        inp: Input) -> Dict[str, EnvironmentPlan]:
         """The per-variant page-table environment: genuine (pristine) for the baseline, a fuzzed
         decoy per decoy lane. Empty when PTE fuzzing is off. Deterministic per variant."""
-        names = [NIVariant.BASELINE] + [NIVariant.decoy_n(i) for i in range(CONF.inputs_per_class - 1)]
+        names = [SpecExcVariant.BASELINE] + [SpecExcVariant.decoy_n(i) for i in range(CONF.inputs_per_class - 1)]
         if not self._environment_fuzzing:
             return {name: EnvironmentPlan() for name in names}
         self._require_spec_only_safe(inp)
-        out = {NIVariant.BASELINE: self._pte_policy.genuine_plan()}
+        out = {SpecExcVariant.BASELINE: self._pte_policy.genuine_plan()}
         for i in range(CONF.inputs_per_class - 1):
             rng = stable_rng(resolved.collapse_key, self._sealed.salt, "pte-env", i)
-            out[NIVariant.decoy_n(i)] = self._pte_policy.decoy_plan(self._page_map, rng)
+            out[SpecExcVariant.decoy_n(i)] = self._pte_policy.decoy_plan(self._page_map, rng)
         return out
 
     def variants_for_input(self, inp: Input) -> Dict[str, ExecutorInput]:
@@ -829,8 +829,8 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
 
     def genuine_variant(self, inp: Input) -> ExecutorInput:
         """The input's genuine (canonical baseline) sealed variant -- the "good" lane of the
-        non-interference cross-input priming search (cross_input.py)."""
-        return self.variants_for_input(inp)[NIVariant.BASELINE]
+        speculative-exception cross-input priming search (cross_input.py)."""
+        return self.variants_for_input(inp)[SpecExcVariant.BASELINE]
 
     def noncanon_variant(self, inp: Input) -> ExecutorInput:
         """The input's baseline test case sealed to force every eligible speculative slot to a
@@ -843,7 +843,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
                              bpu_training=self._bpu_entries(inp))
 
     def has_decoy(self, inp: Input) -> bool:
-        """Whether `inp` is non-interference-testable: it has a decoy-eligible CODE slot, or PTE
+        """Whether `inp` is speculative-exception-testable: it has a decoy-eligible CODE slot, or PTE
         fuzzing is on (so the decoy differs from the baseline in the environment even when the code
         is identical). When neither holds, every decoy equals the genuine baseline (a null decoy)
         and the input must not be boosted/measured."""
@@ -851,10 +851,10 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
 
     def _variants_for(self, resolved: ResolvedSealingTestCase) -> Dict[str, Tuple[Relocation, ...]]:
         """One boosting class: the genuine baseline plus `CONF.inputs_per_class - 1` decoys."""
-        plans = {NIVariant.BASELINE: resolved.genuine()}
+        plans = {SpecExcVariant.BASELINE: resolved.genuine()}
         for i in range(CONF.inputs_per_class - 1):
             rng = stable_rng(resolved.collapse_key, self._sealed.salt, i)
-            plans[NIVariant.decoy_n(i)] = resolved.decoy(rng)
+            plans[SpecExcVariant.decoy_n(i)] = resolved.decoy(rng)
         return plans
 
     def _log_variant_binaries(self, log, inp_idx, cer,
@@ -877,7 +877,7 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         reconstruct_enacted_code(); Measurement.test_case must stay a TestCase, not bytes."""
         if not self._mte_hw_runnable:
             raise GeneratorException(
-                "MTE non-interference needs FEAT_MTE2 (tag checking); this CPU reports "
+                "MTE speculative-exception needs FEAT_MTE2 (tag checking); this CPU reports "
                 "ID_AA64PFR1_EL1.MTE < 2, so an MTE sealed test case cannot run on hardware here")
         if not exec_inputs or self.test_case is None:
             return [], []
@@ -918,10 +918,10 @@ class Aarch64NonInterferenceExecutor(Aarch64LocalExecutor):
         return apply_relocations(resolved.object_code, list(ei.code_reloc))
 
 
-class Aarch64RegularSealedExecutor(Aarch64NonInterferenceExecutor):
+class Aarch64RegularSealedExecutor(Aarch64SpeculativeExceptionExecutor):
     """Regular fuzzing with PAC/MTE support.
 
-    Reuses the NI seal/resolve pipeline. Inputs are grouped into *sealing classes* — identical
+    Reuses the speculative-exception seal/resolve pipeline. Inputs are grouped into *sealing classes* — identical
     resolved (correct_sig, correct_tag, spec_nesting) across all fix points — and each class runs ONE
     sealed form, chosen deterministically from the class + per-test-case salt (so every member renders
     it identically). The form is a per-class coin flip:

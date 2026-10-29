@@ -1,7 +1,7 @@
-"""Analyze one saved non-interference violation under a chosen priming strategy, or root-cause it.
+"""Analyze one saved speculative-exception violation under a chosen priming strategy, or root-cause it.
 
 Faithful reproduction: parse the saved program (generated.asm), regenerate the inputs from the config's
-input_gen_seed, and run the real fuzzing_round (NI boosting + the configured priming). The device must be
+input_gen_seed, and run the real fuzzing_round (speculative-exception boosting + the configured priming). The device must be
 used exclusively -- the caller stops the campaign and holds the device lock. One mode per process so
 config/seed state never bleeds between modes.
 

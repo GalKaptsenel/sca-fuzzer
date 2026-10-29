@@ -86,7 +86,7 @@ class Conf:
     enable_priming: bool = True
     """ enable_priming: whether to check violations with priming """
     enable_triage: bool = False
-    """ enable_triage: [TEMP, NI only] run our triage suite on every violation, in-pipeline, to LOCATE
+    """ enable_triage: [TEMP, speculative-exception only] run our triage suite on every violation, in-pipeline, to LOCATE
         the exact input in the batch order that causes the divergence. Violations are NOT dropped -
         every one is kept and annotated with its culprit. Per violation:
         (1) REPRODUCIBLE  - re-trace the batch (warmed); the violating slots must still diverge;
@@ -107,7 +107,7 @@ class Conf:
     triage_capture: bool = True
     """ triage_capture: when triage classifies a violation as order/context or POSITION (the
         interesting non-per-input cases), store its full artifact (test case + input batch + a
-        triage.txt with the culprit) even if the NI pipeline would otherwise drop it. """
+        triage.txt with the culprit) even if the speculative-exception pipeline would otherwise drop it. """
     enable_speculation_filter: bool = False
     """ enable_speculation_filter: if True, discard test cases that don't trigger speculation"""
     enable_observation_filter: bool = False

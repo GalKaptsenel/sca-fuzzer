@@ -3,7 +3,7 @@
   PAC:  per AUT* slot, the seal's sig == ground-truth HW pac_sign top16 AND sign->auth round-trips;
         the enacted code runs FPAC-free.
   SPEC options: across many decoy variants, each SPECULATIVE PAC slot is rendered as
-        correct-sig+auth / wrong-sig+auth / strip(xpac) — the NI decoy diversity.
+        correct-sig+auth / wrong-sig+auth / strip(xpac) — the speculative-exception decoy diversity.
   MTE:  model-level (this box has no MTE HW): each slot renders as ADDG(delta)/NOP, deltas are
         deterministic, and speculative slots take diverse deltas across variants.
 
@@ -22,7 +22,7 @@ from src.config import CONF
 CONF.load(CFG)
 from src.isa_loader import InstructionSet
 from src.aarch64.aarch64_generator import Aarch64RandomGenerator
-from src.aarch64.aarch64_executor import Aarch64NonInterferenceExecutor
+from src.aarch64.aarch64_executor import Aarch64SpeculativeExceptionExecutor
 from src.aarch64.aarch64_kernel import PacKeys
 from src.aarch64.aarch64_relocations import apply_relocations
 from src.aarch64.aarch64_disasm import disassemble_instruction
@@ -31,7 +31,7 @@ from src import factory
 
 isa = InstructionSet("base.json", CONF.instruction_categories)
 gen = Aarch64RandomGenerator(isa, random.randrange(1 << 32))
-ex = Aarch64NonInterferenceExecutor(gen)
+ex = Aarch64SpeculativeExceptionExecutor(gen)
 igen = factory.get_input_generator(random.randrange(1 << 32))
 os.makedirs("/tmp/_verify_seal", exist_ok=True)
 
@@ -106,7 +106,7 @@ for case in range(NCASES):
             pac_ok += (((signed >> 48) & 0xFFFF) == e.value) and \
                 (LE.pac_auth(signed, ctx, auth_mn, pac_keys) == ptr)
 
-        # ---- speculative NI-options distribution over many decoy variants ----
+        # ---- speculative speculative-exception-options distribution over many decoy variants ----
         for s in ex._sealed._pac:
             e = entries.get(id(s))
             if e is None or not e.speculative or not e.alts:

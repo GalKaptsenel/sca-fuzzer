@@ -505,7 +505,7 @@ class ResolvedSealingTestCase:
     def _eligible(self) -> List[_Resolved]:
         """Slots a decoy may perturb: speculative-or-unreached (never architectural) and carrying
         alternative values. When empty, decoy() reproduces genuine() (a null decoy) and the input is
-        not non-interference-testable."""
+        not speculative-exception-testable."""
         return [r for r in self._entries if r.speculative and r.alts]
 
     def has_decoy(self) -> bool:

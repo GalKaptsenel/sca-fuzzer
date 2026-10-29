@@ -1,4 +1,4 @@
-# MTE non-interference fuzzing. The NI executor auto-detects MTE from the MTE* categories and seals
+# MTE speculative-exception fuzzing. The NI executor auto-detects MTE from the MTE* categories and seals
 # every memory access with [Sandbox, MteTag]; decoys retag speculative slots.
 instruction_set: aarch64
 instruction_categories:
@@ -16,5 +16,5 @@ min_bb_per_function: 5
 max_bb_per_function: 5
 max_successors_per_bb: 2
 min_successors_per_bb: 1
-fuzzer: non-interference
+fuzzer: speculative-exception
 input_generator: aarch64-nzcv

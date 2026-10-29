@@ -1,4 +1,4 @@
-# Combined PAC + MTE non-interference fuzzing (the case that used to reset the box). The NI executor
+# Combined PAC + MTE speculative-exception fuzzing (the case that used to reset the box). The NI executor
 # auto-detects both: AUT* sites are sealed with PacSign, memory accesses with [Sandbox, PacSign,
 # MteTag]; both PAC and MTE are decoyed on speculative slots.
 instruction_set: aarch64
@@ -18,7 +18,7 @@ min_bb_per_function: 5
 max_bb_per_function: 5
 max_successors_per_bb: 2
 min_successors_per_bb: 1
-fuzzer: non-interference
+fuzzer: speculative-exception
 input_generator: aarch64-nzcv
 pac_seal_prob: 1.0    # P(seal an eligible memory access); <1 leaves some unsealed
 pac_strip_prob: 0.0   # P(a sealed slot renders as XPAC strip vs a real AUT*)

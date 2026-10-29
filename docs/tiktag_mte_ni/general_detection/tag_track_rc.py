@@ -37,7 +37,7 @@ def main():
     inp = deserialize(open(glob.glob(f"{vd}/input_{sus:04d}.*")[0], "rb").read()).input_
     g = ex.genuine_variant(inp)
     Reloc = type(g.code_reloc[0]); relocs = list(g.code_reloc)
-    # DECOYED-GATE GUARD: the NI decoy only ever perturbs speculative-eligible seals. Sweeping any other
+    # DECOYED-GATE GUARD: the speculative-exception decoy only ever perturbs speculative-eligible seals. Sweeping any other
     # (architectural) seal measures an architectural MTE effect the violation never exercised — the defect
     # that produced a false "genuine" on 160128 and 021502. Restrict the swept gate to the offsets of
     # seals the sealer marks speculative (decoy-eligible); the resolved object is memoized so its offsets

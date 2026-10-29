@@ -31,7 +31,7 @@ signature raises a synchronous fault at EL1 → kernel panic → the box reboots
 cause this; both are now fixed upstream. Before you run anything:
 
 1. `git pull` and make sure you have commits **`9d8cfdd`** (CE base-register fix) and **`9ce1662`**
-   (NI executor seals the filter/generic HW path). Without these, PAC fuzzing WILL reboot the box.
+   (speculative exception executor seals the filter/generic HW path). Without these, PAC fuzzing WILL reboot the box.
 2. Rebuild both binaries after pulling:
    - kernel module: `make -C src/aarch64/executor` then reload it (`sudo rmmod revizor_executor;
      sudo insmod src/aarch64/executor/revizor-executor.ko`), and `sudo chmod -R a+rwX /sys/executor
@@ -126,7 +126,7 @@ architecturally-reachable `AUT*` must authenticate. Revizor **seals** the test c
 - Sealing slots are **register-only** (a `MOVK` + the `AUT*`), so they don't perturb the cache
   footprint — the htrace is unaffected.
 
-**Non-interference (NI) fuzzing** (`fuzzer: non-interference`, what `config_pac.yml` uses): rather than
+**Non-interference (speculative exception) fuzzing** (`fuzzer: speculative-exception`, what `config_pac.yml` uses): rather than
 contract-vs-hardware, it compares **two hardware runs** that should be indistinguishable if PAC
 doesn't leak speculatively:
 - a **baseline** ("genuine") variant: every slot correctly signed;
@@ -148,13 +148,13 @@ Relevant code:
 
 ## 4. THE TASK: why is PAC tc/s so much lower?
 
-Fuzzing throughput (test cases per second) drops sharply under `config_pac.yml` (NI + PAC) versus a
+Fuzzing throughput (test cases per second) drops sharply under `config_pac.yml` (speculative exception + PAC) versus a
 plain non-PAC config (e.g. a spectre_v1 config). **Find the dominant cause, prove it with
 measurement, and propose/implement a fix.** Do NOT just theorize — profile.
 
 ### Ranked suspects (from prior analysis — confirm or refute each with numbers)
 
-1. **No boosting on the NI path.** The NI/sealed executor disables fast boosting
+1. **No boosting on the speculative exception path.** The speculative exception/sealed executor disables fast boosting
    (`_supports_fast_boosting` returns `False` for the sealed executor), because every input resolves
    to its own per-input sealed test case. So the **model runs on every input**, not just class
    representatives — where non-PAC fuzzing traces only a few. This is likely the biggest factor.
@@ -162,7 +162,7 @@ measurement, and propose/implement a fix.** Do NOT just theorize — profile.
    (`SealedTestCase.resolve` → `_seal_trace`), plus the placeholder/genuine trace. That's on the order
    of `2 × n_inputs` CE round-trips per test case.
 3. **Per-(input × variant) assembly + device writes.** Each variant TC is assembled and written to
-   `/dev/executor` per input; NI runs **2 variants** (baseline + decoy) per input, so 2× the
+   `/dev/executor` per input; speculative exception runs **2 variants** (baseline + decoy) per input, so 2× the
    assemble+write+trace work.
 4. **Un-batched `trace()`.** The base executor batches inputs that share a branch-mistraining config
    into a single `trace()` (the kernel measures many loaded inputs in one run). The sealed path runs
@@ -192,7 +192,7 @@ measurement, and propose/implement a fix.** Do NOT just theorize — profile.
      for nothing. The JIT output is a pure function of `(test_case bytes, template)` — neither changes
      across reps.
    - **Why the sealed path is worse than plain fuzzing:** `trace()` is invoked
-     `n_inputs × n_variants × n_reps` times on the NI path (no boosting, 2 variants — suspects 1 & 3),
+     `n_inputs × n_variants × n_reps` times on the speculative exception path (no boosting, 2 variants — suspects 1 & 3),
      versus `n_classes × n_reps` on a boosted plain run. Every one of those extra `trace()` calls drags
      the full rebuild-and-IPI-flush sequence with it, so this suspect *multiplies* suspects 1, 3 and 4.
    - **Confirm with numbers**, don't assume: count `load_jit_template` invocations per second and
@@ -227,7 +227,7 @@ measurement, and propose/implement a fix.** Do NOT just theorize — profile.
   `trace_test_case`, `_seal_trace`, `read_base_addresses`.
 - `src/aarch64/seal/sealer.py` — `resolve` (per-input CE trace), `genuine`/`decoy`.
 - `src/aarch64/contract_executor/` + `src/aarch64/aarch64_kernel.py` — the CE IPC and the ioctls.
-- `config_pac.yml` — the PAC/NI config; compare against a non-PAC config.
+- `config_pac.yml` — the PAC/speculative exception config; compare against a non-PAC config.
 
 ### What a good result looks like
 
@@ -239,7 +239,7 @@ flush (suspect 6); **cache/reuse the CE resolve** so `trace_test_case_with_taint
 re-resolve share one trace per input; **run baseline+decoy in one `trace()`** where the kernel allows
 multiple loaded TCs; **skip the decoy** in phases that don't need it; **contract-class the sealed TCs**
 (inputs whose resolved slot values match share one sealed TC — `ResolvedSealingTestCase.collapse_key`
-already exists for this; the regular-sealed executor uses it, the NI executor may not). Verify any
+already exists for this; the regular-sealed executor uses it, the speculative exception executor may not). Verify any
 change keeps the seal correct (no raw/wrong-signed `AUT*` reaches hardware) and doesn't change which
 violations are found.
 
@@ -252,7 +252,7 @@ this determines whether PAC fuzzing is viable at all.
 
 ## 5. Recent context you should know
 
-- Two FPAC-reboot bugs were just fixed (pull them, §0): **#1** the NI executor's filter/generic HW
+- Two FPAC-reboot bugs were just fixed (pull them, §0): **#1** the speculative exception executor's filter/generic HW
   path used to run the *unsealed* sandbox-only test case (a raw `AUT*` → FPAC); it now runs the sealed
   genuine baseline through `_run_sealed_on_hw`. **#2** the CE's base-register `kaddr↔uaddr` fixup
   corrupted a non-canonical register's top byte, so the seal signed an `AUT*` with the wrong

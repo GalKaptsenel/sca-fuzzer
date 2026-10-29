@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Ground-truth NI check: measure the REAL genuine variant vs its decoy variant(s) vs noncanon of a saved
+"""Ground-truth speculative-exception check: measure the REAL genuine variant vs its decoy variant(s) vs noncanon of a saved
 violation input, directly on the device, and report per-L1D-set residency. The decoy differs from genuine
 ONLY in the speculative (decoyed) tag seals, so a robust genuine-vs-decoy divergence is the real
-non-interference signal, independent of which gate a sweep picks. view_rotation must be ON (it is, via
+speculative-exception signal, independent of which gate a sweep picks. view_rotation must be ON (it is, via
 enable_pre_run_flush in the config). Prints the sets where genuine and decoy diverge the most.
 
 Usage: gd_check.py <cfg> <violation-dir> <suspect_idx> [--reps N] [--set S]
@@ -27,7 +27,7 @@ def main():
     CONF.load(cfg)
     from src import factory
     from src.aarch64.aarch64_executor_input_encoder import deserialize
-    from src.aarch64.aarch64_executor import NIVariant
+    from src.aarch64.aarch64_executor import SpecExcVariant
     wd = "/tmp/gd_check_wd"
     os.makedirs(wd, exist_ok=True)
     os.chdir(wd)
@@ -45,7 +45,7 @@ def main():
     names = list(variants)
     htraces, _ = ex.trace_test_case([variants[n] for n in names], reps)
     res = {n: residency(h) for n, h in zip(names, htraces)}
-    base = res[NIVariant.BASELINE]
+    base = res[SpecExcVariant.BASELINE]
     print(f"{os.path.basename(vd)} suspect#{sus} reps={reps}  variants={names}")
     print(f"view_rotation expected ON (enable_pre_run_flush={CONF.enable_pre_run_flush})")
     # resident sets per variant
@@ -55,7 +55,7 @@ def main():
     # genuine vs each decoy divergence
     print("  --- genuine(baseline) vs each other variant, |Δ|>0.15 ---")
     for n in names:
-        if n == NIVariant.BASELINE:
+        if n == SpecExcVariant.BASELINE:
             continue
         diffs = [(s, round(base[s], 2), round(res[n][s], 2)) for s in range(64)
                  if abs(base[s] - res[n][s]) > 0.15]

@@ -1,6 +1,6 @@
-"""Random NI coverage test (needs /dev/executor + the contract executor).
+"""Random speculative-exception coverage test (needs /dev/executor + the contract executor).
 
-Drives the real unified non-interference executor over several random combined-PAC+MTE test cases /
+Drives the real unified speculative-exception executor over several random combined-PAC+MTE test cases /
 inputs, mints many decoys per input, classifies every slot, and checks:
   * SAFETY invariant: no PAC forge and no MTE wrong-tag ever lands on an architectural slot; the
     Sandbox clamp is always [AND, ADD].
@@ -67,13 +67,13 @@ class NiRandomCoverageTest(unittest.TestCase):
     def setUpClass(cls):
         if not os.path.exists("/dev/executor"):
             raise unittest.SkipTest("kernel module not loaded — /dev/executor missing")
-        from src.aarch64.aarch64_executor import Aarch64NonInterferenceExecutor
+        from src.aarch64.aarch64_executor import Aarch64SpeculativeExceptionExecutor
         cls._saved_conf = copy.deepcopy(CONF._borg_shared_state)
         CONF.load(os.path.join(_ROOT, "config_pac_mte.yml"))
         CONF.pac_strip_prob = 0.1   # exercise the spec-strip corner case (0.0 by default)
         isa = InstructionSet(os.path.join(_ROOT, "base.json"), CONF.instruction_categories)
         cls.gen = Aarch64RandomGenerator(isa, _PROGRAM_SEED)
-        cls.ex = Aarch64NonInterferenceExecutor(cls.gen)
+        cls.ex = Aarch64SpeculativeExceptionExecutor(cls.gen)
         cls.igen = factory.get_input_generator(_INPUT_SEED)
         cls.tmp = tempfile.mkdtemp()
 
@@ -192,7 +192,7 @@ class NiVariantWiringTest(unittest.TestCase):
 
     def test_boosting_class_size(self):
         """CONF.inputs_per_class sets the class size: baseline + (inputs_per_class - 1) decoys."""
-        from src.aarch64.aarch64_executor import Aarch64NonInterferenceExecutor, NIVariant
+        from src.aarch64.aarch64_executor import Aarch64SpeculativeExceptionExecutor, SpecExcVariant
 
         class _FakeResolved:
             object_code = bytes(16)
@@ -203,7 +203,7 @@ class NiVariantWiringTest(unittest.TestCase):
         class _FakeSealed:
             salt = 0
 
-        ex = Aarch64NonInterferenceExecutor.__new__(Aarch64NonInterferenceExecutor)
+        ex = Aarch64SpeculativeExceptionExecutor.__new__(Aarch64SpeculativeExceptionExecutor)
         ex._sealed = _FakeSealed()
         saved = CONF.inputs_per_class
         try:
@@ -211,7 +211,7 @@ class NiVariantWiringTest(unittest.TestCase):
             variants = ex._variants_for(_FakeResolved())
         finally:
             CONF.inputs_per_class = saved
-        self.assertEqual(set(variants), {NIVariant.BASELINE, *(NIVariant.decoy_n(i) for i in range(4))})
+        self.assertEqual(set(variants), {SpecExcVariant.BASELINE, *(SpecExcVariant.decoy_n(i) for i in range(4))})
 
 
 if __name__ == "__main__":

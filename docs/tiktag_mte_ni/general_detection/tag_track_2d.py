@@ -41,7 +41,7 @@ def main():
     g = ex.genuine_variant(inp)
     Reloc = type(g.code_reloc[0]); relocs = list(g.code_reloc)
     cell_tag = int(g.mte_tags[gran])
-    # DECOYED-GATE GUARD: only sweep seals the NI decoy actually perturbs (speculative-eligible). Sweeping
+    # DECOYED-GATE GUARD: only sweep seals the speculative-exception decoy actually perturbs (speculative-eligible). Sweeping
     # an architectural seal measures an architectural MTE effect, not a speculative leak (the 160128/021502
     # defect). Memoized resolve -> offsets match these relocs.
     rsv = ex._resolve(inp)
@@ -99,7 +99,7 @@ def main():
         if not cand:
             print(f"REFUSE: no base-preserved DECOYED seal; decoy offsets="
                   f"{sorted(hex(o) for o in decoy_offsets)}. A 2D sweep needs a re-convergeable seal the "
-                  f"NI decoy perturbs. Aborting.")
+                  f"speculative-exception decoy perturbs. Aborting.")
             return
         base_res = res(ex.trace_test_case([g], reps)[0][0], tset)
         knock = []

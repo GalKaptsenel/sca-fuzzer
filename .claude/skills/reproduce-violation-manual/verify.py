@@ -109,7 +109,7 @@ def main():
     assert paths, "no input_*.reif/.bin in violation dir"
     f.executor.load_test_case(tc)
     # Use each SAVED wire input verbatim, preserving its own code-relocation table. Do NOT rebuild via
-    # as_executor_input(): for NI/seal violations that re-seals every input to the GENUINE baseline and
+    # as_executor_input(): for speculative-exception/seal violations that re-seals every input to the GENUINE baseline and
     # DISCARDS the decoy's relocations, so all counterexamples collapse to byte-identical binaries and
     # only batch-position noise is measured (a silent false "washout"/"genuine"). The saved
     # input_*.{reif,bin} already carry the exact per-variant code_reloc that produced the violation.
@@ -120,7 +120,7 @@ def main():
     # there is nothing to compare and every "spread" is position noise, not a real leak.
     if len({allex[i].serialize() for i in ce_inputs}) == 1:
         sys.exit("ABORT: counterexample inputs are byte-identical (same code+data) after loading — "
-                 "cannot distinguish a leak from batch-position noise. For NI/seal violations, ensure "
+                 "cannot distinguish a leak from batch-position noise. For speculative-exception/seal violations, ensure "
                  "the saved code_reloc is preserved (this is what verify.py now does via deserialize).")
     core = getattr(CONF, "executor_pinned_core", 0)
     positions = {"lower": min(ce_inputs), "higher": max(ce_inputs), "last": N - 1}

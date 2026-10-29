@@ -88,7 +88,7 @@ kernel, on the pinned CPU, immediately before an input executes:
 3. runs the input,
 4. **reverts** the body to the pristine test case afterward,
 
-so the next input starts from a clean skeleton. This is how the non-interference (PAC/MTE) seal ships
+so the next input starts from a clean skeleton. This is how the speculative exception (PAC/MTE) seal ships
 its per-input signature `MOVK`/`AUT*`/`XPAC` (and MTE `ADDG` retag) words: the Python resolver emits
 them as a `RelocationPlan` (`aarch64_relocations.py`), the encoder packs them into `CODE_RELOC`, and
 the kernel applies them. No per-variant assembler spawn, no Python-side splice, and no runtime

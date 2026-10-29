@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Device-free CE-eligibility probe for the MTE non-interference pipeline.
+"""Device-free CE-eligibility probe for the MTE speculative-exception pipeline.
 
-Builds the real non-interference pipeline (get_fuzzer non-interference + initialize_modules), parses an
+Builds the real speculative-exception pipeline (get_fuzzer speculative-exception + initialize_modules), parses an
 ASM template, seals it, and for several generated inputs prints, per MTE sealing site: the resolved tag
 delta (value), the decoy alternatives (alts), and whether the slot is speculative (decoy-eligible). Also
 prints whether the input has any decoy and the genuine-vs-decoy relocation difference. The contract

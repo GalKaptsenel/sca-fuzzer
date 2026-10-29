@@ -1,4 +1,4 @@
-"""Canonicality non-interference sealing (AArch64), self-contained (no /dev/executor, no CE):
+"""Canonicality speculative-exception sealing (AArch64), self-contained (no /dev/executor, no CE):
   * the EOR / bitmask-immediate encoder is byte-exact against the repo assembler;
   * _canon_mask_pool draws RANDOM contiguous flip runs within the guaranteed-fault range [54:VA]
     (a random subset per decoy, like PAC's forgery pool), deterministic per salt; config mask must be

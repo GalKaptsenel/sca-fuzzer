@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local MTE-NI triage (Steps 1+2 of verify-mte-tag-leak) — no device.
+"""Local MTE-speculative-exception triage (Steps 1+2 of verify-mte-tag-leak) — no device.
 Usage: accounting.py <config.yml> <violation-dir> <suspect_input_idx>
 
 Prints: counterexample same-input check, tag-only code-diff, per-set HW divergence (MSB-first),
@@ -12,7 +12,7 @@ sys.path.insert(0, REPO)
 from src.config import CONF
 CFG, VD, SUS = sys.argv[1], sys.argv[2], int(sys.argv[3])
 CONF.load(CFG)
-from src.fuzzer import NoninterferenceFuzzer
+from src.fuzzer import SpeculativeExceptionFuzzer
 from src.aarch64.aarch64_executor_input_encoder import deserialize
 from src.aarch64.aarch64_relocations import apply_relocations
 from src.aarch64.aarch64_trace import _cache_sets
@@ -70,7 +70,7 @@ else:
     diverge = []
 
 # --- Step 2: CE per-set accounting (local) ---
-fz = NoninterferenceFuzzer(os.path.join(REPO, "base.json"), REPO); fz.initialize_modules()
+fz = SpeculativeExceptionFuzzer(os.path.join(REPO, "base.json"), REPO); fz.initialize_modules()
 ex = fz.executor; ex._sandbox_base = 0xffff8873821000
 sealed = ex._sealer.seal(fz.asm_parser.parse_file(f"{VD}/generated.asm"))
 _inp_files = glob.glob(f"{VD}/input_{SUS:04d}.reif") or glob.glob(f"{VD}/input_{SUS:04d}.bin")

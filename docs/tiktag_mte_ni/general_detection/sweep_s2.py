@@ -2,7 +2,7 @@
 """Sweep the gate length (and optionally SDIV depth) to find the misprediction-window EDGE and test
 whether the forced-all-bad (noncanon) variant falls off the edge earlier than baseline — i.e. whether
 a speculative MTE tag mismatch shrinks the window. For each (sdiv,gap) it generates the template, builds
-the NI pipeline, and measures baseline vs noncanon on `n` inputs, reporting the hottest L1D set's
+the speculative-exception pipeline, and measures baseline vs noncanon on `n` inputs, reporting the hottest L1D set's
 residency for each variant.
 
 Usage: sweep_s2.py -s base.json -c <hw.yml> --gaps 160,300,440,560 --sdiv 24 --n 2 --reps 1500
@@ -50,7 +50,7 @@ def main():
     from src.config import CONF
     CONF.load(config)
     from src import factory
-    from src.aarch64.aarch64_executor import NIVariant
+    from src.aarch64.aarch64_executor import SpecExcVariant
 
     wd = "/tmp/sweep_s2_wd"
     os.makedirs(wd, exist_ok=True)
@@ -78,9 +78,9 @@ def main():
             names = list(variants.keys())
             htraces, _ = ex.trace_test_case([variants[n] for n in names], a.reps)
             res = {n: residency(h) for n, h in zip(names, htraces)}
-            b = res[NIVariant.BASELINE]
+            b = res[SpecExcVariant.BASELINE]
             probe = 32
-            dec = res.get(NIVariant.decoy_n(0), b)
+            dec = res.get(SpecExcVariant.decoy_n(0), b)
             nc = res["noncanon"]
             rows.append(f"in{i}: probe32 base{b[probe]:.2f} decoy{dec[probe]:.2f} nc{nc[probe]:.2f}")
         print(f"  gap={gap:4d}: " + "   ".join(rows))

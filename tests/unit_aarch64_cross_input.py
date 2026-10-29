@@ -1,5 +1,5 @@
 """
-Logical tests for the AArch64 non-interference cross-input leak detector (src/aarch64/cross_input.py).
+Logical tests for the AArch64 speculative-exception cross-input leak detector (src/aarch64/cross_input.py).
 
 They drive the algorithm with MOCK measurement oracles that simulate predictors, so they test the
 algorithm's LOGIC -- localization, the full-chain finding, the robust re-verify, and the transitivity

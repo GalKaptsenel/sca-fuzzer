@@ -1,4 +1,4 @@
-# AArch64 non-interference (NI) fuzzing — architecture
+# AArch64 speculative exception (speculative exception) fuzzing — architecture
 
 ## 1. Two fuzzing types, orthogonal to generation
 
@@ -7,12 +7,12 @@
 - **regular** — fuzz *inputs* on one test case; a leak is a hardware-trace difference between inputs.
   When PAC/MTE categories are active, regular fuzzing runs through the *sealed* executor (§4) so the
   test case is arch-safe on hardware.
-- **non-interference (NI)** — fuzz *test-case variants* on the **same** input: a `genuine` (all-correct)
+- **speculative exception (speculative exception)** — fuzz *test-case variants* on the **same** input: a `genuine` (all-correct)
   and a `decoy` (speculative slots perturbed) of the same TC, compared on hardware. A difference is a
   speculative leak.
 
 Which primitive(s) are active comes purely from the enabled **instruction categories** (`PAC*`,
-`MTE*`), not a separate mode knob. The NI executor requires at least one of PAC/MTE.
+`MTE*`), not a separate mode knob. The speculative exception executor requires at least one of PAC/MTE.
 
 ## 2. Sealings — composable, per-site register ops
 
@@ -84,7 +84,7 @@ index/displacement cancellation.
   difference between baseline and decoy is the leak. MTE primitives are refused up front unless the CPU
   reports FEAT_MTE2 (`ID_AA64PFR1_EL1.MTE >= 2`): without tag checking the seal is meaningless and,
   composed with PAC, a baked signature over a tagged pointer FPAC-faults the kernel.
-- **`Aarch64RegularSealedExecutor`** (extends the NI executor) — regular fuzzing with PAC/MTE. Inputs
+- **`Aarch64RegularSealedExecutor`** (extends the speculative exception executor) — regular fuzzing with PAC/MTE. Inputs
   are grouped into *sealing classes* (identical resolved values across all slots); each class runs one
   shared sealed TC, minted once with a per-class coin (`_DECOY_PROB`) choosing the all-genuine form or
   the speculative-decoy form. Either way the architectural slots are always genuine, so the TC is
@@ -100,7 +100,7 @@ never contaminate the auth context before the `AUT*` reads it.
 
 ## 6. Running it + the debug table
 
-Configs (`fuzzer: non-interference`, categories pick the primitive): `config_pac.yml` (PAC),
+Configs (`fuzzer: speculative-exception`, categories pick the primitive): `config_pac.yml` (PAC),
 `config_mte.yml` (MTE), `config_pac_mte.yml` (both), `config_pac_signext.yml` (PAC + sign-extension flip,
 `enable_signext`). For regular fuzzing with PAC/MTE, use a `fuzzer: basic` config with the same
 categories.

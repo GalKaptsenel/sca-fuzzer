@@ -57,7 +57,7 @@ then. So:
 | **CE unit tests** | `cd src/aarch64/contract_executor && make test` → `./test_ce` | `0 failed` | hand-derived encodings / ARM ARM |
 | **CE integration** (black-box, fork+exec CE) | same `make test` → `./test_ce_integration` | `0 failed` | architectural semantics |
 | **Python logic suite** | `unittest discover` (both lines in §0) | pass; HW-gated self-skip | spec/logic |
-| **NI generation** (PAC/MTE non-interference test-case generation) | `python3 -m unittest -v unit_ni_factory unit_pac_generation unit_pac_mistraining unit_mte_generator unit_mte_taint` (from `tests/aarch64_tests`) | all pass | generation logic |
+| **speculative exception generation** (PAC/MTE speculative exception test-case generation) | `python3 -m unittest -v unit_ni_factory unit_pac_generation unit_pac_mistraining unit_mte_generator unit_mte_taint` (from `tests/aarch64_tests`) | all pass | generation logic |
 | **asm_to_bytes** | `cd src/aarch64/asm_to_bytes && make` | assembles; empty `.text` → nonzero exit | cross-`as` output |
 
 **Pure-Python tests that must pass anywhere** (no HW): `unit_saturating_bp`, and under
@@ -146,7 +146,7 @@ sudo chmod 777 /dev/executor                        # exposes ioctls incl. 11-16
 | **instruction_encodings UB fix** | `./test_ce` (sign-extension groups) | pass | `imm19*4` / `imm14*4`, signed offsets |
 | **PAC lazy-open** (this work) | `./contract_executor` on a no-PAC TC, **module absent** → starts; `make test` passes | CE does not abort without the module | `pac_sign_plugin.c: pac_executor_fd` is only reached by a PAC instruction |
 | **PAC sign/auth/strip** (needs module) | `make test` PAC group + `executor_userland … 12/13/14/15` | pacga deterministic; sign→strip & sign→auth recover the pointer | `pac_sign_plugin.c` + kernel `pac.c`; a VM reset = the flagged key-swap path |
-| **PAC/NI test generation** | `unit_pac_generation` + `unit_pac_generator` (e2e) + `unit_ni_factory` | pass | `aarch64_generator.py` PACInstrumentation; `unit_pac_generator` needs CE+module |
+| **PAC/speculative exception test generation** | `unit_pac_generation` + `unit_pac_generator` (e2e) + `unit_ni_factory` | pass | `aarch64_generator.py` PACInstrumentation; `unit_pac_generator` needs CE+module |
 | **generator: B.al/B.nv, Q-reg, capstone under-report, MTE-taint** | `unit_target_desc`, `unit_disasm_reg_access`, `unit_patch_pass`, `unit_mte_taint` | pass | the matching Python module |
 | **asm_to_bytes cross-prefix + empty `.text`** | `make` + assemble a sample; empty `.text` | bytes match Python path; empty → nonzero exit + stderr | must exec `aarch64-linux-gnu-as`, not host `as` |
 

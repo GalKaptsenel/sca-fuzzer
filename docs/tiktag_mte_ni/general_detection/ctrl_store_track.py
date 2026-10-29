@@ -34,7 +34,7 @@ def main():
     CONF.load(cfg)
     from src import factory
     from src.aarch64.aarch64_executor_input_encoder import deserialize, ExecutorInput
-    from src.aarch64.aarch64_executor import NIVariant
+    from src.aarch64.aarch64_executor import SpecExcVariant
     wd = "/tmp/ctrl_store_track_wd"; os.makedirs(wd, exist_ok=True); os.chdir(wd)
     fz = factory.get_fuzzer(os.path.join(repo, "base.json"), wd, f"{vd}/generated.asm", "")
     fz.initialize_modules()

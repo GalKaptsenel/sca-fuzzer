@@ -1,4 +1,4 @@
-"""Sign-extension non-interference sealing (AArch64), self-contained (no /dev/executor, no CE). The
+"""Sign-extension speculative-exception sealing (AArch64), self-contained (no /dev/executor, no CE). The
 sign-ext flip is only used composed with PAC (PacSignExtSealedTestCase); these cover its building
 blocks:
   * _signext_mask_pool is bit 55 alone — the TTBR0/TTBR1 regime selector, the one bit in [63:55] whose

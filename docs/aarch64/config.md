@@ -55,7 +55,7 @@ Default: None
 Options: 'pac' | 'mte'
 ```
 
-Which non-interference contract the `fuzzer: non-interference` fuzzer tests: pointer
+Which speculative exception contract the `fuzzer: speculative-exception` fuzzer tests: pointer
 authentication (`pac`) or memory tagging (`mte`). No default — must be set explicitly when using
 that fuzzer.
 
@@ -74,14 +74,14 @@ Name: pac_auth_weight
 Default: 0.2
 ```
 
-Relative weight of AUTH-strip insertions in the PAC non-interference stage-1 instrumentation.
+Relative weight of AUTH-strip insertions in the PAC speculative exception stage-1 instrumentation.
 
 ```yaml
 Name: pac_xpac_weight
 Default: 0.2
 ```
 
-Relative weight of XPAC-strip insertions in the PAC non-interference stage-1 instrumentation.
+Relative weight of XPAC-strip insertions in the PAC speculative exception stage-1 instrumentation.
 
 ```yaml
 Name: pac_seal_prob
@@ -99,10 +99,10 @@ Default: 0.0
 Probability that a sealed slot renders as the arch-safe XPAC* strip instead of a real AUT*. A strip
 never poisons under speculation, whereas an AUT* against the decoy signature does.
 
-## Canonicality (non-interference)
+## Canonicality (speculative exception)
 
-Canonicality is a third non-interference primitive, alongside PAC and MTE, for the
-`fuzzer: non-interference` fuzzer. Unlike PAC/MTE it introduces **no new instructions**: it seals
+Canonicality is a third speculative exception primitive, alongside PAC and MTE, for the
+`fuzzer: speculative-exception` fuzzer. Unlike PAC/MTE it introduces **no new instructions**: it seals
 the memory accesses the generator already emits, so it is independent of `instruction_categories`
 and is switched on by its own flag. The genuine run uses the canonical (sandbox-clamped) pointer;
 the decoy **flips** a non-canonical mask into the base register right before a speculative-only
@@ -128,7 +128,7 @@ Name: enable_canonicality
 Default: False
 ```
 
-Master switch. Detected as the `canon` seal primitive. Requires the non-interference fuzzer and a
+Master switch. Detected as the `canon` seal primitive. Requires the speculative exception fuzzer and a
 category that emits memory accesses (`BASE-MEM-LOAD` / `BASE-MEM-STORE`) for there to be anything to
 seal. Currently exclusive with PAC/MTE (combined primitives are not yet wired).
 
@@ -191,7 +191,7 @@ the campaign share one key set, drawn from `input_gen_seed`.
 
 ## PTE (page-table entry) fuzzing
 
-An **environment-fuzzing** axis of the non-interference fuzzer, not a code sealing. The genuine and
+An **environment-fuzzing** axis of the speculative exception fuzzer, not a code sealing. The genuine and
 decoy variants run byte-identical code and touch identical virtual addresses; the only difference is
 the page-table state of pages reached **only speculatively** (the sandbox's spec-only page set — see
 `src/aarch64/seal/environment.py`), so any hardware-trace divergence is a genuine leak of page-table
@@ -208,7 +208,7 @@ Name: enable_pte_fuzzing
 Default: False
 ```
 
-Master switch. When set (with the non-interference fuzzer), each decoy variant additionally fuzzes the
+Master switch. When set (with the speculative exception fuzzer), each decoy variant additionally fuzzes the
 page-table state of the spec-only page(s).
 
 ```yaml
@@ -237,14 +237,14 @@ Default: []
 Level 0-2 table-descriptor fields a decoy may vary (e.g. `ap_table`, `xn_table`, `pxn_table`,
 `ns_table`). Empty by default (leaf-only fuzzing).
 
-## Cross-input priming (regular and non-interference fuzzing)
+## Cross-input priming (regular and speculative exception fuzzing)
 
 Generalize standard priming. Standard priming keeps a flagged violation only when the divergence follows
 the *detecting pair*'s own input; **cross-input priming** additionally localizes an *earlier* ct-equal
 input — the *leaking pair* — whose microarchitectural residue (e.g. a BTB entry it trains) surfaces as
 the detecting pair's cache divergence. See §6.1a of the architecture reference for the localization. It
 replaces standard priming over the boosted input lanes (regular fuzzing: each boosting round of an input
-class is a lane of ct-equal inputs; non-interference: each seal variant is a lane), reusing the sample sizes standard priming already uses — the
+class is a lane of ct-equal inputs; speculative exception: each seal variant is a lane), reusing the sample sizes standard priming already uses — the
 current stage size for localization, `executor_sample_sizes[-1]` to re-verify — so it adds no rep knobs.
 Requires a local HW executor with sysfs regime control and `inputs_per_class` ≥ 2.
 

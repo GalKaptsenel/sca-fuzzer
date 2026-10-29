@@ -1,0 +1,28 @@
+instruction_set: aarch64
+# Branch-target speculative-exception: seal the indirect call's target as canonical/non-canonical and
+# (mis)aligned, and compare the sealed variants on hardware.
+instruction_categories:
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-BITFIELD
+  - BASE-CONDSEL
+  - BASE-BRANCH
+  - BASE-MEM-LOAD
+  - BASE-MEM-STORE
+program_size: 24
+max_functions_per_test_case: 8
+max_calls_per_function: 1
+max_successors_per_bb: 2
+min_successors_per_bb: 1
+fuzzer: speculative-exception
+input_generator: aarch64-nzcv
+enable_branch_target_sealing: true       # canonicality + alignment of the branch target
+branch_target_seal_misalign: true
+enable_speculative_store_bypass: true    # v4/SSB window
+contract_execution_clause:
+  - cond
+  - bpas
+
+# TRIAGE INLINE: priming runs the input-dependence swap-test on every violation during fuzzing,
+enable_priming: true

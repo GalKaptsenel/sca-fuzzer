@@ -1,5 +1,5 @@
 """The MTE tag-checking capability gate: ID_AA64PFR1_EL1.MTE (bits [11:8]) must be >= 2 (FEAT_MTE2)
-for MTE non-interference. Below that the CPU does not check tags, so MTE sealing is meaningless and,
+for MTE speculative-exception. Below that the CPU does not check tags, so MTE sealing is meaningless and,
 composed with PAC, a baked signature over a tagged pointer FPAC-faults the kernel -- the executor must
 refuse. Device-free: the method runs on a stub whose _read_sysfs returns a chosen ID_AA64PFR1_EL1.
 """

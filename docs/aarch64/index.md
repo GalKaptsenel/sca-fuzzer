@@ -84,7 +84,7 @@ pieces, each over its own mechanism.
 The fuzzer never talks to the CPU directly: the **CE** gives the *expected* (contract) trace, the
 **kernel module** gives the *actual* (hardware) trace, and the fuzzer compares them. The CE is
 launched once and kept alive to serve many requests. `asm_to_bytes` is a one-shot helper forked per
-call, so it is fork-heavy on the sealed/NI path (one variant per input); two optimizations avoid
+call, so it is fork-heavy on the sealed/speculative exception path (one variant per input); two optimizations avoid
 those forks: `Aarch64Generator.in_memory_assemble` **memoizes** by source text (identical assembly is
 served from a cache, not re-forked), and sealed variants are assembled by **relocation** rather than
 re-running the assembler (see §6.2).
@@ -478,7 +478,7 @@ is the more sensitive channel for both.
 
 A second scheme targets Arm's **pointer authentication (PAC)** and **memory tagging (MTE)** — leak
 primitives a single ctrace cannot capture. Instead of many inputs against one program, it runs
-**one input against many sibling programs** and compares their htraces (*non-interference*).
+**one input against many sibling programs** and compares their htraces (*speculative exception*).
 
 The sibling programs are produced by **sealing**: each speculative-leak primitive in the test case
 is replaced by a fixed-width instruction slot the fuzzer fills per variant. Three independent,
@@ -489,7 +489,7 @@ composable seals:
 - **MteTag** — retags a register (MTE).
 
 A **baseline** variant fills every slot with genuine values; each **decoy** variant perturbs only
-the speculative slots of the single primitive under test (the *non-interference target*, PAC or MTE),
+the speculative slots of the single primitive under test (the *speculative exception target*, PAC or MTE),
 leaving everything else — including the Sandbox clamp — genuine. If the primitive does not leak, the
 baseline and decoys are architecturally identical and produce the same htrace; a **difference**
 between baseline and a decoy is a leak of that primitive.
@@ -929,7 +929,7 @@ before executing" step.
 `MEMORY_MAIN`/`MEMORY_FAULTY`/`GPR` are required; the rest are optional (absent ⇒ kernel default).
 The `GPR` section carries the flags **already** in PSTATE form — the writer reconstructs the per-flag
 NZCV encoding (§8.2) before packing. `PAC_KEYS`/`MTE_TAGS`/`CODE_RELOC` are the per-input state the
-non-interference seal (§6.1, §6.2) uses.
+speculative exception seal (§6.1, §6.2) uses.
 
 ### 9.5 Contract-executor request format
 

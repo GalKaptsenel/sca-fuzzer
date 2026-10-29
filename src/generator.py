@@ -322,7 +322,7 @@ class ConfigurableGenerator(Generator, abc.ABC):
             if actor.mode == ActorMode.GUEST:
                 actor.data_ept_properties = pte_properties_to_mask(desc["data_ept_properties"], 1)
 
-            # assign observer properties (used by non-interference contracts)
+            # assign observer properties (used by speculative-exception contracts)
             actor.observer = desc['observer']
 
             # check for duplicates (this should never be possible, but just in case)

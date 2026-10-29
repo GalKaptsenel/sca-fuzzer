@@ -28,7 +28,7 @@ def main():
     CONF.load(cfg)
     from src import factory
     from src.aarch64.aarch64_executor_input_encoder import deserialize
-    from src.aarch64.aarch64_executor import NIVariant
+    from src.aarch64.aarch64_executor import SpecExcVariant
     wd = "/tmp/step3_wd"; os.makedirs(wd, exist_ok=True); os.chdir(wd)
     fz = factory.get_fuzzer(os.path.join(repo, "base.json"), wd, f"{vd}/generated.asm", "")
     fz.initialize_modules()
@@ -39,8 +39,8 @@ def main():
 
     sinp = load(sus)
     variants = ex.variants_for_input(sinp)
-    baseline = variants[NIVariant.BASELINE]
-    decoys = [(k, v) for k, v in variants.items() if k != NIVariant.BASELINE]
+    baseline = variants[SpecExcVariant.BASELINE]
+    decoys = [(k, v) for k, v in variants.items() if k != SpecExcVariant.BASELINE]
 
     others = sorted({int(m.group(1)) for p in glob.glob(f"{vd}/input_0*.*")
                      for m in [_re.search(r'input_(\d+)\.', os.path.basename(p))] if m and int(m.group(1)) != sus})

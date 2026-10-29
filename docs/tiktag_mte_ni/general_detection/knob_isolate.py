@@ -39,7 +39,7 @@ def main():
     from src.config import CONF
     CONF.load(config)
     from src import factory
-    from src.aarch64.aarch64_executor import NIVariant
+    from src.aarch64.aarch64_executor import SpecExcVariant
     from src.aarch64.aarch64_fuzzer import executor_regime
 
     wd = "/tmp/knob_isolate_wd"

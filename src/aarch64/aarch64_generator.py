@@ -95,7 +95,7 @@ class Aarch64Generator(ConfigurableGenerator, abc.ABC):
         """Assemble AArch64 assembly to raw machine code via the asm_to_bytes helper.
 
         Assembly is a pure function of the (normalized) source text, so the result
-        is memoized: the sealed/NI fuzzing path re-assembles the same placeholder
+        is memoized: the sealed/speculative-exception fuzzing path re-assembles the same placeholder
         test case once per input (measured: ~72% of calls are byte-identical), and
         each call spawns three processes (asm_to_bytes -> as + objcopy). The cache
         turns those redundant spawns into dict hits."""

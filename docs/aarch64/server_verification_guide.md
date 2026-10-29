@@ -242,8 +242,8 @@ to verify a fix:
 - **`HardwareTracingError` model is dead** (`aarch64_executor.py`) — the local path raises `OSError`,
   so the fuzzer's `except HardwareTracingError` is dead → a transient ioctl error **aborts the whole
   campaign** instead of skipping one test case.
-- **MTE stage-2 NI rework** not implemented (design only, see memory `kb-mte-design`); the MTE
-  non-interference fuzzer is **not yet a complete leak oracle** (fixed tag 6, LDG/LDGM return tag 0,
+- **MTE stage-2 speculative exception rework** not implemented (design only, see memory `kb-mte-design`); the MTE
+  speculative exception fuzzer is **not yet a complete leak oracle** (fixed tag 6, LDG/LDGM return tag 0,
   SUBPS no NZCV, STGP post-index unrecognized).
 - **CE/BPU model-fidelity decisions** (deliberately deferred, your call): the kernel `bpu.c`/`jit.c` PHR
   model (300-bit / shift-4 / 11-bit) is confirmed vs the RE, but the **TAGE fold + tag widths** in

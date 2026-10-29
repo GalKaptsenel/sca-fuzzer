@@ -35,7 +35,7 @@ def main():
     from src.config import CONF
     CONF.load(config)
     from src import factory
-    from src.aarch64.aarch64_executor import NIVariant
+    from src.aarch64.aarch64_executor import SpecExcVariant
 
     wd = "/tmp/measure_variants_wd"
     os.makedirs(wd, exist_ok=True)
@@ -65,7 +65,7 @@ def main():
         exec_inputs = [variants[n] for n in names]
         htraces, _ = ex.trace_test_case(exec_inputs, args.reps)
         res = {n: residency(h) for n, h in zip(names, htraces)}
-        base = res[NIVariant.BASELINE]
+        base = res[SpecExcVariant.BASELINE]
         print(f"\n=== input {i} seed={getattr(inp,'seed','?')} reps={args.reps} ===")
         # resident sets per variant
         for n in names:
@@ -73,7 +73,7 @@ def main():
             print(f"  {n:10s} resident sets (>0.1): {hot}")
         # divergence baseline vs each decoy
         for n in names:
-            if n == NIVariant.BASELINE:
+            if n == SpecExcVariant.BASELINE:
                 continue
             diffs = [(s, round(base[s], 2), round(res[n][s], 2))
                      for s in range(64) if abs(base[s] - res[n][s]) > 0.15]

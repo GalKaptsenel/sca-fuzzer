@@ -51,10 +51,10 @@ class StatisticsCls:
 
     test_cases: int = 0
     num_inputs: int = 0
-    # TEMP(perf-metrics): remove — traces/s + NI variants-per-input instrumentation
+    # TEMP(perf-metrics): remove — traces/s + speculative-exception variants-per-input instrumentation
     num_traces: int = 0        # HW traces collected (one per input x variant x rep) — perf metric
-    tc_variants: int = 0       # NI: total test-case variants run on HW (baseline + decoys)
-    ni_inputs: int = 0         # NI: inputs actually run on HW (denominator for variants-per-input)
+    tc_variants: int = 0       # speculative-exception: total test-case variants run on HW (baseline + decoys)
+    ni_inputs: int = 0         # speculative-exception: inputs actually run on HW (denominator for variants-per-input)
     eff_classes: int = 0
     single_entry_classes: int = 0
     violations: int = 0
@@ -96,9 +96,9 @@ class StatisticsCls:
         s = ""
         s += f"Test Cases: {self.test_cases}\n"
         s += f"Inputs per test case: {iptc:.1f}\n"
-        # TEMP(perf-metrics): remove — NI variants-per-input
+        # TEMP(perf-metrics): remove — speculative-exception variants-per-input
         if self.ni_inputs:
-            s += f"Test-case variants per input (NI): {self.tc_variants / self.ni_inputs:.1f}\n"
+            s += f"Test-case variants per input (speculative-exception): {self.tc_variants / self.ni_inputs:.1f}\n"
         s += f"Violations: {self.violations}\n"
         s += "Effectiveness: \n"
         s += f"  Total Cls: {total_clss_per_test_case:.1f}\n"

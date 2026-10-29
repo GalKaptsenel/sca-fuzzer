@@ -161,7 +161,7 @@ def log_ni_table(log: FuzzLogger, inp_idx: int, columns: List[Tuple[str, bytes]]
                  info_label: str, info_by_off: Dict[int, str], ch: str) -> None:
     if not FuzzLogger.on():
         return
-    """DEBUG: per-instruction table across the NI variants, shared by PAC and MTE. Each row is one
+    """DEBUG: per-instruction table across the speculative-exception variants, shared by PAC and MTE. Each row is one
     instruction offset; the columns hold its disassembly in the sealed TC / baseline / decoys;
     `Flow` shows whether the CE executed that offset architecturally and/or speculatively (with
     nesting), taken from the sealed trace `cer` (all variants share the layout and — by the no-leak
@@ -182,7 +182,7 @@ def log_ni_table(log: FuzzLogger, inp_idx: int, columns: List[Tuple[str, bytes]]
     floww   = max([len("Flow")] + [len(f) for f in flows.values()])
     infow   = max([len(info_label)] + [len(v) for v in info_by_off.values()] + [1])
 
-    log.header(f"NI TABLE  inp={inp_idx}  (rows=instructions; columns=variants; Flow=CE arch/spec)", ch=ch)
+    log.header(f"speculative-exception TABLE  inp={inp_idx}  (rows=instructions; columns=variants; Flow=CE arch/spec)", ch=ch)
     header = f"  {'Off':>5}  {'Flow':<{floww}}  {info_label:<{infow}}  " + "  ".join(f"{l:<{colw}}" for l in labels)
     log.w(header, ch=ch)
     log.w("  " + "-" * (len(header) - 2), ch=ch)

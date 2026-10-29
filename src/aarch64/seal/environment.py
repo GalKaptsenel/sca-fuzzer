@@ -1,6 +1,6 @@
 """The per-variant page-table ENVIRONMENT for PTE sealing.
 
-PTE sealing is the first NI primitive whose genuine/decoy difference is the page-table environment,
+PTE sealing is the first speculative-exception primitive whose genuine/decoy difference is the page-table environment,
 not an instruction word. This module is that environment, kept separate from code / relocations:
 
   * `SandboxPage` / `SandboxPageMap` -- the general partition of the sandbox data pages into those

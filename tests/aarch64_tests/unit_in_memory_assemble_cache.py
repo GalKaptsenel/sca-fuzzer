@@ -6,7 +6,7 @@ from src.aarch64.aarch64_generator import Aarch64Generator
 class InMemoryAssembleCacheTest(unittest.TestCase):
     """in_memory_assemble() is a pure function of the (normalized) source text and
     is memoized to avoid the process spawns (asm_to_bytes -> as + objcopy) on the
-    sealed/NI path, where the same placeholder test case is re-assembled per input."""
+    sealed/speculative-exception path, where the same placeholder test case is re-assembled per input."""
 
     def test_encoding_is_correct(self):
         # NOP encodes to 0xd503201f (little-endian bytes 1f 20 03 d5).

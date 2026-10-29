@@ -1,4 +1,4 @@
-"""Shared bootstrap for the sealed/NI executor tests: a real Aarch64NonInterferenceExecutor over a
+"""Shared bootstrap for the sealed/speculative-exception executor tests: a real Aarch64SpeculativeExceptionExecutor over a
 generated PAC/MTE-sealable test case, exercised against the REAL contract executor (resolve is a
 software CE trace; no HW measurement needed). A mixin, so unittest never collects it as a test.
 Needs /dev/executor + the CE. Deterministic (fixed seeds), and each test draws its inputs from a fresh
@@ -29,13 +29,13 @@ class SealedExecutorFixture:
     def setUpClass(cls):
         if not os.path.exists("/dev/executor"):
             raise unittest.SkipTest("kernel module not loaded — /dev/executor missing")
-        from src.aarch64.aarch64_executor import Aarch64NonInterferenceExecutor, ExecutorInput
+        from src.aarch64.aarch64_executor import Aarch64SpeculativeExceptionExecutor, ExecutorInput
         cls._saved_conf = copy.deepcopy(CONF._borg_shared_state)
         CONF.load(os.path.join(_ROOT, "config_pac_mte.yml"))
         cls.ExecutorInput = ExecutorInput
         isa = InstructionSet(os.path.join(_ROOT, "base.json"), CONF.instruction_categories)
         cls.gen = Aarch64RandomGenerator(isa, _PROGRAM_SEED)
-        cls.ex = Aarch64NonInterferenceExecutor(cls.gen)
+        cls.ex = Aarch64SpeculativeExceptionExecutor(cls.gen)
         cls.tmp = tempfile.mkdtemp()
         cls._load_sealable_tc()
 

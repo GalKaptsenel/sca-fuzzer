@@ -1,10 +1,10 @@
-"""Device-free precondition fuzzing for the PAC+SIGNEXT NI primitive: over many randomly-generated
+"""Device-free precondition fuzzing for the PAC+SIGNEXT speculative-exception primitive: over many randomly-generated
 test cases, drive the real sealer + contract executor (no /dev/executor) under config_pac_signext.yml
 and assert the preconditions the primitive needs actually arise, and the genuine/decoy machinery is
 coherent:
   * every TC seals as a PacSignExtSealedTestCase (every data access PAC-authenticated, each access
     optionally a sign-ext flip site);
-  * some sign-ext flip sites are speculative-only, so decoys exist (the TC is NI-testable);
+  * some sign-ext flip sites are speculative-only, so decoys exist (the TC is speculative-exception-testable);
   * genuine() leaves every flip slot canonical (NOP); forced_noncanon() flips exactly bit 55
     (EOR #1<<55) at every speculative flip slot and never perturbs an architectural slot.
 Self-contained: needs the CE binary but no device; restores CONF.
@@ -78,7 +78,7 @@ class PacSignExtPreconditionTest(unittest.TestCase):
             sess.stop()
         self.assertGreater(sealed, 0, "no PAC+SIGNEXT test case sealed")
         self.assertGreater(sx_spec, 0, "no speculative sign-ext site ever arose (no precondition)")
-        self.assertGreater(ni_testable, 0, "no NI-testable resolution (no decoy)")
+        self.assertGreater(ni_testable, 0, "no speculative-exception-testable resolution (no decoy)")
         self.assertGreater(flip_checks, 0, "no sign-ext flip render was exercised")
 
     def _check_resolution(self, resolved, sealed) -> int:

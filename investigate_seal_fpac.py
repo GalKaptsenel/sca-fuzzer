@@ -19,7 +19,7 @@ from src.aarch64.aarch64_generator import Aarch64RandomGenerator
 from src.aarch64.aarch64_target_desc import Aarch64TargetDesc
 from src.aarch64.aarch64_printer import Aarch64Printer, Aarch64ASMLayout
 from src.aarch64.aarch64_kernel import PacKeys
-from src.aarch64.aarch64_executor import Aarch64NonInterferenceExecutor as Base
+from src.aarch64.aarch64_executor import Aarch64SpeculativeExceptionExecutor as Base
 from src import factory
 
 LOGFILE = '/home/gal_k_1_1998/seal_fpac_report.txt'

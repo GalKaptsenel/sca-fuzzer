@@ -1,0 +1,39 @@
+# Canonicality cross-input BTB leftover via a template + the new cross-input priming.
+# Basic (regular) fuzzing: the branch-target sealer seals the indirect-call target canonical vs
+# non-canonical per boosted lane; a canonical leaker trains a BTB entry that a later ct-equal prober
+# reads -> a cross-input leftover that standard priming discards but cross_input_priming localizes.
+instruction_set: aarch64
+fuzzer: basic
+input_generator: aarch64-nzcv
+executor_mode: P+P
+program_size: 24
+max_functions_per_test_case: 8
+max_calls_per_function: 1
+max_successors_per_bb: 2
+min_successors_per_bb: 1
+instruction_categories:
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-CONDSEL
+  - BASE-BRANCH
+  - BASE-MEM-LOAD
+  - BASE-MEM-STORE
+enable_branch_target_sealing: true
+branch_target_seal_misalign: true
+enable_speculative_store_bypass: true
+contract_execution_clause:
+  - cond
+  - bpas
+model_min_nesting: 1
+model_max_nesting: 30
+# Preserve cross-input BTB training across inputs within a trace.
+enable_pre_run_flush: false
+executor_pinned_core: -1   # unpinned: pinning raises the non-canonical residual
+executor_sample_sizes: [100, 500]   # bigger initial sample so a weak leftover flags on the fast path
+# The new generalized priming (replaces standard priming); default localizer "any" (galloping+bisect).
+enable_cross_input_priming: true
+cross_input_priming_localizer: any
+inputs_per_class: 4
+program_generator_seed: 424242
+input_gen_seed: 424242

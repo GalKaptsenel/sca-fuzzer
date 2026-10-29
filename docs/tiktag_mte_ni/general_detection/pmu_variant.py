@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Match-vs-mismatch PMU differential for an MTE NI suspect, using the executor's authoritative
+"""Match-vs-mismatch PMU differential for an MTE speculative-exception suspect, using the executor's authoritative
 baseline/decoy variants (variants_for_input) under the fixed-prefix swap-only protocol. Reports, per
 variant, the probe-set residency and the mean per-victim-window PMU counts.
 
@@ -31,7 +31,7 @@ def main():
     from src.config import CONF; CONF.load(cfg)
     from src import factory
     from src.aarch64.aarch64_executor_input_encoder import deserialize
-    from src.aarch64.aarch64_executor import NIVariant
+    from src.aarch64.aarch64_executor import SpecExcVariant
     wd = "/tmp/pmu_variant_wd"; os.makedirs(wd, exist_ok=True); os.chdir(wd)
     fz = factory.get_fuzzer(os.path.join(repo, "base.json"), wd, f"{vd}/generated.asm", ""); fz.initialize_modules()
     ex = fz.executor; ex.load_test_case(fz.asm_parser.parse_file(f"{vd}/generated.asm"))
@@ -41,8 +41,8 @@ def main():
 
     sinp = load(sus)
     sv = dict(ex.variants_for_input(sinp))
-    G = sv[NIVariant.BASELINE]
-    variants = [("baseline", G)] + [(str(k), v) for k, v in sv.items() if k != NIVariant.BASELINE]
+    G = sv[SpecExcVariant.BASELINE]
+    variants = [("baseline", G)] + [(str(k), v) for k, v in sv.items() if k != SpecExcVariant.BASELINE]
     try:
         variants.append(("noncanon", ex.noncanon_variant(sinp)))
     except Exception:

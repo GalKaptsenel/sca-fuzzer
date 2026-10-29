@@ -13,7 +13,7 @@ instruction_categories:
   - BASE-BRANCH
   - BASE-MEM-LOAD
   - BASE-MEM-STORE
-fuzzer: non-interference
+fuzzer: speculative-exception
 input_generator: aarch64-nzcv
 executor_mode: P+P
 program_size: 24

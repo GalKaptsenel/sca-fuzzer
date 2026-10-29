@@ -1,0 +1,24 @@
+.intel_syntax noprefix
+.test_case_enter:
+.section .data.main
+
+.function_0:
+.macro.measurement_start: nop qword ptr [rax + 0xff]
+
+nop
+
+.macro.measurement_end: nop qword ptr [rax + 0xff]
+
+and rax, rax
+
+.function_1:
+
+nop
+
+.section .data.guest_1
+.function_2:
+nop
+
+
+.section .data.main
+.test_case_exit:nop

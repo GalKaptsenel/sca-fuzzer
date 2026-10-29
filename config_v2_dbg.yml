@@ -1,0 +1,46 @@
+instruction_set: aarch64
+instruction_categories:
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-BITFIELD
+  - BASE-CONDSEL
+  - BASE-BRANCH
+  - BASE-MEM-LOAD
+  - BASE-MEM-STORE
+min_bb_per_function: 2
+max_bb_per_function: 4
+max_successors_per_bb: 2
+min_successors_per_bb: 1
+fuzzer: basic
+input_generator: aarch64-nzcv
+enable_pre_run_flush: 1
+executor_warmups: 5
+input_gen_seed: 0
+executor_mode: P+P
+# bounded scenario: entry + 2 callees, at most 1 indirect call per function
+min_functions_per_test_case: 3
+max_functions_per_test_case: 3
+function_call_probability: 0.5
+max_calls_per_function: 1
+indirect_call_probability: 1.0
+dispatch_call_probability: 1.0
+# contract PERMITS conditional (v1) AND store-bypass (v4) speculation.
+# => any remaining violation is NOT v1/v4; with indirect calls present it isolates a
+#    branch-target (v2-type) speculative leak.
+contract_execution_clause:
+  - cond
+  - bpas
+
+# Overwrite some of the configuration options to reproduce the violation
+input_gen_seed: 2445802269
+inputs_per_class: 1
+
+logging_modes:
+  - info
+  - stat
+  - dbg_model
+  - dbg_dump_ctraces
+  - dbg_dump_traces_unlimited
+
+program_generator_seed: 67019

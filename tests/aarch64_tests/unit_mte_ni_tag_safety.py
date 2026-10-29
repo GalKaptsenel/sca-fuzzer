@@ -1,4 +1,4 @@
-"""Regression tests for the MTE non-interference seal's architectural tag safety, over the real CE.
+"""Regression tests for the MTE speculative-exception seal's architectural tag safety, over the real CE.
 
 The genuine (baseline) variant must be ARCHITECTURALLY tag-clean: every committed (nesting==0) memory
 access must either match its granule's allocation tag or use a TCMA-Unchecked pointer tag (0b0000 /
@@ -85,7 +85,7 @@ class MteNiTagSafetyTest(unittest.TestCase):
         # The HW backend is never used here (the tests only run the local CE over a fixed sandbox base
         # and never measure), so stub it out -> construction contacts no device, local or remote.
         with mock.patch.object(ni_mod, "make_hw_executor", return_value=mock.Mock()):
-            ex = factory.get_noninterference_executor(gen)
+            ex = factory.get_speculative_exception_executor(gen)
         ex._sandbox_base = _SANDBOX_BASE          # fixed base -> _ce_trace never reads a device
         gen.set_seed(_SEED); igen.set_seed(_SEED)
         tmp = tempfile.mkdtemp()
@@ -119,7 +119,7 @@ class MteNiTagSafetyTest(unittest.TestCase):
 
     def test_decoys_reconverge_and_signal(self):
         """Every decoy re-converges with its baseline architecturally (identical committed stream), is
-        itself arch tag-clean, and differs from the baseline somewhere (a real, speculative NI signal)."""
+        itself arch tag-clean, and differs from the baseline somewhere (a real, speculative speculative-exception signal)."""
         self.assertGreater(len(self.decoy_pairs), 0, "no decoy-eligible input generated")
         for base_cer, dec_cer in self.decoy_pairs:
             self.assertEqual(_arch_stream(base_cer), _arch_stream(dec_cer),
@@ -127,7 +127,7 @@ class MteNiTagSafetyTest(unittest.TestCase):
             self.assertEqual(_arch_tag_mismatches(dec_cer), [],
                              "decoy makes an architectural tag-mismatched access")
             self.assertNotEqual(_full_stream(base_cer), _full_stream(dec_cer),
-                                "decoy identical to the baseline (no NI signal)")
+                                "decoy identical to the baseline (no speculative-exception signal)")
 
 
 if __name__ == "__main__":

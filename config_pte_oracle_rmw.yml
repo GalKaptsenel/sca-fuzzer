@@ -8,7 +8,7 @@
 # cache line) while a decoy clears its `valid` bit (the speculative read faults and allocates nothing),
 # so the genuine/decoy htrace divergence is a genuine leak of page-table state.
 instruction_set: aarch64
-fuzzer: non-interference
+fuzzer: speculative-exception
 input_generator: aarch64-nzcv
 executor_mode: P+P
 

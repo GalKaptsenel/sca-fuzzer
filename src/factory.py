@@ -9,7 +9,7 @@ from typing import Tuple, Dict, List, Callable
 
 from . import input_generator, analyser, postprocessor, interfaces
 from .config import CONF, ConfigException
-from .fuzzer import NoninterferenceFuzzer
+from .fuzzer import SpeculativeExceptionFuzzer
 
 # Arch-specific modules (.x86, .aarch64) and the Unicorn contract model (.model) are imported
 # lazily inside the getters, keyed on the configured ISA.
@@ -46,12 +46,12 @@ def get_fuzzer(instruction_set, working_directory, testcase, inputs):
             from .aarch64 import aarch64_fuzzer
             return aarch64_fuzzer.Aarch64Fuzzer(instruction_set, working_directory, testcase, inputs)
         raise ConfigException("ERROR: unknown value of `instruction_set` configuration option")
-    elif CONF.fuzzer == "non-interference":
+    elif CONF.fuzzer == "speculative-exception":
         if "aarch64" in CONF.instruction_set:
             from .aarch64 import aarch64_fuzzer
-            return aarch64_fuzzer.Aarch64NoninterferenceFuzzer(instruction_set, working_directory,
+            return aarch64_fuzzer.Aarch64SpeculativeExceptionFuzzer(instruction_set, working_directory,
                                                                testcase, inputs)
-        return NoninterferenceFuzzer(instruction_set, working_directory, testcase, inputs)
+        return SpeculativeExceptionFuzzer(instruction_set, working_directory, testcase, inputs)
 
     raise ConfigException("ERROR: unknown value of `fuzzer` configuration option")
 
@@ -168,7 +168,7 @@ def get_executor(enable_mismatch_check_mode: bool = False,
         # signatures/tags for that input), so the box-resetting raw AUT*/tag-fault never happens.
         # Needs the generator (for the seal passes); falls back to the plain local executor otherwise.
         cats = CONF.instruction_categories or []
-        if generator is not None and CONF.fuzzer != "non-interference" \
+        if generator is not None and CONF.fuzzer != "speculative-exception" \
                 and any(c.startswith(("PAC", "MTE")) for c in cats):
             return aarch64_executor.Aarch64RegularSealedExecutor(generator, enable_mismatch_check_mode)
         return aarch64_executor.Aarch64LocalExecutor(enable_mismatch_check_mode)
@@ -176,27 +176,27 @@ def get_executor(enable_mismatch_check_mode: bool = False,
         f"ERROR: unknown value `{CONF.executor}` of `executor` configuration option")
 
 
-def get_noninterference_executor(generator: interfaces.Generator,
+def get_speculative_exception_executor(generator: interfaces.Generator,
                                   enable_mismatch_check_mode: bool = False) -> interfaces.Executor:
     """
-    Create the non-interference executor (it auto-detects PAC/MTE from the enabled
+    Create the speculative-exception executor (it auto-detects PAC/MTE from the enabled
     instruction categories, and canonicality from CONF.enable_canonicality) with the
     generator injected at construction.
 
-    This is the only supported way to create a non-interference executor — the generator
+    This is the only supported way to create a speculative-exception executor — the generator
     is a required constructor argument and cannot be set after the fact.
 
-    Called by NoninterferenceFuzzer.initialize_modules() instead of get_executor().
+    Called by SpeculativeExceptionFuzzer.initialize_modules() instead of get_executor().
     """
     if not CONF.instruction_set.startswith('aarch64'):
         raise ConfigException(
-            f"ERROR: non-interference executor requires aarch64 instruction set; "
+            f"ERROR: speculative-exception executor requires aarch64 instruction set; "
             f"got '{CONF.instruction_set}'")
     from .aarch64 import aarch64_executor
-    # One non-interference executor; it auto-detects the active primitives (PAC and/or MTE from the
+    # One speculative-exception executor; it auto-detects the active primitives (PAC and/or MTE from the
     # enabled instruction categories, canonicality from CONF.enable_canonicality) and seals/compares
     # whatever is present.
-    return aarch64_executor.Aarch64NonInterferenceExecutor(generator, enable_mismatch_check_mode)
+    return aarch64_executor.Aarch64SpeculativeExceptionExecutor(generator, enable_mismatch_check_mode)
 
 
 def get_analyser() -> interfaces.Analyser:

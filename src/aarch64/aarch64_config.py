@@ -18,12 +18,12 @@ _option_values = {
         'P+P',
         'F+R',
     ],
-    # AArch64 adds the non-interference fuzzer to the common set (x86 has no NI).
+    # AArch64 adds the speculative-exception fuzzer to the common set (x86 has no speculative-exception).
     'fuzzer': [
         'basic',
         'architectural',
         'archdiff',
-        'non-interference',
+        'speculative-exception',
     ],
     # AArch64 adds the NZCV-aware input generator to the common set.
     'input_generator': [
@@ -41,7 +41,7 @@ _option_values = {
     'generator_faults_allowlist': [
     ],
     # Valid actor keys. UNUSED by AArch64 Revizor: 'observer' (multi-actor
-    # non-interference), 'data_ept_properties' (stage-2), and 'fault_blocklist'
+    # speculative-exception), 'data_ept_properties' (stage-2), and 'fault_blocklist'
     # (no fault support) — AArch64 runs a single host/kernel actor.
     'actor': [
         'name',
@@ -269,7 +269,7 @@ branch_target_seal_prob: float = 1.0
 branch_target_canon_mask: Optional[int] = None   # fixed non-canonical high-bit run, or None = pool
 branch_target_seal_misalign: bool = True          # include the low-bit misalignment axis in the pool
 
-# PTE (page-table entry) fuzzing: an NI environment-fuzzing axis where genuine/decoy differ only in
+# PTE (page-table entry) fuzzing: an speculative-exception environment-fuzzing axis where genuine/decoy differ only in
 # the page-table state of spec-only pages.
 enable_pte_fuzzing: bool = False
 pte_fuzz_leaf_fields: List[str] = list(LEAF_LAYOUT.default_fuzzable_field_names)
@@ -291,7 +291,7 @@ pte_fuzz_fields_per_decoy: int = 1
 # re-verify). Requires a local HW executor with sysfs regime control (the search forces view_rotation=0
 # and unpinned execution); off by default (standard priming). Set False for remote executors.
 enable_cross_input_priming: bool = False
-""" enable_cross_input_priming: in regular and non-interference fuzzing, replace the standard priming filter
+""" enable_cross_input_priming: in regular and speculative-exception fuzzing, replace the standard priming filter
     with the generalized-priming localization over boosted lanes. Wherever priming would run, the flagged
     violation's own detecting pair is localized by toggling earlier positions across the two diverging
     lanes; a found leaking pair (self- or cross-input) confirms the violation and reports the

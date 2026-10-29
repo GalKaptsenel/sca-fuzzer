@@ -154,6 +154,23 @@ class HWExecutor(ABC):
     """The device backend the fuzzer measures through: report the target's addresses and measure a
     batch of (test case, inputs) units. Local (/dev/executor) or remote (over a Connection)."""
 
+    _sysfs_written: Dict[str, str]   # writable value last written to each sysfs knob
+
+    @abstractmethod
+    def _read_sysfs(self, filename: str) -> str:
+        raise NotImplementedError()
+
+    @abstractmethod
+    def _write_sysfs(self, filename: str, value: bytes) -> None:
+        raise NotImplementedError()
+
+    def regime_save_value(self, name: str) -> str:
+        """The writable current value of a sysfs knob, for regime save/restore: the value last written,
+        or the read when it was never written. Some knobs (e.g. pin_to_core) dump extra info on read and
+        are not round-trippable, so the written value is the only safe thing to restore."""
+        cached = self._sysfs_written.get(name)
+        return cached if cached is not None else self._read_sysfs(name)
+
     @abstractmethod
     def target_info(self) -> TargetInfo:
         raise NotImplementedError()
@@ -170,7 +187,7 @@ class HWExecutor(ABC):
 
     def mte_tag_checking_supported(self) -> bool:
         """Whether the measuring core enforces MTE tag checks (FEAT_MTE2+). FEAT_MTE (1) has the tag
-        instructions but no checking, and 0 has no MTE; neither can run MTE non-interference, and a
+        instructions but no checking, and 0 has no MTE; neither can run MTE speculative-exception, and a
         signature over a tagged pointer the hardware ignores FPAC-faults the kernel. Device-agnostic: it
         reads the same TargetInfo both backends report, so the remote path works too."""
         return _mte_feature(self.target_info().id_aa64pfr1_el1) >= _MTE_FEAT_MTE2
@@ -343,6 +360,7 @@ class LocalHWExecutor(HWExecutor):
         self.executor_device_path: str = device_path
         self.executor_sysfs: str = sys_executor_path
         self.current_region: ExecutorRegion = TestCaseRegion()
+        self._sysfs_written: Dict[str, str] = {}
         try:
             self.fd = os.open(self.executor_device_path, os.O_RDWR)
         except PermissionError as e:
@@ -357,13 +375,14 @@ class LocalHWExecutor(HWExecutor):
         self.checkout_region(TestCaseRegion())
         del self.contents
 
-    def _write_sysfs(self, filename: str, value: bytes):
+    def _write_sysfs(self, filename: str, value: bytes) -> None:
         path = os.path.join(self.executor_sysfs, filename)
         try:
             with open(path, "wb") as f:
                 f.write(value)
         except PermissionError as e:
             _raise_access_error(path, self.executor_sysfs, e)
+        self._sysfs_written[filename] = value.decode()
 
     def _read_sysfs(self, filename: str) -> str:
         path = os.path.join(self.executor_sysfs, filename)
@@ -561,6 +580,7 @@ class RemoteHWExecutor(HWExecutor):
         self._cfg = config
         self._info: Optional[TargetInfo] = None   # queried once, cached for the campaign
         self._midr: Optional[int] = None
+        self._sysfs_written: Dict[str, str] = {}
         self._ensure_ready()
 
     def _ensure_ready(self) -> None:
@@ -581,7 +601,14 @@ class RemoteHWExecutor(HWExecutor):
             ("enable_ssbs", int(CONF.enable_speculative_store_bypass)),
             ("warmups", CONF.executor_warmups),
         ):
-            conn.shell(f'echo "{value}" > {cfg.sysfs}/{name}', privileged=True)
+            self._write_sysfs(name, str(value).encode())
+
+    def _write_sysfs(self, filename: str, value: bytes) -> None:
+        self._conn.shell(f'echo "{value.decode()}" > {self._cfg.sysfs}/{filename}', privileged=True)
+        self._sysfs_written[filename] = value.decode()
+
+    def _read_sysfs(self, filename: str) -> str:
+        return self._conn.shell(f'cat {self._cfg.sysfs}/{filename}', privileged=True).strip()
 
     def _check_abi_version(self) -> None:
         reported = self._conn.shell(f"cat {self._cfg.sysfs}/system/abi_version", privileged=True)

@@ -1,0 +1,33 @@
+# PAC speculative-exception fuzzing with cross-input priming, strictly cross-input leaks only.
+# Base: config_pac.yml. Cross-input knobs as in config_pte_oracle_rmw_xinput.yml / config_canon_cip_ni.yml.
+instruction_set: aarch64
+instruction_categories:
+  - PAC
+  - BASE-ARITH
+  - BASE-LOGICAL
+  - BASE-SHIFT
+  - BASE-BITFIELD
+  - BASE-CONDSEL
+  - BASE-BRANCH
+  - BASE-MEM-LOAD
+  - BASE-MEM-STORE
+min_bb_per_function: 5
+max_bb_per_function: 5
+max_successors_per_bb: 2
+min_successors_per_bb: 1
+fuzzer: speculative-exception
+input_generator: aarch64-nzcv
+pac_seal_prob: 1.0    # P(seal an eligible memory access); <1 leaves some unsealed
+pac_strip_prob: 0.5   # P(a sealed slot renders as XPAC strip vs a real AUT*) -- strip-vs-auth is the validated PAC-oracle leak contrast (violation-pac-spec-auth-oracle-260712); 0.0 finds no PAC leaks
+
+executor_mode: P+P
+# Keep per-input microarchitectural state within a trace; unpinned execution.
+enable_pre_run_flush: false
+executor_pinned_core: -1
+executor_sample_sizes: [100, 500]   # larger initial sample so a weak cross-input residue flags on the fast path
+
+# Replace standard priming with generalized (cross-input) priming; keep only strictly cross-input leaks.
+enable_cross_input_priming: true
+cross_input_leaks_only: true
+cross_input_priming_localizer: any   # galloping + bisection
+inputs_per_class: 2

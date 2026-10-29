@@ -1,4 +1,4 @@
-"""Branch-target non-interference sealing (AArch64), self-contained (no /dev/executor, no CE):
+"""Branch-target speculative-exception sealing (AArch64), self-contained (no /dev/executor, no CE):
   * _branch_target_mask_pool draws non-canonical high-bit runs within the guaranteed-fault range
     [54:VA] plus, when branch_target_seal_misalign is set, the low-bit misalignments {1,2,3};
     deterministic per salt; branch_target_canon_mask fixes the non-canonical run;

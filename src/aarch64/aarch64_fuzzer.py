@@ -5,7 +5,7 @@ from typing import List, Generator, Dict, Tuple, Optional, Sequence, TYPE_CHECKI
 from contextlib import contextmanager
 import copy
 
-from ..fuzzer import FuzzerGeneric, NoninterferenceFuzzer
+from ..fuzzer import FuzzerGeneric, SpeculativeExceptionFuzzer
 from ..interfaces import TestCase, Input, Violation, HardwareTracingError
 from ..analyser import MergedBitmapAnalyser, ChiSquaredAnalyser
 from ..util import STAT
@@ -16,7 +16,7 @@ from .cross_input import (GeneralizedPrimingDetector, CrossInputFinding, Localiz
                           linear_scan, exponential_search)
 from .boosted_lanes import lanes_of, detecting_position_and_lanes
 from .aarch64_executor_input_encoder import ExecutorInput
-from .aarch64_kernel import LocalHWExecutor
+from .aarch64_kernel import LocalHWExecutor, RemoteHWExecutor
 
 # Map cross_input_priming_localizer to the cross_input.py localizer strategy: "any" = galloping + bisection
 # (some leaking pair), "optimal" = linear scan (t_max, the largest leaking class).
@@ -49,9 +49,9 @@ def create_fenced_test_case(test_case: TestCase) -> TestCase:
 
 
 def regime_controllable(executor: Aarch64LocalExecutor) -> bool:
-    """Cross-input priming needs local sysfs regime control (view_rotation / phr_flush / pinning). Only a
-    local HW executor exposes it; a remote executor cannot apply the regime."""
-    return isinstance(executor.device, LocalHWExecutor)
+    """Cross-input priming needs sysfs regime control (view_rotation / phr_flush / pinning). Both the
+    local and remote HW executors expose it over sysfs."""
+    return isinstance(executor.device, (LocalHWExecutor, RemoteHWExecutor))
 
 
 @contextmanager
@@ -60,10 +60,9 @@ def executor_regime(executor: Aarch64LocalExecutor,
     """Apply a sysfs regime (a sequence of (name, value) pairs) to the executor for the duration of the
     `with` block, capturing the prior values and restoring them on exit."""
     dev = executor.device
-    if not isinstance(dev, LocalHWExecutor):
-        raise ConfigException("cross-input priming requires a local HW executor with sysfs regime "
-                              "control; set enable_cross_input_priming = False for remote.")
-    saved = {name: dev._read_sysfs(name) for name, _ in regime}
+    if not isinstance(dev, (LocalHWExecutor, RemoteHWExecutor)):
+        raise ConfigException("cross-input priming requires a HW executor with sysfs regime control.")
+    saved = {name: dev.regime_save_value(name) for name, _ in regime}
     try:
         for name, value in regime:
             dev._write_sysfs(name, value.encode())
@@ -86,7 +85,7 @@ class CrossInputPrimingMixin(_MixinBase):
     """Cross-input priming (generalized priming): replace standard priming with a localization over the
     boosted lanes that finds the *leaking pair* -- an earlier ct-equal input whose microarchitectural
     residue surfaces as the *detecting pair*'s cache divergence. Shared by the regular fuzzer (boosted
-    random-data lanes) and the non-interference fuzzer (boosted seal-variant lanes -> canonicality/BTB).
+    random-data lanes) and the speculative-exception fuzzer (boosted seal-variant lanes -> canonicality/BTB).
     The search itself is `src/aarch64/cross_input.py`; this mixin is the thin seam (reps and localizer
     selection, lane construction, the executor regime, and reporting). Subclasses set
     `_CROSS_INPUT_PRIMING_REGIME`. Off by default -> the subclass's standard priming (via super())."""
@@ -95,7 +94,7 @@ class CrossInputPrimingMixin(_MixinBase):
 
     # Default regime: reset the BPU/PHR ONCE per trace (post-fix phr_flush; see measurement.c) and keep
     # cross-input training within a trace (view_rotation off, so all inputs share one code view).
-    # Captured and restored around the search so the surrounding fuzzing keeps its usual regime. The NI
+    # Captured and restored around the search so the surrounding fuzzing keeps its usual regime. The speculative-exception
     # fuzzer overrides this with the seal-lane regime.
     _CROSS_INPUT_PRIMING_REGIME: Tuple[Tuple[str, str], ...] = (
         ("enable_pre_run_flush", "0"), ("enable_view_rotation", "0"), ("enable_phr_flush", "1"))
@@ -112,8 +111,8 @@ class CrossInputPrimingMixin(_MixinBase):
         if not CONF.enable_cross_input_priming:
             return super().fuzzing_round(test_case, inputs, ignore_list)
         if not regime_controllable(self.executor):
-            raise ConfigException("enable_cross_input_priming requires a local HW executor with sysfs "
-                                  "regime control; set enable_cross_input_priming = False for remote.")
+            raise ConfigException("enable_cross_input_priming requires a HW executor with sysfs "
+                                  "regime control.")
         with executor_regime(self.executor, self._CROSS_INPUT_PRIMING_REGIME):
             return super().fuzzing_round(test_case, inputs, ignore_list)
 
@@ -129,8 +128,8 @@ class CrossInputPrimingMixin(_MixinBase):
         if not violations:
             return []
         if not regime_controllable(self.executor):
-            raise ConfigException("enable_cross_input_priming requires a local HW executor with sysfs "
-                                  "regime control; set enable_cross_input_priming = False for remote.")
+            raise ConfigException("enable_cross_input_priming requires a HW executor with sysfs "
+                                  "regime control.")
         # Reuse standard priming's sample sizes: the current stage size (read off the violation, as
         # _prime_one does) for localization, and the largest configured size to re-verify a boundary.
         reps = len(violations[0].measurements[0].htrace.raw)
@@ -337,8 +336,8 @@ class Aarch64Fuzzer(CrossInputPrimingMixin, FuzzerGeneric):
             return False
 
 
-class Aarch64NoninterferenceFuzzer(CrossInputPrimingMixin, NoninterferenceFuzzer):
-    """AArch64 non-interference fuzzer. NI boosting fills each input class with its seal variants (the
+class Aarch64SpeculativeExceptionFuzzer(CrossInputPrimingMixin, SpeculativeExceptionFuzzer):
+    """AArch64 speculative-exception fuzzer. speculative-exception boosting fills each input class with its seal variants (the
     genuine baseline plus decoys), so when enable_cross_input_priming is set, cross-input priming
     localizes canonicality/BTB residues over the seal lanes: the input whose genuine/decoy seal trains a
     predictor entry that surfaces as a later input's cache divergence. Uses the seal-lane regime."""

@@ -1,4 +1,4 @@
-"""NI boosting collapses onto the base engine: real-CE seal variants, mocked HW htraces.
+"""speculative-exception boosting collapses onto the base engine: real-CE seal variants, mocked HW htraces.
   * a class is filled with the input's seal variants, one composite ctrace per input.
   * baseline-vs-decoy htrace divergence is detected as a violation carrying the ExecutorInput variants.
   * identical variant htraces do not violate.
@@ -19,9 +19,9 @@ from src.interfaces import HTrace
 
 class NiBoostingTest(SealedExecutorFixture, unittest.TestCase):
     def _fuzzer(self):
-        from src.fuzzer import NoninterferenceFuzzer
+        from src.fuzzer import SpeculativeExceptionFuzzer
         CONF.analyser = "sets"                       # deterministic set comparison for this test
-        fz = NoninterferenceFuzzer.__new__(NoninterferenceFuzzer)
+        fz = SpeculativeExceptionFuzzer.__new__(SpeculativeExceptionFuzzer)
         fz.executor = self.ex
         fz.analyser = factory.get_analyser()
         fz.LOG = mock.Mock()

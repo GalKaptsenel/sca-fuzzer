@@ -1,12 +1,12 @@
-# NI sealing — high-level overview (orientation for agents)
+# speculative exception sealing — high-level overview (orientation for agents)
 
-A one-page map of the AArch64 non-interference (NI) sealing subsystem. For the full contract see
-[`non_interference.md`](non_interference.md); for code start at `src/aarch64/seal/sealer.py` and
+A one-page map of the AArch64 speculative exception (speculative exception) sealing subsystem. For the full contract see
+[`speculative_exception.md`](speculative_exception.md); for code start at `src/aarch64/seal/sealer.py` and
 `src/aarch64/contract_executor/`.
 
 ## The idea
 
-NI fuzzing compares two *variants of the same test case* on the **same** input: a `genuine`
+speculative exception fuzzing compares two *variants of the same test case* on the **same** input: a `genuine`
 (all-correct) and a `decoy` (speculative slots perturbed). A hardware-trace difference is a
 speculative leak. To stay safe on real hardware, a test case that uses PAC/MTE (or whose pointers we
 want to make faulting) is **sealed**: static instrumentation inserts register-only slots around each

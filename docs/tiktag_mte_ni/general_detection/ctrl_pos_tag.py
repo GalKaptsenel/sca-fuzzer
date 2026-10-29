@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Separate BATCH POSITION from the TAG for a saved NI violation. gd_check puts baseline at slot 0 and
+"""Separate BATCH POSITION from the TAG for a saved speculative-exception violation. gd_check puts baseline at slot 0 and
 decoys at slots 1..N, so only the baseline gets the warm-up rounds + PHR flush -> a per-set difference
 there is confounded with position. This uses a FIXED PREFIX of genuine variants of OTHER inputs and swaps
 ONLY the suspect at a fixed slot (the skill's controlled protocol), and also measures the suspect genuine
@@ -32,7 +32,7 @@ def main():
     CONF.load(cfg)
     from src import factory
     from src.aarch64.aarch64_executor_input_encoder import deserialize
-    from src.aarch64.aarch64_executor import NIVariant
+    from src.aarch64.aarch64_executor import SpecExcVariant
     wd = "/tmp/ctrl_pos_tag_wd"; os.makedirs(wd, exist_ok=True); os.chdir(wd)
     fz = factory.get_fuzzer(os.path.join(repo, "base.json"), wd, f"{vd}/generated.asm", "")
     fz.initialize_modules()
@@ -45,14 +45,14 @@ def main():
     dsel = sys.argv[sys.argv.index("--decoy") + 1] if "--decoy" in sys.argv else None
     sinp = load(sus)
     sv = dict(ex.variants_for_input(sinp))
-    G = sv[NIVariant.BASELINE]
+    G = sv[SpecExcVariant.BASELINE]
     if dsel == "noncanon":
         dkey, Dc = "noncanon", ex.noncanon_variant(sinp)
     elif dsel is not None:
         dkey = next(k for k in sv if str(k) == dsel)
         Dc = sv[dkey]
     else:
-        dkey = next(k for k in sv if k != NIVariant.BASELINE)  # first decoy
+        dkey = next(k for k in sv if k != SpecExcVariant.BASELINE)  # first decoy
         Dc = sv[dkey]
     # fixed prefix = genuine variants of other inputs (stable context, never the suspect)
     others = [i for i in range(P + 6) if i != sus][:P]

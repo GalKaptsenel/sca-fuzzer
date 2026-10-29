@@ -1,16 +1,16 @@
-"""A contract-executor crash during NI variant tracing must propagate, not be swallowed.
+"""A contract-executor crash during speculative-exception variant tracing must propagate, not be swallowed.
 Dependencies are mocked."""
 import unittest
 from unittest import mock
 
 import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
 import src.aarch64.aarch64_executor as ex_mod
-from src.aarch64.aarch64_executor import Aarch64NonInterferenceExecutor
+from src.aarch64.aarch64_executor import Aarch64SpeculativeExceptionExecutor
 
 
 class SandboxedCeCrashTest(unittest.TestCase):
     def _executor(self):
-        ex = Aarch64NonInterferenceExecutor.__new__(Aarch64NonInterferenceExecutor)
+        ex = Aarch64SpeculativeExceptionExecutor.__new__(Aarch64SpeculativeExceptionExecutor)
         ex.test_case = mock.Mock()
         ex._sealed = mock.Mock()
         ex._resolve_cache = {}

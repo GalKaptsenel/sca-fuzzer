@@ -1,5 +1,5 @@
 """
-File: AArch64 non-interference cross-input leak detector (generalized priming).
+File: AArch64 speculative-exception cross-input leak detector (generalized priming).
 
 Revizor's priming asks "does a detected cache divergence follow the *detecting pair*'s own input?" and
 discards it otherwise. This generalizes that: when the divergence is caused by a *different*, earlier
@@ -116,6 +116,21 @@ def exponential_search(r_key: RKey, lo: int, hi: int) -> int:
         else:
             hi2 = mid
     return lo2                                        # boundary: r_key(lo2) != r_key(lo2 + 1)
+
+
+def binary_search(r_key: RKey, lo: int, hi: int) -> int:
+    """Pure bisection over the full range [lo, hi) -- no galloping. Given r_key(lo) != r_key(hi), probe the
+    midpoint and keep the half that still straddles a change, returning a boundary t with r_key(t) !=
+    r_key(t+1). Cost is ceil(log2(hi - lo)) probes regardless of where the boundary lies -- the
+    position-independent counterpart of exponential_search, which is cheaper only for a near boundary."""
+    ref = r_key(hi)                                  # the all-base end value
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        if r_key(mid) != ref:
+            lo = mid
+        else:
+            hi = mid
+    return lo                                        # boundary: r_key(lo) != ref == r_key(lo + 1)
 
 
 @dataclass(frozen=True)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a loop-free DAG TikTag-v1 NI template faithful to the manual PoC: an architectural
+"""Generate a loop-free DAG TikTag-v1 speculative-exception template faithful to the manual PoC: an architectural
 warm+zero of the guess granule (fixed probe set 32, warm L1 hit), a deep SDIV compute-delay window
 feeding an arch-taken forward branch (mistrained not-taken -> speculative body), `ldnum` tag-checked
 guess loads, a `gap`-long data-dependent ORR gate chaining the probe address through the guess result,

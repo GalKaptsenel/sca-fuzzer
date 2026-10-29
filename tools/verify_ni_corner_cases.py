@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Comprehensive NI corner-case verification: drive the real Aarch64NonInterferenceExecutor (seal ->
+"""Comprehensive speculative-exception corner-case verification: drive the real Aarch64SpeculativeExceptionExecutor (seal ->
 one CE trace -> fill PAC/MTE fix points -> mint baseline + many decoys) over many TCs/inputs for PAC,
 MTE, and combined. For every slot in every variant, classify the PacSign/MteTag/Sandbox parts and:
   * ASSERT the safety invariants (baseline all-genuine; an ARCH slot is genuine in EVERY variant;
@@ -15,7 +15,7 @@ sys.path.insert(0, _REPO)
 from src.config import CONF
 from src.isa_loader import InstructionSet
 from src.aarch64.aarch64_generator import Aarch64RandomGenerator
-from src.aarch64.aarch64_executor import Aarch64NonInterferenceExecutor, NIVariant
+from src.aarch64.aarch64_executor import Aarch64SpeculativeExceptionExecutor, SpecExcVariant
 from src.aarch64.aarch64_contract_executor import ExecutionClause
 from src.aarch64.aarch64_seal import inst_at, CompositeSeal
 from src import factory
@@ -90,7 +90,7 @@ def run_mode(mode, cfg, n_tcs=8, n_inputs=4, n_decoys=6):
     CONF.load(cfg)
     isa = InstructionSet("base.json", CONF.instruction_categories)
     gen = Aarch64RandomGenerator(isa, random.randrange(1 << 32))
-    ex = Aarch64NonInterferenceExecutor(gen)
+    ex = Aarch64SpeculativeExceptionExecutor(gen)
     from src.aarch64.aarch64_kernel import PacKeys
     k = PacKeys()
     for a, v in KEYS.items(): setattr(k, a, v)
@@ -144,11 +144,11 @@ print("  NONE" if not fails else "\n".join("  " + f for f in fails[:40]))
 
 # required corner cases
 req = {
-  "pac_arch_auth_correct_baseline": "NI arch PAC: correct auth",
-  "pac_spec_auth_forged_decoy":     "NI spec PAC: forged auth",
-  "pac_spec_strip_decoy":           "NI spec PAC: strip (xpac)",
-  "mte_arch_nop_baseline":          "NI arch MTE: nop (tag matches)",
-  "mte_spec_retag_decoy":           "NI spec MTE: retag (decoy)",
+  "pac_arch_auth_correct_baseline": "speculative-exception arch PAC: correct auth",
+  "pac_spec_auth_forged_decoy":     "speculative-exception spec PAC: forged auth",
+  "pac_spec_strip_decoy":           "speculative-exception spec PAC: strip (xpac)",
+  "mte_arch_nop_baseline":          "speculative-exception arch MTE: nop (tag matches)",
+  "mte_spec_retag_decoy":           "speculative-exception spec MTE: retag (decoy)",
 }
 print("\n=== REQUIRED CORNER CASES ===")
 missing = [d for k, d in req.items() if cov.get(k, 0) == 0]

@@ -5,7 +5,7 @@ same location bypasses it and reads the STALE (non-zero) value, so the branch is
 while ARCHITECTURALLY not taken -- the branch never retires. Inside that spec-only branch an LSE atomic
 RMW (LDADD) accesses memory through a REGULARLY-SANDBOXED, input-derived base: the standard sandbox
 clamp spans main+faulty, so the address lands wherever the input puts it -- MAYBE in the faulty page.
-The NI/PTE fuzzing is what turns a faulty landing into a leak: genuine keeps the faulty page present
+The speculative-exception/PTE fuzzing is what turns a faulty landing into a leak: genuine keeps the faulty page present
 (the spec RMW allocates a line) while a decoy flips a leaf PTE bit (the spec access faults, allocating
 nothing). Because the access is speculative-only it never retires, so a faulting decoy page is safe.
 

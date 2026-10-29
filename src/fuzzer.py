@@ -251,7 +251,7 @@ class FuzzerGeneric(Fuzzer):
             self.executor.load_test_case(test_case)
             boosted, ctraces = self._boost_inputs(inputs, start_nesting)
             if not boosted:
-                # No decoy-eligible inputs -> the test case is not non-interference-testable. Finish it
+                # No decoy-eligible inputs -> the test case is not speculative-exception-testable. Finish it
                 # here instead of sending a 0-input unit: the device's batch TRACE rejects an empty unit
                 # with -EINVAL ("unit N measurement failed" -> a malformed batch response). This mirrors
                 # the classic path, where trace_test_case guards the empty case.
@@ -732,7 +732,7 @@ class FuzzerGeneric(Fuzzer):
             # inputs_per_class=1 would regenerate ONLY genuine baselines (no decoy), making the
             # violation impossible to reproduce. Keep the run's value so the decoys come back. Other
             # fuzzers replay the saved inputs without re-boosting, so 1 is fine there.
-            ipc = CONF.inputs_per_class if isinstance(self, NoninterferenceFuzzer) else 1
+            ipc = CONF.inputs_per_class if isinstance(self, SpeculativeExceptionFuzzer) else 1
             f.write(f"inputs_per_class: {ipc}\n")
         shutil.copy2(f"{violation_dir}/org-config.yaml", f"{violation_dir}/minimize.yaml")
         with open(f"{violation_dir}/minimize.yaml", "a") as f:
@@ -894,7 +894,7 @@ class FuzzerGeneric(Fuzzer):
         """Swap each pair of violating inputs at their sequence slots and re-trace. If some swap fails
         to reproduce the slot's htrace, the divergence follows the input (a genuine violation); if
         every swap reproduces it, it follows the slot (a false positive). Returns True if it survives.
-        (NI is the same test with seal-variants as the inputs.)"""
+        (speculative-exception is the same test with seal-variants as the inputs.)"""
         violation = copy.copy(org_violation)
         reps = [hg[0] for hg in violation.htrace_groups]
         n_reps = len(violation.measurements[0].htrace.raw)
@@ -952,7 +952,7 @@ class FuzzerGeneric(Fuzzer):
         """Return a human-readable classification + culprit input slot for this violation."""
         ipc = CONF.inputs_per_class
         if ipc < 2:
-            return "not-an-NI-run"
+            return "not-an-speculative-exception-run"
         num = len(all_inputs) // ipc
         n_reps = CONF.triage_reps  # small, dedicated sample size (not the campaign's 500)
         null_htrace = HTrace.get_null()
@@ -1073,14 +1073,14 @@ class FuzzerGeneric(Fuzzer):
 
         return False
 
-class NoninterferenceFuzzer(FuzzerGeneric):
+class SpeculativeExceptionFuzzer(FuzzerGeneric):
     def __init__(self,
                  instruction_set_spec: str,
                  work_dir: str,
                  existing_test_case: str = "",
                  inputs: List[str] = None):
         super().__init__(instruction_set_spec, work_dir, existing_test_case, inputs)
-        self.LOG.warning("fuzzer", "Running in non-interference mode.")
+        self.LOG.warning("fuzzer", "Running in speculative-exception mode.")
 
     def initialize_modules(self):
         self._pin_seeds()
@@ -1088,7 +1088,7 @@ class NoninterferenceFuzzer(FuzzerGeneric):
         self.generator = factory.get_program_generator(isa, CONF.program_generator_seed)
         self.input_gen = factory.get_input_generator(CONF.input_gen_seed)
         # Non-interference executor requires the generator at construction (constructor injection).
-        self.executor = factory.get_noninterference_executor(self.generator)
+        self.executor = factory.get_speculative_exception_executor(self.generator)
         self.analyser = factory.get_analyser()
         self.asm_parser = factory.get_asm_parser(self.generator)
 
@@ -1096,7 +1096,7 @@ class NoninterferenceFuzzer(FuzzerGeneric):
         return True    # variants share the baseline ctrace; they are never re-resolved as arch inputs
 
     def _boost_inputs(self, inputs: List[Input], nesting) -> Tuple[List[Input], List[CTrace]]:
-        """NI boosting: vary the seal, not the input data. Each input's class is filled with its seal
+        """speculative-exception boosting: vary the seal, not the input data. Each input's class is filled with its seal
         variants, keyed by a composite (ctrace, sealing class) ctrace so only same-signature variants
         collide."""
         ctraces, taints, traces = self.executor.trace_test_case_with_taints(inputs, nesting)

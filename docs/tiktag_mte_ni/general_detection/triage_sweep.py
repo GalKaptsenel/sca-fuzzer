@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Decisive 16-tag sweep for a saved NI violation, on the REAL violation input.
+"""Decisive 16-tag sweep for a saved speculative-exception violation, on the REAL violation input.
 
 Starts from the genuine sealed variant (which already carries the sandbox-clamp relocations), finds the
 sealed site feeding the reported diverging set (phase 1 knockout), then sweeps THAT site's tag over all
