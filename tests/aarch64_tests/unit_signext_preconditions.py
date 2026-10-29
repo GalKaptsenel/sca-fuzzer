@@ -11,15 +11,20 @@ Self-contained: needs the CE binary but no device; restores CONF.
 """
 import copy
 import os
+import random
 import sys
 import tempfile
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 from src.config import CONF
-from src.aarch64.aarch64_relocations import NOP_WORD, eor_imm_word
 from src.aarch64.seal.sealer import PacSignExtSealedTestCase, SignExtSealing, _SIGNEXT_BIT
 import tests.aarch64_tests.ce_equivalence as eq
+
+
+def _lane(image, location):
+    rng = location.byte_range()
+    return int.from_bytes(image[rng.start:rng.stop], "little")
 
 _ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 _N_TCS = 40
@@ -68,7 +73,7 @@ class PacSignExtPreconditionTest(unittest.TestCase):
                 self.assertIsInstance(s, PacSignExtSealedTestCase)
                 sealed += 1
                 try:
-                    sess.trace_bytes(s.object_code, self.inputs[0])   # CE-rejected TC -> fresh session, skip
+                    s.resolve(self.inputs[0])   # traces the genuine render; a CE-rejected TC -> fresh session
                     for inp in self.inputs:
                         sx_spec += self._check_resolution(s.resolve(inp), s)
                         ni_testable += 1 if s.resolve(inp).has_decoy() else 0
@@ -85,26 +90,33 @@ class PacSignExtPreconditionTest(unittest.TestCase):
         self.assertGreater(flip_checks, 0, "no sign-ext flip render was exercised")
 
     def _check_resolution(self, resolved, sealed) -> int:
-        """Assert the genuine/decoy renders at this resolution are coherent; return the speculative
-        sign-ext site count it contributed."""
+        """Assert the genuine/decoy GST images at this resolution are coherent; return the speculative
+        sign-ext site count it contributed. Every sign-ext lane is 0 in the genuine image (no flip); a
+        decoy flips a speculative lane to the bit-55 mask and never an architectural one."""
         sx = [e for e in resolved._entries if isinstance(e.sealing, SignExtSealing)]
         spec = [e for e in sx if e.speculative]
-        sx_spec_offsets = {o for e in spec for o in resolved._offsets.get(id(e.sealing), ())}
-        arch_offsets = {o for e in resolved._entries if not e.speculative
-                        for o in resolved._offsets.get(id(e.sealing), ())}
         self._flip_checks = 0
-        if resolved.has_decoy():
-            g = {r.offset: r.value for r in resolved.genuine()}
-            f = {r.offset: r.value for r in resolved.forced_noncanon()}   # perturb every speculative slot
-            diffs = [o for o in g if g[o] != f.get(o)]
-            self.assertTrue(diffs, "forced_noncanon() identical to genuine() despite has_decoy()")
-            self.assertFalse([o for o in diffs if o in arch_offsets],
-                             "a decoy perturbed an architectural slot")
-            for off in sx_spec_offsets:
-                self.assertEqual(g.get(off), NOP_WORD, f"genuine sign-ext slot @0x{off:x} not NOP")
-                self.assertTrue(any(f.get(off) == eor_imm_word(r, r, _SIGNEXT_BIT) for r in range(31)),
-                                f"forced sign-ext slot @0x{off:x} not EOR #1<<55")
-                self._flip_checks += 1
+        if not resolved.has_decoy():
+            return len(spec)
+        genuine = resolved.genuine()
+        for e in sx:
+            self.assertEqual(_lane(genuine, e.sealing.location), 0,
+                             "genuine sign-ext lane carries a flip (should be canonical)")
+        arch_ids = {id(e.sealing) for e in sx if not e.speculative}
+        seen_flip = False
+        for i in range(32):
+            image = resolved.decoy(random.Random(i))
+            for e in sx:
+                lane = _lane(image, e.sealing.location)
+                if id(e.sealing) in arch_ids:
+                    self.assertEqual(lane, 0, "a decoy flipped an architectural sign-ext slot")
+                elif lane != 0:
+                    self.assertEqual(lane, e.sealing.value.encode(_SIGNEXT_BIT),
+                                     "sign-ext decoy lane is not the bit-55 flip")
+                    seen_flip = True
+        if spec:
+            self.assertTrue(seen_flip, "no speculative sign-ext flip across 32 decoys")
+            self._flip_checks = 1
         return len(spec)
 
 
