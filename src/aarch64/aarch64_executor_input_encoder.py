@@ -151,8 +151,9 @@ def build_input_init(main: bytes, faulty: bytes, gpr: bytes, simd: Optional[byte
                      bpu_training: Optional[Sequence] = None,
                      env_plan: Optional[EnvironmentPlan] = None) -> bytes:
     """Assemble a REIF file from the raw section payloads. `gpr` is the final 64-byte GPR section (flags
-    already in PSTATE form); `simd` is the optional 256-byte vector section. Shared by both consumers:
-    the device write (ExecutorInput.serialize) and the contract-executor message (ContractExecution.encode)."""
+    already in PSTATE form); `simd` is the optional SIMD_SUBREGION_SIZE-byte vector section (the GST image,
+    v0..v31). Shared by both consumers: the device write (ExecutorInput.serialize) and the
+    contract-executor message (ContractExecution.encode)."""
     sections: List[Tuple[int, bytes]] = [
         (SEC_MEMORY_MAIN, main),
         (SEC_MEMORY_FAULTY, faulty),

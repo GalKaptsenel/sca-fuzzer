@@ -133,6 +133,7 @@ void jit_msr_nzcv(jit_t* jit, uint8_t Rt);
 void jit_mrs_nzcv(jit_t* jit, uint8_t Rt);
 void jit_stp64(jit_t* jit, int rt1, int rt2, int rn, int imm);
 void jit_str64(jit_t* jit, int rt, int rn);
+void jit_ldr128(jit_t* jit, int qt, int rn, int imm);
 void jit_stp64_post_index(jit_t* jit, int rt1, int rt2, int rn, int imm);
 void jit_stp64_pre_index(jit_t* jit, int rt1, int rt2, int rn, int imm);
 void jit_ldp64(jit_t* jit, int rt1, int rt2, int rn, int imm);

@@ -743,6 +743,19 @@ void jit_ldr64(jit_t* jit, int rt, int rn) {
 	emit(jit, insn);
 }
 
+/* LDR Qt, [Xn, #imm] (128-bit SIMD&FP load, unsigned offset; imm is a multiple of 16). */
+void jit_ldr128(jit_t* jit, int qt, int rn, int imm) {
+	uint32_t insn = 0x3dc00000;
+	JIT_ASSERT(0 <= qt && qt <= 31);
+	JIT_ASSERT(0 <= rn && rn <= 31);
+	JIT_ASSERT(0 == (imm & 15));
+	JIT_ASSERT(0 <= imm && (imm >> 4) < (1 << 12));
+	insn |= qt;
+	insn |= (rn << 5);
+	insn |= ((uint32_t)(imm >> 4) << 10);
+	emit(jit, insn);
+}
+
 // LDR <Xt>, [<Xn|SP>, <Xm>]
 void jit_ldr64shift0(jit_t* jit, int rt, int rn, int rm) {
 	uint32_t insn = 0xf8606800;

@@ -66,6 +66,11 @@ static void load_registers_from_input(input_t* input) {
 	// - RSP and RBP
 	((registers_t*)executor.sandbox->lower_overflow)->sp = get_stack_base_address();
 
+	// The GST image, staged right after the 8 register slots so the JIT loads v0..v31 from a fixed
+	// sandbox offset (mirrors the register staging above). The vector loads run before the body, so a
+	// later accidental spill into lower_overflow cannot disturb them.
+	memcpy(executor.sandbox->lower_overflow + sizeof(registers_t), input->simd, sizeof(input->simd));
+
 //	module_debug("Input regs: x0:%llx, x1:%llx, x2:%llx x3:%llx, x4:%llx, x5:%llx, flags:%llx, sp:%llx\n",
 //			*(uint64_t*)executor.sandbox->lower_overflow,
 //			*((uint64_t*)executor.sandbox->lower_overflow+1),

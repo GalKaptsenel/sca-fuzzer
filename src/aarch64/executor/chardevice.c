@@ -277,7 +277,34 @@ static ssize_t load_test_and_update_state(const char __user* test, size_t length
 static int execute_result = 0;
 
 static void execute_on_target(void* unused) {
+	/* The test case now reads the GST image from the vector file (v0..v31, via UMOV), so the run
+	 * clobbers those registers. We execute in IPI context (smp_call_function_single), where
+	 * kernel_neon_begin() is illegal (may_use_simd() is false) -- but EL1 FP instructions still run.
+	 * Preserve the interrupted context's vector registers by hand: save v0..v31 before the run and
+	 * restore them after, once around the whole experiment (outside every measured window). */
+	uint8_t fpsave[32 * 16] __attribute__((aligned(16)));
+	asm volatile(
+		"stp q0, q1, [%0, #0]\n   stp q2, q3, [%0, #32]\n   stp q4, q5, [%0, #64]\n"
+		"stp q6, q7, [%0, #96]\n  stp q8, q9, [%0, #128]\n  stp q10, q11, [%0, #160]\n"
+		"stp q12, q13, [%0, #192]\n stp q14, q15, [%0, #224]\n stp q16, q17, [%0, #256]\n"
+		"stp q18, q19, [%0, #288]\n stp q20, q21, [%0, #320]\n stp q22, q23, [%0, #352]\n"
+		"stp q24, q25, [%0, #384]\n stp q26, q27, [%0, #416]\n stp q28, q29, [%0, #448]\n"
+		"stp q30, q31, [%0, #480]\n"
+		:: "r"(fpsave) : "memory");
+
 	execute_result = execute();
+
+	asm volatile(
+		"ldp q0, q1, [%0, #0]\n   ldp q2, q3, [%0, #32]\n   ldp q4, q5, [%0, #64]\n"
+		"ldp q6, q7, [%0, #96]\n  ldp q8, q9, [%0, #128]\n  ldp q10, q11, [%0, #160]\n"
+		"ldp q12, q13, [%0, #192]\n ldp q14, q15, [%0, #224]\n ldp q16, q17, [%0, #256]\n"
+		"ldp q18, q19, [%0, #288]\n ldp q20, q21, [%0, #320]\n ldp q22, q23, [%0, #352]\n"
+		"ldp q24, q25, [%0, #384]\n ldp q26, q27, [%0, #416]\n ldp q28, q29, [%0, #448]\n"
+		"ldp q30, q31, [%0, #480]\n"
+		:: "r"(fpsave) : "memory",
+		"v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13",
+		"v14", "v15", "v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23", "v24", "v25", "v26",
+		"v27", "v28", "v29", "v30", "v31");
 }
 
 static int trace(void) {
@@ -668,6 +695,17 @@ static int parse_input_init(const void* input_init, input_t* dst) {
 			dst->mte_tags[i] = (0 == (i & 1)) ? (byte & 0xF) : (byte >> 4);
 		}
 		dst->mte_tags_present = true;
+	}
+
+	/* The GST image (SEC_SIMD): loaded into v0..v31 before the input runs. Zeroed when absent, so an
+	 * input with no seals (or lanes no seal uses) reads 0 from the vector file. */
+	memset(dst->simd, 0, sizeof(dst->simd));
+	sec = revisor_input_find_section(input_init, REVISOR_SEC_SIMD);
+	if (NULL != sec) {
+		if (sizeof(dst->simd) != sec->length) {
+			return -EINVAL;
+		}
+		memcpy(dst->simd, (const char*)input_init + sec->offset, sizeof(dst->simd));
 	}
 
 	/* Per-input PAC keys (highest precedence over the ioctl-set keys at execute). */
