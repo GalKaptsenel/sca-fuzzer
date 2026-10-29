@@ -1,10 +1,13 @@
 /*
- * Seal-site op-emulator for MTE: materialize the retag ADDG before a sealed access (merge the pointer
- * onto the accessed cell's tag), as the genuine binary does. It runs on the emulated path; on a FEAT_MTE
- * host the materialized ADDG and the tagged access execute natively instead. The after-access de-merge
- * ADDG is the genuine re-converge (ADDG #0) and is rendered statically by the sealer, so it has no op
- * here. Kept separate from mte_tag_plugin.c (the self-contained tag-memory emulator) because it pulls in
- * the emulation-table framework and the instruction decoder.
+ * Seal-site op-emulator for MTE: supply the accessed cell's allocation tag to a sealed access so the
+ * genuine binary's tag check matches. The site is [UMOV x27,applied; BFI tag; access; UMOV x27,cell;
+ * BFI tag]: the pre-BFI applies the tag the variant tests (genuine == the cell tag), the post-BFI
+ * re-converges the pointer onto the cell tag. MATERIALIZE reads the cell tag at the access's effective
+ * address and injects it into both lanes (row->gst_offset = applied, row->gst_offset2 = re-converge);
+ * base_hook reloads the vector file from the image before the UMOV re-runs. On a FEAT_MTE host the
+ * fixed BFIs and the tagged access execute natively instead. IDLE: nothing (the site's code is fixed).
+ * Kept separate from mte_tag_plugin.c (the self-contained tag-memory emulator) because it pulls in the
+ * emulation-table framework and the instruction decoder.
  */
 #include "mte_seal_plugin.h"
 #include "mte_tag_plugin.h"
@@ -16,14 +19,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-void mte_emulate_retag(struct simulation_state *sim_state, uintptr_t offset, uint32_t size,
+void mte_emulate_retag(struct simulation_state *sim_state, const struct emul_row *row,
 		       emul_phase_t phase) {
-	uint32_t *live   = (uint32_t *)simulation.sim_code.code;
-	uint32_t *shadow = (uint32_t *)simulation.sim_input.code;   // the logger reads encodings from here
-	uint32_t base = (uint32_t)(offset / 4);
-	uint32_t n_slots = size / 4;
 	if (EMUL_PHASE_IDLE == phase) {
-		emul_udf_fill(base, n_slots);
 		return;
 	}
 	/* An MTE_RETAG row only exists when MTE sealing is active, so tag memory is seeded; a missing one
@@ -33,8 +31,8 @@ void mte_emulate_retag(struct simulation_state *sim_state, uintptr_t offset, uin
 			(void *)sim_state, mte_tagmem_active());
 		abort();
 	}
-	uint32_t access = shadow[base + n_slots];                   // the access, just past the retag slot
-	uint32_t rn = get_rn(access);                               // the base register it (and the retag) use
+	uint32_t *shadow = (uint32_t *)simulation.sim_input.code;   // the logger reads encodings from here
+	uint32_t access = shadow[(row->offset + row->size) / 4];    // the access, at offset+size
 	struct cpu_state *cpu = &sim_state->cpu_state;
 	trace_cpu_state_t tcs = { 0 };
 	for (uint32_t r = 0; r < 31; ++r) { tcs.gpr[r] = cpu_state_read_base_reg(cpu, r); }
@@ -45,18 +43,19 @@ void mte_emulate_retag(struct simulation_state *sim_state, uintptr_t offset, uin
 			(unsigned long)ea);
 		abort();
 	}
-	uint32_t cell = mte_tagmem_tag_at(ea);                      // tag of the granule the access touches
-	/* Adding delta to Rn's tag shifts the effective address's tag by the same delta (EA = Rn + offset,
-	 * so EA += delta<<56); target the EA tag, not Rn's own — they differ for a register-offset access. */
-	uint32_t ea_tag = (uint32_t)((ea >> 56) & 0xFu);
-	uint32_t delta = (cell - ea_tag) & 0xFu;
+	uint8_t cell = (uint8_t)(mte_tagmem_tag_at(ea) & 0xFu);     // tag of the granule the access touches
 	if (mte_tag_log_enabled()) {
-		fprintf(stderr, "MTERETAG side=CE off=0x%lx ea=0x%lx gran=%ld ea_tag=%u cell=%u delta=%u rn=%u\n",
-			(unsigned long)offset, (unsigned long)ea, ce_granule(ea), ea_tag, cell, delta, rn);
+		fprintf(stderr, "MTERETAG side=CE off=0x%x ea=0x%lx gran=%ld cell=%u\n",
+			row->offset, (unsigned long)ea, ce_granule(ea), cell);
 	}
-	uint32_t addg = 0x91800000U | ((uint32_t)delta << 10) | (rn << 5) | rn;
-	for (uint32_t i = 0; i < n_slots; ++i) {
-		live[base + i] = shadow[base + i] = addg;
+	// Inject the cell tag into the applied lane (genuine) and the re-converge lane; each is one byte
+	// (the 4-bit tag), read by the site's UMOV.b and inserted into the pointer tag [59:56] by BFI.
+	if (row->gst_offset >= sizeof(simulation.sim_input.simd) ||
+	    row->gst_offset2 >= sizeof(simulation.sim_input.simd)) {
+		fprintf(stderr, "[CE FATAL] mte_emulate_retag: gst_offset out of range -- aborting\n");
+		abort();
 	}
+	simulation.sim_input.simd[row->gst_offset]  = cell;
+	simulation.sim_input.simd[row->gst_offset2] = cell;
 }
 

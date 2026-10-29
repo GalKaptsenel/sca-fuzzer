@@ -14,6 +14,7 @@
 extern void base_hook();
 extern void base_hook_end();
 extern uint64_t base_hook_c_target;
+extern uint64_t gst_image_target;
 
 simulation_hook_fn hooks_to_install[] = {
 	execution_clause_hook,
@@ -125,6 +126,7 @@ int main() {
 
 	const size_t base_hook_size = (size_t)(base_hook_end - base_hook);
 	base_hook_c_target = (uint64_t)base_hook_c;
+	gst_image_target = (uint64_t)(uintptr_t)&simulation.sim_input.simd;   // base_hook reloads v0..v31 from here
 
 	pac_sign_plugin_init();
 	mte_tag_plugin_init();
@@ -254,7 +256,6 @@ int main() {
 		                 0 != (CONFIG_FLAG_MTE_PROFILE & simulation.sim_input.hdr.config.flags));
 
 		g_iter_phase = 2; /* simulation */
-		emul_reset(); /* idle every emulation-table site before this test case's trace */
 		call_stack_reset(); /* fresh architectural call stack for this test case */
 		/* Seed the architectural SP to the sandbox stack top (mirrors the kernel's
 		 * get_stack_base_address = top of upper_overflow), so emulated frame spills land in the sandbox. */

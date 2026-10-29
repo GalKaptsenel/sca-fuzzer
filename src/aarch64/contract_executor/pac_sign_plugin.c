@@ -328,32 +328,28 @@ void *auth_verify_hook(struct simulation_state *sim_state)
     return (void*)(sim_state->cpu_state.pc + 4);
 }
 
-/* op-emulator EMUL_OP_PAC_AUTH: the site's slots are [junk x n, real AUT*]. IDLE fills the junk slots
- * with UDF; MATERIALIZE signs the pointer the AUT* reads and writes the signature MOVKs into them, so
- * the AUT* then verifies and canonicalizes as ordinary code. The sig windows match the sealer's
- * make_sig_movks (same profile/keys). The op owns both phases; the dispatcher only routes them. */
-void pac_emulate_auth(struct simulation_state *sim_state, uintptr_t offset, uint32_t size,
-                      emul_phase_t phase)
+/* op-emulator EMUL_OP_PAC_AUTH: the site is [UMOV x27,lane; (LSR; BFI)+ ; committed AUT*]. MATERIALIZE
+ * signs the pointer the AUT* reads and writes the signed pointer into the GST lane (row->gst_offset);
+ * base_hook reloads the vector file from the image before the UMOV re-runs, so the fixed BFI slots merge
+ * the signed pointer's PAC field into rd and the AUT* then verifies and canonicalizes. The signing
+ * (profile/keys) matches the sealer's resolver exactly. IDLE: nothing (the site's code is fixed). */
+void pac_emulate_auth(struct simulation_state *sim_state, const struct emul_row *row, emul_phase_t phase)
 {
-    uint32_t base = (uint32_t)(offset / 4);
-    uint32_t n_slots = size / 4;                                // the MOVK slots this row owns
     if (EMUL_PHASE_IDLE == phase) {
-        emul_udf_fill(base, n_slots);
         return;
     }
     if (NULL == sim_state) {
         fprintf(stderr, "[CE FATAL] pac_emulate_auth: materialize with NULL sim_state -- aborting\n");
         abort();
     }
-    uint32_t *live   = (uint32_t *)simulation.sim_code.code;    // executed
     uint32_t *shadow = (uint32_t *)simulation.sim_input.code;   // the logger reads encodings from here
-    uint32_t anchor = base + n_slots;                           // the committed AUT*, just past them
+    uint32_t anchor = (row->offset + row->size) / 4;            // the committed AUT*, at offset+size
 
     uint32_t rd, rn;
     auth_type_t atype = classify_auth(shadow[anchor], &rd, &rn);
     if (AUTH_NONE == atype) {                                  // anchor must be the committed AUT*; if it
-        fprintf(stderr, "[CE FATAL] pac_emulate_auth: anchor 0x%08x at offset %lu not an AUT* "
-                "-- aborting\n", shadow[anchor], (unsigned long)offset);   // is not, the row is malformed
+        fprintf(stderr, "[CE FATAL] pac_emulate_auth: anchor 0x%08x at offset %u not an AUT* "
+                "-- aborting\n", shadow[anchor], row->offset);            // is not, the row is malformed
         abort();
     }
     require_pac_state(auth_mnemonic(atype), true, sim_state->cpu_state.pc);
@@ -361,26 +357,17 @@ void pac_emulate_auth(struct simulation_state *sim_state, uintptr_t offset, uint
     uint64_t ctx = read_xreg(&sim_state->cpu_state, rn);
     int is_instr = auth_type_is_instr(atype);
     // Sign the canonical pointer the AUT* will verify (strip any stray high bits first, as AUT* does),
-    // so model_auth's re-sign of xpac(rd) reproduces exactly what the MOVKs plant.
+    // so model_auth's re-sign of xpac(rd) reproduces exactly the signed pointer injected here.
     uint64_t canonical = sw_pac_xpac(read_xreg(&sim_state->cpu_state, rd), is_instr);
     uint64_t signed_ptr = sw_pac_sign(auth_to_pac(atype), canonical, ctx);
 
-    // The sig MOVK windows span the PAC field over BOTH VA halves and address+instruction keys — the
-    // same union the sealer's make_sig_movks allocated slots for — so one MOVK per junk slot, matching
-    // the genuine binary's render exactly (no inert leftover slot).
-    uint64_t span = 0;
-    for (int ii = 0; ii <= 1; ++ii) {
-        span |= qarma_pac_field_mask(0, g_pac_profile, ii);
-        span |= qarma_pac_field_mask((uint64_t)1 << 55, g_pac_profile, ii);
+    // Inject the signed pointer into the GST lane the site's UMOV reads (little-endian, matching UMOV.d).
+    if ((uint64_t)row->gst_offset + sizeof(signed_ptr) > sizeof(simulation.sim_input.simd)) {
+        fprintf(stderr, "[CE FATAL] pac_emulate_auth: gst_offset %u out of range -- aborting\n",
+                row->gst_offset);
+        abort();
     }
-    uint32_t slot = 0;
-    for (int sh = 0; sh <= 48 && slot < n_slots; sh += 16) {
-        if (0 == (span & (0xFFFFull << sh))) { continue; }
-        uint32_t movk = 0xF2800000U | ((uint32_t)(sh / 16) << 21)
-                      | (((uint32_t)((signed_ptr >> sh) & 0xFFFF)) << 5) | (rd & 0x1FU);
-        live[base + slot] = shadow[base + slot] = movk;
-        ++slot;
-    }
+    memcpy(&simulation.sim_input.simd[row->gst_offset], &signed_ptr, sizeof(signed_ptr));
 }
 
 void *xpac_hook(struct simulation_state *sim_state)

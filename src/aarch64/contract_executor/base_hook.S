@@ -1,11 +1,13 @@
 .section .data
-.global base_hook, base_hook_end, base_hook_c_target
+.global base_hook, base_hook_end, base_hook_c_target, gst_image_target
 .type base_hook, %function
 
-/* Saves/restores x0-x29, LR, PC, SP, NZCV, and the whole vector file v0-v31 around base_hook_c. The
- * vector registers hold the GST image the test case reads via UMOV; base_hook_c's C callees
- * (fprintf/malloc/Python) are free to clobber caller-saved vectors, so v0-v31 are saved across the
- * call below. */
+/* Saves/restores x0-x29, LR, PC, SP, NZCV around base_hook_c, and RELOADS the whole vector file
+ * v0-v31 from the GST image (sim_input.simd) after the call. The test case reads the GST image via
+ * UMOV but never writes the vector registers, so reloading them from the authoritative image each
+ * step both (a) undoes the C callees' (fprintf/malloc/Python) clobbering of caller-saved vectors and
+ * (b) lets an op-emulator inject a value by writing the image buffer during the hook — the UMOV then
+ * reads it. gst_image_target is patched at runtime to &sim_input.simd. */
 base_hook:
 	/* Save context */
 	stp x1, x0, [sp, #-16]!
@@ -38,43 +40,43 @@ base_hook:
 	ldr lr, base_hook_c_target
 	mov x0, sp
 
-	// Preserve the whole vector file v0-v31 across the C hook. x0 (the saved-register struct) was
-	// captured above, so this push is below it and does not disturb the struct or the reported SP.
-	stp q0, q1, [sp, #-32]!
-	stp q2, q3, [sp, #-32]!
-	stp q4, q5, [sp, #-32]!
-	stp q6, q7, [sp, #-32]!
-	stp q8, q9, [sp, #-32]!
-	stp q10, q11, [sp, #-32]!
-	stp q12, q13, [sp, #-32]!
-	stp q14, q15, [sp, #-32]!
-	stp q16, q17, [sp, #-32]!
-	stp q18, q19, [sp, #-32]!
-	stp q20, q21, [sp, #-32]!
-	stp q22, q23, [sp, #-32]!
-	stp q24, q25, [sp, #-32]!
-	stp q26, q27, [sp, #-32]!
-	stp q28, q29, [sp, #-32]!
-	stp q30, q31, [sp, #-32]!
-
 	blr lr               // call C helper
 
-	ldp q30, q31, [sp], #32
-	ldp q28, q29, [sp], #32
-	ldp q26, q27, [sp], #32
-	ldp q24, q25, [sp], #32
-	ldp q22, q23, [sp], #32
-	ldp q20, q21, [sp], #32
-	ldp q18, q19, [sp], #32
-	ldp q16, q17, [sp], #32
-	ldp q14, q15, [sp], #32
-	ldp q12, q13, [sp], #32
-	ldp q10, q11, [sp], #32
-	ldp q8, q9, [sp], #32
-	ldp q6, q7, [sp], #32
-	ldp q4, q5, [sp], #32
-	ldp q2, q3, [sp], #32
-	ldp q0, q1, [sp], #32
+	// Reload v0-v31 from the GST image (sim_input.simd), which base_hook_c may have just updated (an
+	// op-emulator injecting a value). x9 is restored from the stack below, so clobbering it is safe.
+	ldr x9, gst_image_target
+	ldr q0,  [x9, #0]
+	ldr q1,  [x9, #16]
+	ldr q2,  [x9, #32]
+	ldr q3,  [x9, #48]
+	ldr q4,  [x9, #64]
+	ldr q5,  [x9, #80]
+	ldr q6,  [x9, #96]
+	ldr q7,  [x9, #112]
+	ldr q8,  [x9, #128]
+	ldr q9,  [x9, #144]
+	ldr q10, [x9, #160]
+	ldr q11, [x9, #176]
+	ldr q12, [x9, #192]
+	ldr q13, [x9, #208]
+	ldr q14, [x9, #224]
+	ldr q15, [x9, #240]
+	ldr q16, [x9, #256]
+	ldr q17, [x9, #272]
+	ldr q18, [x9, #288]
+	ldr q19, [x9, #304]
+	ldr q20, [x9, #320]
+	ldr q21, [x9, #336]
+	ldr q22, [x9, #352]
+	ldr q23, [x9, #368]
+	ldr q24, [x9, #384]
+	ldr q25, [x9, #400]
+	ldr q26, [x9, #416]
+	ldr q27, [x9, #432]
+	ldr q28, [x9, #448]
+	ldr q29, [x9, #464]
+	ldr q30, [x9, #480]
+	ldr q31, [x9, #496]
 
 	ldp xzr, x0, [sp], #16 // pops out the SP and NZCV values, we don't need to restore SP as it will be restored by the following 'ldp' instructions
 	msr nzcv, x0
@@ -101,5 +103,9 @@ base_hook:
         .align 3              // 8-byte alignment
 base_hook_c_target:
         .quad 0               // patched at runtime
+
+        .align 3              // 8-byte alignment
+gst_image_target:
+        .quad 0               // patched at runtime to &sim_input.simd
 
 base_hook_end:

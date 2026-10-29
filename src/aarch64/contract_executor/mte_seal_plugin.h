@@ -4,11 +4,11 @@
 #include "simulation_state.h"
 #include "instruction_emulator.h"
 
-/* op-emulator for EMUL_OP_MTE_RETAG: the row owns the retag ADDG slot(s); the guarded access is the
- * anchor just past them. MATERIALIZE retags the access's base register so the effective address's tag
- * matches the accessed cell's allocation tag; IDLE fills the slot(s) with UDF. The after-access de-merge
- * ADDG is the genuine re-converge (ADDG #0), rendered statically by the sealer, so it needs no op. */
-void mte_emulate_retag(struct simulation_state *sim_state, uintptr_t offset, uint32_t size,
+/* op-emulator for EMUL_OP_MTE_RETAG: the guarded access is the anchor at offset+size. MATERIALIZE reads
+ * the accessed cell's allocation tag and injects it into the applied lane (row->gst_offset) and the
+ * after-access re-converge lane (row->gst_offset2), so the fixed BFI slots set the pointer tag [59:56]
+ * to it and the tag check matches. IDLE: nothing (the site's code is fixed). */
+void mte_emulate_retag(struct simulation_state *sim_state, const struct emul_row *row,
 		       emul_phase_t phase);
 
 #endif // MTE_SEAL_PLUGIN_H

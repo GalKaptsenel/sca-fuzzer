@@ -183,7 +183,7 @@ int simulation_input_load_fd(int fd, struct simulation_input* sim_input) {
 		}
 		sim_input->emul_table_size = sim_input->hdr.emul_table_size;
 		if (!emul_table_valid(sim_input->emul_table, sim_input->emul_table_size,
-		                      sim_input->hdr.code_size)) {
+		                      sim_input->hdr.code_size, sizeof(sim_input->simd))) {
 			fprintf(stderr, "Malformed emulation table!\n");
 			goto load_fd_fail;
 		}
@@ -311,7 +311,7 @@ int simulation_input_from_file(FILE* f, struct simulation_input* sim_input) {
 		sim_input->emul_table_size = sim_input->hdr.emul_table_size;
 		current_ptr += sim_input->hdr.emul_table_size;
 		if (!emul_table_valid(sim_input->emul_table, sim_input->emul_table_size,
-		                      sim_input->hdr.code_size)) {
+		                      sim_input->hdr.code_size, sizeof(sim_input->simd))) {
 			fprintf(stderr, "Malformed emulation table!\n");
 			ret = -1;
 			goto simulation_input_from_file_err;
