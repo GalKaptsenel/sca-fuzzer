@@ -56,13 +56,13 @@ class SealedExecutorFixture:
                 continue
             igen = factory.get_input_generator(_INPUT_SEED)
             if any(cls.ex.has_decoy(i) for i in igen.generate(_MAX_INPUTS)):
-                cls.ex._resolve_cache = {}
+                cls.ex._sealed._resolved.clear()
                 cls.tc = tc
                 return
         raise AssertionError(f"no sealable test case with a decoy in {_MAX_TEST_CASES} (seed {_PROGRAM_SEED})")
 
     def setUp(self):
-        self.ex._resolve_cache = {}   # each test starts from a cold cache
+        self.ex._sealed._resolved.clear()   # each test starts from a cold per-input resolve memo
         self.igen = factory.get_input_generator(_INPUT_SEED)
 
     def _input(self):
