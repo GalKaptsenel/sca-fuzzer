@@ -7,7 +7,7 @@ its already-clamped base. The concrete sealings + per-input resolution live in s
 import math
 from typing import Dict, List, Optional, Set, Tuple
 
-from ...interfaces import (TestCase, Instruction, BasicBlock, Function, GeneratorException,
+from ...interfaces import (Instruction, BasicBlock, Function, GeneratorException,
                           MemoryOperand, OT, MAIN_AREA_SIZE, FAULTY_AREA_SIZE)
 from ..aarch64_target_desc import AArch64MemRole
 
@@ -15,49 +15,10 @@ _SANDBOX_MASK_BITS = int(math.log(MAIN_AREA_SIZE + FAULTY_AREA_SIZE, 2))
 _SANDBOX_MASK = (1 << _SANDBOX_MASK_BITS) - 1
 
 
-# A slot is a short, fixed-width run of instructions, addressed by position — (func, bb,
-# instruction) index within a TestCase. Filling a slot replaces each instruction one-for-one, so a
-# position recorded against the sealed TC stays valid in every structural copy.
-SlotLoc = Tuple[int, int, int]  # (func_idx, bb_idx, inst_idx)
-
 # STG-family memory-tag stores: write a memory tag (not data), address must be 16-byte aligned.
 MTE_TAG_STORE_NAMES = frozenset({"stg", "st2g", "stzg", "stz2g"})
 # LDG reads a granule's allocation tag into a register: it touches memory, so its base is clamped.
 MTE_TAG_LOAD_NAMES = frozenset({"ldg"})
-
-
-def make_nop() -> Instruction:
-    return Instruction("nop", True, "", False, template="NOP")
-
-
-def index_instructions(tc: TestCase) -> Dict[int, SlotLoc]:
-    """id(inst) -> position, to translate the sealed TC's slot instructions into positions (once)."""
-    return {id(inst): (fi, bi, ii)
-            for fi, func in enumerate(tc.functions)
-            for bi, bb in enumerate(func)
-            for ii, inst in enumerate(bb)}
-
-
-def inst_at(tc: TestCase, loc: SlotLoc) -> Tuple[Instruction, BasicBlock]:
-    fi, bi, ii = loc
-    bb = tc.functions[fi][bi]
-    for k, inst in enumerate(bb):
-        if k == ii:
-            return inst, bb
-    raise GeneratorException(f"slot location {loc} out of range for the test case")
-
-
-def fill_slot_at(tc: TestCase, slot_locs: List[SlotLoc], new_insts: List[Instruction]) -> None:
-    """Replace the instructions at slot_locs (in order) with new_insts, padding short fills with
-    NOPs. One-for-one, so all other positions stay valid. A fill longer than the slot is a seal bug
-    (it would silently drop the overflow), so reject it rather than truncate."""
-    assert len(new_insts) <= len(slot_locs), \
-        f"fill of {len(new_insts)} insts exceeds slot size {len(slot_locs)}"
-    for pos, loc in enumerate(slot_locs):
-        old_inst, bb = inst_at(tc, loc)
-        new_inst = new_insts[pos] if pos < len(new_insts) else make_nop()
-        bb.insert_before(old_inst, new_inst)
-        bb.delete(old_inst)
 
 
 class _SandboxInstrumentationBase:

@@ -21,7 +21,7 @@ from ...config import CONF
 from ...util import stable_rng
 from ...interfaces import (Instruction, TestCase, BasicBlock, GeneratorException, RegisterOperand,
                           SIMD_SUBREGION_SIZE)
-from .primitives import index_instructions, _SANDBOX_MASK, _SandboxInstrumentationBase
+from .primitives import _SANDBOX_MASK, _SandboxInstrumentationBase
 from .pac import PacSign, PacSigner, build_pac_specs, _AUTH_TO_PAC, _read_reg
 from .global_seal_table import GlobalSealTable, VectorGlobalSealTable, Location
 from .seal_values import SealValue, MaskFlip
@@ -46,15 +46,13 @@ _MIGRATION_PENDING = ("PAC/MTE register-indirection (GST) is not yet migrated: i
 class Sealing(abc.ABC):
     """One sealing site. Its slot is FIXED code that loads the per-input value from the GST and applies
     it, so the genuine/decoy difference is the stored value, not the code. `value`/`location` are the
-    GST binding (both None for the sandbox clamp, which carries no value); `slot_insts`/`slot_locs` are
-    the slot instructions and their recorded positions."""
+    GST binding (both unset for the sandbox clamp, which carries no value)."""
     value_reg: str
     value: SealValue        # a value seal sets both at construction; the sandbox clamp sets neither
     location: Location
 
     def __init__(self) -> None:
         self.slot_insts: List[Instruction] = []
-        self.slot_locs: List = []
 
 
 class SandboxSealing(Sealing):
@@ -500,7 +498,6 @@ class SealedTestCase:
         self._resolved: Dict = {}                          # input identity -> its ResolvedSealingTestCase
         self._gst: GlobalSealTable = VectorGlobalSealTable(_GST_CAPACITY_BITS)   # value seals allocate here
         self._insert_slots(data_sites)                     # subclass inserts its value sealings, in order
-        _record_positions(self._tc, self._sealings())      # AFTER every slot is inserted
         self._layout = Aarch64ASMLayout(self._tc)
 
     @property
@@ -892,14 +889,6 @@ def _place_after(bb, anchor, insts) -> None:
     once per primitive; calling the outer primitive first lands the inner one closest to the access."""
     for inst in reversed(list(insts)):
         bb.insert_after(anchor, inst)
-
-
-def _record_positions(tc: TestCase, sealings: List[Sealing]) -> None:
-    """Once every slot is inserted, record each sealing's slot positions in the final TC so a
-    structural copy can locate and fill them. Must run last — any later insertion shifts positions."""
-    locs = index_instructions(tc)
-    for s in sealings:
-        s.slot_locs = [locs[id(i)] for i in s.slot_insts]
 
 
 class SandboxWalk:

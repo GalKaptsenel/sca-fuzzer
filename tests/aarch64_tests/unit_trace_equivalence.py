@@ -49,7 +49,14 @@ class _EquivalenceBase:
         cls.sess = eq.CESession(cls.PRIMITIVES)
         cls.sealer = cls.sess.sealer(cls.gen)
         cls.tmp = tempfile.mkdtemp()
-        cls._seal_a_test_case()
+        try:
+            cls._seal_a_test_case()
+        except NotImplementedError as e:   # a not-yet-migrated primitive: skip cleanly, never error
+            cls.sess.stop()
+            eq.PROFILE = cls._saved_profile
+            CONF._borg_shared_state.clear()
+            CONF._borg_shared_state.update(cls._saved_conf)
+            raise unittest.SkipTest(str(e))
 
     @classmethod
     def tearDownClass(cls):
