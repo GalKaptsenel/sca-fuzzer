@@ -15,6 +15,10 @@ SANDBOX_BASE_REGISTER = "x29"
 # between the CE and kernel code bases.
 INDIRECT_CALL_TARGET_REGISTER = "x28"
 
+# Scratch GPR a seal uses to UMOV its value out of a vector register before applying it; blocklisted
+# from the generated body and not otherwise reserved, so a seal may clobber it.
+SEAL_SCRATCH_REGISTER = "x27"
+
 
 class AArch64MemRole(MemoryRole):
     """AArch64 addressing roles inside `[...]` (the extractor's MemRole, minus NONE which maps to
