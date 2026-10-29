@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include "stream_ipc.h"
 #include "common_msg_constants.h"
+#include "userapi/executor_input_format.h"   /* REVISOR_SIMD_SECTION_SIZE */
 
 #define MAX_PAYLOAD_SIZE	(1 << 21)
 
@@ -114,7 +115,7 @@ struct simulation_input {
     size_t   mem_size;
     uint8_t *regs;     /* register data (gpr section); slot 6 (x6/NZCV) is already in PSTATE format */
     size_t   regs_size;
-    uint8_t  simd[256]; /* SEC_SIMD carrier image, loaded into v16..v31 before the run; 0 if absent */
+    uint8_t  simd[REVISOR_SIMD_SECTION_SIZE]; /* SEC_SIMD GST image -> v0..v31 before the run; 0 if absent */
     uint8_t *mte_tags; /* one tag per granule (unpacked), or NULL */
     size_t   mte_tag_count;
     uint64_t pac_keys[10];

@@ -226,7 +226,7 @@ int main() {
 			goto main_simulation_memory_free;
 		}
 		uint64_t* regs_blob = (uint64_t*)simulation.sim_input.regs;
-		const uint8_t* simd_blob = simulation.sim_input.simd;   /* carrier image -> v16..v31 */
+		const uint8_t* simd_blob = simulation.sim_input.simd;   /* GST image -> v0..v31 */
 
 		void* kernel_sandbox_base = 0;
 		if(CONFIG_FLAG_REQ_MEM_BASE_VIRT & simulation.sim_input.hdr.config.flags) {
@@ -302,23 +302,39 @@ int main() {
 				/* slot 6 is already in PSTATE format. */
 				"msr nzcv, x6\n"
 				"ldr x7, [%3, #56]\n"
-				/* carrier window: SEC_SIMD image -> v16..v31, read by the test case's UMOV slots. */
-				"ldr q16, [%4, #0]\n"
-				"ldr q17, [%4, #16]\n"
-				"ldr q18, [%4, #32]\n"
-				"ldr q19, [%4, #48]\n"
-				"ldr q20, [%4, #64]\n"
-				"ldr q21, [%4, #80]\n"
-				"ldr q22, [%4, #96]\n"
-				"ldr q23, [%4, #112]\n"
-				"ldr q24, [%4, #128]\n"
-				"ldr q25, [%4, #144]\n"
-				"ldr q26, [%4, #160]\n"
-				"ldr q27, [%4, #176]\n"
-				"ldr q28, [%4, #192]\n"
-				"ldr q29, [%4, #208]\n"
-				"ldr q30, [%4, #224]\n"
-				"ldr q31, [%4, #240]\n"
+				/* GST image: SEC_SIMD -> v0..v31 (lane j*16 -> v{j}), read by the UMOV slots. */
+				"ldr q0,  [%4, #0]\n"
+				"ldr q1,  [%4, #16]\n"
+				"ldr q2,  [%4, #32]\n"
+				"ldr q3,  [%4, #48]\n"
+				"ldr q4,  [%4, #64]\n"
+				"ldr q5,  [%4, #80]\n"
+				"ldr q6,  [%4, #96]\n"
+				"ldr q7,  [%4, #112]\n"
+				"ldr q8,  [%4, #128]\n"
+				"ldr q9,  [%4, #144]\n"
+				"ldr q10, [%4, #160]\n"
+				"ldr q11, [%4, #176]\n"
+				"ldr q12, [%4, #192]\n"
+				"ldr q13, [%4, #208]\n"
+				"ldr q14, [%4, #224]\n"
+				"ldr q15, [%4, #240]\n"
+				"ldr q16, [%4, #256]\n"
+				"ldr q17, [%4, #272]\n"
+				"ldr q18, [%4, #288]\n"
+				"ldr q19, [%4, #304]\n"
+				"ldr q20, [%4, #320]\n"
+				"ldr q21, [%4, #336]\n"
+				"ldr q22, [%4, #352]\n"
+				"ldr q23, [%4, #368]\n"
+				"ldr q24, [%4, #384]\n"
+				"ldr q25, [%4, #400]\n"
+				"ldr q26, [%4, #416]\n"
+				"ldr q27, [%4, #432]\n"
+				"ldr q28, [%4, #448]\n"
+				"ldr q29, [%4, #464]\n"
+				"ldr q30, [%4, #480]\n"
+				"ldr q31, [%4, #496]\n"
 				"blr %1\n"
 				"1:\n"
 				"ldp x29, x30, [sp], #16\n"
@@ -332,8 +348,9 @@ int main() {
 				"r"(simd_blob)
 				: "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11", "x12",
 				"x13", "x14", "x15", "x16", "x17", "x18",
-				"v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23", "v24", "v25", "v26", "v27",
-				"v28", "v29", "v30", "v31", "memory", "cc"
+				"v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12",
+				"v13", "v14", "v15", "v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23", "v24",
+				"v25", "v26", "v27", "v28", "v29", "v30", "v31", "memory", "cc"
 			);
 
 		g_iter_phase = 3; /* write-output */

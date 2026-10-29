@@ -2,11 +2,10 @@
 .global base_hook, base_hook_end, base_hook_c_target
 .type base_hook, %function
 
-/* Saves/restores x0-x29, LR, PC, SP, NZCV, and the carrier window v16-v31 around base_hook_c. The
- * carrier registers hold per-input seal preconditions the test case reads via UMOV; base_hook_c's C
- * callees (fprintf/malloc/Python) are free to clobber caller-saved vectors, so v16-v31 are saved
- * across the call below. REMAINING GAP: v0-v15 are still not preserved — harmless while the generator
- * emits no other FP/SIMD; widen the save below if it ever does. */
+/* Saves/restores x0-x29, LR, PC, SP, NZCV, and the whole vector file v0-v31 around base_hook_c. The
+ * vector registers hold the GST image the test case reads via UMOV; base_hook_c's C callees
+ * (fprintf/malloc/Python) are free to clobber caller-saved vectors, so v0-v31 are saved across the
+ * call below. */
 base_hook:
 	/* Save context */
 	stp x1, x0, [sp, #-16]!
@@ -39,8 +38,16 @@ base_hook:
 	ldr lr, base_hook_c_target
 	mov x0, sp
 
-	// Preserve the carrier window v16-v31 across the C hook. x0 (the saved-register struct) was
+	// Preserve the whole vector file v0-v31 across the C hook. x0 (the saved-register struct) was
 	// captured above, so this push is below it and does not disturb the struct or the reported SP.
+	stp q0, q1, [sp, #-32]!
+	stp q2, q3, [sp, #-32]!
+	stp q4, q5, [sp, #-32]!
+	stp q6, q7, [sp, #-32]!
+	stp q8, q9, [sp, #-32]!
+	stp q10, q11, [sp, #-32]!
+	stp q12, q13, [sp, #-32]!
+	stp q14, q15, [sp, #-32]!
 	stp q16, q17, [sp, #-32]!
 	stp q18, q19, [sp, #-32]!
 	stp q20, q21, [sp, #-32]!
@@ -60,6 +67,14 @@ base_hook:
 	ldp q20, q21, [sp], #32
 	ldp q18, q19, [sp], #32
 	ldp q16, q17, [sp], #32
+	ldp q14, q15, [sp], #32
+	ldp q12, q13, [sp], #32
+	ldp q10, q11, [sp], #32
+	ldp q8, q9, [sp], #32
+	ldp q6, q7, [sp], #32
+	ldp q4, q5, [sp], #32
+	ldp q2, q3, [sp], #32
+	ldp q0, q1, [sp], #32
 
 	ldp xzr, x0, [sp], #16 // pops out the SP and NZCV values, we don't need to restore SP as it will be restored by the following 'ldp' instructions
 	msr nzcv, x0

@@ -10,7 +10,7 @@ from ..reif import REIFSection, SimdSection
 
 _UMOV_LANE = {1: "b", 2: "h", 4: "s", 8: "d"}       # read width (bytes) -> UMOV lane
 VECTOR_REG_BYTES = 16                                # one 128-bit register
-SIMD_BASE_REG = 16                                   # SIMD image slot j -> v(SIMD_BASE_REG + j)
+SIMD_BASE_REG = 0                                    # SIMD image slot j -> v(SIMD_BASE_REG + j)
 TOP_REG = 31
 
 
@@ -97,7 +97,7 @@ class _VectorGSTImage(GSTImage):
 
 
 class VectorGlobalSealTable(GlobalSealTable):
-    """Seal-value storage backed by the high vector registers (v31 down). `capacity_bits` is rounded
+    """Seal-value storage backed by the vector registers (v31 down to v0). `capacity_bits` is rounded
     up to whole registers; values are byte-aligned, top register first, never straddling one."""
 
     def __init__(self, capacity_bits: int) -> None:

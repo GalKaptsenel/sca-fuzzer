@@ -32,7 +32,8 @@
  *                              `flags` is the ARM PSTATE value (NZCV in bits 31:28),
  *                              loaded verbatim; the writer is responsible for any
  *                              encoding conversion before packing this section.
- *   REVISOR_SEC_SIMD           256 bytes (v0..v7)       -> reserved (not yet loaded)
+ *   REVISOR_SEC_SIMD           REVISOR_SIMD_SECTION_SIZE bytes -> the GST image loaded into
+ *                              v0..v31 before the run (lane j*16 -> v{j}); 0 where no seal uses it
  *   REVISOR_SEC_PAC_KEYS       sizeof(struct pac_keys) -> per-input PAC keys
  *   REVISOR_SEC_MTE_TAGS       one 4-bit allocation tag per MTE_GRANULE_SIZE (16-byte)
  *                              granule of the main|faulty span, packed two tags per
@@ -71,6 +72,9 @@
 
 /* Upper bound on n_sections so header_len arithmetic can never overflow. */
 #define REVISOR_INPUT_MAX_SECTIONS  64
+
+/* SEC_SIMD payload: the whole AArch64 vector file, v0..v31 (32 x 128-bit), as the GST image. */
+#define REVISOR_SIMD_SECTION_SIZE   (32 * 16)
 
 /* Section type ids. */
 enum revisor_input_section_type {

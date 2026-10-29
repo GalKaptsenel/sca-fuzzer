@@ -120,7 +120,7 @@ static int parse_input_init(const uint8_t* input_init, size_t input_init_size, s
 		sim_input->pac_keys_present = true;
 	}
 
-	/* optional SEC_SIMD carrier: loaded into v16..v31 before the run. Zeroed when absent. */
+	/* optional SEC_SIMD GST image: loaded into v0..v31 before the run. Zeroed when absent. */
 	memset(sim_input->simd, 0, sizeof(sim_input->simd));
 	sec = revisor_input_find_section(input_init, REVISOR_SEC_SIMD);
 	if (NULL != sec) {
