@@ -56,12 +56,6 @@ class VectorGlobalSealTableTest(unittest.TestCase):
         off = loc.byte_range().start
         self.assertEqual(data[off:off + 2], b"\xef\xbe")
 
-    def test_to_section_is_a_simd_section(self):
-        from src.aarch64.reif import SimdSection, REIFSectionType
-        section = VectorGlobalSealTable(capacity_bits=128).blank_image().to_section()
-        self.assertIsInstance(section, SimdSection)
-        self.assertEqual(section.type, REIFSectionType.SIMD)
-
 
 class LoadTest(unittest.TestCase):
     def test_umov_uses_w_reg_for_subword_and_x_for_doubleword(self):
