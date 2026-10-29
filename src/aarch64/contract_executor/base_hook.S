@@ -2,10 +2,11 @@
 .global base_hook, base_hook_end, base_hook_c_target
 .type base_hook, %function
 
-/* Saves/restores x0-x29, LR, PC, SP, NZCV around base_hook_c. KNOWN GAP: the FP/SIMD registers
- * v0-v31 are NOT preserved, so base_hook_c's C callees (fprintf/malloc/Python) may clobber a test
- * case's caller-saved FP/SIMD state. Safe only while the generator emits no FP/SIMD; when it is
- * re-enabled, save/restore the caller-saved vector regs around the blr below. */
+/* Saves/restores x0-x29, LR, PC, SP, NZCV, and the carrier window v16-v31 around base_hook_c. The
+ * carrier registers hold per-input seal preconditions the test case reads via UMOV; base_hook_c's C
+ * callees (fprintf/malloc/Python) are free to clobber caller-saved vectors, so v16-v31 are saved
+ * across the call below. REMAINING GAP: v0-v15 are still not preserved — harmless while the generator
+ * emits no other FP/SIMD; widen the save below if it ever does. */
 base_hook:
 	/* Save context */
 	stp x1, x0, [sp, #-16]!
@@ -37,8 +38,28 @@ base_hook:
 	// Notice that LR is overriden by the bl instruction, which is ok because we already saved it above
 	ldr lr, base_hook_c_target
 	mov x0, sp
+
+	// Preserve the carrier window v16-v31 across the C hook. x0 (the saved-register struct) was
+	// captured above, so this push is below it and does not disturb the struct or the reported SP.
+	stp q16, q17, [sp, #-32]!
+	stp q18, q19, [sp, #-32]!
+	stp q20, q21, [sp, #-32]!
+	stp q22, q23, [sp, #-32]!
+	stp q24, q25, [sp, #-32]!
+	stp q26, q27, [sp, #-32]!
+	stp q28, q29, [sp, #-32]!
+	stp q30, q31, [sp, #-32]!
+
 	blr lr               // call C helper
 
+	ldp q30, q31, [sp], #32
+	ldp q28, q29, [sp], #32
+	ldp q26, q27, [sp], #32
+	ldp q24, q25, [sp], #32
+	ldp q22, q23, [sp], #32
+	ldp q20, q21, [sp], #32
+	ldp q18, q19, [sp], #32
+	ldp q16, q17, [sp], #32
 
 	ldp xzr, x0, [sp], #16 // pops out the SP and NZCV values, we don't need to restore SP as it will be restored by the following 'ldp' instructions
 	msr nzcv, x0

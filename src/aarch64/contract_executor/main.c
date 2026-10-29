@@ -226,6 +226,7 @@ int main() {
 			goto main_simulation_memory_free;
 		}
 		uint64_t* regs_blob = (uint64_t*)simulation.sim_input.regs;
+		const uint8_t* simd_blob = simulation.sim_input.simd;   /* carrier image -> v16..v31 */
 
 		void* kernel_sandbox_base = 0;
 		if(CONFIG_FLAG_REQ_MEM_BASE_VIRT & simulation.sim_input.hdr.config.flags) {
@@ -301,6 +302,23 @@ int main() {
 				/* slot 6 is already in PSTATE format. */
 				"msr nzcv, x6\n"
 				"ldr x7, [%3, #56]\n"
+				/* carrier window: SEC_SIMD image -> v16..v31, read by the test case's UMOV slots. */
+				"ldr q16, [%4, #0]\n"
+				"ldr q17, [%4, #16]\n"
+				"ldr q18, [%4, #32]\n"
+				"ldr q19, [%4, #48]\n"
+				"ldr q20, [%4, #64]\n"
+				"ldr q21, [%4, #80]\n"
+				"ldr q22, [%4, #96]\n"
+				"ldr q23, [%4, #112]\n"
+				"ldr q24, [%4, #128]\n"
+				"ldr q25, [%4, #144]\n"
+				"ldr q26, [%4, #160]\n"
+				"ldr q27, [%4, #176]\n"
+				"ldr q28, [%4, #192]\n"
+				"ldr q29, [%4, #208]\n"
+				"ldr q30, [%4, #224]\n"
+				"ldr q31, [%4, #240]\n"
 				"blr %1\n"
 				"1:\n"
 				"ldp x29, x30, [sp], #16\n"
@@ -310,9 +328,12 @@ int main() {
 				"ldp x21, x22, [sp], #16\n"
 				"ldp x19, x20, [sp], #16\n"
 				: "=m"(simulation.return_address)
-				: "r"(simulation.sim_code.code), "r"(kernel_sandbox_base), "r"(regs_blob)
+				: "r"(simulation.sim_code.code), "r"(kernel_sandbox_base), "r"(regs_blob),
+				"r"(simd_blob)
 				: "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11", "x12",
-				"x13", "x14", "x15", "x16", "x17", "x18", "memory", "cc"
+				"x13", "x14", "x15", "x16", "x17", "x18",
+				"v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23", "v24", "v25", "v26", "v27",
+				"v28", "v29", "v30", "v31", "memory", "cc"
 			);
 
 		g_iter_phase = 3; /* write-output */

@@ -114,6 +114,7 @@ struct simulation_input {
     size_t   mem_size;
     uint8_t *regs;     /* register data (gpr section); slot 6 (x6/NZCV) is already in PSTATE format */
     size_t   regs_size;
+    uint8_t  simd[256]; /* SEC_SIMD carrier image, loaded into v16..v31 before the run; 0 if absent */
     uint8_t *mte_tags; /* one tag per granule (unpacked), or NULL */
     size_t   mte_tag_count;
     uint64_t pac_keys[10];
