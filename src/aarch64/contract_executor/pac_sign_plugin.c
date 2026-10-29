@@ -361,13 +361,12 @@ void pac_emulate_auth(struct simulation_state *sim_state, const struct emul_row 
     uint64_t canonical = sw_pac_xpac(read_xreg(&sim_state->cpu_state, rd), is_instr);
     uint64_t signed_ptr = sw_pac_sign(auth_to_pac(atype), canonical, ctx);
 
-    // Inject the signed pointer into the GST lane the site's UMOV reads (little-endian, matching UMOV.d).
-    if ((uint64_t)row->gst_offset + sizeof(signed_ptr) > sizeof(simulation.sim_input.simd)) {
-        fprintf(stderr, "[CE FATAL] pac_emulate_auth: gst_offset %u out of range -- aborting\n",
-                row->gst_offset);
-        abort();
+    // Inject the PAC field, right-aligned, into the GST lane the site's UMOV reads: the fixed BFI puts
+    // the field window back at [gst_lsb, ..) (little-endian, matching the lane's UMOV element).
+    uint64_t field = signed_ptr >> row->gst_lsb;
+    for (uint32_t b = 0; b < row->gst_width; ++b) {
+        simulation.sim_input.simd[row->gst_offset + b] = (uint8_t)(field >> (8 * b));
     }
-    memcpy(&simulation.sim_input.simd[row->gst_offset], &signed_ptr, sizeof(signed_ptr));
 }
 
 void *xpac_hook(struct simulation_state *sim_state)

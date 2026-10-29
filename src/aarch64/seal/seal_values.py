@@ -43,6 +43,10 @@ class PacSignature(SealValue):
         self._nbits = nbits
 
     @property
+    def lsb(self) -> int:
+        return self._lsb
+
+    @property
     def width(self) -> int:
         return _bytes_for(self._nbits)
 

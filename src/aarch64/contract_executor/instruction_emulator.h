@@ -29,6 +29,8 @@ struct emul_row {
 	uint32_t op;          /* enum emul_op */
 	uint32_t gst_offset;  /* byte offset into the GST image of the lane the op writes */
 	uint32_t gst_offset2; /* MTE: the after-access re-converge lane; unused (0) for PAC */
+	uint32_t gst_lsb;     /* the lane holds (value >> gst_lsb) right-aligned (the field's low bit) */
+	uint32_t gst_width;   /* bytes the op writes at each lane (the UMOV element size: 1/2/4/8) */
 };
 
 static inline int emul_table_valid(const uint8_t* table, size_t size, size_t code_size,
@@ -41,7 +43,9 @@ static inline int emul_table_valid(const uint8_t* table, size_t size, size_t cod
 		/* The anchor instruction sits at offset+size, so it (its 4 bytes) must itself lie in the code. */
 		if (0 != rows[i].offset % 4 || 0 == rows[i].size || 0 != rows[i].size % 4 ||
 		    (uint64_t)rows[i].offset + rows[i].size + 4 > code_size ||
-		    rows[i].gst_offset >= simd_size || rows[i].gst_offset2 >= simd_size) {
+		    0 == rows[i].gst_width || rows[i].gst_width > 8 || rows[i].gst_lsb >= 64 ||
+		    (uint64_t)rows[i].gst_offset + rows[i].gst_width > simd_size ||
+		    (uint64_t)rows[i].gst_offset2 + rows[i].gst_width > simd_size) {
 			return 0;
 		}
 	}

@@ -12,6 +12,7 @@ code change.
 import abc
 import copy
 import random
+import struct
 from typing import Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -22,9 +23,9 @@ from ...util import stable_rng
 from ...interfaces import (Instruction, TestCase, BasicBlock, GeneratorException, RegisterOperand,
                           SIMD_SUBREGION_SIZE)
 from .primitives import _SANDBOX_MASK, _SandboxInstrumentationBase
-from .pac import PacSign, PacSigner, build_pac_specs, _AUTH_TO_PAC, _read_reg
+from .pac import PacSign, PacSigner, build_pac_specs, _AUTH_TO_PAC, _AUTH_TO_XPAC, _read_reg
 from .global_seal_table import GlobalSealTable, VectorGlobalSealTable, GSTImage, Location
-from .seal_values import SealValue, MaskFlip
+from .seal_values import SealValue, MaskFlip, PacSignature, MteTag
 from ..aarch64_target_desc import SANDBOX_BASE_REGISTER, SEAL_SCRATCH_REGISTER
 from ..aarch64_printer import Aarch64ASMLayout
 
@@ -35,9 +36,22 @@ M = (1 << 64) - 1
 # generated body emits no vector registers, so the whole section is free for seal values.
 _GST_CAPACITY_BITS = SIMD_SUBREGION_SIZE * 8
 
-_MIGRATION_PENDING = ("PAC/MTE register-indirection (GST) is not yet migrated: it needs the CE "
-                      "op-emulator inject-value change plus HW validation; only canonicality and "
-                      "branch-target seals are on the GST path")
+_MIGRATION_PENDING = ("MTE register-indirection (GST) is not yet migrated: it needs the CE "
+                      "op-emulator inject-value change plus validation; only canonicality, "
+                      "branch-target and PAC seals are on the GST path")
+
+# CE emulation-table op ids (mirror enum emul_op in instruction_emulator.h).
+EMUL_OP_PAC_AUTH = 1
+EMUL_OP_MTE_RETAG = 2
+
+
+def pack_emul_table(rows: List[Tuple[int, int, int, int, int, int, int]]) -> bytes:
+    """The CE emulation table: one row per site whose genuine per-input value the CE injects into the
+    GST image during the trace. A row is (first-slot offset, byte size to the anchor, op id, gst_offset,
+    gst_offset2, gst_lsb, gst_width), 7 little-endian u32 (struct emul_row). The op writes
+    (value >> gst_lsb) as gst_width bytes at gst_offset (and gst_offset2 for MTE's re-converge lane);
+    the anchor (the committed AUT* / the guarded access) sits at offset+size."""
+    return b"".join(struct.pack("<7I", *row) for row in rows)
 
 
 # ==================================================================================================
@@ -87,10 +101,46 @@ class SandboxSealing(Sealing):
 
 
 class PacSealing(Sealing):
-    """PAC seal: pending GST migration (needs the op-emulator inject-value change + HW validation)."""
+    """Authenticate a pointer for one access. An AUTH site loads the signature from its GST lane, BFIs
+    its PAC field into the pointer, then runs the committed AUT*; a STRIP site (probability
+    pac_strip_prob) emits only the arch-safe XPAC and carries no signature, so it is never decoyed.
+    There is no re-converge after the access: the AUT* canonicalizes the genuine pointer and the next
+    access re-clamps a fresh base, so a decoy's FPAC bits cannot cascade into a later access."""
 
-    def __init__(self, *args, **kwargs) -> None:
-        raise NotImplementedError(_MIGRATION_PENDING)
+    def __init__(self, value_reg: str, committed_inst: Instruction, enc: PacSign,
+                 signer: PacSigner, gst: GlobalSealTable, strip: bool) -> None:
+        super().__init__()
+        self.value_reg = value_reg
+        self.committed_inst = committed_inst
+        self.strip = strip
+        auth_mn = committed_inst.name.lower()
+        if strip:
+            self.slot_insts = [enc.make_xpac_inst(_AUTH_TO_XPAC[auth_mn], value_reg)]
+            self.n_before = 1
+            return
+        ctx_reg = committed_inst.operands[1].value if len(committed_inst.operands) > 1 else None
+        pac_mn = _AUTH_TO_PAC[auth_mn]
+        span = signer.field_mask(0, pac_mn) | signer.field_mask(1 << 55, pac_mn)
+        self.value = PacSignature(*_mask_window([span]))
+        self.location = gst.allocate(self.value.width)
+        self.auth_slot_inst = enc.make_auth_inst(auth_mn, value_reg, ctx_reg)
+        self.slot_insts = self.value.apply(self.location, value_reg, SEAL_SCRATCH_REGISTER) \
+            + [self.auth_slot_inst]
+        self.n_before = len(self.slot_insts)
+
+    def store_into(self, image: GSTImage, applied: Optional[int], genuine: Optional[int]) -> None:
+        if not self.strip:   # a strip site carries no signature lane
+            super().store_into(image, applied, genuine)
+
+    def emul_row(self, layout: "Aarch64ASMLayout") -> Optional[Tuple[int, int, int, int, int, int, int]]:
+        """The PAC_AUTH row the CE uses to inject this site's signature, or None for a strip site. The op
+        signs the pointer the committed AUT* reads and writes the PAC field, right-aligned, into the lane."""
+        if self.strip:
+            return None
+        first = layout.instruction_address[self.slot_insts[0]]
+        anchor = layout.instruction_address[self.auth_slot_inst]
+        rng = self.location.byte_range()
+        return (first, anchor - first, EMUL_OP_PAC_AUTH, rng.start, 0, self.value.lsb, len(rng))
 
 
 class MteSealing(Sealing):
@@ -366,28 +416,28 @@ def _input_pac_keys(inp) -> Tuple[int, ...]:
 
 def _resolve_pac(s: PacSealing, cer, layout, signer: PacSigner, keys: Tuple[int, ...], salt: int
                  ) -> Tuple[Optional[int], List[int], Optional[int]]:
-    """A PacSealing's value from a trace: sign the pointer that reaches the sealing's auth position, plus
-    a pool of wrong signatures that fail AUTH. When that position is never reached, the slot is still
-    decoy-eligible (HW may speculate deeper than the model): forge the pool over the sandbox base, whose
-    PAC-field-window bits every clamped sandbox pointer shares, so the decoy MOVKs preserve the pointer's
-    non-field bits and the after-XPAC re-converges — exactly as the reached case does.
-    (value, alts, spec_nesting)."""
+    """An AUTH PacSealing's value from a trace: sign the canonical pointer the slot's UMOV reads (before
+    its BFI inserts the field), plus a pool of wrong signatures that fail AUTH. The genuine value is the
+    full signed pointer the lane carries; a decoy is the same with its PAC field perturbed. When the slot
+    is never reached, it is still decoy-eligible (HW may speculate deeper than the model): forge the pool
+    over the sandbox base, whose PAC-field-window bits every clamped pointer shares. A strip site carries
+    no signature and is never decoyed. (value, alts, spec_nesting)."""
+    if s.strip or not cer or s.committed_inst is None:
+        return None, [], None
     correct_sig, alts, spec = None, [], None
-    if not cer or s.committed_inst is None:
-        return correct_sig, alts, spec
-    auth_off, code_base = layout.instruction_address[s.auth_slot_inst], cer[0].cpu.pc
+    read_off, code_base = layout.instruction_address[s.slot_insts[0]], cer[0].cpu.pc
     pac_mn = _AUTH_TO_PAC[s.committed_inst.name.lower()]
     value_reg = s.committed_inst.operands[0].value
     ctx_reg = s.committed_inst.operands[1].value if len(s.committed_inst.operands) > 1 else None
     for ite in cer:
-        if ite.cpu.pc - code_base != auth_off:
+        if ite.cpu.pc - code_base != read_off:
             continue
         depth = ite.metadata.speculation_nesting
         if spec is None or depth < spec:
             spec = depth
         if correct_sig is not None and depth != 0:   # architectural occurrence is authoritative
             continue
-        ptr = _read_reg(ite.cpu, value_reg)
+        ptr = _read_reg(ite.cpu, value_reg)           # canonical: read before the slot's BFI signs it
         cval = _read_reg(ite.cpu, ctx_reg) if ctx_reg is not None else 0
         correct_sig = signer.sign(ptr, cval, pac_mn, keys)
         alts = _wrong_sigs(correct_sig, signer.field_mask(ptr, pac_mn), salt)
@@ -558,12 +608,21 @@ class SealedTestCase:
         self._resolved[key] = resolved
         return resolved
 
+    def _emul_rows(self) -> List[Tuple[int, int, int, int, int, int, int]]:
+        """Emulation-table rows for the sites whose genuine per-input value the CE injects during the
+        trace (PAC signatures, MTE tags). Default none; canon/branch carry their genuine value (0) in
+        the blank image, so they need no injection."""
+        return []
+
     def _resolve_trace(self, inp) -> Tuple[bytes, "ContractExecutionResult"]:
-        """One trace over the fixed code, shipping the genuine GST. For canon/branch that image is
-        all-zero (no flip), so this is the canonical execution and serves as the genuine contract trace."""
+        """One trace over the fixed code, shipping a blank GST image and this concern's emulation table.
+        The CE injects each PAC/MTE site's genuine value into the image as it reaches the site; canon /
+        branch keep the all-zero image (no flip). The result is the canonical execution, reused as the
+        genuine contract trace."""
         object_code = self._assemble(self._tc)
         simd = self._gst.blank_image().to_section().content
-        cer = self._trace_bytes_fn(object_code, inp, emul_table=b"", simd=simd)
+        cer = self._trace_bytes_fn(object_code, inp, emul_table=pack_emul_table(self._emul_rows()),
+                                   simd=simd)
         return object_code, cer
 
 
@@ -580,22 +639,29 @@ class PacSealedTestCase(SealedTestCase):
 
     def _insert_slots(self, data_sites) -> None:
         # Per test case (seeded by the salt so every input shares one skeleton), each access is sealed
-        # with probability CONF.pac_seal_prob. A skipped access still gets its offset cancellation
-        # (offset_subs is sandbox safety, not seal machinery: it pulls base+offset back into the clamped
-        # region), just no AUT* — leaving a raw, sandbox-clamped, unauthenticated pointer.
+        # with probability CONF.pac_seal_prob, and a sealed site strips (XPAC only) with probability
+        # pac_strip_prob — both build-time coins, since the code is fixed across inputs. A skipped access
+        # still gets its offset cancellation (sandbox safety, not seal machinery), just no AUT*. The slot
+        # (load the signature, BFI it in, AUT*) sits entirely before the access; there is no re-converge.
+        # Seal the generator-emitted AUT*s FIRST, while they are the only AUT*s present — the memory-site
+        # slots below insert their own AUT*s, which _seal_auths would otherwise re-seal.
+        _seal_auths(self._tc, self._enc, self._signer, self._gst, self._auth_specs, self._pac)
         rng = random.Random(self._salt)
         for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
             if rng.random() >= CONF.pac_seal_prob:
                 _insert(bb, inst, offset_subs)
                 continue
-            s = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc, base_preserved)
+            strip = rng.random() < CONF.pac_strip_prob
+            s = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc, self._signer,
+                           self._gst, strip)
             self._pac.append(s)
-            _insert(bb, inst, s.slot_insts[:s.n_before], offset_subs)   # auth the base, then cancel offset
-            _place_after(bb, inst, s.slot_insts[s.n_before:])           # XPAC back to canonical (re-converge)
-        _seal_auths(self._tc, self._enc, self._auth_specs, self._pac)
+            _insert(bb, inst, s.slot_insts, offset_subs)   # auth (or strip) the base, then cancel offset
 
     def _value_sealings(self) -> List[Sealing]:
         return self._pac
+
+    def _emul_rows(self) -> List[Tuple[int, int, int, int, int, int, int]]:
+        return [r for r in (s.emul_row(self._layout) for s in self._pac) if r is not None]
 
     def _resolve_entries(self, inp, cer) -> List[_Resolved]:
         keys = _input_pac_keys(inp)
@@ -725,16 +791,17 @@ class MtePacSealedTestCase(SealedTestCase):
         super().__init__(sealed_tc, assemble, sandbox_sealings, data_sites, trace_bytes_fn)
 
     def _insert_slots(self, data_sites) -> None:
+        _seal_auths(self._tc, self._enc, self._signer, self._gst, self._auth_specs, self._pac)
         for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
-            p = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc, base_preserved)
+            p = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc, self._signer,
+                           self._gst, strip=False)
             m = MteSealing(mem_reg, inst, base_preserved)
             self._pac.append(p)
             self._mte.append(m)
             # before: auth the base, cancel the offset, retag onto the cell tag (retag closest to the access)
-            _insert(bb, inst, p.slot_insts[:p.n_before], offset_subs, m.slot_insts[:m.n_before])
-            # after: MTE ADDG re-converges to the cell tag, then PAC XPAC strips — both re-converge the decoy.
-            _place_after(bb, inst, m.slot_insts[m.n_before:] + p.slot_insts[p.n_before:])
-        _seal_auths(self._tc, self._enc, self._auth_specs, self._pac)
+            _insert(bb, inst, p.slot_insts, offset_subs, m.slot_insts[:m.n_before])
+            # after: MTE re-converges the pointer tag to the cell tag (the decoy re-converges too)
+            _place_after(bb, inst, m.slot_insts[m.n_before:])
 
     def _value_sealings(self) -> List[Sealing]:
         return self._pac + self._mte
@@ -754,11 +821,10 @@ class MtePacSealedTestCase(SealedTestCase):
 class PacSignExtSealedTestCase(SealedTestCase):
     """Sandbox clamp + PAC auth + a sign-extension flip per data access, plus a PAC auth per standalone
     AUT*. Every access is PAC-authenticated (the baked signature keeps it arch-safe, as in
-    MtePacSealedTestCase); the flip (SignExtSealing) is a flip seal — no per-input value, no CE emulator —
-    added with probability `signext_seal_prob`, so only the PAC auth is materialized by the emulation
-    table. The single resolution trace (the committed AUT* at each auth position, the canonical
-    placeholder at each flip) yields the PAC signatures and the genuine contract trace; the decoy splices
-    the flip EOR in."""
+    MtePacSealedTestCase); the flip (SignExtSealing) is a MaskFlip seal — its genuine value is "no flip"
+    in the all-zero image — added with probability `signext_seal_prob`, so only the PAC auth is injected
+    by the emulation table. The single resolution trace yields the PAC signatures and the genuine
+    contract trace; the decoy carries the flip mask in the sign-ext seal's lane."""
 
     def __init__(self, sealed_tc, assemble, sandbox_sealings, data_sites, signer, enc,
                  auth_specs, trace_bytes_fn) -> None:
@@ -775,24 +841,26 @@ class PacSignExtSealedTestCase(SealedTestCase):
         if CONF.pac_seal_prob != 1.0:
             raise GeneratorException("pac+signext seals every access; set pac_seal_prob = 1.0")
         pool = _signext_mask_pool()   # shared by every slot in this test case
+        _seal_auths(self._tc, self._enc, self._signer, self._gst, self._auth_specs, self._pac)
         rng = random.Random(self._salt)
         for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
-            p = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc, base_preserved)
+            p = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc, self._signer,
+                           self._gst, strip=False)
             self._pac.append(p)
             if rng.random() >= CONF.signext_seal_prob:
-                _insert(bb, inst, p.slot_insts[:p.n_before], offset_subs)
-                _place_after(bb, inst, p.slot_insts[p.n_before:])
+                _insert(bb, inst, p.slot_insts, offset_subs)   # auth the base, cancel the offset
                 continue
-            s = SignExtSealing(mem_reg, inst, pool, base_preserved)
+            s = SignExtSealing(mem_reg, inst, pool, revert=base_preserved, gst=self._gst)
             self._signext.append(s)
             # before: auth the base, cancel the offset, break sign-extension (flip closest to the access)
-            _insert(bb, inst, p.slot_insts[:p.n_before], offset_subs, s.slot_insts[:1])
-            # after: restore the base, then PAC XPAC strips — both re-converge the decoy.
-            _place_after(bb, inst, s.slot_insts[1:] + p.slot_insts[p.n_before:])
-        _seal_auths(self._tc, self._enc, self._auth_specs, self._pac)
+            _insert(bb, inst, p.slot_insts, offset_subs, s.slot_insts[:s.n_before])
+            _place_after(bb, inst, s.slot_insts[s.n_before:])   # restore the base (re-converge the decoy)
 
     def _value_sealings(self) -> List[Sealing]:
         return self._pac + self._signext
+
+    def _emul_rows(self) -> List[Tuple[int, int, int, int, int, int, int]]:
+        return [r for r in (s.emul_row(self._layout) for s in self._pac) if r is not None]
 
     def _resolve_entries(self, inp, cer) -> List[_Resolved]:
         keys = _input_pac_keys(inp)
@@ -833,15 +901,18 @@ def _pac_encoder(generator, field_span):
     return PacSign(generator, auth_specs, xpac_specs, field_span), auth_specs
 
 
-def _seal_auths(tc: TestCase, enc: PacSign, auth_specs, pac: List) -> None:
+def _seal_auths(tc: TestCase, enc: PacSign, signer: PacSigner, gst: GlobalSealTable,
+                auth_specs, pac: List) -> None:
     """Replace every generator-emitted AUT* with a PacSealing committing to it (a non-memory site the
-    sandbox walk doesn't reach). Appends the new sealings to `pac`."""
+    sandbox walk doesn't reach). These are always authenticated (never stripped): the generator chose
+    the AUT*, so the slot must honor it. Appends the new sealings to `pac`."""
     for func in tc.functions:
         replacements = []
         for bb in func:
             for inst in bb:
                 if inst.name.lower() in auth_specs:
-                    s = PacSealing(inst.operands[0].value, copy.deepcopy(inst), enc)
+                    s = PacSealing(inst.operands[0].value, copy.deepcopy(inst), enc, signer, gst,
+                                   strip=False)
                     pac.append(s)
                     replacements.append((inst, bb, s.slot_insts))
         for old, bb, slot in replacements:

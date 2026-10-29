@@ -86,16 +86,15 @@ class _EquivalenceBase:
             sealed = cls.sealer.seal(tc)
             # A few randomly-generated indirect-call test cases make an ARCHITECTURAL out-of-sandbox
             # data access, which the CE rejects by design (a pre-existing sandbox-completeness limit for
-            # indirect calls, orthogonal to sealing). Detect it by tracing the bare placeholder — no
-            # resolution — so the only thing that can fail is the CE being unable to trace the test
-            # case at all; such a test case is skipped. Resolution and the resolution-vs-genuine
-            # comparison below run unguarded, so a sealing bug surfaces instead of being masked.
+            # indirect calls, orthogonal to sealing). resolve() traces the genuine render (PAC/MTE inject
+            # their genuine value via the emulation table, canon/branch use the all-zero image), so a CE
+            # that cannot trace the test case raises here and the test case is skipped. A systematic
+            # sealing bug makes every test case raise, so the assertion below still surfaces it.
             try:
-                cls.sess.trace_bytes(sealed.object_code, probe)
+                resolved = sealed.resolve(probe)
             except RuntimeError:
                 cls._respawn()
                 continue
-            resolved = sealed.resolve(probe)
             if cls._has_seals(sealed, resolved):
                 cls.sealed = sealed
                 return
