@@ -814,13 +814,15 @@ class MtePacSealedTestCase(SealedTestCase):
 
     def _insert_slots(self, data_sites) -> None:
         _seal_auths(self._tc, self._enc, self._signer, self._gst, self._auth_specs, self._pac)
+        rng = random.Random(self._salt)
         for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
+            strip = rng.random() < CONF.pac_strip_prob   # a build-time coin (the code is fixed per input)
             p = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc, self._signer,
-                           self._gst, strip=False)
+                           self._gst, strip)
             m = MteSealing(mem_reg, inst, base_preserved, self._gst)
             self._pac.append(p)
             self._mte.append(m)
-            # before: auth the base, cancel the offset, apply the cell tag (retag closest to the access)
+            # before: auth (or strip) the base, cancel the offset, apply the cell tag (closest to the access)
             _insert(bb, inst, p.slot_insts, offset_subs, m.slot_insts[:m.n_before])
             # after: MTE re-converges the pointer tag to the cell tag (the decoy re-converges too)
             _place_after(bb, inst, m.slot_insts[m.n_before:])
