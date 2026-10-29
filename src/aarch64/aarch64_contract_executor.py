@@ -142,6 +142,7 @@ class ContractExecution:
     mte_profile: Optional[MteProfile] = None   # MTE state the CE models, or None (emulate, tag stripped)
     data_size: int = 0    # trailing read-only bytes of machine_code (dispatch tables): loaded but not hooked
     emul_table: bytes = b""   # emulation table: rows of (offset, size, op) the CE materializes in place, or empty
+    simd: Optional[bytes] = None   # SIMD section (the GST image) loaded into the vector registers, or None
 
     def encode(self) -> bytes:
         """
@@ -195,7 +196,7 @@ class ContractExecution:
 
         # memory = main‖faulty; the gpr register slots are the GPR section (CE reads only those).
         input_init = build_input_init(self.memory[:MAIN_AREA_SIZE], self.memory[MAIN_AREA_SIZE:],
-                                self.registers[:GPR_SUBREGION_SIZE],
+                                self.registers[:GPR_SUBREGION_SIZE], self.simd,
                                 mte_tags=self.mte_tags,
                                 pac_keys=self.pac_keys.words() if self.pac_keys is not None else None)
         # machine_code = instructions ‖ read-only tables; the header splits it so the CE hooks only the

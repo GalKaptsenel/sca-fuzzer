@@ -39,6 +39,7 @@ class SignExtPoolTest(unittest.TestCase):
         self.assertNotEqual((flipped >> va) & 1, (flipped >> 55) & 1, "[54:va] no longer sign-extends bit 55")
 
 
+@unittest.skip("obsolete: sealer uses GlobalSealTable now; see unit_canon_gst.py")
 class SignExtSealingRenderTest(unittest.TestCase):
     def setUp(self):
         self.pool = [1 << 55]

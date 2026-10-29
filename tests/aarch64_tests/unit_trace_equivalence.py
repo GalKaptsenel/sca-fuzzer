@@ -101,9 +101,10 @@ class _EquivalenceBase:
         checked = 0
         for inp in inputs:
             resolved = self.sealed.resolve(inp)
-            genuine_code = apply_relocations(resolved.object_code, resolved.genuine())
             cer_res = resolved.cer                              # the single resolution trace
-            cer_g = self.sess.trace_bytes(genuine_code, inp)    # the pre-signed genuine binary, verify-mode
+            # The genuine variant is the shared object_code with the genuine GST image (for canon /
+            # branch-target that image is all-zero, i.e. the same image the resolution trace ships).
+            cer_g = self.sess.trace_bytes(resolved.object_code, inp, simd=resolved.genuine())
 
             # The genuine binary traces without an FPAC (the resolver's signatures are correct) and its
             # contract trace equals the resolution trace in the observable — identical entry count and

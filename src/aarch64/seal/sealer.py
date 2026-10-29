@@ -1,14 +1,17 @@
 """Sealing as composable per-location sealings (AArch64).
 
-  * `Sealing` — one location; `seal(value)` returns its slot instructions (None -> arch-safe). Pure.
-  * `Sealer.seal(tc) -> SealedTestCase` — walks the TC, creates sealings, inserts placeholders.
-  * `SealedTestCase.resolve(input) -> ResolvedSealingTestCase` — runs the CE trace(s), computes values.
-  * `ResolvedSealingTestCase` — `object_code` plus `genuine()` / `decoy()` relocations for it.
+Each seal's per-input value lives in the GlobalSealTable (a reserved vector register, loaded from the
+input); the seal's slot is fixed code that loads it and applies it. A variant is a GST image, not a
+code change.
+
+  * `Sealing` — one site; its fixed slot loads its value from the GST and applies it.
+  * `Sealer.seal(tc) -> SealedTestCase` — walks the TC, creates sealings, inserts their slots.
+  * `SealedTestCase.resolve(input) -> ResolvedSealingTestCase` — runs the CE trace, computes values.
+  * `ResolvedSealingTestCase` — `object_code` plus `genuine()` / `decoy()` GST images for it.
 """
 import abc
 import copy
 import random
-import struct
 from typing import Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -16,234 +19,68 @@ if TYPE_CHECKING:
 
 from ...config import CONF
 from ...util import stable_rng
-from ...interfaces import (Instruction, TestCase, BasicBlock, GeneratorException,
-                          RegisterOperand, ImmediateOperand)
-from .primitives import (make_nop, index_instructions, inst_at, _SANDBOX_MASK,
-                           _SandboxInstrumentationBase)
-from .pac import (PacSign, PacSigner, build_pac_specs, _AUTH_TO_PAC, _AUTH_TO_XPAC, _read_reg)
-from ..aarch64_target_desc import SANDBOX_BASE_REGISTER
+from ...interfaces import (Instruction, TestCase, BasicBlock, GeneratorException, RegisterOperand,
+                          SIMD_SUBREGION_SIZE)
+from .primitives import index_instructions, _SANDBOX_MASK, _SandboxInstrumentationBase
+from .pac import PacSign, PacSigner, build_pac_specs, _AUTH_TO_PAC, _read_reg
+from .global_seal_table import GlobalSealTable, VectorGlobalSealTable, Location
+from .seal_values import SealValue, MaskFlip
+from ..aarch64_target_desc import SANDBOX_BASE_REGISTER, SEAL_SCRATCH_REGISTER
 from ..aarch64_printer import Aarch64ASMLayout
-from ..aarch64_relocations import (NOP_WORD, xpac_word, addg_word, movk_word, aut_word,
-                                    eor_imm_word, Relocation, apply_relocations)
 
 
 M = (1 << 64) - 1
 
-# Op-emulator ids for the CE emulation table; mirror `enum emul_op` in
-# contract_executor/instruction_emulator.h. The CE materializes a site's genuine instructions in place
-# during the trace by dispatching on these.
-EMUL_OP_PAC_AUTH = 1
-EMUL_OP_MTE_RETAG = 2
+# Bits reserved for the GST: the full SIMD input section (all CE-loaded high vector registers). The
+# generated body emits no vector registers, so the whole section is free for seal values.
+_GST_CAPACITY_BITS = SIMD_SUBREGION_SIZE * 8
 
-
-def pack_emul_table(rows: List[Tuple[int, int, int]]) -> bytes:
-    """The CE emulation table: rows of (first-slot offset, owned byte size, op id), 3 little-endian u32
-    each (struct emul_row). A row owns [offset, offset+size); the op's anchor instruction (the committed
-    AUT*, the guarded access) sits at offset+size."""
-    return b"".join(struct.pack("<3I", off, size, op) for off, size, op in rows)
-
-
-def _pac_emul_rows(pac, offsets) -> List[Tuple[int, int, int]]:
-    """A PAC_AUTH row per auth site: the op owns the signature MOVK slots; the committed AUT* anchor
-    sits at offset+size (the last placed slot)."""
-    return [(offsets[id(s)][0], (s.n_before - 1) * 4, EMUL_OP_PAC_AUTH) for s in pac]
-
-
-def _mte_emul_rows(mte, offsets) -> List[Tuple[int, int, int]]:
-    """An MTE_RETAG row per access: the op owns the retag ADDG slot; the guarded access anchor sits at
-    offset+size. The after-access de-merge ADDG is a tag-neutral ADDG #0 (the genuine re-converge is
-    always zero) rendered statically by resolve_slot, so it needs no op-emulator. The real decoy
-    before-ADDG and its non-zero re-merge after-ADDG live in the sealer-generated per-variant code that
-    runs on hardware (seal()), not in the CE, which always renders the genuine flow."""
-    return [(offsets[id(s)][0], s.n_before * 4, EMUL_OP_MTE_RETAG) for s in mte]
-
-
-def _reg_num(reg: str) -> int:
-    return int(reg[1:])   # seal value registers are x0..x30
-
-
-def _encode(inst: Instruction) -> int:
-    """The 32-bit machine-code word of one seal instruction."""
-    mn = inst.name.lower()
-    if mn == "nop":
-        return NOP_WORD
-    if mn.startswith("xpac"):
-        return xpac_word(mn == "xpacd", _reg_num(inst.operands[0].value))
-    if mn.startswith("aut"):
-        rn = _reg_num(inst.operands[1].value) if len(inst.operands) > 1 else 31
-        return aut_word(mn, _reg_num(inst.operands[0].value), rn)
-    if mn == "movk":
-        return movk_word(_reg_num(inst.operands[0].value),
-                         int(inst.operands[1].value), int(inst.operands[2].value))
-    if mn == "addg":
-        return addg_word(_reg_num(inst.operands[0].value), int(inst.operands[3].value))
-    if mn == "eor":
-        return eor_imm_word(_reg_num(inst.operands[0].value), _reg_num(inst.operands[1].value),
-                            int(inst.operands[2].value))
-    raise GeneratorException(f"cannot encode seal instruction {inst.name!r}")
-
-
-def _slot_relocs(offsets, insts: List[Instruction]) -> List[Relocation]:
-    """Relocations placing each rendered instruction at its slot offset; the two must match one-for-one
-    (slot positions are recorded in slot order), so a length mismatch is a bug and raises."""
-    if len(offsets) != len(insts):
-        raise GeneratorException(f"slot size mismatch: {len(offsets)} offsets, {len(insts)} instructions")
-    return [Relocation(off, _encode(i)) for off, i in zip(offsets, insts)]
+_MIGRATION_PENDING = ("PAC/MTE register-indirection (GST) is not yet migrated: it needs the CE "
+                      "op-emulator inject-value change plus HW validation; only canonicality and "
+                      "branch-target seals are on the GST path")
 
 
 # ==================================================================================================
 # Sealing — one location; pure seal(value); exposes the facts the resolver reads
 # ==================================================================================================
 class Sealing(abc.ABC):
-    """One sealing site. `seal(value)` returns this slot's instructions for a runtime value (None ->
-    the arch-safe placeholder). `slot_insts`/`slot_locs` are the placeholder instructions and positions."""
+    """One sealing site. Its slot is FIXED code that loads the per-input value from the GST and applies
+    it, so the genuine/decoy difference is the stored value, not the code. `value`/`location` are the
+    GST binding (both None for the sandbox clamp, which carries no value); `slot_insts`/`slot_locs` are
+    the slot instructions and their recorded positions."""
     value_reg: str
+    value: SealValue        # a value seal sets both at construction; the sandbox clamp sets neither
+    location: Location
 
     def __init__(self) -> None:
         self.slot_insts: List[Instruction] = []
         self.slot_locs: List = []
 
-    @abc.abstractmethod
-    def seal(self, value: Optional[int], rng: Optional[random.Random],
-             correct: Optional[int] = None) -> List[Instruction]:
-        """The instructions sealing this location with `value` (None -> the arch-safe placeholder).
-        `rng` seeds any render choice; None only for the placeholder, which has none. `correct` is the
-        genuine value the render must re-converge to after the access (used by seals whose perturbation
-        is not stripped before the access, e.g. MTE); None leaves no re-convergence."""
-
-    def resolve_slot(self) -> List[Instruction]:
-        """The instructions spliced at this slot for the single resolution trace. Default: the
-        placeholder itself (a NOP-over-NOP identity), overridden by seals whose genuine render differs
-        before the access (PAC's committed AUT*, MTE's tag-neutral ADDG)."""
-        return list(self.slot_insts)
-
-    def forced_alts(self, alts: List[int]) -> List[int]:
-        """The subset of `alts` the forced-bad (cross-input priming) lane may pick. Default: all of
-        them — every alt is a guaranteed failure (a wrong PAC signature, a mismatched MTE tag).
-        Overridden where some alts are a weaker fault than that lane wants."""
-        return list(alts)
-
 
 class SandboxSealing(Sealing):
-    """Clamp a base register into the input region: [AND reg, #mask; ADD reg, base]. Needs no runtime
-    value — the clamp is identical every time, so `seal` ignores its argument."""
+    """Clamp a base register into the input region: [AND reg, #mask; ADD reg, base]. Carries no value."""
 
     def __init__(self, value_reg: str, mask: str, base_reg: str) -> None:
         super().__init__()
         self.value_reg = value_reg
-        self._mask = mask
-        self._base_reg = base_reg
-        self.slot_insts = self.seal(None, None)   # seal itself with its placeholder = the slot to fill
-
-    def seal(self, value: Optional[int], rng: Optional[random.Random],
-             correct: Optional[int] = None) -> List[Instruction]:
-        return [Instruction("and", True, "", False,
-                            template=f"AND {self.value_reg}, {self.value_reg}, {self._mask}"),
-                Instruction("add", True, "", False,
-                            template=f"ADD {self.value_reg}, {self.value_reg}, {self._base_reg}")]
+        self.slot_insts = [
+            Instruction("and", True, "", False, template=f"AND {value_reg}, {value_reg}, {mask}"),
+            Instruction("add", True, "", False, template=f"ADD {value_reg}, {value_reg}, {base_reg}"),
+        ]
 
 
 class PacSealing(Sealing):
-    """Authenticate a pointer register. `seal(sig)` emits the signature MOVK + the committed AUT* (or,
-    prob `CONF.pac_strip_prob`, the arch-safe XPAC strip); `seal(None)` is the all-NOP placeholder (the
-    pointer stays the canonical clamped base, so no strip is needed to keep the placeholder trace safe).
-    No PAC* is ever emitted — the signature is precomputed by the resolver and loaded with MOVKs, not
-    re-signed. `committed_inst` is the exact AUT* the generator committed to, exposed for the resolver."""
+    """PAC seal: pending GST migration (needs the op-emulator inject-value change + HW validation)."""
 
-    def __init__(self, value_reg: str, committed_inst: Instruction, encoder: PacSign,
-                 revert: bool = False) -> None:
-        super().__init__()
-        self.value_reg = value_reg
-        self.committed_inst = committed_inst
-        self._enc = encoder
-        self._revert = revert
-        self.n_before = encoder.n_sig_movks + 1   # signature MOVKs + the AUT*/strip (before the access)
-        self.slot_insts = self.seal(None, None)   # placeholder: all NOP (before [+ after])
-
-    @property
-    def auth_slot_inst(self) -> Instruction:
-        """The before-access slot member at the AUT*/strip position (a NOP in the placeholder): the
-        point the resolver signs over (the signed pointer is live there, just before the access)."""
-        return self.slot_insts[self._enc.n_sig_movks]
-
-    def resolve_slot(self) -> List[Instruction]:
-        """The resolution render: the committed AUT* at the auth position (no signature MOVK), and the
-        genuine revert XPAC after the access when reverting. The resolver traces this in resolve-mode,
-        where the CE canonicalizes the AUT* (like the speculative path) instead of verify-or-abort — so
-        no pre-signing is needed and no FPAC can fire. The AUT* word is the genuine one, so this one
-        trace matches the genuine binary's ctrace exactly and its taint up to a safe superset (with
-        pac_strip_prob>0 a genuine XPAC strip reads no context, while this AUT* does), AND exposes the
-        canonical pointer/context the resolver signs over."""
-        auth_mn = self.committed_inst.name.lower()
-        ctx_reg = self.committed_inst.operands[1].value if len(self.committed_inst.operands) > 1 else None
-        before = [make_nop() for _ in range(self._enc.n_sig_movks)] \
-            + [self._enc.make_auth_inst(auth_mn, self.value_reg, ctx_reg)]
-        if not self._revert:
-            return before
-        return before + [self._enc.make_xpac_inst(_AUTH_TO_XPAC[auth_mn], self.value_reg)]
-
-    def seal(self, value: Optional[int], rng: Optional[random.Random],
-             correct: Optional[int] = None) -> List[Instruction]:
-        auth_mn = self.committed_inst.name.lower()
-        ctx_reg = self.committed_inst.operands[1].value if len(self.committed_inst.operands) > 1 else None
-        if value is None:
-            before = [make_nop() for _ in range(self.n_before)]
-        else:
-            movks = self._enc.make_sig_movks(self.value_reg, value)
-            before = movks + ([self._enc.make_xpac_inst(_AUTH_TO_XPAC[auth_mn], self.value_reg)]
-                              if rng.random() < CONF.pac_strip_prob
-                              else [self._enc.make_auth_inst(auth_mn, self.value_reg, ctx_reg)])
-        if not self._revert:
-            return before
-        # After the access, re-canonicalize with XPAC: genuine (authed/stripped clean) is unchanged, a
-        # decoy (failed AUT* leaving FPAC bits) is restored, so both agree downstream. The placeholder
-        # never left canonical, so this position is NOP there too.
-        after = make_nop() if value is None else self._enc.make_xpac_inst(_AUTH_TO_XPAC[auth_mn], self.value_reg)
-        return before + [after]
+    def __init__(self, *args, **kwargs) -> None:
+        raise NotImplementedError(_MIGRATION_PENDING)
 
 
 class MteSealing(Sealing):
-    """Retag a pointer register onto its cell's allocation tag for one access, then re-converge.
-    `seal(delta, correct)` emits an ADDG adding the 4-bit delta to the pointer's tag right before the
-    access (a matching granule for genuine, a mismatch for a decoy), then a second ADDG adding the
-    complement `correct-delta` back — ADDG #0 for genuine, non-zero for a decoy. Both variants thus
-    end at the real cell tag, so the leak is confined to the access and the matched tag still
-    propagates to later tag stores. `access_inst` is exposed for the resolver (the accessed cell's
-    tag is the genuine tag)."""
+    """MTE seal: pending GST migration (needs the op-emulator inject-value change + HW validation)."""
 
-    def __init__(self, value_reg: str, access_inst: Instruction, base_preserved: bool) -> None:
-        super().__init__()
-        self.value_reg = value_reg
-        self.access_inst = access_inst
-        self._base_preserved = base_preserved   # the access leaves its base intact -> re-convergeable
-        self.n_before = 1
-        self.slot_insts = self.seal(None, None)   # placeholder: [before (+ after if base_preserved)]
-
-    def _addg(self, delta: int) -> Instruction:
-        return (Instruction("addg", True, "", False,
-                            template=f"ADDG {self.value_reg}, {self.value_reg}, #0, #{delta}")
-                .add_op(RegisterOperand(self.value_reg, 64, False, True))
-                .add_op(RegisterOperand(self.value_reg, 64, True, False))
-                .add_op(ImmediateOperand("0", 6))
-                .add_op(ImmediateOperand(str(delta), 4)))
-
-    def resolve_slot(self) -> List[Instruction]:
-        """The resolution render: a tag-neutral ADDG (#0) at each slot position. The EMUL_OP_MTE_RETAG
-        op-emulator overwrites the before-access slot with the real retag (ADDG to the cell tag) on each
-        reach, so the trace runs the genuine retag; the after-access slot keeps ADDG #0, the genuine
-        re-converge back to the cell tag."""
-        return [self._addg(0) for _ in self.slot_insts]
-
-    def seal(self, value: Optional[int], rng: Optional[random.Random],
-             correct: Optional[int] = None) -> List[Instruction]:
-        # ADDG the applied delta before the access; when the base survives it, ADDG the complement back
-        # to the cell tag after (0 for genuine, correct-value for a decoy), re-converging every variant.
-        if value is None:
-            return [make_nop(), make_nop()] if self._base_preserved else [make_nop()]
-        if not self._base_preserved:
-            return [self._addg(value % 16)]
-        back = 0 if correct is None else (correct - value) % 16
-        return [self._addg(value % 16), self._addg(back)]
+    def __init__(self, *args, **kwargs) -> None:
+        raise NotImplementedError(_MIGRATION_PENDING)
 
 
 def _mask_runs(mask: int) -> List[int]:
@@ -316,41 +153,24 @@ def _canon_mask_pool(salt: int) -> List[int]:
 
 
 class CanonSealing(Sealing):
-    """Make a pointer register non-canonical for ONE speculative access, then restore it.
-    `seal(mask)` flips `mask` into the base register with an EOR right before the access (a
-    would-fault address in either translation regime) and, when the access preserves its base
-    register, flips it back with the SAME EOR right after — so the decoy RE-CONVERGES with the
-    baseline: only the sealed access differs, and the flipped high bits cannot cascade into a later
-    access's cache set (e.g. via a downstream shift that would move them into the set-index bits).
-    `seal(None/0)` is the canonical placeholder (NOPs). `pool` is the set of candidate non-canonical
-    masks the resolver offers (the decoy picks one at random); `revert` is False when the access
-    itself overwrites the base (a load into it, or write-back) — then the flipped bits are consumed
-    and no restore is emitted. The seal lands only on speculative-only slots, so the architectural
-    path stays canonical. `access_inst`/`pool` are exposed for the resolver."""
+    """Make a pointer register non-canonical for ONE speculative access via a GST mask, then restore it.
+    The fixed slot loads the mask from the GST and EORs it into the base before the access; when the
+    access preserves its base (`revert`), the same EOR after re-converges with the baseline so the
+    flipped high bits cannot cascade into a later access's cache set. Genuine value is 0 (no flip);
+    `pool` is the candidate non-canonical masks the decoy picks. `access_inst`/`pool` feed the resolver."""
 
-    def __init__(self, value_reg: str, access_inst: Instruction, pool: List[int], revert: bool) -> None:
+    def __init__(self, value_reg: str, access_inst: Instruction, pool: List[int], revert: bool,
+                 gst: GlobalSealTable) -> None:
         super().__init__()
         self.value_reg = value_reg
         self.access_inst = access_inst
         self.pool = pool
-        self._revert = revert
-        self.slot_insts = self.seal(None, None)   # placeholder: [before] or [before, after]
-
-    def _eor(self, run: int) -> Instruction:
-        return (Instruction("eor", True, "", False,
-                            template=f"EOR {self.value_reg}, {self.value_reg}, #{run}")
-                .add_op(RegisterOperand(self.value_reg, 64, False, True))
-                .add_op(RegisterOperand(self.value_reg, 64, True, False))
-                .add_op(ImmediateOperand(str(run), 64)))
-
-    def seal(self, value: Optional[int], rng: Optional[random.Random],
-             correct: Optional[int] = None) -> List[Instruction]:
-        # One op before the access (the flip), and — when the base survives the access — the SAME flip
-        # after it (EOR is its own inverse) to restore the base, so the decoy matches the baseline
-        # downstream. genuine (value None/0) fills a NOP at each position; the resolver offers exactly
-        # one mask per decoy, so before and after always use the same value and cancel.
-        emit = (lambda: self._eor(value)) if value else make_nop
-        return [emit()] + ([emit()] if self._revert else [])
+        self.value = MaskFlip()
+        self.location = gst.allocate(self.value.width)
+        pre = self.value.apply(self.location, value_reg, SEAL_SCRATCH_REGISTER)
+        self.n_before = len(pre)
+        post = self.value.apply(self.location, value_reg, SEAL_SCRATCH_REGISTER) if revert else []
+        self.slot_insts = pre + post
 
 
 def _branch_target_mask_pool(salt: int) -> List[int]:
@@ -387,36 +207,23 @@ def _branch_target_mask_pool(salt: int) -> List[int]:
 
 
 class BranchTargetSealing(Sealing):
-    """Corrupt an indirect call's target register for ONE speculative BLR: flip `mask` in with an EOR
-    right before the branch, making the target non-canonical (high bits) or misaligned (low [1:0]) so
-    the speculative BLR faults / mispredicts. NO after-revert -- the target register is a throwaway
-    scratch (materialized by the preceding ADR, never reused), so nothing cascades downstream.
-    `seal(None/0)` is the valid placeholder (a NOP). `pool` is the candidate masks the decoy picks from;
-    `branch_inst` is the BLR, exposed for the resolver. The seal lands only on speculative-only BLRs, so
-    the architectural path keeps a valid target."""
+    """Corrupt an indirect call's target register for ONE speculative BLR via a GST mask: the fixed slot
+    loads the mask and EORs it into the target before the branch (non-canonical high bits or [1:0]
+    misalignment), then the same EOR after to re-converge — x28 is the shared indirect-call target reg,
+    so a leftover flip would cascade into a later call's target. Genuine value is 0 (valid target);
+    `pool` is the candidate masks the decoy picks; `branch_inst` feeds the resolver."""
 
-    def __init__(self, value_reg: str, branch_inst: Instruction, pool: List[int]) -> None:
+    def __init__(self, value_reg: str, branch_inst: Instruction, pool: List[int],
+                 gst: GlobalSealTable) -> None:
         super().__init__()
         self.value_reg = value_reg
         self.branch_inst = branch_inst
         self.pool = pool
-        self.slot_insts = self.seal(None, None)   # placeholder: [NOP]
-
-    def _eor(self, mask: int) -> Instruction:
-        return (Instruction("eor", True, "", False,
-                            template=f"EOR {self.value_reg}, {self.value_reg}, #{mask}")
-                .add_op(RegisterOperand(self.value_reg, 64, False, True))
-                .add_op(RegisterOperand(self.value_reg, 64, True, False))
-                .add_op(ImmediateOperand(str(mask), 64)))
-
-    def seal(self, value: Optional[int], rng: Optional[random.Random],
-             correct: Optional[int] = None) -> List[Instruction]:
-        return [self._eor(value) if value else make_nop()]
-
-    def forced_alts(self, alts: List[int]) -> List[int]:
-        # The forced-bad lane wants a non-canonical target (high-bit mask), not a {1,2,3} low-bit
-        # misalignment, which is a weaker (PC-alignment) fault.
-        return [a for a in alts if a > 3] or list(alts)
+        self.value = MaskFlip()
+        self.location = gst.allocate(self.value.width)
+        pre = self.value.apply(self.location, value_reg, SEAL_SCRATCH_REGISTER)
+        self.n_before = len(pre)
+        self.slot_insts = pre + self.value.apply(self.location, value_reg, SEAL_SCRATCH_REGISTER)
 
 
 _SIGNEXT_BIT = 1 << 55   # the regime-selector / sign bit: the one bit non-canonical under TBI on or off
@@ -456,25 +263,19 @@ class _Resolved:
 
 
 class ResolvedSealingTestCase:
-    """One input's resolution. `object_code` is the assembled base; `genuine()`/`decoy()` are the
-    relocations that turn it into a variant (apply with apply_relocations). `genuine()` seals every slot
-    correctly; `decoy()` seals the architectural slots correctly, with no guarantees on the other slots.
-    `cer` is the resolution trace itself: the CE op-emulators materialize each site's genuine op in
-    place (the signed AUT* at auth sites, the real retag ADDG at MTE sites), so the trace runs the
-    genuine render and matches the genuine binary's ctrace and taint exactly. (Only with
-    pac_strip_prob>0 is the taint a safe superset: a genuine XPAC strip reads no context the resolution
-    AUT* does.) So it doubles as the genuine contract trace; no separate genuine trace is run."""
+    """One input's resolution. `object_code` is the input-independent assembled test case (every variant
+    shares it); `genuine()`/`decoy()` return the GST image bytes (the SIMD section payload) that select a
+    variant. `genuine()` stores every slot's correct value; `decoy()` perturbs a subset of the
+    speculative slots. `cer` is the single resolution trace, reused as the genuine contract trace."""
 
-    def __init__(self, entries: List[_Resolved], object_code: bytes,
-                 offsets: Dict[int, Tuple[int, ...]], salt: int,
+    def __init__(self, entries: List[_Resolved], object_code: bytes, gst: GlobalSealTable, salt: int,
                  cer: Optional["ContractExecutionResult"]) -> None:
         self._entries = entries
         self._object_code = object_code
-        self._offsets = offsets
+        self._gst = gst
         self._salt = salt
         self._cer = cer
-        genuine_rng = stable_rng(self.collapse_key, salt)   # class-invariant render choices
-        self._genuine = self._solve_relocations(offsets, genuine_rng, decoy=False)
+        self._genuine = self._build_image(stable_rng(self.collapse_key, salt), decoy=False)
 
     @staticmethod
     def _decoy_subset(eligible: List[_Resolved], rng: random.Random) -> set:
@@ -493,14 +294,14 @@ class ResolvedSealingTestCase:
         """The resolution trace, reused as the genuine contract trace (see the class docstring)."""
         return self._cer
 
-    def genuine(self) -> Tuple[Relocation, ...]:
+    def genuine(self) -> bytes:
         return self._genuine
 
-    def decoy(self, rng: random.Random) -> Tuple[Relocation, ...]:
-        """The decoy relocations for one variant. `rng` (the caller seeds it from the sealing class,
-        salt, and variant index) drives every choice, so the variant is a pure function of that seed:
-        it reproduces across trace passes, and same-class inputs run the identical program."""
-        return self._solve_relocations(self._offsets, rng, decoy=True)
+    def decoy(self, rng: random.Random) -> bytes:
+        """The decoy GST image for one variant. `rng` (seeded by the caller from the sealing class, salt,
+        and variant index) drives every choice, so the variant is a pure function of that seed: it
+        reproduces across trace passes, and same-class inputs run the identical program."""
+        return self._build_image(rng, decoy=True)
 
     def _eligible(self) -> List[_Resolved]:
         """Slots a decoy may perturb: speculative-or-unreached (never architectural) and carrying
@@ -511,36 +312,17 @@ class ResolvedSealingTestCase:
     def has_decoy(self) -> bool:
         return bool(self._eligible())
 
-    def forced_noncanon(self) -> Tuple[Relocation, ...]:
-        """Like decoy(), but perturb EVERY eligible (speculative) slot with a guaranteed-bad alt (each
-        sealing's `forced_alts`), never the identity the random decoy may pick. The "bad" lane of the
-        cross-input priming search (cross_input.py): a predecessor either trains a predictor entry or
-        faults, never silently matches the genuine lane."""
-        rng = stable_rng(self.collapse_key, self._salt, "forced-noncanon")
-        eligible = set(self._eligible())
-        relocs: List[Relocation] = []
-        for r in self._entries:
-            offs = self._offsets.get(id(r.sealing))
-            if offs is None:
-                continue
-            if r in eligible:
-                value = rng.choice(r.sealing.forced_alts(r.alts))
-            else:
-                value = r.value
-            relocs += _slot_relocs(offs, r.sealing.seal(value, rng, r.value))
-        return tuple(relocs)
-
-    def _solve_relocations(self, offsets: Dict[int, Tuple[int, ...]], rng: random.Random, decoy: bool
-                           ) -> Tuple[Relocation, ...]:
+    def _build_image(self, rng: random.Random, decoy: bool) -> bytes:
+        """The SIMD section bytes for one variant: store each value seal's value into the GST image at
+        its Location — the genuine value, or a random alt for a perturbed speculative slot. The genuine
+        value of a canonicality / branch-target seal is "no perturbation" (resolver value None), which
+        is mask 0. Every entry here is a value seal, so its Location is always set."""
         perturb = self._decoy_subset(self._eligible(), rng) if decoy else set()
-        relocs: List[Relocation] = []
+        image = self._gst.blank_image()
         for r in self._entries:
-            offs = offsets.get(id(r.sealing))
-            if offs is None:
-                continue
             value = rng.choice(r.alts) if r in perturb else r.value
-            relocs += _slot_relocs(offs, r.sealing.seal(value, rng, r.value))
-        return tuple(relocs)
+            image.store(r.sealing.location, 0 if value is None else value)
+        return image.to_section().content
 
     @property
     def collapse_key(self) -> Tuple:
@@ -699,13 +481,6 @@ def _resolve_branch_target(s: "BranchTargetSealing", cer, layout) -> Tuple[Optio
     return None, list(s.pool), spec
 
 
-def _slot_offsets(tc: TestCase, layout, sealings: List["Sealing"]) -> Dict[int, Tuple[int, ...]]:
-    """{id(sealing): its slot byte offsets in the assembled template}. Positions are one-for-one across
-    fills, so an offset taken from the placeholder holds for every variant."""
-    return {id(s): tuple(layout.instruction_address[inst_at(tc, loc)[0]] for loc in s.slot_locs)
-            for s in sealings}
-
-
 # ==================================================================================================
 # SealedTestCase — holds the unresolved sealings; resolve(input) orchestrates value computation
 # ==================================================================================================
@@ -721,9 +496,10 @@ class SealedTestCase:
         self._trace_bytes_fn = trace_bytes_fn              # (machine code, input, emul_table) -> cer
         self._assemble = assemble                          # tc -> machine code, for the skeleton
         self._sandbox = sandbox_sealings
-        self._salt = random.randrange(1 << 64)             # per-test-case; seeds deterministic forgery
+        self._salt = random.randrange(1 << 64)             # per-test-case; seeds deterministic decoys
         self._resolved: Dict = {}                          # input identity -> its ResolvedSealingTestCase
-        self._insert_slots(data_sites)                            # subclass inserts its value sealings, in order
+        self._gst: GlobalSealTable = VectorGlobalSealTable(_GST_CAPACITY_BITS)   # value seals allocate here
+        self._insert_slots(data_sites)                     # subclass inserts its value sealings, in order
         _record_positions(self._tc, self._sealings())      # AFTER every slot is inserted
         self._layout = Aarch64ASMLayout(self._tc)
 
@@ -733,7 +509,7 @@ class SealedTestCase:
 
     @property
     def object_code(self) -> bytes:
-        """The assembled skeleton (placeholder slots, no resolved values); input-independent."""
+        """The assembled test case (fixed GST-load slots, no per-input values); input-independent."""
         return self._assemble(self._tc)
 
     def _insert_slots(self, data_sites: List) -> None:
@@ -754,43 +530,26 @@ class SealedTestCase:
         """Resolve this concern's value seals from the single resolution trace `cer`. Default: none."""
         return []
 
-    def _emul_rows(self, offsets: Dict[int, Tuple[int, ...]]) -> List[Tuple[int, int, int]]:
-        """Emulation-table rows (first-slot offset, byte size, op id) for the sites whose genuine code
-        the CE materializes during the trace. Default: none; PAC concerns override it."""
-        return []
-
     def resolve(self, inp) -> ResolvedSealingTestCase:
-        """One CE trace per input (memoized by input identity): materialize the genuine render via the
-        emulation table, read the values off that trace, and reuse it as the genuine contract trace
-        (`cer`). Order-independent — the first genuine()/decoy() of an input's class runs the trace."""
+        """One CE trace per input (memoized by input identity), reused as the genuine contract trace.
+        The object code is input-independent; variants differ only in the GST image."""
         key = inp.identity()
         cached = self._resolved.get(key)
         if cached is not None:
             return cached
-        offsets = _slot_offsets(self._tc, self._layout, self._value_sealings())
-        object_code, cer = self._resolve_trace(inp, offsets)
-        entries = self._clamp_entries(self._sandbox) + self._resolve_entries(inp, cer)
-        resolved = ResolvedSealingTestCase(entries, object_code, offsets, self._salt, cer)
+        object_code, cer = self._resolve_trace(inp)
+        entries = self._resolve_entries(inp, cer)   # value seals only; the sandbox clamp carries no value
+        resolved = ResolvedSealingTestCase(entries, object_code, self._gst, self._salt, cer)
         self._resolved[key] = resolved
         return resolved
 
-    def _resolve_trace(self, inp, offsets: Dict[int, Tuple[int, ...]]) -> Tuple[bytes, "ContractExecutionResult"]:
-        """The single per-input trace. Each value seal's resolution render (`resolve_slot`) is spliced
-        over the placeholder — this carries the site's real op (the committed AUT*, the access) into the
-        code so the CE op-emulators can read it — and the emulation table drives those emulators to
-        materialize the genuine instructions (sign the pointer, retag) in place. The result is the true
-        genuine render, so its trace is reused as the genuine contract trace. Returns (object_code, cer)."""
+    def _resolve_trace(self, inp) -> Tuple[bytes, "ContractExecutionResult"]:
+        """One trace over the fixed code, shipping the genuine GST. For canon/branch that image is
+        all-zero (no flip), so this is the canonical execution and serves as the genuine contract trace."""
         object_code = self._assemble(self._tc)
-        relocs = [rel for s in self._value_sealings()
-                  for rel in _slot_relocs(offsets[id(s)], s.resolve_slot())]
-        cer = self._trace_bytes_fn(apply_relocations(object_code, relocs), inp,
-                                   emul_table=pack_emul_table(self._emul_rows(offsets)))
+        simd = self._gst.blank_image().to_section().content
+        cer = self._trace_bytes_fn(object_code, inp, emul_table=b"", simd=simd)
         return object_code, cer
-
-    @staticmethod
-    def _clamp_entries(sandbox_sealings: List[SandboxSealing]) -> List[_Resolved]:
-        return [_Resolved(s, None, [], None) for s in sandbox_sealings]   # always seal(None); never decoyed
-
 
 
 class PacSealedTestCase(SealedTestCase):
@@ -823,9 +582,6 @@ class PacSealedTestCase(SealedTestCase):
     def _value_sealings(self) -> List[Sealing]:
         return self._pac
 
-    def _emul_rows(self, offsets) -> List[Tuple[int, int, int]]:
-        return _pac_emul_rows(self._pac, offsets)
-
     def _resolve_entries(self, inp, cer) -> List[_Resolved]:
         keys = _input_pac_keys(inp)
         return [_Resolved(s, *_resolve_pac(s, cer, self._layout, self._signer, keys, self._salt))
@@ -848,9 +604,6 @@ class MteSealedTestCase(SealedTestCase):
 
     def _value_sealings(self) -> List[Sealing]:
         return self._mte
-
-    def _emul_rows(self, offsets) -> List[Tuple[int, int, int]]:
-        return _mte_emul_rows(self._mte, offsets)
 
     def _resolve_entries(self, inp, cer) -> List[_Resolved]:
         return [_Resolved(s, *_resolve_mte(s, cer, self._layout)) for s in self._mte]
@@ -892,10 +645,10 @@ class CanonSealedTestCase(SealedTestCase):
             if rng.random() >= CONF.canonicality_seal_prob:
                 _insert(bb, inst, offset_subs)
                 continue
-            s = CanonSealing(mem_reg, inst, pool, base_preserved)
+            s = CanonSealing(mem_reg, inst, pool, base_preserved, self._gst)
             self._canon.append(s)
-            _insert(bb, inst, offset_subs, s.slot_insts[:1])   # cancel offset, then flip (last before)
-            _place_after(bb, inst, s.slot_insts[1:])           # restore the base right after (re-converge)
+            _insert(bb, inst, offset_subs, s.slot_insts[:s.n_before])   # cancel offset, then flip (before)
+            _place_after(bb, inst, s.slot_insts[s.n_before:])           # restore the base (re-converge)
 
     def _value_sealings(self) -> List[Sealing]:
         return self._canon
@@ -929,9 +682,10 @@ class BranchTargetSealedTestCase(SealedTestCase):
                     if inst.name != "blr" or rng.random() >= CONF.branch_target_seal_prob:
                         continue
                     reg = next(o.value for o in inst.operands if isinstance(o, RegisterOperand))
-                    s = BranchTargetSealing(reg, inst, pool)
+                    s = BranchTargetSealing(reg, inst, pool, self._gst)
                     self._bt.append(s)
-                    _insert(bb, inst, s.slot_insts)   # flip right before the BLR
+                    _insert(bb, inst, s.slot_insts[:s.n_before])   # flip right before the BLR
+                    _place_after(bb, inst, s.slot_insts[s.n_before:])   # re-converge x28 after
 
     def _value_sealings(self) -> List[Sealing]:
         return self._bt
@@ -969,9 +723,6 @@ class MtePacSealedTestCase(SealedTestCase):
 
     def _value_sealings(self) -> List[Sealing]:
         return self._pac + self._mte
-
-    def _emul_rows(self, offsets) -> List[Tuple[int, int, int]]:
-        return _pac_emul_rows(self._pac, offsets) + _mte_emul_rows(self._mte, offsets)
 
     def _resolve_entries(self, inp, cer) -> List[_Resolved]:
         # One trace. The CE tags every accessed pointer from its simulated tag memory
@@ -1027,9 +778,6 @@ class PacSignExtSealedTestCase(SealedTestCase):
 
     def _value_sealings(self) -> List[Sealing]:
         return self._pac + self._signext
-
-    def _emul_rows(self, offsets) -> List[Tuple[int, int, int]]:
-        return _pac_emul_rows(self._pac, offsets)
 
     def _resolve_entries(self, inp, cer) -> List[_Resolved]:
         keys = _input_pac_keys(inp)

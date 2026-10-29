@@ -4,6 +4,7 @@
 # reads -> a cross-input leftover that standard priming discards but cross_input_priming localizes.
 instruction_set: aarch64
 fuzzer: speculative-exception
+speculative_exception_mode: strict
 input_generator: aarch64-nzcv
 executor_mode: P+P
 program_size: 24

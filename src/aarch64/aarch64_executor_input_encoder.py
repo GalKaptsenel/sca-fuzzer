@@ -187,16 +187,17 @@ class ExecutorInput:
     pac_keys: Optional[Sequence[int]] = None
     bpu_training: Tuple[Tuple[int, bool], ...] = ()
     env_plan: EnvironmentPlan = field(default_factory=EnvironmentPlan)
+    gst: Optional[bytes] = None   # GST image (SIMD section) for a sealed variant; else the input's own
 
     def serialize(self) -> bytes:
         frag = _first_fragment(self.input_)
         main_off = InputFragment.fields["main"][1]
         faulty_off = InputFragment.fields["faulty"][1]
         simd_off = InputFragment.fields["simd"][1]
+        simd = self.gst if self.gst is not None else frag[simd_off:simd_off + SIMD_SUBREGION_SIZE]
         return build_input_init(frag[main_off:main_off + MAIN_AREA_SIZE],
                                 frag[faulty_off:faulty_off + FAULTY_AREA_SIZE],
-                                _gpr_section(frag),
-                                frag[simd_off:simd_off + SIMD_SUBREGION_SIZE],
+                                _gpr_section(frag), simd,
                                 mte_tags=self.mte_tags, pac_keys=self.pac_keys,
                                 code_reloc=self.code_reloc if self.code_reloc else None,
                                 bpu_training=self.bpu_training if self.bpu_training else None,

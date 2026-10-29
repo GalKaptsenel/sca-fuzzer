@@ -16,6 +16,7 @@ max_bb_per_function: 5
 max_successors_per_bb: 2
 min_successors_per_bb: 1
 fuzzer: speculative-exception
+speculative_exception_mode: strict
 input_generator: aarch64-nzcv
 pac_seal_prob: 1.0    # P(seal an eligible memory access); <1 leaves some unsealed
 pac_strip_prob: 0.5   # P(a sealed slot renders as XPAC strip vs a real AUT*) -- strip-vs-auth is the validated PAC-oracle leak contrast (violation-pac-spec-auth-oracle-260712); 0.0 finds no PAC leaks

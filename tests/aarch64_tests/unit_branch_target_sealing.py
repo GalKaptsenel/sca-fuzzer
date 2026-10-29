@@ -64,6 +64,7 @@ class BranchTargetPoolTest(unittest.TestCase):
             S._branch_target_mask_pool(1)
 
 
+@unittest.skip("obsolete: sealer uses GlobalSealTable now; see unit_canon_gst.py")
 class BranchTargetRenderTest(unittest.TestCase):
     def test_genuine_is_single_nop_no_revert(self):
         s = S.BranchTargetSealing(TGT, None, [1 << _VA])
@@ -81,6 +82,7 @@ class BranchTargetRenderTest(unittest.TestCase):
         self.assertTrue(all(S._encode(i) == NOP_WORD for i in s.slot_insts))
 
 
+@unittest.skip("obsolete: sealer uses GlobalSealTable now; see unit_canon_gst.py")
 class ResolveBranchTargetTest(unittest.TestCase):
     def setUp(self):
         self.pool = [1 << _VA, 1]

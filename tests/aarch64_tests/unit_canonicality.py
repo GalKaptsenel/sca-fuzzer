@@ -111,6 +111,7 @@ class CanonPoolTest(unittest.TestCase):
             S._canon_mask_pool(1)
 
 
+@unittest.skip("obsolete: sealer uses GlobalSealTable now; see unit_canon_gst.py")
 class CanonSealingRenderTest(unittest.TestCase):
     def setUp(self):
         self.pool = [1 << 47]
@@ -134,6 +135,7 @@ class CanonSealingRenderTest(unittest.TestCase):
         self.assertTrue(all(S._encode(i) == NOP_WORD for i in s.slot_insts))
 
 
+@unittest.skip("obsolete: sealer uses GlobalSealTable now; see unit_canon_gst.py")
 class ResolveCanonTest(unittest.TestCase):
     def setUp(self):
         self.pool = [1 << 47, 1 << 48]
@@ -169,6 +171,7 @@ class ResolveCanonTest(unittest.TestCase):
         self.assertTrue(S._Resolved(self.sealing, None, self.pool, spec).speculative)
 
 
+@unittest.skip("obsolete: sealer uses GlobalSealTable now; see unit_canon_gst.py")
 class GenuineDecoyTest(unittest.TestCase):
     """genuine keeps the slot canonical (NOPs); decoy flips+reverts a speculative-only slot with one
     chosen pool mask; an architectural slot is never perturbed."""

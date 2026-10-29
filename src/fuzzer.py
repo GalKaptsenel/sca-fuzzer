@@ -709,12 +709,6 @@ class FuzzerGeneric(Fuzzer):
         for m in violation.measurements:
             self.generator.printer.print(
                 m.test_case, f"{violation_dir}/{os.path.basename(m.test_case.asm_path)}")
-            # TEMP(enacted-reloc): dump the exact relocated bytes that ran, so a randomly-sealed
-            # variant is reproducible from the artifact (the asm is identical across variants).
-            from .aarch64.aarch64_executor_input_encoder import ExecutorInput
-            if isinstance(m.input_, ExecutorInput) and m.input_.code_reloc:
-                with open(f"{violation_dir}/enacted_test{m.input_id:04}.bin", "wb") as f:
-                    f.write(self.executor.reconstruct_enacted_code(m.input_))
 
         # store the original configuration file
         if CONF._config_path:

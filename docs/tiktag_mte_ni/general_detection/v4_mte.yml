@@ -18,7 +18,8 @@ min_bb_per_function: 5
 max_bb_per_function: 5
 max_successors_per_bb: 2
 min_successors_per_bb: 1
-fuzzer: non-interference
+fuzzer: speculative-exception
+speculative_exception_mode: strict
 input_generator: aarch64-nzcv
 
 contract_execution_clause:

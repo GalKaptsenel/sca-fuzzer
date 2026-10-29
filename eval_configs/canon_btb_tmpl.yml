@@ -14,6 +14,7 @@ instruction_categories:
   - BASE-MEM-LOAD
   - BASE-MEM-STORE
 fuzzer: speculative-exception
+speculative_exception_mode: strict
 input_generator: aarch64-nzcv
 executor_mode: P+P
 program_size: 24

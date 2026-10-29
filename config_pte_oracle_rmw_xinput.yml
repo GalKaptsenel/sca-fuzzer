@@ -9,6 +9,7 @@
 # so the genuine/decoy htrace divergence is a genuine leak of page-table state.
 instruction_set: aarch64
 fuzzer: speculative-exception
+speculative_exception_mode: strict
 input_generator: aarch64-nzcv
 executor_mode: P+P
 

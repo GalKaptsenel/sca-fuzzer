@@ -7,7 +7,6 @@ from __future__ import annotations
 import copy
 import random
 import os.path
-import sys
 
 import numpy as np
 from typing import List, Tuple, Set, Optional, Dict
@@ -29,7 +28,6 @@ from . import aarch64_qarma as qarma
 from .seal.sealer import make_sealer, SealedTestCase, ResolvedSealingTestCase
 from .seal.environment import (default_sandbox_page_map, PteFuzzPolicy, EnvironmentPlan,
                                SandboxPageMap)
-from .aarch64_relocations import apply_relocations, Relocation
 from .aarch64_contract_executor import (ContractExecution, ContractExecutorService,
                                         ExecutionClause, SUPPORTED_EXECUTION_CLAUSES,
                                         BranchPredictor, EXECUTION_CLAUSE_MAP, SimArch, MteProfile)
@@ -330,7 +328,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
                            mte_tags: Optional[List[int]] = None,
                            pac_keys: Optional[PacKeys] = None,
                            pac_profile: Optional[qarma.PacProfile] = None,
-                           emul_table: bytes = b"") -> ContractExecution:
+                           emul_table: bytes = b"", simd: Optional[bytes] = None) -> ContractExecution:
         tc_memory, tc_regs = _ce_memory_regs(inp)
         return ContractExecution(
             tc_bytes, tc_memory, tc_regs, SimArch.RVZR_ARCH_AARCH64,
@@ -345,6 +343,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
             mte_profile=MteProfile(native=CONF.mte_native),
             data_size=self._dispatch_data_size(),
             emul_table=emul_table,
+            simd=simd,
         )
 
     def _measure(self, exec_inputs: List[ExecutorInput], n_reps: int) -> List[HTrace]:
@@ -543,7 +542,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
             entry_x7 = int.from_bytes(inp.tobytes()[7 * 8: 8 * 8], "little")
             log.header(f"PRE-HW ANALYSIS  variant={idx}")
 
-            tc = apply_relocations(self._sealed.object_code, list(ei.code_reloc))
+            tc = self._sealed.object_code   # input-independent; the variant differs only in its GST image
             cer = self._run_ce_on_tc(tc, inp, sandbox_base)
             if cer is not None:
                 log_ce_trace(log, f"v{idx}", idx, cer)
@@ -663,7 +662,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         return None if words is None else PacKeys(*words)
 
     def _ce_trace(self, tc_bytes: bytes, inp: Input,
-                  emul_table: bytes = b"") -> ContractExecutionResult:
+                  emul_table: bytes = b"", simd: Optional[bytes] = None) -> ContractExecutionResult:
         """One CE trace of the machine code `tc_bytes` for `inp`. With `emul_table` the CE materializes
         each sealing site's genuine instructions in place as it reaches the offset (op-emulators sign /
         retag from the run's state), so the single trace is the genuine render. Sealing always traces at
@@ -674,7 +673,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         return self._contract_executor.run(self._make_ce_execution(
             tc_bytes, inp, self._sandbox_base, CONF.model_max_nesting, CONF.model_max_spec_window,
             ExecutionClause.COND, mte_tags=self._mte_tags_for(inp), pac_keys=self._input_pac_keys(inp),
-            pac_profile=self._pac_profile_value, emul_table=emul_table))
+            pac_profile=self._pac_profile_value, emul_table=emul_table, simd=simd))
 
     # ------------------------------------------------------------------ lifecycle
     def load_test_case(self, test_case: TestCase):
@@ -800,27 +799,10 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         bpu = self._bpu_entries(inp)
         keys = self._pac_keys_words(inp)
         plans = self._variants_for(resolved)
-        if os.environ.get("MTE_BUGHUNT"):
-            # Offline (no-HW) MTE bug enumeration: trace every variant through the CE and drop the ones
-            # that make an architectural tag-mismatched access — those are the bugs that crash the phone,
-            # so excluding them keeps the HW pass from panicking while we log each one.
-            kept: Dict[str, Tuple[Relocation, ...]] = {}
-            for name, plan in plans.items():
-                bad = self._arch_tag_mismatches(
-                    self._ce_trace(apply_relocations(resolved.object_code, list(plan)), inp))
-                if bad:
-                    for off, ea, pt, gt, w in bad:
-                        sys.stderr.write(
-                            f"MTEBUG tc={self._tc_counter} input={getattr(inp, 'seed', '?')} "
-                            f"variant={name} tc_off=0x{off:x} ea=0x{ea:x} ptr_tag={pt} "
-                            f"granule_tag={gt} {'W' if w else 'R'}\n")
-                else:
-                    kept[name] = plan
-            plans = kept
         env_plans = self._env_plans_for(resolved, inp)
-        return {name: ExecutorInput(inp, code_reloc=plan, mte_tags=tags, pac_keys=keys,
+        return {name: ExecutorInput(inp, gst=image, mte_tags=tags, pac_keys=keys,
                                     bpu_training=bpu, env_plan=env_plans[name])
-                for name, plan in plans.items()}
+                for name, image in plans.items()}
 
     def sealing_class_of(self, inp: Input) -> tuple:
         """The input's sealing class (its resolved per-slot signatures/tags). Variants collide only
@@ -832,16 +814,6 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         speculative-exception cross-input priming search (cross_input.py)."""
         return self.variants_for_input(inp)[SpecExcVariant.BASELINE]
 
-    def noncanon_variant(self, inp: Input) -> ExecutorInput:
-        """The input's baseline test case sealed to force every eligible speculative slot to a
-        guaranteed-bad alt -- wrong PAC signature / mismatched MTE tag / non-canonical target (see
-        ResolvedSealingTestCase.forced_noncanon) -- the guaranteed-"bad" lane of the cross-input priming
-        search, since the random decoy may pick the identity and thus still train."""
-        resolved = self._resolve(inp)
-        return ExecutorInput(inp, code_reloc=resolved.forced_noncanon(),
-                             mte_tags=self._mte_tags_for(inp), pac_keys=self._pac_keys_words(inp),
-                             bpu_training=self._bpu_entries(inp))
-
     def has_decoy(self, inp: Input) -> bool:
         """Whether `inp` is speculative-exception-testable: it has a decoy-eligible CODE slot, or PTE
         fuzzing is on (so the decoy differs from the baseline in the environment even when the code
@@ -849,8 +821,9 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         and the input must not be boosted/measured."""
         return self._resolve(inp).has_decoy() or self._environment_fuzzing
 
-    def _variants_for(self, resolved: ResolvedSealingTestCase) -> Dict[str, Tuple[Relocation, ...]]:
-        """One boosting class: the genuine baseline plus `CONF.inputs_per_class - 1` decoys."""
+    def _variants_for(self, resolved: ResolvedSealingTestCase) -> Dict[str, bytes]:
+        """One boosting class: the genuine baseline plus `CONF.inputs_per_class - 1` decoys. Each value
+        is a GST image (the SIMD section bytes); all variants share one object_code."""
         plans = {SpecExcVariant.BASELINE: resolved.genuine()}
         for i in range(CONF.inputs_per_class - 1):
             rng = stable_rng(resolved.collapse_key, self._sealed.salt, i)
@@ -859,8 +832,8 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
 
     def _log_variant_binaries(self, log, inp_idx, cer,
                               resolved: ResolvedSealingTestCase) -> None:
-        columns = [(name, apply_relocations(resolved.object_code, list(plan)))
-                   for name, plan in self._variants_for(resolved).items()]
+        # Variants share one object_code now; the per-variant difference is the GST image, not the code.
+        columns = [(name, resolved.object_code) for name in self._variants_for(resolved)]
         log.header(f"VARIANT TC BINARIES  inp={inp_idx}")
         for name, code in columns:
             log_tc_binary(log, name, code)
@@ -888,9 +861,9 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         return self._seal_input(inp)
 
     def _seal_input(self, inp: Input) -> ExecutorInput:
-        """Extend an arch input to its baseline kernel input file — genuine relocations here; the regular
-        subclass overrides to the input's sealing-class plan."""
-        return ExecutorInput(inp, code_reloc=self._resolve(inp).genuine(),
+        """Extend an arch input to its baseline kernel input file — the genuine GST image here; the
+        regular subclass overrides to the input's sealing-class image."""
+        return ExecutorInput(inp, gst=self._resolve(inp).genuine(),
                              mte_tags=self._mte_tags_for(inp), pac_keys=self._pac_keys_words(inp),
                              bpu_training=self._bpu_entries(inp))
 
@@ -911,11 +884,6 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
             self._log_pre_hw_ce_analysis(exec_inputs, sandbox_base, FuzzLogger.get())
         return self._measure(exec_inputs, n_reps)
 
-    def reconstruct_enacted_code(self, ei: ExecutorInput) -> bytes:  # TEMP(enacted-reloc)
-        """Rebuild the exact machine code that ran for a boosted variant: re-resolve its arch input
-        over the current sealed TC (object_code is deterministic) and re-apply its relocations."""
-        resolved = self._resolve(ei.input_)
-        return apply_relocations(resolved.object_code, list(ei.code_reloc))
 
 
 class Aarch64RegularSealedExecutor(Aarch64SpeculativeExceptionExecutor):
@@ -947,6 +915,6 @@ class Aarch64RegularSealedExecutor(Aarch64SpeculativeExceptionExecutor):
         always correct (never a forged AUTH)."""
         resolved = self._resolve(inp)
         rng = stable_rng(resolved.collapse_key, self._sealed.salt)
-        plan = resolved.decoy(rng) if rng.random() < self._DECOY_PROB else resolved.genuine()
-        return ExecutorInput(inp, code_reloc=plan, mte_tags=self._mte_tags_for(inp),
+        image = resolved.decoy(rng) if rng.random() < self._DECOY_PROB else resolved.genuine()
+        return ExecutorInput(inp, gst=image, mte_tags=self._mte_tags_for(inp),
                              pac_keys=self._pac_keys_words(inp), bpu_training=self._bpu_entries(inp))
