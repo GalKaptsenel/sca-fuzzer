@@ -25,6 +25,13 @@ _option_values = {
         'archdiff',
         'speculative-exception',
     ],
+    # When the speculative-exception fuzzer is selected, which input regime to run (no default):
+    # 'identical' = inputs byte-identical except the carrier registers; 'full' = fuzz as regular,
+    # the carrier registers tainted per the contract like any other input.
+    'speculative_exception_mode': [
+        'identical',
+        'full',
+    ],
     # AArch64 adds the NZCV-aware input generator to the common set.
     'input_generator': [
         'random',
@@ -269,8 +276,15 @@ branch_target_seal_prob: float = 1.0
 branch_target_canon_mask: Optional[int] = None   # fixed non-canonical high-bit run, or None = pool
 branch_target_seal_misalign: bool = True          # include the low-bit misalignment axis in the pool
 
-# PTE (page-table entry) fuzzing: an speculative-exception environment-fuzzing axis where genuine/decoy differ only in
-# the page-table state of spec-only pages.
+# Speculative-exception fuzzing (all primitives): how many high vector registers (v31, v30, ...) are
+# reserved to carry per-input seal preconditions. Larger = more concurrent seals per test case.
+speculative_exception_carrier_count: int = 4
+# The input regime for the speculative-exception fuzzer. REQUIRED (no default) when that fuzzer is
+# selected; validated against _option_values. None here forces an explicit choice in the config.
+speculative_exception_mode: Optional[str] = None
+
+# PTE (page-table entry) fuzzing: a speculative-exception environment axis where genuine/decoy differ
+# only in the page-table state of spec-only pages.
 enable_pte_fuzzing: bool = False
 pte_fuzz_leaf_fields: List[str] = list(LEAF_LAYOUT.default_fuzzable_field_names)
 """ pte_fuzz_leaf_fields: level-3 leaf-descriptor fields a decoy may vary on a spec-only page
