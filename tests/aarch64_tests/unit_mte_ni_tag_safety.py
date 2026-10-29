@@ -24,7 +24,6 @@ from src.config import CONF
 from src.isa_loader import InstructionSet
 from src import factory
 import src.aarch64.aarch64_executor as ni_mod
-from src.aarch64.aarch64_relocations import apply_relocations
 from tests.conf_isolation import setUpModule, tearDownModule  # noqa: F401  (restores CONF + cwd)
 
 _ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
@@ -97,19 +96,18 @@ class MteNiTagSafetyTest(unittest.TestCase):
         cls.mte_active = False
         for _ in range(_N_TCS):
             tc = gen.create_test_case(os.path.join(tmp, "t.asm"))
-            try:
-                ex.load_test_case(tc)
-            except NotImplementedError as e:   # MTE not yet on the GST path: skip until it is migrated
-                raise unittest.SkipTest(str(e))
+            ex.load_test_case(tc)
             for inp in igen.generate(_N_INPUTS):
                 resolved = ex._resolve(inp)
-                base_cer = ex._ce_trace(apply_relocations(resolved.object_code, list(resolved.genuine())), inp)
+                # One byte-identical object_code per variant; the variant is the GST image. The genuine
+                # image carries each access's cell tag, so tracing it reproduces the genuine arch run.
+                base_cer = ex._ce_trace(resolved.object_code, inp, simd=resolved.genuine())
                 cls.genuine.append(base_cer)
                 cls.mte_active = cls.mte_active or any(
                     ma.allocation_tag != 0xFF for ite in base_cer for ma in ite.metadata.accesses())
                 plans = ex._variants_for(resolved)
                 if resolved.has_decoy() and "decoy0" in plans:
-                    dec_cer = ex._ce_trace(apply_relocations(resolved.object_code, list(plans["decoy0"])), inp)
+                    dec_cer = ex._ce_trace(resolved.object_code, inp, simd=plans["decoy0"])
                     cls.decoy_pairs.append((base_cer, dec_cer))
 
     def test_genuine_baseline_is_arch_tag_clean(self):

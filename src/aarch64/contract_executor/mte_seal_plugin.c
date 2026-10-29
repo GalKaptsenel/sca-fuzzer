@@ -44,18 +44,25 @@ void mte_emulate_retag(struct simulation_state *sim_state, const struct emul_row
 		abort();
 	}
 	uint8_t cell = (uint8_t)(mte_tagmem_tag_at(ea) & 0xFu);     // tag of the granule the access touches
+	// The BFI sets the BASE register's tag, but the effective address's tag is base + index (a
+	// register-offset access carries the index's tag into the EA). Target the EA tag: the base tag that
+	// makes EA tag == cell is base_tag + (cell - ea_tag). For an immediate-offset access ea_tag ==
+	// base_tag, so this reduces to cell.
+	uint8_t base_tag = (uint8_t)((cpu_state_read_base_reg(cpu, get_rn(access)) >> 56) & 0xFu);
+	uint8_t ea_tag = (uint8_t)((ea >> 56) & 0xFu);
+	uint8_t applied = (uint8_t)((base_tag + cell - ea_tag) & 0xFu);
 	if (mte_tag_log_enabled()) {
-		fprintf(stderr, "MTERETAG side=CE off=0x%x ea=0x%lx gran=%ld cell=%u\n",
-			row->offset, (unsigned long)ea, ce_granule(ea), cell);
+		fprintf(stderr, "MTERETAG side=CE off=0x%x ea=0x%lx gran=%ld cell=%u base_tag=%u ea_tag=%u applied=%u\n",
+			row->offset, (unsigned long)ea, ce_granule(ea), cell, base_tag, ea_tag, applied);
 	}
-	// Inject the cell tag into the applied lane (genuine) and the re-converge lane; each is one byte
-	// (the 4-bit tag), read by the site's UMOV.b and inserted into the pointer tag [59:56] by BFI.
+	// Inject the applied tag into the applied lane (genuine) and the re-converge lane; each is one byte,
+	// read by the site's UMOV.b and inserted into the base register's tag [59:56] by BFI.
 	if (row->gst_offset >= sizeof(simulation.sim_input.simd) ||
 	    row->gst_offset2 >= sizeof(simulation.sim_input.simd)) {
 		fprintf(stderr, "[CE FATAL] mte_emulate_retag: gst_offset out of range -- aborting\n");
 		abort();
 	}
-	simulation.sim_input.simd[row->gst_offset]  = cell;
-	simulation.sim_input.simd[row->gst_offset2] = cell;
+	simulation.sim_input.simd[row->gst_offset]  = applied;
+	simulation.sim_input.simd[row->gst_offset2] = applied;
 }
 

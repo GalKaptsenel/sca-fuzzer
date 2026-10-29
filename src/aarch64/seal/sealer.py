@@ -497,38 +497,45 @@ def _wrong_sigs(correct_sig: int, mask: int, salt: int) -> List[int]:
 
 
 def _resolve_mte(s: MteSealing, cer, layout) -> Tuple[Optional[int], List[int], Optional[int]]:
-    """An MteSealing's applied tag from a trace: the accessed cell's allocation tag (the CE injects it
-    into the applied lane, so the genuine access's pointer tag matches), plus the mismatching tags a
-    decoy can apply. Prefer an architectural (nest==0) reach; fail loud if the site is reached
-    architecturally with disagreeing cell tags (one slot cannot carry two). A decoy tag of 0 or 15 is
-    excluded: TCR_EL1.TCMA1 makes an access through a tag-0b0000/0b1111 pointer Tag-UNCHECKED, so the
-    intended mismatch never happens and the decoy would behave identically to the genuine access.
+    """An MteSealing's applied base tag from a trace: the tag the slot's BFI puts on the base register so
+    the ACCESS's effective-address tag equals the accessed cell's allocation tag — which, for a
+    register-offset access, differs from the cell tag by the index's tag contribution. The genuine value
+    is the base-register tag observed at the access (the CE's inject already set it); a decoy applies a
+    different base tag. Prefer an architectural (nest==0) reach; fail loud on disagreeing arch tags.
+    A decoy whose resulting EA tag lands on 0 or 15 is excluded: TCR_EL1.TCMA1 makes such an access
+    Tag-UNCHECKED, so the mismatch never happens and the decoy would behave like the genuine access.
     (value, alts, spec_nesting)."""
     if not cer:
         return None, [], None
     access_off, code_base = layout.instruction_address[s.access_inst], cer[0].cpu.pc
-    arch_cells, first_cell, spec = set(), None, None
+    arch, first, spec = set(), None, None
     for ite in cer:
         off, nest = ite.cpu.pc - code_base, ite.metadata.speculation_nesting
         if ite.metadata.has_sandbox_memory_access and off == access_off:
-            c = ite.metadata.memory_access.allocation_tag      # the granule's tag the CE holds
-            if 0xFF == c:                                      # no tag modelled for this address
+            ma = ite.metadata.memory_access
+            if 0xFF == ma.allocation_tag:                      # no tag modelled for this address
                 continue
             if spec is None or nest < spec:
                 spec = int(nest)
-            c &= 0xF
-            first_cell = c if first_cell is None else first_cell
+            applied = (_read_reg(ite.cpu, s.value_reg) >> 56) & 0xF   # the base tag the inject set
+            # EA tag == cell here (the inject targeted it), so the index's tag contribution to the EA
+            # (EA tag - base tag) is cell - applied.
+            pair = (applied, ((ma.allocation_tag & 0xF) - applied) & 0xF)   # (base tag, index contribution)
+            first = pair if first is None else first
             if 0 == nest:
-                arch_cells.add(c)
-    if len(arch_cells) > 1:
+                arch.add(pair)
+    if len(arch) > 1:
         raise GeneratorException(
-            f"MTE site at offset {access_off} reached architecturally with disagreeing cell tags "
-            f"({sorted(arch_cells)}); cannot seal one applied tag")
-    cell = next(iter(arch_cells), first_cell)
-    if cell is None:                                           # unreached in the trace
+            f"MTE site at offset {access_off} reached architecturally with disagreeing tags "
+            f"({sorted(arch)}); cannot seal one applied tag")
+    chosen = next(iter(arch), first)
+    if chosen is None:                                         # unreached in the trace
         return None, [], spec
-    alts = [t for t in range(1, 15) if t != cell]
-    return cell, alts, spec
+    applied, index_contrib = chosen
+    # A decoy applies base tag t; the resulting EA tag is t + index_contrib. Offer the tags that differ
+    # from the genuine one AND whose EA tag is a genuinely-checked value (not TCMA-Unchecked 0/15).
+    alts = [t for t in range(16) if t != applied and (t + index_contrib) & 0xF not in (0, 15)]
+    return applied, alts, spec
 
 
 def _resolve_canon(s: "CanonSealing", cer, layout) -> Tuple[Optional[int], List[int], Optional[int]]:
