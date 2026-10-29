@@ -75,6 +75,13 @@ class Sealing(abc.ABC):
         `genuine`; None means "no perturbation" (encoded as 0)."""
         image.store(self.location, self.value.encode(0 if applied is None else applied))
 
+    def frozen_ranges(self, speculative: bool) -> List[range]:
+        """contract_driven taint: the GST byte ranges this seal keeps at the genuine value regardless of
+        boosting. An architecturally-consumed lane is frozen so the arch path is identical; a
+        speculative lane is left free (boosting varies it). A single-lane seal re-converges through its
+        own lane (EOR twice is identity), so its speculative lane is safe to leave free."""
+        return [] if speculative else [self.location.byte_range()]
+
 
 def _mask_window(masks: List[int]) -> Tuple[int, int]:
     """The (lo, nbits) bounding window of a pool of flip masks: lo is the lowest set bit across them,
@@ -132,6 +139,11 @@ class PacSealing(Sealing):
         if not self.strip:   # a strip site carries no signature lane
             super().store_into(image, applied, genuine)
 
+    def frozen_ranges(self, speculative: bool) -> List[range]:
+        # A strip site has no signature lane; a speculative AUT*'s forged bits are re-clamped before the
+        # next access, so its lane is safe to leave free.
+        return [] if self.strip else super().frozen_ranges(speculative)
+
     def emul_row(self, layout: "Aarch64ASMLayout") -> Optional[Tuple[int, int, int, int, int, int, int]]:
         """The PAC_AUTH row the CE uses to inject this site's signature, or None for a strip site. The op
         signs the pointer the committed AUT* reads and writes the PAC field, right-aligned, into the lane."""
@@ -169,6 +181,15 @@ class MteSealing(Sealing):
         image.store(self.location, self.value.encode(0 if applied is None else applied))
         if self._cell_location is not None:   # the re-converge lane always carries the genuine cell tag
             image.store(self._cell_location, self.value.encode(0 if genuine is None else genuine))
+
+    def frozen_ranges(self, speculative: bool) -> List[range]:
+        # The applied-tag lane is frozen only when architectural; the re-converge lane always carries the
+        # genuine cell tag and must stay frozen, or a speculative decoy's tag would cascade into a later
+        # architectural access and fault.
+        ranges = super().frozen_ranges(speculative)
+        if self._cell_location is not None:
+            ranges = ranges + [self._cell_location.byte_range()]
+        return ranges
 
     def emul_row(self, layout: "Aarch64ASMLayout") -> Tuple[int, int, int, int, int, int, int]:
         """The MTE_RETAG row the CE uses to inject the accessed cell's tag into the applied lane (and the

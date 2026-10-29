@@ -585,6 +585,12 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         # branch-target sealing corrupts indirect-call targets; its own flag (needs indirect calls)
         if CONF.enable_branch_target_sealing:
             self._primitives.add("branch_target")
+        # In contract_driven mode the seal values are ordinary fuzzed input (the GST lives in the input's
+        # SIMD subregion): boosting re-randomizes the speculative lanes while the architecturally-consumed
+        # lanes are frozen at their genuine values by the sealer-derived taint, so the architectural path
+        # behaves identically and only non-tainted (speculative) lanes vary. strict keeps the seal-variant
+        # model (genuine baseline vs sealer decoys).
+        self._contract_driven = CONF.speculative_exception_mode == "contract_driven"
         if "signext" in self._primitives and "pac" not in self._primitives:
             raise GeneratorException("enable_signext needs the PAC instruction category active")
         if not self._primitives and not CONF.enable_pte_fuzzing:
@@ -719,7 +725,23 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         reg_roles = self._reg_role_map()
         taints = [compute_taint(cer, reg_roles) for cer in ce_traces]
         ctraces = [compute_ctrace(cer) for cer in ce_traces]
+        if self._contract_driven:
+            for inp, taint in zip(inputs, taints):
+                self._freeze_arch_gst_lanes(inp, self._resolve(inp), taint)
         return ctraces, taints, ce_traces
+
+    def _freeze_arch_gst_lanes(self, inp: Input, resolved, taint: InputTaint) -> None:
+        """contract_driven: carry the GST in the input's SIMD subregion. Freeze each architecturally
+        consumed seal's lane at its genuine value (so the arch path is identical across boosted inputs)
+        and taint it so boosting preserves it; leave speculative-only lanes untainted so boosting
+        re-randomizes them — the speculative difference is the leak signal."""
+        genuine = np.frombuffer(resolved.genuine(), dtype=np.uint8)
+        simd = inp[0]['simd'].view(np.uint8)
+        simd_taint = taint[0]['simd'].view(np.uint8)
+        for e in resolved._entries:
+            for rng in e.sealing.frozen_ranges(e.speculative):
+                simd[rng.start:rng.stop] = genuine[rng.start:rng.stop]
+                simd_taint[rng.start:rng.stop] = 0xFF
 
     def _arch_tag_mismatches(self, cer: ContractExecutionResult) -> List[tuple]:
         """Architectural (speculation_nesting == 0) memory accesses whose pointer tag differs from the
@@ -858,7 +880,12 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         return self._trace_exec_inputs(exec_inputs, n_reps), [self.test_case] * len(exec_inputs)
 
     def as_executor_input(self, inp: Input) -> ExecutorInput:
-        """Convert one arch input into its sealed kernel input file — the regular fuzzer's boost seam."""
+        """Convert one arch input into its sealed kernel input file — the regular fuzzer's boost seam.
+        In contract_driven mode the GST is carried in the input's own SIMD subregion (gst=None ships it),
+        so boosting's re-randomised speculative lanes reach the hardware; strict ships the genuine image."""
+        if self._contract_driven:
+            return ExecutorInput(inp, gst=None, mte_tags=self._mte_tags_for(inp),
+                                 pac_keys=self._pac_keys_words(inp), bpu_training=self._bpu_entries(inp))
         return self._seal_input(inp)
 
     def _seal_input(self, inp: Input) -> ExecutorInput:
