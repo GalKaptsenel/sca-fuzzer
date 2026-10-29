@@ -1,9 +1,6 @@
-"""Input-initialized register storage for speculative-exception seal values.
+"""GlobalSealTable (GST): an in-register table of per-input seal values.
 
-A seal reads its per-input value from a register loaded from the input, not from spliced code. This
-module is the backend-agnostic storage: `SealInput` hands out `Location`s (where a value sits) and
-mints a per-input `Image` (the bytes). Only the concrete `VectorSealInput` knows it is vectors; the
-seal sees bits, a `Location`, and an `Image`.
+Like a GOT but in a register: a seal reads its value from the table (loaded from the input).
 """
 from abc import ABC, abstractmethod
 from typing import List
@@ -37,7 +34,7 @@ class Location(ABC):
 
 
 class Image(ABC):
-    """A fresh per-input store for one SealInput; filled, then serialized to its REIF section."""
+    """A fresh per-input store for the table; filled, then serialized to its REIF section."""
 
     @abstractmethod
     def store(self, location: Location, value: int) -> None:
@@ -48,13 +45,13 @@ class Image(ABC):
         """This image as the REIF section payload."""
 
 
-class SealInput(ABC):
+class GlobalSealTable(ABC):
     """Register storage for seal values; the backing registers (vector/GPR) and count are hidden.
-    Built with a bit capacity; raises SealInputCapacityExceeded when allocation exceeds it."""
+    Built with a bit capacity; raises GlobalSealTableCapacityExceeded when allocation exceeds it."""
 
     @abstractmethod
     def allocate(self, width: int) -> Location:
-        """Reserve `width` bytes; raise SealInputCapacityExceeded when the capacity is exhausted."""
+        """Reserve `width` bytes; raise on overflow."""
 
     @abstractmethod
     def blank_image(self) -> Image:
@@ -66,8 +63,8 @@ class SealInput(ABC):
         """Which REIF section an image of this file fills."""
 
 
-class SealInputCapacityExceeded(Exception):
-    """Allocation exceeded the file's capacity. Raised, never worked around."""
+class GlobalSealTableCapacityExceeded(Exception):
+    """Allocation exceeded the table's capacity."""
 
 
 class _VectorLocation(Location):
@@ -104,7 +101,7 @@ class _VectorImage(Image):
         return bytes(self._bytes)
 
 
-class VectorSealInput(SealInput):
+class VectorGlobalSealTable(GlobalSealTable):
     """Seal-value storage backed by the high vector registers (v31 down). `capacity_bits` is rounded
     up to whole registers; values are byte-aligned, top register first, never straddling one."""
 
@@ -125,7 +122,7 @@ class VectorSealInput(SealInput):
             self._reg -= 1
             start = 0
         if self._reg < self._lowest_reg:
-            raise SealInputCapacityExceeded(
+            raise GlobalSealTableCapacityExceeded(
                 f"capacity exhausted (v{self._lowest_reg}..v{TOP_REG}); cannot place {width} bytes")
         self._byte = start + lane
         return _VectorLocation(self._reg, start, lane)

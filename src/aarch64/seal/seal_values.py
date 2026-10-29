@@ -1,4 +1,4 @@
-"""The per-input values a seal reads from its SealInput, as an interface + one concrete per value.
+"""The per-input values a seal reads from the GST, as an interface + one concrete per value.
 
 A SealValue knows its width (bytes in the register) and how the fixed code applies it to a target
 register after it has been loaded into a scratch GPR. The numeric value itself is written into the
@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from typing import List
 
 from ...interfaces import Instruction, RegisterOperand, ImmediateOperand
-from .seal_input import Location
+from .global_seal_table import Location
 
 
 class SealValue(ABC):
