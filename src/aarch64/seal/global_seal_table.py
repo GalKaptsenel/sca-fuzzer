@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from typing import List
 
 from ...interfaces import Instruction, RegisterOperand, SIMD_SUBREGION_SIZE
-from ..reif import REIFSectionType
+from ..reif import REIFSection, SimdSection
 
 _UMOV_LANE = {1: "b", 2: "h", 4: "s", 8: "d"}       # read width (bytes) -> UMOV lane
 VECTOR_REG_BYTES = 16                                # one 128-bit register
@@ -33,16 +33,16 @@ class Location(ABC):
         """The value's byte offsets within this file's REIF section."""
 
 
-class Image(ABC):
-    """A fresh per-input store for the table; filled, then serialized to its REIF section."""
+class GSTImage(ABC):
+    """A fresh per-input fill of the table; filled, then handed to the REIF builder as a section."""
 
     @abstractmethod
     def store(self, location: Location, value: int) -> None:
         """Write `value` little-endian (truncated to the location's width) at `location`."""
 
     @abstractmethod
-    def to_bytes(self) -> bytes:
-        """This image as the REIF section payload."""
+    def to_section(self) -> REIFSection:
+        """This image as its REIF section."""
 
 
 class GlobalSealTable(ABC):
@@ -54,13 +54,8 @@ class GlobalSealTable(ABC):
         """Reserve `width` bytes; raise on overflow."""
 
     @abstractmethod
-    def blank_image(self) -> Image:
-        """A fresh, zeroed per-input store for this file."""
-
-    @property
-    @abstractmethod
-    def section(self) -> REIFSectionType:
-        """Which REIF section an image of this file fills."""
+    def blank_image(self) -> GSTImage:
+        """A fresh, zeroed per-input fill of this table."""
 
 
 class GlobalSealTableCapacityExceeded(Exception):
@@ -87,7 +82,7 @@ class _VectorLocation(Location):
         return range(base, base + self._width)
 
 
-class _VectorImage(Image):
+class _VectorGSTImage(GSTImage):
     def __init__(self) -> None:
         self._bytes = bytearray(SIMD_SUBREGION_SIZE)
 
@@ -97,8 +92,8 @@ class _VectorImage(Image):
         masked = value & ((1 << (8 * width)) - 1)
         self._bytes[rng.start:rng.stop] = masked.to_bytes(width, "little")
 
-    def to_bytes(self) -> bytes:
-        return bytes(self._bytes)
+    def to_section(self) -> REIFSection:
+        return SimdSection(bytes(self._bytes))
 
 
 class VectorGlobalSealTable(GlobalSealTable):
@@ -127,9 +122,5 @@ class VectorGlobalSealTable(GlobalSealTable):
         self._byte = start + lane
         return _VectorLocation(self._reg, start, lane)
 
-    def blank_image(self) -> Image:
-        return _VectorImage()
-
-    @property
-    def section(self) -> REIFSectionType:
-        return REIFSectionType.SIMD
+    def blank_image(self) -> GSTImage:
+        return _VectorGSTImage()

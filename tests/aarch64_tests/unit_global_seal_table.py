@@ -51,14 +51,16 @@ class VectorGlobalSealTableTest(unittest.TestCase):
         loc = f.allocate(2)
         img = f.blank_image()
         img.store(loc, 0xBEEF)
-        data = img.to_bytes()
+        data = img.to_section().content
         self.assertEqual(len(data), SIMD_SUBREGION_SIZE)
         off = loc.byte_range().start
         self.assertEqual(data[off:off + 2], b"\xef\xbe")
 
-    def test_section_is_simd(self):
-        from src.aarch64.reif import REIFSectionType
-        self.assertEqual(VectorGlobalSealTable(capacity_bits=128).section, REIFSectionType.SIMD)
+    def test_to_section_is_a_simd_section(self):
+        from src.aarch64.reif import SimdSection, REIFSectionType
+        section = VectorGlobalSealTable(capacity_bits=128).blank_image().to_section()
+        self.assertIsInstance(section, SimdSection)
+        self.assertEqual(section.type, REIFSectionType.SIMD)
 
 
 class LoadTest(unittest.TestCase):
