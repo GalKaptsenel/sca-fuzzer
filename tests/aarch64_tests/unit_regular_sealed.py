@@ -20,22 +20,8 @@ _ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 from src.config import CONF
 from src.isa_loader import InstructionSet
 from src.aarch64.aarch64_generator import Aarch64RandomGenerator
-from src.aarch64.aarch64_relocations import (
-    apply_relocations, read_word32, is_movk64, get_movk_imm16, get_movk_shift, is_addg, get_addg_tag,
-    is_xpac, NOP_WORD)
 from src.aarch64.seal.sealer import PacSealing, MteSealing
 from src import factory
-
-
-def _pac_movk_forged(words, value):
-    """True if any MOVK in the slot writes a 16-bit chunk that disagrees with the genuine signed
-    pointer `value` at that MOVK's own LSL. Shift-agnostic: reads the shift from each encoding, so it
-    holds wherever the PAC field lands (low or high bits) for the target's VA/TBI — no assumption that
-    the signature sits in the low 16 bits."""
-    if value is None:
-        return True
-    return any(is_movk64(w) and get_movk_imm16(w) != ((value >> get_movk_shift(w)) & 0xFFFF)
-               for w in words)
 
 _BASE = ["BASE-ARITH", "BASE-LOGICAL", "BASE-SHIFT", "BASE-BRANCH", "BASE-MEM-LOAD", "BASE-MEM-STORE"]
 
@@ -51,11 +37,30 @@ def _value_entries(ex, resolved):
     return [r for r in resolved._entries if id(r.sealing) in value_ids]
 
 
-def _slot_words(ex, variant_bytes, r):
-    """The variant's machine words at this entry's slot positions (offsets from the placeholder
-    layout; relocation rewrites words in place, so the offsets are variant-invariant)."""
-    layout = ex._sealed._layout
-    return [read_word32(variant_bytes, layout.instruction_address[i]) for i in r.sealing.slot_insts]
+def _lane(image, location):
+    """The little-endian value a seal's GST lane holds in `image` (a genuine()/decoy() SIMD image)."""
+    rng = location.byte_range()
+    return int.from_bytes(image[rng.start:rng.stop], "little")
+
+
+def _genuine_lane(s, value):
+    """What this seal's lane holds for the genuine `value`: its SealValue's encoding, truncated to the
+    lane width (exactly what the image stores)."""
+    width = len(s.location.byte_range())
+    return s.value.encode(value) & ((1 << (8 * width)) - 1)
+
+
+def _pac_forged(image, s, correct_sig):
+    """True if the PAC site's GST lane holds a signature other than the genuine one (correct_sig None
+    means the site was unreached — any stored signature is a forgery)."""
+    if correct_sig is None:
+        return True
+    return _lane(image, s.location) != _genuine_lane(s, correct_sig)
+
+
+def _mte_wrong(image, s, cell_tag):
+    """True if the MTE site's applied-tag lane holds a tag other than the accessed cell's tag."""
+    return _lane(image, s.location) != _genuine_lane(s, cell_tag or 0)
 
 
 _PROGRAM_SEED = 0x5EA1
@@ -153,37 +158,30 @@ class RegularSealedSealingTest(_ConfIsolated):
     def _has_value_slots(self, ex) -> bool:
         return bool(getattr(ex._sealed, "_pac", []) or getattr(ex._sealed, "_mte", []))
 
-    def _assert_arch_genuine(self, ex, resolved, tc, violations):
-        """Every architectural value slot in `tc` must carry the correct value (never a forgery)."""
+    def _assert_arch_genuine(self, ex, resolved, image, violations):
+        """Every architectural value slot's GST lane in `image` must carry the genuine value."""
         for r in _value_entries(ex, resolved):
             if r.speculative:
                 continue
-            words = _slot_words(ex, tc, r)
-            if isinstance(r.sealing, PacSealing):                 # PAC: every MOVK must be genuine
-                if _pac_movk_forged(words, r.value):
-                    violations.append(f"forged PAC on arch slot reg={r.sealing.value_reg}")
-            elif isinstance(r.sealing, MteSealing):               # MTE: the before-retag must be genuine
-                before = words[:r.sealing.n_before]
-                if any(is_addg(w) and get_addg_tag(w) != ((r.value or 0) % 16) for w in before):
-                    violations.append(f"forged MTE retag on arch slot reg={r.sealing.value_reg}")
-            # nop / xpac heads are arch-safe genuine encodings (strip / no-retag)
+            s = r.sealing
+            if isinstance(s, PacSealing):
+                if not s.strip and _pac_forged(image, s, r.value):   # a strip site carries no signature
+                    violations.append(f"forged PAC on arch slot reg={s.value_reg}")
+            elif isinstance(s, MteSealing):
+                if _mte_wrong(image, s, r.value):
+                    violations.append(f"wrong MTE tag on arch slot reg={s.value_reg}")
 
-    def _accumulate_coverage(self, ex, resolved, tc, cov):
+    def _accumulate_coverage(self, ex, resolved, image, cov):
         for r in _value_entries(ex, resolved):
-            words = _slot_words(ex, tc, r)
+            s = r.sealing
             if not r.speculative:
                 cov["arch_genuine"] += 1
-                continue
-            if words[0] == NOP_WORD and is_xpac(words[-1]):
+            elif isinstance(s, PacSealing) and s.strip:
                 cov["spec_strip"] += 1
-            elif isinstance(r.sealing, PacSealing) and _pac_movk_forged(words, r.value):
+            elif isinstance(s, PacSealing) and _pac_forged(image, s, r.value):
                 cov["spec_decoy"] += 1
-            elif is_addg(words[0]) and get_addg_tag(words[0]) != ((r.value or 0) % 16):
+            elif isinstance(s, MteSealing) and _mte_wrong(image, s, r.value):
                 cov["spec_decoy"] += 1
-            elif is_addg(words[0]) or words[0] == NOP_WORD:
-                # a speculative MTE slot may legitimately resolve to an alt that equals the genuine
-                # encoding (delta 0 -> nop); not counted as a distinct decoy.
-                pass
 
     def test_arch_genuine_spec_decoy_with_corner_cases(self):
         ex, gen = self._executor()
@@ -203,9 +201,9 @@ class RegularSealedSealingTest(_ConfIsolated):
             for inp in ig.generate(3):
                 resolved = ex._sealed.resolve(inp)               # fresh per-input resolve
                 for i in range(8):                               # many minted decoys (distinct seeds)
-                    decoy = apply_relocations(resolved.object_code, resolved.decoy(random.Random(i)))
-                    self._assert_arch_genuine(ex, resolved, decoy, violations)
-                    self._accumulate_coverage(ex, resolved, decoy, cov)
+                    image = resolved.decoy(random.Random(i))     # the per-variant GST image
+                    self._assert_arch_genuine(ex, resolved, image, violations)
+                    self._accumulate_coverage(ex, resolved, image, cov)
         self.assertEqual(violations, [], f"arch slots not genuine: {violations[:5]}")
         self.assertGreater(tcs, 0, "no sealable test cases generated")
         self.assertGreater(cov["arch_genuine"], 0, f"no arch slots seen ({cov})")
@@ -231,7 +229,7 @@ class RegularSealedSealingTest(_ConfIsolated):
         self.assertEqual(len(ctraces), len(inputs))
         by_class = defaultdict(list)
         for inp in inputs:
-            by_class[ex._sealed.resolve(inp).collapse_key].append(ex._seal_input(inp).code_reloc)
+            by_class[ex._sealed.resolve(inp).collapse_key].append(ex._seal_input(inp).gst)
         for plans in by_class.values():
             self.assertTrue(all(p == plans[0] for p in plans),
                             "same-class inputs must run the identical program")
@@ -245,8 +243,8 @@ class RegularSealedSealingTest(_ConfIsolated):
             inputs, _ = self._seal_a_tc(ex, gen)
             for inp in inputs:
                 resolved = ex._sealed.resolve(inp)
-                plan = ex._seal_input(inp).code_reloc
-                self.assertEqual(plan, ex._seal_input(inp).code_reloc, "must be deterministic")
+                plan = ex._seal_input(inp).gst
+                self.assertEqual(plan, ex._seal_input(inp).gst, "must be deterministic")
                 if prob == 0.0:
                     self.assertEqual(plan, resolved.genuine(), "prob 0 must be genuine everywhere")
 
