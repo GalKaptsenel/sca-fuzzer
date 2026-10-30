@@ -12,8 +12,8 @@ a TLB walk / cache miss with light averaging. All harnesses run as an ordinary u
 |---|---|---|---:|---:|---:|
 | **L1D** | canon | F+R, random line, majority | 1 | 0.995 | **2.30 M** |
 | L1D | aut | F+R, random line, majority | 1 | 0.995 | 2.27 M |
-| **dTLB** | canon | victim-probe, stable-cal | 120 | 1.000 | **8 403** |
-| dTLB | aut | victim-probe, stable-cal | 120 | 1.000 | 8 442 |
+| **dTLB** | canon | victim-probe, stable-cal (NPRIME 64) | 40 | ≥0.998 | **~52 000** |
+| dTLB | aut | victim-probe, stable-cal (NPRIME 64) | 40 | ≥0.993 | ~51 000 |
 | **iTLB** | canon | 40-page sled, reverse-probe (NPRIME 64) | 30 | ~0.99 | **~5 900** |
 | iTLB | aut | 40-page sled, reverse-probe (NPRIME 64) | 12 | ≥0.993 | **~14 800** |
 | **BTB** (generic, which-set) | — | set-recovery, dwell-timing | REPEAT 48 | 100/100 | ≈2K (3 bits/round) |
@@ -152,7 +152,8 @@ event (hence it needs averaging), and returns the same verdict. Rootless == PMU.
 ## Why the rates differ by medium
 
 Same shape as the PMU matrix: cache ≫ TLB ≫ sled/branch. L1D is a single flushed line (one fast reload,
-reps=1 → ~2 M bits/s). dTLB is a tiny single-page walk-latency delta (needs averaging → ~8 K). The iTLB
+reps=1 → ~2 M bits/s). dTLB is a single-page walk-latency delta (needs averaging; ~52 K at reps40 with
+the eviction set right-sized to the ~56-entry dTLB — NPRIME 64, not 256). The iTLB
 sled, with the eviction set right-sized to the ~56-entry iTLB (NPRIME 64, not 128): canon ~5.9K @ reps30,
 aut ~14.8K @ reps12 (aut needs fewer reps — `autiza` sends the reject to a genuinely different kernel
 page, a cleaner split than canon's `[54:48]` flip). The generic BTB is a which-of-8 recovery, 3 bits/round.
