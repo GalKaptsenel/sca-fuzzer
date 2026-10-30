@@ -5,6 +5,14 @@ cost of the speculative-exception instrument (sealing + genuine/decoy variants +
 is isolated. This is the *fuzzer's* speed, a different metric from the covert-channel bits/s in
 `rate_table.md`.
 
+**Workload (identical across all rows unless stated):** `min_bb_per_function = max_bb_per_function = 5`
+(so exactly **5 basic blocks** per test-case function, 1–2 successors each); **contract =
+`contract_execution_clause: [cond, bpas]`** — i.e. Spectre-v1 conditional-branch misprediction (`cond`)
+plus Spectre-v4 store-bypass (`bpas`); `enable_speculative_store_bypass: true`. Instruction categories:
+BASE arith/logical/shift/bitfield/condsel/branch/mem-load/mem-store. These are held fixed; only `fuzzer`
+and `speculative_exception_mode` vary between rows. Throughput depends on BB count and contract, so
+numbers here are only comparable to runs with the same two settings.
+
 ## Two numbers, and why they diverge
 
 - **tc/s** — test cases generated + measured per second. One test case = one program; the fuzzer
