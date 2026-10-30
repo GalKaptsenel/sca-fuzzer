@@ -375,3 +375,19 @@ NET: every AUT* cross-boundary cell has a matching canon result. iTLB and L3 are
 (canon == aut, 100%). dTLB canon leaks cleanly via the [54:48] channel (5159 b/s xel, 100%); the only
 asymmetry is that a 1-bit-55 non-canonical is too weak for the dTLB (but fine for the sled-amplified iTLB
 and cross-core L3), whereas autiza rejection is crisp everywhere.
+
+## Operating-point caveat: the aut_bit55 matrix row is NOT at its rate floor
+
+"Why is xel dTLB canon (5159) so different from aut (617)?" -- it ISN'T a channel difference. The two were
+measured at different operating points: the aut_bit55 matrix row is frozen at the unoptimized default
+samples=400 (1 bit/round), while canon dTLB was pushed to its floor samples=32 (16-bit secret, setup
+amortized). Same boundary, same medium, the dTLB behaves identically. Apples-to-apples (aut_bit55 harness,
+xel dTLB, 20 rounds, all 100%):
+    samples 400 -> 604 b/s
+    samples  64 -> 3729 b/s
+    samples  32 -> 7485 b/s   <- aut xel dTLB floor, a touch FASTER than canon 5159 (1-bit scoring is
+                                cleaner per bit than 16-bit)
+So at the same samples, aut ~= canon (both ~kHz, 100%). The rate is set by averaging depth, not by the
+gadget. CONSEQUENCE: the "PROVEN AUT* matrix" and "PROVEN CANON matrix" rows above are at samples=400 and
+are NOT maxima -- the per-cell floors (min-samples-for-100%) are ~10x higher. Treat those rows as a
+comparable fixed-samples snapshot, not as peak bandwidth.
