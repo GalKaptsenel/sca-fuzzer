@@ -249,3 +249,18 @@ Same-process BTB (canon/capacity mechanism, 3 bits/round @ 100%) = ~1.9K bits/s.
 BTB is a separate mechanism (shift55_btb2 target-inheritance) whose clean signal is accessibility-via-blr
 (L1D), not a BTB-set readout, so it is not a distinct BTB rate. Revised within-process BTB row: canon
 ~1.9K bits/s (VALIDATED via game.c); btb_capacity.c retired as a failed reinvention.
+
+## ATTRIBUTION FIX: within-process BTB number is the MEDIUM, not "canon"
+
+A follow-up measured within-process BTB via `game.c` (~/bpu_re_spec_aliasing/pac_leak_disclosure/pocs/
+btb_prime_probe/) and labelled it "canon ~1.9K". That label is WRONG and is corrected here:
+- `game.c` is a GENERIC BTB prime+probe set-recovery channel: the victim COOPERATIVELY encodes a secret
+  into WHICH BTB set its indirect branch falls in (K=8, 3 bits/round); the attacker recovers it via
+  BR_MIS_PRED_RETIRED (0x10), with a negative control (decoy set -> chance) and a probe-order control.
+  There is NO autiza and NO canonicality gadget. Independently re-verified: 100/100, 300 bits in 0.296s
+  => ~1K bits/s (the ~1.9K figure excludes the control passes; same order).
+- So the honest cell is **BTB same-process MEDIUM capacity ~1-2K bits/s (VALIDATED, 100%)** — NOT
+  canon·BTB. The canonicality-specific and AUT*-specific BTB leaks same-process remain NOT isolated
+  (their BR_MIS_PRED signal is buried under the ~2-mispredict/stub return/RSB baseline; confirmed 0.5).
+- BTB boundary pattern for the medium: same-process ~1-2K >> VM->host ~83 >> cross-process ~29 bits/s;
+  the boundary-crossing coordination cost dominates (the raw same-process BTB channel is fast).
