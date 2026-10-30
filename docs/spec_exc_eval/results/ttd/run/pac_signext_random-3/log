@@ -1,0 +1,34 @@
+
+WARNING: [fuzzer] Running in speculative-exception mode.
+
+WARNING: [executor] no PAC profile in the config: using the current machine's -- pac_qarma_version=3, pac_generic_qarma_version=3, pac_auth_level=5, va_size0=48, va_size=48, pac_tbi0=True, pac_tbi1=True, pac_tbid0=False, pac_tbid1=True, pac_constpacfield=True, pac_mtx0=False, pac_mtx1=False
+
+INFO: [fuzzer] Starting at 12:38:03
+
+INFO: [fuzzer] seeds — program:902218 input:1546272106
+ → slow path…[K → priming 1…[K → sample 50…[K⟳ P+P  1 tc · 1s · 0.63 tc/s · 4425.4 traces/s · 0 filtered · 0 violations[K⟳ P+P  2 tc · 2s · 0.89 tc/s · 3531.9 traces/s · 1 filtered · 0 violations[K⟳ P+P  3 tc · 2s · 1.08 tc/s · 3213.8 traces/s · 2 filtered · 0 violations[K⟳ P+P  4 tc · 3s · 1.19 tc/s · 2968.1 traces/s · 3 filtered · 0 violations[K⟳ P+P  5 tc · 3s · 1.30 tc/s · 2843.7 traces/s · 4 filtered · 0 violations[K⟳ P+P  6 tc · 4s · 1.36 tc/s · 2709.6 traces/s · 5 filtered · 0 violations[K⟳ P+P  7 tc · 4s · 1.46 tc/s · 2694.0 traces/s · 6 filtered · 0 violations[K⟳ P+P  8 tc · 5s · 1.53 tc/s · 2669.8 traces/s · 7 filtered · 0 violations[K⟳ P+P  9 tc · 5s · 1.63 tc/s · 2530.5 traces/s · 8 filtered · 0 violations[K⟳ P+P  10 tc · 6s · 1.66 tc/s · 2485.4 traces/s · 9 filtered · 0 violations[K⟳ P+P  11 tc · 6s · 1.69 tc/s · 2447.3 traces/s · 10 filtered · 0 violations[K⟳ P+P  12 tc · 6s · 1.72 tc/s · 2342.9 traces/s · 11 filtered · 0 violations[K⟳ P+P  13 tc · 7s · 1.75 tc/s · 2268.2 traces/s · 12 filtered · 0 violations[K⟳ P+P  14 tc · 7s · 1.80 tc/s · 2162.8 traces/s · 13 filtered · 0 violations[K⟳ P+P  15 tc · 8s · 1.79 tc/s · 2126.6 traces/s · 14 filtered · 0 violations[K⟳ P+P  16 tc · 8s · 1.81 tc/s · 2126.4 traces/s · 15 filtered · 0 violations[K⟳ P+P  17 tc · 9s · 1.79 tc/s · 2083.1 traces/s · 16 filtered · 0 violations[K⟳ P+P  18 tc · 10s · 1.79 tc/s · 2043.9 traces/s · 17 filtered · 0 violations[K⟳ P+P  19 tc · 10s · 1.82 tc/s · 2040.0 traces/s · 18 filtered · 0 violations[K⟳ P+P  20 tc · 10s · 1.82 tc/s · 2032.5 traces/s · 19 filtered · 0 violations[K⟳ P+P  21 tc · 11s · 1.83 tc/s · 1988.2 traces/s · 20 filtered · 0 violations[K⟳ P+P  22 tc · 11s · 1.85 tc/s · 1999.0 traces/s · 21 filtered · 0 violations[K⟳ P+P  23 tc · 12s · 1.86 tc/s · 1974.2 traces/s · 22 filtered · 0 violations[K⟳ P+P  24 tc · 13s · 1.84 tc/s · 1950.0 traces/s · 23 filtered · 0 violations[K⟳ P+P  25 tc · 13s · 1.85 tc/s · 1953.3 traces/s · 24 filtered · 0 violations[K⟳ P+P  26 tc · 13s · 1.89 tc/s · 1917.0 traces/s · 25 filtered · 0 violations[K⟳ P+P  26 tc · 13s · 1.89 tc/s · 1917.0 traces/s · 25 filtered · 0 violations → slow path…[K⟳ P+P  27 tc · 14s · 1.84 tc/s · 1934.6 traces/s · 25 filtered · 0 violations[K⟳ P+P  28 tc · 14s · 1.88 tc/s · 1908.7 traces/s · 26 filtered · 0 violations[K⟳ P+P  29 tc · 15s · 1.86 tc/s · 1881.9 traces/s · 27 filtered · 0 violations[K⟳ P+P  30 tc · 15s · 1.89 tc/s · 1855.5 traces/s · 28 filtered · 0 violations[K⟳ P+P  31 tc · 16s · 1.91 tc/s · 1822.1 traces/s · 29 filtered · 0 violations[K⟳ P+P  32 tc · 16s · 1.92 tc/s · 1827.6 traces/s · 30 filtered · 0 violations[K⟳ P+P  33 tc · 17s · 1.91 tc/s · 1823.2 traces/s · 31 filtered · 0 violations[K⟳ P+P  34 tc · 17s · 1.94 tc/s · 1795.3 traces/s · 32 filtered · 0 violations[K⟳ P+P  35 tc · 17s · 1.97 tc/s · 1768.6 traces/s · 33 filtered · 0 violations[K⟳ P+P  36 tc · 18s · 1.98 tc/s · 1779.9 traces/s · 34 filtered · 0 violations[K⟳ P+P  36 tc · 18s · 1.98 tc/s · 1779.9 traces/s · 34 filtered · 0 violations → slow path…[K⟳ P+P  36 tc · 18s · 1.98 tc/s · 1779.9 traces/s · 34 filtered · 0 violations → priming 4…[K⟳ P+P  36 tc · 18s · 1.98 tc/s · 1779.9 traces/s · 34 filtered · 0 violations → sample 50…[K⟳ P+P  36 tc · 18s · 1.98 tc/s · 1779.9 traces/s · 34 filtered · 0 violations → priming 4…[K⟳ P+P  36 tc · 18s · 1.98 tc/s · 1779.9 traces/s · 34 filtered · 0 violations → sample 100…[K⟳ P+P  36 tc · 18s · 1.98 tc/s · 1779.9 traces/s · 34 filtered · 0 violations → priming 4…[K⟳ P+P  36 tc · 18s · 1.98 tc/s · 1779.9 traces/s · 34 filtered · 0 violations → sample 500…[K⟳ P+P  36 tc · 18s · 1.98 tc/s · 1779.9 traces/s · 34 filtered · 0 violations → priming 4…[K
+================================ Statistics ===================================
+
+Test Cases: 37
+Inputs per test case: 100.0
+Violations: 1
+Effectiveness: 
+  Total Cls: 44.1
+  Effective Cls: 44.1
+Discarded Test Cases:
+  Speculation Filter: 0
+  Observation Filter: 0
+  Fast Path: 34
+  Max Nesting Check: 1
+  Tainting Check: 0
+  Priming swap-test (early): 0
+  Large Sample Check: 1
+  Priming swap-test: 0
+Hardware Tracing Errors: 0
+
+Duration: 39.3
+Traces/s: 3805.9
+Finished at 12:38:42
+
+Re-run this exact session:
+  python3 revizor.py fuzz -s base.json -c docs/spec_exc_eval/results/ttd/run/pac_signext_random-3/rerun.yaml -n 99999 -i 50 --nonstop -w docs/spec_exc_eval/results/ttd/run/pac_signext_random-3

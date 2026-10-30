@@ -1,0 +1,44 @@
+
+WARNING: [fuzzer] Running in speculative-exception mode.
+
+INFO: [fuzzer] Starting at 12:18:12
+
+INFO: [fuzzer] seeds — program:424242 input:424242
+⟳ P+P  1 tc · 0s · 9.10 tc/s · 0.0 traces/s · 1 filtered · 0 violations[K⟳ P+P  2 tc · 0s · 7.29 tc/s · 0.0 traces/s · 2 filtered · 0 violations[K⟳ P+P  2 tc · 0s · 7.29 tc/s · 0.0 traces/s · 2 filtered · 0 violations → slow path…[K
+INFO: [fuzzer] cross-input priming (any localizer, self-dependent + cross-input): localizing 2 candidate(s)
+
+INFO: [fuzzer] cross-input priming: no leaking pair -> false positive
+⟳ P+P  3 tc · 39s · 0.08 tc/s · 5685.8 traces/s · 2 filtered · 0 violations[K⟳ P+P  3 tc · 39s · 0.08 tc/s · 5685.8 traces/s · 2 filtered · 0 violations → slow path…[K
+INFO: [fuzzer] cross-input priming (any localizer, self-dependent + cross-input): localizing 4 candidate(s)
+
+INFO: [fuzzer] cross-input priming: no leaking pair -> false positive
+⟳ P+P  4 tc · 1m11s · 0.06 tc/s · 5690.5 traces/s · 2 filtered · 0 violations[K⟳ P+P  4 tc · 1m11s · 0.06 tc/s · 5690.5 traces/s · 2 filtered · 0 violations → slow path…[K
+INFO: [fuzzer] cross-input priming (any localizer, self-dependent + cross-input): localizing 5 candidate(s)
+
+INFO: [fuzzer] cross-input priming: CONFIRMED cross-input leak, leaking pair 40 -> detecting pair 44
+
+================================ Statistics ===================================
+
+Test Cases: 5
+Inputs per test case: 200.0
+Violations: 1
+Effectiveness: 
+  Total Cls: 49.7
+  Effective Cls: 49.7
+Discarded Test Cases:
+  Speculation Filter: 0
+  Observation Filter: 0
+  Fast Path: 2
+  Max Nesting Check: 0
+  Tainting Check: 0
+  Priming swap-test (early): 2
+  Large Sample Check: 0
+  Priming swap-test: 0
+Hardware Tracing Errors: 0
+
+Duration: 114.1
+Traces/s: 5654.9
+Finished at 12:20:06
+
+Re-run this exact session:
+  python3 revizor.py fuzz -s base.json -c docs/spec_exc_eval/results/ttd/run/canon_branch_random-1/rerun.yaml -n 99999 -i 50 --nonstop -w docs/spec_exc_eval/results/ttd/run/canon_branch_random-1

@@ -1,0 +1,20 @@
+# TTD results (K=3 trials, timeout=180s)  Fri Oct 30 12:17:09 UTC 2026
+canon_branch_template trial1: TTD=19.389954 tc_at_detect=1
+canon_branch_template trial2: TTD=18.606362 tc_at_detect=1
+canon_branch_template trial3: TTD=19.300971 tc_at_detect=1
+canon_branch_random trial1: TTD=114.129814 tc_at_detect=5
+canon_branch_random trial2: TTD=120.606484 tc_at_detect=5
+canon_branch_random trial3: TTD=116.874396 tc_at_detect=5
+canon_load_template trial1: TTD=19.259687 tc_at_detect=1
+canon_load_template trial2: TTD=19.285824 tc_at_detect=1
+canon_load_template trial3: TTD=19.239708 tc_at_detect=1
+canon_load_random trial1: TTD=49.278768 tc_at_detect=97
+canon_load_random trial2: TTD=46.931391 tc_at_detect=91
+canon_load_random trial3: TTD=27.612507 tc_at_detect=25
+pac_signext_template trial1: TTD=NONE(>180s) tc_at_detect=NA
+pac_signext_template trial2: TTD=NONE(>180s) tc_at_detect=NA
+pac_signext_template trial3: TTD=NONE(>180s) tc_at_detect=NA
+pac_signext_random trial1: TTD=13.02209 tc_at_detect=3
+pac_signext_random trial2: TTD=88.469042 tc_at_detect=149
+pac_signext_random trial3: TTD=39.265462 tc_at_detect=37
+# DONE Fri Oct 30 12:38:42 UTC 2026

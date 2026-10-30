@@ -1,0 +1,36 @@
+instruction_set: aarch64
+fuzzer: speculative-exception
+speculative_exception_mode: strict
+input_generator: aarch64-nzcv
+executor_mode: P+P
+program_size: 24
+max_functions_per_test_case: 8
+max_calls_per_function: 1
+max_successors_per_bb: 2
+min_successors_per_bb: 1
+instruction_categories:
+- BASE-ARITH
+- BASE-LOGICAL
+- BASE-SHIFT
+- BASE-CONDSEL
+- BASE-BRANCH
+- BASE-MEM-LOAD
+- BASE-MEM-STORE
+enable_branch_target_sealing: true
+branch_target_seal_misalign: true
+enable_speculative_store_bypass: true
+contract_execution_clause:
+- cond
+- bpas
+model_min_nesting: 1
+model_max_nesting: 30
+enable_pre_run_flush: false
+executor_pinned_core: -1
+executor_sample_sizes:
+- 100
+- 500
+enable_cross_input_priming: true
+cross_input_priming_localizer: any
+inputs_per_class: 4
+program_generator_seed: 424242
+input_gen_seed: 424242

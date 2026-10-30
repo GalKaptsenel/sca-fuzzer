@@ -109,3 +109,27 @@ differing by one `autiza`. The **medium sets the rate** across ~4.5 orders of ma
 same-thread boundary: **L1D ~9e5 ≫ iTLB ~5e3 > dTLB ~2e3** bits/s. For the paper's canon-vs-AUT\*
 comparison, they are equal-rate primitives; the channel medium, not the authentication trick, sets
 throughput. (LLC/L2 still to add; canon×iTLB is a real negative; BTB is a separate cross-process boundary.)
+
+## COMPLETE TABLE (final, min-samples-for-≥99%, N3 core 8)
+
+| technique | L1D | LLC (L2) | iTLB | dTLB | BTB |
+|-----------|-----|----------|------|------|-----|
+| **AUT\***       | **943K** @reps3 | **770K** @reps3 | **5.3K** @reps50 | **2.2K** @reps150 | n/a‡ |
+| **canon**       | **944K** @reps3 | **764K** @reps3 | no leak† | **2.2K** @reps150 | **28** @s200§ |
+
+All cells ≥99% single-bit accuracy at the stated min samples; bits recovered over a known alternating
+0/1 sequence (0.5 = no leak). Same-thread (intra-EL0) for L1D/LLC/iTLB/dTLB; BTB is EL0→EL0 cross-process.
+LLC(L2) probe: L1D eviction set (24 lines at the victim's [11:6] set, distinct pages → evict L1, keep L2)
++ `L2D_CACHE_REFILL` (0x17). PoCs: `rate_harness.c` (L1D), `llc_rate.c` (L2), `shift55_itlb_rate.c` (iTLB),
+`tlb_rate.c` (dTLB), `canon_leak --mode xproc` (BTB).
+
+- ‡ AUT\*×BTB n/a (`autiza` canonicalizes both → no BTB signal). † canon×iTLB genuine non-leak (a
+  non-canonical fetch still probes the iTLB; AUT\*×iTLB leaks via the EL0-unfetchable kernel redirect,
+  a privilege effect). § BTB is a different (cross-process) boundary.
+
+### FINAL FINDING
+Where both techniques leak (L1D, LLC, dTLB) they are **equal within noise** — AUT\* vs canon: 943K≈944K,
+770K≈764K, 2.2K≈2.2K — exactly as expected from a one-`autiza` difference. The **medium sets the rate**,
+dominated by probe cost: cache single-reload probes (L1D 943K, L2 770K) ≫ TLB prime-set probes
+(iTLB 5.3K, dTLB 2.2K) ≫ cross-process BTB (28). For the paper's canon-vs-AUT\* comparison, the two are
+**equal-rate primitives**; the channel medium, not the authentication trick, sets throughput.

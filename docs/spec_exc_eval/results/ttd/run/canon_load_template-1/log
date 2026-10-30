@@ -1,0 +1,32 @@
+
+WARNING: [fuzzer] Running in speculative-exception mode.
+
+INFO: [fuzzer] Starting at 12:24:08
+
+INFO: [fuzzer] seeds — program:611774 input:2012088247
+ → slow path…[K → priming 47…[K → sample 50…[K → priming 47…[K → sample 100…[K → priming 47…[K → sample 500…[K → priming 47…[K
+================================ Statistics ===================================
+
+Test Cases: 1
+Inputs per test case: 100.0
+Violations: 1
+Effectiveness: 
+  Total Cls: 50.0
+  Effective Cls: 50.0
+Discarded Test Cases:
+  Speculation Filter: 0
+  Observation Filter: 0
+  Fast Path: 0
+  Max Nesting Check: 0
+  Tainting Check: 0
+  Priming swap-test (early): 0
+  Large Sample Check: 0
+  Priming swap-test: 0
+Hardware Tracing Errors: 0
+
+Duration: 19.3
+Traces/s: 6074.8
+Finished at 12:24:27
+
+Re-run this exact session:
+  python3 revizor.py fuzz -s base.json -c docs/spec_exc_eval/results/ttd/run/canon_load_template-1/rerun.yaml -n 99999 -i 50 --nonstop -w docs/spec_exc_eval/results/ttd/run/canon_load_template-1

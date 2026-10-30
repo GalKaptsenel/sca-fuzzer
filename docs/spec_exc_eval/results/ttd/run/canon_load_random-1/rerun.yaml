@@ -1,0 +1,25 @@
+instruction_set: aarch64
+instruction_categories:
+- BASE-ARITH
+- BASE-LOGICAL
+- BASE-SHIFT
+- BASE-BITFIELD
+- BASE-CONDSEL
+- BASE-BRANCH
+- BASE-MEM-LOAD
+- BASE-MEM-STORE
+min_bb_per_function: 5
+max_bb_per_function: 5
+max_successors_per_bb: 2
+min_successors_per_bb: 1
+fuzzer: speculative-exception
+speculative_exception_mode: strict
+input_generator: aarch64-nzcv
+enable_canonicality: true
+canonicality_seal_prob: 1.0
+enable_speculative_store_bypass: true
+contract_execution_clause:
+- cond
+- bpas
+program_generator_seed: 537135
+input_gen_seed: 4073738850

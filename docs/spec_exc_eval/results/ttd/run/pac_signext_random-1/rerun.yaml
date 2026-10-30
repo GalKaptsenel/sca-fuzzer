@@ -1,0 +1,26 @@
+instruction_set: aarch64
+instruction_categories:
+- PAC
+- BASE-ARITH
+- BASE-LOGICAL
+- BASE-SHIFT
+- BASE-BITFIELD
+- BASE-CONDSEL
+- BASE-BRANCH
+- BASE-MEM-LOAD
+- BASE-MEM-STORE
+min_bb_per_function: 5
+max_bb_per_function: 5
+max_successors_per_bb: 2
+min_successors_per_bb: 1
+fuzzer: speculative-exception
+speculative_exception_mode: strict
+input_generator: aarch64-nzcv
+pac_seal_prob: 1.0
+pac_strip_prob: 0.0
+enable_signext: true
+signext_seal_prob: 1.0
+contract_execution_clause:
+- cond
+program_generator_seed: 584418
+input_gen_seed: 308983509
