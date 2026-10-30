@@ -81,3 +81,31 @@ two things:
 clear-[54:48] canon gadget, the per-page/eviction-set differentials — not a shortcut; no sub-99% or
 chance number is reported as a rate. The headline finding is unchanged and rests on the validated cells:
 **medium sets the rate (~2000× L1D vs iTLB); technique is within noise.**
+
+## WORKING TABLE (min-samples-for-≥99% methodology, N3 core 8)
+
+Per cell, samples/reps swept to the MINIMUM that clears ≥99% single-bit accuracy; bits/s reported there
+(min-samples = the medium's intrinsic cost). Built from the proven PoCs (`rate_harness` L1D,
+`shift55_itlb_rate` iTLB, `tlb_rate` dTLB with the fixed `0x05` L1D_TLB_REFILL event + a [55:48]
+non-canonical mask for canon, `canon_leak --mode xproc` BTB). Bits recovered over a known alternating
+0/1 sequence (0.5 = no leak).
+
+| technique | L1D | iTLB | dTLB | LLC(L2) | BTB |
+|-----------|-----|------|------|---------|-----|
+| **AUT\***       | **943K** @reps3,1.00 | **5.3K** @reps50,0.99 | **2.2K** @reps150,1.00 | pending | n/a‡ |
+| **canon**       | **944K** @reps3,1.00 | no leak†             | **2.2K** @reps150,1.00 | pending | **28** @s200,1.00§ |
+
+- ‡ AUT\*×BTB n/a: `autiza` canonicalizes both hypotheses → no BTB signal (disclosure "Law").
+- † canon×iTLB is a genuine NON-leak: a non-canonical *fetch* still speculatively probes the iTLB
+  (c0≈c1 at all reps), so set/mismatch-[55:48] does not gate it. AUT\*×iTLB leaks only because `autiza`
+  redirects bit=1 to a high-half KERNEL address EL0 cannot fetch — a privilege effect, not canonicality.
+- § BTB is EL0→EL0 cross-process (`xproc`); a different boundary from the same-thread L1D/iTLB/dTLB cells.
+- Event bug fixed (`0x25` L1D_TLB access → `0x05` L1D_TLB_REFILL); the canon-dTLB fix was the broader
+  [55:48] non-canonical mask (bit-55-alone did not fast-reject on the TLB).
+
+### Finding (confirmed across media)
+Where both techniques leak (L1D, dTLB) they are **dead equal** (943K≈944K; 2.2K≈2.2K) — consistent with
+differing by one `autiza`. The **medium sets the rate** across ~4.5 orders of magnitude on a fixed
+same-thread boundary: **L1D ~9e5 ≫ iTLB ~5e3 > dTLB ~2e3** bits/s. For the paper's canon-vs-AUT\*
+comparison, they are equal-rate primitives; the channel medium, not the authentication trick, sets
+throughput. (LLC/L2 still to add; canon×iTLB is a real negative; BTB is a separate cross-process boundary.)
