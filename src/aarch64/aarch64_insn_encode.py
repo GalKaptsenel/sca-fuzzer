@@ -1,8 +1,5 @@
-"""AArch64 machine-code manipulation: rewrite instruction-word immediate fields, and splice fixed
-words into a pre-assembled base (relocation)."""
-from enum import Enum
-from typing import List, NamedTuple
-
+"""AArch64 machine-code manipulation: rewrite instruction-word immediate fields (the encode side of
+aarch64_disasm.py)."""
 
 NOP_WORD = 0xD503201F
 
@@ -120,40 +117,3 @@ _AUT_OPCODES = {
 def aut_word(mnemonic: str, rd: int, rn: int) -> int:
     """AUT* over Rd with Rn as context (rn=31 for the Z-variants, which take no context)."""
     return _AUT_OPCODES[mnemonic] | ((rn & 0x1F) << 5) | (rd & 0x1F)
-
-
-def read_word32(data: bytes, offset: int) -> int:
-    if offset < 0 or offset + 4 > len(data):
-        raise ValueError(f"read offset {offset} out of range (len {len(data)})")
-    return int.from_bytes(data[offset:offset + 4], "little")
-
-
-# ---- relocation: splice fixed little-endian words into a byte skeleton --------------------------
-
-class RelocType(Enum):
-    WORD32 = 1
-
-
-class Relocation(NamedTuple):
-    offset: int
-    value: int
-    rtype: RelocType = RelocType.WORD32
-
-
-def apply_relocations(base: bytes, relocs: List[Relocation]) -> bytes:
-    """`base` with every relocation applied; never mutates `base`. Rejects out-of-range offsets,
-    values wider than the slot, and overlapping edits rather than silently corrupting."""
-    out = bytearray(base)
-    written: List[int] = []
-    for r in relocs:
-        if r.rtype is not RelocType.WORD32:
-            raise ValueError(f"unsupported relocation type {r.rtype}")
-        if r.offset < 0 or r.offset + 4 > len(out):
-            raise ValueError(f"relocation offset {r.offset} out of range (len {len(out)})")
-        if r.value < 0 or r.value > 0xFFFFFFFF:
-            raise ValueError(f"relocation value 0x{r.value:x} does not fit 32 bits")
-        if any(abs(r.offset - w) < 4 for w in written):
-            raise ValueError(f"overlapping relocation at offset {r.offset}")
-        written.append(r.offset)
-        out[r.offset:r.offset + 4] = r.value.to_bytes(4, "little")
-    return bytes(out)

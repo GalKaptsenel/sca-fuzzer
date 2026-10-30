@@ -1,7 +1,6 @@
 import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))  # run from any cwd
 import unittest
-from src.aarch64.aarch64_relocations import (
-    RelocType, Relocation, apply_relocations, read_word32,
+from src.aarch64.aarch64_insn_encode import (
     get_imm_field, set_imm_field, is_movk64, set_movk_imm16, get_movk_imm16,
     xpac_word, addg_word, movk_word, aut_word, NOP_WORD,
     is_xpac, is_addg, get_addg_tag)
@@ -10,44 +9,6 @@ from src.aarch64.aarch64_generator import Aarch64Generator
 
 def _asm_word(text: str) -> int:
     return int.from_bytes(Aarch64Generator.in_memory_assemble(text)[:4], "little")
-
-
-class RelocationMechanismTest(unittest.TestCase):
-    def test_word32_overwrites_and_leaves_base_untouched(self):
-        base = bytes(range(16))
-        out = apply_relocations(base, [Relocation(4, 0xAABBCCDD)])
-        self.assertEqual(out[4:8], (0xAABBCCDD).to_bytes(4, "little"))
-        self.assertEqual(out[:4], base[:4])
-        self.assertEqual(out[8:], base[8:])
-        self.assertEqual(base, bytes(range(16)))  # base not mutated
-
-    def test_multiple_relocations_apply_in_place(self):
-        base = bytes(12)
-        out = apply_relocations(base, [Relocation(0, 0x11111111), Relocation(8, 0x22222222)])
-        self.assertEqual(read_word32(out, 0), 0x11111111)
-        self.assertEqual(read_word32(out, 4), 0)
-        self.assertEqual(read_word32(out, 8), 0x22222222)
-
-    def test_out_of_range_offset_raises(self):
-        with self.assertRaises(ValueError):
-            apply_relocations(bytes(8), [Relocation(6, 0)])
-
-    def test_unknown_type_raises(self):
-        bad = Relocation(0, 0, rtype=object())  # type: ignore[arg-type]
-        with self.assertRaises(ValueError):
-            apply_relocations(bytes(4), [bad])
-
-    def test_value_too_wide_raises(self):
-        with self.assertRaises(ValueError):
-            apply_relocations(bytes(8), [Relocation(0, 0x1_0000_0000)])
-
-    def test_overlapping_relocations_raise(self):
-        with self.assertRaises(ValueError):
-            apply_relocations(bytes(8), [Relocation(0, 1), Relocation(2, 2)])
-
-    def test_read_word32_out_of_range_raises(self):
-        with self.assertRaises(ValueError):
-            read_word32(bytes(6), 4)
 
 
 class MovkBitSurgeryTest(unittest.TestCase):

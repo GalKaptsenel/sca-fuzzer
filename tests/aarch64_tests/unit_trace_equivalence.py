@@ -11,7 +11,6 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 from src.config import CONF
-from src.aarch64.aarch64_relocations import apply_relocations
 from src.aarch64.aarch64_trace import compute_ctrace, compute_taint
 import tests.aarch64_tests.ce_equivalence as eq
 

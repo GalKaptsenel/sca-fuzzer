@@ -24,7 +24,6 @@ from src.isa_loader import InstructionSet
 from src.aarch64.aarch64_generator import Aarch64RandomGenerator
 from src.aarch64.aarch64_executor import Aarch64SpeculativeExceptionExecutor
 from src.aarch64.aarch64_kernel import PacKeys
-from src.aarch64.aarch64_relocations import apply_relocations
 from src.aarch64.aarch64_disasm import disassemble_instruction
 from src.aarch64.seal.pac import _AUTH_TO_PAC, _AUTH_TO_XPAC, _read_reg
 from src import factory

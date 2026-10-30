@@ -14,7 +14,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from src.config import CONF
-from src.aarch64.aarch64_relocations import eor_imm_word, NOP_WORD
+from src.aarch64.aarch64_insn_encode import eor_imm_word, NOP_WORD
 from src.aarch64.seal import sealer as S
 from src.aarch64.aarch64_target_desc import INDIRECT_CALL_TARGET_REGISTER as TGT
 from tests.conf_isolation import setUpModule, tearDownModule  # noqa: F401  (restores CONF + cwd)

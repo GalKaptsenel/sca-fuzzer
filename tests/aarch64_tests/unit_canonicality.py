@@ -17,7 +17,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from src.config import CONF
-from src.aarch64.aarch64_relocations import (encode_bitmask_imm64, eor_imm_word, NOP_WORD, Relocation)
+from src.aarch64.aarch64_insn_encode import (encode_bitmask_imm64, eor_imm_word, NOP_WORD)
 from src.aarch64.aarch64_generator import Aarch64Generator
 from src.aarch64.seal import sealer as S
 from tests.conf_isolation import setUpModule, tearDownModule  # noqa: F401  (restores CONF + cwd)
@@ -169,41 +169,6 @@ class ResolveCanonTest(unittest.TestCase):
         _, _, spec = self._resolve([_Ite(0x100, 0, False)])
         self.assertIsNone(spec)
         self.assertTrue(S._Resolved(self.sealing, None, self.pool, spec).speculative)
-
-
-@unittest.skip("obsolete: sealer uses GlobalSealTable now; see unit_canon_gst.py")
-class GenuineDecoyTest(unittest.TestCase):
-    """genuine keeps the slot canonical (NOPs); decoy flips+reverts a speculative-only slot with one
-    chosen pool mask; an architectural slot is never perturbed."""
-
-    def setUp(self):
-        self.pool = [1 << 47, 1 << 48, 1 << 49]
-        self.object_code = b"\x00" * 8
-
-    def _resolved(self, spec_nesting):
-        s = S.CanonSealing("x1", object(), self.pool, revert=True)   # 2-word slot (flip + revert)
-        entry = S._Resolved(s, None, self.pool, spec_nesting)
-        offsets = {id(s): (0, 4)}
-        return S.ResolvedSealingTestCase([entry], self.object_code, offsets, salt=123, cer=None)
-
-    def test_genuine_all_nop(self):
-        r = self._resolved(spec_nesting=3)
-        self.assertEqual(r.genuine(), (Relocation(0, NOP_WORD), Relocation(4, NOP_WORD)))
-
-    def test_decoy_flips_and_reverts_speculative_slot(self):
-        r = self._resolved(spec_nesting=3)
-        relocs = r.decoy(random.Random(1))
-        self.assertEqual(len(relocs), 2)
-        (o0, w0), (o1, w1) = (relocs[0].offset, relocs[0].value), (relocs[1].offset, relocs[1].value)
-        self.assertEqual((o0, o1), (0, 4))
-        self.assertNotEqual(w0, NOP_WORD, "decoy flips (EOR), not NOP")
-        self.assertEqual(w0, w1, "flip and revert use the SAME mask -> base restored (re-converge)")
-        chosen = [eor_imm_word(1, 1, m) for m in self.pool]
-        self.assertIn(w0, chosen, "the flip is one of the pool masks")
-
-    def test_decoy_leaves_architectural_slot_canonical(self):
-        r = self._resolved(spec_nesting=0)   # architectural -> not decoy-eligible
-        self.assertEqual(r.decoy(random.Random(1)), (Relocation(0, NOP_WORD), Relocation(4, NOP_WORD)))
 
 
 if __name__ == "__main__":

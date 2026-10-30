@@ -18,7 +18,6 @@ import numpy as np
 from ..interfaces import (Input, InputFragment, MAIN_AREA_SIZE, FAULTY_AREA_SIZE, GPR_SUBREGION_SIZE,
                           SIMD_SUBREGION_SIZE)
 from .aarch64_input_layout import NZCVScheme
-from .aarch64_relocations import Relocation
 from .seal.environment import EnvironmentPlan, serialize_pte_overrides, deserialize_pte_overrides
 
 # --- mirror of executor_input_format.h --------------------------------------------------------
@@ -31,7 +30,6 @@ SEC_GPR = 0x03
 SEC_SIMD = 0x04
 SEC_PAC_KEYS = 0x05
 SEC_MTE_TAGS = 0x06
-SEC_CODE_RELOC = 0x07
 SEC_BPU_TRAINING = 0x08
 SEC_PTE_SETTINGS = 0x09         # per-variant page-table environment (see seal/environment.py)
 
@@ -42,8 +40,6 @@ _ALIGN = 8
 MTE_GRANULE = 16                # bytes per allocation tag (matches kernel MTE_GRANULE_SIZE)
 MTE_TAG_COUNT = (MAIN_AREA_SIZE + FAULTY_AREA_SIZE) // MTE_GRANULE   # tags over the main|faulty span
 PAC_KEYS_WORDS = 10             # = struct pac_keys / ce_pac_keys: 5 keys * {lo,hi}
-CODE_RELOC_TERMINATOR = 0xFFFFFFFF   # matches REVISOR_CODE_RELOC_TERMINATOR
-MAX_CODE_RELOCS = 256                # matches REVISOR_INPUT_MAX_CODE_RELOCS
 BPU_TRAIN_TERMINATOR = 0xFFFFFFFF    # matches REVISOR_BPU_TRAIN_TERMINATOR
 MAX_BPU_TRAIN = 64                   # matches REVISOR_INPUT_MAX_BPU_TRAIN
 # ----------------------------------------------------------------------------------------------
@@ -114,22 +110,6 @@ def _pack_pac_keys(keys: Sequence[int]) -> bytes:
     return struct.pack(f"<{PAC_KEYS_WORDS}Q", *keys)
 
 
-def _pack_code_reloc(relocs: Sequence) -> bytes:
-    """Pack (offset, value) WORD32 relocations followed by an all-ones terminator (matches struct
-    revisor_code_reloc_entry / REVISOR_CODE_RELOC_TERMINATOR)."""
-    if len(relocs) > MAX_CODE_RELOCS:
-        raise ValueError(f"{len(relocs)} code relocations exceed the {MAX_CODE_RELOCS} cap")
-    out = bytearray()
-    for r in relocs:
-        if 0 != r.offset % 4 or not 0 <= r.offset < CODE_RELOC_TERMINATOR:
-            raise ValueError(f"bad code relocation offset {r.offset}")
-        if not 0 <= r.value <= 0xFFFFFFFF:
-            raise ValueError(f"code relocation value 0x{r.value:x} does not fit 32 bits")
-        out += struct.pack("<II", r.offset, r.value)
-    out += struct.pack("<II", CODE_RELOC_TERMINATOR, CODE_RELOC_TERMINATOR)
-    return bytes(out)
-
-
 def _pack_bpu_training(entries: Sequence) -> bytes:
     """Pack (byte_offset, train_taken) branch-training entries followed by an all-ones terminator
     (matches struct revisor_bpu_train_entry / REVISOR_BPU_TRAIN_TERMINATOR)."""
@@ -147,7 +127,6 @@ def _pack_bpu_training(entries: Sequence) -> bytes:
 def build_input_init(main: bytes, faulty: bytes, gpr: bytes, simd: Optional[bytes] = None, *,
                      mte_tags: Optional[Sequence[int]] = None,
                      pac_keys: Optional[Sequence[int]] = None,
-                     code_reloc: Optional[Sequence] = None,
                      bpu_training: Optional[Sequence] = None,
                      env_plan: Optional[EnvironmentPlan] = None) -> bytes:
     """Assemble a REIF file from the raw section payloads. `gpr` is the final 64-byte GPR section (flags
@@ -165,8 +144,6 @@ def build_input_init(main: bytes, faulty: bytes, gpr: bytes, simd: Optional[byte
         sections.append((SEC_MTE_TAGS, _pack_mte_tags(mte_tags)))
     if pac_keys is not None:
         sections.append((SEC_PAC_KEYS, _pack_pac_keys(pac_keys)))
-    if code_reloc is not None:
-        sections.append((SEC_CODE_RELOC, _pack_code_reloc(code_reloc)))
     if bpu_training is not None:
         sections.append((SEC_BPU_TRAINING, _pack_bpu_training(bpu_training)))
     # The per-variant run environment (see seal/environment.py). The encoder owns the section id;
@@ -178,12 +155,11 @@ def build_input_init(main: bytes, faulty: bytes, gpr: bytes, simd: Optional[byte
 
 @dataclass(frozen=True)
 class ExecutorInput:
-    """One REIF input: an architectural `Input` plus the executor-only sections (relocations, MTE
-    tags, PAC keys, branch training)."""
+    """One REIF input: an architectural `Input` plus the executor-only sections (MTE tags, PAC keys,
+    branch training)."""
     wire_extension = "reif"     # serialize() writes the REIF wire format; save it under this extension
 
     input_: Input
-    code_reloc: Tuple[Relocation, ...] = ()
     mte_tags: Optional[Sequence[int]] = None
     pac_keys: Optional[Sequence[int]] = None
     bpu_training: Tuple[Tuple[int, bool], ...] = ()
@@ -200,7 +176,6 @@ class ExecutorInput:
                                 frag[faulty_off:faulty_off + FAULTY_AREA_SIZE],
                                 _gpr_section(frag), simd,
                                 mte_tags=self.mte_tags, pac_keys=self.pac_keys,
-                                code_reloc=self.code_reloc if self.code_reloc else None,
                                 bpu_training=self.bpu_training if self.bpu_training else None,
                                 env_plan=self.env_plan)
 
@@ -278,9 +253,6 @@ def deserialize(blob: bytes) -> ExecutorInput:
         type_, _sf, off, length = struct.unpack_from("<4Q", blob, _PREAMBLE_LEN + i * _SECTION_DESC_LEN)
         sections[type_] = blob[off:off + length]
 
-    code_reloc = tuple(Relocation(off, val)
-                       for off, val in _unpack_terminated_pairs(sections.get(SEC_CODE_RELOC, b""),
-                                                                CODE_RELOC_TERMINATOR))
     bpu_training = tuple((off, bool(taken))
                          for off, taken in _unpack_terminated_pairs(sections.get(SEC_BPU_TRAINING, b""),
                                                                     BPU_TRAIN_TERMINATOR))
@@ -292,6 +264,6 @@ def deserialize(blob: bytes) -> ExecutorInput:
 
     arch_input = _arch_input_from_sections(sections)
     arch_input.pac_keys = None if pac_keys is None else tuple(pac_keys)   # keys belong to the input
-    return ExecutorInput(arch_input, code_reloc=code_reloc,
+    return ExecutorInput(arch_input,
                          mte_tags=mte_tags, pac_keys=pac_keys, bpu_training=bpu_training,
                          env_plan=env_plan)

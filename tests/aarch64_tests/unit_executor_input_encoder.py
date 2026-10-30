@@ -12,14 +12,8 @@ import os, sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..",
 from src.interfaces import (Input, InputFragment, MAIN_AREA_SIZE, FAULTY_AREA_SIZE,
                             GPR_SUBREGION_SIZE, SIMD_SUBREGION_SIZE)
 from src.aarch64.aarch64_input_layout import NZCVScheme
-from src.aarch64.aarch64_relocations import Relocation
 from src.aarch64.aarch64_input_generator import AArch64InputGenerator
 from src.aarch64 import aarch64_executor_input_encoder as wire
-
-
-def _rand_relocs(rng, n):
-    offs = rng.choice(np.arange(0, 4 * (n + 8), 4), size=n, replace=False)
-    return tuple(Relocation(int(o), int(rng.integers(0, 1 << 32))) for o in offs)
 
 
 def _rand_bpu(rng, n):
@@ -176,13 +170,11 @@ class InputWireRoundTrip(unittest.TestCase):
 
     def test_wire_round_trip_all_sections(self):
         ei = wire.ExecutorInput(self._input_with_valid_nzcv(3),
-                                code_reloc=(Relocation(0, 0xdeadbeef), Relocation(8, 0x1234)),
                                 mte_tags=[i % 16 for i in range(wire.MTE_TAG_COUNT)],
                                 pac_keys=list(range(100, 110)),
                                 bpu_training=((0, True), (4, False)))
         back = wire.deserialize(ei.serialize())
         self.assertEqual(back.input_.tobytes(), ei.input_.tobytes())
-        self.assertEqual(back.code_reloc, ei.code_reloc)
         self.assertEqual(back.mte_tags, ei.mte_tags)
         self.assertEqual(back.pac_keys, ei.pac_keys)
         self.assertEqual(back.bpu_training, ei.bpu_training)
@@ -192,7 +184,6 @@ class InputWireRoundTrip(unittest.TestCase):
         ei = wire.ExecutorInput(self._input_with_valid_nzcv(4))
         back = wire.deserialize(ei.serialize())
         self.assertEqual(back.input_.tobytes(), ei.input_.tobytes())
-        self.assertEqual(back.code_reloc, ())
         self.assertIsNone(back.mte_tags)
         self.assertIsNone(back.pac_keys)
         self.assertEqual(back.bpu_training, ())
@@ -209,14 +200,6 @@ class InputWireRoundTrip(unittest.TestCase):
             back = wire.deserialize(ei.serialize())
             self.assertEqual(back.input_.tobytes(), inp.tobytes())
             self.assertEqual(back.serialize(), ei.serialize())
-
-    def test_round_trip_random_relocations(self):
-        rng = np.random.default_rng(1)
-        inp = AArch64InputGenerator(1).generate(1)[0]
-        for n in (0, 1, 5, wire.MAX_CODE_RELOCS):
-            relocs = _rand_relocs(rng, n)
-            back = wire.deserialize(wire.ExecutorInput(inp, code_reloc=relocs).serialize())
-            self.assertEqual(back.code_reloc, relocs)
 
     def test_round_trip_random_mte_tags(self):
         rng = np.random.default_rng(2)
@@ -239,13 +222,11 @@ class InputWireRoundTrip(unittest.TestCase):
             rng = np.random.default_rng(1000 + seed)
             inp = AArch64InputGenerator(seed).generate(1)[0]
             ei = wire.ExecutorInput(inp,
-                                    code_reloc=_rand_relocs(rng, int(rng.integers(0, 12))),
                                     mte_tags=_rand_mte(rng),
                                     pac_keys=_rand_pac(rng),
                                     bpu_training=_rand_bpu(rng, int(rng.integers(0, 12))))
             back = wire.deserialize(ei.serialize())
             self.assertEqual(back.input_.tobytes(), ei.input_.tobytes())
-            self.assertEqual(back.code_reloc, ei.code_reloc)
             self.assertEqual(back.mte_tags, ei.mte_tags)
             self.assertEqual(back.pac_keys, ei.pac_keys)
             self.assertEqual(back.bpu_training, ei.bpu_training)
