@@ -194,7 +194,13 @@ boundary-crossing latency per leak → tens–hundreds b/s. iTLB same-thread is 
 approximate. The cross-EL dTLB (xel) reaching ≥99% at only 50 samples is a cleaner (differential) probe
 than the same-thread 96-page prime.
 
-## FINAL RE-VERIFIED TABLE (fresh pass, N3 core 8, min-samples for *stable* ≥99%)
+## RE-VERIFIED SAME-THREAD TABLE (N3 core 8, min-samples for *stable* ≥99%)
+
+> ⚠️ SUPERSEDED ON THREE CELLS by the cross-boundary sections below (via the proven `aut_bit55` PoC):
+> the "L3 NOT ACHIEVED" here is WRONG — L3 leaks **cross-core** (26 b/s, 100%); "iTLB canon no stable
+> rate" is a same-thread-probe limit — canon·iTLB leaks cleanly **cross-EL** (434 b/s, 100%); and
+> "BTB within-proc NOT ACHIEVED" was a reinvented probe — the BTB *medium* same-process is ~1.9K
+> (`game.c`). The same-thread cache/TLB rates below stand; the "not achieved" lines do not.
 
 Every cell re-measured this pass over a known alternating 0/1 sequence (0.5 = no leak). "min-samples" is
 the smallest per-bit averaging that holds ≥99% across repeats (the earlier lucky single-run mins were
@@ -274,7 +280,13 @@ reloaded (verified param=1). Attacker (canon_leak --mode xel) unchanged (same dT
 - cross-EL dTLB · AUT\*  : samples 50, bits/s 3271, 99.4% (sanity, canon_mode=0)
 Technique-equal across the privilege boundary too (3270 ≈ 3271).
 
-## Cross-EL (EL2→EL0) iTLB — GENUINE NEGATIVE (iTLB is EL-partitioned)
+## Cross-EL (EL2→EL0) iTLB — ⚠️ RETRACTED (this section's "negative" is WRONG; the iTLB DOES leak cross-EL)
+
+**RETRACTED — do not cite this as a result.** The "genuine negative" below was a bug in the reinvented
+`el2_itlb.c` probe (missing jump-sled), NOT a channel property. The proven `aut_bit55` harness shows
+cross-EL iTLB LEAKS: AUT\* ~447–894 b/s and canon ~434 b/s, both 100% (see "RETRACTED #1" / the canon
+counterparts table further down). Kept only as a record of the mistake; the real number is in the
+cross-boundary matrix.
 
 Built the EL2-victim iTLB: added a speculative-FETCH gadget to dtlb_leak.ko (itlb_mode=1: blr to a
 mapped-exec kernel stub, bit-gated identically to the dTLB load — AUT* bit55+autiza / canon [54:48] flip)
