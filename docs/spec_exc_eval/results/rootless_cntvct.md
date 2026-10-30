@@ -51,6 +51,38 @@ off-channel leak). The harnesses are `l1d_cntvct.c`, `tlb_victim_cntvct.c` (dtlb
    **dwell-time** readout (time the W probe branches per set; the victim-polluted set mispredicts and so
    runs slower) and recovers 100/100 with the controls intact.
 
+## Cross-EL and cross-process (contention channels): blocked by the timer resolution
+
+The same-EL0 channels above all read a **resident-vs-flushed** signal: bit0 leaves the line/page in a
+cache or TLB (fast), bit1 leaves it in **memory** (slow). On this N3 that is an easy split for cntvct:
+measured **L1-hit = 35, L2-hit = 39, memory = 155 ticks**, and cntvct's granularity is ~10 ticks.
+
+The **cross-EL (EL2→EL0)** and **cross-process** channels are different in kind — they are **contention**
+channels. The attacker cannot name the victim's target (it lives in the kernel module / another address
+space), so there is no victim-probe; the only readout is reverse-probing the attacker's own eviction set
+to see that the victim displaced one entry. That displacement moves a line **L1→L2**, i.e. 35→39 ticks —
+**below cntvct's resolution**. So the rootless cntvct readout reads chance (measured: xel centroids ≈ 0
+for L1D/dTLB/iTLB; success 40–65% and not improving with samples). The root PMU reproduces these fine
+because `L1D_CACHE_REFILL` counts the L1→L2 refill as a discrete event regardless of its ~4-tick cost.
+
+This is a **hardware timer limit, not a channel or effort limit**: it is not fixable by more samples or a
+better probe structure. The legitimate rootless path for the contention channels is a **counting-thread
+timer** (a sibling thread spinning on a shared counter — the technique TikTag uses on the Pixel), whose
+resolution is far finer than cntvct and can resolve L1↔L2. That is a separate subsystem, not built here.
+Scaffold: `channel.c` has a `-DROOTLESS` build (cntvct threshold-count) in `~/arm-disclosure`
+(`aut_bit55/`), which confirms the resolution wall above; it is WIP, not a working cross-EL result.
+
+## Matrix gap status (so no cell is silently blank)
+
+- **EL2→EL0 BTB** — N/A: CSV2 blocks cross-privilege BTB target injection (same reason AUT*×BTB is n/a
+  cross-ASID). Not a measurement gap, a hardware negative.
+- **xcore (2 cores) L1D / L2 / dTLB / iTLB / BTB** — N/A by topology: those structures are per-core;
+  two cores share only the L3. That is why the xcore row carries L3 alone.
+- **same-thread canon/AUT* BTB** — confirmed negative (0.500 on both rootless and root PMU); only the
+  generic which-set BTB exists same-process (≈2K b/s).
+- **cross-EL / cross-process L1D/dTLB/iTLB rootless** — unmeasured with cntvct; blocked by the timer
+  resolution (above). Needs a counting-thread timer.
+
 ## Cross-validation against the root PMU (verify, don't trust the timer)
 
 A PMU victim-probe with the exact `L1D_TLB_REFILL` event (0x05), same structure as the rootless dtlb
