@@ -7,12 +7,29 @@ field **[54:48]** so the address is non-canonical iff the secret bit says so. In
 bit 55 of a fresh per-round value, and a v4 store-bypass transient makes the access iff the resulting
 address is canonical/authentic (→ a footprint) or fast-rejects it (→ none).
 
-All cells re-measured 2026-10-30, N3. Success is over a known 0/1 oracle (0.50 = no leak). Rates are
-wall-clock `bits/s` at the stated per-bit averaging (`samples`/`reps`); the rate scales ≈ 1/samples, so
-cross-cell comparisons hold samples fixed. Harnesses (all proven, no reinvention): `aut_bit55/aut_leak`
-(+aut_xel.ko) for the cross-boundary matrix; `bit_shift_canon/{rate_harness,llc_rate,shift55_itlb_rate}`
-for the inline same-thread cache peaks; `cross_boundary/canon_leak` (+dtlb_leak.ko) for cross-process /
-VM→host / cross-EL; `btb_prime_probe/game.c` for same-process BTB.
+All cells re-measured 2026-10-30, N3. Success is over a known 0/1 oracle (0.50 = no leak). Harnesses
+(all proven, no reinvention): `aut_bit55/aut_leak` (+aut_xel.ko) for the cross-boundary matrix;
+`bit_shift_canon/{rate_harness,llc_rate,shift55_itlb_rate}` for the inline same-thread cache peaks;
+`cross_boundary/canon_leak` (+dtlb_leak.ko) for cross-process / VM→host / cross-EL; `btb_prime_probe/game.c`
+for same-process BTB.
+
+## Methodology — how each rate is defined
+
+Each covert-channel transmission sends **one secret bit**; the attacker recovers it by averaging the
+microarchitectural probe over `samples` (a.k.a. `reps`) repetitions of that bit (majority / differential).
+More samples ⇒ higher recovery accuracy but lower throughput (wall-clock time per bit grows), so there is
+a speed/reliability trade-off. We define the rate as the operating point at the knee of that trade-off:
+
+> **For each cell (medium × technique × boundary): sweep `samples`, find the MINIMUM `samples` that still
+> achieves ≥99% single-bit recovery success, and report the wall-clock `bits/s` at that minimum.**
+
+`bits/s ≈ (1 bit) / (time per bit at the min-samples)`, i.e. rate scales ≈ 1/samples, so a cell's number
+is its fastest *reliable* (≥99%) rate, not a lucky single-shot. **One caveat for comparability:** the
+cross-boundary rows (xthread / xcore / xel / cross-process / VM→host) are reported at a **fixed
+`samples=400` snapshot** rather than each cell's own floor — this holds `samples` constant so the
+*cross-cell* comparison is apples-to-apples; the true per-cell min-samples floors are ~10× faster (e.g.
+xel dTLB is 603 b/s @ s400 but 7485 b/s @ its s32 floor). The same-thread cache rows ARE at their
+min-samples floor (`reps≈3`). "chance / no leak" means no `samples` count reaches ≥99% (0.50 ≈ coin).
 
 ## Master table (bits/s @ samples, success)
 
