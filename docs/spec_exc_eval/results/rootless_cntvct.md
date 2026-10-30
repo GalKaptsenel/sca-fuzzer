@@ -103,6 +103,22 @@ Harnesses: `arm-disclosure/pocs/cross_boundary/` — `canon_leak` (xproc/xvm/xel
 666 /dev/dtlb_leak`) — the privileged *victim* is inherent to a cross-privilege experiment; the *attacker*
 readout is what is rootless.
 
+## Same-thread canon/AUT* via a speculative INDIRECT BRANCH (the branch/BTB path)
+
+Reading the canon/AUT* secret through a speculative **`blr`** same-thread, not a load — three outcomes,
+all rootless cntvct, which together pin down exactly what the branch path can and cannot do same-thread:
+
+| carrier → readout | technique | result | why |
+|---|---|---|---|
+| `blr` → **L1D** (gadget touches a line) | **AUT\*** | **works — 2.27M b/s @reps1 / 747K @reps3** | `autiza` sends the wrong case to a different (kernel) page → gadget not reached |
+| `blr` → L1D | canon | **cannot** | non-canonical `[54:48]` target and the canonical one hit the **same physical gadget line** (front-end fetches on low bits) → both touch R |
+| `blr` → **iTLB** (24-page sled) | **canon & AUT\*** | **works — ~1.1K b/s** | iTLB is **VA-tagged**, so canonical vs non-canonical sled pages are *different* iTLB entries → separable (this is the `itlb_sled` channel above) |
+
+So **same-thread canon-via-branch does work** — through the iTLB (VA-tagged), 1.1K b/s; AUT\*-via-branch
+also works through L1D at ~MHz rates. The branch front-end does not gate on `[54:48]` for the *fetch*
+itself, which is why canon needs a VA-tagged structure (iTLB) rather than the physically-tagged L1D.
+Harness: `btb_branch_canon_cntvct.c`.
+
 ## Matrix gap status (so no cell is silently blank)
 
 - **EL2→EL0 BTB** — N/A: CSV2 blocks cross-privilege BTB target injection (same reason AUT*×BTB is n/a
@@ -118,7 +134,11 @@ readout is what is rootless.
   separate context that contends for the shared per-core BTB ways (and the context switch churns the BTB),
   but same-thread the primed entries stay fresh and one inline victim branch does not displace them. The
   generic which-set BTB (`game.c`, varying branch *site* → pollutes different sets) does work same-process
-  (≈2K b/s) — a different mechanism.
+  (≈2K b/s) — a different mechanism. **Note the scope:** only the pure-BTB *eviction* readout needs the
+  cross-domain boundary. Same-thread canon/AUT* *via a speculative indirect branch* DOES leak when read
+  through a footprint — AUT* `blr`→L1D at ~MHz, canon `blr`→iTLB at ~1.1K (see the branch-path section
+  above). So "same-thread BTB is absent" applies specifically to allocate-vs-reject eviction, not to the
+  speculative-branch channel in general.
 - **cross-EL / cross-process L1D/dTLB/iTLB rootless** — unmeasured with cntvct; blocked by the timer
   resolution (above). Needs a counting-thread timer.
 
