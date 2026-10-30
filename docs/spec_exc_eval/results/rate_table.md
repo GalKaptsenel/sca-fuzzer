@@ -193,3 +193,41 @@ Notes: same-thread cache (L1D/L2) needs only ~3 samples (strong single-shot) →
 boundary-crossing latency per leak → tens–hundreds b/s. iTLB same-thread is eviction-noisy so ~150 is
 approximate. The cross-EL dTLB (xel) reaching ≥99% at only 50 samples is a cleaner (differential) probe
 than the same-thread 96-page prime.
+
+## FINAL RE-VERIFIED TABLE (fresh pass, N3 core 8, min-samples for *stable* ≥99%)
+
+Every cell re-measured this pass over a known alternating 0/1 sequence (0.5 = no leak). "min-samples" is
+the smallest per-bit averaging that holds ≥99% across repeats (the earlier lucky single-run mins were
+raised where they didn't reproduce). Rates are wall-clock bits/s at that min-samples.
+
+SAME-THREAD (within-process), cache/TLB:
+- L1D   · AUT\*  : samples 3,  bits/s 944K,  100%  (reps1-2 noisy 0.90-0.99, reps3 stable)   [VALIDATED]
+- L1D   · canon : samples 3,  bits/s 1.03M, 100%                                              [VALIDATED]
+- L2(pr)· AUT\*  : samples 3,  bits/s 770K,  100%  (c0=3 c1=0)                                 [VALIDATED]
+- L2(pr)· canon : samples 3,  bits/s 796K,  100%  (c0=3 c1=0)                                 [VALIDATED]
+- dTLB  · AUT\*  : samples 150, bits/s 2.2K,  100%  (c0=8457 c1=8264; reps50=94.8% marginal)   [VALIDATED]
+- dTLB  · canon : samples 150, bits/s 2.2K,  100%  (c0=8445 c1=8273; needs [55:48] mask)       [VALIDATED]
+- iTLB  · AUT\*  : samples 150, bits/s 1.8K,  100%  (total-miss probe; reps50 97-100% marginal) [VALIDATED]
+- iTLB  · canon : LEAKS (victim-probe: c0=150 c1=50-66, 99% when eviction lands) but the victim
+                  eviction is only ~50% reliable run-to-run -> NO STABLE RATE                  [LEAK PROVEN, RATE NOT STABLE]
+- L3    · both  : NOT ACHIEVED (112MB shared across 96 cores; cross-core eviction between access and
+                  probe; blind >L2 sweep stuck 0.64-0.90, VA eviction set can't isolate a shared L3)
+- BTB(within-proc) · both : NOT ACHIEVED (BR_MIS_PRED prime/probe is swamped by RSB/return baseline
+                  ~2 mispredicts/stub; the victim's single-way eviction Δ≈8-13 does not separate per-bit;
+                  needs stable multi-train priming + isolating the indirect-blr mispredict from returns)
+
+CROSS-EL (EL2→EL0):
+- dTLB  · AUT\*  : samples 50, bits/s 3.3K, 100%  (canon_leak --mode xel, 240/240)              [VALIDATED]
+  (canon cross-EL and iTLB cross-EL: victim-module variants not built this pass)
+
+CROSS-PROCESS (EL0→EL0) / VM→HOST:
+- BTB   · canon (xproc): samples 200, bits/s ~29, 100% (x2)   AUT\* n/a (CSV2 blocks target inject)
+- BTB   · canon (xvm)  : samples 200, bits/s ~83, 100%        AUT\* n/a
+
+Genuine negatives: AUT\*×BTB across ASIDs (cross-process / VM→host) = n/a (CSV2). NOTE: canon×iTLB is NO
+LONGER a negative — it leaks; only its *rate* is unstable (probe eviction), not the channel.
+
+Pattern (unchanged, now on more cells): where both techniques leak they are equal within noise
+(L1D 944K≈1.03M, L2 770K≈796K, dTLB 2.2K≈2.2K); the rate is set by samples × probe cost: cache ~3 samples
+(~1e6 b/s) > TLB ~50-150 (~1e3) > cross-boundary BTB ~200 + boundary latency (tens b/s). Not-achieved: L3,
+within-process BTB, cross-EL canon/iTLB.
