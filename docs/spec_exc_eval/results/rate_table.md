@@ -291,3 +291,28 @@ genuine negative, not a not-achieved: more samples move it toward chance, not to
 
 Net cross-EL: dTLB leaks (AUT\* 3.3K, canon 3270); iTLB does NOT (both chance). Within-process and
 cross-process iTLB leak (same-thread AUT* 1.8K; canon leaks); the EL boundary is where the iTLB stops.
+
+## CORRECTIONS via the proven aut_bit55 PoC (retract two of my wrong results)
+
+The AUT* cross-boundary matrix already existed, cleanly, in ~/thesis-artifacts/aut_bit55/ (aut_leak +
+aut_xel.ko; --boundary xthread|xcore|xel --medium l1d|dtlb|itlb --gadget aut|combined). My reinvented
+el2_itlb.c and same-thread L3 probe were wrong; the proven PoC supersedes them:
+
+RETRACTED #1 -- "cross-EL iTLB = EL-partitioned negative" is WRONG. aut_leak --boundary xel --medium itlb:
+  **20/20 rounds, 100%, 447 bits/s** (both aut and combined gadgets). My el2_itlb.c read chance only
+  because it lacked the JUMP-SLED that amplifies the single iTLB fill into a detectable signal. The iTLB
+  DOES carry EL2->EL0.
+RETRACTED #2 -- "L3/LLC not achieved" is WRONG for the right boundary. aut_leak --boundary xcore (cross-
+  core, last-level cache): **20/20, 100%, 26 bits/s**. L3/LLC leaks CROSS-CORE cleanly; my failure was
+  trying it same-thread (where L1/L2 shadow it and the shared L3 is noisy). Cross-core is the LLC's boundary.
+
+PROVEN AUT* matrix (aut_bit55, rate at its default samples; boundary x medium):
+  xthread (2 threads, 1 core, EL0):  L1D 3    dTLB 484   iTLB 8     bits/s
+  xcore   (2 cores, EL0):            LLC(L3) 26                     bits/s   (TLBs are per-core: n/a xcore)
+  xel     (EL2->EL0):                L1D 10   dTLB 617   iTLB 447   bits/s
+These are CROSS-boundary rates (slower than the same-thread harness numbers above, which are the fastest
+intra-thread boundary). Same-thread (my harnesses): L1D 944K, L2 770K, dTLB 2.2K, iTLB 1.8K.
+
+LESSON: use the existing PoCs (aut_bit55 for AUT* channels; game.c for same-process BTB; canon_leak for
+cross-boundary canon) rather than reinventing -- two wrong negatives (cross-EL iTLB, L3) came from
+reinvention lacking the sled / correct boundary.
