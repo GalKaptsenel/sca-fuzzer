@@ -1,5 +1,43 @@
 # Covert-channel reliable-rate table — canonicality vs AUT\* (Neoverse N3, core 8)
 
+> **READ THIS TABLE.** The MASTER TABLE below is authoritative and consolidates every verified cell with
+> all retractions applied. Everything after the `---` horizontal rule is the chronological working-notes /
+> correction-trail (kept as the audit record) and is SUPERSEDED by this table wherever they differ.
+
+## MASTER TABLE (authoritative, consolidates all; retractions applied)
+
+Organized by boundary (tightest → widest). Operating point noted per block because that — not the gadget —
+drives the rate. "equal" = AUT\* vs canon within run-to-run noise. Rates = wall-clock bits/s, ≥99% unless noted.
+
+**B1 — same-thread inline (EL0), pushed to the min-samples floor (fastest):**
+- L1D  : AUT\* 944K (s3) · canon 1.03M (s3) — equal
+- L2(private) : AUT\* 770K (s3) · canon 796K (s3) — equal
+- dTLB : AUT\* 2.2K (s150) · canon 2.2K (s150, needs [55:48] mask) — equal
+- iTLB : AUT\* 1.8K (s150) · canon leaks (victim-probe ~6K, rate unstable — probabilistic eviction)
+- L3   : no same-thread leak (L1/L2 shadow it) — leaks cross-core, see B3
+- BTB  : ~1–2K (`game.c`) — this is the BTB *medium* capacity (generic set-recovery), NOT the
+         canon/AUT\*-specific gadget, which is not isolated same-process
+
+**B2 — xthread (2 threads, 1 core, EL0), `aut_bit55` fixed samples=400 (comparable snapshot, not maxima):**
+- L1D 3 / canon 10(95%) · dTLB 484 / canon weak¹ · iTLB 8 / canon 42
+
+**B3 — xcore (2 cores, EL0, shared LLC/L3), samples=400:**
+- L3/LLC : AUT\* 26 · canon 26 — identical
+
+**B4 — xel (EL2→EL0, cross-privilege):**
+- L1D 10(95%) / canon chance (marginal) · dTLB AUT\* 7485 / canon 5159 (at s32, equal) · iTLB 447 / 434 — equal
+
+**B5 cross-process (EL0→EL0) & B6 VM→host, `canon_leak`:**
+- BTB cross-process: canon ~29 · VM→host: canon ~83 · **AUT\*×BTB = n/a** (CSV2 blocks target injection)
+
+**Two findings across the whole matrix:** (1) where both techniques leak they are **equal within noise**
+(one-`autiza` difference); (2) the **medium + operating point set the rate** (~10⁶ cache ≫ ~10³ TLB ≫ tens
+cross-boundary BTB) — the B2/B3/B4 rows are a fixed samples=400 snapshot, true per-cell maxima ~10× higher.
+**Genuine negatives:** AUT\*×BTB cross-ASID (CSV2); canon·dTLB needs the [54:48] flip, not bit-55-alone (¹).
+**Retracted (were my probe bugs, now leak):** cross-EL iTLB (447/434), cross-core L3 (26/26).
+
+---
+
 Fair comparison of the two ARM-specific leaks by **reliable covert-channel throughput**, varying only
 **medium × technique**. The two techniques differ by exactly one instruction: the AUT\* gadget runs
 `autiza x16` before the access; the canonicality gadget omits it (the secret bit is placed at VA index
