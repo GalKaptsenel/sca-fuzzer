@@ -632,18 +632,24 @@ class RemoteHWExecutor(HWExecutor):
         return self._info
 
     @retry(max_times=_RETRIES, retry_on=IOError, backoff=0.5)
+    def _run_batch_request(self, cmd: str, request: bytes) -> bytes:
+        """The transport round-trip, retried on transient IOError (dropped connection, adb reject)."""
+        with profile_op("batch"):
+            return self._conn.run(cmd, request, privileged=False)
+
     def run_batch(self, units: List[TraceUnit], n_reps: int) -> List[List[List[HWMeasurement]]]:
         request = encode_request(units, n_reps)
         cmd = f"{self._cfg.userland} {self._cfg.device} batch - -"
-        with profile_op("batch"):
-            response = self._conn.run(cmd, request, privileged=False)
+        try:
+            response = self._run_batch_request(cmd, request)
+        except IOError as e:
+            # The userland exited nonzero -- e.g. a unit's on-device measurement failed. stdout/stderr
+            # travel on separate streams now, so `e` carries the real stderr. Surface it as a tracing
+            # error so the caller skips the test case (the classic path) instead of crashing.
+            raise HardwareTracingError(f"batch command failed: {e}")
         try:
             return decode_response(response)
         except ValueError as e:
-            # A malformed batch response (e.g. a unit's measurement failed on-device and the userland's
-            # stderr polluted the stream) is the batch-path analogue of trace_test_case's malformed
-            # output. Surface it as HardwareTracingError so the caller handles it like the classic path
-            # instead of crashing on a raw ValueError.
             raise HardwareTracingError(f"malformed batch response ({e}); "
                                        f"units={len(units)} resp_len={len(response)}")
 

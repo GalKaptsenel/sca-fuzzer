@@ -5,6 +5,7 @@ import os
 import shlex
 import shutil
 import socket
+import struct
 import subprocess
 
 from ppadb.client import Client as AdbClient
@@ -146,6 +147,17 @@ class SSHConnection(Connection):
             self.client.close()
 
 
+# adb shell-protocol v2 packet ids (platform_system_core shell_protocol.h): stdout, stderr and the
+# exit code travel on separate framed streams, so a binary stdout is never polluted by a diagnostic
+# the command writes to stderr (the plain `exec:` service merges the two).
+_ADB_SHELL_STDIN = 0
+_ADB_SHELL_STDOUT = 1
+_ADB_SHELL_STDERR = 2
+_ADB_SHELL_EXIT = 3
+_ADB_SHELL_CLOSE_STDIN = 4
+_ADB_SHELL_STDIN_CHUNK = 1 << 16
+
+
 class ADBConnection(Connection):
     def __init__(self, host: str = '127.0.0.1', port: int = 5037, serial: str = None):
         super().__init__()
@@ -190,27 +202,54 @@ class ADBConnection(Connection):
         return out[:idx]
 
     def run(self, command: str, stdin: bytes, privileged = False) -> bytes:
-        """Stream `stdin` to `command` and return its raw stdout over adb's exec: service — no PTY and
-        no device files, so the batch request/response crosses in one streamed round-trip."""
+        """Stream `stdin` to `command` over adb's shell-protocol v2 (raw, no PTY) and return its raw
+        stdout. v2 frames stdout, stderr and the exit code on separate streams, so the binary batch
+        response on stdout is never polluted by a diagnostic the command writes to stderr; a nonzero
+        exit raises IOError carrying that stderr (matching the SSH/local transports)."""
         cmd = f"su -c '{command}'" if privileged else command
         s = socket.create_connection((self.host, self.port), timeout=600)
         s.settimeout(600)
         try:
+            def recv_exact(n: int) -> bytes:
+                buf = bytearray()
+                while len(buf) < n:
+                    chunk = s.recv(n - len(buf))
+                    if not chunk:
+                        raise IOError("adb connection closed mid-packet")
+                    buf += chunk
+                return bytes(buf)
+
             def service(request: str) -> None:
                 s.sendall(f"{len(request):04x}{request}".encode())
                 status = s.recv(4)
                 if status != b"OKAY":
                     raise IOError(f"adb rejected {request!r}: {status!r} {s.recv(4096)!r}")
+
+            def send_packet(packet_id: int, payload: bytes) -> None:
+                s.sendall(bytes([packet_id]) + struct.pack("<I", len(payload)) + payload)
+
             service(f"host:transport:{self.serial}")
-            service(f"exec:{cmd}")
-            s.sendall(stdin)
-            chunks = []
-            while True:
-                chunk = s.recv(1 << 16)
-                if not chunk:
-                    break
-                chunks.append(chunk)
-            return b"".join(chunks)
+            service(f"shell,v2,raw:{cmd}")
+
+            for off in range(0, len(stdin), _ADB_SHELL_STDIN_CHUNK):
+                send_packet(_ADB_SHELL_STDIN, stdin[off:off + _ADB_SHELL_STDIN_CHUNK])
+            send_packet(_ADB_SHELL_CLOSE_STDIN, b"")
+
+            out, err, rc = bytearray(), bytearray(), None
+            while rc is None:
+                packet_id = recv_exact(1)[0]
+                (length,) = struct.unpack("<I", recv_exact(4))
+                payload = recv_exact(length)
+                if _ADB_SHELL_STDOUT == packet_id:
+                    out += payload
+                elif _ADB_SHELL_STDERR == packet_id:
+                    err += payload
+                elif _ADB_SHELL_EXIT == packet_id:
+                    rc = payload[0] if payload else -1
+            if 0 != rc:
+                raise IOError(f"remote command failed (rc={rc}): {cmd}\n"
+                              f"{err.decode(errors='replace')}")
+            return bytes(out)
         finally:
             s.close()
 
