@@ -73,6 +73,12 @@ the hardware measurement rate — stays flat locally (~2 K, it is HW-bound) and 
 (171→414: with more inputs per batch, the fixed per-batch tunnel round-trip is amortized over more
 measurements). So more inputs per test case costs tc/s but not total measurement throughput.
 
+**`-i` default is 100.** A run launched without `-i` uses 100 inputs per test case, so its tc/s looks
+~10× lower than an `-i 10` run of the same workload — this is the input count, not a slowdown. (Checked
+against an earlier `pac_signext` strict run that reported 3.60 tc/s · 3600 traces/s: re-run today at
+`-i 10` it gives 7.87 tc/s · 1709 traces/s, and re-run at the original `-i 100` it gives 0.69 tc/s ·
+2989 traces/s — same ballpark, no regression; traces/s tracks `-i`.)
+
 ## Remote (Pixel 8 / Cortex-A715 over the ADB reverse tunnel, 2026-10-30)
 
 Same three configs with the remote-execution block added (transport `adb`, device core 4), driven
