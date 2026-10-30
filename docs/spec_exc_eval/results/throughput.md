@@ -56,23 +56,31 @@ traces, which is where leak detection actually happens.
 Same three configs with the remote-execution block added (transport `adb`, device core 4), driven
 from the GCP fuzzer across the reverse SSH tunnel (GCP → laptop adb → USB → Pixel 8), device
 `47061FDJH001K3`. `-n 120 --nonstop` (remote is network-bound, so per-batch cost is constant and
-steady state is reached quickly; 120 is representative). `traces/s` is not wired on the remote report
-path (prints 0.0), so only tc/s is reported here.
+steady state is reached quickly; 120 is representative). traces/s required wiring the trace counter
+into the remote backend (`RemoteHWExecutor.run_batch`); it was previously only counted on the local
+path, so earlier remote reports printed 0.0.
 
-| mode | fuzzer / mode | test cases / duration | **tc/s** | HW errors |
-|---|---|---|---:|---:|
-| regular | `basic` | 120 / 149.7 s | **0.80** | 0 |
-| strict | `speculative-exception`, strict | 120 / 146.1 s | **0.81** | 0 |
-| contract_driven | `speculative-exception`, ct-bpas | 120 / 119.6 s | **1.00** | 0 |
+| mode | fuzzer / mode | test cases / duration | **tc/s** | **traces/s** | HW errors |
+|---|---|---|---:|---:|---:|
+| regular | `basic` | 120 / 140.5 s | **0.85** | **170.9** | 0 |
+| strict | `speculative-exception`, strict | 120 / 109.5 s | **1.10** | **377.5** | 0 |
+| contract_driven | `speculative-exception`, ct-bpas | 120 / 121.6 s | **0.99** | **197.3** | 0 |
 
-**Remote is ~8–13× slower than local** (regular 0.80 vs 10.03; strict 0.81 vs 7.03; cd 1.00 vs 7.48)
-— each input batch is an ADB round-trip over the two-hop tunnel, and that latency, not the CPU,
-sets the pace.
+**Remote is ~8–13× slower than local** in tc/s — each input batch is an ADB round-trip over the
+two-hop tunnel, and that latency, not the CPU, sets the pace.
 
-**The modes converge on remote (0.80 / 0.81 / 1.00 tc/s), the opposite of local.** Because wall-clock
-is dominated by the per-batch network round-trip, the extra genuine/decoy variants a spec-exc test
-case runs are largely absorbed into round-trips that happen anyway, so strict ≈ regular and
-contract_driven is even marginally *faster*. In other words: on a latency-bound remote link the
-sealing instrument is almost free in tc/s; its cost shows up only on a compute-bound local device.
-All runs clean (0 HW errors); strict found 1 canonicality violation (expected — it completed all 120
-under `--nonstop`).
+**On remote the tc/s of the three modes nearly converge** (0.85 / 1.10 / 0.99), the opposite of
+local: wall-clock is dominated by the per-batch round-trip, so a spec-exc test case's extra
+genuine/decoy variants are largely absorbed into round-trips that happen anyway. The cost of the
+sealing instrument shows up as compute (lower local tc/s) but is nearly free on a latency-bound link.
+The **traces/s ordering strict (378) > cd (197) > regular (171)** matches local — strict runs the
+most hardware measurements per test case — confirming the variant cost is real and just hidden from
+tc/s by the network.
+
+**Run-to-run variance (remote).** Unlike local, remote tc/s drifts between runs (a prior run measured
+0.80 / 0.81 / 1.00 for the same three) because tc/s depends on how many test cases hit the expensive
+slow path, which depends on the random violations a run finds (no fixed `input_gen_seed`). Likewise
+traces-per-test-case is NOT a config constant (remote cd ≈199 here; local cd ≈432) — it tracks the
+per-run fast/slow-path mix. Hence traces/s is measured per run, never derived from local. All runs
+clean (0 HW errors); strict found 1 canonicality violation (expected — completed all 120 under
+`--nonstop`).

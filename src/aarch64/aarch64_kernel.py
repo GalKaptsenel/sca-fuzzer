@@ -648,10 +648,14 @@ class RemoteHWExecutor(HWExecutor):
             # error so the caller skips the test case (the classic path) instead of crashing.
             raise HardwareTracingError(f"batch command failed: {e}")
         try:
-            return decode_response(response)
+            decoded = decode_response(response)
         except ValueError as e:
             raise HardwareTracingError(f"malformed batch response ({e}); "
                                        f"units={len(units)} resp_len={len(response)}")
+        # TEMP(perf-metrics): count one trace per measurement (input x rep), mirroring the local path's
+        # per-hardware_measurement() increment, so traces/s is reported on the remote backend too.
+        STAT.num_traces += sum(len(reps) for unit in decoded for reps in unit)
+        return decoded
 
 
 def _make_remote_connection() -> "Connection":
