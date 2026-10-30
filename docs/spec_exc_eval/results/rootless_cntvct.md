@@ -14,8 +14,8 @@ a TLB walk / cache miss with light averaging. All harnesses run as an ordinary u
 | L1D | aut | F+R, random line, majority | 1 | 0.995 | 2.27 M |
 | **dTLB** | canon | victim-probe, stable-cal | 120 | 1.000 | **8 403** |
 | dTLB | aut | victim-probe, stable-cal | 120 | 1.000 | 8 442 |
-| **iTLB** | canon | 24-page sled, reverse-probe | 150 | 0.998 | **585** |
-| iTLB | aut | 24-page sled, reverse-probe | 80 | 1.000 | 1 101 |
+| **iTLB** | canon | 24-page sled, reverse-probe | 80 | 0.998 | **1 097** |
+| iTLB | aut | 24-page sled, reverse-probe | 80 | 0.993 | 1 090 |
 | **BTB** (generic, which-set) | — | set-recovery, dwell-timing | REPEAT 48 | 100/100 | ≈2K (3 bits/round) |
 
 BTB controls: shuffled probe order 63/64 (not a positional artifact), fixed-set 7/64 (= chance, no
@@ -62,5 +62,10 @@ event (hence it needs averaging), and returns the same verdict. Rootless == PMU.
 
 Same shape as the PMU matrix: cache ≫ TLB ≫ sled/branch. L1D is a single flushed line (one fast reload,
 reps=1 → ~2 M bits/s). dTLB is a tiny single-page walk-latency delta (needs averaging → ~8 K). The iTLB
-sled trades rate for separability — 24 serialized page fetches per shot and reps≈100-150 → ~0.6-1.1 K.
-The generic BTB is a which-of-8 recovery, 3 bits/round.
+sled trades rate for separability — 24 serialized page fetches per shot, reps≈80 → ~1.1 K. The generic
+BTB is a which-of-8 recovery, 3 bits/round.
+
+**canon ≈ aut everywhere (equal-rate primitives).** L1D 2.30M≈2.27M, dTLB 8403≈8442, iTLB 1097≈1090 —
+exactly as expected from a one-instruction (`autiza`) difference. (An earlier draft reported iTLB canon
+585 @ reps150 vs aut 1101 @ reps80; that asymmetry was a floor-finding artifact from a sparse sweep —
+pinned across 4 trials each, both floor at reps≈60–80 with indistinguishable per-shot separation.)

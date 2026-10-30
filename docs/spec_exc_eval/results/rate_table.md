@@ -54,8 +54,8 @@ min-samples floor (`reps≈3`). "chance / no leak" means no `samples` count reac
   because bit0 fetches the victim and bit1 speculatively fetches some *other* garbage page: both evict
   one entry (1-vs-1). With a **24-page jump-sled** target (the same amplification cross-EL uses), an
   in-range branch fetches ~24 pages and a non-canonical one ~1 (24-vs-1), and the eviction-set
-  reverse-probe recovers it at 1.00 same-EL0 (rootless cntvct: 585 b/s). So the sled, not privilege, is
-  what canon×iTLB needs; cross-EL (`xel`) also leaks (445 b/s, 100%).
+  reverse-probe recovers it at 1.00 same-EL0 (rootless cntvct: ~1.1K b/s, canon ≈ aut). So the sled, not
+  privilege, is what canon×iTLB needs; cross-EL (`xel`) also leaks (445 b/s, 100%).
 - **‡** AUT\*×BTB across ASIDs = n/a: CSV2 blocks cross-ASID BTB target injection; `autiza` also
   canonicalizes both hypotheses, so there is no BTB signal to read.
 - **§** same-process BTB is a generic medium-capacity channel (`game.c`: secret = which of K=8 BTB sets
