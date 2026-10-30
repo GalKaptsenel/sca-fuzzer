@@ -51,26 +51,57 @@ off-channel leak). The harnesses are `l1d_cntvct.c`, `tlb_victim_cntvct.c` (dtlb
    **dwell-time** readout (time the W probe branches per set; the victim-polluted set mispredicts and so
    runs slower) and recovers 100/100 with the controls intact.
 
-## Cross-EL and cross-process (contention channels): blocked by the timer resolution
+## Cross-process and cross-EL (contention channels): rootless via reload-line amplification
 
-The same-EL0 channels above all read a **resident-vs-flushed** signal: bit0 leaves the line/page in a
-cache or TLB (fast), bit1 leaves it in **memory** (slow). On this N3 that is an easy split for cntvct:
-measured **L1-hit = 35, L2-hit = 39, memory = 155 ticks**, and cntvct's granularity is ~10 ticks.
+These are **contention** channels — the attacker cannot name the victim's target (it is in another
+address space / the kernel module), so there is no victim-probe; the readout reverse-probes the
+attacker's own eviction set to see the victim displaced one entry. A *naive* single-line probe cannot
+read this rootless: a displaced entry only moves **L1→L2** (measured L1-hit = 35, L2-hit = 39, memory =
+155 ticks), a ~4-tick change under cntvct's ~10-tick granularity. (That is the real, measured
+resolution wall — but it is *not* the end of the story.)
 
-The **cross-EL (EL2→EL0)** and **cross-process** channels are different in kind — they are **contention**
-channels. The attacker cannot name the victim's target (it lives in the kernel module / another address
-space), so there is no victim-probe; the only readout is reverse-probing the attacker's own eviction set
-to see that the victim displaced one entry. That displacement moves a line **L1→L2**, i.e. 35→39 ticks —
-**below cntvct's resolution**. So the rootless cntvct readout reads chance (measured: xel centroids ≈ 0
-for L1D/dTLB/iTLB; success 40–65% and not improving with samples). The root PMU reproduces these fine
-because `L1D_CACHE_REFILL` counts the L1→L2 refill as a discrete event regardless of its ~4-tick cost.
+The fix — already implemented in `arm-disclosure/pocs/cross_boundary/xproc.c` — is **reload-line
+amplification**: back each eviction-set entry with several reload lines (`RELOAD_LINES = 8`), so when the
+victim displaces that entry, those lines are flushed all the way **to memory**. The attacker then sums
+their reload latency, which is the L1-vs-**memory** gap (35 vs 155) that cntvct resolves, ×8 amplified.
+With this, **cross-process rootless works at 100%**: `canon_leak --mode xproc --rootless` recovers a
+7-bit secret 10/10 rounds, 70/70 bits, ~6 bits/s, no PMU. `xvm` (guest→host) is likewise rootless by
+construction (the KVM guest cannot touch the PMU, so it reads over cntvct). An earlier draft of this
+file wrongly called the contention channels "blocked by timer resolution / needs a counting thread" —
+**retracted**; the reload-line trick is the rootless path and it is already proven here.
 
-This is a **hardware timer limit, not a channel or effort limit**: it is not fixable by more samples or a
-better probe structure. The legitimate rootless path for the contention channels is a **counting-thread
-timer** (a sibling thread spinning on a shared counter — the technique TikTag uses on the Pixel), whose
-resolution is far finer than cntvct and can resolve L1↔L2. That is a separate subsystem, not built here.
-Scaffold: `channel.c` has a `-DROOTLESS` build (cntvct threshold-count) in `~/arm-disclosure`
-(`aut_bit55/`), which confirms the resolution wall above; it is WIP, not a working cross-EL result.
+### Cross-boundary rootless status (measured)
+
+| boundary × medium | rootless result | notes |
+|---|---|---|
+| cross-process (EL0→EL0) **BTB** | **100%** (10/10 rounds, 70/70 bits, ~6 b/s) | `canon_leak --mode xproc --rootless`; reload-line amplification |
+| VM→host **BTB** | rootless by construction | KVM guest can't touch PMU → cntvct (`--mode xvm`) |
+| cross-EL (EL2→EL0) **dTLB** | **achievable — 100% on the reliably-leaking bits** (`xel --rootless`) | cntvct readout; the probe is a data load that walks to **memory** on a displaced page → resolvable |
+| cross-EL **iTLB** | chance (47–54%, even s6000) | single-page instruction-fetch probe (front-end prefetches); needs a victim-side 24-page sled, but the victim is in the fixed `dtlb_leak.ko` module |
+| cross-EL **L1D** | not built | no L1D-primed xel attacker yet; the data-load reload-line approach (as dTLB) should carry it |
+
+**What made cross-EL dTLB work (and what still limits it):**
+- **The fix was interleaving.** A first port measured all hyp0 trials then all hyp1 trials; baseline drift
+  between the two passes flipped the differential's sign → whole rounds *inverted* (~42%). Porting the
+  **xproc interleaved paired differential** — hyp0 and hyp1 back-to-back each trial, so drift cancels —
+  removed the inversions, and per-bit accuracy then climbs monotonically with samples (69%→83%→96%→100%).
+  Majority voting per bit is added on top.
+- **It is slower than the PMU xel** (which runs at s32): timing a dTLB *walk* is a noisier signal than
+  counting an `L1D_TLB_REFILL` *event*, so it needs more samples per bit. That is inherent to a rootless
+  timer, not a defect.
+- **The top byte `[63:56]` is profile-limited, not a readout failure.** The 16-bit secret spans `[63:48]`;
+  per this PoC's README the top byte leaks only where `TBID1=1`, so those bits sit near the margin and cap
+  whole-secret accuracy at ~88–100% across trials even with voting — exactly as the PMU version behaves.
+  On the reliably-leaking low bits the rootless readout is 100%.
+
+This supersedes an earlier draft that called cross-EL rootless "blocked by timer resolution / needs a
+counting thread" — **wrong and retracted**: it is achievable with cntvct via the reload-line / data-walk
+readout plus the interleaved differential, already in `cross_boundary`.
+
+Harnesses: `arm-disclosure/pocs/cross_boundary/` — `canon_leak` (xproc/xvm/xel, `--rootless`), `el2_itlb`
+(iTLB, `rootless` arg). Each EL2 victim is a kernel module (`dtlb_leak.ko`, one root `insmod` + `chmod
+666 /dev/dtlb_leak`) — the privileged *victim* is inherent to a cross-privilege experiment; the *attacker*
+readout is what is rootless.
 
 ## Matrix gap status (so no cell is silently blank)
 
