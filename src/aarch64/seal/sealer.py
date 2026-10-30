@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from ..aarch64_contract_executor import ContractExecutionResult
 
 from ...config import CONF
-from ...util import stable_rng
+from ...util import stable_rng, stable_hash_bytes
 from ...interfaces import (Instruction, TestCase, BasicBlock, GeneratorException, RegisterOperand,
                           SIMD_SUBREGION_SIZE)
 from .primitives import _SANDBOX_MASK, _SandboxInstrumentationBase
@@ -609,10 +609,17 @@ class SealedTestCase:
         self._trace_bytes_fn = trace_bytes_fn              # (machine code, input, emul_table) -> cer
         self._assemble = assemble                          # tc -> machine code, for the skeleton
         self._sandbox = sandbox_sealings
-        self._salt = random.randrange(1 << 64)             # per-test-case; seeds deterministic decoys
+        # Salt from the test-case code (not the global RNG stream), so fuzz and reproduce seal identically.
+        self._salt = stable_hash_bytes(assemble(sealed_tc))
         self._resolved: Dict = {}                          # input identity -> its ResolvedSealingTestCase
         self._gst: GlobalSealTable = VectorGlobalSealTable(_GST_CAPACITY_BITS)   # value seals allocate here
-        self._insert_slots(data_sites)                     # subclass inserts its value sealings, in order
+        # Seed the global RNG from the salt around slot insertion (which consumes it), then restore it.
+        _rng_state = random.getstate()
+        random.seed(self._salt)
+        try:
+            self._insert_slots(data_sites)                 # subclass inserts its value sealings, in order
+        finally:
+            random.setstate(_rng_state)
         self._layout = Aarch64ASMLayout(self._tc)
 
     @property
