@@ -165,3 +165,31 @@ rate is approximate; the qualitative result (canon leaks on the iTLB) is solid.
 Revised iTLB row: AUT* ~6K, canon ~6K (both via the victim-probe). The privilege story still holds for
 why the OLD total-miss probe separated AUT* but not canon, but it was a probe limitation, not a channel
 property.
+
+## Min-samples per cell (the samples needed for ≥99% — this sets the rate)
+
+"Samples" = per-bit averaging: the `reps` of the same-thread harnesses, or `--samples` (prime/probe
+iterations per bit) of `canon_leak`. The rate is ~ (1 / samples) × (per-sample probe cost), so the
+samples column explains the rate column directly. N3 core 8, ≥99% single-bit accuracy.
+
+| cell (boundary) | technique | min-samples | rate (bits/s) |
+|-----------------|-----------|-------------|---------------|
+| L1D (same-thread)        | AUT\*  | 3    | 943K |
+| L1D (same-thread)        | canon | 3    | 944K |
+| L2 private (same-thread) | AUT\*  | 3    | 770K |
+| L2 private (same-thread) | canon | 3    | 764K |
+| iTLB (same-thread)       | AUT\*  | ~150 | ~6K  |
+| iTLB (same-thread)       | canon | ~150 | ~6K  |
+| dTLB (same-thread)       | AUT\*  | 150  | 2.2K |
+| dTLB (same-thread)       | canon | 150  | 2.2K |
+| dTLB (EL2→EL0, xel)      | AUT\*  | 50   | 3.3K |
+| BTB (cross-process xproc)| canon | 100  | ~40  |
+| BTB (VM→host xvm)        | canon | 50   | 325  |
+| L3 shared (same-thread)  | both  | none (no sample count reaches ≥99%) | not validated |
+| BTB (within-process)     | both  | open | open |
+
+Notes: same-thread cache (L1D/L2) needs only ~3 samples (strong single-shot) → ~10^6 b/s; the TLBs need
+~50–150 (small prime-set differential) → ~10^3 b/s; cross-boundary BTB needs ~50–100 AND pays the
+boundary-crossing latency per leak → tens–hundreds b/s. iTLB same-thread is eviction-noisy so ~150 is
+approximate. The cross-EL dTLB (xel) reaching ≥99% at only 50 samples is a cleaner (differential) probe
+than the same-thread 96-page prime.
