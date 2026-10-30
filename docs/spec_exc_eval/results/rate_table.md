@@ -273,3 +273,21 @@ reloaded (verified param=1). Attacker (canon_leak --mode xel) unchanged (same dT
 - cross-EL dTLB · canon : samples 50, bits/s 3270, 100% (320/320)   [VALIDATED]
 - cross-EL dTLB · AUT\*  : samples 50, bits/s 3271, 99.4% (sanity, canon_mode=0)
 Technique-equal across the privilege boundary too (3270 ≈ 3271).
+
+## Cross-EL (EL2→EL0) iTLB — GENUINE NEGATIVE (iTLB is EL-partitioned)
+
+Built the EL2-victim iTLB: added a speculative-FETCH gadget to dtlb_leak.ko (itlb_mode=1: blr to a
+mapped-exec kernel stub, bit-gated identically to the dTLB load — AUT* bit55+autiza / canon [54:48] flip)
+and a standalone EL0 iTLB attacker (el2_itlb.c: prime 96 exec pages, ioctl-drive the victim, probe
+L1I_TLB_REFILL 0x02, hyp0-vs-hyp1 differential).
+
+Result: NO cross-EL iTLB channel for EITHER technique --
+- AUT\*  iTLB cross-EL: 27% (s100) -> 48% (s400) -> 40% (s1000)  = chance, no convergence
+- canon iTLB cross-EL: 29% (s100) -> 48% (s400) -> 40% (s1000)  = chance
+CONTROL (same victim module, same attacker framework, same ioctl, itlb_mode=0 -> dTLB): 160/160 = 100%.
+So the harness and the EL2 victim work; it is the MEDIUM. The iTLB does not carry EL2->EL0 -- the
+instruction-TLB is effectively EL/ASID-partitioned, whereas the dTLB is shared (xel = 3.3K). This is a
+genuine negative, not a not-achieved: more samples move it toward chance, not toward a leak.
+
+Net cross-EL: dTLB leaks (AUT\* 3.3K, canon 3270); iTLB does NOT (both chance). Within-process and
+cross-process iTLB leak (same-thread AUT* 1.8K; canon leaks); the EL boundary is where the iTLB stops.
