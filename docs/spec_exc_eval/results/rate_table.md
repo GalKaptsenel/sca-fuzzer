@@ -231,3 +231,21 @@ Pattern (unchanged, now on more cells): where both techniques leak they are equa
 (L1D 944K≈1.03M, L2 770K≈796K, dTLB 2.2K≈2.2K); the rate is set by samples × probe cost: cache ~3 samples
 (~1e6 b/s) > TLB ~50-150 (~1e3) > cross-boundary BTB ~200 + boundary latency (tens b/s). Not-achieved: L3,
 within-process BTB, cross-EL canon/iTLB.
+
+## CORRECTION: same-process BTB IS achievable (existing disclosure PoC)
+
+The "within-process BTB = NOT ACHIEVED" above was my reinvented btb_capacity.c failing — the WORKING PoC
+already exists: `~/bpu_re_spec_aliasing/pac_leak_disclosure/pocs/btb_prime_probe/game.c` (same-process BTB
+address-recovery game; speculative v4 victim deposits a BTB entry in set(secret); attacker owns K
+set-congruent probe sets and recovers via BR_MIS_PRED with per-set baseline subtraction; integrity
+controls: negative control at chance, shuffle control order-independent). It is the correct version of
+what btb_capacity.c tried to do (set-congruent probes + differential, which the naive random-stub version
+lacked). Measured fresh on N3 core 8 (REPEAT=48 = the samples analog):
+- K=8  (3 bits/round): 500/500 = 100% -> **~1.9K bits/s**  [VALIDATED, same-process BTB]
+- K=32 (5 bits/round): 274/300 = 91%  (needs higher REPEAT for >=99%)
+- K=128(7 bits/round): 251/256 = 98%  (ceiling = full set index PC[12:6])
+
+Same-process BTB (canon/capacity mechanism, 3 bits/round @ 100%) = ~1.9K bits/s. The AUT* same-process
+BTB is a separate mechanism (shift55_btb2 target-inheritance) whose clean signal is accessibility-via-blr
+(L1D), not a BTB-set readout, so it is not a distinct BTB rate. Revised within-process BTB row: canon
+~1.9K bits/s (VALIDATED via game.c); btb_capacity.c retired as a failed reinvention.
