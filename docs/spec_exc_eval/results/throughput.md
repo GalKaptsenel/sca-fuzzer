@@ -39,9 +39,28 @@ per second, 7–10 programs per second including generation, assembly, the CE re
 HW batch. The ~30% tc/s overhead is the price of the genuine/decoy sealing, and it buys 1.6× more
 traces, which is where leak detection actually happens.
 
-## Remote (Pixel 8 / Cortex-X3 over the ADB tunnel) — PENDING
+## Remote (Pixel 8 / Cortex-A715 over the ADB reverse tunnel, 2026-10-30)
 
-Blocked: the ADB reverse tunnel is down (`adb devices` empty). Restore on the laptop
-(`adb start-server`; `ssh -N -T -R 5037:localhost:5037 <gcp-host>`), then re-run the same three
-configs with `executor: remote`. Remote tc/s will be lower (network round-trips per batch dominate);
-the ratio between the three modes is the portable number.
+Same three configs with the remote-execution block added (transport `adb`, device core 4), driven
+from the GCP fuzzer across the reverse SSH tunnel (GCP → laptop adb → USB → Pixel 8), device
+`47061FDJH001K3`. `-n 120 --nonstop` (remote is network-bound, so per-batch cost is constant and
+steady state is reached quickly; 120 is representative). `traces/s` is not wired on the remote report
+path (prints 0.0), so only tc/s is reported here.
+
+| mode | fuzzer / mode | test cases / duration | **tc/s** | HW errors |
+|---|---|---|---:|---:|
+| regular | `basic` | 120 / 149.7 s | **0.80** | 0 |
+| strict | `speculative-exception`, strict | 120 / 146.1 s | **0.81** | 0 |
+| contract_driven | `speculative-exception`, ct-bpas | 120 / 119.6 s | **1.00** | 0 |
+
+**Remote is ~8–13× slower than local** (regular 0.80 vs 10.03; strict 0.81 vs 7.03; cd 1.00 vs 7.48)
+— each input batch is an ADB round-trip over the two-hop tunnel, and that latency, not the CPU,
+sets the pace.
+
+**The modes converge on remote (0.80 / 0.81 / 1.00 tc/s), the opposite of local.** Because wall-clock
+is dominated by the per-batch network round-trip, the extra genuine/decoy variants a spec-exc test
+case runs are largely absorbed into round-trips that happen anyway, so strict ≈ regular and
+contract_driven is even marginally *faster*. In other words: on a latency-bound remote link the
+sealing instrument is almost free in tc/s; its cost shows up only on a compute-bound local device.
+All runs clean (0 HW errors); strict found 1 canonicality violation (expected — it completed all 120
+under `--nonstop`).
