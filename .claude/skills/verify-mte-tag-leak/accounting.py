@@ -14,7 +14,6 @@ CFG, VD, SUS = sys.argv[1], sys.argv[2], int(sys.argv[3])
 CONF.load(CFG)
 from src.fuzzer import SpeculativeExceptionFuzzer
 from src.aarch64.aarch64_executor_input_encoder import deserialize
-from src.aarch64.aarch64_relocations import apply_relocations
 from src.aarch64.aarch64_trace import _cache_sets
 from src.aarch64.aarch64_contract_executor import ExecutionClause
 
@@ -34,18 +33,10 @@ for ln in lines:
     if insec and m: ce.append(int(m.group(1)))
 print(f"counterexamples: {ce}  (same input iff they pair as N and N+K)")
 
-# --- Step 1b: tag-only code diff ---
-en = {os.path.basename(e)[12:-4]: open(e, "rb").read() for e in sorted(glob.glob(f"{VD}/enacted_test*.bin"))}
-g = {}
-for k, v in en.items(): g.setdefault(v, []).append(k)
-ok = True
-for a, b in itertools.combinations(list(g), 2):
-    for o in range(0, min(len(a), len(b)), 4):
-        wa, wb = int.from_bytes(a[o:o+4], "little"), int.from_bytes(b[o:o+4], "little")
-        if wa != wb:
-            print(f"  diff @{o}: {dec_addg(wa)} -> {dec_addg(wb)}")
-            if "OTHER" in dec_addg(wa) or "OTHER" in dec_addg(wb): ok = False
-print(f"TAG-ONLY: {ok}")
+# --- Step 1b: tag-only is checked on the GST image after resolve (see below) ---
+# Under the GlobalSealTable the test-case code is byte-identical across every variant; a variant is
+# selected purely by its GST image (the SIMD section), so "tag-only" means genuine vs decoy images
+# differ only in MTE applied-tag lanes. Computed after `res` is resolved, below.
 
 # --- Step 1c: per-set HW divergence (report htraces are MSB-first: set = 63 - char) ---
 def freq(n):
@@ -78,7 +69,17 @@ if not _inp_files:
     raise FileNotFoundError(f"no input_{SUS:04d}.reif or .bin in {VD}")
 inp = deserialize(open(_inp_files[0], "rb").read()).input_
 res = sealed.resolve(inp)
-code = apply_relocations(res.object_code, res.genuine())
+code = res.object_code   # GST: one byte-identical test case; variants differ only in the GST image
+
+# --- Step 1b (GST): tag-only = genuine vs decoy images differ ONLY in MteSealing applied lanes ---
+import random as _rnd
+_gen, _dec = res.genuine(), res.decoy(_rnd.Random(0xA5A5))
+_diffs = [i for i in range(min(len(_gen), len(_dec))) if _gen[i] != _dec[i]]
+_mte_lanes = [(e.sealing.location.byte_range().start, e.sealing.location.byte_range().stop)
+              for e in res._entries if e.sealing.__class__.__name__ == "MteSealing"]
+_tag_only = bool(_diffs) and all(any(lo <= d < hi for lo, hi in _mte_lanes) for d in _diffs)
+print(f"TAG-ONLY: {_tag_only}  (GST image diff bytes {_diffs} vs MTE applied lanes {_mte_lanes})")
+
 elig = {r.sealing.value_reg for r in res._entries
         if r.sealing.__class__.__name__ == "MteSealing" and r.speculative and r.alts}
 cer = ex._contract_executor.run(ex._make_ce_execution(

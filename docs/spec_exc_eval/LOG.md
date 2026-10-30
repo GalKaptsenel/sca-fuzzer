@@ -257,3 +257,28 @@ only 2 fast-pathed, box clean. Several contract-equivalent inputs (hash 26613314
 cross-input canon leftover (noisier than the template case, as expected for random programs). CONCLUSION: the GST canon
 method is equivalent to the relocation method; the only missing piece was the indirect_call_probability knob. TASK 4 DONE
 (template = clean genuine set-16 leak; no-template = violation once indirect calls exist).
+
+## 2026-10-30 (session resume) — TikTag device-exclusivity bug + stderr isolation + PENDING reloc-vs-GST compare
+
+TikTag "Hardware Tracing Errors"/"malformed input" on the Pixel root-caused: NOT a serialization or
+transport code bug. A leftover autonomous campaign (collect_daemon.sh -> revizor.py fuzz
+s24_mte_random.yml --nonstop, resurrected every 5 min by cron campaign_boot.sh) was driving the same
+/dev/executor. Two processes corrupt the module-global `checkout_region`, so the 324-byte test case
+got validated on the INPUT path -> bad magic -> rejected. Fixed by stopping the daemon+fuzz and
+commenting out the campaign_boot cron lines (crontab backup saved; re-enable by uncommenting the
+#DISABLED-20261030 lines). After that, 90 TikTag TCs ran with 0 HW tracing errors.
+
+Separately fixed a real latent defect (commit 10df5412): ADBConnection.run used adb's exec: service,
+which MERGES stderr into stdout, so a device error surfaced as an inscrutable "bad magic" instead of
+its real message. Now drives the batch over adb shell-protocol v2 (raw, no PTY): stdout/stderr/exit on
+separate framed streams; nonzero exit -> IOError(stderr) -> HardwareTracingError (skip TC). Test:
+tests/aarch64_tests/unit_adb_shell_v2.py (4 cases, no device). HW-verified clean.
+
+PENDING (requested, do after the TikTag hunts; needs the Pixel):
+  Compare the generated assembly of the relocation-era seal delivery vs the GST replacement:
+  (a) LOGIC — same instructions/effect per seal (pre-removal reference sealer at scratchpad/sealer_preGST.py,
+      409050ce; relocation-era commits precede 425b88d4);
+  (b) RATE — bits/second of the channels, GST vs relocation (fair: vary only the delivery mechanism);
+  (c) PIXEL MTE SAFETY — confirm the genuine/arch path raises NO MTE exception on the device. The user
+      disabled panic-on-MTE-mismatch, but a tag-check exception could still fire and PRINT to dmesg;
+      grep the Pixel dmesg for MTE/tag-fault lines during a genuine run and confirm none on the arch path.
