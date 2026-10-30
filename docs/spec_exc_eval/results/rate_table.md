@@ -133,3 +133,19 @@ Where both techniques leak (L1D, LLC, dTLB) they are **equal within noise** — 
 dominated by probe cost: cache single-reload probes (L1D 943K, L2 770K) ≫ TLB prime-set probes
 (iTLB 5.3K, dTLB 2.2K) ≫ cross-process BTB (28). For the paper's canon-vs-AUT\* comparison, the two are
 **equal-rate primitives**; the channel medium, not the authentication trick, sets throughput.
+
+## LLC correction: L2 (private) vs L3 (the true shared LLC)
+
+N3 hierarchy (per `/sys/.../cpu8/cache`): L1D 64K + L2 **2 MB private per-core** + L3 **112 MB shared across
+all 96 cores**. So the cell labelled "LLC(L2)" above is the **private L2** — a clean cache medium, validated
+at **AUT\* 770K / canon 764K bits/s @ reps3, ≥99%** (`llc_rate.c`, L1-evict → `L2D_CACHE_REFILL` 0x17).
+
+The **true LLC = L3** (`l3_rate.c`: 4 MiB L1+L2-evict sweep → `LL_CACHE_MISS_RD` 0x37). It does NOT reach the
+≥99% gate: AUT\* ~0.64–0.73, canon ~0.73–0.90, and accuracy does **not** improve with reps — a systematic,
+not statistical, limit. Cause: the L3 is **shared across 96 cores**, so cross-core traffic evicts the
+victim line between the speculative access and the probe, and a blind >L2 sweep partly self-evicts it from
+L3. A validated L3 channel needs **precise L3 eviction sets** (physical-address-aware) plus core isolation,
+not a blind sweep — logged as future work; no sub-99% number is reported as a rate.
+
+This is itself a result: the **private levels (L1D, L2) are clean high-rate channels; the shared L3 is a
+much noisier medium** — another instance of "the medium sets the behaviour," here the sharing domain.
