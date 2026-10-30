@@ -109,8 +109,16 @@ readout is what is rootless.
   cross-ASID). Not a measurement gap, a hardware negative.
 - **xcore (2 cores) L1D / L2 / dTLB / iTLB / BTB** — N/A by topology: those structures are per-core;
   two cores share only the L3. That is why the xcore row carries L3 alone.
-- **same-thread canon/AUT* BTB** — confirmed negative (0.500 on both rootless and root PMU); only the
-  generic which-set BTB exists same-process (≈2K b/s).
+- **same-thread canon/AUT* BTB** — confirmed negative by **two** readouts and a positive control. The
+  single-site allocate-vs-reject readout (`btb_rate.c`) reads 0.500 on both rootless and PMU; and the
+  **eviction-set** readout run inline (`btb_evset_same.c`, the xproc channel without the fork) also reads
+  ~chance — its positive control shows an *architectural* canonical victim branch does **not** evict a
+  primed co-set entry at any prime-set size (K=24..64: no-victim metric ≈ canonical-victim). The canon
+  allocate-vs-reject channel needs a **cross-domain boundary**: cross-process/EL/VM the victim runs in a
+  separate context that contends for the shared per-core BTB ways (and the context switch churns the BTB),
+  but same-thread the primed entries stay fresh and one inline victim branch does not displace them. The
+  generic which-set BTB (`game.c`, varying branch *site* → pollutes different sets) does work same-process
+  (≈2K b/s) — a different mechanism.
 - **cross-EL / cross-process L1D/dTLB/iTLB rootless** — unmeasured with cntvct; blocked by the timer
   resolution (above). Needs a counting-thread timer.
 
