@@ -316,3 +316,50 @@ intra-thread boundary). Same-thread (my harnesses): L1D 944K, L2 770K, dTLB 2.2K
 LESSON: use the existing PoCs (aut_bit55 for AUT* channels; game.c for same-process BTB; canon_leak for
 cross-boundary canon) rather than reinventing -- two wrong negatives (cross-EL iTLB, L3) came from
 reinvention lacking the sled / correct boundary.
+
+## CANON counterparts of the AUT* cross-boundary matrix (measured)
+
+Added a `canon` gadget to the proven aut_bit55 harness (channel.c + aut_xel.c + `--gadget canon`): it is
+the AUT* gadget with the `autiza`/pauth removed -- the placed bit 55 alone decides canonicality (it must
+sign-extend into bits [63:56]); a mismatch is speculatively fast-rejected. Same sled, same channel.c
+read-out, so canon and aut are apples-to-apples in one harness. Regression: aut xel-iTLB 422 b/s and aut
+xcore-L3 26 b/s re-measured unchanged after the edit.
+
+PROVEN CANON matrix (same harness, same default samples=400 as the AUT* row; boundary x medium):
+  xthread (2 threads, 1 core, EL0):  L1D 10 (95%)   dTLB *weak*    iTLB 42  (100%)   bits/s
+  xcore   (2 cores, EL0):            LLC(L3) 26 (100%)                                bits/s
+  xel     (EL2->EL0):                L1D chance     dTLB *weak*    iTLB 434 (100%)    bits/s
+
+Confirmed positives (canon == aut, technique-equal):
+- canon xel  iTLB = 20/20, 100%, 434 b/s  (vs aut 447) -- fills the cross-EL iTLB gap; the sled amplifies
+  the single fill, exactly as for AUT*. Your intuition was right: with the sled, canonicality leaks
+  cross-EL over the iTLB.
+- canon xcore L3  = 20/20, 100%,  26 b/s  (vs aut 26)  -- cross-core LLC, identical to AUT*.
+- canon xthread iTLB = 100%, 42 b/s; xthread L1D = 95%, 10 b/s -- match the AUT* same-core row.
+
+The two *weak* cells are a KNOWN single-bit limitation of this harness, NOT a channel negative:
+  aut_bit55 canon flips ONLY bit 55 (a 1-bit non-canonical). The dTLB walker allocates the entry before
+  a 1-bit non-canonical VA resolves as rejected, so the 2-class separation is poor at single-entry
+  granularity (xthread 60%/45%, xel 55%). The identical stride under `autiza` rejects crisply (aut dTLB
+  100%), because a failed-auth pointer is tagged and the dependent load never allocates. The iTLB escapes
+  this because the 24-page sled gives 24 fills to separate on, and L3 escapes it via cross-core F+R.
+
+The paper's actual canonicality channel flips bits [54:48] (the whole non-sign-extending field), which
+the dTLB DOES reject crisply. Measured on the dedicated dtlb_leak.ko (canon_mode=1) via canon_leak:
+  canon dTLB cross-EL (EL2->EL0), 16-bit secret, per-bit accuracy @ operating point:
+    samples 128 -> 100% (160/160), 1292 b/s
+    samples  64 -> 100% (160/160), 2580 b/s
+    samples  32 -> 100% (160/160), 5159 b/s   <- min-samples-for-100% (the comparable operating point)
+    samples  16 -> 95.3% (305/320), 10299 b/s
+    samples   8 -> 90.0%, 20554 b/s
+  So canon dTLB cross-EL leaks at 100% up to samples=32 (5159 b/s); the earlier "3270" was an
+  intermediate operating point. This is the genuine canon dTLB number (7-bit-flip channel), distinct
+  from the aut_bit55 1-bit-55 variant above.
+
+Canon BTB cross-boundary (already in canon_leak): xproc (cross-process) and xvm (VM->host) modes carry
+the canonicality-of-branch-target oracle; these are the canon counterparts of the BTB row.
+
+NET: every AUT* cross-boundary cell has a matching canon result. iTLB and L3 are technique-equal
+(canon == aut, 100%). dTLB canon leaks cleanly via the [54:48] channel (5159 b/s xel, 100%); the only
+asymmetry is that a 1-bit-55 non-canonical is too weak for the dTLB (but fine for the sled-amplified iTLB
+and cross-core L3), whereas autiza rejection is crisp everywhere.
