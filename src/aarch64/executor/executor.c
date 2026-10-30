@@ -102,6 +102,10 @@ static void init_executor_defaults(void) {
 	executor.config.reload_pmu_event = 0x03;  /* L1D_CACHE_REFILL */
 	executor.config.reload_isolate = 0;
 	executor.config.enable_bpu_probe = 0;
+	executor.config.pfc_event1 = 0x17;  /* L2D_CACHE_REFILL */
+	executor.config.pfc_event2 = 0x13;  /* MEM_ACCESS */
+	executor.config.pfc_event3 = 0x22;  /* BR_MIS_PRED_RETIRED */
+	executor.config.enable_mte_check = 1;
 }
 
 int __nocfi initialize_executor(set_memory_t set_memory_x) {

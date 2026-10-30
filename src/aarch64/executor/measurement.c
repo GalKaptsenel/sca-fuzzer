@@ -332,7 +332,11 @@ static int __nocfi run_experiments(void) {
 		mte_save_control(&pre_mte);
 		mte_set_sync();            // TCF=SYNC (+ATA): precise, executor-attributed faults
 		enable_TCMA1_bit();        // tag 0b0000/0b1111 Unchecked (canonical harness base)
-		disable_TCO_bit();         // tag checks enabled
+		if (executor.config.enable_mte_check) {
+			disable_TCO_bit();     // tag checks enabled (TCO=0)
+		} else {
+			enable_TCO_bit();      // tag checks overridden off (TCO=1) -- MTE disable control
+		}
 
 		void* measurement_code = executor.measurement_code_views[0];
 

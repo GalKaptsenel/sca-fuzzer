@@ -47,17 +47,18 @@ int config_pfc(void) {
 	asm volatile("msr pmevtyper0_el0, %0" :: "r" ((uint64_t)(filter_events | (executor.config.reload_pmu_event & 0xffff))));
 	asm volatile("isb\n");
 
-	// 2. L2D_CACHE_REFILL (0x17) -- read alongside counter 0 in reload() for a simultaneous L1/L2 view
-	asm volatile("msr pmevtyper1_el0, %0" :: "r" ((uint64_t)(filter_events | 0x17)));
+	// 2. pfc[0] (default 0x17 L2D_CACHE_REFILL) -- read alongside counter 0 in reload() for an L1/L2 view
+	asm volatile("msr pmevtyper1_el0, %0" :: "r" ((uint64_t)(filter_events | (executor.config.pfc_event1 & 0xffff))));
 	asm volatile("isb\n");
 
-	// 3. MEM_ACCESS (0x13) -- demand memory accesses (NOT prefetches); reload compares vs L2D refills
-	asm volatile("msr pmevtyper2_el0, %0" :: "r" ((uint64_t)(filter_events | 0x13)));
+	// 3. pfc[1] (default 0x13 MEM_ACCESS) -- demand memory accesses (NOT prefetches)
+	asm volatile("msr pmevtyper2_el0, %0" :: "r" ((uint64_t)(filter_events | (executor.config.pfc_event2 & 0xffff))));
 	asm volatile("isb\n");
 
-	// 4. BR_MIS_PRED_RETIRED (0x22): branch architecturally executed, mispredicted (base
-	//    architectural event, covers indirect branches; used by the BTB prime+probe channel)
-	asm volatile("msr pmevtyper3_el0, %0" :: "r" ((uint64_t)(filter_events | 0x22)));
+	// 4. pfc[2] (default 0x22 BR_MIS_PRED_RETIRED) -- branch architecturally executed, mispredicted;
+	//    the selectors for counters 1..3 are sysfs-configurable (e.g. 0x08 INST_RETIRED / 0x09 EXC_TAKEN
+	//    for the architectural-vs-speculative PMU control)
+	asm volatile("msr pmevtyper3_el0, %0" :: "r" ((uint64_t)(filter_events | (executor.config.pfc_event3 & 0xffff))));
 	asm volatile("isb\n");
 
 	// cycle counter filter: same EL filter as the events, so PMCCNTR counts during the EL1 measurement

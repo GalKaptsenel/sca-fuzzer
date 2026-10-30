@@ -283,7 +283,6 @@ static ssize_t pin_to_core_store(struct kobject *kobj, struct kobj_attribute *at
 	
 	if (CPU_ID_DEFAULT == requested_cpu) {
 	    executor.config.pinned_cpu_id = CPU_ID_DEFAULT;
-	    module_err("Pin to core cleared, will run on current CPU\n");
 	} else if (0 > requested_cpu || requested_cpu >= nr_cpu_ids || !cpu_online(requested_cpu)) {
 	    executor.config.pinned_cpu_id = CPU_ID_DEFAULT;
 	    module_err("Requested CPU %d is invalid or offline, pinning cleared (will run on current CPU)\n", requested_cpu);
@@ -370,6 +369,42 @@ static ssize_t reload_pmu_event_store(struct kobject *kobj, struct kobj_attribut
 	return count;
 }
 static struct kobj_attribute reload_pmu_event_attribute = __ATTR(reload_pmu_event, 0644, reload_pmu_event_show, reload_pmu_event_store);
+
+/* PMU event ids counted into pfc[0..2] (PMEVCNTR1..3; accept hex). Defaults 0x17/0x13/0x22; set to
+ * 0x08 (INST_RETIRED) / 0x09 (EXC_TAKEN) for the architectural-vs-speculative PMU control. */
+#define PFC_EVENT_ATTR(N, FIELD)                                                                      \
+	static ssize_t pfc_event##N##_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {\
+		return scnprintf(buf, PAGE_SIZE, "0x%x\n", executor.config.FIELD);                            \
+	}                                                                                                 \
+	static ssize_t pfc_event##N##_store(struct kobject *kobj, struct kobj_attribute *attr,            \
+	                                    const char *buf, size_t count) {                              \
+		int v = 0;                                                                                    \
+		if (0 > kstrtoint(buf, 0, &v)) {                                                              \
+			return -EINVAL;                                                                           \
+		}                                                                                             \
+		executor.config.FIELD = v & 0xffff;                                                           \
+		return count;                                                                                 \
+	}                                                                                                 \
+	static struct kobj_attribute pfc_event##N##_attribute =                                           \
+		__ATTR(pfc_event##N, 0644, pfc_event##N##_show, pfc_event##N##_store)
+PFC_EVENT_ATTR(1, pfc_event1);
+PFC_EVENT_ATTR(2, pfc_event2);
+PFC_EVENT_ATTR(3, pfc_event3);
+
+/* 1 = MTE tag checks on (TCO=0, default); 0 = tag checks overridden off (TCO=1) -- the MTE enable/
+ * disable control: a genuine tag-check leak vanishes with checks off. */
+static ssize_t enable_mte_check_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+	return scnprintf(buf, PAGE_SIZE, "%d\n", executor.config.enable_mte_check);
+}
+static ssize_t enable_mte_check_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
+	bool value = false;
+	if (kstrtobool(buf, &value)) {
+		return -EINVAL;
+	}
+	executor.config.enable_mte_check = value;
+	return count;
+}
+static struct kobj_attribute enable_mte_check_attribute = __ATTR(enable_mte_check, 0644, enable_mte_check_show, enable_mte_check_store);
 
 /* F+R reload: 0 = single 64-set sweep (default); 1 = per-set isolation (re-run test per set). */
 static ssize_t reload_isolate_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
@@ -462,6 +497,10 @@ static struct attribute *sysfs_attributes[] = {
 	&reload_timer_shift_attribute.attr,
 	&reload_random_order_attribute.attr,
 	&reload_pmu_event_attribute.attr,
+	&pfc_event1_attribute.attr,
+	&pfc_event2_attribute.attr,
+	&pfc_event3_attribute.attr,
+	&enable_mte_check_attribute.attr,
 	&reload_isolate_attribute.attr,
 	&ssbs_state_attribute.attr,
 	&reload_traffic_attribute.attr,

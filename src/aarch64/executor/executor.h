@@ -44,6 +44,10 @@ typedef struct executor_config {
 	int reload_pmu_event;    /* PMU event id counted by reload()'s hit test (delta==0). Default 0x03 = L1D_CACHE_REFILL; e.g. 0x17 = L2D_CACHE_REFILL */
 	int reload_isolate;      /* 1 => reload probes only executor.reload_target_set (per-set isolation; C re-runs the test per set) */
 	char enable_bpu_probe;   /* 1 => also prime+probe the BTB alongside the cache channel -> htrace[HTRACE_BTB] */
+	int pfc_event1;          /* PMU event id counted into pfc[0] (PMEVCNTR1). Default 0x17 = L2D_CACHE_REFILL */
+	int pfc_event2;          /* PMU event id counted into pfc[1] (PMEVCNTR2). Default 0x13 = MEM_ACCESS */
+	int pfc_event3;          /* PMU event id counted into pfc[2] (PMEVCNTR3). Default 0x22 = BR_MIS_PRED_RETIRED */
+	char enable_mte_check;   /* 1 => tag checks on (TCO=0); 0 => tag checks off (TCO=1, override) */
 } executor_config_t;
 
 typedef struct device_managment {
