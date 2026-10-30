@@ -264,3 +264,12 @@ btb_prime_probe/) and labelled it "canon ~1.9K". That label is WRONG and is corr
   (their BR_MIS_PRED signal is buried under the ~2-mispredict/stub return/RSB baseline; confirmed 0.5).
 - BTB boundary pattern for the medium: same-process ~1-2K >> VM->host ~83 >> cross-process ~29 bits/s;
   the boundary-crossing coordination cost dominates (the raw same-process BTB channel is fast).
+
+## Cross-EL (EL2→EL0) canon dTLB — ADDED
+
+Added a `canon_mode` param to the EL2 victim (dtlb_leak.ko): canon_mode=1 drops the autiza and flips
+[54:48] on a mismatch (pure canonicality, no PAC), canon_mode=0 is the original AUT*. Freshly rebuilt +
+reloaded (verified param=1). Attacker (canon_leak --mode xel) unchanged (same dTLB prime/probe):
+- cross-EL dTLB · canon : samples 50, bits/s 3270, 100% (320/320)   [VALIDATED]
+- cross-EL dTLB · AUT\*  : samples 50, bits/s 3271, 99.4% (sanity, canon_mode=0)
+Technique-equal across the privilege boundary too (3270 ≈ 3271).
