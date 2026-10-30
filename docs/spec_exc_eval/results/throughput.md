@@ -34,6 +34,18 @@ programs-per-second for measurements-per-second because every seal site turns on
 + decoy family. contract_driven is marginally faster than strict (7.48 vs 7.03 tc/s): its boosting
 re-randomises only the untainted lanes, slightly cheaper than strict's full seal-variant expansion.
 
+**What regime these numbers reflect (read before quoting them).** Almost every test case here is
+discarded via the **fast path** — regular 399/400, strict 393/400, contract_driven similar — meaning
+the test case was measured once on hardware, showed no input-dependent htrace difference, and was
+dropped before the expensive confirmation pipeline (priming / boosting / large-sample). So these are
+**clean-test-case throughput** numbers (the common case when the run is not actively confirming a
+violation), NOT full-pipeline throughput — a run spending time confirming real violations would be
+slower. The comparison is still apples-to-apples because all three modes fast-path at essentially the
+same rate; the mode difference is entirely in traces-per-test-case: regular ≈200 (2012 ÷ 10.03),
+strict ≈467 (3287 ÷ 7.03), contract_driven ≈432 (3235 ÷ 7.48) — spec-exc measures ~2.3× more
+hardware traces per test case (the genuine + decoy variants), which is exactly where its lower tc/s
+comes from. Every trace counted is a real HW measurement; nothing is skipped on one side only.
+
 **Reasonableness:** these are healthy rates for a JIT-hooked HW fuzzer — ~2–3.3 K device measurements
 per second, 7–10 programs per second including generation, assembly, the CE resolve trace, and the
 HW batch. The ~30% tc/s overhead is the price of the genuine/decoy sealing, and it buys 1.6× more
