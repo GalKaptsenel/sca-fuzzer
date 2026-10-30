@@ -51,6 +51,20 @@ per second, 7–10 programs per second including generation, assembly, the CE re
 HW batch. The ~30% tc/s overhead is the price of the genuine/decoy sealing, and it buys 1.6× more
 traces, which is where leak detection actually happens.
 
+## Input-count scaling: regular fuzzing at `-i 100` (vs `-i 10`)
+
+Regular (`basic`) throughput with 100 inputs per test case instead of 10, local and remote:
+
+| run | `-i 10` tc/s | `-i 10` traces/s | `-i 100` tc/s | `-i 100` traces/s |
+|---|---:|---:|---:|---:|
+| local (N3) | 10.03 | 2012 | **0.94** | 1962 |
+| remote (Pixel 8) | 0.85 | 171 | **0.17** | 414 |
+
+tc/s drops ~10× with 10× the inputs (each test case now measures 10× as many inputs), while traces/s —
+the hardware measurement rate — stays flat locally (~2 K, it is HW-bound) and actually rises remotely
+(171→414: with more inputs per batch, the fixed per-batch tunnel round-trip is amortized over more
+measurements). So more inputs per test case costs tc/s but not total measurement throughput.
+
 ## Remote (Pixel 8 / Cortex-A715 over the ADB reverse tunnel, 2026-10-30)
 
 Same three configs with the remote-execution block added (transport `adb`, device core 4), driven

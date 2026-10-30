@@ -37,10 +37,10 @@ min-samples floor (`reps≈3`). "chance / no leak" means no `samples` count reac
 |---|---|---|---|
 | **same-thread, inline** (EL0, no context switch) | L1D | 1.03M @r3, 1.00 | 972K @r3, 1.00 |
 | | L2 (private) | 833K @r3, 1.00 | 771K @r3, 1.00 |
-| | iTLB | 1.7K @r150, 1.00 | **chance — no leak†** |
+| | iTLB | 1.7K @r150, 1.00 | **leaks w/ sled, 1.00†** |
 | **xthread** (2 threads, 1 core, EL0) | L1D | 100% @s2000 (≈2) | 100% @s2000 (≈2) |
 | | dTLB | 492 @s400, 1.00 | 489 @s400, 1.00 |
-| | iTLB | 43 @s400, 1.00 | **chance — no leak†** |
+| | iTLB | 43 @s400, 1.00 | **leaks w/ sled, 1.00†** |
 | **xcore** (2 cores, EL0, shared L3) | L3 / LLC | 26 @s2000, 1.00 | 26 @s2000, 1.00 |
 | **xel** (EL2→EL0, cross-privilege) | L1D | 100% @s4000 (≈2) | 100% @s2000 (≈2) |
 | | dTLB | 603 @s400 → **7485 @s32**, 1.00 | 607 @s400 → **5159 @s32**, 1.00 |
@@ -49,12 +49,13 @@ min-samples floor (`reps≈3`). "chance / no leak" means no `samples` count reac
 | **VM→host** (guest→host) | BTB | **n/a‡** | 80 @s200, 1.00 |
 | **same-process** (EL0) | BTB | ~2.3K, 1.00 (generic medium§) | ~2.3K, 1.00 (generic§) |
 
-- **†** canon×iTLB is a genuine same-EL0 **negative** — confirmed independently on two harnesses
-  (`bit_shift_canon` inline 0.50/0.52, `aut_bit55` xthread 0.25–0.50 over 3 repeats each). A non-canonical
-  *fetch* at EL0 still speculatively probes the iTLB, so [54:48] does not gate it. AUT\*×iTLB leaks there
-  only via a **privilege** effect (its rejected case lands on an EL0-unfetchable kernel address). Cross-EL
-  (`xel`) canon×iTLB **does** leak (445 b/s, 100%): the kernel sled is fast-rejected cleanly and gives
-  24-page amplification.
+- **†** canon×iTLB **does** leak same-EL0 — the earlier "no-leak" was a *single-page probe artifact*,
+  now retracted (see `rootless_cntvct.md`). A single-page victim probe cannot separate the bits same-EL0
+  because bit0 fetches the victim and bit1 speculatively fetches some *other* garbage page: both evict
+  one entry (1-vs-1). With a **24-page jump-sled** target (the same amplification cross-EL uses), an
+  in-range branch fetches ~24 pages and a non-canonical one ~1 (24-vs-1), and the eviction-set
+  reverse-probe recovers it at 1.00 same-EL0 (rootless cntvct: 585 b/s). So the sled, not privilege, is
+  what canon×iTLB needs; cross-EL (`xel`) also leaks (445 b/s, 100%).
 - **‡** AUT\*×BTB across ASIDs = n/a: CSV2 blocks cross-ASID BTB target injection; `autiza` also
   canonicalizes both hypotheses, so there is no BTB signal to read.
 - **§** same-process BTB is a generic medium-capacity channel (`game.c`: secret = which of K=8 BTB sets
