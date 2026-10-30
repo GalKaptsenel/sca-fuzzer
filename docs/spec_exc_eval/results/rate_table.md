@@ -149,3 +149,19 @@ not a blind sweep — logged as future work; no sub-99% number is reported as a 
 
 This is itself a result: the **private levels (L1D, L2) are clean high-rate channels; the shared L3 is a
 much noisier medium** — another instance of "the medium sets the behaviour," here the sharing domain.
+
+## CORRECTION: canon DOES leak on the iTLB (my "no-leak" was a probe artifact)
+
+The earlier "canon x iTLB = no leak" was WRONG — it was my probe, not the channel. The 96-page total-miss
+probe counts ANY eviction, so it cannot tell bit0 (the blr fetches the VICTIM page) from bit1 (the
+non-canonical blr fetches some OTHER garbage page): both evict one primed entry -> equal totals -> looks
+flat. With a TARGETED victim-page probe (`itlb_victim.c`: prime 96 OTHER pages to evict the victim, run
+the gadget, then fetch the victim and read L1I_TLB_REFILL), canon separates cleanly:
+  reps=150: AUT* c0=149 c1=88 (100%); **canon c0=150 c1=66 (99.8%)** -> ~6K bits/s, canon's Δ (84) even
+  exceeding AUT*'s (61). So BOTH techniques leak on the iTLB at ~6K bits/s (technique equal, as elsewhere).
+The iTLB eviction is probabilistic (some reps read c0=c1 when priming fails to evict the victim), so the
+rate is approximate; the qualitative result (canon leaks on the iTLB) is solid.
+
+Revised iTLB row: AUT* ~6K, canon ~6K (both via the victim-probe). The privilege story still holds for
+why the OLD total-miss probe separated AUT* but not canon, but it was a probe limitation, not a channel
+property.
