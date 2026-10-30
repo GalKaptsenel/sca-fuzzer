@@ -38,7 +38,7 @@ def _value_entries(ex, resolved):
 
 
 def _lane(image, location):
-    """The little-endian value a seal's GST lane holds in `image` (a genuine()/decoy() SIMD image)."""
+    """The little-endian value a seal's GVT lane holds in `image` (a genuine()/decoy() SIMD image)."""
     rng = location.byte_range()
     return int.from_bytes(image[rng.start:rng.stop], "little")
 
@@ -51,7 +51,7 @@ def _genuine_lane(s, value):
 
 
 def _pac_forged(image, s, correct_sig):
-    """True if the PAC site's GST lane holds a signature other than the genuine one (correct_sig None
+    """True if the PAC site's GVT lane holds a signature other than the genuine one (correct_sig None
     means the site was unreached — any stored signature is a forgery)."""
     if correct_sig is None:
         return True
@@ -159,7 +159,7 @@ class RegularSealedSealingTest(_ConfIsolated):
         return bool(getattr(ex._sealed, "_pac", []) or getattr(ex._sealed, "_mte", []))
 
     def _assert_arch_genuine(self, ex, resolved, image, violations):
-        """Every architectural value slot's GST lane in `image` must carry the genuine value."""
+        """Every architectural value slot's GVT lane in `image` must carry the genuine value."""
         for r in _value_entries(ex, resolved):
             if r.speculative:
                 continue
@@ -201,7 +201,7 @@ class RegularSealedSealingTest(_ConfIsolated):
             for inp in ig.generate(3):
                 resolved = ex._sealed.resolve(inp)               # fresh per-input resolve
                 for i in range(8):                               # many minted decoys (distinct seeds)
-                    image = resolved.decoy(random.Random(i))     # the per-variant GST image
+                    image = resolved.decoy(random.Random(i))     # the per-variant GVT image
                     self._assert_arch_genuine(ex, resolved, image, violations)
                     self._accumulate_coverage(ex, resolved, image, cov)
         self.assertEqual(violations, [], f"arch slots not genuine: {violations[:5]}")
@@ -229,7 +229,7 @@ class RegularSealedSealingTest(_ConfIsolated):
         self.assertEqual(len(ctraces), len(inputs))
         by_class = defaultdict(list)
         for inp in inputs:
-            by_class[ex._sealed.resolve(inp).collapse_key].append(ex._seal_input(inp).gst)
+            by_class[ex._sealed.resolve(inp).collapse_key].append(ex._seal_input(inp).gvt)
         for plans in by_class.values():
             self.assertTrue(all(p == plans[0] for p in plans),
                             "same-class inputs must run the identical program")
@@ -243,8 +243,8 @@ class RegularSealedSealingTest(_ConfIsolated):
             inputs, _ = self._seal_a_tc(ex, gen)
             for inp in inputs:
                 resolved = ex._sealed.resolve(inp)
-                plan = ex._seal_input(inp).gst
-                self.assertEqual(plan, ex._seal_input(inp).gst, "must be deterministic")
+                plan = ex._seal_input(inp).gvt
+                self.assertEqual(plan, ex._seal_input(inp).gvt, "must be deterministic")
                 if prob == 0.0:
                     self.assertEqual(plan, resolved.genuine(), "prob 0 must be genuine everywhere")
 

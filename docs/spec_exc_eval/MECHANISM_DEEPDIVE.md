@@ -13,25 +13,25 @@ fuzzer runs several *variants* of one architectural input: a **genuine** variant
 holds — correct PAC signature / matching MTE tag / canonical address) and one or more **decoy**
 variants (the precondition is violated only on the speculative path). The test-case code is
 **byte-identical across every variant**; the only per-variant difference is a small table of values the
-code loads from reserved vector registers — the **GlobalSealTable (GST)**. A violation is an
+code loads from reserved vector registers — the **GlobalValueTable (GVT)**. A violation is an
 equivalence class of variants whose hardware traces diverge: the speculative precondition violation
 left a microarchitectural footprint.
 
-## 1. GlobalSealTable (GST): in-register value delivery
+## 1. GlobalValueTable (GVT): in-register value delivery
 
-`src/aarch64/seal/global_seal_table.py` — the GST is "a GOT, but in a register": the code reads each
+`src/aarch64/seal/global_value_table.py` — the GVT is "a GOT, but in a register": the code reads each
 seal's value from a reserved vector lane instead of having the value spliced into the code.
 
-- `VectorGlobalSealTable` (`global_seal_table.py:99`) backs the table with the vector file, allocating
-  top register first (`v31` down, `TOP_REG=31`, `SIMD_BASE_REG=0`, `global_seal_table.py:13-14`),
+- `VectorGlobalValueTable` (`global_value_table.py:99`) backs the table with the vector file, allocating
+  top register first (`v31` down, `TOP_REG=31`, `SIMD_BASE_REG=0`, `global_value_table.py:13-14`),
   byte-aligned, never straddling a register (`allocate`, `:113-123`). Capacity is a bit budget rounded
-  up to whole registers (`:103-109`); overflow raises `GlobalSealTableCapacityExceeded` (`:119-121`) —
+  up to whole registers (`:103-109`); overflow raises `GlobalValueTableCapacityExceeded` (`:119-121`) —
   no fallback. The sealer builds it over the whole vector file (512 bytes) at `sealer.py:615`.
-- `_VectorLocation.load` (`global_seal_table.py:71-78`) emits the one fixed instruction that reads a
+- `_VectorLocation.load` (`global_value_table.py:71-78`) emits the one fixed instruction that reads a
   lane: `UMOV <w|x>tmp, v<reg>.<b|h|s|d>[idx]`, element size chosen from the field width
   (`_UMOV_LANE`, `:11`). `byte_range()` (`:80-82`) maps a lane to its byte offset in the REIF SIMD
   section.
-- `_VectorGSTImage` (`global_seal_table.py:85-96`) is one per-input fill: `store(location, value)`
+- `_VectorGVTImage` (`global_value_table.py:85-96`) is one per-input fill: `store(location, value)`
   writes the value little-endian into the lane's byte range (`:89-93`); `to_section()` emits a
   `SimdSection` (`:95-96`). The whole image is `SIMD_SUBREGION_SIZE` bytes.
 
@@ -69,7 +69,7 @@ excluded from the body's register budget.
 - `resolve(inp)` (`:652-663`) runs one CE trace per input (memoized), builds the `_Resolved` entries,
   and returns a `ResolvedSealingTestCase`.
 - `ResolvedSealingTestCase` (`:383`): `object_code` (`:406-408`) is the input-independent code; a
-  variant is just a GST image. `genuine()` (`:415-416`) stores every slot's correct value; `decoy(rng)`
+  variant is just a GVT image. `genuine()` (`:415-416`) stores every slot's correct value; `decoy(rng)`
   (`:418-422`) perturbs a non-empty subset of the *eligible* slots — those that are **speculative and
   carry alternatives** (`_eligible`, `:424-428`). `_build_image` (`:433-442`) is the whole image fill:
   for each entry, `store_into(image, alt-if-perturbed-else-genuine, genuine)`. `collapse_key` (`:444`)
@@ -79,7 +79,7 @@ excluded from the body's register budget.
 ## 4. The genuine contract trace + CE value injection
 
 The genuine contract trace must run the *same fixed code* as the genuine variant, but the CE cannot
-know the runtime PAC signature / cell tag a priori. The resolve trace ships a **blank** GST image plus
+know the runtime PAC signature / cell tag a priori. The resolve trace ships a **blank** GVT image plus
 an **emulation table**, and the CE injects each site's genuine value into the image as it reaches it.
 
 - `SealedTestCase._resolve_trace` (`sealer.py:671-680`): assembles the fixed code, ships
@@ -89,33 +89,33 @@ an **emulation table**, and the CE injects each site's genuine value into the im
 - CE dispatch: `instruction_emulator.c:13-14` maps `EMUL_OP_PAC_AUTH`→`pac_emulate_auth`,
   `EMUL_OP_MTE_RETAG`→`mte_emulate_retag`.
 - `mte_emulate_retag` (`src/aarch64/contract_executor/mte_seal_plugin.c:22`) reads the accessed cell's
-  tag and writes it into the GST image buffer at both lane offsets
+  tag and writes it into the GVT image buffer at both lane offsets
   (`simulation.sim_input.simd[row->gst_offset] = applied; ...simd[row->gst_offset2] = applied;`,
   `mte_seal_plugin.c:65-66`), with bounds checks that abort loudly (`:60-62`).
 - `base_hook.S` reloads the whole vector file from the image after each C hook, so the next `UMOV`
   reads the just-injected value: `gst_image_target` is patched to `&sim_input.simd` (`base_hook.S:2,10`)
   and v0–v31 are reloaded before control returns to the test case (`base_hook.S:45-47`). This is the
-  GST analogue of the old "op writes code" machinery; there are no code splices.
+  GVT analogue of the old "op writes code" machinery; there are no code splices.
 
 Because the genuine image makes the `AUT*`/tag-check pass, the single resolve pass **is** a faithful
-genuine contract trace (same trust basis as the pre-GST, relocation-era code).
+genuine contract trace (same trust basis as the pre-GVT, relocation-era code).
 
 ## 5. The executor: per-variant images, strict vs contract_driven
 
 `src/aarch64/aarch64_executor.py`.
 
-- `variants_for_input` (`:817-826`) builds `{variant_name: ExecutorInput(inp, gst=image, mte_tags=…,
+- `variants_for_input` (`:817-826`) builds `{variant_name: ExecutorInput(inp, gvt=image, mte_tags=…,
   pac_keys=…)}` from the resolved genuine/decoy images. `genuine_variant` (`:835`) is the baseline;
   decoys are `SpecExcVariant.decoy_n(i)` (`:850-853`).
 - Strict mode `_seal_input` (`:939-947`) ships one sealed program per sealing class — genuine, or a
   decoy by a per-class coin — so a stale `AUT*`/tag fault can never reset the box. contract_driven mode
-  (`as_executor_input`, `:882-887`) carries the GST in the input's own SIMD subregion (`gst=None`) and
+  (`as_executor_input`, `:882-887`) carries the GVT in the input's own SIMD subregion (`gvt=None`) and
   freezes only the arch-consumed lanes.
 - The image is shipped as the REIF SIMD section: `ExecutorInput.serialize` (`aarch64_executor_input_
-  encoder.py:169-177`) uses `self.gst` if set, else the input's own SIMD; `build_input_init`
+  encoder.py:169-177`) uses `self.gvt` if set, else the input's own SIMD; `build_input_init`
   (`:127-142`) appends it as `SEC_SIMD`.
 
-## 6. The hardware path: load the GST into v0–v31
+## 6. The hardware path: load the GVT into v0–v31
 
 `src/aarch64/executor/`.
 
@@ -151,11 +151,11 @@ footprint depends on the tag.
 
 ## 8. Triage machinery (genuineness gates)
 
-A violation is only called GENUINE after four gates, all GST-aware
+A violation is only called GENUINE after four gates, all GVT-aware
 (`docs/tiktag_mte_ni/general_detection/{auto_triage,triage_sweep,tag_track}.py`,
 `.claude/skills/verify-mte-tag-leak/accounting.py`):
 
-1. **Tag-only** (`accounting.py`): genuine vs decoy GST images differ only in `MteSealing` applied-tag
+1. **Tag-only** (`accounting.py`): genuine vs decoy GVT images differ only in `MteSealing` applied-tag
    lanes (code is byte-identical by construction).
 2. **Speculative-only leaking set** (`accounting.py`): a hardware-diverging set must be a CE
    speculative access (or a prefetch stream of one), not an architectural demand — architectural
@@ -167,8 +167,8 @@ A violation is only called GENUINE after four gates, all GST-aware
    the detected match tag moves with it — the decisive pointer-vs-memory-check proof. An ineffective
    patch is declared INVALID, never a false negative.
 
-The sweep/track build variants by rewriting the GST image (`store_into` on the suspect sealing, cell
-lane kept genuine) and shipping it with `dataclasses.replace(genuine_variant, gst=image)` — no
+The sweep/track build variants by rewriting the GVT image (`store_into` on the suspect sealing, cell
+lane kept genuine) and shipping it with `dataclasses.replace(genuine_variant, gvt=image)` — no
 relocation plans.
 
 ## 9. Transport (adb)

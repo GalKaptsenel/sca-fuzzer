@@ -35,7 +35,7 @@ void* instruction_emulator_hook(struct simulation_state* sim_state)
     size_t n = simulation.sim_input.emul_table_size / sizeof(struct emul_row);
     uintptr_t off = sim_state->cpu_state.pc - (uintptr_t)simulation.sim_code.code;
 
-    /* MATERIALIZE when PC is at a row's first slot: the op injects the genuine value into the GST image
+    /* MATERIALIZE when PC is at a row's first slot: the op injects the genuine value into the GVT image
      * (base_hook then reloads it into the vector file before this same PC re-runs the UMOV). */
     for (size_t i = 0; i < n; ++i) {
         if (rows[i].offset == off) {

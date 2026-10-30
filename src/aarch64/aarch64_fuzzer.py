@@ -350,7 +350,7 @@ class Aarch64SpeculativeExceptionFuzzer(CrossInputPrimingMixin, SpeculativeExcep
                                    ("pin_to_core", "-1"))
 
     def _boost_inputs(self, inputs, nesting):
-        # contract_driven: the seal values are ordinary fuzzed input (the GST lives in the input's SIMD
+        # contract_driven: the seal values are ordinary fuzzed input (the GVT lives in the input's SIMD
         # subregion), so boost by re-randomising the untainted (speculative) lanes exactly as the regular
         # fuzzer does — the executor's taint freezes the architectural lanes — then convert to kernel
         # input files. strict keeps the seal-variant boosting (genuine baseline vs sealer decoys).

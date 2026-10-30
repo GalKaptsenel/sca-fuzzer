@@ -36,7 +36,7 @@ typedef struct Input {
 	};
 	uint8_t mte_tags[INPUT_MTE_TAG_COUNT];   /* one 4-bit tag per 16B granule, unpacked */
 	bool mte_tags_present;
-	/* The GST image (SEC_SIMD): loaded into v0..v31 before this input runs; zeroed when absent. */
+	/* The GVT image (SEC_SIMD): loaded into v0..v31 before this input runs; zeroed when absent. */
 	uint8_t simd[REVISOR_SIMD_SECTION_SIZE];
 	struct pac_keys pac_keys;                /* per-input PAC key override */
 	bool pac_keys_present;

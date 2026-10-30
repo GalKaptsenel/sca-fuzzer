@@ -142,7 +142,7 @@ class ContractExecution:
     mte_profile: Optional[MteProfile] = None   # MTE state the CE models, or None (emulate, tag stripped)
     data_size: int = 0    # trailing read-only bytes of machine_code (dispatch tables): loaded but not hooked
     emul_table: bytes = b""   # emulation table: rows of (offset, size, op) the CE materializes in place, or empty
-    simd: Optional[bytes] = None   # SIMD section (the GST image) loaded into the vector registers, or None
+    simd: Optional[bytes] = None   # SIMD section (the GVT image) loaded into the vector registers, or None
 
     def encode(self) -> bytes:
         """

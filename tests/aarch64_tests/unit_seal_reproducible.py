@@ -1,6 +1,6 @@
 """Sealing must be path-independent: `fuzz` (which generates a test case, consuming the global RNG)
 and `reproduce` (which parses the same .asm and consumes nothing) must seal the SAME test case into
-the SAME artifact — identical salt, object code, genuine GST image, and decoy images — or a saved
+the SAME artifact — identical salt, object code, genuine GVT image, and decoy images — or a saved
 violation cannot be reconstructed. Regression for the decoy salt being derived from the test-case
 code (not the global RNG stream) and slot insertion being seeded from it. Needs /dev/executor.
 """

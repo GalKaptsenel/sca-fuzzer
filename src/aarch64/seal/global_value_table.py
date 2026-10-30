@@ -1,4 +1,4 @@
-"""GlobalSealTable (GST): an in-register table of per-input seal values.
+"""GlobalValueTable (GVT): an in-register table of per-input seal values.
 
 Like a GOT but in a register: a seal reads its value from the table (loaded from the input).
 """
@@ -33,7 +33,7 @@ class Location(ABC):
         """The value's byte offsets within this file's REIF section."""
 
 
-class GSTImage(ABC):
+class GVTImage(ABC):
     """A fresh per-input fill of the table; filled, then handed to the REIF builder as a section."""
 
     @abstractmethod
@@ -45,20 +45,20 @@ class GSTImage(ABC):
         """This image as its REIF section."""
 
 
-class GlobalSealTable(ABC):
+class GlobalValueTable(ABC):
     """Register storage for seal values; the backing registers (vector/GPR) and count are hidden.
-    Built with a bit capacity; raises GlobalSealTableCapacityExceeded when allocation exceeds it."""
+    Built with a bit capacity; raises GlobalValueTableCapacityExceeded when allocation exceeds it."""
 
     @abstractmethod
     def allocate(self, width: int) -> Location:
         """Reserve `width` bytes; raise on overflow."""
 
     @abstractmethod
-    def blank_image(self) -> GSTImage:
+    def blank_image(self) -> GVTImage:
         """A fresh, zeroed per-input fill of this table."""
 
 
-class GlobalSealTableCapacityExceeded(Exception):
+class GlobalValueTableCapacityExceeded(Exception):
     """Allocation exceeded the table's capacity."""
 
 
@@ -82,7 +82,7 @@ class _VectorLocation(Location):
         return range(base, base + self._width)
 
 
-class _VectorGSTImage(GSTImage):
+class _VectorGVTImage(GVTImage):
     def __init__(self) -> None:
         self._bytes = bytearray(SIMD_SUBREGION_SIZE)
 
@@ -96,7 +96,7 @@ class _VectorGSTImage(GSTImage):
         return SimdSection(bytes(self._bytes))
 
 
-class VectorGlobalSealTable(GlobalSealTable):
+class VectorGlobalValueTable(GlobalValueTable):
     """Seal-value storage backed by the vector registers (v31 down to v0). `capacity_bits` is rounded
     up to whole registers; values are byte-aligned, top register first, never straddling one."""
 
@@ -117,10 +117,10 @@ class VectorGlobalSealTable(GlobalSealTable):
             self._reg -= 1
             start = 0
         if self._reg < self._lowest_reg:
-            raise GlobalSealTableCapacityExceeded(
+            raise GlobalValueTableCapacityExceeded(
                 f"capacity exhausted (v{self._lowest_reg}..v{TOP_REG}); cannot place {width} bytes")
         self._byte = start + lane
         return _VectorLocation(self._reg, start, lane)
 
-    def blank_image(self) -> GSTImage:
-        return _VectorGSTImage()
+    def blank_image(self) -> GVTImage:
+        return _VectorGVTImage()

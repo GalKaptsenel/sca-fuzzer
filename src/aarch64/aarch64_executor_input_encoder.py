@@ -130,7 +130,7 @@ def build_input_init(main: bytes, faulty: bytes, gpr: bytes, simd: Optional[byte
                      bpu_training: Optional[Sequence] = None,
                      env_plan: Optional[EnvironmentPlan] = None) -> bytes:
     """Assemble a REIF file from the raw section payloads. `gpr` is the final 64-byte GPR section (flags
-    already in PSTATE form); `simd` is the optional SIMD_SUBREGION_SIZE-byte vector section (the GST image,
+    already in PSTATE form); `simd` is the optional SIMD_SUBREGION_SIZE-byte vector section (the GVT image,
     v0..v31). Shared by both consumers: the device write (ExecutorInput.serialize) and the
     contract-executor message (ContractExecution.encode)."""
     sections: List[Tuple[int, bytes]] = [
@@ -164,14 +164,14 @@ class ExecutorInput:
     pac_keys: Optional[Sequence[int]] = None
     bpu_training: Tuple[Tuple[int, bool], ...] = ()
     env_plan: EnvironmentPlan = field(default_factory=EnvironmentPlan)
-    gst: Optional[bytes] = None   # GST image (SIMD section) for a sealed variant; else the input's own
+    gvt: Optional[bytes] = None   # GVT image (SIMD section) for a sealed variant; else the input's own
 
     def serialize(self) -> bytes:
         frag = _first_fragment(self.input_)
         main_off = InputFragment.fields["main"][1]
         faulty_off = InputFragment.fields["faulty"][1]
         simd_off = InputFragment.fields["simd"][1]
-        simd = self.gst if self.gst is not None else frag[simd_off:simd_off + SIMD_SUBREGION_SIZE]
+        simd = self.gvt if self.gvt is not None else frag[simd_off:simd_off + SIMD_SUBREGION_SIZE]
         return build_input_init(frag[main_off:main_off + MAIN_AREA_SIZE],
                                 frag[faulty_off:faulty_off + FAULTY_AREA_SIZE],
                                 _gpr_section(frag), simd,

@@ -5,7 +5,7 @@ architecturally-reached slot is not. The detector is only sound if, across one e
 (inputs that resolve to the same per-slot values and speculative statuses):
   * the architectural flow is ALWAYS genuine — every variant (baseline and decoys) carries the
     genuine value in every architectural slot's lane; and
-  * the speculative flow is IDENTICAL across the class — for each variant the whole GST image is
+  * the speculative flow is IDENTICAL across the class — for each variant the whole GVT image is
     byte-for-byte equal for every input in the class, so a speculative slot carries the exact same
     value (genuine, or a shared decoy) for all of them. A decoy may differ from genuine, but it is
     the same decoy for the whole class.
@@ -94,11 +94,11 @@ class BpasClassIdentityTest(unittest.TestCase):
         variants = self.ex.variants_for_input(self.inp_a)
         for name, ei in variants.items():
             for rng in arch_lanes:
-                self.assertEqual(ei.gst[rng.start:rng.stop], genuine[rng.start:rng.stop],
+                self.assertEqual(ei.gvt[rng.start:rng.stop], genuine[rng.start:rng.stop],
                                  f"variant {name} perturbed an architectural lane {rng}")
         # And the decoys are not trivially genuine: at least one decoy image differs from the
         # baseline somewhere (necessarily in a speculative lane, since arch lanes are pinned above).
-        decoys = [ei.gst for n, ei in variants.items() if n != SpecExcVariant.BASELINE]
+        decoys = [ei.gvt for n, ei in variants.items() if n != SpecExcVariant.BASELINE]
         self.assertTrue(any(d != genuine for d in decoys),
                         "every decoy equals genuine — no speculative slot was decoyed")
 
@@ -111,8 +111,8 @@ class BpasClassIdentityTest(unittest.TestCase):
         vb = self.ex.variants_for_input(self.inp_b)
         self.assertEqual(set(va), set(vb), "variant sets differ across the class")
         for name in va:
-            self.assertEqual(va[name].gst, vb[name].gst,
-                             f"variant {name} GST image differs across the class — a speculative "
+            self.assertEqual(va[name].gvt, vb[name].gvt,
+                             f"variant {name} GVT image differs across the class — a speculative "
                              f"slot carries a different value for two architecturally-equivalent inputs")
 
 

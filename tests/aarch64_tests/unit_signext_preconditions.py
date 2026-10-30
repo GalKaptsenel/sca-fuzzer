@@ -68,7 +68,7 @@ class PacSignExtPreconditionTest(unittest.TestCase):
                 sess.set_data_size(eq._dispatch_data_size(tc))
                 try:
                     s = sealer.seal(tc)
-                except NotImplementedError as e:   # PAC/SIGNEXT not yet on the GST path: skip until migrated
+                except NotImplementedError as e:   # PAC/SIGNEXT not yet on the GVT path: skip until migrated
                     self.skipTest(str(e))
                 self.assertIsInstance(s, PacSignExtSealedTestCase)
                 sealed += 1
@@ -90,7 +90,7 @@ class PacSignExtPreconditionTest(unittest.TestCase):
         self.assertGreater(flip_checks, 0, "no sign-ext flip render was exercised")
 
     def _check_resolution(self, resolved, sealed) -> int:
-        """Assert the genuine/decoy GST images at this resolution are coherent; return the speculative
+        """Assert the genuine/decoy GVT images at this resolution are coherent; return the speculative
         sign-ext site count it contributed. Every sign-ext lane is 0 in the genuine image (no flip); a
         decoy flips a speculative lane to the bit-55 mask and never an architectural one."""
         sx = [e for e in resolved._entries if isinstance(e.sealing, SignExtSealing)]

@@ -31,7 +31,7 @@ from tests.conf_isolation import setUpModule, tearDownModule  # noqa: F401  (res
 
 
 def _lane(image, location):
-    """The little-endian value a seal's GST lane holds in `image` (a genuine()/decoy() SIMD image)."""
+    """The little-endian value a seal's GVT lane holds in `image` (a genuine()/decoy() SIMD image)."""
     rng = location.byte_range()
     return int.from_bytes(image[rng.start:rng.stop], "little")
 
@@ -44,7 +44,7 @@ def _genuine_lane(s, value):
 
 
 def _pac_kind(image, s, correct_sig):
-    """Classify a PAC site from its GST lane: a strip site carries no signature; otherwise the lane
+    """Classify a PAC site from its GVT lane: a strip site carries no signature; otherwise the lane
     holds the genuine signature (auth_correct) or a forgery (auth_forged)."""
     if s.strip:
         return "strip"
@@ -84,7 +84,7 @@ class NiRandomCoverageTest(unittest.TestCase):
         CONF._borg_shared_state.update(cls._saved_conf)
 
     def _assert_oracle_matches_genuine(self, genuine_image, inp, pac, mte, by_sealing):
-        """Independent oracle: trace the genuine render (the fixed code with the genuine GST image),
+        """Independent oracle: trace the genuine render (the fixed code with the genuine GVT image),
         classify each slot's arch-ness against the resolver flag, and verify every genuine PAC signature
         re-signs over the canonical pointer the slot's UMOV reads (so the committed AUT* authenticates)."""
         ex = self.ex
@@ -145,7 +145,7 @@ class NiRandomCoverageTest(unittest.TestCase):
             for inp in self.igen.generate(4):
                 resolved = ex._sealed.resolve(inp)
                 by_sealing = {id(r.sealing): r for r in resolved._entries}
-                # Every variant runs the identical object_code; the per-variant difference is the GST
+                # Every variant runs the identical object_code; the per-variant difference is the GVT
                 # image (genuine() / decoy()), so classification reads the image lanes, not code words.
                 baseline = resolved.genuine()
                 decoys = [resolved.decoy(random.Random(i)) for i in range(6)]

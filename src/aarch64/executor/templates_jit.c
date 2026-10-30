@@ -121,7 +121,7 @@ static int set_registers_from_input(jit_t* jit, int base_reg, int tmp_reg) {
 	jit_ldp64_post_index(jit, 2, 3, base_reg, 16);
 	jit_ldp64_post_index(jit, 4, 5, base_reg, 16);
 	jit_ldp64_post_index(jit, 6, 7, base_reg, 16);
-	// base_reg now points just past the 8 register slots, at the staged GST image (see
+	// base_reg now points just past the 8 register slots, at the staged GVT image (see
 	// load_registers_from_input): load it into the whole vector file v0..v31, read by the UMOV slots.
 	for (int q = 0; q < 32; ++q) {
 		jit_ldr128(jit, q, base_reg, q * 16);

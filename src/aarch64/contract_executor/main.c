@@ -14,7 +14,7 @@
 extern void base_hook();
 extern void base_hook_end();
 extern uint64_t base_hook_c_target;
-extern uint64_t gst_image_target;
+extern uint64_t gvt_image_target;
 
 simulation_hook_fn hooks_to_install[] = {
 	execution_clause_hook,
@@ -126,7 +126,7 @@ int main() {
 
 	const size_t base_hook_size = (size_t)(base_hook_end - base_hook);
 	base_hook_c_target = (uint64_t)base_hook_c;
-	gst_image_target = (uint64_t)(uintptr_t)&simulation.sim_input.simd;   // base_hook reloads v0..v31 from here
+	gvt_image_target = (uint64_t)(uintptr_t)&simulation.sim_input.simd;   // base_hook reloads v0..v31 from here
 
 	pac_sign_plugin_init();
 	mte_tag_plugin_init();
@@ -228,7 +228,7 @@ int main() {
 			goto main_simulation_memory_free;
 		}
 		uint64_t* regs_blob = (uint64_t*)simulation.sim_input.regs;
-		const uint8_t* simd_blob = simulation.sim_input.simd;   /* GST image -> v0..v31 */
+		const uint8_t* simd_blob = simulation.sim_input.simd;   /* GVT image -> v0..v31 */
 
 		void* kernel_sandbox_base = 0;
 		if(CONFIG_FLAG_REQ_MEM_BASE_VIRT & simulation.sim_input.hdr.config.flags) {
@@ -303,7 +303,7 @@ int main() {
 				/* slot 6 is already in PSTATE format. */
 				"msr nzcv, x6\n"
 				"ldr x7, [%3, #56]\n"
-				/* GST image: SEC_SIMD -> v0..v31 (lane j*16 -> v{j}), read by the UMOV slots. */
+				/* GVT image: SEC_SIMD -> v0..v31 (lane j*16 -> v{j}), read by the UMOV slots. */
 				"ldr q0,  [%4, #0]\n"
 				"ldr q1,  [%4, #16]\n"
 				"ldr q2,  [%4, #32]\n"

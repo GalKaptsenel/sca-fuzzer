@@ -40,11 +40,11 @@ mismatch is confined to the speculative path.
 
 ## Genuineness triage
 
-The triage tools were migrated to the GlobalSealTable model (see the commit): a variant is now its
-GST image, not a spliced relocation plan, so "tag-only" is a GST-image diff and a tag sweep rewrites
+The triage tools were migrated to the GlobalValueTable model (see the commit): a variant is now its
+GVT image, not a spliced relocation plan, so "tag-only" is a GVT-image diff and a tag sweep rewrites
 the applied-tag lane while the re-converge lane stays genuine.
 
-- **Gate 1 — tag-only: PASS.** Genuine vs decoy GST images differ only in MteSealing applied-tag
+- **Gate 1 — tag-only: PASS.** Genuine vs decoy GVT images differ only in MteSealing applied-tag
   lanes (`accounting.py`).
 - **Gate 2 — speculative-only leaking set: PASS.** Of the hardware-diverging sets, the leak-relevant
   ones are CE speculative accesses, not architectural demands: set 49 *is* a speculative demand

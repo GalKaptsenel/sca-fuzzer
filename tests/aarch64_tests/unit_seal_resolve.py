@@ -1,8 +1,8 @@
 """The sealed executor's resolution and enacted-input derivation against the real CE:
   * _resolve memoizes the pure resolution (one CE run per distinct input; reset per test case).
   * the cached resolution equals a fresh one.
-  * variants_for_input / as_executor_input are deterministic (priming re-derives the exact GST image).
-  * every variant shares one byte-identical object_code; only its GST image differs.
+  * variants_for_input / as_executor_input are deterministic (priming re-derives the exact GVT image).
+  * every variant shares one byte-identical object_code; only its GVT image differs.
   * reproduce (arch input only) re-derives the identical ExecutorInput.
 Needs /dev/executor + the CE.
 """
@@ -19,7 +19,7 @@ from src.interfaces import MAIN_AREA_SIZE, FAULTY_AREA_SIZE, GPR_SUBREGION_SIZE,
 
 
 def _without_gst(inp) -> bytes:
-    """The arch input's bytes with the SIMD subregion zeroed: that subregion is GST (seal) territory,
+    """The arch input's bytes with the SIMD subregion zeroed: that subregion is GVT (seal) territory,
     which serialize fills from the per-variant image, so it is not part of the arch input's identity."""
     b = bytearray(inp.tobytes())
     off = MAIN_AREA_SIZE + FAULTY_AREA_SIZE + GPR_SUBREGION_SIZE
@@ -61,7 +61,7 @@ class SealResolveTest(SealedExecutorFixture, unittest.TestCase):
         b = self.ex.variants_for_input(inp)
         self.assertEqual(list(a), list(b), "same variant names, same order")
         for name in a:
-            self.assertEqual(a[name].gst, b[name].gst,
+            self.assertEqual(a[name].gvt, b[name].gvt,
                              f"variant {name} not reproducible — priming would diverge")
 
     def test_as_executor_input_seals_to_baseline(self):
@@ -70,7 +70,7 @@ class SealResolveTest(SealedExecutorFixture, unittest.TestCase):
         ei = self.ex.as_executor_input(inp)
         self.assertIsInstance(ei, self.ExecutorInput)
         self.assertIs(ei.input_, inp)
-        self.assertEqual(ei.gst, self.ex._resolve(inp).genuine())
+        self.assertEqual(ei.gvt, self.ex._resolve(inp).genuine())
 
     def test_reproduce_rederives_identical_executor_input(self):
         # Reproduce saves the complete wire input but loads back only the arch input; the executor must
@@ -78,23 +78,23 @@ class SealResolveTest(SealedExecutorFixture, unittest.TestCase):
         inp = self._input()
         ei1 = self.ex.as_executor_input(inp)
         inp2 = wire.deserialize(ei1.serialize()).input_          # exactly what the loader returns
-        self.assertEqual(_without_gst(inp2), _without_gst(inp), "arch input round-trips (excluding the GST)")
+        self.assertEqual(_without_gst(inp2), _without_gst(inp), "arch input round-trips (excluding the GVT)")
         self.ex._sealed._resolved.clear()                        # force a genuinely fresh derivation
         ei2 = self.ex.as_executor_input(inp2)
         self.assertEqual(ei2.serialize(), ei1.serialize(),
                          "re-derived enacted input matches the original bit-for-bit")
 
     def test_variants_share_one_object_code_and_differ_in_gst(self):
-        # The GST invariant: the enacted code is input-independent — every variant runs the same
-        # object_code and carries its per-variant difference entirely in its GST image.
+        # The GVT invariant: the enacted code is input-independent — every variant runs the same
+        # object_code and carries its per-variant difference entirely in its GVT image.
         inp = self._input()
         variants = self.ex.variants_for_input(inp)
-        images = {ei.gst for ei in variants.values()}
-        self.assertTrue(all(ei.gst is not None for ei in variants.values()))
-        # baseline + at least one decoy differ only in the GST image, never in the code.
+        images = {ei.gvt for ei in variants.values()}
+        self.assertTrue(all(ei.gvt is not None for ei in variants.values()))
+        # baseline + at least one decoy differ only in the GVT image, never in the code.
         self.assertGreaterEqual(len(variants), 1)
         if self.ex._resolve(inp).has_decoy():
-            self.assertGreater(len(images), 1, "a decoy must change the GST image")
+            self.assertGreater(len(images), 1, "a decoy must change the GVT image")
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ A pointer-tag sweep alone shows the leak depends on the POINTER tag. This proves
 match tag MOVES with it. If the peak tracks the granule tag (peak == (d0 + (T_mem - T_default)) mod 16),
 the signal is the architectural tag comparison, not a fixed pointer-tag artifact.
 
-GST (GlobalSealTable) model: the code is byte-identical across variants; a variant = its GST image.
+GVT (GlobalValueTable) model: the code is byte-identical across variants; a variant = its GVT image.
 A decoyed gate is an eligible MteSealing site (speculative, with alternative tags); sweeping it = setting
 its APPLIED-tag lane while the re-converge lane stays genuine. The guess load is the site's own access.
 
@@ -70,7 +70,7 @@ def main():
         return image.to_section().content
 
     def ei(sus_sealing, applied, mte):
-        return dataclasses.replace(g, gst=build_image(sus_sealing, applied), mte_tags=tuple(mte))
+        return dataclasses.replace(g, gvt=build_image(sus_sealing, applied), mte_tags=tuple(mte))
 
     # --- Step 1: the decoyed (speculative) MTE gates; knock each to (genuine+1) to find the one gating
     # the diverging set. Architectural sites (not speculative / no alts) are never swept. ---

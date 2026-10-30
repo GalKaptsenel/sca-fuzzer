@@ -1,13 +1,13 @@
 .section .data
-.global base_hook, base_hook_end, base_hook_c_target, gst_image_target
+.global base_hook, base_hook_end, base_hook_c_target, gvt_image_target
 .type base_hook, %function
 
 /* Saves/restores x0-x29, LR, PC, SP, NZCV around base_hook_c, and RELOADS the whole vector file
- * v0-v31 from the GST image (sim_input.simd) after the call. The test case reads the GST image via
+ * v0-v31 from the GVT image (sim_input.simd) after the call. The test case reads the GVT image via
  * UMOV but never writes the vector registers, so reloading them from the authoritative image each
  * step both (a) undoes the C callees' (fprintf/malloc/Python) clobbering of caller-saved vectors and
  * (b) lets an op-emulator inject a value by writing the image buffer during the hook — the UMOV then
- * reads it. gst_image_target is patched at runtime to &sim_input.simd. */
+ * reads it. gvt_image_target is patched at runtime to &sim_input.simd. */
 base_hook:
 	/* Save context */
 	stp x1, x0, [sp, #-16]!
@@ -42,9 +42,9 @@ base_hook:
 
 	blr lr               // call C helper
 
-	// Reload v0-v31 from the GST image (sim_input.simd), which base_hook_c may have just updated (an
+	// Reload v0-v31 from the GVT image (sim_input.simd), which base_hook_c may have just updated (an
 	// op-emulator injecting a value). x9 is restored from the stack below, so clobbering it is safe.
-	ldr x9, gst_image_target
+	ldr x9, gvt_image_target
 	ldr q0,  [x9, #0]
 	ldr q1,  [x9, #16]
 	ldr q2,  [x9, #32]
@@ -105,7 +105,7 @@ base_hook_c_target:
         .quad 0               // patched at runtime
 
         .align 3              // 8-byte alignment
-gst_image_target:
+gvt_image_target:
         .quad 0               // patched at runtime to &sim_input.simd
 
 base_hook_end:

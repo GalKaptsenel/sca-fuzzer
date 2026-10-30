@@ -107,7 +107,7 @@ class _EquivalenceBase:
         for inp in inputs:
             resolved = self.sealed.resolve(inp)
             cer_res = resolved.cer                              # the single resolution trace
-            # The genuine variant is the shared object_code with the genuine GST image (for canon /
+            # The genuine variant is the shared object_code with the genuine GVT image (for canon /
             # branch-target that image is all-zero, i.e. the same image the resolution trace ships).
             cer_g = self.sess.trace_bytes(resolved.object_code, inp, simd=resolved.genuine())
 

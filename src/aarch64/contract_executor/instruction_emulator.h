@@ -6,11 +6,11 @@
 #include "simulation_state.h"
 
 /* The emulation table supplies a sealing site's genuine per-input value during the trace, by injecting
- * it into the GST image (sim_input.simd); base_hook then reloads the vector file from that image, so the
+ * it into the GVT image (sim_input.simd); base_hook then reloads the vector file from that image, so the
  * site's fixed UMOV reads the injected value. The site's code is fixed (UMOV + apply + anchor) and is
  * never patched. Each row names the site's first slot (the MATERIALIZE trigger), the byte span to its
  * anchor (the committed AUT* / the guarded access, at offset+size, which the op decodes to find the
- * pointer/context register), and the GST lane byte offset(s) the op writes. There is no stored per-row
+ * pointer/context register), and the GVT lane byte offset(s) the op writes. There is no stored per-row
  * state: MATERIALIZE is a pure function of PC, so re-reaches and speculation rollback need no
  * bookkeeping (the op is idempotent per reach, the lane persists, the resolve image is discarded after).
  * The CE knows nothing about sealing — only how to route to these ops. The table is OPTIONAL and
@@ -18,17 +18,17 @@
 
 enum emul_op {
 	EMUL_OP_NONE      = 0,
-	EMUL_OP_PAC_AUTH  = 1,   /* anchor AUT*: write the signed pointer to gst_offset so the AUT* verifies */
-	EMUL_OP_MTE_RETAG = 2,   /* anchor access: write the accessed cell's tag to gst_offset (applied) and
-	                          * gst_offset2 (the after-access re-converge lane)                           */
+	EMUL_OP_PAC_AUTH  = 1,   /* anchor AUT*: write the signed pointer to gvt_offset so the AUT* verifies */
+	EMUL_OP_MTE_RETAG = 2,   /* anchor access: write the accessed cell's tag to gvt_offset (applied) and
+	                          * gvt_offset2 (the after-access re-converge lane)                           */
 };
 
 struct emul_row {
 	uint32_t offset;      /* byte offset of the first slot (the MATERIALIZE trigger) */
 	uint32_t size;        /* bytes from the first slot to the anchor; the anchor sits at offset+size */
 	uint32_t op;          /* enum emul_op */
-	uint32_t gst_offset;  /* byte offset into the GST image of the lane the op writes */
-	uint32_t gst_offset2; /* MTE: the after-access re-converge lane; unused (0) for PAC */
+	uint32_t gvt_offset;  /* byte offset into the GVT image of the lane the op writes */
+	uint32_t gvt_offset2; /* MTE: the after-access re-converge lane; unused (0) for PAC */
 	uint32_t gst_lsb;     /* the lane holds (value >> gst_lsb) right-aligned (the field's low bit) */
 	uint32_t gst_width;   /* bytes the op writes at each lane (the UMOV element size: 1/2/4/8) */
 };
@@ -44,8 +44,8 @@ static inline int emul_table_valid(const uint8_t* table, size_t size, size_t cod
 		if (0 != rows[i].offset % 4 || 0 == rows[i].size || 0 != rows[i].size % 4 ||
 		    (uint64_t)rows[i].offset + rows[i].size + 4 > code_size ||
 		    0 == rows[i].gst_width || rows[i].gst_width > 8 || rows[i].gst_lsb >= 64 ||
-		    (uint64_t)rows[i].gst_offset + rows[i].gst_width > simd_size ||
-		    (uint64_t)rows[i].gst_offset2 + rows[i].gst_width > simd_size) {
+		    (uint64_t)rows[i].gvt_offset + rows[i].gst_width > simd_size ||
+		    (uint64_t)rows[i].gvt_offset2 + rows[i].gst_width > simd_size) {
 			return 0;
 		}
 	}

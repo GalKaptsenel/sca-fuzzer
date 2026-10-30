@@ -20,11 +20,11 @@ CE-only (no FEAT_MTE2 on this box).
    keeping a high success rate; make the comparison fair (vary only medium + technique); produce
    tables that support a conclusion, grounded in how the literature compares covert/side channels.
 
-### Side note (user, 2026-10-30): does GST improve throughput?
-The GST register-indirection makes the test-case code byte-identical across all inputs of a test
-case, so the per-input code **relocation splice** (and any re-JIT it forced) is gone — only the GST
+### Side note (user, 2026-10-30): does GVT improve throughput?
+The GVT register-indirection makes the test-case code byte-identical across all inputs of a test
+case, so the per-input code **relocation splice** (and any re-JIT it forced) is gone — only the GVT
 image / input bytes change per input. Hypothesis: fewer per-input code writes ⇒ higher inputs/s.
-To be MEASURED under task 6 (profile + inputs/s with the current GST path; reason about the retired
+To be MEASURED under task 6 (profile + inputs/s with the current GVT path; reason about the retired
 splice cost). Logged here so it is not lost.
 
 ---
@@ -61,19 +61,19 @@ sign-ext case. No subagent for the HW step — tight local control.
 
 **ROOT CAUSE of the box crashes (2026-10-30, confirmed): sandbox-base-specific PAC signatures.**
 A PAC signature authenticates `base+offset` (the actual runtime pointer, which includes the sandbox
-base). The saved GST images carry the CAMPAIGN boot's signatures. The sandbox base is NOT stable
+base). The saved GVT images carry the CAMPAIGN boot's signatures. The sandbox base is NOT stable
 across reboots (observed `0xffff40005ca61000` → `0xffff40008b821000`). My MANUAL replay of the raw
-saved GST images ran STALE signatures at the new base, so the ARCHITECTURAL AUT*s FPAC → box reset
+saved GVT images ran STALE signatures at the new base, so the ARCHITECTURAL AUT*s FPAC → box reset
 (both of my crashes). Evidence: reconstructed executor-input serializes BYTE-IDENTICAL to the saved
 `.reif` (not a plumbing bug); the CE-only triage never crashed (the CE ABORTS in software on a bad
 sig — contract_executor signal-6 — rather than faulting silicon); `revizor.py reproduce` did NOT
 crash because it RE-SEALS (re-signs at the current base).
-**This is NOT a GST regression.** The OLD relocation scheme spliced the signature as a MOVK CONSTANT
+**This is NOT a GVT regression.** The OLD relocation scheme spliced the signature as a MOVK CONSTANT
 into the code — equally `sign(base+offset)`, equally base-specific. It "never hit this" only because
 (a) within one module load the base is stable, so same-boot replay authenticates, and (b) the proper
-reproduce path re-seals (regenerates MOVKs/GST at the current base) in both schemes. Manually
+reproduce path re-seals (regenerates MOVKs/GVT at the current base) in both schemes. Manually
 replaying the old scheme's saved spliced-MOVK code across a reboot would FPAC identically.
-RULE: never replay a raw saved PAC artifact (GST image or spliced code) on HW across a reboot —
+RULE: never replay a raw saved PAC artifact (GVT image or spliced code) on HW across a reboot —
 re-seal at the current base, or regenerate from seeds. (The first crash was the subagent's hand-built
 manual reproduce at the campaign boot; its transcript was lost, so its exact trigger is unrecoverable,
 but it is the same family — a stale/incorrect signature on the architectural path.)
@@ -128,7 +128,7 @@ Code reading CONFIRMS this holds by construction:
     touches speculative lanes.
 
 Deliverable: `tests/aarch64_tests/unit_bpas_class_identity.py` (device-gated) asserts (a) arch slots
-genuine in every variant + decoys non-trivial, (b) per-variant GST image identical across a real
+genuine in every variant + decoys non-trivial, (b) per-variant GVT image identical across a real
 same-class input pair. Plus a short cond+bpas demonstration run captured to results/. RUN pending
 (device held by the task-2 triage subagent; serialized to avoid concurrent /dev/executor users).
 
@@ -172,7 +172,7 @@ Target the **EA** tag, not the base tag. The base tag that makes EA tag == cell 
 reduces to `cell`, preserving the old behaviour.
 
 - CE `mte_emulate_retag` (`mte_seal_plugin.c`): reads the base register (`get_rn(access)`) and the
-  EA, computes `applied = (base_tag + cell - ea_tag) & 0xF`, and injects `applied` into both GST
+  EA, computes `applied = (base_tag + cell - ea_tag) & 0xF`, and injects `applied` into both GVT
   lanes (the applied lane and the re-converge lane).
 - `_resolve_mte` (`sealer.py`): reads the applied base tag the inject set (`value_reg >> 56`),
   derives the index's contribution `index_contrib = (cell - applied) & 0xF`, and offers decoy tags
@@ -193,7 +193,7 @@ silicon. Distinct from the EA-tag bug above but in the same PAC/MTE family.
 
 ---
 
-## RESOLUTION of the "GST PAC crash" (2026-10-30) — NO fuzzer/GST bug
+## RESOLUTION of the "GVT PAC crash" (2026-10-30) — NO fuzzer/GVT bug
 
 Rigorous conclusion after the full investigation:
 - **config_pac_signext sealed fuzzing does NOT crash the box.** Evidence: 60 individual-variant TCs +
@@ -202,9 +202,9 @@ Rigorous conclusion after the full investigation:
   re-fuzz both completed. 
 - **SW QARMA matches silicon** (unit_pac_hw_differential 3/3) ⇒ genuine signatures are valid.
 - **CE is self-consistent** — 77 cases, 0 architectural FPACs for genuine OR decoy (CE SEQ emul=b"").
-- **GST delivery is faithful** — the seal UMOV loads x27 from the GST correctly (0/13 mismatch);
+- **GVT delivery is faithful** — the seal UMOV loads x27 from the GVT correctly (0/13 mismatch);
   strip(ptr) is a no-op on canonical reached pointers; genuine pointer at each reached AUT* is correct.
-- **The box crashes were a METHODOLOGY error, not a code bug:** replaying the SAVED violation's GST
+- **The box crashes were a METHODOLOGY error, not a code bug:** replaying the SAVED violation's GVT
   images on HW ACROSS A REBOOT. PAC sigs authenticate base+offset; the sandbox base changes per reboot
   (observed 5ca61000 -> 8b821000); the saved sigs are stale at the new base ⇒ the ARCHITECTURAL AUT*
   FPACs ⇒ reset. Crashes 2/3/4 = my t2_replay.py; crash 1 = the subagent's hand-built reproduce. The
@@ -214,7 +214,7 @@ Rigorous conclusion after the full investigation:
   w27,v31.B[0]; b3501b60=BFI x0,x27; dac11c80=AUTDB) — a mem-access PAC seal authenticating a
   stale-signature pointer on the arch path. Consistent with stale-base replay.
 
-**No GST regression.** Moving the immediate from a spliced MOVK (code relocation) to a UMOV-from-GST is
+**No GVT regression.** Moving the immediate from a spliced MOVK (code relocation) to a UMOV-from-GVT is
 faithful. The deterministic-salt idea (reverted) is an optional enhancement for EXACT reproduction of a
 saved violation's decoy pick; it is NOT a crash fix. The pac_strip_prob suggestion was a wrong fallback.
 Only real limitation: a saved PAC .reif is not HW-replayable across a reboot (stale base-specific sigs);
@@ -239,13 +239,13 @@ structure in 300 TCs; the validated random detection is "tfuzz + scan" (per memo
 project_btb_leftover_template_automatic), i.e. it uses a scanner over Revizor output, not bare `fuzz`.
 So the without-template case needs the scan tool / a larger budget — OPEN.
 
-### Task 4 no-template ROOT CAUSE (GST == relocation, confirmed)
-The random no-template run found 0 violations with Effective Cls 0.0 NOT because of any GST issue, but
+### Task 4 no-template ROOT CAUSE (GVT == relocation, confirmed)
+The random no-template run found 0 violations with Effective Cls 0.0 NOT because of any GVT issue, but
 because `indirect_call_probability` defaults to 0.0 and config_canon_cip_ni.yml never sets it. Verified
 locally: a random TC under that config has 0 BLR (indirect calls) in its asm and the sealer creates 0
 branch-target seals (value_sealings == []). BranchTargetSealing needs indirect calls
 (aarch64_config.py: "Needs indirect calls ... indirect_call_probability > 0"). This is a generator/config
-matter, identical for the GST and the old relocation delivery — the seal mechanism itself works (the
+matter, identical for the GVT and the old relocation delivery — the seal mechanism itself works (the
 template case produced 50 effective classes + a genuine leak). FIX for the no-template path: set
 `indirect_call_probability: 1.0` (+ dispatch_call_probability for distinct target sets) so random TCs
 contain BLRs to seal. Re-run: docs/spec_exc_eval/results/config_canon_notmpl.yml, campaign t4_canon_notmpl2.
@@ -254,11 +254,11 @@ contain BLRs to seal. Re-run: docs/spec_exc_eval/results/config_canon_notmpl.yml
 Random `fuzz` on docs/spec_exc_eval/results/config_canon_notmpl.yml (config_canon_cip_ni + indirect_call_probability:1.0
 + dispatch_call_probability:1.0): VIOLATION found (results/t4_canon_notmpl2/violation-261030-114352), Effective Cls 49.7,
 only 2 fast-pathed, box clean. Several contract-equivalent inputs (hash 2661331406448718221) with divergent htraces =
-cross-input canon leftover (noisier than the template case, as expected for random programs). CONCLUSION: the GST canon
+cross-input canon leftover (noisier than the template case, as expected for random programs). CONCLUSION: the GVT canon
 method is equivalent to the relocation method; the only missing piece was the indirect_call_probability knob. TASK 4 DONE
 (template = clean genuine set-16 leak; no-template = violation once indirect calls exist).
 
-## 2026-10-30 (session resume) — TikTag device-exclusivity bug + stderr isolation + PENDING reloc-vs-GST compare
+## 2026-10-30 (session resume) — TikTag device-exclusivity bug + stderr isolation + PENDING reloc-vs-GVT compare
 
 TikTag "Hardware Tracing Errors"/"malformed input" on the Pixel root-caused: NOT a serialization or
 transport code bug. A leftover autonomous campaign (collect_daemon.sh -> revizor.py fuzz
@@ -275,10 +275,10 @@ separate framed streams; nonzero exit -> IOError(stderr) -> HardwareTracingError
 tests/aarch64_tests/unit_adb_shell_v2.py (4 cases, no device). HW-verified clean.
 
 PENDING (requested, do after the TikTag hunts; needs the Pixel):
-  Compare the generated assembly of the relocation-era seal delivery vs the GST replacement:
+  Compare the generated assembly of the relocation-era seal delivery vs the GVT replacement:
   (a) LOGIC — same instructions/effect per seal (pre-removal reference sealer at scratchpad/sealer_preGST.py,
       409050ce; relocation-era commits precede 425b88d4);
-  (b) RATE — bits/second of the channels, GST vs relocation (fair: vary only the delivery mechanism);
+  (b) RATE — bits/second of the channels, GVT vs relocation (fair: vary only the delivery mechanism);
   (c) PIXEL MTE SAFETY — confirm the genuine/arch path raises NO MTE exception on the device. The user
       disabled panic-on-MTE-mismatch, but a tag-check exception could still fire and PRINT to dmesg;
       grep the Pixel dmesg for MTE/tag-fault lines during a genuine run and confirm none on the arch path.

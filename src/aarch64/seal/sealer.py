@@ -1,13 +1,13 @@
 """Sealing as composable per-location sealings (AArch64).
 
-Each seal's per-input value lives in the GlobalSealTable (a reserved vector register, loaded from the
-input); the seal's slot is fixed code that loads it and applies it. A variant is a GST image, not a
+Each seal's per-input value lives in the GlobalValueTable (a reserved vector register, loaded from the
+input); the seal's slot is fixed code that loads it and applies it. A variant is a GVT image, not a
 code change.
 
-  * `Sealing` — one site; its fixed slot loads its value from the GST and applies it.
+  * `Sealing` — one site; its fixed slot loads its value from the GVT and applies it.
   * `Sealer.seal(tc) -> SealedTestCase` — walks the TC, creates sealings, inserts their slots.
   * `SealedTestCase.resolve(input) -> ResolvedSealingTestCase` — runs the CE trace, computes values.
-  * `ResolvedSealingTestCase` — `object_code` plus `genuine()` / `decoy()` GST images for it.
+  * `ResolvedSealingTestCase` — `object_code` plus `genuine()` / `decoy()` GVT images for it.
 """
 import abc
 import copy
@@ -24,7 +24,7 @@ from ...interfaces import (Instruction, TestCase, BasicBlock, GeneratorException
                           SIMD_SUBREGION_SIZE)
 from .primitives import _SANDBOX_MASK, _SandboxInstrumentationBase
 from .pac import PacSign, PacSigner, build_pac_specs, _AUTH_TO_PAC, _AUTH_TO_XPAC, _read_reg
-from .global_seal_table import GlobalSealTable, VectorGlobalSealTable, GSTImage, Location
+from .global_value_table import GlobalValueTable, VectorGlobalValueTable, GVTImage, Location
 from .seal_values import SealValue, MaskFlip, PacSignature, MteTag
 from ..aarch64_target_desc import SANDBOX_BASE_REGISTER, SEAL_SCRATCH_REGISTER
 from ..aarch64_printer import Aarch64ASMLayout
@@ -32,13 +32,13 @@ from ..aarch64_printer import Aarch64ASMLayout
 
 M = (1 << 64) - 1
 
-# Bits reserved for the GST: the full SIMD input section (all CE-loaded high vector registers). The
+# Bits reserved for the GVT: the full SIMD input section (all CE-loaded high vector registers). The
 # generated body emits no vector registers, so the whole section is free for seal values.
 _GST_CAPACITY_BITS = SIMD_SUBREGION_SIZE * 8
 
-_MIGRATION_PENDING = ("MTE register-indirection (GST) is not yet migrated: it needs the CE "
+_MIGRATION_PENDING = ("MTE register-indirection (GVT) is not yet migrated: it needs the CE "
                       "op-emulator inject-value change plus validation; only canonicality, "
-                      "branch-target and PAC seals are on the GST path")
+                      "branch-target and PAC seals are on the GVT path")
 
 # CE emulation-table op ids (mirror enum emul_op in instruction_emulator.h).
 EMUL_OP_PAC_AUTH = 1
@@ -47,9 +47,9 @@ EMUL_OP_MTE_RETAG = 2
 
 def pack_emul_table(rows: List[Tuple[int, int, int, int, int, int, int]]) -> bytes:
     """The CE emulation table: one row per site whose genuine per-input value the CE injects into the
-    GST image during the trace. A row is (first-slot offset, byte size to the anchor, op id, gst_offset,
-    gst_offset2, gst_lsb, gst_width), 7 little-endian u32 (struct emul_row). The op writes
-    (value >> gst_lsb) as gst_width bytes at gst_offset (and gst_offset2 for MTE's re-converge lane);
+    GVT image during the trace. A row is (first-slot offset, byte size to the anchor, op id, gvt_offset,
+    gvt_offset2, gst_lsb, gst_width), 7 little-endian u32 (struct emul_row). The op writes
+    (value >> gst_lsb) as gst_width bytes at gvt_offset (and gvt_offset2 for MTE's re-converge lane);
     the anchor (the committed AUT* / the guarded access) sits at offset+size."""
     return b"".join(struct.pack("<7I", *row) for row in rows)
 
@@ -58,9 +58,9 @@ def pack_emul_table(rows: List[Tuple[int, int, int, int, int, int, int]]) -> byt
 # Sealing — one location; pure seal(value); exposes the facts the resolver reads
 # ==================================================================================================
 class Sealing(abc.ABC):
-    """One sealing site. Its slot is FIXED code that loads the per-input value from the GST and applies
+    """One sealing site. Its slot is FIXED code that loads the per-input value from the GVT and applies
     it, so the genuine/decoy difference is the stored value, not the code. `value`/`location` are the
-    GST binding (both unset for the sandbox clamp, which carries no value)."""
+    GVT binding (both unset for the sandbox clamp, which carries no value)."""
     value_reg: str
     value: SealValue        # a value seal sets both at construction; the sandbox clamp sets neither
     location: Location
@@ -68,15 +68,15 @@ class Sealing(abc.ABC):
     def __init__(self) -> None:
         self.slot_insts: List[Instruction] = []
 
-    def store_into(self, image: GSTImage, applied: Optional[int], genuine: Optional[int]) -> None:
-        """Write this seal's lane(s) into the per-input GST image. `applied` is the value this variant
+    def store_into(self, image: GVTImage, applied: Optional[int], genuine: Optional[int]) -> None:
+        """Write this seal's lane(s) into the per-input GVT image. `applied` is the value this variant
         applies (the genuine value, or a decoy alt); `genuine` is the always-correct value, for a seal
         with an after-access re-converge lane. A single-lane seal stores only `applied` and ignores
         `genuine`; None means "no perturbation" (encoded as 0)."""
         image.store(self.location, self.value.encode(0 if applied is None else applied))
 
     def frozen_ranges(self, speculative: bool) -> List[range]:
-        """contract_driven taint: the GST byte ranges this seal keeps at the genuine value regardless of
+        """contract_driven taint: the GVT byte ranges this seal keeps at the genuine value regardless of
         boosting. An architecturally-consumed lane is frozen so the arch path is identical; a
         speculative lane is left free (boosting varies it). A single-lane seal re-converges through its
         own lane (EOR twice is identity), so its speculative lane is safe to leave free."""
@@ -108,14 +108,14 @@ class SandboxSealing(Sealing):
 
 
 class PacSealing(Sealing):
-    """Authenticate a pointer for one access. An AUTH site loads the signature from its GST lane, BFIs
+    """Authenticate a pointer for one access. An AUTH site loads the signature from its GVT lane, BFIs
     its PAC field into the pointer, then runs the committed AUT*; a STRIP site (probability
     pac_strip_prob) emits only the arch-safe XPAC and carries no signature, so it is never decoyed.
     There is no re-converge after the access: the AUT* canonicalizes the genuine pointer and the next
     access re-clamps a fresh base, so a decoy's FPAC bits cannot cascade into a later access."""
 
     def __init__(self, value_reg: str, committed_inst: Instruction, enc: PacSign,
-                 signer: PacSigner, gst: GlobalSealTable, strip: bool) -> None:
+                 signer: PacSigner, gvt: GlobalValueTable, strip: bool) -> None:
         super().__init__()
         self.value_reg = value_reg
         self.committed_inst = committed_inst
@@ -129,13 +129,13 @@ class PacSealing(Sealing):
         pac_mn = _AUTH_TO_PAC[auth_mn]
         span = signer.field_mask(0, pac_mn) | signer.field_mask(1 << 55, pac_mn)
         self.value = PacSignature(*_mask_window([span]))
-        self.location = gst.allocate(self.value.width)
+        self.location = gvt.allocate(self.value.width)
         self.auth_slot_inst = enc.make_auth_inst(auth_mn, value_reg, ctx_reg)
         self.slot_insts = self.value.apply(self.location, value_reg, SEAL_SCRATCH_REGISTER) \
             + [self.auth_slot_inst]
         self.n_before = len(self.slot_insts)
 
-    def store_into(self, image: GSTImage, applied: Optional[int], genuine: Optional[int]) -> None:
+    def store_into(self, image: GVTImage, applied: Optional[int], genuine: Optional[int]) -> None:
         if not self.strip:   # a strip site carries no signature lane
             super().store_into(image, applied, genuine)
 
@@ -157,27 +157,27 @@ class PacSealing(Sealing):
 
 class MteSealing(Sealing):
     """Retag a pointer onto its cell's allocation tag for one access, then re-converge. The fixed slot
-    BFIs the applied tag from the GST into the pointer's tag field [59:56] before the access (genuine =
+    BFIs the applied tag from the GVT into the pointer's tag field [59:56] before the access (genuine =
     the cell tag, so it matches; a decoy = a mismatching tag), and, when the access preserves its base,
     BFIs the cell tag back after, so every variant ends at the real cell tag and the leak is confined to
     the access. The CE op injects both lanes (the cell tag read from its tag memory); on a FEAT_MTE host
     the BFIs and the tagged access run natively."""
 
     def __init__(self, value_reg: str, access_inst: Instruction, base_preserved: bool,
-                 gst: GlobalSealTable) -> None:
+                 gvt: GlobalValueTable) -> None:
         super().__init__()
         self.value_reg = value_reg
         self.access_inst = access_inst
         self.value = MteTag()
-        self.location = gst.allocate(self.value.width)                 # the applied-tag lane
+        self.location = gvt.allocate(self.value.width)                 # the applied-tag lane
         pre = self.value.apply(self.location, value_reg, SEAL_SCRATCH_REGISTER)
         self.n_before = len(pre)
-        self._cell_location = gst.allocate(self.value.width) if base_preserved else None
+        self._cell_location = gvt.allocate(self.value.width) if base_preserved else None
         post = (self.value.apply(self._cell_location, value_reg, SEAL_SCRATCH_REGISTER)
                 if base_preserved else [])
         self.slot_insts = pre + post
 
-    def store_into(self, image: GSTImage, applied: Optional[int], genuine: Optional[int]) -> None:
+    def store_into(self, image: GVTImage, applied: Optional[int], genuine: Optional[int]) -> None:
         image.store(self.location, self.value.encode(0 if applied is None else applied))
         if self._cell_location is not None:   # the re-converge lane always carries the genuine cell tag
             image.store(self._cell_location, self.value.encode(0 if genuine is None else genuine))
@@ -271,20 +271,20 @@ def _canon_mask_pool(salt: int) -> List[int]:
 
 
 class CanonSealing(Sealing):
-    """Make a pointer register non-canonical for ONE speculative access via a GST mask, then restore it.
-    The fixed slot loads the mask from the GST and EORs it into the base before the access; when the
+    """Make a pointer register non-canonical for ONE speculative access via a GVT mask, then restore it.
+    The fixed slot loads the mask from the GVT and EORs it into the base before the access; when the
     access preserves its base (`revert`), the same EOR after re-converges with the baseline so the
     flipped high bits cannot cascade into a later access's cache set. Genuine value is 0 (no flip);
     `pool` is the candidate non-canonical masks the decoy picks. `access_inst`/`pool` feed the resolver."""
 
     def __init__(self, value_reg: str, access_inst: Instruction, pool: List[int], revert: bool,
-                 gst: GlobalSealTable) -> None:
+                 gvt: GlobalValueTable) -> None:
         super().__init__()
         self.value_reg = value_reg
         self.access_inst = access_inst
         self.pool = pool
         self.value = MaskFlip(*_mask_window(pool))
-        self.location = gst.allocate(self.value.width)
+        self.location = gvt.allocate(self.value.width)
         pre = self.value.apply(self.location, value_reg, SEAL_SCRATCH_REGISTER)
         self.n_before = len(pre)
         post = self.value.apply(self.location, value_reg, SEAL_SCRATCH_REGISTER) if revert else []
@@ -325,20 +325,20 @@ def _branch_target_mask_pool(salt: int) -> List[int]:
 
 
 class BranchTargetSealing(Sealing):
-    """Corrupt an indirect call's target register for ONE speculative BLR via a GST mask: the fixed slot
+    """Corrupt an indirect call's target register for ONE speculative BLR via a GVT mask: the fixed slot
     loads the mask and EORs it into the target before the branch (non-canonical high bits or [1:0]
     misalignment), then the same EOR after to re-converge — x28 is the shared indirect-call target reg,
     so a leftover flip would cascade into a later call's target. Genuine value is 0 (valid target);
     `pool` is the candidate masks the decoy picks; `branch_inst` feeds the resolver."""
 
     def __init__(self, value_reg: str, branch_inst: Instruction, pool: List[int],
-                 gst: GlobalSealTable) -> None:
+                 gvt: GlobalValueTable) -> None:
         super().__init__()
         self.value_reg = value_reg
         self.branch_inst = branch_inst
         self.pool = pool
         self.value = MaskFlip(*_mask_window(pool))
-        self.location = gst.allocate(self.value.width)
+        self.location = gvt.allocate(self.value.width)
         pre = self.value.apply(self.location, value_reg, SEAL_SCRATCH_REGISTER)
         self.n_before = len(pre)
         self.slot_insts = pre + self.value.apply(self.location, value_reg, SEAL_SCRATCH_REGISTER)
@@ -382,15 +382,15 @@ class _Resolved:
 
 class ResolvedSealingTestCase:
     """One input's resolution. `object_code` is the input-independent assembled test case (every variant
-    shares it); `genuine()`/`decoy()` return the GST image bytes (the SIMD section payload) that select a
+    shares it); `genuine()`/`decoy()` return the GVT image bytes (the SIMD section payload) that select a
     variant. `genuine()` stores every slot's correct value; `decoy()` perturbs a subset of the
     speculative slots. `cer` is the single resolution trace, reused as the genuine contract trace."""
 
-    def __init__(self, entries: List[_Resolved], object_code: bytes, gst: GlobalSealTable, salt: int,
+    def __init__(self, entries: List[_Resolved], object_code: bytes, gvt: GlobalValueTable, salt: int,
                  cer: Optional["ContractExecutionResult"]) -> None:
         self._entries = entries
         self._object_code = object_code
-        self._gst = gst
+        self._gst = gvt
         self._salt = salt
         self._cer = cer
         self._genuine = self._build_image(stable_rng(self.collapse_key, salt), decoy=False)
@@ -416,7 +416,7 @@ class ResolvedSealingTestCase:
         return self._genuine
 
     def decoy(self, rng: random.Random) -> bytes:
-        """The decoy GST image for one variant. `rng` (seeded by the caller from the sealing class, salt,
+        """The decoy GVT image for one variant. `rng` (seeded by the caller from the sealing class, salt,
         and variant index) drives every choice, so the variant is a pure function of that seed: it
         reproduces across trace passes, and same-class inputs run the identical program."""
         return self._build_image(rng, decoy=True)
@@ -612,7 +612,7 @@ class SealedTestCase:
         # Salt from the test-case code (not the global RNG stream), so fuzz and reproduce seal identically.
         self._salt = stable_hash_bytes(assemble(sealed_tc))
         self._resolved: Dict = {}                          # input identity -> its ResolvedSealingTestCase
-        self._gst: GlobalSealTable = VectorGlobalSealTable(_GST_CAPACITY_BITS)   # value seals allocate here
+        self._gst: GlobalValueTable = VectorGlobalValueTable(_GST_CAPACITY_BITS)   # value seals allocate here
         # Seed the global RNG from the salt around slot insertion (which consumes it), then restore it.
         _rng_state = random.getstate()
         random.seed(self._salt)
@@ -628,7 +628,7 @@ class SealedTestCase:
 
     @property
     def object_code(self) -> bytes:
-        """The assembled test case (fixed GST-load slots, no per-input values); input-independent."""
+        """The assembled test case (fixed GVT-load slots, no per-input values); input-independent."""
         return self._assemble(self._tc)
 
     def _insert_slots(self, data_sites: List) -> None:
@@ -651,7 +651,7 @@ class SealedTestCase:
 
     def resolve(self, inp) -> ResolvedSealingTestCase:
         """One CE trace per input (memoized by input identity), reused as the genuine contract trace.
-        The object code is input-independent; variants differ only in the GST image."""
+        The object code is input-independent; variants differ only in the GVT image."""
         key = inp.identity()
         cached = self._resolved.get(key)
         if cached is not None:
@@ -669,7 +669,7 @@ class SealedTestCase:
         return []
 
     def _resolve_trace(self, inp) -> Tuple[bytes, "ContractExecutionResult"]:
-        """One trace over the fixed code, shipping a blank GST image and this concern's emulation table.
+        """One trace over the fixed code, shipping a blank GVT image and this concern's emulation table.
         The CE injects each PAC/MTE site's genuine value into the image as it reaches the site; canon /
         branch keep the all-zero image (no flip). The result is the canonical execution, reused as the
         genuine contract trace."""
@@ -834,7 +834,7 @@ class BranchTargetSealedTestCase(SealedTestCase):
 
 class MtePacSealedTestCase(SealedTestCase):
     """Sandbox clamp + PAC auth + MTE retag per data access, plus a PAC auth per standalone AUT*.
-    The CE injects both per-input values into the GST image — each PAC site's signature and each MTE
+    The CE injects both per-input values into the GVT image — each PAC site's signature and each MTE
     site's accessed-cell tag — during the single resolution trace, which is also the genuine contract
     trace; the PAC signatures and MTE tags both resolve off it."""
 
@@ -913,7 +913,7 @@ class PacSignExtSealedTestCase(SealedTestCase):
             if rng.random() >= CONF.signext_seal_prob:
                 _insert(bb, inst, p.slot_insts, offset_subs)   # auth the base, cancel the offset
                 continue
-            s = SignExtSealing(mem_reg, inst, pool, revert=base_preserved, gst=self._gst)
+            s = SignExtSealing(mem_reg, inst, pool, revert=base_preserved, gvt=self._gst)
             self._signext.append(s)
             # before: auth the base, cancel the offset, break sign-extension (flip closest to the access)
             _insert(bb, inst, p.slot_insts, offset_subs, s.slot_insts[:s.n_before])
@@ -964,7 +964,7 @@ def _pac_encoder(generator, field_span):
     return PacSign(generator, auth_specs, xpac_specs, field_span), auth_specs
 
 
-def _seal_auths(tc: TestCase, enc: PacSign, signer: PacSigner, gst: GlobalSealTable,
+def _seal_auths(tc: TestCase, enc: PacSign, signer: PacSigner, gvt: GlobalValueTable,
                 auth_specs, pac: List) -> None:
     """Replace every generator-emitted AUT* with a PacSealing committing to it (a non-memory site the
     sandbox walk doesn't reach). These are always authenticated (never stripped): the generator chose
@@ -974,7 +974,7 @@ def _seal_auths(tc: TestCase, enc: PacSign, signer: PacSigner, gst: GlobalSealTa
         for bb in func:
             for inst in bb:
                 if inst.name.lower() in auth_specs:
-                    s = PacSealing(inst.operands[0].value, copy.deepcopy(inst), enc, signer, gst,
+                    s = PacSealing(inst.operands[0].value, copy.deepcopy(inst), enc, signer, gvt,
                                    strip=False)
                     pac.append(s)
                     replacements.append((inst, bb, s.slot_insts))

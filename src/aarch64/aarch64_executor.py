@@ -542,7 +542,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
             entry_x7 = int.from_bytes(inp.tobytes()[7 * 8: 8 * 8], "little")
             log.header(f"PRE-HW ANALYSIS  variant={idx}")
 
-            tc = self._sealed.object_code   # input-independent; the variant differs only in its GST image
+            tc = self._sealed.object_code   # input-independent; the variant differs only in its GVT image
             cer = self._run_ce_on_tc(tc, inp, sandbox_base)
             if cer is not None:
                 log_ce_trace(log, f"v{idx}", idx, cer)
@@ -585,7 +585,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         # branch-target sealing corrupts indirect-call targets; its own flag (needs indirect calls)
         if CONF.enable_branch_target_sealing:
             self._primitives.add("branch_target")
-        # In contract_driven mode the seal values are ordinary fuzzed input (the GST lives in the input's
+        # In contract_driven mode the seal values are ordinary fuzzed input (the GVT lives in the input's
         # SIMD subregion): boosting re-randomizes the speculative lanes while the architecturally-consumed
         # lanes are frozen at their genuine values by the sealer-derived taint, so the architectural path
         # behaves identically and only non-tainted (speculative) lanes vary. strict keeps the seal-variant
@@ -731,7 +731,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         return ctraces, taints, ce_traces
 
     def _freeze_arch_gst_lanes(self, inp: Input, resolved, taint: InputTaint) -> None:
-        """contract_driven: carry the GST in the input's SIMD subregion. Freeze each architecturally
+        """contract_driven: carry the GVT in the input's SIMD subregion. Freeze each architecturally
         consumed seal's lane at its genuine value (so the arch path is identical across boosted inputs)
         and taint it so boosting preserves it; leave speculative-only lanes untainted so boosting
         re-randomizes them — the speculative difference is the leak signal."""
@@ -823,7 +823,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         keys = self._pac_keys_words(inp)
         plans = self._variants_for(resolved)
         env_plans = self._env_plans_for(resolved, inp)
-        return {name: ExecutorInput(inp, gst=image, mte_tags=tags, pac_keys=keys,
+        return {name: ExecutorInput(inp, gvt=image, mte_tags=tags, pac_keys=keys,
                                     bpu_training=bpu, env_plan=env_plans[name])
                 for name, image in plans.items()}
 
@@ -846,7 +846,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
 
     def _variants_for(self, resolved: ResolvedSealingTestCase) -> Dict[str, bytes]:
         """One boosting class: the genuine baseline plus `CONF.inputs_per_class - 1` decoys. Each value
-        is a GST image (the SIMD section bytes); all variants share one object_code."""
+        is a GVT image (the SIMD section bytes); all variants share one object_code."""
         plans = {SpecExcVariant.BASELINE: resolved.genuine()}
         for i in range(CONF.inputs_per_class - 1):
             rng = stable_rng(resolved.collapse_key, self._sealed.salt, i)
@@ -855,7 +855,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
 
     def _log_variant_binaries(self, log, inp_idx, cer,
                               resolved: ResolvedSealingTestCase) -> None:
-        # Variants share one object_code now; the per-variant difference is the GST image, not the code.
+        # Variants share one object_code now; the per-variant difference is the GVT image, not the code.
         columns = [(name, resolved.object_code) for name in self._variants_for(resolved)]
         log.header(f"VARIANT TC BINARIES  inp={inp_idx}")
         for name, code in columns:
@@ -881,17 +881,17 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
 
     def as_executor_input(self, inp: Input) -> ExecutorInput:
         """Convert one arch input into its sealed kernel input file — the regular fuzzer's boost seam.
-        In contract_driven mode the GST is carried in the input's own SIMD subregion (gst=None ships it),
+        In contract_driven mode the GVT is carried in the input's own SIMD subregion (gvt=None ships it),
         so boosting's re-randomised speculative lanes reach the hardware; strict ships the genuine image."""
         if self._contract_driven:
-            return ExecutorInput(inp, gst=None, mte_tags=self._mte_tags_for(inp),
+            return ExecutorInput(inp, gvt=None, mte_tags=self._mte_tags_for(inp),
                                  pac_keys=self._pac_keys_words(inp), bpu_training=self._bpu_entries(inp))
         return self._seal_input(inp)
 
     def _seal_input(self, inp: Input) -> ExecutorInput:
-        """Extend an arch input to its baseline kernel input file — the genuine GST image here; the
+        """Extend an arch input to its baseline kernel input file — the genuine GVT image here; the
         regular subclass overrides to the input's sealing-class image."""
-        return ExecutorInput(inp, gst=self._resolve(inp).genuine(),
+        return ExecutorInput(inp, gvt=self._resolve(inp).genuine(),
                              mte_tags=self._mte_tags_for(inp), pac_keys=self._pac_keys_words(inp),
                              bpu_training=self._bpu_entries(inp))
 
@@ -944,5 +944,5 @@ class Aarch64RegularSealedExecutor(Aarch64SpeculativeExceptionExecutor):
         resolved = self._resolve(inp)
         rng = stable_rng(resolved.collapse_key, self._sealed.salt)
         image = resolved.decoy(rng) if rng.random() < self._DECOY_PROB else resolved.genuine()
-        return ExecutorInput(inp, gst=image, mte_tags=self._mte_tags_for(inp),
+        return ExecutorInput(inp, gvt=image, mte_tags=self._mte_tags_for(inp),
                              pac_keys=self._pac_keys_words(inp), bpu_training=self._bpu_entries(inp))

@@ -83,7 +83,7 @@ for s in allsets:
         print(f"  set {s:2d}: fA={da:.2f} fB={db:.2f}  DIVERGENT")
 print(f"divergent htrace sets = {divergent}")
 
-# INTEGRITY CHECK 1: do the two executor-inputs differ ONLY in the GST image? If main/faulty/gpr are
+# INTEGRITY CHECK 1: do the two executor-inputs differ ONLY in the GVT image? If main/faulty/gpr are
 # identical, the htrace divergence CANNOT come from the arch input — only from the seal values.
 def frag(inp):
     f = inp[0]

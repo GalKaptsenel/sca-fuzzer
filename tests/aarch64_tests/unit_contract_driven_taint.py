@@ -1,4 +1,4 @@
-"""contract_driven mode: the GST lives in the input's SIMD subregion, and the sealer-derived taint
+"""contract_driven mode: the GVT lives in the input's SIMD subregion, and the sealer-derived taint
 freezes exactly the architecturally-consumed seal lanes at their genuine values while leaving
 speculative-only lanes free. The invariants (needs /dev/executor + the CE):
   * every architectural value seal's lane is tainted AND equals the genuine image in the input;

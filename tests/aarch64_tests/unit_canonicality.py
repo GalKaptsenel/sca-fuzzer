@@ -111,7 +111,7 @@ class CanonPoolTest(unittest.TestCase):
             S._canon_mask_pool(1)
 
 
-@unittest.skip("obsolete: sealer uses GlobalSealTable now; see unit_canon_gst.py")
+@unittest.skip("obsolete: sealer uses GlobalValueTable now; see unit_canon_gst.py")
 class CanonSealingRenderTest(unittest.TestCase):
     def setUp(self):
         self.pool = [1 << 47]
@@ -135,7 +135,7 @@ class CanonSealingRenderTest(unittest.TestCase):
         self.assertTrue(all(S._encode(i) == NOP_WORD for i in s.slot_insts))
 
 
-@unittest.skip("obsolete: sealer uses GlobalSealTable now; see unit_canon_gst.py")
+@unittest.skip("obsolete: sealer uses GlobalValueTable now; see unit_canon_gst.py")
 class ResolveCanonTest(unittest.TestCase):
     def setUp(self):
         self.pool = [1 << 47, 1 << 48]

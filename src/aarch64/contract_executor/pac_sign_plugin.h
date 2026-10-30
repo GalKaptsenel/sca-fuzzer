@@ -43,7 +43,7 @@ void *pac_sign_hook(struct simulation_state *sim_state);
  */
 void *auth_verify_hook(struct simulation_state *sim_state);
 
-/* op-emulator for EMUL_OP_PAC_AUTH: MATERIALIZE injects the signed pointer into the row's GST lane so
+/* op-emulator for EMUL_OP_PAC_AUTH: MATERIALIZE injects the signed pointer into the row's GVT lane so
  * the committed AUT* verifies. */
 void pac_emulate_auth(struct simulation_state *sim_state, const struct emul_row *row,
                       emul_phase_t phase);

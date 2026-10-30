@@ -5,8 +5,8 @@ Starts from the genuine sealed variant, finds the sealed site feeding the report
 (phase 1 knockout), then sweeps THAT site's applied tag over all 16 values (phase 2) and reports the
 diverging-set residency per tag.
 
-GST (GlobalSealTable) model: the test-case code is byte-identical across every variant; a variant is
-selected purely by its GST image. Each MTE sealed site has an APPLIED-tag lane (the tag BFI'd into the
+GVT (GlobalValueTable) model: the test-case code is byte-identical across every variant; a variant is
+selected purely by its GVT image. Each MTE sealed site has an APPLIED-tag lane (the tag BFI'd into the
 pointer before the access) and, when the access preserves its base, a re-converge lane that always
 carries the genuine cell tag -- so downstream runs as if the access used the correct tag and only the
 sealed access sees the perturbed tag. Sweeping a site = rewriting its applied lane; the re-converge lane
@@ -55,7 +55,7 @@ def main():
         print("no MteSealing sites in this test case"); return
 
     def build_image(sus_sealing, applied):
-        """GST image: genuine for every seal except `sus_sealing`, whose APPLIED lane is set to `applied`
+        """GVT image: genuine for every seal except `sus_sealing`, whose APPLIED lane is set to `applied`
         (its re-converge lane stays genuine, so only the sealed access sees the perturbed tag)."""
         image = res_._gst.blank_image()
         for r in res_._entries:
@@ -63,7 +63,7 @@ def main():
         return image.to_section().content
 
     def ei(image):
-        return dataclasses.replace(g, gst=image)
+        return dataclasses.replace(g, gvt=image)
 
     prefix = []
     if not noprime:

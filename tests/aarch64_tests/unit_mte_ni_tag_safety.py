@@ -99,7 +99,7 @@ class MteNiTagSafetyTest(unittest.TestCase):
             ex.load_test_case(tc)
             for inp in igen.generate(_N_INPUTS):
                 resolved = ex._resolve(inp)
-                # One byte-identical object_code per variant; the variant is the GST image. The genuine
+                # One byte-identical object_code per variant; the variant is the GVT image. The genuine
                 # image carries each access's cell tag, so tracing it reproduces the genuine arch run.
                 base_cer = ex._ce_trace(resolved.object_code, inp, simd=resolved.genuine())
                 cls.genuine.append(base_cer)

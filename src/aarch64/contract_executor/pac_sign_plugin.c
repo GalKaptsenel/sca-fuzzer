@@ -329,7 +329,7 @@ void *auth_verify_hook(struct simulation_state *sim_state)
 }
 
 /* op-emulator EMUL_OP_PAC_AUTH: the site is [UMOV x27,lane; (LSR; BFI)+ ; committed AUT*]. MATERIALIZE
- * signs the pointer the AUT* reads and writes the signed pointer into the GST lane (row->gst_offset);
+ * signs the pointer the AUT* reads and writes the signed pointer into the GVT lane (row->gvt_offset);
  * base_hook reloads the vector file from the image before the UMOV re-runs, so the fixed BFI slots merge
  * the signed pointer's PAC field into rd and the AUT* then verifies and canonicalizes. The signing
  * (profile/keys) matches the sealer's resolver exactly. IDLE: nothing (the site's code is fixed). */
@@ -361,11 +361,11 @@ void pac_emulate_auth(struct simulation_state *sim_state, const struct emul_row 
     uint64_t canonical = sw_pac_xpac(read_xreg(&sim_state->cpu_state, rd), is_instr);
     uint64_t signed_ptr = sw_pac_sign(auth_to_pac(atype), canonical, ctx);
 
-    // Inject the PAC field, right-aligned, into the GST lane the site's UMOV reads: the fixed BFI puts
+    // Inject the PAC field, right-aligned, into the GVT lane the site's UMOV reads: the fixed BFI puts
     // the field window back at [gst_lsb, ..) (little-endian, matching the lane's UMOV element).
     uint64_t field = signed_ptr >> row->gst_lsb;
     for (uint32_t b = 0; b < row->gst_width; ++b) {
-        simulation.sim_input.simd[row->gst_offset + b] = (uint8_t)(field >> (8 * b));
+        simulation.sim_input.simd[row->gvt_offset + b] = (uint8_t)(field >> (8 * b));
     }
 }
 

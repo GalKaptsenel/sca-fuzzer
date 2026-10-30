@@ -3,7 +3,7 @@
  * genuine binary's tag check matches. The site is [UMOV x27,applied; BFI tag; access; UMOV x27,cell;
  * BFI tag]: the pre-BFI applies the tag the variant tests (genuine == the cell tag), the post-BFI
  * re-converges the pointer onto the cell tag. MATERIALIZE reads the cell tag at the access's effective
- * address and injects it into both lanes (row->gst_offset = applied, row->gst_offset2 = re-converge);
+ * address and injects it into both lanes (row->gvt_offset = applied, row->gvt_offset2 = re-converge);
  * base_hook reloads the vector file from the image before the UMOV re-runs. On a FEAT_MTE host the
  * fixed BFIs and the tagged access execute natively instead. IDLE: nothing (the site's code is fixed).
  * Kept separate from mte_tag_plugin.c (the self-contained tag-memory emulator) because it pulls in the
@@ -57,12 +57,12 @@ void mte_emulate_retag(struct simulation_state *sim_state, const struct emul_row
 	}
 	// Inject the applied tag into the applied lane (genuine) and the re-converge lane; each is one byte,
 	// read by the site's UMOV.b and inserted into the base register's tag [59:56] by BFI.
-	if (row->gst_offset >= sizeof(simulation.sim_input.simd) ||
-	    row->gst_offset2 >= sizeof(simulation.sim_input.simd)) {
-		fprintf(stderr, "[CE FATAL] mte_emulate_retag: gst_offset out of range -- aborting\n");
+	if (row->gvt_offset >= sizeof(simulation.sim_input.simd) ||
+	    row->gvt_offset2 >= sizeof(simulation.sim_input.simd)) {
+		fprintf(stderr, "[CE FATAL] mte_emulate_retag: gvt_offset out of range -- aborting\n");
 		abort();
 	}
-	simulation.sim_input.simd[row->gst_offset]  = applied;
-	simulation.sim_input.simd[row->gst_offset2] = applied;
+	simulation.sim_input.simd[row->gvt_offset]  = applied;
+	simulation.sim_input.simd[row->gvt_offset2] = applied;
 }
 

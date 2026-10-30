@@ -1,4 +1,4 @@
-"""The per-input values a seal reads from the GST, as an interface + one concrete per value.
+"""The per-input values a seal reads from the GVT, as an interface + one concrete per value.
 
 A SealValue owns one field's shape: its width (the bytes it occupies in the register, read with the
 smallest UMOV element that covers it), how the per-input numeric value is encoded into those bytes
@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from typing import List
 
 from ...interfaces import Instruction, RegisterOperand, ImmediateOperand
-from .global_seal_table import Location
+from .global_value_table import Location
 
 
 def _bytes_for(nbits: int) -> int:
