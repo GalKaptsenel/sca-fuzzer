@@ -248,17 +248,17 @@ class RegularGvtAccessTest(_ConfIsolated):
                 if prob == 0.0:
                     self.assertEqual(plan, resolved.genuine(), "prob 0 must be genuine everywhere")
 
-    def test_pac_access_prob_matches_access_rate_and_stays_sandbox_safe(self):
-        """pac_access_prob is the probability that an eligible memory access is PAC-instrumented (standalone
+    def test_pac_prob_matches_rate_and_stays_sandbox_safe(self):
+        """pac_prob is the probability that an eligible memory access is PAC-instrumented (standalone
         AUT* GVT accesses are arch-safety, not gated). Two properties:
-          * the observed GVT access rate over many data-access sites tracks pac_access_prob;
+          * the observed GVT access rate over many data-access sites tracks pac_prob;
           * a skipped access keeps its offset cancellation, so an uninstrumented (clamp-only) TC still
             traces on the CE without escaping the sandbox.
         For a TC, sites and standalone GVT accesses are salt-independent: p=1.0 GVT accesses every access
         (n_all = sites + standalone) and p=0.0 GVT accesses none (n_none = standalone), so sites = n_all -
         n_none and the instrumented-data count at p is len(_pac) - n_none."""
         P = 0.5
-        saved = CONF.pac_access_prob
+        saved = CONF.pac_prob
         saved_cats = CONF.instruction_categories
         try:
             CONF.instruction_categories = ["PAC"] + _BASE   # pure-PAC -> PacGvtTestCase
@@ -275,15 +275,15 @@ class RegularGvtAccessTest(_ConfIsolated):
                 if total_sites >= 120:
                     break
                 tc = gen.create_test_case(os.path.join(tmp, "t.asm"), disable_assembler=True)
-                CONF.pac_access_prob = 1.0; ex.load_test_case(tc); n_all = len(ex._gvt_tc._pac)
-                CONF.pac_access_prob = 0.0; ex.load_test_case(tc); n_none = len(ex._gvt_tc._pac)
+                CONF.pac_prob = 1.0; ex.load_test_case(tc); n_all = len(ex._gvt_tc._pac)
+                CONF.pac_prob = 0.0; ex.load_test_case(tc); n_none = len(ex._gvt_tc._pac)
                 sites = n_all - n_none
                 if sites == 0:
                     continue
                 if not traced_uninstrumented:   # CONF is 0.0 -> fully uninstrumented; must still stay in-sandbox
                     ex.trace_test_case_with_taints(ig.generate(2), CONF.model_max_nesting)
                     traced_uninstrumented = True
-                CONF.pac_access_prob = P; ex.load_test_case(tc)
+                CONF.pac_prob = P; ex.load_test_case(tc)
                 instrumented += len(ex._gvt_tc._pac) - n_none
                 total_sites += sites
 
@@ -294,7 +294,7 @@ class RegularGvtAccessTest(_ConfIsolated):
                                    msg=f"GVT access rate {rate:.3f} over {total_sites} sites != {P}")
             self.assertTrue(traced_uninstrumented)
         finally:
-            CONF.pac_access_prob = saved
+            CONF.pac_prob = saved
             CONF.instruction_categories = saved_cats
 
     def test_collapse_key_groups_identical_resolutions(self):

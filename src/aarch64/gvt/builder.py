@@ -693,7 +693,7 @@ class PacGvtTestCase(GvtTestCase):
 
     def _insert_slots(self, data_sites) -> None:
         # Per test case (seeded by the salt so every input shares one skeleton), each access is instrumented
-        # with probability CONF.pac_access_prob, and an instrumented site strips (XPAC only) with probability
+        # with probability CONF.pac_prob, and an instrumented site strips (XPAC only) with probability
         # pac_strip_prob, both build-time coins, since the code is fixed across inputs. A skipped access
         # still gets its offset cancellation (sandbox safety, not GVT access machinery), just no AUT*. The slot
         # (load the signature, BFI it in, AUT*) sits entirely before the access; there is no re-converge.
@@ -702,7 +702,7 @@ class PacGvtTestCase(GvtTestCase):
         _gvt_auths(self._tc, self._enc, self._signer, self._gst, self._auth_specs, self._pac)
         rng = random.Random(self._salt)
         for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
-            if rng.random() >= CONF.pac_access_prob:
+            if rng.random() >= CONF.pac_prob:
                 _insert(bb, inst, offset_subs)
                 continue
             strip = rng.random() < CONF.pac_strip_prob
@@ -774,13 +774,13 @@ class CanonGvtTestCase(GvtTestCase):
 
     def _insert_slots(self, data_sites) -> None:
         # Per test case (seeded by the salt so every input shares one skeleton), each access is instrumented
-        # with probability CONF.canonicality_access_prob. A skipped access still gets its offset
+        # with probability CONF.canonicality_prob. A skipped access still gets its offset
         # cancellation (sandbox safety), just no canonicality slot. base_preserved says whether the
         # access leaves its base register intact (so the after-EOR can restore it).
         pool = _canon_mask_pool(self._salt)   # validated once; shared by every slot in this test case
         rng = random.Random(self._salt)
         for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
-            if rng.random() >= CONF.canonicality_access_prob:
+            if rng.random() >= CONF.canonicality_prob:
                 _insert(bb, inst, offset_subs)
                 continue
             s = CanonGvtAccess(mem_reg, inst, pool, base_preserved, self._gst)
@@ -810,14 +810,14 @@ class BranchTargetGvtTestCase(GvtTestCase):
         # data accesses keep their offset cancellation (sandbox safety); they are not value-instrumented here.
         for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
             _insert(bb, inst, offset_subs)
-        # each indirect-call BLR is instrumented with probability branch_target_access_prob; the flip lands
+        # each indirect-call BLR is instrumented with probability branch_target_prob; the flip lands
         # right before the BLR (after its target-materializing ADR).
         pool = _branch_target_mask_pool(self._salt)
         rng = random.Random(self._salt)
         for func in self._tc.functions:
             for bb in func:
                 for inst in list(bb):
-                    if inst.name != "blr" or rng.random() >= CONF.branch_target_access_prob:
+                    if inst.name != "blr" or rng.random() >= CONF.branch_target_prob:
                         continue
                     reg = next(o.value for o in inst.operands if isinstance(o, RegisterOperand))
                     s = BranchTargetGvtAccess(reg, inst, pool, self._gst)
@@ -885,7 +885,7 @@ class PacSignExtGvtTestCase(GvtTestCase):
     """Sandbox clamp + PAC auth + a sign-extension flip per data access, plus a PAC auth per standalone
     AUT*. Every access is PAC-authenticated (the baked signature keeps it arch-safe, as in
     MtePacGvtTestCase); the flip (SignExtGvtAccess) is a MaskFlip GVT access, its genuine value is "no flip"
-    in the all-zero image, added with probability `signext_access_prob`, so only the PAC auth is injected
+    in the all-zero image, added with probability `signext_prob`, so only the PAC auth is injected
     by the emulation table. The single resolution trace yields the PAC signatures and the genuine
     contract trace; the decoy carries the flip mask in the sign-ext GVT access's lane."""
 
@@ -899,10 +899,10 @@ class PacSignExtGvtTestCase(GvtTestCase):
         super().__init__(instrumented_tc, assemble, sandbox_accesses, data_sites, trace_bytes_fn)
 
     def _insert_slots(self, data_sites) -> None:
-        # Every access must be PAC-authenticated for arch-safety, so pac_access_prob (the fraction of
+        # Every access must be PAC-authenticated for arch-safety, so pac_prob (the fraction of
         # accesses to GVT access) is incompatible with this composed primitive, fail loud rather than ignore it.
-        if CONF.pac_access_prob != 1.0:
-            raise GeneratorException("pac+signext GVT accesses every access; set pac_access_prob = 1.0")
+        if CONF.pac_prob != 1.0:
+            raise GeneratorException("pac+signext GVT accesses every access; set pac_prob = 1.0")
         pool = _signext_mask_pool()   # shared by every slot in this test case
         _gvt_auths(self._tc, self._enc, self._signer, self._gst, self._auth_specs, self._pac)
         rng = random.Random(self._salt)
@@ -910,7 +910,7 @@ class PacSignExtGvtTestCase(GvtTestCase):
             p = PacGvtAccess(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc, self._signer,
                            self._gst, strip=False)
             self._pac.append(p)
-            if rng.random() >= CONF.signext_access_prob:
+            if rng.random() >= CONF.signext_prob:
                 _insert(bb, inst, p.slot_insts, offset_subs)   # auth the base, cancel the offset
                 continue
             s = SignExtGvtAccess(mem_reg, inst, pool, revert=base_preserved, gvt=self._gst)

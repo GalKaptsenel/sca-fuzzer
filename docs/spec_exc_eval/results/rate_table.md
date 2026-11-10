@@ -86,5 +86,6 @@ min-samples floor (`reps≈3`). "chance / no leak" means no `samples` count reac
 2. **Medium (and operating point) set the rate, not the gadget** — inline cache ~10⁶ ≫ TLB ~10³ ≫
    cross-boundary BTB tens of b/s; within a cell, rate ≈ 1/samples.
 3. **Two genuine technique asymmetries:** canon needs the [54:48] flip (bit-55-alone is too weak for the
-   dTLB), and canon×iTLB does not leak same-EL0 (only cross-EL via the sled+privilege); AUT\*×BTB is n/a
-   across ASIDs (CSV2). Everywhere else the techniques match.
+   dTLB), and AUT\*×BTB is n/a across ASIDs (CSV2). Everywhere else the techniques match. (canon×iTLB
+   does leak same-EL0 with the 24-page sled, see rootless_cntvct.md, the earlier same-EL0 negative here
+   was a single-page probe artifact and is retracted.)

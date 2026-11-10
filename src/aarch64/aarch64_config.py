@@ -215,13 +215,13 @@ supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "l
                                      ]
 
 # AArch64-only: PAC GVT access probabilities (live GVT access path, PAC-only mode).
-# pac_access_prob: probability that an eligible memory access is PAC-instrumented
+# pac_prob: probability that an eligible memory access is PAC-instrumented
 #   (authenticated) at all. < 1 leaves some accesses uninstrumented (a raw,
 #   sandbox-clamped pointer, no AUT*). Decided once per test case.
 # pac_strip_prob: probability that an instrumented slot renders as the arch-safe XPAC*
 #   strip instead of a real AUT*. A strip never poisons under speculation; an
 #   AUT* against the decoy signature does.
-pac_access_prob: float = 1.0
+pac_prob: float = 1.0
 pac_strip_prob: float = 0.0
 # PAC keys are part of each input: True -> every input draws its own key set (seeded by the input);
 # False -> all inputs of the campaign share one key set (seeded by input_gen_seed).
@@ -250,7 +250,7 @@ pac_mtx1: Optional[bool] = None
 mte_native: bool = False
 
 enable_canonicality: bool = False
-canonicality_access_prob: float = 1.0
+canonicality_prob: float = 1.0
 canonicality_mask: Optional[int] = None
 
 # SignExtGvtAccess (composed with PAC): on the speculative decoy, break a pointer's sign-extension by
@@ -260,14 +260,14 @@ canonicality_mask: Optional[int] = None
 # [63:56] is never flipped: bit 55 already faults either way, while a top-byte flip faults only with TBI
 # off. Needs the PAC category active (the sign-ext flip composes with the per-access PAC auth).
 enable_signext: bool = False
-signext_access_prob: float = 1.0
+signext_prob: float = 1.0
 
 # BranchTargetGvtAccess: on the speculative decoy, corrupt an indirect call's target register before the
 # BLR so it becomes non-canonical (high bits, like canonicality) and/or misaligned (low bits [1:0] ->
 # PC-alignment fault, an axis x86 lacks). Genuine keeps a valid target; no after-revert (the target reg
 # is a throwaway scratch). Needs indirect calls in the test cases (indirect_call_probability > 0).
-enable_branch_target_access: bool = False
-branch_target_access_prob: float = 1.0
+enable_branch_target: bool = False
+branch_target_prob: float = 1.0
 branch_target_canon_mask: Optional[int] = None   # fixed non-canonical high-bit run, or None = pool
 branch_target_misalign: bool = True          # include the low-bit misalignment axis in the pool
 

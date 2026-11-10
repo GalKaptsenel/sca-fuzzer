@@ -501,7 +501,7 @@ MTE slots); the decoy policy then perturbs only the target's speculative slots.
 
 Two further primitives GVT access *addresses*: **canonicality** (`enable_canonicality`) flips a load/store
 base non-canonical on the speculative decoy, and **branch-target GVT access**
-(`enable_branch_target_access`) flips an indirect call's target register (`x28`) non-canonical (high
+(`enable_branch_target`) flips an indirect call's target register (`x28`) non-canonical (high
 bits) or misaligned (low bits → PC-alignment fault) right before a speculative `BLR` — with no
 after-revert, since the target is a dead scratch. Both GVT access only speculative-only slots, so genuine and
 decoy stay architecturally identical.

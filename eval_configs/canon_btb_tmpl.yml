@@ -24,8 +24,8 @@ function_call_probability: 0.9
 max_calls_per_function: 1
 indirect_call_probability: 1.0           # FIX: config_canon_cip_ni defaulted this to 0.0 -> no targets
 dispatch_call_probability: 1.0           # multi-target dispatch -> >=2 BTB candidates to mispredict among
-enable_branch_target_access: true
-branch_target_access_prob: 1.0
+enable_branch_target: true
+branch_target_prob: 1.0
 branch_target_misalign: true
 contract_execution_clause:
   - cond

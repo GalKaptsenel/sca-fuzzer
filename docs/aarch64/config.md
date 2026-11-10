@@ -74,7 +74,7 @@ Default: 0.2
 Relative weight of XPAC-strip insertions in the PAC speculative exception stage-1 instrumentation.
 
 ```yaml
-Name: pac_access_prob
+Name: pac_prob
 Default: 1.0
 ```
 
@@ -123,7 +123,7 @@ category that emits memory accesses (`BASE-MEM-LOAD` / `BASE-MEM-STORE`) for the
 GVT access. Currently exclusive with PAC/MTE (combined primitives are not yet wired).
 
 ```yaml
-Name: canonicality_access_prob
+Name: canonicality_prob
 Default: 1.0
 ```
 
@@ -313,7 +313,7 @@ TTBR0/TTBR1 regime selector) right before a PAC-authenticated access and flips i
 is non-canonical in either regime. Requires the PAC category active.
 
 ```yaml
-Name: signext_access_prob
+Name: signext_prob
 Default: 1.0
 ```
 
@@ -321,7 +321,7 @@ When the sign-extension axis is active, the per-access probability that an eligi
 receives the sign-extension flip on the decoy.
 
 ```yaml
-Name: enable_branch_target_access
+Name: enable_branch_target
 Default: False
 ```
 
@@ -330,7 +330,7 @@ before the `BLR` so it becomes non-canonical or misaligned, an alignment axis x8
 indirect calls in the test cases (indirect_call_probability greater than 0).
 
 ```yaml
-Name: branch_target_access_prob
+Name: branch_target_prob
 Default: 1.0
 ```
 

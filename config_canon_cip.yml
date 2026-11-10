@@ -19,7 +19,7 @@ instruction_categories:
   - BASE-BRANCH
   - BASE-MEM-LOAD
   - BASE-MEM-STORE
-enable_branch_target_access: true
+enable_branch_target: true
 branch_target_misalign: true
 enable_speculative_store_bypass: true
 contract_execution_clause:

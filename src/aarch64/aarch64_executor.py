@@ -543,7 +543,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         if CONF.enable_signext:
             self._primitives.add("signext")
         # branch-target GVT access corrupts indirect-call targets; its own flag (needs indirect calls)
-        if CONF.enable_branch_target_access:
+        if CONF.enable_branch_target:
             self._primitives.add("branch_target")
         # In contract_driven mode the GVT access values are ordinary fuzzed input (the GVT lives in the input's
         # SIMD subregion): boosting re-randomizes the speculative lanes while the architecturally-consumed
@@ -556,7 +556,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         if not self._primitives and not CONF.enable_pte_fuzzing:
             raise GeneratorException(
                 "speculative-exception fuzzing needs a PAC or MTE instruction category, or "
-                "enable_canonicality / enable_branch_target_access / enable_pte_fuzzing, enabled")
+                "enable_canonicality / enable_branch_target / enable_pte_fuzzing, enabled")
 
         # MTE GVT access retags pointers and relies on the CPU checking those tags; without FEAT_MTE2 the
         # tag is not enforced and (composed with PAC on a TBI-off instruction key) a baked signature over

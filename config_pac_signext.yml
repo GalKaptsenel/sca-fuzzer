@@ -19,9 +19,9 @@ min_successors_per_bb: 1
 fuzzer: speculative-exception
 speculative_exception_mode: strict
 input_generator: aarch64-nzcv
-pac_access_prob: 1.0
+pac_prob: 1.0
 pac_strip_prob: 0.0
 enable_signext: true
-signext_access_prob: 1.0
+signext_prob: 1.0
 contract_execution_clause:
   - cond
