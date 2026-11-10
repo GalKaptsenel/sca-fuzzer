@@ -1,59 +1,19 @@
-"""
-File: AArch64 speculative-exception cross-input leak detector (generalized priming).
+"""AArch64 speculative-exception cross-input leak detector (generalized priming).
 
-Revizor's priming asks "does a detected cache divergence follow the *detecting pair*'s own input?" and
-discards it otherwise. This generalizes that: when the divergence is caused by a *different*, earlier
-input -- the "leaking pair", whose leak lives in the microarchitecture (e.g. a branch-target-buffer
-entry) and only surfaces as the detecting pair's cache divergence -- we use the detecting pair's signal
-to find the leaking pair, under priming's own definition (same starting microarchitectural state, toggle
-one pair's two ct-equal variants, see if the signal follows).
+Standard priming keeps a cache divergence only when it follows the detecting pair's own input. This
+also finds divergences caused by an earlier leaking pair whose leak lives in the microarchitecture (for
+example a branch-target-buffer entry) and only surfaces as the detecting pair's cache divergence. It is
+self-contained (it knows nothing about the fuzzer or executor) and driven by three callables:
+  measure(batch, reps): per-slot hardware traces of a batch whose slot s holds input s's base or toggle variant
+  key(trace):           a hashable canonical form, with transitive equality (the search relies on it)
+  confirm(a, b):        a noise-tolerant difference test, used only to re-verify a found boundary
 
-The search is self-contained -- it knows nothing about the fuzzer or executor -- and is driven by:
-  measure(batch, reps) -> per-slot hardware traces of a batch whose slot s holds the base or the toggle
-                          variant of input s;
-  key(trace)           -> a hashable canonical form. two traces are equal iff their keys are equal, so
-                          equality is transitive, which the bisection invariant relies on;
-  confirm(a, b)        -> whether two traces genuinely differ, by a robust (noise-tolerant) test. used
-                          only to re-verify a found boundary, where transitivity is not needed but
-                          tolerance to microarchitectural jitter is.
-
-Objects mirror the write-up "Generalized priming":
-  * lane          L^(l): one input variant per class, indexed by class 0..k (`base` and `toggle` below).
-  * splice        sigma_{base->toggle}(t): classes [0, t) from `base`, [t, detecting] from `toggle`.
-  * r(t)          the class-`detecting` hardware trace of splice(..., t). a localizer sees the chain only
-                  through its key, r_key(t) = key(r(t)).
-  * boundary      a t with r_key(t) != r_key(t+1): toggling class t flips the detecting pair's readout,
-                  so (base[t], toggle[t]) is a leaking pair.
-  * t_max         the largest boundary. `linear_scan` returns it. `exponential_search` returns some
-                  boundary (galloping biases it toward the detecting pair, the most-recent trainer).
-
-Two localizers, injected as `localizer` (both share the splice/r/re-verify core):
-  * linear_scan       returns t_max. Reading r downward from the all-base end, the first change is t_max
-                      (no boundary lies above it). Finding the largest boundary is inherently linear.
-  * exponential_search (default) galloping + bisection. Probe t = hi-1, hi-2, hi-4, ... until r leaves
-                      the all-base value, bracketing a boundary in the last doubling window, then bisect
-                      that window. Galloping only *finds the bracket*. the bisection inside is the proven
-                      binary search, so the returned boundary is genuine. Cost O(log d) in the distance
-                      d to that boundary, never worse than a plain bisection.
-
-For a detecting pair `d`, over its history [0, d), searched from BOTH bases (mirroring priming's symmetric
-swap: the divergence may be caused by the prefix being base OR toggle). A boundary re-verify then
-re-measures r(t) and r(t+1) fresh at a larger sample and confirms they robustly differ, rejecting a
-boundary that only appeared under measurement jitter.
-
-A boundary at the detecting pair itself (leaking pair == detecting pair) is the pair's OWN variant
-flipping its OWN readout -- the own-target confound. It is a valid finding by default (an input that
-leaks about itself). pass exclude_self_dependence to keep only strictly cross-input leaks (the search
-then covers [0, detecting) only). `is_valid_toggle` rejects a boundary whose members are not contract-equal.
-
-A found leaking pair is a valid ct-seq counterexample for ANY predictor -- the search never models how the
-prediction forms, so its *validity* is predictor-agnostic. Guaranteeing that the endpoint promise
-(all-base vs all-toggle) *finds* an existing leak is a narrower property of a single-entry, most-recent-
-wins predictor (the audited N3 BTB). a history-folded predictor could hide an interior witness between
-coinciding endpoints, and guaranteeing detection there is inherently linear. The reported counterexample
-is the whole chain [leaking pair .. detecting pair] (the base lane before the leaking pair, the toggle
-lane from it onward), de-duplicated by (leaking pair, detecting pair) across the two bases.
-"""
+For a detecting pair d it searches the history [0, d) from both bases for a boundary t where toggling
+class t flips the detecting readout, so (base[t], toggle[t]) is a leaking pair. Two localizers are
+injected as `localizer`: linear_scan returns the largest boundary t_max, exponential_search (default)
+gallops to bracket a boundary then bisects it in O(log distance). A boundary at the detecting pair
+itself is the own-target confound (an input leaking about itself), kept by default or dropped via
+exclude_self_dependence. The reported counterexample is the chain [leaking pair .. detecting pair]."""
 from dataclasses import dataclass
 from typing import Any, Callable, List, Optional, Sequence
 
