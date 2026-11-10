@@ -142,54 +142,6 @@ static void measure(measurement_t* measurement) {
 	}
 }
 
-/* Code-relocation offsets index the test-case body; the bound needs the loaded test case, so it
- * is verified here at trace time (inputs and the test case load in any order). */
-static int validate_code_relocations(void) {
-	for (struct rb_node* node = rb_first(&executor.inputs_root); NULL != node; node = rb_next(node)) {
-		const input_t* input = &rb_entry(node, struct input_node, node)->input;
-		for (const struct revisor_code_reloc_entry* r = input->code_reloc;
-		     REVISOR_CODE_RELOC_TERMINATOR != r->offset; ++r) {
-			if (executor.test_case_length < (r->offset + sizeof(uint32_t))) {
-				module_err("code relocation offset %u exceeds test-case length %zu\n",
-				           r->offset, executor.test_case_length);
-				return -EINVAL;
-			}
-		}
-	}
-	return 0;
-}
-
-/* Splice this input's relocations into the test-case body, or restore the body to the pristine test
- * case when `revert` is set. Bytes are written through view[0] (all views alias one set of physical
- * pages); the icache is VA-indexed, so it is invalidated only at `exec_view`, the VA that will run.
- * The pinned CPU both patches and runs the code, so a local cache maintenance (no SMP broadcast)
- * suffices. */
-static void splice_code_relocations(void* exec_view, const input_t* input, bool revert) {
-	const struct revisor_code_reloc_entry* relocs = input->code_reloc;
-	if (REVISOR_CODE_RELOC_TERMINATOR == relocs->offset) {
-		return;
-	}
-
-	size_t body = current_tc_insert_offset_bytes();
-	char* write_body = (char*)executor.measurement_code_views[0] + body;
-	char* exec_body  = (char*)exec_view + body;
-	const char* pristine = executor.test_case;
-
-	const struct revisor_code_reloc_entry* r;
-	for (r = relocs; REVISOR_CODE_RELOC_TERMINATOR != r->offset; ++r) {
-		uint32_t word = revert ? *(const uint32_t*)(pristine + r->offset) : r->value;
-		*(uint32_t*)(write_body + r->offset) = word;
-	}
-	for (r = relocs; REVISOR_CODE_RELOC_TERMINATOR != r->offset; ++r) {
-		asm volatile("dc cvau, %0" :: "r"(write_body + r->offset) : "memory");
-	}
-	asm volatile("dsb ish" ::: "memory");
-	for (r = relocs; REVISOR_CODE_RELOC_TERMINATOR != r->offset; ++r) {
-		asm volatile("ic ivau, %0" :: "r"(exec_body + r->offset) : "memory");
-	}
-	asm volatile("dsb ish\n isb" ::: "memory");
-}
-
 /* Dump the actual per-granule tag of one region, read back via LDG, as chunked MTETAG lines. off_base
  * is the region's byte offset (may be negative) relative to main_region, so every HW/CE line aligns by
  * offset. */
@@ -247,11 +199,6 @@ static int __nocfi run_experiments(void) {
 		BUG_ON(0 > executor.number_of_inputs);
 		module_err("No inputs were set!\n");
 		return -EINVAL;
-	}
-
-	int reloc_err = validate_code_relocations();
-	if (0 != reloc_err) {
-		return reloc_err;
 	}
 
 	mte_dump_reset();   // buffer this run's tag log; flushed by the caller after the pinned call
@@ -352,7 +299,6 @@ static int __nocfi run_experiments(void) {
 		if (executor.config.view_rotation) {
 			measurement_code = invalidate_bpu_entries();
 		}
-		splice_code_relocations(measurement_code, &current_input->input, false);
 		if (executor.config.phr_flush && i <= 0) {
 			flush_bpu_phr();
 		}
@@ -418,7 +364,6 @@ static int __nocfi run_experiments(void) {
 		raw_local_irq_restore(flags);
 
 		measure(&current_input->measurement);
-		splice_code_relocations(measurement_code, &current_input->input, true);
 		pte_env_revert();   // restore the sandbox page tables to pristine for the next input
 	}
 

@@ -63,7 +63,7 @@ class EquivalenceAnalyserCommon(Analyser):
                 continue
 
             # get all measurements in the class
-            measurements = [Measurement(i, inputs[i], ctrace, htraces[i], test_cases[i], ())
+            measurements = [Measurement(i, inputs[i], ctrace, htraces[i], test_cases[i])
                             for i in ids]
 
 

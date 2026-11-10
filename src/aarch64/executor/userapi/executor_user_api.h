@@ -20,7 +20,7 @@
 #define HTRACE_L1D	(0)
 #define NUM_PFC		    (3)
 
-#define REVISOR_EXECUTOR_ABI_VERSION	(3)
+#define REVISOR_EXECUTOR_ABI_VERSION	(4)
 
 typedef struct user_measurement {
 	uint64_t htrace[HTRACE_WIDTH];

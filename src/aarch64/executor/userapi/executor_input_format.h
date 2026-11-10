@@ -40,12 +40,6 @@
  *                              byte, low nibble first (granule 2*i in bits 3:0,
  *                              granule 2*i+1 in bits 7:4).
  *                              Length = (MEMORY_INPUT_SIZE/MTE_GRANULE_SIZE + 1)/2.
- *   REVISOR_SEC_CODE_RELOC     struct revisor_code_reloc_entry[], terminated by an entry
- *                              with both fields = REVISOR_CODE_RELOC_TERMINATOR. Each entry
- *                              splices the 32-bit word `value` at byte `offset` of the
- *                              test-case body; the kernel applies the table before an
- *                              input's execute and reverts the body to original afterward,
- *                              so one test case serves many differently-instrumented inputs.
  *   REVISOR_SEC_PTE_SETTINGS   an array of packed struct revisor_pte_override_entry (no count
  *                              header; count = length / entry size). Each overrides one sandbox
  *                              page's descriptor before this input runs (reverted afterwards).
@@ -80,7 +74,6 @@ enum revisor_input_section_type {
     REVISOR_SEC_SIMD          = 0x04,
     REVISOR_SEC_PAC_KEYS      = 0x05,
     REVISOR_SEC_MTE_TAGS      = 0x06,
-    REVISOR_SEC_CODE_RELOC    = 0x07,
     REVISOR_SEC_PTE_SETTINGS  = 0x09,
 };
 
@@ -103,16 +96,6 @@ struct revisor_input_section {
 #define REVISOR_INPUT_HEADER_LEN(n_sections)                                   \
     (sizeof(struct revisor_input_header) +                                     \
      (uint64_t)(n_sections) * sizeof(struct revisor_input_section))
-
-/* One WORD32 splice into the test-case body: write little-endian `value` at byte `offset`.
- * REVISOR_SEC_CODE_RELOC carries an array of these terminated by an all-ones entry. */
-struct revisor_code_reloc_entry {
-    uint32_t offset;
-    uint32_t value;
-};
-
-#define REVISOR_CODE_RELOC_TERMINATOR  ((uint32_t)0xFFFFFFFFul)
-#define REVISOR_INPUT_MAX_CODE_RELOCS  256
 
 /* One page-table override (REVISOR_SEC_PTE_SETTINGS). At `level` (REVISOR_PTE_LEVEL_LEAF for the 4K
  * leaf), on sandbox page `page_index` (the shared index contract with the writer's sandbox page map),

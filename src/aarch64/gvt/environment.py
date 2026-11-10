@@ -1,7 +1,7 @@
 """The per-variant page-table ENVIRONMENT for PTE GVT access.
 
 PTE GVT access is the first speculative-exception primitive whose genuine/decoy difference is the page-table environment,
-not an instruction word. This module is that environment, kept separate from code / relocations:
+not an instruction word. This module is that environment, kept separate from the GVT image:
 
   * `SandboxPage` / `SandboxPageMap` -- the general partition of the sandbox data pages into those
     reachable on the retiring path (arch + spec; identical PTEs in every variant) and those reached

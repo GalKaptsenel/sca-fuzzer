@@ -493,7 +493,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         return sorted_pcs, bb_info, pc_to_id, code_base
 
     def _log_pre_hw_ce_analysis(self, exec_inputs: List[ExecutorInput], sandbox_base: int, log) -> None:
-        """Diagnostic pre-HW pass: run CE on each kernel input file's enacted code and log the CE
+        """Diagnostic pre-HW pass: run CE on each kernel input file and log the CE
         trace, BB map, and AUTH instructions, flushing to disk before any HW runs."""
         auth_mnemonics = {'autia', 'autib', 'autda', 'autdb',
                           'autiza', 'autizb', 'autdza', 'autdzb'}
@@ -825,11 +825,10 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
     # ------------------------------------------------------------------ hardware: instrumented execution
     def trace_test_case(self, exec_inputs: List[ExecutorInput],
                         n_reps: int) -> Tuple[List[HTrace], List[TestCase]]:
-        """Trace each kernel input file on the shared skeleton (its code-relocation table spliced in by
-        the kernel); returns one htrace per element plus the loaded TestCase per element (as the base
-        executor does, so the artifact store can print each measurement's asm). The exact machine code a
-        boosted variant ran differs per GVT access, but that is recorded separately via
-        reconstruct_enacted_code(); Measurement.test_case must stay a TestCase, not bytes."""
+        """Trace each kernel input file on the shared skeleton. The test-case code is identical for
+        every input (byte for byte), the per-input variation rides in the GVT image, so one loaded
+        TestCase serves them all. Returns one htrace per element plus that TestCase per element (as the
+        base executor does, so the artifact store can print each measurement's asm)."""
         if not self._mte_hw_runnable:
             raise GeneratorException(
                 "MTE speculative-exception needs FEAT_MTE2 (tag checking); this CPU reports "
@@ -858,9 +857,9 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         return self._gvt_tc.object_code
 
     def _trace_exec_inputs(self, exec_inputs: List[ExecutorInput], n_reps: int) -> List[HTrace]:
-        """Trace each kernel input file on the shared skeleton, the skeleton is the unit's test case,
-        and the kernel splices that input's code-relocation table into it before it runs, reverting
-        afterwards."""
+        """Trace each kernel input file on the shared skeleton, the skeleton is the unit's test case.
+        The code stays pristine across inputs, each input's per-value variation is carried in its GVT
+        image (loaded into the vector registers), not patched into the code."""
         if not exec_inputs:
             return []
         assert self._gvt_tc is not None, "instrumented TC not built, load_test_case() not called"

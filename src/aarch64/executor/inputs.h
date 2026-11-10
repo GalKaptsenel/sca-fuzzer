@@ -40,9 +40,6 @@ typedef struct Input {
 	uint8_t simd[REVISOR_SIMD_SECTION_SIZE];
 	struct pac_keys pac_keys;                /* per-input PAC key override */
 	bool pac_keys_present;
-	/* Relocations applied to the test case before this input executes; the terminator in
-	 * slot 0 means no relocations. */
-	struct revisor_code_reloc_entry code_reloc[REVISOR_INPUT_MAX_CODE_RELOCS + 1];
 	/* Page-table overrides applied to the sandbox pages before this input runs and reverted after
 	 * (the environment axis of NI fuzzing); guarded by pte_present. */
 	struct revisor_pte_override_entry pte_overrides[REVISOR_INPUT_MAX_PTE_OVERRIDES];
