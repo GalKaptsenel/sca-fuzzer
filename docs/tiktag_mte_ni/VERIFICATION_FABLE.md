@@ -68,13 +68,13 @@ Findings, each checked against the instruction stream:
 - The tag-sweep verdict is correct and its exclusion of tag 15 is load-bearing and justified. Tag 15
   (0b1111) is left unchecked by TCMA1 on the sandbox region, so its guess load is never tag-checked and
   its read set is always resident. The verdict computes the winner over the checked tags plus the
-  sealed tag and requires the sealed tag to beat every checked mismatch by `--margin`. Excluding 15
-  from the winner contest is necessary, because tag 15 would otherwise outscore the sealed tag. The
+  instrumented tag and requires the instrumented tag to beat every checked mismatch by `--margin`. Excluding 15
+  from the winner contest is necessary, because tag 15 would otherwise outscore the instrumented tag. The
   genuineness of the leak does not rest on that exclusion: the decisive evidence (Section 3) is that a
-  single checked tag survives and tracks the seal, which no uniform artifact can do.
+  single checked tag survives and tracks the GVT access, which no uniform artifact can do.
 
 Input construction (`make_input`) matches the gadget: x1 and x5 carry tag T and the swept tag in bits
-56 to 59, `mte_tags` seals granule 0 to T and leaves every other granule at the unchecked tag 15.
+56 to 59, `mte_tags` GVT accesses granule 0 to T and leaves every other granule at the unchecked tag 15.
 
 ## 2. Htrace interpretation
 
@@ -109,30 +109,30 @@ mismatching tag suppresses it entirely (0.00).
 
 ## 3. Tag-tracking control (the decisive check)
 
-Re-running the shipped detector for sealed tags 5, 9, 10:
+Re-running the shipped detector for instrumented tags 5, 9, 10:
 
 ```
 python docs/tiktag_mte_ni/tiktag_v1_executor.py --repo /home/gal_k_1_1998/revizor/sca-fuzzer \
   --adb-host 127.0.0.1 --adb-port 5037 --core 8 --iters 512 --ldnum 16 --gap 80 \
-  --read-set 32 --warm-set 48 --reps 60 --seal-tags 5,9,10
+  --read-set 32 --warm-set 48 --reps 60 --GVT access-tags 5,9,10
 ```
 
 ```
-sealed granule tag 5
+instrumented granule tag 5
   0:0.02 1:0.02 2:0.02 3:0.00 4:0.03 5:0.62 6:0.05 7:0.00 8:0.02 9:0.00 10:0.02 11:0.02 12:0.00 13:0.00 14:0.00 15:0.77
   matching tag 5 residency 0.62  checked-mismatch max 0.05 mean 0.01  separation +0.57  DETECTED
-sealed granule tag 9
+instrumented granule tag 9
   0:0.02 1:0.00 2:0.00 3:0.00 4:0.02 5:0.00 6:0.02 7:0.03 8:0.03 9:0.70 10:0.02 11:0.02 12:0.02 13:0.00 14:0.02 15:0.72
   matching tag 9 residency 0.70  checked-mismatch max 0.03 mean 0.01  separation +0.67  DETECTED
-sealed granule tag 10
+instrumented granule tag 10
   0:0.00 1:0.00 2:0.02 3:0.02 4:0.02 5:0.02 6:0.00 7:0.02 8:0.03 9:0.02 10:0.77 11:0.00 12:0.00 13:0.03 14:0.00 15:0.70
   matching tag 10 residency 0.77  checked-mismatch max 0.03 mean 0.01  separation +0.73  DETECTED
 ```
 
-The surviving checked tag is 5, then 9, then 10, following the sealed granule tag across reseals. Every
+The surviving checked tag is 5, then 9, then 10, following the instrumented granule tag across reinstruments. Every
 other checked tag stays at or below 0.05. Tag 15 stays high throughout, as expected for the
 TCMA1-unchecked tag. A fixed measurement artifact, a prefetcher stream into set 32, or batch
-contamination would light the same tags on every seal. A signal that moves with the sealed tag can only
+contamination would light the same tags on every GVT access. A signal that moves with the instrumented tag can only
 come from the tag check, so the leak is genuine.
 
 ## 4. Independent soundness checks
@@ -142,11 +142,11 @@ come from the tag check, so the leak is genuine.
 Repeating the match-versus-mismatch sweep at read set 24 instead of 32:
 
 ```
-0:0.05 3:0.00 5:0.65 9:0.00 15:0.80  (sealed T=5)
+0:0.05 3:0.00 5:0.65 9:0.00 15:0.80  (instrumented T=5)
 match 5=0.65  checked-mm max=0.05  tcma15=0.80  sep=+0.60
 ```
 
-The surviving checked tag is still the sealed tag 5 and the signal now appears at set 24. The leak
+The surviving checked tag is still the instrumented tag 5 and the signal now appears at set 24. The leak
 follows the programmed read set rather than sitting at a fixed set 32, which rules out a set-local
 artifact.
 
@@ -192,8 +192,8 @@ general design but not a correction to this detector.
   the channel is probabilistic per run and needs the repeat loop.
 
 - The verdict's winner contest excludes tag 15 on the strength of the TCMA1-unchecked fact. The
-  tag-tracking control makes the conclusion independent of that fact, because only the sealed checked
-  tag survives and it tracks the seal.
+  tag-tracking control makes the conclusion independent of that fact, because only the instrumented checked
+  tag survives and it tracks the GVT access.
 
 - The gadget flushes its own lines with `dc civac` and runs its own training loop, so it is a
   raw-executor harness rather than a Revizor template. The executor is used only as the measurement

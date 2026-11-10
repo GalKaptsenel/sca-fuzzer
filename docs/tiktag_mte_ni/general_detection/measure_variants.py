@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Device diagnostic: measure the baseline (genuine) vs decoy (mistagged) sealed variants of a template
+"""Device diagnostic: measure the baseline (genuine) vs decoy (mistagged) instrumented variants of a template
 directly on /dev/executor and print per-L1D-set residency (fraction of reps the set is L1-resident),
 highlighting sets that diverge between the variants. Answers: does the speculative body reach the probe
 set (window opens), and does the mistagged decoy shrink it (TikTag divergence)?

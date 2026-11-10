@@ -8,13 +8,13 @@ are prefetcher/measurement noise).
 ## Standing conclusion
 The random-fuzzer suspects below are noise (controlled tag sweep, MATCH tag never separates): inp14
 (143526, x0) and inp0 (154155, x4). The fuzzer does not generate the conditions TikTag-v1 needs on the
-X3, so it finds only prefetcher/measurement noise under MteSealing.
+X3, so it finds only prefetcher/measurement noise under MteGvtAccess.
 
 TikTag-v1 IS reproducible and detected through the executor with a purpose-built test case: see
 `TIKTAG_V1_EXECUTOR.md` and `tiktag_v1_executor.py`. The test case carries the full measurement (a
 training loop whose last iteration is the attack, a serial `orr`-chain latency gate, and a probe-free
-read set). On core 8 the read set stays L1-resident only for the tag matching the sealed granule (and
-the TCMA-unchecked tag), and the surviving checked tag tracks the sealed tag across reseals (5, 9, 10),
+read set). On core 8 the read set stays L1-resident only for the tag matching the instrumented granule (and
+the TCMA-unchecked tag), and the surviving checked tag tracks the instrumented tag across reinstruments (5, 9, 10),
 with separation about +0.67 to +0.70. The official TikTag PoC is the positive control (G1 on the X3,
 G2 on the A715).
 
@@ -32,7 +32,7 @@ same-input NI class-key fix.)
 
 ## Operational notes
 - 2026-09-02 ~17:0x: campaign died mid-run from the bad-magic transport bug (run_batch decode) even at
-  superbatch_size=1 — a TC's slow-path sample-500 over ~200 boosted inputs makes the device response
+  superbatch_size=1, a TC's slow-path sample-500 over ~200 boosted inputs makes the device response
   large enough to desync. This recurs. Mitigation: auto-restart runner (campaign_runner.sh) that reloads
   the executor module and restarts the campaign on each crash, with -i lowered to 60 to shrink batches.
   The health monitor is keyed on the runner PID (survives per-campaign restarts). Real fix still pending:
@@ -43,7 +43,7 @@ same-input NI class-key fix.)
 |---|---|---|---|---|
 | 175332 | #71 / #171 (same inp71) | x1 | NOISE | local: diverging sets are arch-prefetch streams + unaccounted; CE spec-only EMPTY (perturbed x1 access unreached). Same prefetcher-noise as X3. |
 
-## 2026-09-02 — KASAN "bad magic" bug FIXED (page_kasan_tag_reset)
+## 2026-09-02, KASAN "bad magic" bug FIXED (page_kasan_tag_reset)
 
 **Root cause** (see memory kasan-mte-kernel-badmagic): the Pixel 8 kernel is a userdebug build with
 CONFIG_KASAN_HW_TAGS. The page allocator MTE-tags the sandbox pages; KASAN then reports the executor's

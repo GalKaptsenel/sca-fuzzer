@@ -3,7 +3,7 @@ WARNING: [fuzzer] Running in speculative-exception mode.
 
 INFO: [fuzzer] Starting at 12:24:50
 
-INFO: [fuzzer] seeds — program:252958 input:2325422171
+INFO: [fuzzer] seeds, program:252958 input:2325422171
  → slow path…[K → priming 48…[K → sample 50…[K → priming 48…[K → sample 100…[K → priming 48…[K → sample 500…[K → priming 48…[K
 ================================ Statistics ===================================
 

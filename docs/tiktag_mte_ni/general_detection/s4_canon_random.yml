@@ -1,5 +1,5 @@
 # Step 4: fully random generation (no template), canonicality NI. The random generator emits branches
-# and memory accesses; CanonSealing seals speculative accesses; the natural late-resolve forward-branch
+# and memory accesses; CanonGvtAccess GVT accesses speculative accesses; the natural late-resolve forward-branch
 # window + cond contract makes non-canonical speculative accesses leak -> precondition-gated violations.
 instruction_set: aarch64
 instruction_categories:
@@ -24,7 +24,6 @@ contract_observation_clause: l1d
 model_min_nesting: 1
 model_max_nesting: 40
 enable_canonicality: true
-enable_branch_mistraining: true
 executor_mode: F+R
 executor_pinned_core: 8
 superbatch_size: 1

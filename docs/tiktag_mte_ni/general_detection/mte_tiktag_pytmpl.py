@@ -3,7 +3,7 @@ feeding a forced-arch-taken branch; inside the mispredicted body, the tag-checke
 data-dependent latency gate, and a fixed-set probe), while the rest is CONSTRAINED random fill via holes
 (Kind.ALU, non-memory, over registers that EXCLUDE the chain's registers so the random code can't clobber
 it or add flag writes before the branch). This shows how much can be randomized around the MTE chain
-while preserving the window-edge timing the shrink needs. The probe stays planted — randomizing it
+while preserving the window-edge timing the shrink needs. The probe stays planted, randomizing it
 destroys the timing (see LOG.md Exp16/17).
 
 Chain registers (never given to holes): X1,X2 (window), X5 (guess ptr), X9 (branch), X10 (probe addr),
@@ -28,7 +28,7 @@ class MteTiktagPyTmpl(Template):
         b.instruction(specs.ORR, X9, X9, Imm(1))                 # force x9 != 0
         b.instruction(specs.SUBS, XZR, X9, Imm(0))               # Z=0 always -> EQ false -> body arch-NOT-taken
         with b.if_(flags.EQ):                                    # body = taken block, reached only speculatively
-            b.instruction(specs.LDR, X12, Mem(X5, offset=Imm(0)))  # tag-checked guess load (sealer-decoyed), same line
+            b.instruction(specs.LDR, X12, Mem(X5, offset=Imm(0)))  # tag-checked guess load (builder-decoyed), same line
             b.instruction(specs.AND, X11, X12, XZR)              # zero, but data-dependent on the guess
             for _ in range(8):
                 b.instruction(specs.ORR, X10, X10, X11)          # latency gate: probe waits on the guess

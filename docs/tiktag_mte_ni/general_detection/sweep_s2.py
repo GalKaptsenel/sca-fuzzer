@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Sweep the gate length (and optionally SDIV depth) to find the misprediction-window EDGE and test
-whether the forced-all-bad (noncanon) variant falls off the edge earlier than baseline — i.e. whether
+whether the forced-all-bad (noncanon) variant falls off the edge earlier than baseline, i.e. whether
 a speculative MTE tag mismatch shrinks the window. For each (sdiv,gap) it generates the template, builds
 the speculative-exception pipeline, and measures baseline vs noncanon on `n` inputs, reporting the hottest L1D set's
 residency for each variant.

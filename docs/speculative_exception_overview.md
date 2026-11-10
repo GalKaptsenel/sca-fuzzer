@@ -1,4 +1,4 @@
-# speculative exception GVT access — high-level overview (orientation for agents)
+# speculative exception GVT access, high-level overview (orientation for agents)
 
 A one-page map of the AArch64 speculative exception (speculative exception) GVT access subsystem. For the full contract see
 [`speculative_exception.md`](speculative_exception.md); for code start at `src/aarch64/gvt/builder.py` and
@@ -15,7 +15,7 @@ memory access.
 ## One-run resolution
 
 `make_gvt_access_builder(...) → builder.emit(tc) → GvtTestCase`. `instrumented.resolve(input)` (memoized per input
-identity) runs **one** contract-executor (CE) trace — the *resolution trace* — and returns a
+identity) runs **one** contract-executor (CE) trace, the *resolution trace*, and returns a
 `ResolvedGvtTestCase` whose `.genuine()` / `.decoy(rng)` emit relocations and whose `.cer` is that
 single trace, reused as the genuine contract trace (no separate genuine run).
 
@@ -23,9 +23,9 @@ The trace carries an **emulation table**: rows `(slot offset, byte size, op id)`
 site it runs the matching **op-emulator**, which materializes the site's genuine instruction *in place*
 for the state actually present, on every reach:
 
-- `EMUL_OP_PAC_AUTH` — sign the pointer the committed `AUT*` reads and plant the signature `MOVK`s, so
+- `EMUL_OP_PAC_AUTH`, sign the pointer the committed `AUT*` reads and plant the signature `MOVK`s, so
   the `AUT*` verifies and canonicalizes as ordinary code.
-- `EMUL_OP_MTE_RETAG` — plant `ADDG Xn,Xn,#0,#delta` so the access's effective-address tag matches the
+- `EMUL_OP_MTE_RETAG`, plant `ADDG Xn,Xn,#0,#delta` so the access's effective-address tag matches the
   accessed granule's allocation tag (`delta = cell_tag - ea_tag`).
 
 A row owns `[offset, offset+size)`; the op's anchor instruction (the `AUT*`, the guarded access) sits at
@@ -59,10 +59,10 @@ The CE stays **general**: it knows nothing about PAC/MTE/GVT access beyond dispa
 
 ## Where things live
 
-- `src/aarch64/gvt/builder.py` — GVT accesses, `GvtTestCase` subclasses, resolvers, `make_gvt_access_builder`.
-- `src/aarch64/contract_executor/instruction_emulator.{c,h}` — the shared op dispatch + UDF reset.
+- `src/aarch64/gvt/builder.py`, GVT accesses, `GvtTestCase` subclasses, resolvers, `make_gvt_access_builder`.
+- `src/aarch64/contract_executor/instruction_emulator.{c,h}`, the shared op dispatch + UDF reset.
 - `.../pac_sign_plugin.c` (`pac_emulate_auth`), `.../mte_tag_plugin.c` (`mte_emulate_retag`).
-- `src/aarch64/aarch64_executor.py` — primitive detection, PAC keys/profile, hardware run path.
+- `src/aarch64/aarch64_executor.py`, primitive detection, PAC keys/profile, hardware run path.
 - Configs: `config_pac.yml`, `config_mte.yml`, `config_pac_mte.yml`, `config_pac_signext.yml`,
   `config_canon.yml`, `config_canon_indirect.yml`.
 - Tests: `tests/aarch64_tests/unit_trace_equivalence.py` (the one-run == genuine property per primitive)

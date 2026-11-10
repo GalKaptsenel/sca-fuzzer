@@ -33,8 +33,8 @@ def main():
     if ex._sandbox_base is None:
         ex._sandbox_base, _ = ex.read_base_addresses()
     g = ex.genuine_variant(inp)
-    sealed = ex._sealer.seal(fz.asm_parser.parse_file(f"{vd}/generated.asm"))
-    rsv = sealed.resolve(inp)
+    instrumented = ex._builder.build(fz.asm_parser.parse_file(f"{vd}/generated.asm"))
+    rsv = instrumented.resolve(inp)
     code = apply_relocations(rsv.object_code, rsv.genuine())
     cer = ex._contract_executor.run(ex._make_ce_execution(
         code, inp, ex._sandbox_base, CONF.model_max_nesting, CONF.model_max_spec_window,

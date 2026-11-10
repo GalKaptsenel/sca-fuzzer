@@ -1,6 +1,6 @@
 # Step 4 (MTE): fully random generation (no template), MTE speculative-exception. Tests whether TikTag-v1
 # (MTE tag-match) ever falls out of random generation. Mistraining ON to open windows at every arch
-# conditional branch; MteSealing seals speculative tag-checked loads.
+# conditional branch; MteGvtAccess GVT accesses speculative tag-checked loads.
 instruction_set: aarch64
 instruction_categories:
   - MTE
@@ -25,7 +25,6 @@ contract_execution_clause:
 contract_observation_clause: l1d
 model_min_nesting: 1
 model_max_nesting: 40
-enable_branch_mistraining: true
 executor_mode: F+R
 executor_pinned_core: 8
 superbatch_size: 1

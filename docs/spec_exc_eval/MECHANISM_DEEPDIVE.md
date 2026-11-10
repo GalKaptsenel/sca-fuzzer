@@ -1,4 +1,4 @@
-# Speculative-exception fuzzing on AArch64 — mechanism deep-dive
+# Speculative-exception fuzzing on AArch64, mechanism deep-dive
 
 A file/line-referenced account of the machinery behind the TikTag-v1 detection, written so the paper
 and another working session can build on it. All references are `path:line` against this repo at the
@@ -10,23 +10,22 @@ the TikTag-v1 instantiation; sections 8–9 are triage and transport.
 "Speculative-exception fuzzing" (formerly "non-interference") tests that a precondition which holds
 architecturally but is violated only on a speculative path cannot leak. For each instrumented access the
 fuzzer runs several *variants* of one architectural input: a **genuine** variant (the precondition
-holds — correct PAC signature / matching MTE tag / canonical address) and one or more **decoy**
+holds, correct PAC signature / matching MTE tag / canonical address) and one or more **decoy**
 variants (the precondition is violated only on the speculative path). The test-case code is
 **byte-identical across every variant**; the only per-variant difference is a small table of values the
-code loads from reserved vector registers — the **GlobalValueTable (GVT)**. A violation is an
+code loads from reserved vector registers, the **GlobalValueTable (GVT)**. A violation is an
 equivalence class of variants whose hardware traces diverge: the speculative precondition violation
 left a microarchitectural footprint.
 
 ## 1. GlobalValueTable (GVT): in-register value delivery
 
-`src/aarch64/gvt/global_value_table.py` — the GVT is "a GOT, but in a register": the code reads each
+`src/aarch64/gvt/global_value_table.py`, the GVT is "a GOT, but in a register": the code reads each
 GVT access's value from a reserved vector lane instead of having the value spliced into the code.
 
 - `VectorGlobalValueTable` (`global_value_table.py:99`) backs the table with the vector file, allocating
   top register first (`v31` down, `TOP_REG=31`, `SIMD_BASE_REG=0`, `global_value_table.py:13-14`),
   byte-aligned, never straddling a register (`allocate`, `:113-123`). Capacity is a bit budget rounded
-  up to whole registers (`:103-109`); overflow raises `GlobalValueTableCapacityExceeded` (`:119-121`) —
-  no fallback. The builder builds it over the whole vector file (512 bytes) at `builder.py:615`.
+  up to whole registers (`:103-109`); overflow raises `GlobalValueTableCapacityExceeded` (`:119-121`),  no fallback. The builder builds it over the whole vector file (512 bytes) at `builder.py:615`.
 - `_VectorLocation.load` (`global_value_table.py:71-78`) emits the one fixed instruction that reads a
   lane: `UMOV <w|x>tmp, v<reg>.<b|h|s|d>[idx]`, element size chosen from the field width
   (`_UMOV_LANE`, `:11`). `byte_range()` (`:80-82`) maps a lane to its byte offset in the REIF SIMD
@@ -37,16 +36,16 @@ GVT access's value from a reserved vector lane instead of having the value splic
 
 ## 2. GvtValue: what each lane holds and how the fixed slot applies it
 
-`src/aarch64/gvt/values.py` — one class per value kind; each owns its width, encoding
+`src/aarch64/gvt/values.py`, one class per value kind; each owns its width, encoding
 (right-aligned in the lane), and the fixed apply sequence (a lane load + one data-processing op).
 
 - `MteTag` (`values.py:60-70`): a 4-bit allocation tag in a 1-byte lane; `apply` = `UMOV` +
-  `BFI target, tmp, #56, #4` — inserts the tag into the pointer's tag field [56,60).
+  `BFI target, tmp, #56, #4`, inserts the tag into the pointer's tag field [56,60).
 - `PacSignature` (`values.py:35-57`): the PAC-field window right-aligned; `apply` = `UMOV` +
   `BFI target, tmp, #lsb, #nbits`.
 - `MaskFlip` (`values.py:73-90`): a bitmask XORed in (canonicality / branch-target / sign-ext);
   `apply` = `UMOV` + `EOR target, target, tmp, LSL #lo`. The genuine value is mask 0 (a no-op), so a
-  canon/branch GVT access needs no CE injection — its genuine image is all-zero.
+  canon/branch GVT access needs no CE injection, its genuine image is all-zero.
 
 The scratch GPR for the `UMOV`→`BFI`/`EOR` is a fixed reserved register (`GVT_SCRATCH_REGISTER`,
 defined in `src/aarch64/aarch64_target_desc.py`, imported at `builder.py:29`, used at `builder.py:134,173`),
@@ -58,7 +57,7 @@ excluded from the body's register budget.
 
 - A `GvtAccess` (`:60`) owns one GVT access: its fixed slot instructions (`slot_insts`) and `store_into(image,
   applied, genuine)` (`:71`). `MteGvtAccess` (`:158`) is the TikTag GVT access: it BFIs an **applied** tag from
-  one lane before the access, and — when the access preserves its base — BFIs the **genuine cell tag**
+  one lane before the access, and, when the access preserves its base, BFIs the **genuine cell tag**
   from a second lane after it, so every variant re-converges to the real tag and only the instrumented access
   sees the perturbation (`:158-178`). `store_into` (`:180-183`) writes the applied lane (decoy-variable)
   and the re-converge lane (always genuine).
@@ -70,7 +69,7 @@ excluded from the body's register budget.
   and returns a `ResolvedGvtTestCase`.
 - `ResolvedGvtTestCase` (`:383`): `object_code` (`:406-408`) is the input-independent code; a
   variant is just a GVT image. `genuine()` (`:415-416`) stores every slot's correct value; `decoy(rng)`
-  (`:418-422`) perturbs a non-empty subset of the *eligible* slots — those that are **speculative and
+  (`:418-422`) perturbs a non-empty subset of the *eligible* slots, those that are **speculative and
   carry alternatives** (`_eligible`, `:424-428`). `_build_image` (`:433-442`) is the whole image fill:
   for each entry, `store_into(image, alt-if-perturbed-else-genuine, genuine)`. `collapse_key` (`:444`)
   groups inputs whose every slot resolves to the same (value, speculative) so one instrumented program is
@@ -107,8 +106,8 @@ genuine contract trace (same trust basis as the pre-GVT, relocation-era code).
 - `variants_for_input` (`:817-826`) builds `{variant_name: ExecutorInput(inp, gvt=image, mte_tags=…,
   pac_keys=…)}` from the resolved genuine/decoy images. `genuine_variant` (`:835`) is the baseline;
   decoys are `SpecExcVariant.decoy_n(i)` (`:850-853`).
-- Strict mode `_build_gvt_input` (`:939-947`) ships one instrumented program per GVT access class — genuine, or a
-  decoy by a per-class coin — so a stale `AUT*`/tag fault can never reset the box. contract_driven mode
+- Strict mode `_build_gvt_input` (`:939-947`) ships one instrumented program per GVT access class, genuine, or a
+  decoy by a per-class coin, so a stale `AUT*`/tag fault can never reset the box. contract_driven mode
   (`as_executor_input`, `:882-887`) carries the GVT in the input's own SIMD subregion (`gvt=None`) and
   freezes only the arch-consumed lanes.
 - The image is shipped as the REIF SIMD section: `ExecutorInput.serialize` (`aarch64_executor_input_
@@ -124,7 +123,7 @@ genuine contract trace (same trust basis as the pre-GVT, relocation-era code).
 - Stage: `measurement.c:69-72` copies `input->simd` into the sandbox right after the 8 register slots,
   so the JIT loads from a fixed address.
 - Load: `templates_jit.c:125-127` emits `jit_ldr128` for every register, loading **v0..v31** from that
-  staged image immediately before the body — the registers the `UMOV` slots read.
+  staged image immediately before the body, the registers the `UMOV` slots read.
 - Preserve: the run clobbers v0..v31, and it executes in IPI context where `kernel_neon_begin()` is
   illegal, so `chardevice.c:288-309` saves/restores q0..q31 by hand around the run.
 
@@ -141,7 +140,7 @@ footprint depends on the tag.
 - **Contract** `docs/tiktag_mte_ni/general_detection/s1_mte_hw_hard_noMT.yml`: `contract_execution_
   clause: [cond]` (the conditional-branch window, not store-bypass), `l1d` observation. The CE models
   the AArch64 contract where the tag is TBI-masked for addressing, so under the contract the
-  speculative load touches the same address regardless of its tag — **tag-blind**. On hardware the MTE
+  speculative load touches the same address regardless of its tag, **tag-blind**. On hardware the MTE
   tag check squashes the speculative load on a mismatch. So: genuine (matching tag) and the tag-blind
   contract agree; a decoy (mismatching tag) diverges from the contract on hardware → the equivalence
   class splits → violation. Core 8 (Cortex-X3) is the v1 / Gadget-1 core.
@@ -158,17 +157,17 @@ A violation is only called GENUINE after four gates, all GVT-aware
 1. **Tag-only** (`accounting.py`): genuine vs decoy GVT images differ only in `MteGvtAccess` applied-tag
    lanes (code is byte-identical by construction).
 2. **Speculative-only leaking set** (`accounting.py`): a hardware-diverging set must be a CE
-   speculative access (or a prefetch stream of one), not an architectural demand — architectural
+   speculative access (or a prefetch stream of one), not an architectural demand, architectural
    demands commit with the correct tag regardless of the decoy, so their divergence is prefetcher/batch
    contamination.
 3. **16-tag pointer sweep** (`triage_sweep.py`): rewrite the suspect site's applied-tag lane over all
    16 values; the matching tag must dominate every checked mismatch (TCMA-unchecked tags 0/15 excluded).
 4. **Memory-tag tracking** (`tag_track.py`): patch the guess-load granule's *memory* tag and confirm
-   the detected match tag moves with it — the decisive pointer-vs-memory-check proof. An ineffective
+   the detected match tag moves with it, the decisive pointer-vs-memory-check proof. An ineffective
    patch is declared INVALID, never a false negative.
 
 The sweep/track build variants by rewriting the GVT image (`store_into` on the suspect GVT access, cell
-lane kept genuine) and shipping it with `dataclasses.replace(genuine_variant, gvt=image)` — no
+lane kept genuine) and shipping it with `dataclasses.replace(genuine_variant, gvt=image)`, no
 relocation plans.
 
 ## 9. Transport (adb)

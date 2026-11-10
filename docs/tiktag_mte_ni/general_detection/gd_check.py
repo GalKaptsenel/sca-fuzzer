@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Ground-truth speculative-exception check: measure the REAL genuine variant vs its decoy variant(s) vs noncanon of a saved
 violation input, directly on the device, and report per-L1D-set residency. The decoy differs from genuine
-ONLY in the speculative (decoyed) tag seals, so a robust genuine-vs-decoy divergence is the real
+ONLY in the speculative (decoyed) tag GVT accesses, so a robust genuine-vs-decoy divergence is the real
 speculative-exception signal, independent of which gate a sweep picks. view_rotation must be ON (it is, via
 enable_pre_run_flush in the config). Prints the sets where genuine and decoy diverge the most.
 

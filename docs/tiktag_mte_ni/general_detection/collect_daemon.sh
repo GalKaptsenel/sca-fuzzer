@@ -58,7 +58,7 @@ stop_fuzz(){
 recover_dev(){
   # su 0 -c (NOT bare `su -c`, which under magisk runs with ZERO effective caps -> insmod EPERM).
   # No shell keywords (if/then/fi): adb re-tokenizes the string so the device sh would see `su 0 -c if`
-  # and choke on the bare `then`. An unconditional insmod is safe — if the module is already loaded it
+  # and choke on the bare `then`. An unconditional insmod is safe, if the module is already loaded it
   # fails harmlessly with EEXIST and the LIVE module is left untouched (we NEVER rmmod a working device,
   # which bit us once). Then (re)chmod the nodes.
   timeout 45 adb -s "$SERIAL" shell su 0 -c \
@@ -72,7 +72,7 @@ start_fuzz
 while true; do
   if [ -f "$PAUSE" ]; then
     [ -n "$FUZZ_PID" ] && kill -0 "$FUZZ_PID" 2>/dev/null && stop_fuzz
-    # keepalive ONLY while paused — during an active run the fuzzer's own adb traffic keeps the tunnel
+    # keepalive ONLY while paused, during an active run the fuzzer's own adb traffic keeps the tunnel
     # warm, and an extra concurrent `adb shell` interleaves with its batch reads (bad-magic responses).
     timeout 20 adb -s "$SERIAL" shell true >/dev/null 2>&1 || log "touch FAIL (device unreachable, paused)"
     log "PAUSED (triage borrowing device); holding"

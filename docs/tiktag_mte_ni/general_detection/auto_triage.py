@@ -3,14 +3,14 @@
 
 Orchestrates the proven scripts and applies a conservative classifier:
   1. accounting.py  (local CE, no device): tag-only diff; CE arch vs SPECULATIVE-ONLY sets; and for each
-     HW diverging set whether it is a speculative tag-sealed access / a prefetch stream of one, or merely
+     HW diverging set whether it is a speculative tag-instrumented access / a prefetch stream of one, or merely
      an architectural demand or its prefetch stream.
-  2. triage_sweep.py (device): for each SPEC-relevant diverging set, locate the gating sealed load and
+  2. triage_sweep.py (device): for each SPEC-relevant diverging set, locate the gating instrumented load and
      sweep its tag 0..15, giving diverging-set residency per delta.
 
 Verdict:
   GENUINE      : tag-only AND at least one diverging set is CE spec-only (or a prefetch stream of a
-                 speculative tag-sealed access) AND its sweep separates the matching (genuine) CHECKED
+                 speculative tag-instrumented access) AND its sweep separates the matching (genuine) CHECKED
                  tag above every checked mismatch by >= SEP, with match residency >= MATCH_MIN; the
                  separation must NOT be explained only by the TCMA-unchecked tags.
   QUESTIONABLE : spec-relevant set exists and shows tag dependence, but the separation is marginal or is
@@ -73,7 +73,7 @@ def parse_accounting(txt):
         if ("IS spec demand" in src) or ("prefetch of SPEC demand" in src):
             spec_sets.append((s, base))
     elig = []
-    m = re.search(r"eligible tag-sealed regs:\s*\[([^\]]*)\]", txt)
+    m = re.search(r"eligible tag-instrumented regs:\s*\[([^\]]*)\]", txt)
     if m and m.group(1).strip():
         elig = [x.strip().strip("'\"") for x in m.group(1).split(",")]
     return tag_only, spec_only, spec_sets, elig
@@ -145,7 +145,7 @@ def main():
     # subprocess raised, abort to ERROR so the verdict is never a silent NOISE on empty defaults.
     if "Traceback (most recent call last)" in acc or "FileNotFoundError" in acc or "ModuleNotFound" in acc:
         verdict = "ERROR"
-        reason = ("accounting.py crashed (see Step 1+2 output) — triage ABORTED, NOT classified NOISE. "
+        reason = ("accounting.py crashed (see Step 1+2 output), triage ABORTED, NOT classified NOISE. "
                   "Fix accounting before trusting any verdict for this violation.")
         report += ["", f"## VERDICT: {verdict}", reason]
         open(f"{vd}/AUTO_TRIAGE.md", "w").write("\n".join(report) + "\n")
@@ -160,7 +160,7 @@ def main():
         verdict, reason = "NOISE", "code diff is not tag-only (not an MTE tag violation)"
     elif not spec_sets:
         verdict = "NOISE"
-        reason = ("no speculative tag-sealed diverging set — every HW diverging set is an architectural "
+        reason = ("no speculative tag-instrumented diverging set, every HW diverging set is an architectural "
                   f"demand or its prefetch stream (CE spec-only sets={spec_only}); "
                   "prefetcher/batch false positive")
     else:

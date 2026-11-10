@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """All-16-tags sweep on a TEMPLATE (no violation dir). For the suspect input, hold the fixed prefix and
-sweep each ADDG seal's pointer-tag delta uimm4 0..15, reading the given probe sets at the tail. Genuine
+sweep each ADDG GVT access's pointer-tag delta uimm4 0..15, reading the given probe sets at the tail. Genuine
 tag-check: the probe is sharply separated at the MATCH tag (peaked, one tag stands out). Prefetcher/noise:
 flat or inverted across tags.
 

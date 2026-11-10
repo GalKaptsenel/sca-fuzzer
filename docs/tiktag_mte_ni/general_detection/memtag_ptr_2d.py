@@ -59,8 +59,8 @@ def main():
                              pac_keys=g.pac_keys, env_plan=g.env_plan)
 
     # CE: speculative accesses with (granule, pc_offset, base_reg)
-    sealed = ex._sealer.seal(fz.asm_parser.parse_file(f"{vd}/generated.asm"))
-    rsv = sealed.resolve(inp)
+    instrumented = ex._builder.build(fz.asm_parser.parse_file(f"{vd}/generated.asm"))
+    rsv = instrumented.resolve(inp)
     code = apply_relocations(rsv.object_code, rsv.genuine())
     cer = ex._contract_executor.run(ex._make_ce_execution(
         code, inp, ex._sandbox_base, CONF.model_max_nesting, CONF.model_max_spec_window,

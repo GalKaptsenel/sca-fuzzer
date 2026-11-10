@@ -1,20 +1,20 @@
-# AArch64 speculative exception (speculative exception) fuzzing — architecture
+# AArch64 speculative exception (speculative exception) fuzzing, architecture
 
 ## 1. Two fuzzing types, orthogonal to generation
 
 `CONF.fuzzer` selects the comparison strategy; it does **not** change how programs are generated.
 
-- **regular** — fuzz *inputs* on one test case; a leak is a hardware-trace difference between inputs.
+- **regular**, fuzz *inputs* on one test case; a leak is a hardware-trace difference between inputs.
   When PAC/MTE categories are active, regular fuzzing runs through the *instrumented* executor (§4) so the
   test case is arch-safe on hardware.
-- **speculative exception (speculative exception)** — fuzz *test-case variants* on the **same** input: a `genuine` (all-correct)
+- **speculative exception (speculative exception)**, fuzz *test-case variants* on the **same** input: a `genuine` (all-correct)
   and a `decoy` (speculative slots perturbed) of the same TC, compared on hardware. A difference is a
   speculative leak.
 
 Which primitive(s) are active comes purely from the enabled **instruction categories** (`PAC*`,
 `MTE*`), not a separate mode knob. The speculative exception executor requires at least one of PAC/MTE.
 
-## 2. GVT accesses — composable, per-site register ops
+## 2. GVT accesses, composable, per-site register ops
 
 A **GVT access** (`gvt/builder.py: GvtAccess`) owns one site and the slot instructions there. `GVT access(value)`
 returns the slot's instructions for a runtime value; `GVT access(None)` is the arch-safe placeholder. A
@@ -24,23 +24,23 @@ each a register-only op:
 | GvtAccess | placeholder `GVT access(None)` | `GVT access(value)` |
 |---------|--------------------------|---------------|
 | `SandboxGvtAccess` | `AND mask ; ADD x29` | same (the clamp is value-independent) |
-| `PacGvtAccess` | `NOP ; NOP` (inert — the pointer stays the canonical clamped base) | `MOVK sig ; AUT*` (or the `XPAC` strip, with prob `pac_strip_prob`) |
-| `MteGvtAccess` | `NOP [; NOP]` (inert) | `ADDG #delta [; ADDG #back]` (retag to the cell tag before the access, then re-converge after — `back`=0 for genuine, non-zero for a decoy; the second op only when the access preserves its base) |
-| `CanonGvtAccess` / `SignExtGvtAccess` | `NOP [; NOP]` (inert — canonical pointer) | `EOR #mask [; EOR #mask]` (flip a non-canonical mask before the access, re-converge after when the base survives; `CanonGvtAccess` flips `[54:VA]`, `SignExtGvtAccess` flips bit 55 — the regime selector) |
+| `PacGvtAccess` | `NOP ; NOP` (inert, the pointer stays the canonical clamped base) | `MOVK sig ; AUT*` (or the `XPAC` strip, with prob `pac_strip_prob`) |
+| `MteGvtAccess` | `NOP [; NOP]` (inert) | `ADDG #delta [; ADDG #back]` (retag to the cell tag before the access, then re-converge after, `back`=0 for genuine, non-zero for a decoy; the second op only when the access preserves its base) |
+| `CanonGvtAccess` / `SignExtGvtAccess` | `NOP [; NOP]` (inert, canonical pointer) | `EOR #mask [; EOR #mask]` (flip a non-canonical mask before the access, re-converge after when the base survives; `CanonGvtAccess` flips `[54:VA]`, `SignExtGvtAccess` flips bit 55, the regime selector) |
 
 A flip GVT access (`CanonGvtAccess`, `SignExtGvtAccess`) carries no per-input value and no CE emulator: genuine
 is the inert placeholder, a decoy EORs one pool mask in and back. `SignExtGvtAccess` is only used composed
 with PAC (`enable_signext`, PAC category required): per access a `PacGvtAccess` authenticates the base and
 the sign-ext flip inverts bit 55 on the speculative decoy, so the regime selector disagrees with the
-never-flipped sign-extension bits `[54:VA]` — a translation fault under TBI on or off. The top byte
+never-flipped sign-extension bits `[54:VA]`, a translation fault under TBI on or off. The top byte
 `[63:56]` is never flipped (bit 55 already faults either way; a top-byte flip faults only with TBI off).
 Only the PAC auth is materialized by the emulation table.
 
-The placeholder emits no `AUT*`/`XPAC`/`PAC*` — it is the inert, arch-safe baseline. The hardware
+The placeholder emits no `AUT*`/`XPAC`/`PAC*`, it is the inert, arch-safe baseline. The hardware
 `genuine()` render loads the precomputed signature with `MOVK`s and keeps the committed `AUT*`; `PAC*`
 is a generation-only instruction and never appears in the instrumentation.
 
-**Only `SandboxGvtAccess` clamps memory** — PAC/MTE never sandbox. Within one site the clamp must come
+**Only `SandboxGvtAccess` clamps memory**, PAC/MTE never sandbox. Within one site the clamp must come
 **first**: its `AND` mask clears the top bits where the PAC signature lives, so a clamp after an auth
 would wipe the signature. The per-site order is therefore `[Sandbox][PacSign][MteTag]` followed by the
 index/displacement cancellation.
@@ -53,22 +53,22 @@ index/displacement cancellation.
   in-region clamp), inserts the arch-safe placeholders, and returns a `GvtTestCase`. Standalone
   generator-emitted `AUT*` instructions are each replaced by a `PacGvtAccess` (a register-only auth site
   the memory walk doesn't reach).
-- **`GvtTestCase.resolve(input)`** runs **one** contract-executor trace — the *resolution trace* —
-  and computes each GVT access's value — PAC: sign the reached pointer plus a pool of mask-verified wrong
+- **`GvtTestCase.resolve(input)`** runs **one** contract-executor trace, the *resolution trace* -
+  and computes each GVT access's value, PAC: sign the reached pointer plus a pool of mask-verified wrong
   signatures that provably fail AUTH; MTE: classify the accessed cell's allocation tag and the
-  speculation depth — returning a `ResolvedGvtTestCase`. The trace carries an **emulation table**:
+  speculation depth, returning a `ResolvedGvtTestCase`. The trace carries an **emulation table**:
   rows of `(first-slot offset, size, op id)` the CE materializes in place as it reaches each site on the
-  reach (speculative and architectural — each reach re-materializes for the state actually present).
+  reach (speculative and architectural, each reach re-materializes for the state actually present).
   `EMUL_OP_PAC_AUTH` reads the committed `AUT*`, signs the canonical pointer it reads (QARMA, the input's
-  keys), and writes the signature MOVKs into the site's slots — so the `AUT*` then verifies and
+  keys), and writes the signature MOVKs into the site's slots, so the `AUT*` then verifies and
   canonicalizes as ordinary code. `EMUL_OP_MTE_RETAG` reads the granule's tag from the CE's tag memory
   and plants the retag `ADDG #0, #delta` so the access tag-matches. Each site's idle slots hold `UDF`,
   so a slot that ever executes un-materialized faults loudly. The resolver reads the values back off the
   trace (the canonical pointer/context for PAC, the planted retag's delta for MTE).
 - **`ResolvedGvtTestCase.cer`** is that resolution trace, reused as the genuine contract trace
-  (`compute_ctrace`/`compute_taint`) — no separate genuine run. Because the real genuine instructions
+  (`compute_ctrace`/`compute_taint`), no separate genuine run. Because the real genuine instructions
   execute in it, its ctrace and taint equal the genuine binary's exactly (only with `pac_strip_prob>0`
-  is the taint a safe superset — a genuine `XPAC` strip reads no context the resolution `AUT*` does).
+  is the taint a safe superset, a genuine `XPAC` strip reads no context the resolution `AUT*` does).
 - **`ResolvedGvtTestCase.genuine()`** GVT accesses every slot with its correct value (`MOVK` signature +
   `AUT*`, genuine `ADDG` retag). **`.decoy()`**
   perturbs a random non-empty subset of the *speculative* (never-architectural) slots with a failing
@@ -78,13 +78,13 @@ index/displacement cancellation.
 
 ## 4. Executors
 
-- **`Aarch64NonInterferenceExecutor`** (`aarch64_executor.py`) — detect active primitives, GVT access the TC,
+- **`Aarch64NonInterferenceExecutor`** (`aarch64_executor.py`), detect active primitives, GVT access the TC,
   pin PAC keys (so this process's `pac_sign` and the contract executor share key material), and per
   input mint a `BASELINE` (genuine) + `DECOY` variant; run both on hardware. The per-input htrace
   difference between baseline and decoy is the leak. MTE primitives are refused up front unless the CPU
   reports FEAT_MTE2 (`ID_AA64PFR1_EL1.MTE >= 2`): without tag checking the GVT access is meaningless and,
   composed with PAC, a baked signature over a tagged pointer FPAC-faults the kernel.
-- **`Aarch64RegularGvtExecutor`** (extends the speculative exception executor) — regular fuzzing with PAC/MTE. Inputs
+- **`Aarch64RegularGvtExecutor`** (extends the speculative exception executor), regular fuzzing with PAC/MTE. Inputs
   are grouped into *GVT access classes* (identical resolved values across all slots); each class runs one
   shared instrumented TC, minted once with a per-class coin (`_DECOY_PROB`) choosing the all-genuine form or
   the speculative-decoy form. Either way the architectural slots are always genuine, so the TC is

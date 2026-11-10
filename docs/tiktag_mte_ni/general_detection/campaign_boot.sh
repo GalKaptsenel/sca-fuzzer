@@ -8,7 +8,7 @@ COLLECT=$GD/eval_out/collect
 mkdir -p "$COLLECT"
 DP=$(cat "$COLLECT/daemon.pid" 2>/dev/null)
 if [ -n "$DP" ] && kill -0 "$DP" 2>/dev/null && tr '\0' ' ' </proc/"$DP"/cmdline 2>/dev/null | grep -q collect_daemon.sh; then
-  exit 0   # daemon already alive — nothing to do
+  exit 0   # daemon already alive, nothing to do
 fi
 cd "$REPO" || exit 1
 source "$REPO/../revizor-venv/bin/activate" 2>/dev/null

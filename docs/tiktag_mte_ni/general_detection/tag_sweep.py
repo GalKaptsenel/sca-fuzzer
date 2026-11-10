@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pointer-tag sweep of one decoyed seal (polarity + tag-check test). Hold the seal's address (uimm6) and
+"""Pointer-tag sweep of one decoyed GVT access (polarity + tag-check test). Hold the GVT access's address (uimm6) and
 sweep its pointer-tag delta uimm4 0..15; the pointer tag = (base_ptr_tag + uimm4) % 16 where base_ptr_tag
 is read from the genuine (uimm4 that matches memory). For each uimm4 read all 64 sets at the tail
 (fixed prefix) and report residency at the probe sets + the width of the lit stream. A genuine tag-check

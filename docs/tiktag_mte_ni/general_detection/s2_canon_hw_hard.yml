@@ -1,5 +1,5 @@
 # Step 2: swap the MTE precondition for ADDRESS CANONICALITY. Same loop-free DAG neverarch skeleton +
-# kernel branch mistraining; CanonSealing decoys the speculative guess load's pointer non-canonical
+# kernel branch mistraining; CanonGvtAccess decoys the speculative guess load's pointer non-canonical
 # (high bits), shrinking the window. _primitives == {canon} (no MTE/PAC categories). Pinned X3.
 instruction_set: aarch64
 instruction_categories:
@@ -24,7 +24,6 @@ contract_observation_clause: l1d
 model_min_nesting: 1
 model_max_nesting: 40
 enable_canonicality: true
-enable_branch_mistraining: true
 executor_mode: F+R
 executor_pinned_core: 8
 superbatch_size: 1

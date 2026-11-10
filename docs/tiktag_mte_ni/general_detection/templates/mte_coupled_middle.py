@@ -3,10 +3,10 @@ window is wide (a late-resolving condition) -- and randomize everything else. Th
 store-bypass form: a slow UDIV chain delays a store's address while a fast load of the same location
 bypasses it and reads the stale value, so the branch is speculatively taken while architecturally not,
 and the `if_` body runs speculative-only. Inside that window the payload is a RANDOM hole that includes a
-sealable load (the leak site); the prologue, epilogue, and the rest of the window body are random too.
+instrumentable load (the leak site); the prologue, epilogue, and the rest of the window body are random too.
 
 This is the structure a FLOATING slow chain lacks (ablation: chain not feeding the branch finds nothing)
-and that blind random essentially never generates: slow-chain -> branch -> sealed load in the shadow."""
+and that blind random essentially never generates: slow-chain -> branch -> instrumented load in the shadow."""
 from src.aarch64.template import Template, Hole, Kind, specs, flags, Mem, Imm, X0, X1, X4, X5, XZR
 
 
@@ -24,7 +24,7 @@ class MteCoupledMiddle(Template):
         b.instruction(specs.SUBS, XZR, X0, Imm(0))
         with b.if_(flags.NE):                                    # spec-taken, arch-not-taken window
             b.hole(Hole((1, 3), kind=Kind.ANY))                  # random spec payload before the load
-            b.hole(Hole(1, kind=Kind.LOAD))                      # random SEALED load in the shadow (leak)
+            b.hole(Hole(1, kind=Kind.LOAD))                      # random INSTRUMENTED load in the shadow (leak)
             b.hole(Hole((1, 3), kind=Kind.ANY))                  # random spec payload after the load
 
         b.hole(Hole((2, 6), kind=Kind.ALU))                      # random arch epilogue (non-mem)

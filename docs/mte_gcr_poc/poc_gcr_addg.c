@@ -1,5 +1,5 @@
 // PoC: on a KASAN_HW_TAGS kernel the executor inherits GCR_EL1.Exclude (reserved tags 14/15), so
-// ADDG's tag arithmetic is NOT plain modular — it skips excluded tags (ChooseNonExcludedTag). The
+// ADDG's tag arithmetic is NOT plain modular, it skips excluded tags (ChooseNonExcludedTag). The
 // Revizor seal retags a pointer with `ADDG xN,xN,#0,#delta` where delta = (correct_tag - ptr_tag) % 16
 // (plain modular), and the contract executor models ADDG assuming GCR_EL1.Exclude == 0. So for any
 // access whose tag walk crosses tag 14 or 15, the genuine sealed retag lands on a DIFFERENT tag on HW
@@ -21,7 +21,7 @@
 #endif
 #define GCR_EXCL_MASK 0xFFFFUL
 
-// ADDG x0, x1, #0, #delta — encoding 0x91800020 | (delta << 10). .inst needs a compile-time constant,
+// ADDG x0, x1, #0, #delta, encoding 0x91800020 | (delta << 10). .inst needs a compile-time constant,
 // so switch over the 16 deltas. Returns the tag nibble [59:56] of the result.
 static u64 addg_tag(u8 base_tag, int delta)
 {
@@ -47,7 +47,7 @@ static int __init poc_init(void)
 	pr_err("kernel-inherited GCR_EL1 = 0x%016llx  (Exclude bits[15:0] = 0x%04llx)\n",
 	       gcr, gcr & GCR_EXCL_MASK);
 	if ((gcr & GCR_EXCL_MASK) == 0)
-		pr_err("NOTE: Exclude is already 0 here (no KASAN reservation) — sweep will show no divergence.\n");
+		pr_err("NOTE: Exclude is already 0 here (no KASAN reservation), sweep will show no divergence.\n");
 
 	for (base = 0; base < 16; base++) {
 		for (delta = 1; delta < 16; delta++) {

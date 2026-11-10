@@ -3,7 +3,7 @@ WARNING: [fuzzer] Running in speculative-exception mode.
 
 INFO: [fuzzer] Starting at 12:18:12
 
-INFO: [fuzzer] seeds — program:424242 input:424242
+INFO: [fuzzer] seeds, program:424242 input:424242
 ⟳ P+P  1 tc · 0s · 9.10 tc/s · 0.0 traces/s · 1 filtered · 0 violations[K⟳ P+P  2 tc · 0s · 7.29 tc/s · 0.0 traces/s · 2 filtered · 0 violations[K⟳ P+P  2 tc · 0s · 7.29 tc/s · 0.0 traces/s · 2 filtered · 0 violations → slow path…[K
 INFO: [fuzzer] cross-input priming (any localizer, self-dependent + cross-input): localizing 2 candidate(s)
 

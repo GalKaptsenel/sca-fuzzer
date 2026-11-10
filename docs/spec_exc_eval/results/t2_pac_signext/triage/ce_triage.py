@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Local, SAFE (no HW execution) CE triage of the PAC+sign-ext violation.
-Confirms: contract-equivalence (seq), the speculative mechanism (which sealed AUT*/sign-ext slot),
+Confirms: contract-equivalence (seq), the speculative mechanism (which instrumented AUT*/sign-ext slot),
 and that the decoy's speculative footprint explains the htrace-divergent cache set."""
 import os, re, sys
 sys.path.insert(0, "/home/gal_k_1_1998/revizor/sca-fuzzer")
@@ -23,7 +23,7 @@ isa = InstructionSet(f"{ROOT}/base.json", CONF.instruction_categories)
 gen = Aarch64RandomGenerator(isa, 0)
 ex = Aarch64SpeculativeExceptionExecutor(gen)
 
-# Load the test case (device staging only — no execution) so the sealer builds the sealed code.
+# Load the test case (device staging only, no execution) so the builder builds the instrumented code.
 from src.aarch64.aarch64_asm_parser import Aarch64AsmParser
 tc = Aarch64AsmParser(gen).parse_file(f"{VD}/generated.asm")
 ex.load_test_case(tc)
@@ -42,14 +42,14 @@ print(f"\nGST image diff bytes (A#{A} vs B#{B}): offsets {list(diff)}")
 for off in diff:
     print(f"  off {off}: A={sA[off]:#04x} B={sB[off]:#04x}")
 
-# Which sealing owns each differing lane, and is it speculative?
+# Which GVT access owns each differing lane, and is it speculative?
 resolved = ex._resolve(inA)
 print(f"\nResolved entries for #{A} (contract hash {compute_ctrace(resolved.cer).hash_}):")
 for e in resolved._entries:
-    loc = getattr(e.sealing, "location", None)
+    loc = getattr(e.access, "location", None)
     rng = loc.byte_range() if loc is not None else None
-    name = type(e.sealing).__name__
-    inst = getattr(e.sealing, "access_inst", None) or getattr(e.sealing, "committed_inst", None)
+    name = type(e.access).__name__
+    inst = getattr(e.access, "access_inst", None) or getattr(e.access, "committed_inst", None)
     inst_s = getattr(inst, "name", None)
     touches = rng is not None and any(rng.start <= d < rng.stop for d in diff)
     flag = "  <== DIFFERS (decoy lane)" if touches else ""
@@ -84,7 +84,7 @@ for s in allsets:
 print(f"divergent htrace sets = {divergent}")
 
 # INTEGRITY CHECK 1: do the two executor-inputs differ ONLY in the GVT image? If main/faulty/gpr are
-# identical, the htrace divergence CANNOT come from the arch input — only from the seal values.
+# identical, the htrace divergence CANNOT come from the arch input, only from the GVT access values.
 def frag(inp):
     f = inp[0]
     return {k: bytes(f[k].view(np.uint8)) for k in ("main", "faulty", "gpr")}
@@ -102,9 +102,9 @@ print(f"\n  genuine contract hash A={hA}")
 print(f"  genuine contract hash B={hB}")
 print(f"  -> contract-equivalent: {hA == hB}")
 
-# The leak set vs the speculative sealed accesses: list speculative sign-ext/PAC slots and whether
+# The leak set vs the speculative instrumented accesses: list speculative sign-ext/PAC slots and whether
 # their genuine speculative access set, or the decoy (bit-55 flip) of it, could reach the leak set.
-print("\n  Speculative sealed accesses in the genuine resolve trace of #%d:" % A)
+print("\n  Speculative instrumented accesses in the genuine resolve trace of #%d:" % A)
 cer = ex._resolve(inA).cer
 cb = cer[0].cpu.pc
 for ite in cer:

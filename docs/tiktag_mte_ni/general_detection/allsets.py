@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Position-controlled all-64-set probe. Fixed prefix of genuine variants of OTHER inputs; the suspect
 variant sits at the tail (one fixed slot => batch position held constant). Build the tail variant from
-the genuine baseline by editing individual seal relocations (tag uimm4 and/or address uimm6) and/or by
+the genuine baseline by editing individual GVT access relocations (tag uimm4 and/or address uimm6) and/or by
 retagging memory granules, then read residency of every L1D set at the tail. Prints the genuine baseline
-once, the variant, and the per-set delta, so a single-seal perturbation or an address (anchor) move can be
+once, the variant, and the per-set delta, so a single-GVT access perturbation or an address (anchor) move can be
 read directly against the full set vector.
 
 Edits:

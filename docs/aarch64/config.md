@@ -46,7 +46,7 @@ Options: 'pac' | 'mte'
 ```
 
 Which speculative exception contract the `fuzzer: speculative-exception` fuzzer tests: pointer
-authentication (`pac`) or memory tagging (`mte`). No default — must be set explicitly when using
+authentication (`pac`) or memory tagging (`mte`). No default, must be set explicitly when using
 that fuzzer.
 
 ```yaml
@@ -96,7 +96,7 @@ Canonicality is a third speculative exception primitive, alongside PAC and MTE, 
 the memory accesses the generator already emits, so it is independent of `instruction_categories`
 and is switched on by its own flag. The genuine run uses the canonical (sandbox-clamped) pointer;
 the decoy **flips** a non-canonical mask into the base register right before a speculative-only
-access — so the architectural path stays canonical (a non-canonical address would fault) — and flips
+access, so the architectural path stays canonical (a non-canonical address would fault), and flips
 it back right after (when the access preserves its base), so the decoy **re-converges** with the
 baseline: only the instrumented access differs, and the flipped bits cannot cascade downstream (e.g. a
 later shift moving them into the cache-set index). Any hardware htrace divergence between genuine and
@@ -105,7 +105,7 @@ architecturally-identical programs.
 
 The mask is applied with `EOR` (a flip), not `ORR`, because a canonical address is regime-dependent:
 a TTBR0 (user) pointer has its high bits `0`, a TTBR1 (kernel) pointer has them `1`. The Revizor
-sandbox runs at EL1 over a **kernel** pointer, so ORing high bits would be a no-op — the bits are
+sandbox runs at EL1 over a **kernel** pointer, so ORing high bits would be a no-op, the bits are
 already `1`. A flip breaks canonicality in both regimes. The flip is confined to `[54:VA_SIZE]`
 (never bit 55, the regime selector, and never the VA/set-index bits), and is reverted after the
 access so only that one access differs.
@@ -136,7 +136,7 @@ Default: None
 ```
 
 Fix the non-canonical flip mask. `None` (default) means each decoy independently picks a **random
-contiguous run** within the guaranteed-fault range `[54:VA_SIZE]` — a random subset of the faulting
+contiguous run** within the guaranteed-fault range `[54:VA_SIZE]`, a random subset of the faulting
 bits per decoy, analogous to PAC's forgery pool. If set, it must be a single contiguous run within
 `[54:VA_SIZE]`: flipping any `[54:VA]` bit disagrees with the never-flipped regime-selector bit 55, so
 the address is non-canonical in either regime and under TBI on/off, while the VA bits and the
@@ -157,8 +157,7 @@ Name: va_size0, pac_qarma_version, pac_generic_qarma_version, pac_auth_level, pa
 Default: None
 ```
 
-The PAC profile: every input of the ARM `AddPAC`/`Strip`/`Auth`/`ComputePAC` pseudocode at EL1 —
-`va_size0` = 64 − `TCR_EL1.T0SZ`; the address-auth algorithm (`pac_qarma_version`: 5 = APA, 3 = APA3);
+The PAC profile: every input of the ARM `AddPAC`/`Strip`/`Auth`/`ComputePAC` pseudocode at EL1,`va_size0` = 64 − `TCR_EL1.T0SZ`; the address-auth algorithm (`pac_qarma_version`: 5 = APA, 3 = APA3);
 the generic (PACGA) algorithm (`pac_generic_qarma_version`: 5 = GPA, 3 = GPA3, 0 = none/IMPDEF); the
 APA/APA3 level (`pac_auth_level`: 1 PAuth, 2 EPAC, 3 PAuth2, 4 FPAC, 5 FPACCOMBINE);
 FEAT_CONSTPACFIELD; `TCR_EL1.TBI0/1`, `TBID0/1`, `MTX0/1`.
@@ -183,7 +182,7 @@ the campaign share one key set, drawn from `input_gen_seed`.
 
 An **environment-fuzzing** axis of the speculative exception fuzzer, not a code GVT access. The genuine and
 decoy variants run byte-identical code and touch identical virtual addresses; the only difference is
-the page-table state of pages reached **only speculatively** (the sandbox's spec-only page set — see
+the page-table state of pages reached **only speculatively** (the sandbox's spec-only page set, see
 `src/aarch64/GVT access/environment.py`), so any hardware-trace divergence is a genuine leak of page-table
 state through the speculative walk/access. Because the executor has no EL1 fault handler (a retiring
 fault panics), the fuzzed pages must never be reached architecturally (strict spec-only); a decoy may
@@ -231,11 +230,11 @@ Level 0-2 table-descriptor fields a decoy may vary (e.g. `ap_table`, `xn_table`,
 
 Generalize standard priming. Standard priming keeps a flagged violation only when the divergence follows
 the *detecting pair*'s own input; **cross-input priming** additionally localizes an *earlier* ct-equal
-input — the *leaking pair* — whose microarchitectural residue (e.g. a BTB entry it trains) surfaces as
+input, the *leaking pair*, whose microarchitectural residue (e.g. a BTB entry it trains) surfaces as
 the detecting pair's cache divergence. See §6.1a of the architecture reference for the localization. It
 replaces standard priming over the boosted input lanes (regular fuzzing: each boosting round of an input
-class is a lane of ct-equal inputs; speculative exception: each GVT access variant is a lane), reusing the sample sizes standard priming already uses — the
-current stage size for localization, `executor_sample_sizes[-1]` to re-verify — so it adds no rep knobs.
+class is a lane of ct-equal inputs; speculative exception: each GVT access variant is a lane), reusing the sample sizes standard priming already uses, the
+current stage size for localization, `executor_sample_sizes[-1]` to re-verify, so it adds no rep knobs.
 Requires a local HW executor with sysfs regime control and `inputs_per_class` ≥ 2.
 
 ```yaml
@@ -246,7 +245,7 @@ Default: false
 Replace standard priming with the generalized-priming localization. Wherever priming
 would run, the flagged violation's own detecting pair is localized by toggling earlier positions across
 the two diverging lanes; a found leaking pair (self- or cross-input) confirms the violation and reports
-the `[leaker..detector]` chain, none means a false positive — exactly as priming. `False` by default
+the `[leaker..detector]` chain, none means a false positive, exactly as priming. `False` by default
 (standard priming, unchanged). Every localized candidate logs its outcome at INFO (self-dependent or
 cross-input leak, or no leaking pair).
 
@@ -268,7 +267,7 @@ Default: false
 ```
 
 Keep only *strictly cross-input* (non-self) leaks. A boundary at the detecting pair itself (leaking pair
-== detecting pair) is that pair's own ct-equal variant leaking about itself — a self-dependence. With
+== detecting pair) is that pair's own ct-equal variant leaking about itself, a self-dependence. With
 this set, such findings are dropped, so a violation is confirmed only when an **earlier** input's
 microarchitectural residue changes a **later** input's readout. `False` by default (a self- or
 cross-input finding both confirm). Requires `enable_cross_input_priming`.

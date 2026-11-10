@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GRANULE-TAG TRACKING CONTROL — the decisive genuineness proof for an MTE/TikTag leak.
+"""GRANULE-TAG TRACKING CONTROL, the decisive genuineness proof for an MTE/TikTag leak.
 
 A pointer-tag sweep alone shows the leak depends on the POINTER tag. This proves it is the tag CHECK
 (pointer-vs-memory) by changing the MEMORY (granule) tag of the guess load and confirming the detected
@@ -7,7 +7,7 @@ match tag MOVES with it. If the peak tracks the granule tag (peak == (d0 + (T_me
 the signal is the architectural tag comparison, not a fixed pointer-tag artifact.
 
 GVT (GlobalValueTable) model: the code is byte-identical across variants; a variant = its GVT image.
-A decoyed gate is an eligible MteSealing site (speculative, with alternative tags); sweeping it = setting
+A decoyed gate is an eligible MteGvtAccess site (speculative, with alternative tags); sweeping it = setting
 its APPLIED-tag lane while the re-converge lane stays genuine. The guess load is the site's own access.
 
 Steps:
@@ -16,7 +16,7 @@ Steps:
   2. Locate that site's guess-load granule: CE-run (COND|BPAS, max nesting) the genuine code and find the
      speculative access whose base register == Xd; granule index = (eff_addr - base)/MTE_GRANULE.
   3. For each memory tag T_mem (checked tags only): patch ONLY that granule to T_mem (others stay
-     default, so architectural sealed accesses still match), sweep the pointer's applied tag 0..15, report
+     default, so architectural instrumented accesses still match), sweep the pointer's applied tag 0..15, report
      the peak. GENUINE iff the peak tracks: peak(T_mem) == (d0 + T_mem - T_default) mod 16.
 
 Usage: tag_track.py <cfg> <violation-dir> <suspect_idx> <diverging_set> [--reps N] [--gate-reg xN]
@@ -63,26 +63,26 @@ def main():
     ntags = len(g.mte_tags) if g.mte_tags else 0
     print(f"{os.path.basename(vd)} suspect#{sus} divset={dset} reps={reps} ntags={ntags}")
 
-    def build_image(sus_sealing, applied):
+    def build_image(sus_access, applied):
         image = rsv._gst.blank_image()
         for r in rsv._entries:
-            r.sealing.store_into(image, applied if r.sealing is sus_sealing else r.value, r.value)
+            r.access.store_into(image, applied if r.access is sus_access else r.value, r.value)
         return image.to_section().content
 
-    def ei(sus_sealing, applied, mte):
-        return dataclasses.replace(g, gvt=build_image(sus_sealing, applied), mte_tags=tuple(mte))
+    def ei(sus_access, applied, mte):
+        return dataclasses.replace(g, gvt=build_image(sus_access, applied), mte_tags=tuple(mte))
 
     # --- Step 1: the decoyed (speculative) MTE gates; knock each to (genuine+1) to find the one gating
     # the diverging set. Architectural sites (not speculative / no alts) are never swept. ---
     decoyed = [r for r in rsv._entries
-               if r.sealing.__class__.__name__ == "MteSealing" and r.speculative and r.alts]
+               if r.access.__class__.__name__ == "MteGvtAccess" and r.speculative and r.alts]
     if not decoyed:
         print("no decoyed (speculative) MTE gate found; abort")
         return
-    print(f"decoyed (speculative) gate regs: {sorted(r.sealing.value_reg for r in decoyed)}")
+    print(f"decoyed (speculative) gate regs: {sorted(r.access.value_reg for r in decoyed)}")
     base_res = res(ex.trace_test_case([g], reps)[0][0], dset)
     if gate_reg is not None:
-        sel = [r for r in decoyed if r.sealing.value_reg == gate_reg]
+        sel = [r for r in decoyed if r.access.value_reg == gate_reg]
         if not sel:
             print(f"gate {gate_reg} is not a decoyed MTE site; abort")
             return
@@ -90,11 +90,11 @@ def main():
     else:
         knock = []
         for r in decoyed:
-            rr = res(ex.trace_test_case([ei(r.sealing, (r.value + 1) & 0xF, g.mte_tags)], reps)[0][0], dset)
+            rr = res(ex.trace_test_case([ei(r.access, (r.value + 1) & 0xF, g.mte_tags)], reps)[0][0], dset)
             knock.append((base_res - rr, r, rr))
         knock.sort(key=lambda t: t[0], reverse=True)
         _, R, _ = knock[0]
-    vreg = int(R.sealing.value_reg[1:])        # Xd = the sealed GUESS pointer register the checked load uses
+    vreg = int(R.access.value_reg[1:])        # Xd = the instrumented GUESS pointer register the checked load uses
     D0 = R.value                               # genuine tag = the uniform default memory tag
     print(f"gating pointer site Xd=x{vreg} genuine_tag d0={D0} (baseline divset res={base_res:.2f})")
 
@@ -133,7 +133,7 @@ def main():
     for T in mem_tags:
         mte = list(g.mte_tags)
         mte[gidx] = T
-        sweeps[T] = {d: res(ex.trace_test_case([ei(R.sealing, d, mte)], reps)[0][0], dset) for d in range(16)}
+        sweeps[T] = {d: res(ex.trace_test_case([ei(R.access, d, mte)], reps)[0][0], dset) for d in range(16)}
     print("mem_tag | expected_peak | pointer-tag sweep (divset residency) | peak | d0_res | TRACKS?")
     d0_default = sweeps[default][D0]
     track_ok = True
@@ -150,12 +150,12 @@ def main():
         cells = " ".join(f"{d}:{sw[d]:.2f}" for d in range(16))
         print(f"  T={T:2d} | exp {expected:2d} | {cells} | peak {peak} | d0={sw[D0]:.2f} | {'YES' if tracks else 'NO'}")
     if not patch_effective:
-        print("VALIDITY: FAIL — changing the granule tag did NOT move delta d0; the mem-tag patch did not "
+        print("VALIDITY: FAIL, changing the granule tag did NOT move delta d0; the mem-tag patch did not "
               "reach the CHECKED granule (control invalid, NOT evidence either way).")
     elif track_ok:
-        print("VERDICT: GENUINE — the detected match tag TRACKS the memory tag (pointer-vs-memory check).")
+        print("VERDICT: GENUINE, the detected match tag TRACKS the memory tag (pointer-vs-memory check).")
     else:
-        print("VERDICT: SUSPECT — patch moved the granule (d0 collapsed) but the peak did NOT track the "
+        print("VERDICT: SUSPECT, patch moved the granule (d0 collapsed) but the peak did NOT track the "
               "new memory tag; not a clean pointer-vs-memory match.")
 
 

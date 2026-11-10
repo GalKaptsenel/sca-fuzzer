@@ -611,7 +611,7 @@ Default: False
 ```
 
 When enabled, hardware measurements run on a separate device machine reached over a connection,
-while generation, modeling, and sealing stay local. Supported on AArch64 only.
+while generation, modeling, and GVT access stay local. Supported on AArch64 only.
 
 ```yaml
 Name: executor_remote_transport

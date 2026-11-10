@@ -1,5 +1,5 @@
 # Step 1: TikTag-v1 as an NI ASM-template internal-loop gadget. Conditional-branch (cond) window, MTE
-# sealer supplies genuine (matching) vs decoy (mismatched) tag. No branch mistraining (deprecated on X3).
+# builder supplies genuine (matching) vs decoy (mismatched) tag. No branch mistraining (deprecated on X3).
 # Pinned Cortex-X3 (core 8). Analyser threshold lowered + larger sample sizes for the probabilistic
 # (~0.6-0.8) TikTag signal, per the coordinator's analyser lever.
 instruction_set: aarch64
@@ -46,5 +46,3 @@ executor_remote_sysfs: /sys/executor
 executor_remote_userland: /data/local/tmp/executor_userland
 executor_remote_module: /data/local/tmp/revizor-executor.ko
 
-# HW run: open the window at the arch-taken branch via kernel branch mistraining (no loop needed).
-enable_branch_mistraining: false

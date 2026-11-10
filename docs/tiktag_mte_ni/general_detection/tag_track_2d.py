@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Two-sided 2D tag track. Set the relevant speculative granule's MEMORY tag to T (device STG via
-mte_tags[granule]) and, for each T, sweep the speculative POINTER tag at the gating seal (re-converged:
+mte_tags[granule]) and, for each T, sweep the speculative POINTER tag at the gating access (re-converged:
 before=d, after=(Tdelta-d) so the pointer nets to cell-tag T and the perturbation is one access). A real
 pointer-vs-memory tag check makes the target set SUPPRESS at the delta where the pointer tag equals T, and
 that match-delta MOVES with T. Prints, per T, the per-delta residency, the measured dip, and the predicted
@@ -41,14 +41,14 @@ def main():
     g = ex.genuine_variant(inp)
     Reloc = type(g.code_reloc[0]); relocs = list(g.code_reloc)
     cell_tag = int(g.mte_tags[gran])
-    # DECOYED-GATE GUARD: only sweep seals the speculative-exception decoy actually perturbs (speculative-eligible). Sweeping
-    # an architectural seal measures an architectural MTE effect, not a speculative leak (the 160128/021502
+    # DECOYED-GATE GUARD: only sweep accesses the speculative-exception decoy actually perturbs (speculative-eligible). Sweeping
+    # an architectural access measures an architectural MTE effect, not a speculative leak (the 160128/021502
     # defect). Memoized resolve -> offsets match these relocs.
     rsv = ex._resolve(inp)
     decoy_offsets = set()
     for r in rsv._entries:
         if r.speculative and r.alts:
-            offs = rsv._offsets.get(id(r.sealing))
+            offs = rsv._offsets.get(id(r.access))
             if offs:
                 decoy_offsets.update(offs)
 
@@ -59,10 +59,10 @@ def main():
         return ExecutorInput(g.input_, code_reloc=tuple(plan), mte_tags=mte,
                              pac_keys=g.pac_keys, env_plan=g.env_plan)
 
-    # pair seals: before(delta=c!=0) + after at +8 (same Xd, delta 0) = base-preserved; else persist single
+    # pair accesses: before(delta=c!=0) + after at +8 (same Xd, delta 0) = base-preserved; else persist single
     addg = [(k, r) for k, r in enumerate(relocs) if (r.value & 0xFFC00000) == ADDG_OP]
     by_off = {r.offset: k for k, r in addg}
-    seals, used = [], set()
+    accesses, used = [], set()
     for k, r in addg:
         if k in used:
             continue
@@ -70,9 +70,9 @@ def main():
         reg = r.value & 0x1f
         kaft = by_off.get(r.offset + 8)
         if c != 0 and kaft is not None and (relocs[kaft].value & 0x1f) == reg and ((relocs[kaft].value >> 10) & 0xF) == 0:
-            seals.append((k, kaft, c, reg)); used.add(k); used.add(kaft)
+            accesses.append((k, kaft, c, reg)); used.add(k); used.add(kaft)
         else:
-            seals.append((k, None, c, reg)); used.add(k)
+            accesses.append((k, None, c, reg)); used.add(k)
 
     def plan_set(kb, ka, correct, db):
         # before=db, after=(correct-db) -> net pointer tag = base+correct = cell tag `correct` implies
@@ -82,23 +82,23 @@ def main():
             p[ka] = Reloc(relocs[ka].offset, dput(relocs[ka].value, (correct - db) % 16), relocs[ka].rtype)
         return p
 
-    # choose the gate: forced, or the base-preserved seal with the largest confined effect on the set
+    # choose the gate: forced, or the base-preserved access with the largest confined effect on the set
     if force is not None:
         if force not in decoy_offsets:
-            print(f"REFUSE: forced gate 0x{force:x} is NOT a decoyed (speculative) seal; decoy offsets="
+            print(f"REFUSE: forced gate 0x{force:x} is NOT a decoyed (speculative) access; decoy offsets="
                   f"{sorted(hex(o) for o in decoy_offsets)}. Sweeping it measures an architectural MTE "
                   f"effect, not a speculative leak. Aborting.")
             return
-        sel = [(kb, ka, c, reg) for (kb, ka, c, reg) in seals if relocs[kb].offset == force]
+        sel = [(kb, ka, c, reg) for (kb, ka, c, reg) in accesses if relocs[kb].offset == force]
         if not sel:
-            print(f"forced gate 0x{force:x} is not a seal before-ADDG; abort"); return
+            print(f"forced gate 0x{force:x} is not a access before-ADDG; abort"); return
         KB, KA, C, REG = sel[0]
     else:
-        cand = [(kb, ka, c, reg) for (kb, ka, c, reg) in seals
+        cand = [(kb, ka, c, reg) for (kb, ka, c, reg) in accesses
                 if ka is not None and relocs[kb].offset in decoy_offsets]  # base-preserved AND decoyed
         if not cand:
-            print(f"REFUSE: no base-preserved DECOYED seal; decoy offsets="
-                  f"{sorted(hex(o) for o in decoy_offsets)}. A 2D sweep needs a re-convergeable seal the "
+            print(f"REFUSE: no base-preserved DECOYED access; decoy offsets="
+                  f"{sorted(hex(o) for o in decoy_offsets)}. A 2D sweep needs a re-convergeable access the "
                   f"speculative-exception decoy perturbs. Aborting.")
             return
         base_res = res(ex.trace_test_case([g], reps)[0][0], tset)
@@ -109,7 +109,7 @@ def main():
         knock.sort(reverse=True)
         _, KB, KA, C, REG = knock[0]
     print(f"{os.path.basename(vd)} set={tset} granule={gran} cell_tag={cell_tag} reps={reps}")
-    print(f"gate=paired seal off=0x{relocs[KB].offset:x} x{REG} correct={C}")
+    print(f"gate=paired access off=0x{relocs[KB].offset:x} x{REG} correct={C}")
     # TCMA tags 0 and 15 are unchecked; exclude the DELTAS that map to those pointer tags (tag space, not
     # delta space). During-access pointer tag at delta d = base_tag + d, base_tag = (cell_tag - C) % 16.
     base_tag = (cell_tag - C) % 16

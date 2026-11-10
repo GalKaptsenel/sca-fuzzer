@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Match-vs-mismatch PMU + residency differential for one decoyed MTE seal (mechanism proof for 072421).
+"""Match-vs-mismatch PMU + residency differential for one decoyed MTE GVT access (mechanism proof for 072421).
 
 Fixed-prefix / swap-only-suspect protocol (same as tag_sweep/ctrl_pos_tag): a stable prefix of genuine
-variants of OTHER inputs, the suspect at the tail slot, and only the suspect seal's pointer-tag delta
+variants of OTHER inputs, the suspect at the tail slot, and only the suspect GVT access's pointer-tag delta
 (ADDG uimm4 at `gate`) is changed. For each requested uimm4 it runs R independent trace batches of `reps`
 each and reports, at the tail:
   - residency at the probe sets and the lit-set block [min..max] (width) at threshold `thr`

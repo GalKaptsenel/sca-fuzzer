@@ -2,7 +2,7 @@
 """Device-free CE-eligibility probe for the MTE speculative-exception pipeline.
 
 Builds the real speculative-exception pipeline (get_fuzzer speculative-exception + initialize_modules), parses an
-ASM template, seals it, and for several generated inputs prints, per MTE sealing site: the resolved tag
+ASM template, accesses it, and for several generated inputs prints, per MTE access site: the resolved tag
 delta (value), the decoy alternatives (alts), and whether the slot is speculative (decoy-eligible). Also
 prints whether the input has any decoy and the genuine-vs-decoy relocation difference. The contract
 executor runs locally, so this needs no device; executor._sandbox_base is preset to the live base.
@@ -69,11 +69,11 @@ def main():
         print(f"\ninput {i} seed={getattr(inp, 'seed', '?')}  has_decoy={has}")
         entries = resolved._entries
         for j, r in enumerate(entries):
-            sealing = type(r.sealing).__name__
-            # only print the non-sandbox (value) sealings with interesting state
-            if sealing == "SandboxSealing":
+            access = type(r.access).__name__
+            # only print the non-sandbox (value) accesses with interesting state
+            if access == "SandboxGvtAccess":
                 continue
-            print(f"  site[{j}] {sealing}: value(delta)={r.value} alts={r.alts} "
+            print(f"  site[{j}] {access}: value(delta)={r.value} alts={r.alts} "
                   f"speculative={r.speculative}")
         g = resolved.genuine()
         try:

@@ -1,4 +1,4 @@
-# Revizor on AArch64 — Onboarding Manual
+# Revizor on AArch64, Onboarding Manual
 
 ## About this document
 
@@ -14,26 +14,26 @@ Generated from `docs/aarch64/index.md`. Edit that file, then rebuild from `docs/
 
 Revizor is a *microarchitectural fuzzer*: it searches for cases where a CPU leaks more through its
 microarchitecture than a **[contract](#glossary)** permits. A contract states the only ways a
-program's data may influence attacker-observable state — here, the data-cache footprint.
+program's data may influence attacker-observable state, here, the data-cache footprint.
 
 For each generated program, two traces are compared:
 
-- the **[contract trace](#glossary)** (**ctrace**) — what the contract permits to be observable,
+- the **[contract trace](#glossary)** (**ctrace**), what the contract permits to be observable,
   computed by a software model;
-- the **[hardware trace](#glossary)** (**htrace**) — what the real CPU actually leaked, measured as
+- the **[hardware trace](#glossary)** (**htrace**), what the real CPU actually leaked, measured as
   a 64-bit cache-set bitmap.
 
 A **[violation](#glossary)** is a pair of inputs the contract treats as identical (**equal
 ctrace**) but the hardware tells apart (**different htrace**): the contract promised the two inputs
-would look the same to an attacker, yet the CPU produced two different cache footprints — so it
+would look the same to an attacker, yet the CPU produced two different cache footprints, so it
 leaked something the contract forbade (for example, a Spectre-style speculative access). The
 contract framework originates in Guarnieri et al., *Hardware-Software Contracts for Secure
 Speculation* (IEEE S&P 2021).
 
 > **Intuition**
-> - **ctrace** — what an attacker is *allowed* to observe.
-> - **htrace** — what an attacker can *actually* observe.
-> - **Violation** — the hardware revealed something the contract forbade.
+> - **ctrace**, what an attacker is *allowed* to observe.
+> - **htrace**, what an attacker can *actually* observe.
+> - **Violation**, the hardware revealed something the contract forbade.
 
 Leaks are about *distinguishing* secrets, so Revizor runs **many inputs** through one program and
 looks for a pair that is contract-equal yet hardware-distinct. **[Taint](#glossary)** marks the
@@ -94,8 +94,8 @@ re-running the assembler (see §6.2).
 One round = **one test case measured against many inputs**.
 
 1. **Generate** a random test case (or load one from asm / a template).
-2. **Seed inputs** — initial register + memory values.
-3. **Model (CE).** Trace each input to get its ctrace and its **taint** — the input bytes the
+2. **Seed inputs**, initial register + memory values.
+3. **Model (CE).** Trace each input to get its ctrace and its **taint**, the input bytes the
    ctrace depends on.
 4. **Boost.** Manufacture many extra inputs by mutating only the *untainted* bytes; by construction
    they share one ctrace, which is what makes leak-hunting cheap.
@@ -103,12 +103,12 @@ One round = **one test case measured against many inputs**.
 6. **Analyse.** Group inputs by ctrace; within a group, **differing htraces ⇒ a candidate
    violation**.
 7. **Filter.** Re-trace at higher speculation nesting and re-measure to drop false positives.
-8. **Report.** Save the confirmed violation — test case, inputs, and traces — for triage (§7).
+8. **Report.** Save the confirmed violation, test case, inputs, and traces, for triage (§7).
 
 A **fast path** (minimal speculation nesting, few repetitions) finds candidates quickly; only
 candidates pay for the slower confirmation path (max nesting + re-measurement).
 
-**Classic round — one program, many inputs.**
+**Classic round, one program, many inputs.**
 
 ```
                        +-----------------------+
@@ -139,9 +139,9 @@ are legal.
 
 | State | Test | Inputs | Measured | Meaning |
 |---|---|---|---|---|
-| `CONFIGURATION` | no | no | — | Initial; nothing loaded. |
-| `LOADED_TEST` | yes | no | — | Test case present, no inputs. |
-| `LOADED_INPUTS` | no | yes | — | Inputs present, no test case. |
+| `CONFIGURATION` | no | no |, | Initial; nothing loaded. |
+| `LOADED_TEST` | yes | no |, | Test case present, no inputs. |
+| `LOADED_INPUTS` | no | yes |, | Inputs present, no test case. |
 | `READY` | yes | yes | no | Both loaded; a run is possible. |
 | `TRACED` | yes | yes | yes | Run done; per-input measurements readable. |
 
@@ -168,22 +168,22 @@ region with a checkout ioctl. *Valid in* lists the states in which the command d
 
 | # | Command | Input | Output | Valid in | Purpose |
 |---|---|---|---|---|---|
-| 1 | `CHECKOUT_TEST` | — | — | any | Select the test-case region for `read`/`write`. |
-| 2 | `UNLOAD_TEST` | — | — | any | Drop the loaded test case. |
-| 3 | `GET_NUMBER_OF_INPUTS` | — | `uint64` count | any | Number of allocated inputs. |
-| 4 | `CHECKOUT_INPUT` | `uint64` input id | — | any (id must exist) | Select that input for `read`/`write`. |
-| 5 | `ALLOCATE_INPUT` | — | `uint64` new id | any | Allocate an input slot. |
-| 6 | `FREE_INPUT` | `uint64` input id | — | any | Free that input slot. |
-| 7 | `MEASUREMENT` | — | `measurement_t` = `htrace[3]` + `pfc[3]` (u64 each) | `TRACED`, input checked out | Result for the checked-out input. `htrace[0]`=L1D cache sets, `htrace[1]`=L2 (reserved), `htrace[2]`=BTB sets (populated only when `enable_bpu_probe`). |
-| 8 | `TRACE` | — | — | `READY` / `TRACED` | Run the test case over all inputs and measure. |
-| 9 | `CLEAR_ALL_INPUTS` | — | — | any | Free every input. |
-| 10 | `GET_TEST_LENGTH` | — | `uint64` length | test loaded (`LOADED_TEST` / `READY` / `TRACED`) | Length of the loaded test case. |
+| 1 | `CHECKOUT_TEST` |, |, | any | Select the test-case region for `read`/`write`. |
+| 2 | `UNLOAD_TEST` |, |, | any | Drop the loaded test case. |
+| 3 | `GET_NUMBER_OF_INPUTS` |, | `uint64` count | any | Number of allocated inputs. |
+| 4 | `CHECKOUT_INPUT` | `uint64` input id |, | any (id must exist) | Select that input for `read`/`write`. |
+| 5 | `ALLOCATE_INPUT` |, | `uint64` new id | any | Allocate an input slot. |
+| 6 | `FREE_INPUT` | `uint64` input id |, | any | Free that input slot. |
+| 7 | `MEASUREMENT` |, | `measurement_t` = `htrace[3]` + `pfc[3]` (u64 each) | `TRACED`, input checked out | Result for the checked-out input. `htrace[0]`=L1D cache sets, `htrace[1]`=L2 (reserved), `htrace[2]`=BTB sets (populated only when `enable_bpu_probe`). |
+| 8 | `TRACE` |, |, | `READY` / `TRACED` | Run the test case over all inputs and measure. |
+| 9 | `CLEAR_ALL_INPUTS` |, |, | any | Free every input. |
+| 10 | `GET_TEST_LENGTH` |, | `uint64` length | test loaded (`LOADED_TEST` / `READY` / `TRACED`) | Length of the loaded test case. |
 | 11 | `PAC_SIGN` | `pac_sign_req` = `ptr`, `ctx`, `mnemonic`, `keys` | signed pointer | any | Sign a pointer (`PAC*`) under the request's keys. |
 | 12 | `PAC_AUTH` | `pac_sign_req` = `ptr`, `ctx`, `mnemonic`, `keys` | authenticated pointer | any | Authenticate a signed pointer (`AUT*`) under the request's keys. |
 | 13 | `PAC_XPAC` | `pac_sign_req` = `ptr` | stripped pointer | any | Strip the PAC field (`XPAC`); key-independent. |
 
 `PAC_SIGN`/`PAC_AUTH` carry the keys in the request (`keys_present` must be set, else `-EINVAL`).
-There is no set/get-keys ioctl — a run's keys are generated by the input generator and travel in each
+There is no set/get-keys ioctl, a run's keys are generated by the input generator and travel in each
 input's `PAC_KEYS` section (§9.4) and in each sign request. Likewise there is no tag-region ioctl:
 MTE tags travel in each input's `MTE_TAGS` section (§9.4), applied per input at run time.
 
@@ -205,7 +205,7 @@ fuzzer run gets `EACCES`. Either run as root, or grant access after each `insmod
 `sudo chmod a+rw /dev/executor` and `sudo chmod -R a+rw /sys/executor` (the grant resets on every
 module reload). `LocalHWExecutor` raises a `PermissionError` carrying the exact `chmod` to run.
 
-**`/sys/executor/` — runtime knobs:**
+**`/sys/executor/`, runtime knobs:**
 
 | File | Mode | Accepted value | Meaning |
 |---|---|---|---|
@@ -221,10 +221,10 @@ module reload). `LocalHWExecutor` raises a `PermissionError` carrying the exact 
 | `branch_training_config` | rw | `offset:taken,…` (byte offset from the start of the test case; `1`=taken, `0`=not-taken) | Mistraining sequence; writing it also enables training. |
 | `print_sandbox_base` | r | hex pointer | Base of the sandbox `main_region` (input page 0). |
 | `print_code_base` | r | hex pointer | Where the test-case code is loaded, for the selected `measurement_mode`. |
-| `jit_memoize` | rw | `0` / `1` | JIT-harness memoization (default `1`). Each `TRACE` calls `load_jit_template()`, which rebuilds the whole measurement harness and issues `MAX_MEASUREMENT_VIEWS+1` icache flushes — each an SMP-wide `kick_all_cpus_sync` IPI. The build is a pure function of `(test-case bytes, tc_size, measurement_template)`, so when none of those changed since the last build the rebuild+flush is skipped and the already-mapped RX harness is reused. Invalidated on test-case load/unload and `measurement_mode` change; a per-`TRACE` self-check (first TC word at the insert offset) forces a rebuild if the cache is ever stale. Set `0` to force a rebuild every `TRACE` (A/B measurement). |
+| `jit_memoize` | rw | `0` / `1` | JIT-harness memoization (default `1`). Each `TRACE` calls `load_jit_template()`, which rebuilds the whole measurement harness and issues `MAX_MEASUREMENT_VIEWS+1` icache flushes, each an SMP-wide `kick_all_cpus_sync` IPI. The build is a pure function of `(test-case bytes, tc_size, measurement_template)`, so when none of those changed since the last build the rebuild+flush is skipped and the already-mapped RX harness is reused. Invalidated on test-case load/unload and `measurement_mode` change; a per-`TRACE` self-check (first TC word at the insert offset) forces a rebuild if the cache is ever stale. Set `0` to force a rebuild every `TRACE` (A/B measurement). |
 | `jit_stats` | rw | counters (write=reset) | Read: `calls`/`builds`/`skipped`/`build_ns_total`/`build_ns_avg` for `load_jit_template()`. Any write resets the counters. |
 
-**`/sys/executor/system/` — read-only capability & identity:**
+**`/sys/executor/system/`, read-only capability & identity:**
 
 | File | Mode | Meaning |
 |---|---|---|
@@ -252,8 +252,7 @@ The fuzzer launches the CE with `subprocess.Popen` and exchanges length-prefixed
   `EXEC_CLAUSE_COND = 1` (conditional-branch misprediction), `EXEC_CLAUSE_BPAS = 2` (speculative
   store bypass), `EXEC_CLAUSE_BPU = 4` (branch-predictor model); `0` = architectural only. Only an
   explicit allow-list of combinations is accepted; any other combination traps.
-- **`branch_predictor`** selects the model used when `EXEC_CLAUSE_BPU` is set —
-  `BRANCH_PREDICTOR_NONE = 0`, `BRANCH_PREDICTOR_NEOVERSE_N3 = 1` (TAGE).
+- **`branch_predictor`** selects the model used when `EXEC_CLAUSE_BPU` is set,  `BRANCH_PREDICTOR_NONE = 0`, `BRANCH_PREDICTOR_NEOVERSE_N3 = 1` (TAGE).
 - The **response** carries the per-instruction trace (registers, PC, memory accesses, speculation
   nesting) the fuzzer turns into the ctrace.
 
@@ -263,8 +262,8 @@ branch-predictor model from inside the C process.
 ### 5.2 How it models a program
 
 The CE rewrites every test-case instruction into a `BL hook` trampoline, then walks the
-instructions one at a time. At each *speculation point* — a conditional branch (mispredict) or,
-under the `bpas` clause, a store (bypass) — it checkpoints, explores the speculative path, and
+instructions one at a time. At each *speculation point*, a conditional branch (mispredict) or,
+under the `bpas` clause, a store (bypass), it checkpoints, explores the speculative path, and
 rolls back.
 
 ```
@@ -303,49 +302,49 @@ The speculation engine is built so contracts are **composable**: a run enables a
   A bypassed store's **trace entry is deferred**: it is pulled out of the trace at bypass time and
   re-emitted when its window unwinds. Taint is derived from trace order (a byte is must-preserve if
   it is read before it is written on its flow), so the store must be logged *after* the loads that
-  read its stale value — otherwise the store's write would mask them and the bypassed **input byte
+  read its stale value, otherwise the store's write would mask them and the bypassed **input byte
   would not be tainted**, letting boosting mutate it and produce a false-positive violation. Emitting
   the store post-window instead lets those loads taint the input while post-window loads still see
   the committed store. Nested bypasses stack (one deferred entry per open window, LIFO), so with two
   nested stores the trace visits *bypass-both → inner store committed → bypass-only-outer → both
   committed*, and the inner store is re-emitted before the outer.
 - **`barrier`** (honor `SSBB`/`PSSBB`): these are store→load *reordering* barriers. A barrier does
-  **not** squash store-bypass speculation — a value already bypassed into a register *before* the
+  **not** squash store-bypass speculation, a value already bypassed into a register *before* the
   barrier stays stale and can still be transmitted *after* it (exactly the Neoverse-N3 behavior).
   Instead, at the barrier every open bypassed store is committed to live memory (`after` written back
   at its address, oldest→newest so the last store wins), so loads *past* the barrier see committed
-  values — no forwarding across the barrier — while registers and the speculation itself continue
+  values, no forwarding across the barrier, while registers and the speculation itself continue
   untouched; each window still rolls back to the architectural state at its natural end. The stronger
   barriers `DSB`/`ISB`/`SB` (which complete prior accesses / flush the pipeline / general speculation
-  barrier) instead **end** the mispredicted path — they squash the open bypass windows. `DMB` (ordering
+  barrier) instead **end** the mispredicted path, they squash the open bypass windows. `DMB` (ordering
   only) fences nothing here. For nested stores the partial-bypass flows over-approximate, which is
   conservative (the contract predicts more leakage, never less).
 
-**Window-scoped taint.** Every trace entry carries a **`window_id`** — a monotonic id, unique per
+**Window-scoped taint.** Every trace entry carries a **`window_id`**, a monotonic id, unique per
 speculative excursion (0 = architectural), that the engine stamps from the innermost open window.
 Unlike the nesting *depth* (or the checkpoint slot, which is reused LIFO), it is never reused, so a
 same-depth re-fork after an unwind is a *distinct* window. `compute_taint` scopes writes by window:
 a read is masked only by writes made in windows on its live root-to-node path, so a write on a
 squashed sibling flow cannot hide an input read that a later, unrelated flow performs at the same
 depth. Without this, a speculative flag write (e.g. `SUBS` on a mispredicted path) would mask a
-conditional branch's read of the seed flag and boosting would flip the branch — a false positive.
+conditional branch's read of the seed flag and boosting would flip the branch, a false positive.
 
 Supported clause combinations are validated in both Python and C: `seq` (empty), `cond`, `bpas`,
 `bpu`, and `cond|bpas`; two branch models together (`cond|bpu`) are rejected.
 
 **Speculation bounds.** Two config caps bound the exploration: `max_misspred_branch_nesting` (how many
 windows may be open at once) and `max_misspred_instructions` (a window's instruction budget). The
-budget is counted **per window, on its own path** — instructions executed in a nested window that
+budget is counted **per window, on its own path**, instructions executed in a nested window that
 later unwinds are *not* charged to the enclosing window. Counting against a global instruction total
 instead would force-close an outer `bpas` bypass window as soon as a `cond` misprediction ran inside
-it, dropping the store-bypass flow and breaking composition monotonicity — the guarantee that enabling
+it, dropping the store-bypass flow and breaking composition monotonicity, the guarantee that enabling
 more clauses only *adds* observations (`footprint(cond|bpas) ⊇ footprint(bpas)`). The per-instruction
 trace log is sized for this bounded exploration; overflowing it is a **hard error** (the CE aborts
 loudly), never silent truncation.
 
 ### 5.3 Branch-predictor model (reverse-engineered Neoverse-N3)
 
-The `bpu` clause drives branch outcomes with a model of the target core's predictor — a TAGE
+The `bpu` clause drives branch outcomes with a model of the target core's predictor, a TAGE
 direction predictor for the Arm Neoverse-N3 (`saturating_bp.py::Aarch64NeoverseN3BPU`, configured in
 `bootstrap_director.py`). Some of it is reverse-engineered from the silicon; the rest is an
 explicit, labelled model.
@@ -355,14 +354,14 @@ with progressively longer slices of a **path-history register (PHR)**. A predict
 of the longest table whose tag matches; the base is the always-available fallback.
 
 ```
-  PHR — path history, advanced on TAKEN branches:  PHR = (PHR << 4) ^ footprint(PC, target)
+  PHR, path history, advanced on TAKEN branches:  PHR = (PHR << 4) ^ footprint(PC, target)
         footprint = 4 bits over fixed PC/target bit positions
 
   bit 0                              171                             299
    |==================================|===============================|
    |<------ T1 uses PHR[0..171] ------>|                               |
    |<----------------- T2 uses PHR[0..299] ------------------------->|
-                            ( T2's slice contains T1's — geometric )
+                            ( T2's slice contains T1's, geometric )
 
    PC ---> +-----------+   +-----------+   +-----------+
            |  base T0  |   | tagged T1 |   | tagged T2 |
@@ -404,7 +403,7 @@ of the longest table whose tag matches; the base is the always-available fallbac
   **tag** (not the index) and bits **[8:18]** appear in the **index** (whether [8:18] also feed the
   tag is not established).
 
-**Tentative — low-confidence, from experiments only (fragile, not implemented):** the tag appears to
+**Tentative, low-confidence, from experiments only (fragile, not implemented):** the tag appears to
 combine PC bits with *deep* PHR bits, stepped by 10. Two tag inputs looked like
 
 ```
@@ -416,8 +415,7 @@ and probably continue deeper than the range that was observable. Treat this as a
 result.
 
 **Separating test cases in the BPU.** Because PC bits [2:18] feed the index/tag, changing a bit in
-that range moves a branch to a different tag or index and so **de-aliases** it from another branch —
-useful for keeping test cases (or inputs) from sharing predictor state. Changing an **index** bit
+that range moves a branch to a different tag or index and so **de-aliases** it from another branch,useful for keeping test cases (or inputs) from sharing predictor state. Changing an **index** bit
 ([8:18]) is the stronger choice: it gives a *physical* separation into a different table entry,
 whereas changing a tag-only bit ([2:7]) merely forces a tag mismatch within the same entry.
 
@@ -426,11 +424,11 @@ fetch with the predicted direction and checkpointed, so a misprediction rolls it
 tables train **at retire only** (architectural path, `spec_nesting == 0`), so wrong-path branches
 never train them and the tables need no rollback.
 
-**Modelling placeholders** — *not* reverse-engineered, and made explicitly at the construction seam
+**Modelling placeholders**, *not* reverse-engineered, and made explicitly at the construction seam
 (`bootstrap_director.create_predictor`) rather than baked in silently:
 
 - the PHR fold algorithm and its group width (`PHR_FOLD_GROUP_WIDTH = 11`) for the index/tag;
-- the tagged-table tag width (`TAG_WIDTH = 8`, arbitrary — a finite tag does make distinct branches
+- the tagged-table tag width (`TAG_WIDTH = 8`, arbitrary, a finite tag does make distinct branches
   alias, as real TAGE does);
 - the "useful" (u) bit and everything it drives (u-gated replacement and aging), replaced here by
   plain LRU within a set;
@@ -440,11 +438,11 @@ never train them and the tables need no rollback.
 
 A contract has two halves, each chosen in the config:
 
-- an **execution clause** (`contract_execution_clause`) — what speculation the model simulates;
-- an **observation clause** (`contract_observation_clause`, default `l1d`) — what the model treats
+- an **execution clause** (`contract_execution_clause`), what speculation the model simulates;
+- an **observation clause** (`contract_observation_clause`, default `l1d`), what the model treats
   as observable (for `l1d`, the set of L1 data-cache sets touched).
 
-The execution clause decides which leak class shows up as a violation — anything the hardware leaks
+The execution clause decides which leak class shows up as a violation, anything the hardware leaks
 *beyond* what the clause models:
 
 | clause | models | effect |
@@ -460,7 +458,7 @@ To fuzz for straight-line speculation, generate with `unreachable_bb_probability
 unreachable code is a violation if speculated) and confirm against `[sls]` (where it is in-contract).
 
 The **observation clause** (`contract_observation_clause`) is likewise configurable, mirroring the
-x86 tracer set: `l1d` (default — the union of L1 data-cache sets touched), `pc` (the control-flow /
+x86 tracer set: `l1d` (default, the union of L1 data-cache sets touched), `pc` (the control-flow /
 program-counter trace), `memory` (the addresses of memory accesses), `ct` (PC + addresses, the
 classic constant-time observer), and the remaining x86 variants (`loads+stores+pc`,
 `ct-nonspecstore`, `ctr`, `arch`, `tct`, `tcto`). `l1d` records the **same** union of cache sets the
@@ -476,7 +474,7 @@ is the more sensitive channel for both.
 
 ### 6.1 Non-interference fuzzing (PAC & MTE)
 
-A second scheme targets Arm's **pointer authentication (PAC)** and **memory tagging (MTE)** — leak
+A second scheme targets Arm's **pointer authentication (PAC)** and **memory tagging (MTE)**, leak
 primitives a single ctrace cannot capture. Instead of many inputs against one program, it runs
 **one input against many sibling programs** and compares their htraces (*speculative exception*).
 
@@ -484,13 +482,13 @@ The sibling programs are produced by **GVT access**: each speculative-leak primi
 is replaced by a fixed-width instruction slot the fuzzer fills per variant. Three independent,
 composable GVT accesses:
 
-- **Sandbox** — clamps a memory access into the sandbox (the only GVT access that touches memory);
-- **PacSign** — signs / authenticates a pointer register (PAC);
-- **MteTag** — retags a register (MTE).
+- **Sandbox**, clamps a memory access into the sandbox (the only GVT access that touches memory);
+- **PacSign**, signs / authenticates a pointer register (PAC);
+- **MteTag**, retags a register (MTE).
 
 A **baseline** variant fills every slot with genuine values; each **decoy** variant perturbs only
 the speculative slots of the single primitive under test (the *speculative exception target*, PAC or MTE),
-leaving everything else — including the Sandbox clamp — genuine. If the primitive does not leak, the
+leaving everything else, including the Sandbox clamp, genuine. If the primitive does not leak, the
 baseline and decoys are architecturally identical and produce the same htrace; a **difference**
 between baseline and a decoy is a leak of that primitive.
 
@@ -502,7 +500,7 @@ MTE slots); the decoy policy then perturbs only the target's speculative slots.
 Two further primitives GVT access *addresses*: **canonicality** (`enable_canonicality`) flips a load/store
 base non-canonical on the speculative decoy, and **branch-target GVT access**
 (`enable_branch_target`) flips an indirect call's target register (`x28`) non-canonical (high
-bits) or misaligned (low bits → PC-alignment fault) right before a speculative `BLR` — with no
+bits) or misaligned (low bits → PC-alignment fault) right before a speculative `BLR`, with no
 after-revert, since the target is a dead scratch. Both GVT access only speculative-only slots, so genuine and
 decoy stay architecturally identical.
 
@@ -534,36 +532,36 @@ Standard priming confirms a violation only when the divergence follows the detec
 it *discards* the case a **cross-input** residue creates, where the divergence is caused by a
 *different*, earlier input. Splitting the two:
 
-- the **detecting pair** — the input whose cache htrace diverges (what Revizor notices);
-- the **leaking pair** — the earlier ct-equal input whose choice actually causes it, whose leak lives in
+- the **detecting pair**, the input whose cache htrace diverges (what Revizor notices);
+- the **leaking pair**, the earlier ct-equal input whose choice actually causes it, whose leak lives in
   the microarchitecture (a BTB entry it speculatively trains) and only *surfaces* as the detecting
   pair's cache divergence.
 
 `enable_cross_input_priming` (regular fuzzing, off by default) **replaces** standard priming with a
 localization that finds the leaking pair from the detecting pair's signal, under priming's own definition
 (same starting µarch, toggle one pair between its two ct-equal variants, see if the signal follows). It
-runs on the **boosted lanes** — two lanes each holding one member of every input class, so the members at
+runs on the **boosted lanes**, two lanes each holding one member of every input class, so the members at
 a class are ct-seq-equal and any htrace difference is a genuine contract violation. It reuses standard
 priming's sample sizes (the current stage size to localize, the largest configured size to re-verify), so
 it adds no rep knobs. `src/aarch64/cross_input.py` holds the search; it knows nothing about the fuzzer.
 
 Mirroring the write-up's objects: a **lane** is one variant per class; the **splice** σ takes classes
 `[0, t)` from one lane and `[t, detecting]` from the other; `r(t)` is the detecting pair's trace of that
-splice; a **boundary** is a `t` with `r(t) ≠ r(t+1)` — toggling class `t` flips the detecting pair's
+splice; a **boundary** is a `t` with `r(t) ≠ r(t+1)`, toggling class `t` flips the detecting pair's
 readout, so `(lane_a[t], lane_b[t])` is a leaking pair. For a detecting pair `d`, over `[0, d)`, searched
 from **both** bases (the divergence may be caused by either lane's prefix):
 
-1. **Localize** — one of two injected strategies (`cross_input_priming_localizer`), both over the same
+1. **Localize**, one of two injected strategies (`cross_input_priming_localizer`), both over the same
    splice with an exact, transitive trace key (the denoised consensus bitmap
    `MergedBitmapAnalyser.merged_bitmap`):
-   - `any` (default) — **galloping + bisection** (`exponential_search`): probe at distances 1, 2, 4, …
+   - `any` (default), **galloping + bisection** (`exponential_search`): probe at distances 1, 2, 4, …
      below the all-base end until `r` leaves the all-base value, bracketing a boundary in the last
      window, then bisect it. Returns *some* boundary, biased toward the most-recent trainer, in
      `O(log distance)` probes.
-   - `optimal` — a **linear scan** (`linear_scan`): returns `t_max`, the largest leaking class; finding
+   - `optimal`, a **linear scan** (`linear_scan`): returns `t_max`, the largest leaking class; finding
      the largest boundary is inherently linear.
-2. **Re-verify** — re-measure the boundary fresh at the larger sample with a robust (chi-squared) test,
-   dropping it unless it genuinely differs — rejecting a boundary that only appeared under the BTB's
+2. **Re-verify**, re-measure the boundary fresh at the larger sample with a robust (chi-squared) test,
+   dropping it unless it genuinely differs, rejecting a boundary that only appeared under the BTB's
    run-to-run jitter (transitivity is not needed here, jitter-tolerance is).
 
 The reported counterexample is the **whole chain `[leaking pair .. detecting pair]`** (one lane before
@@ -571,7 +569,7 @@ the leaking pair, the other from it onward). Because both lanes are saved, an `a
 re-localized to `t_max` offline. A found leaking pair is a valid ct-seq counterexample for **any**
 predictor. Two secondary properties are most-recent-wins-scoped (they hold on the N3 BTB): the endpoint
 promise is guaranteed to *find* an existing leak (a history-folded predictor can hide an interior witness
-between coinciding endpoints — guaranteeing detection there is linear, not `O(log n)`), and the chain
+between coinciding endpoints, guaranteeing detection there is linear, not `O(log n)`), and the chain
 reproduces standalone only where the swept prefix is replaceable. Enumerating *every* contributor is
 deliberately omitted. The search runs under a dedicated executor regime (`enable_view_rotation=0`,
 `enable_phr_flush=1`, no pre-run flush) captured and restored around it; it needs a local executor with
@@ -579,22 +577,21 @@ sysfs regime control and fails loud otherwise.
 
 ### 6.2 Variant assembly by relocation (throughput)
 
-The sibling variants for one input differ from a shared skeleton only at the GVT access slots — the
+The sibling variants for one input differ from a shared skeleton only at the GVT access slots, the
 `MOVK` carrying the per-input PAC signature, the `AUT*`/`XPAC` that follows it, and the MTE `ADDG`
 retag. Re-assembling and re-loading a full test case per variant would be the bulk of the non-HW
 time on the instrumented path. Instead the skeleton is loaded **once** and each input carries a small
 **code-relocation table** that patches only those slots.
 
 A **relocation** is `(offset, value)` of type `WORD32`: overwrite the 4-byte little-endian word at
-`offset` of the test-case body. The Python resolver renders each slot's word directly —
-`set_movk_imm16` rewrites the 16-bit signature into the harvested `MOVK`, and the op word is the
-harvested `AUT*` / `XPAC` / `ADDG` — so **no assembler runs per variant** (`aarch64_relocations.py`).
+`offset` of the test-case body. The Python resolver renders each slot's word directly,`set_movk_imm16` rewrites the 16-bit signature into the harvested `MOVK`, and the op word is the
+harvested `AUT*` / `XPAC` / `ADDG`, so **no assembler runs per variant** (`aarch64_relocations.py`).
 The resolver emits a `RelocationPlan`; the encoder packs it into the REIF `CODE_RELOC` section
 (§9.4).
 
 The patch is applied **in the kernel**, not in Python. Immediately before an input executes, the
 kernel splices that input's relocations into the shared body on the pinned CPU (with local i-cache
-maintenance), runs it, then **reverts** the body to the pristine test case — so one loaded test case
+maintenance), runs it, then **reverts** the body to the pristine test case, so one loaded test case
 serves many differently-instrumented inputs, and there is no per-variant assemble *or* per-variant device
 load. Unlike PAC/`XPAC` slots, the MTE tag-delta GVT access is now just another `WORD32` (the `ADDG`
 word), so MTE and PAC variants relocate through the same path. Relocation offsets are bounds-checked
@@ -604,7 +601,7 @@ check. It composes with the `in_memory_assemble` source-text cache (§2).
 
 ## 7. Techniques: triaging a violation
 
-**Goal.** A `fuzz` run reports a *contract violation* — two inputs that are architecturally
+**Goal.** A `fuzz` run reports a *contract violation*, two inputs that are architecturally
 equivalent yet produced different hardware traces. That difference is either a genuine speculative
 leak or measurement **noise**, and triage decides which. It does so **without re-running the test on
 hardware**: re-measuring the same test trains the branch predictor and can *hide* a genuine leak, so
@@ -613,8 +610,8 @@ repetition is never a way to "confirm noise".
 **How it is done.** Re-run the two violating inputs through the CE (the model) and compare their
 cache-line footprints:
 
-1. their **architectural** cache lines must be identical — they are arch-equivalent by construction;
-2. their **speculative** (wrong-path) cache lines must **differ** — that is the candidate leak;
+1. their **architectural** cache lines must be identical, they are arch-equivalent by construction;
+2. their **speculative** (wrong-path) cache lines must **differ**, that is the candidate leak;
 3. that speculative divergence must **match** the cache-set divergence the hardware htraces already
    show in the saved report.
 
@@ -626,17 +623,16 @@ with the HW divergence, are **NOISE**; anything ambiguous is **INVESTIGATE**. Th
 branch mispredicting): the speculative divergence is the mispredicted load landing in a different
 cache set for each input.
 
-**Spectre-v4 (store bypass).** The branch-mispredict model will not reveal it — re-trace the pair
+**Spectre-v4 (store bypass).** The branch-mispredict model will not reveal it, re-trace the pair
 under the **`bpas`** (speculative-store-bypass) clause instead, and check that the store-bypass
 speculative sets diverge between the pair and match the HW divergence. The decisive, v4-specific
 proof is the **SSBS on/off** control: re-measure the pair with `enable_speculative_store_bypass`
-**off** — a genuine v4 divergence must **vanish** (with store bypass disallowed the leak cannot
+**off**, a genuine v4 divergence must **vanish** (with store bypass disallowed the leak cannot
 occur), which rules out v1, architectural effects, and noise.
 
 A **fully offline** alternative confirms v4 from CE traces alone (no HW at all). For the two inputs
-`I0`, `I1`, the pair is already `seq`- and `cond`-equivalent **by construction** — i.e.
-`CT-SEQ(I0) == CT-SEQ(I1)` and `CT-COND(I0) == CT-COND(I1)`, which is how the fuzzer grouped them —
-so re-checking those equalities is only a sanity check, not the discriminator. The actual test is
+`I0`, `I1`, the pair is already `seq`- and `cond`-equivalent **by construction**, i.e.
+`CT-SEQ(I0) == CT-SEQ(I1)` and `CT-COND(I0) == CT-COND(I1)`, which is how the fuzzer grouped them,so re-checking those equalities is only a sanity check, not the discriminator. The actual test is
 that the pair **diverges** under store bypass, `CT-BPAS(I0) != CT-BPAS(I1)`, and that this
 divergence matches the cache-set divergence in the measured htraces: only store bypass separates the
 pair, and it matches hardware ⇒ v4.
@@ -659,7 +655,7 @@ every memory access is masked to `x29 + (reg & 0x1fff)`, so it always lands in `
 
 The target core's L1 data cache is **64 KB, 4-way set-associative** with 64-byte lines
 (`L1D_SIZE_K=64`, `L1D_ASSOCIATIVITY=4` in the executor Makefile), giving 256 sets and a 16 KB
-conflict distance — the stride at which addresses collide in a set, which is what Prime+Probe
+conflict distance, the stride at which addresses collide in a set, which is what Prime+Probe
 evicts along. The htrace is a 64-entry cache-set bitmap; an access at sandbox `offset` maps to bit
 `(offset // 64) % 64`.
 
@@ -685,7 +681,7 @@ evicts along. The htrace is a 64-entry cache-set bitmap; an access at sandbox `o
 
 The test-case stack lives at the **top of `upper_overflow`** and grows down (`SP` is seeded there by
 `get_stack_base_address`). Placing it there keeps function-frame spills (a callee's saved `LR`) from
-*aliasing* the input data regions — the sandbox address mask never clamps a generated access into
+*aliasing* the input data regions, the sandbox address mask never clamps a generated access into
 `upper_overflow`. It does **not** hide the spill from Prime+Probe, though: the cache-set index is
 `(addr >> 6) & 63`, so the spill still lights a set (empirically set 63 on this box) in the htrace of
 any program that uses a stack.
@@ -694,8 +690,8 @@ The contract executor therefore **models** the frame spill rather than dropping 
 architectural `SP` in software (`g_arch_sp`), seeded to the sandbox stack top per test case (the real
 host `SP` is left for the per-instruction trampoline, which ignores the architectural `SP`). Each
 `SP`-based prologue/epilogue access (`STR X30,[SP,#-16]!` / `LDR X30,[SP],#16`) is **emulated** against
-the sandbox stack — `X30` is written/read in sandbox memory and the architectural `SP` is moved by the
-instruction's writeback — then the native instruction is skipped (`handle_ret_hook` advances past it).
+the sandbox stack, `X30` is written/read in sandbox memory and the architectural `SP` is moved by the
+instruction's writeback, then the native instruction is skipped (`handle_ret_hook` advances past it).
 The access is recorded like any other, so CTrace carries the spill's cache set exactly as htrace does.
 Because the architectural `SP` rides `cpu_state.sp` through the per-window checkpoint, a speculative
 spill rolls back with its window and `SP` never drifts off the stack. An `SP` access that lands outside
@@ -707,26 +703,26 @@ A test case has `min_functions_per_test_case`..`max_functions_per_test_case` fun
 reproduces the classic single-function program). Index `0` is the **entry**: it runs inline and ends by
 jumping to `.test_case_exit`. The rest are **callees**, reachable only through a `BL` and ending in a
 `RET`. A function may only call a **higher-indexed** one, and functions are laid out in index order, so
-the call graph is a forward DAG — no direct or indirect recursion, hence no unbounded loops — exactly
+the call graph is a forward DAG, no direct or indirect recursion, hence no unbounded loops, exactly
 the rule the basic-block DAG already follows one level down. `function_call_probability` sets how often a
 filled slot in a caller becomes a call.
 
 **Direct vs indirect calls.** `indirect_call_probability` chooses, per call, between a direct `BL <target>`
 and a single-target indirect `BLR Xd`. For the indirect form `Aarch64IndirectCallPass` inserts
-`ADR Xd, <target>` before the `BLR` to load the forward target's PC-relative address — `ADR`, not
+`ADR Xd, <target>` before the `BLR` to load the forward target's PC-relative address, `ADR`, not
 `ADRP`/`#:lo12:`, because the non-linking assembler resolves a local `ADR` but leaves `ADRP`/`#:lo12:`
 relocations unresolved (zero). The target register is a real operand on the `BLR`, so the pass reads it
 (not the template text); the target is still one forward function, so the acyclic DAG is unchanged.
 
 `Xd` is a **dedicated register (`INDIRECT_CALL_TARGET_REGISTER`, x28)**, not a data register. `ADR`
-writes a *code* address, which differs between the CE's code buffer and the kernel's code base — fine
+writes a *code* address, which differs between the CE's code buffer and the kernel's code base, fine
 for the branch, but in a data register (x0–x7) the generator would later reuse it as a sandbox-masked
 base, and `code_addr & 0x1fff` differs between CE and kernel, so the same access hits different cache
 sets and CTrace/htrace diverge with no real leak. x28 is callee-saved (both the kernel harness and the
 CE trampoline restore it), not reserved (X15/X20–X22/X29) and never a data base, so the code address
 never reaches a load/store. (Multi-target via a runtime GOT load replaces the `ADR` later.)
 
-**Bounding the call fan-out.** A callee reached via many call paths executes many times — a function at
+**Bounding the call fan-out.** A callee reached via many call paths executes many times, a function at
 call depth *d* with ~*c* calls per level runs ~*cᵈ* times, so a naive call-dense program re-executes a
 lot (and under a speculative contract that re-execution is explored per branch, multiplying further).
 Two knobs keep this tractable: `max_calls_per_function` caps *c* (the fan-out), and `function_size_shrink`
@@ -737,7 +733,7 @@ A callee that itself makes calls (`Function.is_leaf` is false) gets a **prologue
 and restores `X30` around its body (`Aarch64CallFramePass`), so the return survives its own calls; leaf
 callees and the entry (which never returns) get no frame. `X29` is the sandbox base and is never used as
 a frame pointer. The harness also seeds `X30` to the test-case exit, so a return reached with no matching
-call — stray or speculative — is well-defined.
+call, stray or speculative, is well-defined.
 
 The contract executor models calls/returns with an **architectural call stack** (`call_stack.c`): a
 `BL`/`BLR` pushes the return address, a `RET` pops it (empty ⇒ the top-level return), and the stack is
@@ -747,7 +743,7 @@ read timeout is generous, so a deep speculative trace is recorded, not truncated
 
 > Note: the contract resolves calls/returns **architecturally** (the correct caller), so calls do not by
 > themselves produce violations. It does not yet model return-address *speculation* (the RSB); adding
-> that predictor — which also prunes the always-mispredict exploration to hardware-reachable paths — is
+> that predictor, which also prunes the always-mispredict exploration to hardware-reachable paths, is
 > the next contract-side step, mirroring Flowvizor's oracle.
 
 ### 8.2 Input register region
@@ -762,14 +758,14 @@ slots:
 | 7 | unused (the executor forces `sp` to the sandbox stack base) |
 
 The flags slot uses a **per-flag NZCV encoding**: each of N, Z, C, V occupies bit 0 of its own byte
-within the slot. This lets the `aarch64-nzcv` input generator **fuzz each flag separately** — and,
+within the slot. This lets the `aarch64-nzcv` input generator **fuzz each flag separately**, and,
 because taint is tracked per byte, lets the trace depend on each flag independently instead of
 lumping all four into one word. The slot is converted to ARM `PSTATE` form just before execution.
 
 Per-flag taint is only sound if the read/write model is per-flag too: `decode_reg_accesses`
 (`aarch64_disasm.py`) must report exactly the NZCV bits each instruction writes. Partial-flag writers
-matter here — `SETF8`/`SETF16` write N,Z,V but **preserve C**, and `RMIF` writes only its
-mask-selected bits — so claiming they write all of NZCV would mark a still-live input flag as dead and
+matter here, `SETF8`/`SETF16` write N,Z,V but **preserve C**, and `RMIF` writes only its
+mask-selected bits, so claiming they write all of NZCV would mark a still-live input flag as dead and
 let boosting mutate it, producing a false violation.
 
 ## 9. File formats
@@ -830,8 +826,8 @@ The number of test cases and inputs per run are CLI flags, not config keys: `-n 
 
 ### 9.2 Instruction-set spec (`base.json`)
 
-`base.json` is the instruction-set spec the generator emits from. It is **not hand-edited** — it is
-generated from ARM's machine-readable A64 ISA (§11) — but its shape is worth knowing.
+`base.json` is the instruction-set spec the generator emits from. It is **not hand-edited**, it is
+generated from ARM's machine-readable A64 ISA (§11), but its shape is worth knowing.
 
 The file is a JSON **list** of instruction nodes. `isa_loader` reads these fields per node:
 
@@ -848,7 +844,7 @@ The file is a JSON **list** of instruction nodes. `isa_loader` reads these field
 Each **operand** node has `type_` (`REG`, `IMM`, `MEM`, `LABEL`, `COND`, or `FLAGS`), `name` (the
 placeholder used by `template`), `width` (bits), `signed`, `src`/`dest` (read/written), and `values`
 (the allowed choices). **Memory operands** (`type_ == "MEM"`) decompose their address into an
-`inner` list of operand nodes — base register, index, offset, extend — each carrying a role; the
+`inner` list of operand nodes, base register, index, offset, extend, each carrying a role; the
 access *direction* comes from the operand's own `src`/`dest` (load reads, store writes, RMW both),
 taken from the ISA definition rather than inferred from register positions. One node:
 
@@ -872,10 +868,10 @@ taken from the ISA definition rather than inferred from register positions. One 
 
 Specs and runtime instructions share one operand model (`src/interfaces.py`), common to both ISAs:
 
-- `OperandSpec` — one operand template: `type`, `width`, `signed`, `src`/`dest`, `values`, `name`.
-- `MemorySpec(OperandSpec)` — a memory access (`type == OT.MEM`) that wraps its address components
+- `OperandSpec`, one operand template: `type`, `width`, `signed`, `src`/`dest`, `values`, `name`.
+- `MemorySpec(OperandSpec)`, a memory access (`type == OT.MEM`) that wraps its address components
   in `inner: List[OperandSpec]`; `src`/`dest` give the access direction.
-- `MemoryRole` — an ISA-subtyped role enum; `AArch64MemRole` = `BASE`/`INDEX`/`OFFSET`/`EXTEND`.
+- `MemoryRole`, an ISA-subtyped role enum; `AArch64MemRole` = `BASE`/`INDEX`/`OFFSET`/`EXTEND`.
   Only inner components carry a role.
 - Runtime mirrors: `Operand` and `MemoryOperand(inner)`. `Instruction.to_asm_string` renders from
   the spec's `template`, flattening each `MemoryOperand`'s inner components into the substitution
@@ -887,30 +883,30 @@ every memory operand, so multi-access instructions are all confined.
 
 ### 9.4 Executor input file (REIF)
 
-One input is a **REIF** file — the Revizor Extensible Input File (`executor_input_format.h`; full
+One input is a **REIF** file, the Revizor Extensible Input File (`executor_input_format.h`; full
 spec in [`docs/reif_input_format.md`](../reif_input_format.md)). It is self-describing: the kernel
 validates it strictly and locates sections **by type**, never by a hardcoded offset, so new
 per-input state is added without a layout break. Every field is little-endian `u64`; the layout is a
 fixed preamble, a section table, then the payloads.
 
 The **same bytes** serve both roles. On the wire they are written to `/dev/executor`. On disk they
-are saved with the **`.reif`** extension, and a `.reif` file is complete and executor-ready — it
+are saved with the **`.reif`** extension, and a `.reif` file is complete and executor-ready, it
 loads verbatim into the device (flags already in PSTATE form, every section self-located) or back
 into Python via `ExecutorInput.deserialize()` for a `reproduce` run. There is no separate "convert
 before executing" step.
 
-**Preamble** — `struct revisor_input_header` (48 bytes):
+**Preamble**, `struct revisor_input_header` (48 bytes):
 
 | Field | Meaning |
 |---|---|
 | `magic` | `RVZRI` sentinel (`0x49525A5652`) |
 | `version` | format version (1) |
-| `header_len` | `48 + 32·n_sections` — offset of the first payload |
+| `header_len` | `48 + 32·n_sections`, offset of the first payload |
 | `n_sections` | number of section descriptors |
 | `flags` | reserved |
 | `total_len` | total byte count (equals the bytes written to the device) |
 
-**Section table** — `n_sections` × `struct revisor_input_section` (32 bytes each):
+**Section table**, `n_sections` × `struct revisor_input_section` (32 bytes each):
 `{type, flags, offset, length}`, `offset`/`length` locating the payload within the file.
 
 **Section payloads** (unknown types are skipped):
@@ -921,13 +917,13 @@ before executing" step.
 | `MEMORY_FAULTY` (2) | sandbox `faulty_region` bytes |
 | `GPR` (3) | `registers_t` = x0..x5, the flags register (ARM PSTATE, NZCV in bits 31:28), sp |
 | `SIMD` (4) | v0..v7 (256 B; reserved, not yet loaded) |
-| `PAC_KEYS` (5) | the PAC keys this input's signatures were signed under — generated per-campaign by the input generator |
+| `PAC_KEYS` (5) | the PAC keys this input's signatures were signed under, generated per-campaign by the input generator |
 | `MTE_TAGS` (6) | one 4-bit tag per 16-byte granule of main‖faulty, packed two per byte (granule 2i in bits 3:0, 2i+1 in bits 7:4) |
-| `CODE_RELOC` (7) | per-input code-relocation table — `WORD32` patches spliced into the shared test-case body by the kernel, then reverted (§6.2) |
+| `CODE_RELOC` (7) | per-input code-relocation table, `WORD32` patches spliced into the shared test-case body by the kernel, then reverted (§6.2) |
 | `BPU_TRAINING` (8) | per-input branch-training entries (`enable_branch_mistraining`, off by default) |
 
 `MEMORY_MAIN`/`MEMORY_FAULTY`/`GPR` are required; the rest are optional (absent ⇒ kernel default).
-The `GPR` section carries the flags **already** in PSTATE form — the writer reconstructs the per-flag
+The `GPR` section carries the flags **already** in PSTATE form, the writer reconstructs the per-flag
 NZCV encoding (§8.2) before packing. `PAC_KEYS`/`MTE_TAGS`/`CODE_RELOC` are the per-input state the
 speculative exception GVT access (§6.1, §6.2) uses.
 
@@ -965,18 +961,18 @@ The generator emits only instructions the spec marks as supported, scoped to a s
 coarse family (`BASE-ARITH`, `BASE-MEM`, `BASE-BRANCH`, `BASE-FLAGS`, …), and optional fine tags
 (`BASE-MEM-LOAD`/`-STORE`/`-ATOMIC`, `BASE-BRANCH-COND`, …). Every spec gets at least one tag.
 
-**Filtering.** `isa_loader` decides the emittable set as a conjunction of gates — a spec is emitted
+**Filtering.** `isa_loader` decides the emittable set as a conjunction of gates, a spec is emitted
 only if it passes **all** of them:
 
-1. **Category gate** — only `category == "general"` specs are eligible (FP/SIMD, SVE/SME, float, and
+1. **Category gate**, only `category == "general"` specs are eligible (FP/SIMD, SVE/SME, float, and
    system categories are excluded: the generator and CE model only the general-purpose subset).
-2. **`supported_instructions`** — a curated mnemonic allow-list; the emittable set is essentially a
+2. **`supported_instructions`**, a curated mnemonic allow-list; the emittable set is essentially a
    hand-picked subset of the general category.
-3. **Per-name overrides** — `instruction_allowlist` forces a name in; `instruction_blocklist` drops
+3. **Per-name overrides**, `instruction_allowlist` forces a name in; `instruction_blocklist` drops
    permanent hazards (traps, stalls, or instructions absent on the target core).
-4. **`instruction_categories`** (from the run config) — the spec is kept only if at least one of its
+4. **`instruction_categories`** (from the run config), the spec is kept only if at least one of its
    tags is an enabled category. This is how a run scopes itself.
-5. **Address-register blocklist** — specs whose memory base/index would use a reserved register are
+5. **Address-register blocklist**, specs whose memory base/index would use a reserved register are
    dropped.
 
 In short: **emittable ≈ general ∩ supported_instructions ∩ ¬blocklist ∩ (tag ∈ categories)**, with
@@ -991,7 +987,7 @@ the download is cached, so re-runs are fast):
 python revizor.py download_spec -a aarch64 -o base.json
 ```
 
-Then fuzz — pass the spec with `-s`, the config with `-c`, the number of test cases with `-n`, and
+Then fuzz, pass the spec with `-s`, the config with `-c`, the number of test cases with `-n`, and
 inputs per test case with `-i`:
 
 ```
@@ -1003,8 +999,8 @@ counterexample inputs, traces, and a `reproduce.yaml`). Measuring on hardware ne
 module loaded (`--test aarch64-ko`, or a manual `insmod`).
 
 `revizor.py minimize` reduces a saved violation to a minimal reproducer. The minimizer is
-architecture-agnostic — it sources the NOP, the speculation barrier (`DSB SY`), and branch
-detection from the AArch64 target description — so the standard passes (instruction removal, NOP
+architecture-agnostic, it sources the NOP, the speculation barrier (`DSB SY`), and branch
+detection from the AArch64 target description, so the standard passes (instruction removal, NOP
 replacement, constant/mask simplification, input-sequence and differential-input minimization) all
 run on AArch64.
 
@@ -1045,11 +1041,11 @@ the main fuzzer yet.
 | Term | Meaning |
 |---|---|
 | **Contract** | Promise of what data may influence observable state. Has an *execution clause* (what the model simulates) and an *observation clause* (what is observable). |
-| **ctrace** | Contract trace — what the model says is observable for a program + input. |
-| **htrace** | Hardware trace — what the CPU actually leaked; a 64-bit cache-set bitmap. |
+| **ctrace** | Contract trace, what the model says is observable for a program + input. |
+| **htrace** | Hardware trace, what the CPU actually leaked; a 64-bit cache-set bitmap. |
 | **Violation** | Two inputs with equal ctrace but different htrace. |
 | **CE** | Contract executor; produces ctraces by modelling the program, including speculation. |
-| **Taint** | The input bytes the ctrace depends on — those read along the traced execution paths. |
+| **Taint** | The input bytes the ctrace depends on, those read along the traced execution paths. |
 | **Boosting** | Cheaply producing more inputs with the *same* ctrace by mutating only the untainted bytes. |
 | **Nesting** | Depth of speculative execution the model explores. |
 | **Prime+Probe (P+P)** | Fill the cache with attacker lines, run the victim, then detect which lines were evicted. |

@@ -2,7 +2,7 @@
 """Step 3 of triage: reproduce the fuzzer's EXACT baseline-vs-decoy htrace divergence under a controlled
 fixed prefix, and test whether it SURVIVES a changed prefix (genuine, context-independent) or FLIPS/
 VANISHES (batch/prefetcher contamination). Uses the real baseline + decoy variants from
-variants_for_input (so the seal/re-merge is exactly what the fuzzer measured). Reads the suspect at the
+variants_for_input (so the GVT access/re-merge is exactly what the fuzzer measured). Reads the suspect at the
 LAST slot. No reloc surgery.
 
 Usage: step3_repro.py <cfg> <violation-dir> <suspect_idx> <sets_csv> [--reps N]

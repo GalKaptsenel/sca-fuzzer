@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Decisive 16-tag sweep for a saved speculative-exception violation, on the REAL violation input.
 
-Starts from the genuine sealed variant, finds the sealed site feeding the reported diverging set
+Starts from the genuine instrumented variant, finds the instrumented site feeding the reported diverging set
 (phase 1 knockout), then sweeps THAT site's applied tag over all 16 values (phase 2) and reports the
 diverging-set residency per tag.
 
 GVT (GlobalValueTable) model: the test-case code is byte-identical across every variant; a variant is
-selected purely by its GVT image. Each MTE sealed site has an APPLIED-tag lane (the tag BFI'd into the
+selected purely by its GVT image. Each MTE instrumented site has an APPLIED-tag lane (the tag BFI'd into the
 pointer before the access) and, when the access preserves its base, a re-converge lane that always
 carries the genuine cell tag -- so downstream runs as if the access used the correct tag and only the
-sealed access sees the perturbed tag. Sweeping a site = rewriting its applied lane; the re-converge lane
+instrumented access sees the perturbed tag. Sweeping a site = rewriting its applied lane; the re-converge lane
 stays genuine automatically (no net-tag bookkeeping needed, unlike the old relocation sweep).
 
 Priming: the batch's other inputs run as a prefix before the suspect (cross-input priming), suspect read
@@ -50,16 +50,16 @@ def main():
     g = ex.genuine_variant(inp)
     res_ = ex._resolve(inp)
 
-    mte_sites = [r for r in res_._entries if r.sealing.__class__.__name__ == "MteSealing"]
+    mte_sites = [r for r in res_._entries if r.access.__class__.__name__ == "MteGvtAccess"]
     if not mte_sites:
-        print("no MteSealing sites in this test case"); return
+        print("no MteGvtAccess sites in this test case"); return
 
-    def build_image(sus_sealing, applied):
-        """GVT image: genuine for every seal except `sus_sealing`, whose APPLIED lane is set to `applied`
-        (its re-converge lane stays genuine, so only the sealed access sees the perturbed tag)."""
+    def build_image(sus_access, applied):
+        """GVT image: genuine for every GVT access except `sus_access`, whose APPLIED lane is set to `applied`
+        (its re-converge lane stays genuine, so only the instrumented access sees the perturbed tag)."""
         image = res_._gst.blank_image()
         for r in res_._entries:
-            r.sealing.store_into(image, applied if r.sealing is sus_sealing else r.value, r.value)
+            r.access.store_into(image, applied if r.access is sus_access else r.value, r.value)
         return image.to_section().content
 
     def ei(image):
@@ -76,7 +76,7 @@ def main():
             prefix.append(ex.genuine_variant(deserialize(kb).input_))
     slot = -1 if prefix else 0
     print(f"  priming prefix: {len(prefix)} prior inputs; measuring suspect at slot {slot}; "
-          f"{len(mte_sites)} MTE sealed sites")
+          f"{len(mte_sites)} MTE instrumented sites")
 
     base = res(ex.trace_test_case(prefix + [g], reps)[0][slot], dset)
     print(f"{vd.split('/')[-1]} suspect#{sus} divset={dset} reps={reps}  genuine baseline res={base:.2f}")
@@ -85,18 +85,18 @@ def main():
     knock = []
     for r in mte_sites:
         gtag = r.value
-        rr = res(ex.trace_test_case(prefix + [ei(build_image(r.sealing, (gtag + 1) & 0xF))], reps)[0][slot], dset)
+        rr = res(ex.trace_test_case(prefix + [ei(build_image(r.access, (gtag + 1) & 0xF))], reps)[0][slot], dset)
         knock.append((base - rr, r, gtag, rr))
     knock.sort(key=lambda t: t[0], reverse=True)
     print("  top knockouts (drop, reg, genuine_tag, res):")
     for drop, r, gtag, rr in knock[:4]:
-        print(f"    reg={r.sealing.value_reg} gtag={gtag} res={rr:.2f} drop={drop:+.2f}")
+        print(f"    reg={r.access.value_reg} gtag={gtag} res={rr:.2f} drop={drop:+.2f}")
 
     # phase 2: full 16-tag sweep on the strongest site (applied tag absolute 0..15)
     _, r, gtag, _ = knock[0]
-    sweep = {d: res(ex.trace_test_case(prefix + [ei(build_image(r.sealing, d))], reps)[0][slot], dset)
+    sweep = {d: res(ex.trace_test_case(prefix + [ei(build_image(r.access, d))], reps)[0][slot], dset)
              for d in range(16)}
-    print(f"  SWEEP site reg={r.sealing.value_reg} (genuine delta={gtag}): divset {dset} residency by delta 0..15:")
+    print(f"  SWEEP site reg={r.access.value_reg} (genuine delta={gtag}): divset {dset} residency by delta 0..15:")
     print("   " + " ".join(f"{d}:{sweep[d]:.2f}" for d in range(16)))
 
 

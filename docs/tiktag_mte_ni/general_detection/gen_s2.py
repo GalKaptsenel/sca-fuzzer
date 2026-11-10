@@ -3,8 +3,8 @@
 warm+zero of the guess granule (fixed probe set 32, warm L1 hit), a deep SDIV compute-delay window
 feeding an arch-taken forward branch (mistrained not-taken -> speculative body), `ldnum` tag-checked
 guess loads, a `gap`-long data-dependent ORR gate chaining the probe address through the guess result,
-then the probe. The body sits on the branch's arch-not-taken path so its loads are sealer-eligible
-(speculative-only) and the MTE sealer decoys them with a mismatched tag.
+then the probe. The body sits on the branch's arch-not-taken path so its loads are builder-eligible
+(speculative-only) and the MTE builder decoys them with a mismatched tag.
 
 Usage: gen_s2.py --ldnum 16 --gap 80 --sdiv 24 --out <path.asm> [--no-warm]
 """

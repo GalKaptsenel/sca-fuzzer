@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Anchor-move dose-response. Hold a decoyed seal at a MISMATCH tag (uimm4) and sweep its ADDG address
-offset (uimm6, in granules) so the sealed speculative access lands in a moving L1D set. Position-controlled
+"""Anchor-move dose-response. Hold a decoyed GVT access at a MISMATCH tag (uimm4) and sweep its ADDG address
+offset (uimm6, in granules) so the instrumented speculative access lands in a moving L1D set. Position-controlled
 (fixed prefix, tail slot). For each uimm6 read all 64 sets at the tail and print the lit run (>thr) plus its
 [min,max] bound and the anchor's own set. If the lit run TRACKS the anchor across uimm6 -> the transmit is
-anchored to the sealed speculative access (genuine, speculative). If it stays put -> fixed/architectural.
+anchored to the instrumented speculative access (genuine, speculative). If it stays put -> fixed/architectural.
 
 Usage: anchor_sweep.py <cfg> <vd> <sus> <gate 0xNN> <u4_mismatch> <u6a,u6b,...> [--reps N] [--prefix P]
                        [--repeat R] [--thr 0.5] [--anchor-granule G]

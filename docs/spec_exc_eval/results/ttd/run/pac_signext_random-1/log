@@ -5,7 +5,7 @@ WARNING: [executor] no PAC profile in the config: using the current machine's --
 
 INFO: [fuzzer] Starting at 12:36:19
 
-INFO: [fuzzer] seeds — program:584418 input:308983509
+INFO: [fuzzer] seeds, program:584418 input:308983509
 ⟳ P+P  1 tc · 0s · 2.10 tc/s · 2096.8 traces/s · 1 filtered · 0 violations[K⟳ P+P  2 tc · 1s · 1.80 tc/s · 1802.5 traces/s · 2 filtered · 0 violations[K⟳ P+P  2 tc · 1s · 1.80 tc/s · 1802.5 traces/s · 2 filtered · 0 violations → slow path…[K⟳ P+P  2 tc · 1s · 1.80 tc/s · 1802.5 traces/s · 2 filtered · 0 violations → priming 2…[K⟳ P+P  2 tc · 1s · 1.80 tc/s · 1802.5 traces/s · 2 filtered · 0 violations → sample 50…[K⟳ P+P  2 tc · 1s · 1.80 tc/s · 1802.5 traces/s · 2 filtered · 0 violations → priming 1…[K⟳ P+P  2 tc · 1s · 1.80 tc/s · 1802.5 traces/s · 2 filtered · 0 violations → sample 100…[K⟳ P+P  2 tc · 1s · 1.80 tc/s · 1802.5 traces/s · 2 filtered · 0 violations → priming 1…[K⟳ P+P  2 tc · 1s · 1.80 tc/s · 1802.5 traces/s · 2 filtered · 0 violations → sample 500…[K⟳ P+P  2 tc · 1s · 1.80 tc/s · 1802.5 traces/s · 2 filtered · 0 violations → priming 1…[K
 ================================ Statistics ===================================
 

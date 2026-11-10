@@ -17,7 +17,7 @@ The probe address on the training iterations points at a throwaway cache set, so
 touched only by the attack iteration's speculation. The host reads the read set's L1 residency from
 the executor's Flush+Reload htrace over many runs. Sweeping the pointer tag over all sixteen values,
 the read set stays resident for the tag that matches the granule (and for the TCMA-unchecked tag,
-whose access is never checked) and is absent for every other checked tag. Resealing the granule to a
+whose access is never checked) and is absent for every other checked tag. Reinstrumenting the granule to a
 different tag moves the surviving checked tag with it, which is the detection.
 """
 import argparse
@@ -41,7 +41,7 @@ def parse_args():
         epilog="example:\n"
                "  tiktag_v1_executor.py --repo ~/revizor/sca-fuzzer --adb-host 127.0.0.1 "
                "--adb-port 5037 --core 8 --iters 512 --ldnum 16 --gap 80 --read-set 32 "
-               "--warm-set 48 --reps 60 --seal-tags 5,9,10",
+               "--warm-set 48 --reps 60 --GVT access-tags 5,9,10",
         formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--repo", required=True, help="path to the sca-fuzzer checkout")
     p.add_argument("--adb-host", required=True, help="adb server host")
@@ -53,8 +53,8 @@ def parse_args():
     p.add_argument("--read-set", required=True, type=int, help="L1D set probed on the attack iteration")
     p.add_argument("--warm-set", required=True, type=int, help="L1D set probed on the training iterations")
     p.add_argument("--reps", required=True, type=int, help="measurement repeats per pointer tag")
-    p.add_argument("--seal-tags", required=True,
-                   help="comma-separated granule tags to seal and detect, e.g. 5,9,10")
+    p.add_argument("--GVT access-tags", required=True,
+                   help="comma-separated granule tags to GVT access and detect, e.g. 5,9,10")
     p.add_argument("--margin", type=float, default=0.3,
                    help="minimum residency gap between the matching tag and every checked mismatch")
     return p.parse_args()
@@ -121,7 +121,7 @@ def make_input(repo, main_base, probe_set, warm_set, granule_tag, pointer_tag):
     gpr[4] = main_base + warm_set * 64                             # training probe -> throwaway set
     gpr[5] = (main_base & ~(0xF << 56)) | (pointer_tag << 56)      # swept-tag pointer (attack guess)
     mte_tags = [15] * GRANULE_TAGS                                # every granule unchecked by default
-    mte_tags[0] = granule_tag                                     # seal the guess granule
+    mte_tags[0] = granule_tag                                     # GVT access the guess granule
     return ExecutorInput(input_=inp, mte_tags=mte_tags).serialize()
 
 
@@ -149,10 +149,10 @@ def main():
     from src.config import CONF
     CONF.load(os.path.join(repo, "config_g1_x3.yml"))
 
-    seal_tags = [int(t) for t in args.seal_tags.split(",")]
-    for t in seal_tags:
+    gvt_tags = [int(t) for t in args.gvt_tags.split(",")]
+    for t in gvt_tags:
         if t in MTE_UNCHECKED:
-            sys.exit(f"tag {t} is TCMA-unchecked and cannot be used as a sealed granule tag")
+            sys.exit(f"tag {t} is TCMA-unchecked and cannot be used as an instrumented granule tag")
 
     dev = connect(args.adb_host, args.adb_port)
     main_base = int(su(dev, "cat /sys/executor/print_sandbox_base").strip(), 16)
@@ -168,7 +168,7 @@ def main():
     print(f"sandbox base {hex(main_base)}  core {args.core}  iters {args.iters}  ldnum {args.ldnum}  "
           f"gap {args.gap}  read set {args.read_set}  reps {args.reps}")
     detected = True
-    for granule_tag in seal_tags:
+    for granule_tag in gvt_tags:
         rate = {}
         for pointer_tag in range(16):
             reif = os.path.join(BUILD, f"tiktag_v1_in{pointer_tag}.reif")
@@ -185,7 +185,7 @@ def main():
         gap = rate[granule_tag] - max(checked_mismatch)
         passed = winner == granule_tag and gap >= args.margin
         detected = detected and passed
-        print(f"\nsealed granule tag {granule_tag}")
+        print(f"\ninstrumented granule tag {granule_tag}")
         print("  " + " ".join(f"{t}:{rate[t]:.2f}" for t in range(16)))
         print(f"  matching tag {granule_tag} residency {rate[granule_tag]:.2f}  "
               f"checked-mismatch max {max(checked_mismatch):.2f} mean "
@@ -193,7 +193,7 @@ def main():
               f"{'DETECTED' if passed else 'not detected'}")
 
     print(f"\n{'TikTag-v1 DETECTED' if detected else 'not detected'} "
-          f"on core {args.core} for sealed tags {seal_tags}")
+          f"on core {args.core} for instrumented tags {gvt_tags}")
     sys.exit(0 if detected else 1)
 
 

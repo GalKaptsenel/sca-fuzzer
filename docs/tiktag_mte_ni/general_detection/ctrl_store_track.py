@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Position-controlled two-sided track of the DECOYED speculative seal. Fixed prefix of genuine variants
+"""Position-controlled two-sided track of the DECOYED speculative GVT access. Fixed prefix of genuine variants
 of other inputs; the suspect sits at the tail (one fixed slot, so batch position is held constant). For
-each memory tag T of the tracked granule, sweep the decoyed seal's pointer tag (the ADDG at a decoyed
+each memory tag T of the tracked granule, sweep the decoyed GVT access's pointer tag (the ADDG at a decoyed
 offset tagging the speculative access's base) 0..15 and read the target set at the tail slot. A genuine
 speculative pointer-vs-memory tag check makes the target set's match point (gain-flavor: the dip, where
-the access executes instead of being squashed) move with T. Only decoyed (speculative=True) seals are
-sweepable; architectural seals are refused.
+the access executes instead of being squashed) move with T. Only decoyed (speculative=True) GVT accesses are
+sweepable; architectural GVT accesses are refused.
 
 Usage: ctrl_store_track.py <cfg> <vd> <suspect_idx> <target_set> <granule> [--reps N] [--prefix P] [--tags a,b,c] [--gate-off 0xNN]
 """
@@ -48,12 +48,12 @@ def main():
     g = ex.genuine_variant(inp)
     Reloc = type(g.code_reloc[0]); relocs = list(g.code_reloc)
     cell_tag = int(g.mte_tags[gran])
-    # decoyed (speculative) seal offsets
+    # decoyed (speculative) GVT access offsets
     rsv = ex._resolve(inp)
     decoy_offsets = set()
     for r in rsv._entries:
         if r.speculative and r.alts:
-            offs = rsv._offsets.get(id(r.sealing))
+            offs = rsv._offsets.get(id(r.access))
             if offs:
                 decoy_offsets.update(offs)
     # candidate ADDG gates = ADDG relocs at a decoyed offset

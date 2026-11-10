@@ -2,7 +2,7 @@
 payload (loads, stores, ALU) -- is random. Tests whether the window-widener alone, not feeding any
 particular branch, is enough to make random code produce a TikTag tag-check leak. The multi-block hole
 lets the generator wire random conditional branches between blocks (the speculation windows), and ANY
-holes include MTE-sealable memory accesses."""
+holes include MTE-instrumentable memory accesses."""
 from src.aarch64.template import Template, Hole, Kind, specs, X1, X5
 
 

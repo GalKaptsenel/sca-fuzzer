@@ -1,7 +1,7 @@
 # Reproducing the A510 prefetcher experiments (physical Pixel 8)
 
 Everything needed to re-run the 2026-07-17 experiments from scratch. Results live in
-`RESULTS.md`. **Read that file's RETRACTED section first** — the earlier
+`RESULTS.md`. **Read that file's RETRACTED section first**, the earlier
 "violation is an F+R harness artifact" conclusion was withdrawn.
 
 ## 0. Topology
@@ -19,13 +19,13 @@ On the **WSL/Windows** side, hold this open (`-N` blocks; that means success):
 
     ssh -i ~/.ssh/wsl_to_gcp -N -R 2222:localhost:22 gal_k_1_1998@<GCP_IP>
 
-**Gotcha — the key disappears.** Google's guest agent rewrites `~/.ssh/authorized_keys` from instance
+**Gotcha, the key disappears.** Google's guest agent rewrites `~/.ssh/authorized_keys` from instance
 metadata, so a hand-appended key is wiped on every reboot. Durable fix: put the WSL pubkey in the
 instance's SSH-keys **metadata**, not the file. Hand-append (temporary):
 
     echo 'ssh-ed25519 AAAA...DL4EBV gal@lap1092' >> ~/.ssh/authorized_keys
 
-**Gotcha — the GCP IP is ephemeral** and changes on every stop/start. Reserve a static IP to stop this.
+**Gotcha, the GCP IP is ephemeral** and changes on every stop/start. Reserve a static IP to stop this.
 
 Then on **A**, expose the adb server. The Windows adb server binds 127.0.0.1 only, so WSL cannot reach it
 over TCP (interop works because `adb.exe` is a Windows process). Rebind it to all interfaces:
@@ -38,7 +38,7 @@ over TCP (interop works because `adb.exe` is a Windows process). Rebind it to al
     ssh -f -N -L 5037:172.21.144.1:5037 -i ~/.ssh/revizor_remote -p 2222 \
         -o ExitOnForwardFailure=yes gal@localhost
 
-Verify from A (no `adb` binary exists on A — the driver speaks the adb protocol directly via `ppadb`):
+Verify from A (no `adb` binary exists on A, the driver speaks the adb protocol directly via `ppadb`):
 
     python3 -c "import socket; s=socket.create_connection(('127.0.0.1',5037),timeout=5); \
                 s.sendall(b'000chost:version'); print(s.recv(4), s.recv(4), s.recv(4))"   # -> OKAY 0004 0029
@@ -47,7 +47,7 @@ Verify from A (no `adb` binary exists on A — the driver speaks the adb protoco
 
     tar cf - -C src/aarch64/executor templates_jit.c | ssh ... 'tar xf - -C ~/sca-executor'
 
-**Gotcha — `-C` must come BEFORE the filenames**, or tar silently syncs nothing and you build stale
+**Gotcha, `-C` must come BEFORE the filenames**, or tar silently syncs nothing and you build stale
 source. Always verify the sync landed (`grep` a marker on B) before building.
 
     export PATH=$HOME/toolchains/llvm-bin:$PATH
@@ -55,11 +55,11 @@ source. Always verify the sync landed (`grep` a marker on B) before building.
          HW_SUPPORTS_MTE=y HW_SUPPORTS_PAC=y KCFLAGS="-Wno-error -std=gnu11" modules
 
 **Gotchas:**
-- `CC=clang CROSS_COMPILE=` is REQUIRED — the Makefile hardcodes `CC := aarch64-linux-gnu-gcc`, which
+- `CC=clang CROSS_COMPILE=` is REQUIRED, the Makefile hardcodes `CC := aarch64-linux-gnu-gcc`, which
   overrides `LLVM=1` and fails with "not found".
-- `HW_SUPPORTS_MTE=y HW_SUPPORTS_PAC=y` is REQUIRED — the Makefile autodetects by grepping
+- `HW_SUPPORTS_MTE=y HW_SUPPORTS_PAC=y` is REQUIRED, the Makefile autodetects by grepping
   `/proc/cpuinfo`, which on B is **x86_64**, so it silently builds a no-MTE/no-PAC module.
-- `KCFLAGS="-Wno-error -std=gnu11"` — else `-Wdeclaration-after-statement` is a WERROR.
+- `KCFLAGS="-Wno-error -std=gnu11"`, else `-Wdeclaration-after-statement` is a WERROR.
 
 Flash:
 
@@ -80,7 +80,7 @@ Flash:
 
 `dc civac` is NOT in the fuzzer ISA, so the asm parser cannot emit it. `fast_sweep.py` hand-assembles the
 victim with native `as`/`objcopy` and injects the bytes through the **`ex._sandboxed_cache` seam** in
-`src/aarch64/aarch64_executor.py:283` — which keeps the fast batched transport.
+`src/aarch64/aarch64_executor.py:283`, which keeps the fast batched transport.
 
 Victim (x1 comes ONLY from the `.reif` input, so the demand address is input-driven):
 
@@ -89,10 +89,10 @@ Victim (x1 comes ONLY from the `.reif` input, so the demand address is input-dri
 The TC flushes its own demand line, so every remaining lit set is prefetcher-filled. `mkreif.py` builds the
 inputs: load `input_0009.reif`, set `inp[0]['gpr'][1] = V`, `ExecutorInput(input_=inp).save(...)`.
 
-**PERFORMANCE — do not repeat my mistake.** Use the batched executor path
+**PERFORMANCE, do not repeat my mistake.** Use the batched executor path
 (`ex.trace_test_case(exec_inputs, REPS)` = ONE super-batch = ONE round-trip): 7 points x 100 reps in
 **~19 s**. `drive.py` (kept only as a cautionary example) drives `executor_userland` over `adb shell`
-per rep — 5 sequential round-trips x N reps, **~100x slower** (7+ minutes for the same data).
+per rep, 5 sequential round-trips x N reps, **~100x slower** (7+ minutes for the same data).
 
 **Other gotchas:**
 - A killed driver leaves `/dev/executor` wedged mid-transaction -> `TRACE` returns `EINVAL`. Fix: reload
@@ -103,18 +103,18 @@ per rep — 5 sequential round-trips x N reps, **~100x slower** (7+ minutes for 
 - htrace: `HTrace.raw` bit b == set b (identity). The `report.txt` strings are bit-REVERSED (set = 63-pos).
 - main and faulty **share the same 64 htrace sets** (OR'd), so a lit set alone cannot tell you which page.
   Use the knockout (flush one page's specific address) to disambiguate.
-- Sets **15/23/31 are harness background** — lit even with a TC that has no matching load.
+- Sets **15/23/31 are harness background**, lit even with a TC that has no matching load.
 
-## 5. SAFETY — things that hard-reboot the phone
+## 5. SAFETY, things that hard-reboot the phone
 
-- **Writing `CPUECTLR_EL1`** (the prefetch control) — firmware/TF-A-trapped on this locked part. The
+- **Writing `CPUECTLR_EL1`** (the prefetch control), firmware/TF-A-trapped on this locked part. The
   `cpuectlr` sysfs knob can READ it; **never write**. TF-A reflash is not feasible.
-- **Flipping PTE `AP` bit 6** (or `AF`/valid/`AttrIdx` bit 4) — PAN violation on kernel access -> reboot.
-- **Modifying `x29` without restoring it** before `measurement_end` — the harness reuses it post-body.
+- **Flipping PTE `AP` bit 6** (or `AF`/valid/`AttrIdx` bit 4), PAN violation on kernel access -> reboot.
+- **Modifying `x29` without restoring it** before `measurement_end`, the harness reuses it post-body.
 
 ## 6. Temporary state to revert
 
-- `templates_jit.c` — `TEMP(lmfu)` 4-region flush/reload (flush lower->main->faulty->upper; reload the
+- `templates_jit.c`, `TEMP(lmfu)` 4-region flush/reload (flush lower->main->faulty->upper; reload the
   same, recording htrace bits only for main+faulty). Revert to the 2-page main+faulty walk for normal fuzzing.
 - Debug sysfs added for this investigation: `cpuectlr`, `pte`, `pte_flip` (+ `pte_flip_region`/`pte_flip_xor`
   and `prefetch_override`/`prefetch_cpuectlr` in `executor.h`, applied in `measurement.c:execute()`).
@@ -125,4 +125,4 @@ An identical single load streams 5 lines in **faulty** but prefetches **nothing*
 despite byte-identical PTEs and identical page-relative geometry. Main's set-0 prefetch is unstable
 (fires for `x1=0x0000`, not for `0x0001`, inconsistent for `0x0020`). Untested lead:
 `get_stack_base_address()` = `main_region + 4096`, so TC stack traffic writes into main's high offsets and
-never into faulty — asymmetric traffic that hits only main.
+never into faulty, asymmetric traffic that hits only main.

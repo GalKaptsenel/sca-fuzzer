@@ -52,8 +52,8 @@ def main():
                              pac_keys=g.pac_keys, env_plan=g.env_plan)
 
     # enumerate SPECULATIVE granules from the CE (nesting>0), tag byte masked off
-    sealed = ex._sealer.seal(fz.asm_parser.parse_file(f"{vd}/generated.asm"))
-    code = apply_relocations(sealed.resolve(inp).object_code, sealed.resolve(inp).genuine())
+    instrumented = ex._builder.build(fz.asm_parser.parse_file(f"{vd}/generated.asm"))
+    code = apply_relocations(instrumented.resolve(inp).object_code, instrumented.resolve(inp).genuine())
     cer = ex._contract_executor.run(ex._make_ce_execution(
         code, inp, ex._sandbox_base, CONF.model_max_nesting, CONF.model_max_spec_window,
         ExecutionClause.COND | ExecutionClause.BPAS, mte_tags=ex._mte_tags_for(inp),
