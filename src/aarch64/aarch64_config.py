@@ -155,11 +155,6 @@ avoid_extended_memory_operands: bool = True
 TEMPORARY/WIP: defaulted True because emitting them was seen to reduce violations found, for a
 reason not yet understood; remove this option once investigated. """
 
-enable_branch_mistraining: bool = False
-""" enable_branch_mistraining: before measuring, saturate each architectural conditional branch in
-the OPPOSITE direction so its first hardware execution mispredicts. WIP — off by default pending
-hardware confirmation that the training is effective on this core. """
-
 instruction_categories: List[str] = ["BASE-ARITH", "BASE-LOGICAL", "BASE-BRANCH-COND"]
 """ instruction_categories: a default list of tested instruction categories """
 

@@ -639,8 +639,8 @@ class FuzzerGeneric(Fuzzer):
         for _ in range(CONF.inputs_per_class - 1):
             boosted_inputs += self.input_gen.extend_equivalence_classes(inputs, taints)
 
-        # A boosted input has no arch trace of its own yet; borrow its class original's for
-        # mistraining, flagged stale so recompute_artifact_traces can replace it on store.
+        # A boosted input has no arch trace of its own yet; borrow its class original's, flagged
+        # stale so recompute_artifact_traces can replace it with the input's own trace on store.
         n_orig = len(inputs)
         for i in range(n_orig, len(boosted_inputs)):
             boosted_inputs[i]._arch_trace = inputs[(i - n_orig) % n_orig]._arch_trace
@@ -779,27 +779,6 @@ class FuzzerGeneric(Fuzzer):
                 f.write(f"\nInput #{m.input_id}\n")
                 f.write(f"* Hardware trace:\n {pretty_htrace(m.htrace)}\n")
                 f.write(f"* Contract trace (hash): {m.ctrace}\n")
-
-            f.write("\n## Branch Training\n")
-            if not hasattr(self.executor, 'branch_mistraining_entries'):
-                f.write("* Branch training: not supported by this executor\n")
-            else:
-                per_input = [(idx, self.executor.branch_mistraining_entries(
-                                  getattr(input_, '_arch_trace', None)))
-                             for idx, input_ in enumerate(violation.input_sequence)]
-                any_set = any(e for _, e in per_input)
-                f.write(f"* Branch training: {'set' if any_set else 'not set'}\n")
-                for idx, entries in per_input:
-                    f.write(f"\nInput #{idx}:\n")
-                    if not entries:
-                        f.write("  * No trained branches\n")
-                    else:
-                        wire = ",".join(f"{off}:{1 if t else 0}" for off, t in entries)
-                        f.write(f"  * Wire entries (offset:taken): {wire}\n")
-                        f.write(f"  * Entries ({len(entries)}):\n")
-                        for off, t in entries:
-                            f.write(f"    - offset {off:#x} ({off} bytes):"
-                                    f" train {'TAKEN' if t else 'NOT-TAKEN'}\n")
 
         # re-enable colors if enabled previously
         CONF.color = color_on

@@ -16,11 +16,6 @@ from src.aarch64.aarch64_input_generator import AArch64InputGenerator
 from src.aarch64 import aarch64_executor_input_encoder as wire
 
 
-def _rand_bpu(rng, n):
-    offs = rng.choice(np.arange(0, 4 * (n + 8), 4), size=n, replace=False)
-    return tuple((int(o), bool(rng.integers(0, 2))) for o in offs)
-
-
 def _rand_mte(rng):
     return [int(rng.integers(0, 16)) for _ in range(wire.MTE_TAG_COUNT)]
 
@@ -31,17 +26,6 @@ def _rand_pac(rng):
 
 _PREAMBLE = struct.Struct("<6Q")
 _DESC = struct.Struct("<4Q")
-
-
-def _unpack_bpu(payload: bytes):
-    """Mirror the kernel BPU reader: (offset, taken) pairs up to the terminator."""
-    out = []
-    for i in range(0, len(payload), 8):
-        offset, taken = struct.unpack_from("<II", payload, i)
-        if offset == wire.BPU_TRAIN_TERMINATOR:
-            break
-        out.append((offset, taken))
-    return out
 
 
 def _parse(input_init: bytes):
@@ -140,28 +124,6 @@ class InputWireRoundTrip(unittest.TestCase):
         self.assertEqual(len(sections[wire.SEC_MTE_TAGS]), (wire.MTE_TAG_COUNT + 1) // 2)
         self.assertEqual(struct.unpack("<10Q", sections[wire.SEC_PAC_KEYS]), tuple(keys))
 
-    def test_bpu_training_section_round_trips(self):
-        inp = self._input()
-        entries = [(0, True), (4, False), (128, True)]
-        _, sections = _parse(wire.ExecutorInput(inp, bpu_training=entries).serialize())
-        self.assertIn(wire.SEC_BPU_TRAINING, sections)
-        self.assertEqual(_unpack_bpu(sections[wire.SEC_BPU_TRAINING]),
-                         [(0, 1), (4, 0), (128, 1)])
-
-    def test_bpu_training_absent_when_empty(self):
-        inp = self._input()
-        _, sections = _parse(wire.ExecutorInput(inp).serialize())
-        self.assertNotIn(wire.SEC_BPU_TRAINING, sections)
-
-    def test_bpu_training_over_cap_rejected(self):
-        over = [(4 * i, True) for i in range(wire.MAX_BPU_TRAIN + 1)]
-        with self.assertRaises(ValueError):
-            wire._pack_bpu_training(over)
-
-    def test_bpu_training_unaligned_offset_rejected(self):
-        with self.assertRaises(ValueError):
-            wire._pack_bpu_training([(3, True)])
-
     def _input_with_valid_nzcv(self, seed: int) -> Input:
         inp = self._input()
         gpr0 = (MAIN_AREA_SIZE + FAULTY_AREA_SIZE) // 8
@@ -171,13 +133,11 @@ class InputWireRoundTrip(unittest.TestCase):
     def test_wire_round_trip_all_sections(self):
         ei = wire.ExecutorInput(self._input_with_valid_nzcv(3),
                                 mte_tags=[i % 16 for i in range(wire.MTE_TAG_COUNT)],
-                                pac_keys=list(range(100, 110)),
-                                bpu_training=((0, True), (4, False)))
+                                pac_keys=list(range(100, 110)))
         back = wire.deserialize(ei.serialize())
         self.assertEqual(back.input_.tobytes(), ei.input_.tobytes())
         self.assertEqual(back.mte_tags, ei.mte_tags)
         self.assertEqual(back.pac_keys, ei.pac_keys)
-        self.assertEqual(back.bpu_training, ei.bpu_training)
         self.assertEqual(back.serialize(), ei.serialize())
 
     def test_wire_round_trip_no_optional_sections(self):
@@ -186,7 +146,6 @@ class InputWireRoundTrip(unittest.TestCase):
         self.assertEqual(back.input_.tobytes(), ei.input_.tobytes())
         self.assertIsNone(back.mte_tags)
         self.assertIsNone(back.pac_keys)
-        self.assertEqual(back.bpu_training, ())
 
     def test_deserialize_rejects_bad_magic(self):
         blob = bytearray(wire.ExecutorInput(self._input_with_valid_nzcv(5)).serialize())
@@ -209,27 +168,17 @@ class InputWireRoundTrip(unittest.TestCase):
             back = wire.deserialize(wire.ExecutorInput(inp, mte_tags=tags).serialize())
             self.assertEqual(back.mte_tags, tags)
 
-    def test_round_trip_random_mistraining(self):
-        rng = np.random.default_rng(3)
-        inp = AArch64InputGenerator(3).generate(1)[0]
-        for n in (0, 1, 10, wire.MAX_BPU_TRAIN):
-            bpu = _rand_bpu(rng, n)
-            back = wire.deserialize(wire.ExecutorInput(inp, bpu_training=bpu).serialize())
-            self.assertEqual(back.bpu_training, bpu)
-
     def test_round_trip_random_all_sections_fuzz(self):
         for seed in range(25):
             rng = np.random.default_rng(1000 + seed)
             inp = AArch64InputGenerator(seed).generate(1)[0]
             ei = wire.ExecutorInput(inp,
                                     mte_tags=_rand_mte(rng),
-                                    pac_keys=_rand_pac(rng),
-                                    bpu_training=_rand_bpu(rng, int(rng.integers(0, 12))))
+                                    pac_keys=_rand_pac(rng))
             back = wire.deserialize(ei.serialize())
             self.assertEqual(back.input_.tobytes(), ei.input_.tobytes())
             self.assertEqual(back.mte_tags, ei.mte_tags)
             self.assertEqual(back.pac_keys, ei.pac_keys)
-            self.assertEqual(back.bpu_training, ei.bpu_training)
             self.assertEqual(back.serialize(), ei.serialize())
 
     def test_contract_execution_encode_envelope(self):

@@ -30,7 +30,6 @@ SEC_GPR = 0x03
 SEC_SIMD = 0x04
 SEC_PAC_KEYS = 0x05
 SEC_MTE_TAGS = 0x06
-SEC_BPU_TRAINING = 0x08
 SEC_PTE_SETTINGS = 0x09         # per-variant page-table environment (see seal/environment.py)
 
 _PREAMBLE_LEN = 6 * 8           # magic, version, header_len, n_sections, flags, total_len
@@ -40,8 +39,6 @@ _ALIGN = 8
 MTE_GRANULE = 16                # bytes per allocation tag (matches kernel MTE_GRANULE_SIZE)
 MTE_TAG_COUNT = (MAIN_AREA_SIZE + FAULTY_AREA_SIZE) // MTE_GRANULE   # tags over the main|faulty span
 PAC_KEYS_WORDS = 10             # = struct pac_keys / ce_pac_keys: 5 keys * {lo,hi}
-BPU_TRAIN_TERMINATOR = 0xFFFFFFFF    # matches REVISOR_BPU_TRAIN_TERMINATOR
-MAX_BPU_TRAIN = 64                   # matches REVISOR_INPUT_MAX_BPU_TRAIN
 # ----------------------------------------------------------------------------------------------
 
 
@@ -110,24 +107,9 @@ def _pack_pac_keys(keys: Sequence[int]) -> bytes:
     return struct.pack(f"<{PAC_KEYS_WORDS}Q", *keys)
 
 
-def _pack_bpu_training(entries: Sequence) -> bytes:
-    """Pack (byte_offset, train_taken) branch-training entries followed by an all-ones terminator
-    (matches struct revisor_bpu_train_entry / REVISOR_BPU_TRAIN_TERMINATOR)."""
-    if len(entries) > MAX_BPU_TRAIN:
-        raise ValueError(f"{len(entries)} branch-training entries exceed the {MAX_BPU_TRAIN} cap")
-    out = bytearray()
-    for offset, taken in entries:
-        if 0 != offset % 4 or not 0 <= offset < BPU_TRAIN_TERMINATOR:
-            raise ValueError(f"bad branch-training offset {offset}")
-        out += struct.pack("<II", offset, 1 if taken else 0)
-    out += struct.pack("<II", BPU_TRAIN_TERMINATOR, BPU_TRAIN_TERMINATOR)
-    return bytes(out)
-
-
 def build_input_init(main: bytes, faulty: bytes, gpr: bytes, simd: Optional[bytes] = None, *,
                      mte_tags: Optional[Sequence[int]] = None,
                      pac_keys: Optional[Sequence[int]] = None,
-                     bpu_training: Optional[Sequence] = None,
                      env_plan: Optional[EnvironmentPlan] = None) -> bytes:
     """Assemble a REIF file from the raw section payloads. `gpr` is the final 64-byte GPR section (flags
     already in PSTATE form); `simd` is the optional SIMD_SUBREGION_SIZE-byte vector section (the GVT image,
@@ -144,8 +126,6 @@ def build_input_init(main: bytes, faulty: bytes, gpr: bytes, simd: Optional[byte
         sections.append((SEC_MTE_TAGS, _pack_mte_tags(mte_tags)))
     if pac_keys is not None:
         sections.append((SEC_PAC_KEYS, _pack_pac_keys(pac_keys)))
-    if bpu_training is not None:
-        sections.append((SEC_BPU_TRAINING, _pack_bpu_training(bpu_training)))
     # The per-variant run environment (see seal/environment.py). The encoder owns the section id;
     # each environment aspect owns its byte codec. A new aspect adds a section here, nothing else.
     if env_plan is not None and not env_plan.is_empty:
@@ -155,14 +135,12 @@ def build_input_init(main: bytes, faulty: bytes, gpr: bytes, simd: Optional[byte
 
 @dataclass(frozen=True)
 class ExecutorInput:
-    """One REIF input: an architectural `Input` plus the executor-only sections (MTE tags, PAC keys,
-    branch training)."""
+    """One REIF input: an architectural `Input` plus the executor-only sections (MTE tags, PAC keys)."""
     wire_extension = "reif"     # serialize() writes the REIF wire format; save it under this extension
 
     input_: Input
     mte_tags: Optional[Sequence[int]] = None
     pac_keys: Optional[Sequence[int]] = None
-    bpu_training: Tuple[Tuple[int, bool], ...] = ()
     env_plan: EnvironmentPlan = field(default_factory=EnvironmentPlan)
     gvt: Optional[bytes] = None   # GVT image (SIMD section) for a sealed variant; else the input's own
 
@@ -176,7 +154,6 @@ class ExecutorInput:
                                 frag[faulty_off:faulty_off + FAULTY_AREA_SIZE],
                                 _gpr_section(frag), simd,
                                 mte_tags=self.mte_tags, pac_keys=self.pac_keys,
-                                bpu_training=self.bpu_training if self.bpu_training else None,
                                 env_plan=self.env_plan)
 
     # Delegate the arch-input surface the fuzzer/artifact-store touches, so an ExecutorInput is
@@ -199,14 +176,6 @@ class ExecutorInput:
     @property
     def seed(self) -> int:
         return self.input_.seed
-
-
-def _unpack_terminated_pairs(payload: bytes, terminator: int):
-    for i in range(0, len(payload), 8):
-        a, b = struct.unpack_from("<II", payload, i)
-        if terminator == a:
-            return
-        yield a, b
 
 
 def _unpack_mte_tags(payload: bytes) -> List[int]:
@@ -253,9 +222,6 @@ def deserialize(blob: bytes) -> ExecutorInput:
         type_, _sf, off, length = struct.unpack_from("<4Q", blob, _PREAMBLE_LEN + i * _SECTION_DESC_LEN)
         sections[type_] = blob[off:off + length]
 
-    bpu_training = tuple((off, bool(taken))
-                         for off, taken in _unpack_terminated_pairs(sections.get(SEC_BPU_TRAINING, b""),
-                                                                    BPU_TRAIN_TERMINATOR))
     mte_tags = _unpack_mte_tags(sections[SEC_MTE_TAGS]) if SEC_MTE_TAGS in sections else None
     pac_keys = (list(struct.unpack(f"<{PAC_KEYS_WORDS}Q", sections[SEC_PAC_KEYS]))
                 if SEC_PAC_KEYS in sections else None)
@@ -265,5 +231,5 @@ def deserialize(blob: bytes) -> ExecutorInput:
     arch_input = _arch_input_from_sections(sections)
     arch_input.pac_keys = None if pac_keys is None else tuple(pac_keys)   # keys belong to the input
     return ExecutorInput(arch_input,
-                         mte_tags=mte_tags, pac_keys=pac_keys, bpu_training=bpu_training,
+                         mte_tags=mte_tags, pac_keys=pac_keys,
                          env_plan=env_plan)

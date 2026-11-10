@@ -340,9 +340,8 @@ static int __nocfi run_experiments(void) {
 
 		void* measurement_code = executor.measurement_code_views[0];
 
-		/* Three independent knobs (decoupled from the legacy pre_run_flush):
+		/* Two independent knobs (decoupled from the legacy pre_run_flush):
 		 *   view_rotation : serve the next view (invalidate_bpu_entries) -> tagged-table miss
-		 *   branch_training: re-apply the mistraining config
 		 *   phr_flush     : zero the branch-history register (BPU/PHR) ONCE before the trace
 		 *
 		 * phr_flush resets the branch history at the START of the trace (warm-ups + the first
@@ -354,7 +353,6 @@ static int __nocfi run_experiments(void) {
 			measurement_code = invalidate_bpu_entries();
 		}
 		splice_code_relocations(measurement_code, &current_input->input, false);
-		apply_input_branch_training(measurement_code, &current_input->input);
 		if (executor.config.phr_flush && i <= 0) {
 			flush_bpu_phr();
 		}

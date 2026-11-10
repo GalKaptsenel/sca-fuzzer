@@ -31,7 +31,7 @@ from .seal.environment import (default_sandbox_page_map, PteFuzzPolicy, Environm
 from .aarch64_contract_executor import (ContractExecution, ContractExecutorService,
                                         ExecutionClause, SUPPORTED_EXECUTION_CLAUSES,
                                         BranchPredictor, EXECUTION_CLAUSE_MAP, SimArch, MteProfile)
-from .aarch64_disasm import disassemble_instruction, is_conditional_branch, build_register_role_map
+from .aarch64_disasm import disassemble_instruction, build_register_role_map
 from .aarch64_trace import compute_ctrace, compute_taint, ContractExecutionResult
 from .aarch64_input_layout import _input_bytes_with_pstate, REGISTER_REGION_OFFSET
 from .aarch64_executor_input_encoder import ExecutorInput, MTE_TAG_COUNT
@@ -244,42 +244,6 @@ class Aarch64LocalExecutor(Aarch64Executor):
             self._sign_hw = LocalHWExecutor("/dev/executor", "/sys/executor")
         return self._sign_hw
 
-    def branch_mistraining_entries(self, cer) -> List[Tuple[int, bool]]:
-        """Compute the per-branch mistraining config from a CE trace, without touching the device.
-
-        For each architectural conditional branch in cer, the base predictor must be saturated
-        in the opposite direction so the first HW execution always mispredicts it.
-
-        :param cer: ContractExecutionResult for the input, or None
-        :return: list of (byte_offset, train_taken) entries; empty if no branches to train
-        """
-        # WIP, off by default (CONF.enable_branch_mistraining) pending hardware efficacy confirmation.
-        if not CONF.enable_branch_mistraining:
-            return []
-        if cer is None or len(cer) == 0:
-            return []
-
-        ce_code_base = cer[0].cpu.pc
-        entries = []
-        for i, ite in enumerate(cer):
-            if ite.metadata.speculation_nesting != 0:
-                continue
-            if not is_conditional_branch(ite.cpu.encoding):
-                continue
-            # arch direction from the next nest-0 entry: cer[i+1] may be a speculative
-            # (opposite-direction) entry at nesting>1, which would invert the training.
-            succ_pc = None
-            for j in range(i + 1, len(cer)):
-                if cer[j].metadata.speculation_nesting == 0:
-                    succ_pc = cer[j].cpu.pc
-                    break
-            if succ_pc is None:
-                continue
-            taken = (succ_pc != ite.cpu.pc + 4)
-            byte_offset = ite.cpu.pc - ce_code_base
-            entries.append((byte_offset, not taken))  # opposite → guaranteed mispredict
-        return entries
-
     def load_test_case(self, test_case: TestCase):
         self._tc_counter += 1
         log = FuzzLogger.get()
@@ -366,13 +330,9 @@ class Aarch64LocalExecutor(Aarch64Executor):
             log.w(f"  input={idx} spec: retired={ret:.0f} inst_spec={spec:.0f} "
                   f"wrongpath={spec - ret:.1f}", ch="basic_hw")
 
-    def _bpu_entries(self, inp: Input) -> Tuple[Tuple[int, bool], ...]:
-        """Per-input branch training from the input's CE trace (empty when unavailable)."""
-        return tuple(self.branch_mistraining_entries(getattr(inp, "_arch_trace", None)))
-
     def as_executor_input(self, inp: Input) -> ExecutorInput:
-        """Convert one arch input into its kernel input file — the fuzzer's boost seam."""
-        return ExecutorInput(inp, bpu_training=self._bpu_entries(inp))
+        """Convert one arch input into its kernel input file, the fuzzer's boost seam."""
+        return ExecutorInput(inp)
 
     def trace_test_case(self, exec_inputs: List[ExecutorInput],
                         n_reps: int) -> Tuple[List[HTrace], List[TestCase]]:
@@ -429,7 +389,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
 
     def trace_test_case_with_taints(self, inputs: List[Input], nesting: int) -> Tuple[List[CTrace], List[InputTaint], List[ContractExecutionResult]]:
         """Sandbox the test case, run CE per input, and return cache-set CTraces, input taints, and the
-        CE traces (the last feed per-input BPU mistraining)."""
+        per-input CE traces."""
         if not inputs or self.test_case is None:
             return [], [], []
 
@@ -819,12 +779,11 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         priming build the identical set."""
         resolved = self._resolve(inp)
         tags = self._mte_tags_for(inp)
-        bpu = self._bpu_entries(inp)
         keys = self._pac_keys_words(inp)
         plans = self._variants_for(resolved)
         env_plans = self._env_plans_for(resolved, inp)
         return {name: ExecutorInput(inp, gvt=image, mte_tags=tags, pac_keys=keys,
-                                    bpu_training=bpu, env_plan=env_plans[name])
+                                    env_plan=env_plans[name])
                 for name, image in plans.items()}
 
     def sealing_class_of(self, inp: Input) -> tuple:
@@ -885,15 +844,14 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         so boosting's re-randomised speculative lanes reach the hardware; strict ships the genuine image."""
         if self._contract_driven:
             return ExecutorInput(inp, gvt=None, mte_tags=self._mte_tags_for(inp),
-                                 pac_keys=self._pac_keys_words(inp), bpu_training=self._bpu_entries(inp))
+                                 pac_keys=self._pac_keys_words(inp))
         return self._seal_input(inp)
 
     def _seal_input(self, inp: Input) -> ExecutorInput:
-        """Extend an arch input to its baseline kernel input file — the genuine GVT image here; the
+        """Extend an arch input to its baseline kernel input file. The genuine GVT image here; the
         regular subclass overrides to the input's sealing-class image."""
         return ExecutorInput(inp, gvt=self._resolve(inp).genuine(),
-                             mte_tags=self._mte_tags_for(inp), pac_keys=self._pac_keys_words(inp),
-                             bpu_training=self._bpu_entries(inp))
+                             mte_tags=self._mte_tags_for(inp), pac_keys=self._pac_keys_words(inp))
 
     def _current_tc_bytes(self) -> bytes:
         assert self._sealed is not None, "sealed TC not built — load_test_case() not called"
@@ -945,4 +903,4 @@ class Aarch64RegularSealedExecutor(Aarch64SpeculativeExceptionExecutor):
         rng = stable_rng(resolved.collapse_key, self._sealed.salt)
         image = resolved.decoy(rng) if rng.random() < self._DECOY_PROB else resolved.genuine()
         return ExecutorInput(inp, gvt=image, mte_tags=self._mte_tags_for(inp),
-                             pac_keys=self._pac_keys_words(inp), bpu_training=self._bpu_entries(inp))
+                             pac_keys=self._pac_keys_words(inp))

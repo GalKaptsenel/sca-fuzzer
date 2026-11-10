@@ -43,9 +43,6 @@ typedef struct Input {
 	/* Relocations applied to the test case before this input executes; the terminator in
 	 * slot 0 means no relocations. */
 	struct revisor_code_reloc_entry code_reloc[REVISOR_INPUT_MAX_CODE_RELOCS + 1];
-	/* Conditional branches trained to a requested direction before this input executes; the
-	 * terminator in slot 0 means no branch training. */
-	struct revisor_bpu_train_entry bpu_train[REVISOR_INPUT_MAX_BPU_TRAIN + 1];
 	/* Page-table overrides applied to the sandbox pages before this input runs and reverted after
 	 * (the environment axis of NI fuzzing); guarded by pte_present. */
 	struct revisor_pte_override_entry pte_overrides[REVISOR_INPUT_MAX_PTE_OVERRIDES];
