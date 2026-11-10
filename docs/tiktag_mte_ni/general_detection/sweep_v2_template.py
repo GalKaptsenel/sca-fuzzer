@@ -91,7 +91,7 @@ def main():
             if rk is not None:
                 setu4(plan, rk, (C - u4) % 16)   # re-converge so the pointer ends at the cell tag
             var = ExecutorInput(g.input_, code_reloc=tuple(plan), mte_tags=g.mte_tags,
-                                pac_keys=g.pac_keys, bpu_training=g.bpu_training, env_plan=g.env_plan)
+                                pac_keys=g.pac_keys, env_plan=g.env_plan)
             res = tail(var)
             ptag = (base_ptr_tag + u4) % 16
             flag = "MATCH" if ptag == a.memtag else ("UNCHK" if ptag in (0, 15) else "mismatch")

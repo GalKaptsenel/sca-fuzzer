@@ -49,7 +49,7 @@ def main():
 
     def ei(mte):
         return ExecutorInput(g.input_, code_reloc=g.code_reloc, mte_tags=mte,
-                             pac_keys=g.pac_keys, bpu_training=g.bpu_training, env_plan=g.env_plan)
+                             pac_keys=g.pac_keys, env_plan=g.env_plan)
 
     # enumerate SPECULATIVE granules from the CE (nesting>0), tag byte masked off
     sealed = ex._sealer.seal(fz.asm_parser.parse_file(f"{vd}/generated.asm"))

@@ -74,7 +74,7 @@ def main():
         plan = list(relocs)
         plan[kb] = Reloc(relocs[kb].offset, dput(relocs[kb].value, d), relocs[kb].rtype)
         return ExecutorInput(g.input_, code_reloc=tuple(plan), mte_tags=mte,
-                             pac_keys=g.pac_keys, bpu_training=g.bpu_training, env_plan=g.env_plan)
+                             pac_keys=g.pac_keys, env_plan=g.env_plan)
 
     def tail_set(variant):
         hts, _ = ex.trace_test_case(prefix + [variant], reps)

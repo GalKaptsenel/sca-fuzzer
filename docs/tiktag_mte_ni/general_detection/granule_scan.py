@@ -43,8 +43,7 @@ def main():
     def dput(v, d): return (v & ~(0xF << 10)) | ((d & 0xF) << 10)
     def meas(d, mte):
         plan = list(relocs); plan[kb] = Reloc(relocs[kb].offset, dput(relocs[kb].value, d), relocs[kb].rtype)
-        v = ExecutorInput(g.input_, code_reloc=tuple(plan), mte_tags=mte, pac_keys=g.pac_keys,
-                          bpu_training=g.bpu_training, env_plan=g.env_plan)
+        v = ExecutorInput(g.input_, code_reloc=tuple(plan), mte_tags=mte, pac_keys=g.pac_keys, env_plan=g.env_plan)
         hts, _ = ex.trace_test_case(prefix + [v], reps); return res1(hts[-1], tset)
     print(f"{os.path.basename(vd)} set={tset} gate=0x{gate:x} C={C} base_tag={base_tag} "
           f"d(tag6)={d_def} d(tag{T})={d_T} reps={reps}")

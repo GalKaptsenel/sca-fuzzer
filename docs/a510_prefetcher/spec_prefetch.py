@@ -33,7 +33,7 @@ def run(x2, training, tag):
         inp = V.BASE.copy()
         inp[0]['gpr'][1] = ADDR
         inp[0]['gpr'][2] = x2
-        ei = ExecutorInput(input_=inp, bpu_training=training)
+        ei = ExecutorInput(input_=inp)
         ht, _ = V.ex.trace_test_case([ei], V.REPS)
         raw = ht[0].raw; n = len(raw) or 1
         fr = [sum((r >> b) & 1 for r in raw)/n for b in range(64)]

@@ -57,7 +57,7 @@ def main():
 
     def ei(plan, mte):
         return ExecutorInput(g.input_, code_reloc=tuple(plan), mte_tags=mte,
-                             pac_keys=g.pac_keys, bpu_training=g.bpu_training, env_plan=g.env_plan)
+                             pac_keys=g.pac_keys, env_plan=g.env_plan)
 
     # pair seals: before(delta=c!=0) + after at +8 (same Xd, delta 0) = base-preserved; else persist single
     addg = [(k, r) for k, r in enumerate(relocs) if (r.value & 0xFFC00000) == ADDG_OP]

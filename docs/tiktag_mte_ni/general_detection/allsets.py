@@ -88,7 +88,7 @@ def main():
         applied.append(f"retag g{gg}->{tt}")
 
     variant = ExecutorInput(g.input_, code_reloc=tuple(plan), mte_tags=mte,
-                            pac_keys=g.pac_keys, bpu_training=g.bpu_training, env_plan=g.env_plan)
+                            pac_keys=g.pac_keys, env_plan=g.env_plan)
 
     others = [i for i in range(P + 6) if i != sus][:P]
     prefix = [ex.genuine_variant(load(i)) for i in others]

@@ -81,14 +81,13 @@ def main():
         v = (v & ~(0x3F << 16)) | ((u6 & 0x3F) << 16)
         plan[k] = Reloc(plan[k].offset, v, plan[k].rtype)
         return ExecutorInput(g.input_, code_reloc=tuple(plan), mte_tags=g.mte_tags,
-                             pac_keys=g.pac_keys,
-                             bpu_training=() if notrain else g.bpu_training, env_plan=g.env_plan)
+                             pac_keys=g.pac_keys, env_plan=g.env_plan)
 
     others = [i for i in range(P + 6) if i != sus][:P]
     prefix = [ex.genuine_variant(load(i)) for i in others]
     if notrain:  # strip per-input BPU mistraining from the whole batch (window-off test)
         prefix = [ExecutorInput(p.input_, code_reloc=p.code_reloc, mte_tags=p.mte_tags,
-                                pac_keys=p.pac_keys, bpu_training=(), env_plan=p.env_plan)
+                                pac_keys=p.pac_keys, env_plan=p.env_plan)
                   for p in prefix]
 
     def one(v):

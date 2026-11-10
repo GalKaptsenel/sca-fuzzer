@@ -55,7 +55,7 @@ def main():
 
     def ei(plan):
         return ExecutorInput(g.input_, code_reloc=tuple(plan), mte_tags=g.mte_tags,
-                             pac_keys=g.pac_keys, bpu_training=g.bpu_training, env_plan=g.env_plan)
+                             pac_keys=g.pac_keys, env_plan=g.env_plan)
 
     # index ADDG relocs by offset
     addg = [(k, r) for k, r in enumerate(relocs) if (r.value & 0xFFC00000) == ADDG_OP]
