@@ -64,3 +64,27 @@ src/aarch64/executor/test_pac_auth_verify
 # local fuzzing run outputs + scratch
 out_*/
 tmp_dir/
+tmp_dir_pac/
+eval_out/
+pte_out*/
+xinput_runs/
+canon_violations/
+leftover_*/
+scratch/
+
+# vendored nginx source for the PoC (upstream, not part of the repo)
+nginx-1.26.3/
+nginx_1.26.3*
+
+# core dumps and coverage
+core.*
+.coverage
+
+# LaTeX build products
+*.aux
+*.toc
+*.synctex.gz
+
+# scratch run file (regenerated each run) + ad-hoc tmp dir
+rerun.yaml
+tmp/
