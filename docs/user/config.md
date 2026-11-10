@@ -773,3 +773,106 @@ Default: 1
 ```
 
 Number of minimization retries. When the minimizer performs a check to reduce a test case, each check is attempted this number of times and it succeeds if at least one check is successful.
+
+## Multi-function test cases
+
+```yaml
+Name: min_functions_per_test_case
+Default: 1
+```
+
+Minimum number of functions per generated test case. The first function is the entry and the rest are
+callees reached only through calls.
+
+```yaml
+Name: max_functions_per_test_case
+Default: 1
+```
+
+Maximum number of functions per generated test case. Functions are laid out in index order and a
+function may only call a higher-indexed one, so the call graph is acyclic (no recursion or loops).
+
+```yaml
+Name: function_call_probability
+Default: 0.5
+```
+
+When a test case has more than one function, the probability that a given instruction slot in a caller
+is emitted as a call to a randomly chosen higher-indexed function instead of a regular instruction. 0
+disables calls.
+
+```yaml
+Name: max_calls_per_function
+Default: 2
+```
+
+Cap on the number of call instructions a single function may emit, bounding the call graph's fan-out.
+
+```yaml
+Name: function_size_shrink
+Default: 0.5
+```
+
+Each successive (higher-indexed) function is generated with this fraction of the previous one's
+instruction budget. Because a callee at depth d executes about c^d times, shrinking its length keeps
+total executed work near-linear. 1.0 disables shrinking.
+
+```yaml
+Name: indirect_call_probability
+Default: 0.0
+```
+
+When a call is emitted, the probability it is an indirect call (`ADR Xd, <target>` then `BLR Xd`)
+instead of a direct `BL <target>`. 0 keeps all calls direct and 1 forces every call indirect. Each
+indirect call targets a single forward function unless it is upgraded to a multi-target dispatch (see
+dispatch_call_probability).
+
+```yaml
+Name: dispatch_call_probability
+Default: 0.0
+```
+
+Of the indirect calls, the fraction upgraded from a single-target `ADR` to a multi-target dispatch
+through the caller's own per-function jump table of forward callees. It needs at least two forward
+callees or the call stays single-target. Table entries are PC-relative, so the table resolves
+identically in the contract executor and the kernel. 0 keeps every indirect call single-target.
+
+## Triage
+
+```yaml
+Name: enable_triage
+Default: False
+```
+
+Run the triage suite on every violation in-pipeline to locate the exact input in the batch order that
+causes the divergence. Violations are kept and annotated with the culprit index.
+
+```yaml
+Name: triage_reps
+Default: 100
+```
+
+Sample size for triage measurements, independent of executor_sample_sizes.
+
+```yaml
+Name: triage_warmup
+Default: 3
+```
+
+Number of warm-up traces run once at the start of a violation's triage to settle history-dependent
+state. 0 disables it.
+
+```yaml
+Name: triage_capture
+Default: True
+```
+
+When triage classifies a violation as an order or position effect, store its full artifact (test case,
+input batch, and a triage note naming the culprit) even if the pipeline would otherwise drop it.
+
+```yaml
+Name: executor_pinned_core
+Default: 0
+```
+
+Physical CPU id the executor pins measurement to.
