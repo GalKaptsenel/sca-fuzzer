@@ -51,10 +51,6 @@ void mte_emulate_retag(struct simulation_state *sim_state, const struct emul_row
 	uint8_t base_tag = (uint8_t)((cpu_state_read_base_reg(cpu, get_rn(access)) >> 56) & 0xFu);
 	uint8_t ea_tag = (uint8_t)((ea >> 56) & 0xFu);
 	uint8_t applied = (uint8_t)((base_tag + cell - ea_tag) & 0xFu);
-	if (mte_tag_log_enabled()) {
-		fprintf(stderr, "MTERETAG side=CE off=0x%x ea=0x%lx gran=%ld cell=%u base_tag=%u ea_tag=%u applied=%u\n",
-			row->offset, (unsigned long)ea, ce_granule(ea), cell, base_tag, ea_tag, applied);
-	}
 	// Inject the applied tag into the applied lane (genuine) and the re-converge lane; each is one byte,
 	// read by the site's UMOV.b and inserted into the base register's tag [59:56] by BFI.
 	if (row->gvt_offset >= sizeof(simulation.sim_input.simd) ||

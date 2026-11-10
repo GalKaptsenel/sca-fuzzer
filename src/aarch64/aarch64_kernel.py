@@ -3,93 +3,25 @@ File: AArch64 kernel-module executor control.
   - ioctl ABI (request structs, ioctl numbers, decode helper)
   - executor memory regions and measurement types
   - LocalHWExecutor: the local userland driver for the revizor-executor kernel module
-  - op-timing profiling of the kernel operations
 """
 from __future__ import annotations
 import os
 import re
-import uuid
 import functools
 import ctypes
 import time
 from typing import (
-    List, Literal, Union, Optional, Type, Callable, Tuple, Dict, Any, NoReturn, TYPE_CHECKING)
+    List, Literal, Union, Optional, Type, Callable, Tuple, Dict, NoReturn, TYPE_CHECKING)
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from collections import defaultdict
 
 from .aarch64_batch import TraceUnit, HWMeasurement, encode_request, decode_response
 from ..interfaces import HardwareTracingError
-from contextlib import contextmanager
-from functools import wraps
 from ..config import CONF
-from ..util import STAT   # TEMP(perf-metrics): remove with the traces/s instrumentation
+from ..util import STAT
 
 if TYPE_CHECKING:
     from .aarch64_connection import Connection
-
-# TEMP(op-profiling): ad-hoc per-ioctl timing profiler; remove later (grep this tag).
-# Off by default — set REVIZOR_PROFILE_OPS=1 to collect. It records a running
-# [count, total_seconds] aggregate per op name (not a per-call sample list), so even when enabled a
-# long run (millions of ioctls) can't grow it without bound; the summary only needs count and total.
-_PROFILE_OPS = os.environ.get("REVIZOR_PROFILE_OPS") == "1"
-op_timings: Dict[Any, list] = defaultdict(lambda: [0, 0.0])
-
-
-def _record_op(name, duration: float) -> None:
-    if not _PROFILE_OPS:
-        return
-    agg = op_timings[name]
-    agg[0] += 1
-    agg[1] += duration
-
-
-def profile_by_opcode(func):
-
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        cmd = args[1] if len(args) > 1 else None
-        start = time.time()
-        try:
-            return func(*args, **kwargs)
-        finally:
-            _record_op(cmd, time.time() - start)
-
-    return wrapper
-
-@contextmanager
-def profile_op(name: str):
-    start = time.time()
-    try:
-        yield
-    finally:
-        _record_op(name, time.time() - start)
-
-
-def print_opcode_summary():   # TEMP(op-profiling): remove later
-    if not op_timings:
-        print("No opcode data collected." if _PROFILE_OPS
-              else "Op profiling disabled (set REVIZOR_PROFILE_OPS=1 to collect).")
-        return
-
-    # Compute total runtime for all opcodes (op_timings[op] == [count, total_seconds])
-    total_runtime = sum(total for _, total in op_timings.values())
-
-    # Header
-    print("\n=== Opcode Profiling Summary ===")
-    print(f"{'Opcode':<30} | {'Count':>6} | {'Avg (ms)':>10} | {'Total (ms)':>11} | {'% of total':>10}")
-    print("-" * 80)
-
-    # Sort opcodes by total runtime descending
-    sorted_ops = sorted(op_timings.items(), key=lambda x: x[1][1], reverse=True)
-
-    for op, (count, total) in sorted_ops:
-        avg = total / count if count else 0
-        percent = (total / total_runtime) * 100 if total_runtime > 0 else 0
-        print(f"{op:<30} | {count:>6} | {avg*1000:>10.3f} | {total*1000:>11.3f} | {percent:>9.2f}%")
-
-    print("-" * 80)
-    print(f"{'Total':<30} | {'':>6} | {'':>10} | {total_runtime*1000:>11.3f} | {100:>9.2f}%\n")
 
 
 def read_device(fd, chunk_size=4*1024) -> bytes:
@@ -391,15 +323,14 @@ class LocalHWExecutor(HWExecutor):
             _raise_access_error(path, self.executor_sysfs, e)
 
     def _ioctl(self, cmd: int, arg=None):
-        with profile_op(f'ioctl {decode_ioctl(cmd)["name"]}'):
-            if arg is None:
-                arg = 0
-            if isinstance(arg, int):
-                buf = ctypes.c_uint64(arg)
-                ret = self._fcntl.ioctl(self.fd, cmd, buf)
-                return buf.value
-            else:
-                return self._fcntl.ioctl(self.fd, cmd, arg)
+        if arg is None:
+            arg = 0
+        if isinstance(arg, int):
+            buf = ctypes.c_uint64(arg)
+            self._fcntl.ioctl(self.fd, cmd, buf)
+            return buf.value
+        else:
+            return self._fcntl.ioctl(self.fd, cmd, arg)
 
     def trace(self):
         self._ioctl(REVISOR_TRACE)
@@ -426,16 +357,14 @@ class LocalHWExecutor(HWExecutor):
 
     @property
     def contents(self) -> ExecutorMemory:
-        with profile_op("read"):
-            raw = read_device(self.fd)
-            return ExecutorMemory(raw)
+        raw = read_device(self.fd)
+        return ExecutorMemory(raw)
 
     def write(self, data: bytes | ExecutorMemory) -> None:
         if isinstance(data, ExecutorMemory):
             data = bytes(data)
 
-        with profile_op('write'):
-            os.write(self.fd, data)
+        os.write(self.fd, data)
 
     @contents.deleter
     def contents(self) -> None:
@@ -632,8 +561,7 @@ class RemoteHWExecutor(HWExecutor):
     @retry(max_times=_RETRIES, retry_on=IOError, backoff=0.5)
     def _run_batch_request(self, cmd: str, request: bytes) -> bytes:
         """The transport round-trip, retried on transient IOError (dropped connection, adb reject)."""
-        with profile_op("batch"):
-            return self._conn.run(cmd, request, privileged=False)
+        return self._conn.run(cmd, request, privileged=False)
 
     def run_batch(self, units: List[TraceUnit], n_reps: int) -> List[List[List[HWMeasurement]]]:
         request = encode_request(units, n_reps)

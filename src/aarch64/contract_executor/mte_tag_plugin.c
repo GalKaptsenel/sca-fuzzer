@@ -249,40 +249,6 @@ uint8_t mte_tagmem_tag_at(uintptr_t addr) {
 	return ce_tag_at(addr);
 }
 
-int mte_tag_log_enabled(void) {
-	static int cached = -1;
-	if (cached < 0) {
-		const char* e = getenv("CE_MTE_TAG_LOG");
-		cached = (NULL != e && '\0' != e[0] && '0' != e[0]) ? 1 : 0;
-	}
-	return cached;
-}
-
-/* Dump the CE's modeled tag memory (main|faulty granules seeded from the input) as chunked,
- * offset-labeled MTETAG lines, directly comparable to the kernel executor's HW pretrace dump. */
-void mte_tagmem_log(const char* when, long seq) {
-	if (!mte_tag_log_enabled()) {
-		return;
-	}
-	if (NULL == g_tagmem) {
-		fprintf(stderr, "MTETAG side=CE seq=%ld when=%s active=0 (no tag memory)\n", seq, when);
-		return;
-	}
-	static const char hexd[] = "0123456789abcdef";
-	fprintf(stderr, "MTETAG side=CE seq=%ld when=%s base=0x%lx ngran=%zu\n",
-	        seq, when, (unsigned long)g_tagmem_base, g_tagmem_n);
-	char buf[129];
-	for (size_t off = 0; off < g_tagmem_n; off += 128) {
-		size_t m = (g_tagmem_n - off < 128) ? (g_tagmem_n - off) : 128;
-		for (size_t k = 0; k < m; ++k) {
-			buf[k] = hexd[g_tagmem[off + k] & 0xF];
-		}
-		buf[m] = 0;
-		fprintf(stderr, "MTETAG side=CE seq=%ld when=%s region=main off=%lld n=%zu tags=%s\n",
-		        seq, when, (long long)(off * 16), m, buf);
-	}
-}
-
 /* STG-family / LDG immediate offset: SignExtend(bits[20:12]) * 16 (the granule size). */
 static int64_t mte_mem_offset(uint32_t enc) {
 	int64_t s9 = (int64_t)((int32_t)((enc >> 12) & 0x1FFu) << 23) >> 23;
@@ -468,13 +434,6 @@ void* mte_emulator_hook(struct simulation_state* sim_state)
 			uintptr_t addr  = (0x1u == mode) ? basev : basev + (uintptr_t)off;   /* post uses base */
 			uint8_t tag = (uint8_t)((cpu_state_read_base_reg(state, rd) >> 56) & 0xFu);
 			ce_tag_set(addr, tag);
-			if (mte_tag_log_enabled()) {
-				fprintf(stderr, "MTELDST side=CE STG pc=0x%lx addr=0x%lx off_from_base=%ld basev=0x%lx "
-				        "imm_off=%ld mode=%u tag=%u ptr_tag=%u\n",
-				        (unsigned long)sim_state->cpu_state.pc, (unsigned long)addr,
-				        (long)((addr & 0x00FFFFFFFFFFFFFFu) - g_tagmem_base), (unsigned long)basev,
-				        (long)off, mode, tag, (unsigned)((basev >> 56) & 0xFu));
-			}
 			if (zero) {
 				ce_data_zero_granule(sim_state, addr);
 			}

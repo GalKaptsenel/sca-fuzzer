@@ -11,8 +11,6 @@ import subprocess
 from ppadb.client import Client as AdbClient
 import paramiko
 
-from .aarch64_kernel import profile_op
-
 
 class Connection:
     def __init__(self):
@@ -126,12 +124,10 @@ class SSHConnection(Connection):
         return out
 
     def push(self, src, dst):
-        with profile_op('push'):
-            return self.sftp.put(src, dst)
+        return self.sftp.put(src, dst)
 
     def pull(self, src, dst):
-        with profile_op('pull'):
-            return self.sftp.get(src, dst)
+        return self.sftp.get(src, dst)
 
     def is_file_present(self, filename: str) -> bool:
         try:
