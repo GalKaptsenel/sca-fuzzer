@@ -8,7 +8,7 @@ the TikTag-v1 instantiation; sections 8–9 are triage and transport.
 ## 0. One-paragraph overview
 
 "Speculative-exception fuzzing" (formerly "non-interference") tests that a precondition which holds
-architecturally but is violated only on a speculative path cannot leak. For each sealed access the
+architecturally but is violated only on a speculative path cannot leak. For each instrumented access the
 fuzzer runs several *variants* of one architectural input: a **genuine** variant (the precondition
 holds — correct PAC signature / matching MTE tag / canonical address) and one or more **decoy**
 variants (the precondition is violated only on the speculative path). The test-case code is
@@ -19,14 +19,14 @@ left a microarchitectural footprint.
 
 ## 1. GlobalValueTable (GVT): in-register value delivery
 
-`src/aarch64/seal/global_value_table.py` — the GVT is "a GOT, but in a register": the code reads each
-seal's value from a reserved vector lane instead of having the value spliced into the code.
+`src/aarch64/gvt/global_value_table.py` — the GVT is "a GOT, but in a register": the code reads each
+GVT access's value from a reserved vector lane instead of having the value spliced into the code.
 
 - `VectorGlobalValueTable` (`global_value_table.py:99`) backs the table with the vector file, allocating
   top register first (`v31` down, `TOP_REG=31`, `SIMD_BASE_REG=0`, `global_value_table.py:13-14`),
   byte-aligned, never straddling a register (`allocate`, `:113-123`). Capacity is a bit budget rounded
   up to whole registers (`:103-109`); overflow raises `GlobalValueTableCapacityExceeded` (`:119-121`) —
-  no fallback. The sealer builds it over the whole vector file (512 bytes) at `sealer.py:615`.
+  no fallback. The builder builds it over the whole vector file (512 bytes) at `builder.py:615`.
 - `_VectorLocation.load` (`global_value_table.py:71-78`) emits the one fixed instruction that reads a
   lane: `UMOV <w|x>tmp, v<reg>.<b|h|s|d>[idx]`, element size chosen from the field width
   (`_UMOV_LANE`, `:11`). `byte_range()` (`:80-82`) maps a lane to its byte offset in the REIF SIMD
@@ -35,45 +35,45 @@ seal's value from a reserved vector lane instead of having the value spliced int
   writes the value little-endian into the lane's byte range (`:89-93`); `to_section()` emits a
   `SimdSection` (`:95-96`). The whole image is `SIMD_SUBREGION_SIZE` bytes.
 
-## 2. SealValue: what each lane holds and how the fixed slot applies it
+## 2. GvtValue: what each lane holds and how the fixed slot applies it
 
-`src/aarch64/seal/seal_values.py` — one class per value kind; each owns its width, encoding
+`src/aarch64/gvt/values.py` — one class per value kind; each owns its width, encoding
 (right-aligned in the lane), and the fixed apply sequence (a lane load + one data-processing op).
 
-- `MteTag` (`seal_values.py:60-70`): a 4-bit allocation tag in a 1-byte lane; `apply` = `UMOV` +
+- `MteTag` (`values.py:60-70`): a 4-bit allocation tag in a 1-byte lane; `apply` = `UMOV` +
   `BFI target, tmp, #56, #4` — inserts the tag into the pointer's tag field [56,60).
-- `PacSignature` (`seal_values.py:35-57`): the PAC-field window right-aligned; `apply` = `UMOV` +
+- `PacSignature` (`values.py:35-57`): the PAC-field window right-aligned; `apply` = `UMOV` +
   `BFI target, tmp, #lsb, #nbits`.
-- `MaskFlip` (`seal_values.py:73-90`): a bitmask XORed in (canonicality / branch-target / sign-ext);
+- `MaskFlip` (`values.py:73-90`): a bitmask XORed in (canonicality / branch-target / sign-ext);
   `apply` = `UMOV` + `EOR target, target, tmp, LSL #lo`. The genuine value is mask 0 (a no-op), so a
-  canon/branch seal needs no CE injection — its genuine image is all-zero.
+  canon/branch GVT access needs no CE injection — its genuine image is all-zero.
 
-The scratch GPR for the `UMOV`→`BFI`/`EOR` is a fixed reserved register (`SEAL_SCRATCH_REGISTER`,
-defined in `src/aarch64/aarch64_target_desc.py`, imported at `sealer.py:29`, used at `sealer.py:134,173`),
+The scratch GPR for the `UMOV`→`BFI`/`EOR` is a fixed reserved register (`GVT_SCRATCH_REGISTER`,
+defined in `src/aarch64/aarch64_target_desc.py`, imported at `builder.py:29`, used at `builder.py:134,173`),
 excluded from the body's register budget.
 
-## 3. The sealer: slots, resolution, genuine/decoy images
+## 3. The builder: slots, resolution, genuine/decoy images
 
-`src/aarch64/seal/sealer.py`.
+`src/aarch64/gvt/builder.py`.
 
-- A `Sealing` (`:60`) owns one seal: its fixed slot instructions (`slot_insts`) and `store_into(image,
-  applied, genuine)` (`:71`). `MteSealing` (`:158`) is the TikTag seal: it BFIs an **applied** tag from
+- A `GvtAccess` (`:60`) owns one GVT access: its fixed slot instructions (`slot_insts`) and `store_into(image,
+  applied, genuine)` (`:71`). `MteGvtAccess` (`:158`) is the TikTag GVT access: it BFIs an **applied** tag from
   one lane before the access, and — when the access preserves its base — BFIs the **genuine cell tag**
-  from a second lane after it, so every variant re-converges to the real tag and only the sealed access
+  from a second lane after it, so every variant re-converges to the real tag and only the instrumented access
   sees the perturbation (`:158-178`). `store_into` (`:180-183`) writes the applied lane (decoy-variable)
   and the re-converge lane (always genuine).
-- `SealedTestCase` (`:600`) places the slots (`_insert_slots`, subclass-specific) and resolves. The
+- `GvtTestCase` (`:600`) places the slots (`_insert_slots`, subclass-specific) and resolves. The
   salt that seeds every decoy choice is derived from the **test-case bytes** (`stable_hash_bytes`,
   `:613`), and the global RNG is seeded from it only around slot insertion then restored (`:617-622`),
-  so fuzzing and `reproduce` seal **identically** (this is what makes the find reproducible).
+  so fuzzing and `reproduce` GVT access **identically** (this is what makes the find reproducible).
 - `resolve(inp)` (`:652-663`) runs one CE trace per input (memoized), builds the `_Resolved` entries,
-  and returns a `ResolvedSealingTestCase`.
-- `ResolvedSealingTestCase` (`:383`): `object_code` (`:406-408`) is the input-independent code; a
+  and returns a `ResolvedGvtTestCase`.
+- `ResolvedGvtTestCase` (`:383`): `object_code` (`:406-408`) is the input-independent code; a
   variant is just a GVT image. `genuine()` (`:415-416`) stores every slot's correct value; `decoy(rng)`
   (`:418-422`) perturbs a non-empty subset of the *eligible* slots — those that are **speculative and
   carry alternatives** (`_eligible`, `:424-428`). `_build_image` (`:433-442`) is the whole image fill:
   for each entry, `store_into(image, alt-if-perturbed-else-genuine, genuine)`. `collapse_key` (`:444`)
-  groups inputs whose every slot resolves to the same (value, speculative) so one sealed program is
+  groups inputs whose every slot resolves to the same (value, speculative) so one instrumented program is
   arch-safe for all of them.
 
 ## 4. The genuine contract trace + CE value injection
@@ -82,16 +82,16 @@ The genuine contract trace must run the *same fixed code* as the genuine variant
 know the runtime PAC signature / cell tag a priori. The resolve trace ships a **blank** GVT image plus
 an **emulation table**, and the CE injects each site's genuine value into the image as it reaches it.
 
-- `SealedTestCase._resolve_trace` (`sealer.py:671-680`): assembles the fixed code, ships
-  `simd = blank image` and `emul_table = pack_emul_table(self._emul_rows())`. `MteSealing.emul_row`
-  (`sealer.py:194-201`) carries the slot's first instruction, the access anchor, and the two lane byte
+- `GvtTestCase._resolve_trace` (`builder.py:671-680`): assembles the fixed code, ships
+  `simd = blank image` and `emul_table = pack_emul_table(self._emul_rows())`. `MteGvtAccess.emul_row`
+  (`builder.py:194-201`) carries the slot's first instruction, the access anchor, and the two lane byte
   offsets (`EMUL_OP_MTE_RETAG`).
 - CE dispatch: `instruction_emulator.c:13-14` maps `EMUL_OP_PAC_AUTH`→`pac_emulate_auth`,
   `EMUL_OP_MTE_RETAG`→`mte_emulate_retag`.
-- `mte_emulate_retag` (`src/aarch64/contract_executor/mte_seal_plugin.c:22`) reads the accessed cell's
+- `mte_emulate_retag` (`src/aarch64/contract_executor/mte_gvt_plugin.c:22`) reads the accessed cell's
   tag and writes it into the GVT image buffer at both lane offsets
   (`simulation.sim_input.simd[row->gst_offset] = applied; ...simd[row->gst_offset2] = applied;`,
-  `mte_seal_plugin.c:65-66`), with bounds checks that abort loudly (`:60-62`).
+  `mte_gvt_plugin.c:65-66`), with bounds checks that abort loudly (`:60-62`).
 - `base_hook.S` reloads the whole vector file from the image after each C hook, so the next `UMOV`
   reads the just-injected value: `gst_image_target` is patched to `&sim_input.simd` (`base_hook.S:2,10`)
   and v0–v31 are reloaded before control returns to the test case (`base_hook.S:45-47`). This is the
@@ -107,7 +107,7 @@ genuine contract trace (same trust basis as the pre-GVT, relocation-era code).
 - `variants_for_input` (`:817-826`) builds `{variant_name: ExecutorInput(inp, gvt=image, mte_tags=…,
   pac_keys=…)}` from the resolved genuine/decoy images. `genuine_variant` (`:835`) is the baseline;
   decoys are `SpecExcVariant.decoy_n(i)` (`:850-853`).
-- Strict mode `_seal_input` (`:939-947`) ships one sealed program per sealing class — genuine, or a
+- Strict mode `_build_gvt_input` (`:939-947`) ships one instrumented program per GVT access class — genuine, or a
   decoy by a per-class coin — so a stale `AUT*`/tag fault can never reset the box. contract_driven mode
   (`as_executor_input`, `:882-887`) carries the GVT in the input's own SIMD subregion (`gvt=None`) and
   freezes only the arch-consumed lanes.
@@ -135,9 +135,9 @@ mispredicted path shrinks the speculation window on a tag **mismatch**, so a dow
 footprint depends on the tag.
 
 - **Template** `docs/tiktag_mte_ni/general_detection/user_mte_skeleton.asm`: a Spectre-v1 window (an
-  SDIV dependency chain → `ORR` → `CBNZ .bb_0.2`), one sealed tagged `LDR x12,[x5]` in the
+  SDIV dependency chain → `ORR` → `CBNZ .bb_0.2`), one instrumented tagged `LDR x12,[x5]` in the
   not-architecturally-taken shadow block `.bb_0.1`, and `.macro.random_instructions.*` fill before and
-  after. The sealer wraps that `LDR` in an `MteSealing` (applied tag before, re-converge after).
+  after. The builder wraps that `LDR` in an `MteGvtAccess` (applied tag before, re-converge after).
 - **Contract** `docs/tiktag_mte_ni/general_detection/s1_mte_hw_hard_noMT.yml`: `contract_execution_
   clause: [cond]` (the conditional-branch window, not store-bypass), `l1d` observation. The CE models
   the AArch64 contract where the tag is TBI-masked for addressing, so under the contract the
@@ -155,7 +155,7 @@ A violation is only called GENUINE after four gates, all GVT-aware
 (`docs/tiktag_mte_ni/general_detection/{auto_triage,triage_sweep,tag_track}.py`,
 `.claude/skills/verify-mte-tag-leak/accounting.py`):
 
-1. **Tag-only** (`accounting.py`): genuine vs decoy GVT images differ only in `MteSealing` applied-tag
+1. **Tag-only** (`accounting.py`): genuine vs decoy GVT images differ only in `MteGvtAccess` applied-tag
    lanes (code is byte-identical by construction).
 2. **Speculative-only leaking set** (`accounting.py`): a hardware-diverging set must be a CE
    speculative access (or a prefetch stream of one), not an architectural demand — architectural
@@ -167,7 +167,7 @@ A violation is only called GENUINE after four gates, all GVT-aware
    the detected match tag moves with it — the decisive pointer-vs-memory-check proof. An ineffective
    patch is declared INVALID, never a false negative.
 
-The sweep/track build variants by rewriting the GVT image (`store_into` on the suspect sealing, cell
+The sweep/track build variants by rewriting the GVT image (`store_into` on the suspect GVT access, cell
 lane kept genuine) and shipping it with `dataclasses.replace(genuine_variant, gvt=image)` — no
 relocation plans.
 
@@ -182,7 +182,7 @@ stdout and a device error surfaced as an opaque "bad magic".
 
 ## 10. Determinism
 
-The sealer salt is the test-case byte hash (`sealer.py:613`), and the global RNG is seeded from it only
+The builder salt is the test-case byte hash (`builder.py:613`), and the global RNG is seeded from it only
 around slot insertion (`:617-622`). So a saved violation's `generated.asm` + its `.reif` inputs
 reconstruct byte-identical variants under `revizor.py reproduce`, which is why the find reproduces
 exactly.
