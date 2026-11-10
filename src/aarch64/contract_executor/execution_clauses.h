@@ -7,21 +7,21 @@
 
 /* One composable execution clause. The engine enables the subset whose clause_bit is set in
  * the run's execution_clauses bitmask and drives them through these callbacks. Each clause
- * lives in its own file and exposes one such descriptor; the registry collects them. */
+ * lives in its own file and exposes one such descriptor. the registry collects them. */
 struct execution_clause_descriptor {
 	const char* name;
 	uint32_t    clause_bit;                            /* EXEC_CLAUSE_* that enables this clause */
 	void  (*on_init)(uint64_t index);                  /* CE-start: record index, one-time setup */
 	void  (*on_reset)(void);                           /* per-simulation (re)init                 */
 	/* Per instruction. To speculate, request a window (spec_request_window) or open one directly
-	 * (spec_push_frame); otherwise do nothing and the instruction runs architecturally. */
+	 * (spec_push_frame). otherwise do nothing and the instruction runs architecturally. */
 	void (*on_instruction)(struct simulation_state* sim_state);
 	/* Barrier honoring (called only when EXEC_CLAUSE_BARRIER is also enabled). If the current
 	 * instruction is a barrier that fences this clause's speculation AND this clause has an open
-	 * window, return the id of the oldest such window to revert through; otherwise SPEC_NO_REVERT.
+	 * window, return the id of the oldest such window to revert through. otherwise SPEC_NO_REVERT.
 	 * NULL => this clause is barrier-agnostic. */
 	uint64_t (*on_barrier)(struct simulation_state* sim_state);
-	/* Recover a frame this clause pushed; NULL => engine reloads the frame's checkpoint. */
+	/* Recover a frame this clause pushed. NULL => engine reloads the frame's checkpoint. */
 	void  (*on_rollback)(struct simulation_state* sim_state,
 	                     const struct execution_checkpoint_desc* frame);
 };

@@ -2,7 +2,7 @@
 #define CE_ADDR_XLATE_H
 
 /* Pure kaddr<->uaddr translation arithmetic (the simulation_output.c wrappers pass the live globals).
- * kaddr = the sandbox address the test computes (based at kbase, a TTBR1 VA); uaddr = the matching
+ * kaddr = the sandbox address the test computes (based at kbase, a TTBR1 VA). uaddr = the matching
  * offset into the CE's simulation_memory. kaddr2uaddr masks the top byte (TBI tag), so
  * uaddr2kaddr(kaddr2uaddr(k)) restores k only when k's top byte already equals kbase's. */
 

@@ -9,7 +9,7 @@ from .aarch64_input_layout import REGISTER_REGION_OFFSET
 from .aarch64_disasm import (_CAPSTONE, disassemble_instruction,
                              decode_reg_accesses, is_conditional_branch)
 
-# ANSI color codes for terminal-viewable logs (files get codes too; use `less -R` or `cat`)
+# ANSI color codes for terminal-viewable logs (files get codes too. use `less -R` or `cat`)
 _C_RESET  = "\033[0m"
 _C_ARCH   = "\033[32m"    # green , arch execution (nesting 0)
 _C_SPEC1  = "\033[33m"    # yellow, speculative (nesting 1)

@@ -92,7 +92,7 @@ class CrossInputPrimingMixin(_MixinBase):
 
     executor: Aarch64LocalExecutor
 
-    # Default regime: reset the BPU/PHR ONCE per trace (post-fix phr_flush; see measurement.c) and keep
+    # Default regime: reset the BPU/PHR ONCE per trace (post-fix phr_flush. see measurement.c) and keep
     # cross-input training within a trace (view_rotation off, so all inputs share one code view).
     # Captured and restored around the search so the surrounding fuzzing keeps its usual regime. The speculative-exception
     # fuzzer overrides this with the GVT access-lane regime.
@@ -258,7 +258,7 @@ class Aarch64Fuzzer(CrossInputPrimingMixin, FuzzerGeneric):
     input_file_extension: str = "reif"
 
     def _boost_inputs(self, inputs, nesting):
-        # The aarch64 fuzzer's input unit is the ExecutorInput; convert once boosting is done.
+        # The aarch64 fuzzer's input unit is the ExecutorInput. convert once boosting is done.
         boosted, ctraces = super()._boost_inputs(inputs, nesting)
         return list(map(self.executor.as_executor_input, boosted)), ctraces
 
@@ -300,7 +300,7 @@ class Aarch64Fuzzer(CrossInputPrimingMixin, FuzzerGeneric):
             # to produce a violation, so just move on to the next one
             if CONF.enable_speculation_filter:
                 # aarch64 PFCs: [0]=INST_RETIRED, [1]=INST_SPEC, [2]=BR_MIS_PRED. A test case can
-                # only leak speculatively if some branch mispredicted; INST_SPEC >= INST_RETIRED
+                # only leak speculatively if some branch mispredicted. INST_SPEC >= INST_RETIRED
                 # always, so the x86-style spec-vs-retired comparison does not apply here.
                 for htrace in org_htraces:
                     pfc_values = htrace.perf_counters_max

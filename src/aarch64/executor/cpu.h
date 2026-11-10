@@ -41,7 +41,7 @@
 	DEFINE_SET_BIT_FUNC(msr, field, shift)					\
 
 /* CPUECTLR_EL1 (IMP-DEF, S3_0_C15_C1_4): the CPU extended control register that on Arm cores holds
- * data-prefetcher controls. Read is non-destructive (probe the live value first); write is scoped to
+ * data-prefetcher controls. Read is non-destructive (probe the live value first). write is scoped to
  * the measured run and immediately reverted (see execute()), so a bad value can never outlive a trace. */
 static inline uint64_t read_cpuectlr_el1(void) {
 	uint64_t val;

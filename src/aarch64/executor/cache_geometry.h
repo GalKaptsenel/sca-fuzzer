@@ -3,7 +3,7 @@
 
 #include "utils.h"
 
-// L1D size/associativity are detected at runtime (CCSIDR_EL1); this is only the compile-time upper
+// L1D size/associativity are detected at runtime (CCSIDR_EL1). this is only the compile-time upper
 // bound on the eviction region. A core whose detected L1D exceeds it is rejected at JIT-build time.
 #ifndef L1D_SIZE_MAX
 #define L1D_SIZE_MAX (128 * (KB))
@@ -28,7 +28,7 @@ struct cache_geometry {
 };
 
 // Pure decode of CLIDR_EL1 + CCSIDR_EL1 for `level` (ccidx = ID_AA64MMFR2_EL1.CCIDX != 0). `requested`
-// disambiguates DATA vs INSTRUCTION for a separate L1 (CLIDR ctype 3). No I/O; host-unit-testable.
+// disambiguates DATA vs INSTRUCTION for a separate L1 (CLIDR ctype 3). No I/O. host-unit-testable.
 struct cache_geometry decode_cache_geometry(unsigned long long clidr, unsigned long long ccsidr,
                                             int ccidx, unsigned int level, enum cache_type requested);
 

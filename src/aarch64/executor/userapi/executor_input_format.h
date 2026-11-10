@@ -4,7 +4,7 @@
 /*
  * REIF (Revizor Extensible Input File), the authoritative, self-describing
  * structure of one input written to /dev/executor (and, when saved, a ".reif" file). Any writer
- * MUST produce exactly this; the kernel parses and validates strictly against it and rejects
+ * MUST produce exactly this. the kernel parses and validates strictly against it and rejects
  * anything that does not conform.
  *
  * Layout of one REIF file:
@@ -30,10 +30,10 @@
  *   REVISOR_SEC_MEMORY_FAULTY  FAULTY_REGION_SIZE bytes -> sandbox faulty_region
  *   REVISOR_SEC_GPR            sizeof(registers_t)      -> x0..x5, flags, sp.
  *                              `flags` is the ARM PSTATE value (NZCV in bits 31:28),
- *                              loaded verbatim; the writer is responsible for any
+ *                              loaded verbatim. the writer is responsible for any
  *                              encoding conversion before packing this section.
  *   REVISOR_SEC_SIMD           REVISOR_SIMD_SECTION_SIZE bytes -> the GVT image loaded into
- *                              v0..v31 before the run (lane j*16 -> v{j}); 0 where no GVT access uses it
+ *                              v0..v31 before the run (lane j*16 -> v{j}). 0 where no GVT access uses it
  *   REVISOR_SEC_PAC_KEYS       sizeof(struct pac_keys) -> per-input PAC keys
  *   REVISOR_SEC_MTE_TAGS       one 4-bit allocation tag per MTE_GRANULE_SIZE (16-byte)
  *                              granule of the main|faulty span, packed two tags per
@@ -41,11 +41,11 @@
  *                              granule 2*i+1 in bits 7:4).
  *                              Length = (MEMORY_INPUT_SIZE/MTE_GRANULE_SIZE + 1)/2.
  *   REVISOR_SEC_PTE_SETTINGS   an array of packed struct revisor_pte_override_entry (no count
- *                              header; count = length / entry size). Each overrides one sandbox
+ *                              header. count = length / entry size). Each overrides one sandbox
  *                              page's descriptor before this input runs (reverted afterwards).
  *                              An absent section leaves the running mappings unchanged.
  *
- * Included by the kernel module (chardevice.c) and by executor_userland; the parser
+ * Included by the kernel module (chardevice.c) and by executor_userland. the parser
  * bodies live in executor/input_format.c.
  */
 
@@ -102,7 +102,7 @@ struct revisor_input_section {
  * set the bits in `mask` to the corresponding bits of `value` (`value` carries no bits outside `mask`).
  * The kernel applies `new = (live & ~mask) | value` before the input runs and reverts afterwards.
  * Position-independent: no absolute address is ever sent. The section payload is these packed 20-byte
- * entries back to back (no count header; count = payload length / entry size). */
+ * entries back to back (no count header. count = payload length / entry size). */
 struct revisor_pte_override_entry {
     uint16_t page_index;
     uint16_t level;
@@ -110,14 +110,14 @@ struct revisor_pte_override_entry {
     uint64_t value;
 } __attribute__((packed));
 
-/* Stage-1, 4K granule: page-table levels 0..3; the leaf that maps a page is the last. */
+/* Stage-1, 4K granule: page-table levels 0..3. the leaf that maps a page is the last. */
 #define REVISOR_PTE_LEVEL_COUNT          4
 #define REVISOR_PTE_LEVEL_LEAF           ((uint16_t)(REVISOR_PTE_LEVEL_COUNT - 1))
 /* Fuzzable sandbox data pages (keep in step with the sandbox data-page count and the writer's page
  * map): lower_overflow, main, faulty, upper_overflow. */
 #define REVISOR_SANDBOX_PAGE_COUNT       4
 /* The table holds at most one override per (page, level), so bound it by that product rather than a
- * magic number; it grows automatically with the page/level counts above. */
+ * not a fixed constant, it grows automatically with the page/level counts above. */
 #define REVISOR_INPUT_MAX_PTE_OVERRIDES  (REVISOR_SANDBOX_PAGE_COUNT * REVISOR_PTE_LEVEL_COUNT)
 
 /*

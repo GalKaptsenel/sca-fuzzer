@@ -41,7 +41,7 @@ static void test_qarma5_matches_hardware(void)
           "TBI1 on unexpectedly matched the kernel vector");
 }
 
-/* Signing sets only the PAC field; stripping recovers the canonical pointer exactly. */
+/* Signing sets only the PAC field. stripping recovers the canonical pointer exactly. */
 static void test_sign_then_strip_roundtrips(void)
 {
     uint64_t user = 0x0000000000abc000ull;             /* canonical low-half pointer (VA=39) */
@@ -53,7 +53,7 @@ static void test_sign_then_strip_roundtrips(void)
     }
 }
 
-/* A wrong context yields a different signature (so a decoy fails auth); signing is deterministic. */
+/* A wrong context yields a different signature (so a decoy fails auth). signing is deterministic. */
 static void test_context_and_key_sensitivity(void)
 {
     uint64_t user = 0x0000000000abc000ull;

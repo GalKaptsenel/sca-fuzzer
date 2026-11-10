@@ -74,7 +74,7 @@ static struct simulation_state* fresh_state(uint8_t** mem_out) {
     return &st;
 }
 
-/* Request `entries` at the marker; assert the engine explores `expected` (the deduped set, in request
+/* Request `entries` at the marker. assert the engine explores `expected` (the deduped set, in request
  * order) one per path-end, then resumes PC_R, the whole set at one nesting level. */
 static void run_scenario(uintptr_t* entries, int n_entries, uintptr_t* expected, int n_expected) {
     memcpy(g_entries, entries, (size_t)n_entries * sizeof(uintptr_t));

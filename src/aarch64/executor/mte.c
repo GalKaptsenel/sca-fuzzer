@@ -61,7 +61,7 @@ void mte_dump_flush(void) {
 }
 
 /* android14-5.15 GKI names the EL1 tag-check field SCTLR_ELx_TCF_* and exposes no EL1 ATA (bit 43)
- * macro; newer kernels use SCTLR_EL1_TCF_*. */
+ * macro. newer kernels use SCTLR_EL1_TCF_*. */
 #ifndef SCTLR_EL1_TCF_MASK
 #define SCTLR_EL1_TCF_MASK SCTLR_ELx_TCF_MASK
 #endif
@@ -105,7 +105,7 @@ static inline void stg(const void* ptr) {
 }
 
 static inline void *tag_ptr(void *p, u8 tag) {
-    // The allocation tag is bits [59:56]; mask to 4 bits so a wider value cannot bleed into the
+    // The allocation tag is bits [59:56]. mask to 4 bits so a wider value cannot bleed into the
     // rest of the top byte.
     return (void *)(((u64)p & 0x00FFFFFFFFFFFFFFULL) | ((u64)(tag & 0xF) << 56));
 }
@@ -188,7 +188,7 @@ uint8_t disable_TCO_bit(void) {
 }
 
 void mte_set_sync(void) {
-	// ATA (bit 43) enables allocation-tag access; TCF (bits [41:40]) = 0b01 = synchronous faults.
+	// ATA (bit 43) enables allocation-tag access. TCF (bits [41:40]) = 0b01 = synchronous faults.
 	sysreg_clear_set(sctlr_el1, SCTLR_EL1_TCF_MASK, SCTLR_EL1_ATA | SCTLR_EL1_TCF_SYNC);
 	isb();
 }
@@ -219,7 +219,7 @@ uint64_t mte_read_clear_tfsr(void) {
 }
 
 // Force TCF=SYNC for the measurement window (returns the prior SCTLR_EL1 to restore). The kernel's
-// async TCF makes tag faults imprecise and decoupled from the run that caused them; SYNC delivers them
+// async TCF makes tag faults imprecise and decoupled from the run that caused them. SYNC delivers them
 // as a precise abort attributed to the executor, so a stray fault is caught immediately, not silently.
 uint64_t mte_force_sync(void) {
 	uint64_t saved = read_sysreg(sctlr_el1);

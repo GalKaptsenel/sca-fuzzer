@@ -143,8 +143,8 @@ class PteOverride:
 
 
 # SEC_PTE_SETTINGS codec: PTE overrides <-> bytes, kept beside PteOverride (the encoder maps this
-# payload to its REIF section; the kernel parses the identical record layout). The payload is the
-# packed records back to back -- no count header; the count is the payload length / record size.
+# payload to its REIF section. the kernel parses the identical record layout). The payload is the
+# packed records back to back -- no count header. the count is the payload length / record size.
 _PTE_RECORD = struct.Struct("<HHQQ")   # page_index (u16), level (u16), mask (u64), value (u64)
 
 

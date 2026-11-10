@@ -61,7 +61,7 @@ class Aarch64Generator(ConfigurableGenerator, abc.ABC):
         return inst.add_op(LabelOperand(label))
 
     def get_indirect_call_instruction(self, label: str) -> Instruction:
-        # "CALL" marks it for Function.is_leaf and the frame pass; operands[0] is the (forward) target
+        # "CALL" marks it for Function.is_leaf and the frame pass. operands[0] is the (forward) target
         # label, checked for the acyclic call graph. The target register is materialized later.
         inst = Instruction("blr", False, "CALL", True, template="BLR {reg}")
         inst.add_op(LabelOperand(label))
@@ -156,9 +156,9 @@ _STXR = frozenset({"stxr", "stlxr", "stxrb", "stlxrb", "stxrh", "stlxrh"})
 _STXP = frozenset({"stxp", "stlxp"})
 
 # Compare-and-swap pair (CASP): each data operand pair must be consecutive even/odd registers
-# (Rs even, R(s+1)=Rs+1; likewise Rt), the two pairs disjoint, and neither aliasing the base. The
+# (Rs even, R(s+1)=Rs+1. likewise Rt), the two pairs disjoint, and neither aliasing the base. The
 # operand model fills the four data registers independently, so without this the assembler would
-# reject them. (No byte/half pair forms exist; the tag/RCW casp* variants stay in the arch/blocklist.)
+# reject them. (No byte/half pair forms exist. the tag/RCW casp* variants stay in the arch/blocklist.)
 _CASP = frozenset({"casp", "caspa", "caspal", "caspl"})
 
 # Store pair with writeback: src0|src1 == base → UNPREDICTABLE.
@@ -197,7 +197,7 @@ class Aarch64PatchUndefinedLoadsStoresPass(Pass):
 
     def _patch_instruction(self, inst: Instruction) -> None:
         # sandboxing subtracts the index from the base (SUB base, base, index), so base == index would
-        # zero the base and the access would escape the sandbox; force them to differ first.
+        # zero the base and the access would escape the sandbox. force them to differ first.
         self._patch_address_register_collision(inst)
 
         name = inst.name.lower()
@@ -275,7 +275,7 @@ class Aarch64PatchUndefinedLoadsStoresPass(Pass):
 
     def _patch_single_writeback(self, inst: Instruction) -> None:
         # Single-register load/store with writeback: the transferred register (ops[0]) must differ
-        # from the base; t == n is CONSTRAINED UNPREDICTABLE.
+        # from the base. t == n is CONSTRAINED UNPREDICTABLE.
         if not self._writes_back(inst):
             return  # unsigned-offset or register-offset form, no writeback
 
@@ -570,7 +570,7 @@ class Aarch64IndirectCallPass(Pass):
     template-only instrumentation (no memory operand), so the sandbox pass skips it and the builder, which
     keys on the BLR, is unaffected."""
 
-    # Input GPRs used as the hashed dispatch index; clobbered by the sequence, never reserved.
+    # Input GPRs used as the hashed dispatch index. clobbered by the sequence, never reserved.
     _INDEX_REGISTERS = ("x0", "x1", "x2", "x3", "x4", "x5")
 
     def run_on_test_case(self, test_case: TestCase) -> None:
@@ -646,12 +646,12 @@ class Aarch64RandomGenerator(Aarch64Generator, RandomGenerator):
     def generate_cond_operand(self, spec: OperandSpec, inst: Instruction) -> Operand:
         values = spec.values
         if inst.control_flow:
-            # AL/NV branch unconditionally; keep a conditional branch's fallthrough reachable.
+            # AL/NV branch unconditionally. keep a conditional branch's fallthrough reachable.
             values = [c for c in values if c not in ("al", "nv")]
         return CondOperand(random.choice(values))
 
     def generate_mem_operand(self, spec: MemorySpec, inst: Instruction) -> Operand:
-        # a memory access wraps its address components (base/index/offset/extend); generate each via the
+        # a memory access wraps its address components (base/index/offset/extend). generate each via the
         # normal dispatch (which also stamps its MemoryRole), and keep them as the operand's `inner`.
         inner = [self.generate_operand(component, inst) for component in spec.inner]
         address = ", ".join(op.value for op in inner)

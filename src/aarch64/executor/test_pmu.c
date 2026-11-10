@@ -1,5 +1,5 @@
 /* Host-compiled unit test for the pure PMU-capability logic (pmu_logic.h).
- * Oracle: the ARM ARM (ID_AA64DFR0_EL1.PMUVer bits [11:8]; PMCR_EL0.N bits [15:11])
+ * Oracle: the ARM ARM (ID_AA64DFR0_EL1.PMUVer bits [11:8]. PMCR_EL0.N bits [15:11])
  * and Revizor's REQUIRED_PMU_COUNTERS. No kernel, no hardware. */
 #include <stdio.h>
 #include "pmu_logic.h"

@@ -19,7 +19,7 @@ static uint32_t pte_saved_n;
 /*
  * Map a sandbox page index to its virtual address. The index is the shared contract with the writer's
  * sandbox page map (default: 0 = main_region, 1 = faulty_region). To fuzz more pages, extend this map
- * and the writer's; nothing else changes. Returns NULL for an unknown index.
+ * and the writer's. nothing else changes. Returns NULL for an unknown index.
  */
 static void* sandbox_page_va(uint16_t page_index) {
 	switch (page_index) {

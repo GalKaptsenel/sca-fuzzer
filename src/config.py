@@ -86,7 +86,7 @@ class Conf:
     enable_priming: bool = True
     """ enable_priming: whether to check violations with priming """
     enable_triage: bool = False
-    """ enable_triage: [TEMP, speculative-exception only] run our triage suite on every violation, in-pipeline, to LOCATE
+    """ enable_triage: (speculative-exception fuzzer only) run the triage suite on every violation, in-pipeline, to LOCATE
         the exact input in the batch order that causes the divergence. Violations are NOT dropped -
         every one is kept and annotated with its culprit. Per violation:
         (1) REPRODUCIBLE  - re-trace the batch (warmed); the violating slots must still diverge;

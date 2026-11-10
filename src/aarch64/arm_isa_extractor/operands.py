@@ -81,7 +81,7 @@ def _reg_spec(symbol: str):
     return _REG_PREFIX.get(s[:1]) if s else None
 
 
-# accessor File letter (in the ASL) -> register file; the width of a `<R><t>`-style composite is
+# accessor File letter (in the ASL) -> register file. the width of a `<R><t>`-style composite is
 # variable (the `<R>` selector picks W/X), so it is 0.
 _FILE_OF_ACCESSOR = {"X": RegFile.GP, "W": RegFile.GP, "V": RegFile.SIMD, "Q": RegFile.SIMD,
                      "D": RegFile.SIMD, "S": RegFile.SIMD, "H": RegFile.SIMD, "B": RegFile.SIMD,
@@ -184,7 +184,7 @@ def _enumerated(symbol, definition) -> Operand:
     syms = [e.text for e in tbl.iter("entry")
             if e.get("class") == "symbol" and e.text] if tbl is not None else []
     # a single table cell may list display aliases of one encoding joined by '|' (e.g. an extend
-    # `LSL|UXTW` for the same option value); each alias is an independent valid mnemonic, so split them.
+    # `LSL|UXTW` for the same option value). each alias is an independent valid mnemonic, so split them.
     vals = tuple(part for v in (_enum_value(s) for s in syms) if v is not None for part in v.split("|"))
     if vals and set(vals) <= _COND_CODES:
         kind = OperandKind.COND
@@ -243,7 +243,7 @@ def build_operands(encoding_name: str, asm: str, explanations: list[ET.Element],
     for symbol, bracket in _tokens(asm):
         if symbol in selectors:
             continue                            # the width selector is folded into its register
-        # a token addresses memory iff it sits in a memory `[...]` (bracket > 0; _tokens excludes
+        # a token addresses memory iff it sits in a memory `[...]` (bracket > 0. _tokens excludes
         # register element/lane indices) of a memory-accessing instruction.
         is_addr = sem.mem_access is not MemAccess.NONE and bracket > 0
         ex = _explanation_for(symbol, encoding_name, explanations)
@@ -273,7 +273,7 @@ def build_operands(encoding_name: str, asm: str, explanations: list[ET.Element],
         else:
             raise ExtractionError(f"{encoding_name}: operand {symbol!r} has neither account nor definition")
         if is_addr:
-            # first register of each bracket is its base; a later register in the SAME bracket is an
+            # first register of each bracket is its base. a later register in the SAME bracket is an
             # index (so two regions `[<Xd>], [<Xs>]` give two bases, not base+index).
             op = replace(op, mem_role=_addressing_role(op, bracket == base_bracket))
             if op.kind is OperandKind.REG:
@@ -281,7 +281,7 @@ def build_operands(encoding_name: str, asm: str, explanations: list[ET.Element],
         if op.kind is OperandKind.REG:
             wb = op.name in writeback
             if op.mem_role in (MemRole.BASE, MemRole.INDEX):
-                # an address register is written iff the form writes back (asm-precise); this also
+                # an address register is written iff the form writes back (asm-precise). this also
                 # overrides the shared Execute's `if wback` write, which otherwise leaks to the
                 # non-writeback (offset/unsigned) encodings.
                 op = replace(op, write=wb)

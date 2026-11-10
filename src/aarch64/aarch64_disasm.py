@@ -21,7 +21,7 @@ _CAPSTONE.detail = True
 # (loaded from base.json). decode_reg_accesses takes that as `reg_roles` (see build_register_role_map)
 # and applies it verbatim, so an RMW register (e.g. CAS's Rs, read AND written), a pure destination
 # (an LSE LD<op>'s Rt), or a plain source are each categorised from the spec, never guessed. Capstone
-# supplies only the register NAMES/order, the memory base/index, and the condition code; its op.access
+# supplies only the register NAMES/order, the memory base/index, and the condition code. its op.access
 # is used solely for instructions absent from the map (e.g. builder-injected AND/ADD/XPAC helpers,
 # which it reports correctly), falling back to an over-approximate read when even that is empty (a
 # taint-safe direction: a missed read is unsafe, an extra read is not).
@@ -34,7 +34,7 @@ _FULL_NZCV_WRITERS = frozenset({"subps"})
 # NZCV bits they read nor the ones they write. Model each precisely as (reads, writes) over PSTATE
 # flags: a flag the op PRESERVES must not be listed as written (that would silently drop live taint on
 # it), and a flag it READS must be listed (a missed read under-taints). Any register operands are
-# added as sources separately. RMIF's write set depends on its mask immediate (see below); it is not
+# added as sources separately. RMIF's write set depends on its mask immediate (see below). it is not
 # in this table.
 _FLAG_OP_NZCV = {
     "setf8":  (set(),                {"N", "Z", "V"}),        # N,Z,V from Xn; C preserved
@@ -130,7 +130,7 @@ def decode_reg_accesses(encoding: int, pc: int,
     src = set()
     if insn.update_flags:
         dest |= FLAG_BITS
-    # ARM64_CC_INVALID means unconditional; only add flag reads for real conditions.
+    # ARM64_CC_INVALID means unconditional. only add flag reads for real conditions.
     if insn.cc is not None and insn.cc != ARM64_CC_INVALID:
         src |= cc_to_read_flags(insn.cc)
 
@@ -163,7 +163,7 @@ def decode_reg_accesses(encoding: int, pc: int,
             if op.mem.base != 0:
                 base_reg = insn.reg_name(op.mem.base)
                 src.add(base_reg)
-                # pre/post-index writeback also UPDATES the base register; Capstone leaves it out of
+                # pre/post-index writeback also UPDATES the base register. Capstone leaves it out of
                 # the operand access flags, so add it explicitly.
                 if getattr(insn, "writeback", False):
                     dest.add(base_reg)
@@ -172,8 +172,8 @@ def decode_reg_accesses(encoding: int, pc: int,
 
     # Flags (NZCV): register roles never carry per-bit flag precision, so derive it here. The
     # FEAT_FlagM/FlagM2 ops are under-reported by Capstone (neither NZCV reads nor writes exposed);
-    # RMIF's write set depends on its mask immediate; SUBPS's full-NZCV write is not flagged at all.
-    # Over-claiming a flag write drops live taint (false violation); a missed flag read under-taints.
+    # RMIF's write set depends on its mask immediate. SUBPS's full-NZCV write is not flagged at all.
+    # Over-claiming a flag write drops live taint (false violation). a missed flag read under-taints.
     if mnemonic in _FLAG_OP_NZCV:
         reads, writes = _FLAG_OP_NZCV[mnemonic]
         src |= reads

@@ -21,18 +21,18 @@ enum pac_op {
 };
 
 /* Mnemonic -> op, restricted to the caller's category (sign ops incl. PACGA, or
- * auth ops); PAC_OP_INVALID for anything outside that category. */
+ * auth ops). PAC_OP_INVALID for anything outside that category. */
 enum pac_op pac_sign_op_from_mnemonic(const char *m);
 enum pac_op pac_auth_op_from_mnemonic(const char *m);
 
 /* Execute one PAC/AUT op under `exec_keys`, swapped in for the single op inside an
  * IRQ/preempt-disabled, pac-ret-free window (see pac.c) and restored afterwards. The caller always
- * supplies keys; there is no live-key path. */
+ * supplies keys. there is no live-key path. */
 uint64_t pac_run_op_with_keys(enum pac_op op, uint64_t ptr, uint64_t mod,
                               const struct pac_keys *exec_keys);
 
 /* Crash-safe AUTH: verifies the signature with non-faulting ops (XPAC + re-sign) and runs the real
- * AUT* only if it would succeed; otherwise warns and returns the canonical pointer. Use this for
+ * AUT* only if it would succeed. otherwise warns and returns the canonical pointer. Use this for
  * every auth op so a wrong signature can never FPAC-reset the box. */
 uint64_t pac_auth_with_keys(enum pac_op op, uint64_t ptr, uint64_t mod,
                             const struct pac_keys *exec_keys);

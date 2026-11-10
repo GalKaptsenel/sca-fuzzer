@@ -39,7 +39,7 @@ void ce_debug_print_last_sim_state(FILE *out) {
 
 /*
  * Post-instruction repairs queued by base_hook_c, applied by the next hook. Each entry is ONE action:
- *   REG - restore a base register: reg = orig + (current - uaddr); preserves the exact top byte / MTE
+ *   REG - restore a base register: reg = orig + (current - uaddr). preserves the exact top byte / MTE
  *         tag on a non-writeback access and the writeback increment otherwise.
  *   MEM - restore `size` bytes of `value` at `uaddr` (undo a native store that wrote the uaddr).
  * One instruction may queue several (a base-register restore plus one MEM restore per stored element
@@ -238,7 +238,7 @@ void base_hook_c(struct cpu_state* state) {
 	sim_state.cpu_state.sp = g_arch_sp;   /* hooks see the architectural sandbox SP, not the host SP */
 	sim_state.memory = simulation.simulation_memory;
 
-	// Restore the original instructions; the read-only tables sit after them and are never touched here.
+	// Restore the original instructions. the read-only tables sit after them and are never touched here.
 	// The default-RET slot follows code + data (in the additional scratch), so it can't clobber a table.
 	memcpy(simulation.sim_code.code, simulation.sim_input.code, simulation.sim_input.hdr.code_size); // restore original code
 	*((uint32_t*)((uintptr_t)simulation.sim_code.code + simulation.sim_input.hdr.code_size
@@ -277,7 +277,7 @@ void base_hook_c(struct cpu_state* state) {
 	/* LAST write to *state, nothing must follow this block. MTE memory-tag ops (LDG/STG/STGP) are
 	 * software-emulated and skipped from native execution, so they must NOT have their base register
 	 * translated kaddr->uaddr here (the emulator already produced the architectural result from the
-	 * kaddr; translating would leave a uaddr in the base register). */
+	 * kaddr. translating would leave a uaddr in the base register). */
 	/* SP-based accesses are only ever function-frame spills (the generator never emits sp as a data
 	 * base): leave them native on the host stack instead of rebasing into the sandbox buffer, they
 	 * are harness instrumentation, kept out of the contract just like the kernel keeps them in
@@ -307,7 +307,7 @@ void base_hook_c(struct cpu_state* state) {
 		 * later instructions. A FEAT_MTE host (mte_native, guarded at profile init) runs the access
 		 * tagged instead. */
 
-		/* Rebase so the hardware-computed EA lands exactly on the translated (clean) EA; the native
+		/* Rebase so the hardware-computed EA lands exactly on the translated (clean) EA. the native
 		 * access then never relies on EL0 TBI to drop a stray top byte. A load from the executable image
 		 * (the ADR+LDRSW dispatch reading its own jump table) already points into sim_code, so it needs no
 		 * rebase, leave the base as-is, exactly like the SP frame-spill exemption. */
@@ -317,9 +317,9 @@ void base_hook_c(struct cpu_state* state) {
 			if (!load_aliases) log_reg_fixup(rn, restore_val, new_base);
 		}
 
-		/* A store whose data register aliases the base wrote the uaddr, not the kaddr; restore those
+		/* A store whose data register aliases the base wrote the uaddr, not the kaddr. restore those
 		 * bytes. Queued per stored element, so every element of a pair (or any wider store) is covered.
-		 * Regular / pair / exclusive stores write Rt / Rt2 directly (reg 31 = XZR, stores 0); atomics
+		 * Regular / pair / exclusive stores write Rt / Rt2 directly (reg 31 = XZR, stores 0). atomics
 		 * write a computed value keyed on Rs, so recompute it with kaddr. */
 		if (mi.is_store) {
 			if (mi.is_atomic) {
@@ -367,7 +367,7 @@ void* handle_ret_hook(struct simulation_state* sim_state) {
 	// Emulate them against the sandbox stack rather than running them natively (which would use the CE's
 	// host stack): move X30 to/from sandbox memory and adjust the architectural SP. The load/store is
 	// still recorded by the trace hook, so the spill appears in the contract footprint exactly as the
-	// kernel's does on hardware; then advance past the instruction (return pc+4) so it is not executed
+	// kernel's does on hardware. then advance past the instruction (return pc+4) so it is not executed
 	// natively. cpu_state.sp is checkpointed with the window, so a speculative spill rolls back and SP
 	// never drifts off the stack.
 	if(is_memory_access(insn) && !is_literal_pc_relative(insn) &&
@@ -377,7 +377,7 @@ void* handle_ret_hook(struct simulation_state* sim_state) {
 		tcs.sp = sim_state->cpu_state.sp; tcs.pc = sim_state->cpu_state.pc;
 		mem_access_info_t mi = parse_memory_access_instruction(insn, &tcs);
 		uintptr_t ea = (uintptr_t)mi.effective_address;
-		/* A frame spill is architecturally always on the sandbox stack; a SPECULATIVE one can walk SP
+		/* A frame spill is architecturally always on the sandbox stack. a SPECULATIVE one can walk SP
 		 * off it (an RSB-mispredicted return runs a callee epilogue with the caller's SP). That squashed
 		 * access has no modeled in-sandbox effect, so skip the emulated load/store, but still apply the
 		 * SP writeback below so the frame bookkeeping stays coherent. An architectural out-of-sandbox

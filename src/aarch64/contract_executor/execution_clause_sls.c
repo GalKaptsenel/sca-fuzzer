@@ -10,7 +10,7 @@ static void sls_on_init(uint64_t index) { sls_index = index; }
 
 /* Straight-line speculation: at a branch, the frontend keeps fetching sequentially past it, so explore
  * pc+4 as a window resuming at the branch's architectural successor. Unconditional B (target != pc+4)
- * and taken conditional branches (pc+4 is the not-taken side) contribute pc+4; a not-taken conditional
+ * and taken conditional branches (pc+4 is the not-taken side) contribute pc+4. a not-taken conditional
  * already runs pc+4 architecturally, so nothing to add. RET/BL/BLR/indirect are not modelled yet. */
 static void sls_on_instruction(struct simulation_state* sim_state) {
 	uintptr_t pc = sim_state->cpu_state.pc;

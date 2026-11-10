@@ -4,11 +4,11 @@
 /*
  * Measurement super-batch wire format, the request/response blobs exchanged between the remote
  * executor (Python, src/aarch64/aarch64_batch.py) and the `executor_userland batch` runner. One
- * request packs M units, each a test-case binary plus the REIF inputs to measure on it; one response
+ * request packs M units, each a test-case binary plus the REIF inputs to measure on it. one response
  * returns every input's per-repetition htrace and performance counters. Batching the whole window
  * into one blob replaces thousands of small device round-trips with a single transfer.
  *
- * All fixed fields are u64, little-endian; the variable payloads are byte-length-prefixed, so the
+ * All fixed fields are u64, little-endian. the variable payloads are byte-length-prefixed, so the
  * fixed prefix is a whole number of u64s and no alignment padding is needed. Keep in sync with
  * aarch64_batch.py.
  *

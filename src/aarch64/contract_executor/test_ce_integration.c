@@ -98,12 +98,12 @@ static uint32_t enc_str_preidx(int rt, int rn, int imm9) {
 static uint32_t enc_stp(int rt, int rt2, int rn) {
     return 0xA9000000u | ((uint32_t)rt2 << 10) | ((uint32_t)rn << 5) | (uint32_t)rt;
 }
-/* LDR X<rt>, [X<rn>, #<off>], unsigned offset, 64-bit; off must be mult of 8 */
+/* LDR X<rt>, [X<rn>, #<off>], unsigned offset, 64-bit. off must be mult of 8 */
 static uint32_t enc_ldr_unsigned(int rt, int rn, int off) {
     uint32_t pimm12 = (uint32_t)(off / 8);
     return 0xF9400000u | (pimm12 << 10) | ((uint32_t)rn << 5) | (uint32_t)rt;
 }
-/* LDR X<rt>, [X<rn>, #<imm9>]!, pre-index, 64-bit; -256..255 */
+/* LDR X<rt>, [X<rn>, #<imm9>]!, pre-index, 64-bit. -256..255 */
 static uint32_t enc_ldr_preidx(int rt, int rn, int imm9) {
     uint32_t i = (uint32_t)(int32_t)imm9 & 0x1FF;
     return 0xF8400C00u | (i << 12) | ((uint32_t)rn << 5) | (uint32_t)rt;
@@ -150,7 +150,7 @@ static uint32_t enc_ldr_regoff(int rt, int rn, int rm) {
 static uint32_t enc_b(int offset) {
     return 0x14000000u | ((uint32_t)(offset / 4) & 0x03FFFFFFu);
 }
-/* BL <label>, direct call; label is signed byte offset from this instruction (multiple of 4) */
+/* BL <label>, direct call. label is signed byte offset from this instruction (multiple of 4) */
 static uint32_t enc_bl(int offset) {
     return 0x94000000u | ((uint32_t)(offset / 4) & 0x03FFFFFFu);
 }
@@ -219,7 +219,7 @@ static size_t build_ce_input(
     size_t code_sz  = n_words * 4;
     size_t regs_sz  = sizeof(regs);
 
-    /* A fixed key set carried in every input's PAC_KEYS section; a PAC test's sign/auth run under it
+    /* A fixed key set carried in every input's PAC_KEYS section. a PAC test's sign/auth run under it
      * (the kernel keeps no key state). Harmless for non-PAC tests, the CE parses but never uses it. */
     static const uint64_t pac_keys[10] = {
         0x1122334455667788ULL, 0x8877665544332211ULL, 0x1122334455667788ULL, 0x8877665544332211ULL,
@@ -341,7 +341,7 @@ static bool parse_ce_output(int fd, ce_result_t *out) {
 
 /*
  * Fork + exec CE, pipe input/output, return parsed trace.
- * regs_override: optional 8-element array (X0..X5, NZCV(slot6), SP(slot7)); NULL = zeros.
+ * regs_override: optional 8-element array (X0..X5, NZCV(slot6), SP(slot7)). NULL = zeros.
  */
 static bool run_ce_full(
         const uint32_t *code, size_t n_words,
@@ -543,10 +543,10 @@ static void test_integration_str_base(void) {
 /* ---- GROUP 2b: SP-based (function-frame) accesses stay out of the footprint ---- */
 
 static void test_integration_sp_access_modeled(void) {
-    /* An SP-based access is a function-frame spill; the CE emulates it against the sandbox stack (top
+    /* An SP-based access is a function-frame spill. the CE emulates it against the sandbox stack (top
      * of the overflow region, mirroring the kernel's get_stack_base_address) and records it in the
      * contract footprint -- so it appears on the CTrace exactly as it lights a cache set in the HTrace.
-     * Here STR X30,[SP,#-16]! lands at STACK_TOP-16 (a write); LDR X1,[X29] is the body's data load. */
+     * Here STR X30,[SP,#-16]! lands at STACK_TOP-16 (a write). LDR X1,[X29] is the body's data load. */
     const uint64_t STACK_TOP = KBASE + MEM_SIZE + 0x1000;  /* + SANDBOX_OVERFLOW_SIZE = kernel stack top */
     uint32_t code[] = {
         enc_str_preidx(30, 31, -16),  /* prologue spill: STR X30,[SP,#-16]!  -> modeled */
@@ -626,7 +626,7 @@ static void test_integration_frame_spill_modeled(void) {
 }
 
 static void test_integration_call_returns_and_continues(void) {
-    /* Architectural call + return: BL enters the callee (which loads KBASE+64); RET returns to the
+    /* Architectural call + return: BL enters the callee (which loads KBASE+64). RET returns to the
      * instruction right after the BL (which loads KBASE). Both accesses must appear in the contract
      * trace, callee first, then the caller resuming after the return, proving the CE executes calls
      * and returns architecturally (so a fuzzing violation on a call program is speculative, not a
@@ -904,7 +904,7 @@ static void test_integration_store_then_load(void) {
 
 static void test_integration_nop_no_mem(void) {
     /*
-     * Code: NOP; LDR X0,[X29]
+     * Code: NOP. LDR X0,[X29]
      * Two trace entries total: NOP entry (has_sandbox_memory_access=0) and LDR entry (=1).
      */
     uint32_t code[] = { enc_nop(), enc_ldr_reg(0, 29) };
@@ -1030,7 +1030,7 @@ static void test_integration_access_size_word(void) {
 static void test_integration_strb_partial_write(void) {
     /*
      * STRB W0,[X29] with X0=0x42 (set via regs input_init slot 0 = X0).
-     * mem[0..7] = 0xAABBCCDDEEFF0011; access-size = 1 byte, so before=0x11, after=0x42.
+     * mem[0..7] = 0xAABBCCDDEEFF0011. access-size = 1 byte, so before=0x11, after=0x42.
      */
     uint32_t code[] = { enc_strb(0, 29) };
 
@@ -1169,7 +1169,7 @@ static void test_integration_register_offset(void) {
 static void test_integration_regoff_noncanonical_base_preserved(void) {
     /*
      * The GVT access's SUB Rn,Rn,Rm leaves X3 a non-canonical small value (3) while EA = X3+X4 stays in
-     * the sandbox. apply_fixups' delta restore must leave X3 == 3; the old kbase-forcing round-trip
+     * the sandbox. apply_fixups' delta restore must leave X3 == 3. the old kbase-forcing round-trip
      * gave 0xFF00000000000003, which later corrupted an AUT* context.
      */
     uint32_t code[] = {
@@ -1209,7 +1209,7 @@ static void test_integration_regoff_noncanonical_base_preserved(void) {
 
 static void test_integration_load_updates_dest_reg(void) {
     /*
-     * Code: LDR X0,[X29]; LDR X1,[X29]
+     * Code: LDR X0,[X29]. LDR X1,[X29]
      * mem[0..7] = 0xDEADC0DE
      *
      * The second trace entry is captured AFTER the first LDR executes.
@@ -1246,7 +1246,7 @@ static void test_integration_load_updates_dest_reg(void) {
 
 static void test_integration_postidx_writeback_cpu_state(void) {
     /*
-     * Code: LDR X0,[X29],#8; LDR X1,[X29]
+     * Code: LDR X0,[X29],#8. LDR X1,[X29]
      * After the first instruction, X29 is updated to kbase+8.
      * apply_fixups in the hook for LDR X1 converts uaddr+8 back to kbase+8.
      * So the second trace entry's cpu.gpr[29] must equal kbase+8.
@@ -1284,9 +1284,9 @@ static void test_integration_postidx_writeback_cpu_state(void) {
 static void test_integration_window_id_unique_per_excursion(void) {
     /*
      * Two CBZ branches, then an architectural load. With X0=0 both CBZs are TAKEN, so each skips its
-     * own LDR architecturally and mispredicts into a SEPARATE depth-1 window; the trailing LDR X3 runs
+     * own LDR architecturally and mispredicts into a SEPARATE depth-1 window. the trailing LDR X3 runs
      * architecturally. The two speculative loads share nesting=1 but MUST carry DIFFERENT window ids
-     * (checkpoint slots are reused across excursions; window ids are not). This is what lets the taint
+     * (checkpoint slots are reused across excursions. window ids are not). This is what lets the taint
      * tracker tell a dead sibling flow from the live one. Architectural entries carry window_id 0.
      */
     uint32_t code[] = {
@@ -1338,7 +1338,7 @@ static void test_integration_window_id_unique_per_excursion(void) {
 
 static void test_integration_always_mispredict_cbz(void) {
     /*
-     * Code: CBZ X0, +8; LDR X1,[X29]; LDR X2,[X29,#8]
+     * Code: CBZ X0, +8. LDR X1,[X29]. LDR X2,[X29,#8]
      * X0=0 → arch TAKEN (jump to LDR X2).
      * ALWAYS_MISPREDICT → spec NOT-TAKEN (fall through to LDR X1 first).
      *
@@ -1427,7 +1427,7 @@ static void test_integration_spec_window_cap(void) {
 
 static void test_integration_always_mispredict_cbnz(void) {
     /*
-     * Code: CBNZ X0, +8; LDR X1,[X29]; LDR X2,[X29,#8]
+     * Code: CBNZ X0, +8. LDR X1,[X29]. LDR X2,[X29,#8]
      * X0=0 → CBNZ arch NOT-TAKEN (fall through to LDR X1).
      * ALWAYS_MISPREDICT → spec TAKEN (jump to LDR X2).
      *
@@ -1479,7 +1479,7 @@ static void test_integration_always_mispredict_cbnz(void) {
 
 static void test_integration_tbz_bit32(void) {
     /*
-     * Code: TBZ X0, #32, +8; LDR X1,[X29]; LDR X2,[X29,#8]
+     * Code: TBZ X0, #32, +8. LDR X1,[X29]. LDR X2,[X29,#8]
      *
      * Sub-case A: X0 has bit 32 SET → TBZ NOT-TAKEN (bit is not zero).
      *   ALWAYS_MISPREDICT → spec TAKEN (LDR X2 at nesting=1),
@@ -1564,7 +1564,7 @@ static void test_integration_tbz_bit32(void) {
 
 static void test_integration_always_mispredict_bcond(void) {
     /*
-     * Code: B.EQ +8; LDR X1,[X29]; LDR X2,[X29,#8]
+     * Code: B.EQ +8. LDR X1,[X29]. LDR X2,[X29,#8]
      * NZCV Z=1 → B.EQ arch TAKEN (jump to LDR X2).
      * ALWAYS_MISPREDICT → spec NOT-TAKEN (fall through to LDR X1 first).
      *
@@ -1617,7 +1617,7 @@ static void test_integration_always_mispredict_bcond(void) {
 
 static void test_integration_always_mispredict_tbnz(void) {
     /*
-     * Code: TBNZ X0, #5, +8; LDR X1,[X29]; LDR X2,[X29,#8]
+     * Code: TBNZ X0, #5, +8. LDR X1,[X29]. LDR X2,[X29,#8]
      * X0=0 (bit 5 clear) → TBNZ arch NOT-TAKEN (fall through to LDR X1).
      * ALWAYS_MISPREDICT → spec TAKEN (jump to LDR X2 first).
      *
@@ -1668,7 +1668,7 @@ static void test_integration_always_mispredict_tbnz(void) {
 
 static void test_integration_contract_type_comparison(void) {
     /*
-     * Same code: CBZ X0, +8; LDR X1,[X29]; LDR X2,[X29,#8]
+     * Same code: CBZ X0, +8. LDR X1,[X29]. LDR X2,[X29,#8]
      * X0=0 → branch TAKEN (arch: only LDR X2 executes).
      *
      * ARCH_ONLY:           1 memory-access entry (LDR X2)
@@ -1753,7 +1753,7 @@ static void test_integration_pac_arch_roundtrip(void) {
         return;
     }
 
-    /* Only LDR X1 produces a memory-access entry; PACIA and AUTIA do not */
+    /* Only LDR X1 produces a memory-access entry. PACIA and AUTIA do not */
     EXPECT_EQ(count_mem_entries(&res), 1);
 
     instr_trace_entry_t *e = find_mem_entry(&res, 0);
@@ -1775,12 +1775,12 @@ static void test_integration_pac_spec_xpac(void) {
      * ALWAYS_MISPREDICT contract.
      *
      * Code layout (byte offsets):
-     *   [0]  CBZ X0, +12   ; X0=0 → arch TAKEN (→ [3] LDR X2)
-     *                       ; ALWAYS_MISPREDICT → spec NOT-TAKEN (→ [1])
-     *   [4]  PACIA X1, X29 ; spec: sign kbase with kbase context → X1=signed
-     *   [8]  AUTIA X1, X29 ; spec: auth_verify_hook sees is_in_speculation()==1
-     *                       ;       → do_xpac_el0 strips tag → X1=kbase again
-     *   [12] LDR X2, [X29] ; both paths: EA=kbase
+     *   [0]  CBZ X0, +12   . X0=0 → arch TAKEN (→ [3] LDR X2)
+     *                       . ALWAYS_MISPREDICT → spec NOT-TAKEN (→ [1])
+     *   [4]  PACIA X1, X29 . spec: sign kbase with kbase context → X1=signed
+     *   [8]  AUTIA X1, X29 . spec: auth_verify_hook sees is_in_speculation()==1
+     *                       .       → do_xpac_el0 strips tag → X1=kbase again
+     *   [12] LDR X2, [X29] . both paths: EA=kbase
      *
      * Expected memory-access entries:
      *   [0] LDR X2 nesting=1  (spec: after PACIA+XPAC, cpu.gpr[1]=kbase)
@@ -1843,7 +1843,7 @@ static uint32_t enc_autiza(int rd) { return 0xDAC133E0u | (uint32_t)rd; }
 static void test_integration_paciza_autiza_roundtrip(void) {
     /*
      * PACIZA X0 signs X0=kbase with context=0 (XZR).
-     * AUTIZA X0 authenticates on arch path; must recover kbase exactly.
+     * AUTIZA X0 authenticates on arch path. must recover kbase exactly.
      * Verifies zero-context dispatch through ioctl 17/18 kernel handlers.
      *
      * Memory layout (3 distinct sentinel values at different offsets):
@@ -1910,7 +1910,7 @@ static uint32_t enc_autda(int rd, int rn) {
 static void test_integration_pacda_autda_roundtrip(void) {
     /*
      * PACDA X0,X29 signs with the DA (data-key A) key, context=kbase (X29).
-     * AUTDA X0,X29 authenticates on arch path; must recover X0=kbase exactly.
+     * AUTDA X0,X29 authenticates on arch path. must recover X0=kbase exactly.
      * Verifies D-key dispatch through ioctl 17/18 kernel handlers.
      *
      * Memory layout (3 distinct sentinel values at different offsets):
@@ -1968,9 +1968,9 @@ static void test_integration_pacda_autda_roundtrip(void) {
 /* ---- bpas: store-then-load to the same address ----------------------- */
 static void test_integration_bpas_store_bypass(void) {
     /*
-     * STR X0,[X29] ; LDR X1,[X29].  mem[0]=STALE, X0=NEW.
+     * STR X0,[X29] . LDR X1,[X29].  mem[0]=STALE, X0=NEW.
      * seq:  the load reads the stored (NEW) value -> store + 1 load.
-     * bpas: the store is bypassed, so a speculative load reads the STALE value; after the
+     * bpas: the store is bypassed, so a speculative load reads the STALE value. after the
      *       window the load re-runs architecturally with NEW -> store + 2 loads.
      */
     uint32_t code[] = { enc_str_reg(0, 29), enc_ldr_reg(1, 29) };
@@ -2025,7 +2025,7 @@ static void test_integration_bpas_trailing_store(void) {
 
 /* ---- unsupported clause combination must be rejected by the CE -------- */
 static void test_integration_unsupported_clauses_rejected(void) {
-    /* COND|BPU is two branch models, not a supported contract; the CE must reject it. */
+    /* COND|BPU is two branch models, not a supported contract. the CE must reject it. */
     uint32_t code[] = { enc_ldr_reg(0, 29) };
     uint8_t mem[MEM_SIZE];
     memset(mem, 0, sizeof(mem));
@@ -2038,7 +2038,7 @@ static void test_integration_unsupported_clauses_rejected(void) {
 /* ---- bpas preserves a store's register writeback while bypassing its memory write ---- */
 static void test_integration_bpas_preserves_writeback(void) {
     /* STR X0,[X1],#8 bypassed: the memory write is undone, but the post-index writeback
-     * (X1 += 8) must persist (the HW applied it; only memory is restored). So the following
+     * (X1 += 8) must persist (the HW applied it. only memory is restored). So the following
      * load's EA is X1+8 even on the speculative (stale-memory) path. */
     uint32_t code[] = { enc_str_postidx(0, 1, 8), enc_ldr_reg(2, 1) };
     uint8_t mem[MEM_SIZE];
@@ -2123,7 +2123,7 @@ static void test_integration_cond_bpas_composition(void) {
 
 /* ---- bpas with max_nesting=0 must gate the bypass off entirely (== seq) ---- */
 static void test_integration_bpas_max_nesting_zero(void) {
-    /* Phase A only fires when spec_nesting() < spec_max_nesting(); with the cap at 0 that is
+    /* Phase A only fires when spec_nesting() < spec_max_nesting(). with the cap at 0 that is
      * 0 < 0 == false, so no window ever opens. STR;LDR must then behave exactly like seq:
      * the store executes and the load reads the NEW (forwarded) value, no stale spec read. */
     uint32_t code[] = { enc_str_reg(0, 29), enc_ldr_reg(1, 29) };
@@ -2152,7 +2152,7 @@ static void test_integration_bpas_max_nesting_zero(void) {
 /* ---- bpas with two consecutive stores to the same address: windows nest ---- */
 static void test_integration_bpas_consecutive_stores(void) {
     /*
-     * STR X0,[X29] ; STR X1,[X29] ; LDR X2,[X29].  mem[0]=ORIG, X0=V1, X1=V2.
+     * STR X0,[X29] . STR X1,[X29] . LDR X2,[X29].  mem[0]=ORIG, X0=V1, X1=V2.
      * store2's phase A snapshots AFTER store1's phase B already restored ORIG, so the second
      * window's pre-image is ORIG. The two bypass windows therefore NEST (store2 inside store1),
      * and the deepest speculative load reads the ORIGINAL pre-both value, proving "multiple
@@ -2274,7 +2274,7 @@ static void test_integration_cond_nesting_cap(void) {
     /*
      * Two always-mispredicted branches stack: CBZ X0 forks (nest 1), and inside that window
      * CBZ X1 forks again (nest 2). The cap (spec_nesting() < spec_max_nesting()) must bound this:
-     *   max_nesting=2 -> a load at nesting 2 exists; max_nesting=1 -> nothing exceeds nesting 1.
+     *   max_nesting=2 -> a load at nesting 2 exists. max_nesting=1 -> nothing exceeds nesting 1.
      */
     uint32_t code[] = {
         enc_cbz(0, +8),              /* CBZ X0,+8 : arch taken, spec falls through */
@@ -2357,7 +2357,7 @@ static int count_loads(ce_result_t *res) {
 #define SV2   UINT64_C(0x2222222222222222)
 #define SV3   UINT64_C(0x3333333333333333)
 
-/* run a bpas/cond gadget at a given nesting cap; mem[0]=ORIG */
+/* run a bpas/cond gadget at a given nesting cap. mem[0]=ORIG */
 static bool run_gadget(uint32_t *code, int nw, uint64_t cap, uint64_t clauses,
                        uint64_t *regs, ce_result_t *res) {
     uint8_t mem[MEM_SIZE]; memset(mem, 0, sizeof(mem));
@@ -2568,7 +2568,7 @@ static void test_integration_barrier_sb_no_speculation(void) {
 
 /* ---- cond+bpas+barrier: SSBB cuts the bypass but leaves the branch mispredict intact ---- */
 static void test_integration_barrier_ssbb_spares_enclosing_branch(void) {
-    /* CBNZ X0,+16 (X0=0 -> arch NOT-taken; ALWAYS_MISPREDICT -> spec TAKEN into the block):
+    /* CBNZ X0,+16 (X0=0 -> arch NOT-taken. ALWAYS_MISPREDICT -> spec TAKEN into the block):
      *   target: STR X1;SSBB;LDR X2  (all [X29]).  On the speculative (taken) path the store's
      * bypass window opens and is cut by SSBB, so LDR X2 reads the committed store (NEWV) rather
      * than STALE, yet the enclosing branch misprediction (nesting>=1) is NOT unwound by the SSBB. */
@@ -2602,7 +2602,7 @@ static void test_integration_barrier_ssbb_spares_enclosing_branch(void) {
 
 /* ---- adjacency: a store AFTER the barrier is NOT fenced by it ---- */
 static void test_integration_barrier_store_after_not_fenced(void) {
-    /* SSBB;STR X0;LDR X1.  The store follows the barrier, so SSBB does not order it; the bypass
+    /* SSBB;STR X0;LDR X1.  The store follows the barrier, so SSBB does not order it. the bypass
      * window opens and LDR X1 speculatively reads STALE. */
     uint32_t code[] = { enc_ssbb(), enc_str_reg(0, 29), enc_ldr_reg(1, 29) };
     ce_result_t res;
@@ -2614,7 +2614,7 @@ static void test_integration_barrier_store_after_not_fenced(void) {
 /* ---- adjacency: a load BEFORE the barrier keeps its (legit) pre-barrier bypass ---- */
 static void test_integration_barrier_load_before_barrier(void) {
     /* STR X0;LDR X1;SSBB;LDR X2 (all [X29]).  The pre-barrier load may bypass the store (reads
-     * STALE speculatively); the post-barrier load may not.  So bpas+barrier yields exactly ONE
+     * STALE speculatively). the post-barrier load may not.  So bpas+barrier yields exactly ONE
      * speculative STALE read, vs TWO when the SSBB is ignored. */
     uint32_t code[] = { enc_str_reg(0, 29), enc_ldr_reg(1, 29), enc_ssbb(), enc_ldr_reg(2, 29) };
     ce_result_t bpas, barr;
@@ -2640,7 +2640,7 @@ static void test_integration_barrier_load_before_store_after(void) {
     if (ok) EXPECT(saw_spec_load_value(&res, STALE));   /* post-barrier store still bypassable */
 }
 
-/* ---- branch-speculation barriers: ISB and DSB SY cut a mispredict; a narrower DSB ISH does not - */
+/* ---- branch-speculation barriers: ISB and DSB SY cut a mispredict. a narrower DSB ISH does not - */
 static void test_integration_barrier_control_fence_variants(void) {
     uint8_t mem[MEM_SIZE]; memset(mem, 0, sizeof(mem));
     uint64_t v0 = UINT64_C(0x1111111111111111);
@@ -2667,9 +2667,9 @@ static void test_integration_barrier_control_fence_variants(void) {
 
 /* ---- control-fence granularity: SSBB does NOT cut a branch mispredict, SB does ---- */
 static void test_integration_barrier_control_fence_granularity(void) {
-    /* CBZ X0,+12 (arch TAKEN, X0=0) jumps past the speculative region; ALWAYS_MISPREDICT falls
+    /* CBZ X0,+12 (arch TAKEN, X0=0) jumps past the speculative region. ALWAYS_MISPREDICT falls
      * through to <barrier>;LDR X1 speculatively.  SSBB does not fence control -> the spec load
-     * survives; SB does -> it is cut. */
+     * survives. SB does -> it is cut. */
     uint8_t mem[MEM_SIZE]; memset(mem, 0, sizeof(mem));
     uint64_t v0 = UINT64_C(0x1111111111111111);
     memcpy(mem, &v0, 8);
@@ -2692,7 +2692,7 @@ static void test_integration_barrier_control_fence_granularity(void) {
 static void test_integration_bpas_three_stores_value_set(void) {
     /* STR x0;STR x1;STR x2;LDR x3 (all [x29]).  The end load can read the value of the most
      * recent NON-bypassed store, or ORIG if a suffix of stores is bypassed:
-     *   read SV3=none bypassed (nest0); SV2=bypass S3 (nest1); SV1=bypass S3,S2 (nest2);
+     *   read SV3=none bypassed (nest0). SV2=bypass S3 (nest1). SV1=bypass S3,S2 (nest2);
      *   ORIG=bypass S3,S2,S1 (nest3).  The cap limits how deep the suffix-bypass can go. */
     uint32_t code[] = { enc_str_reg(0,29), enc_str_reg(1,29), enc_str_reg(2,29), enc_ldr_reg(3,29) };
     uint64_t regs[REGS_COUNT]={0}; regs[0]=SV1; regs[1]=SV2; regs[2]=SV3;
@@ -2728,7 +2728,7 @@ static void test_integration_bpas_three_stores_value_set(void) {
 
 /* ---- branch BEFORE three stores (cond|bpas) ---- */
 static void test_integration_cond_bpas_branch_before_stores(void) {
-    /* CBZ x3,+? ; STR;STR;STR ; LDR.  x3!=0 -> arch falls through to the stores; the stores fork
+    /* CBZ x3,+? . STR;STR;STR . LDR.  x3!=0 -> arch falls through to the stores. the stores fork
      * (bypass/apply) on the architectural path, and the branch adds another fork. */
     uint32_t code[] = { enc_cbz(3,+16), enc_str_reg(0,29), enc_str_reg(1,29), enc_str_reg(2,29),
                         enc_ldr_reg(4,29) };
@@ -2749,7 +2749,7 @@ static void test_integration_cond_bpas_branch_before_stores(void) {
 
 /* ---- branch AFTER the stores, before the load ---- */
 static void test_integration_cond_bpas_branch_after_stores(void) {
-    /* STR;STR; CBZ x3,+4 ; LDR.  The branch sits between the stores and the load. */
+    /* STR;STR. CBZ x3,+4 . LDR.  The branch sits between the stores and the load. */
     uint32_t code[] = { enc_str_reg(0,29), enc_str_reg(1,29), enc_cbz(3,+8), enc_ldr_reg(4,29) };
     uint64_t regs[REGS_COUNT]={0}; regs[0]=SV1; regs[1]=SV2; regs[3]=0;
     ce_result_t r;
@@ -2764,7 +2764,7 @@ static void test_integration_cond_bpas_branch_after_stores(void) {
 
 /* ---- branch in the MIDDLE of the stores ---- */
 static void test_integration_cond_bpas_branch_in_middle(void) {
-    /* STR x0 ; CBZ x3,+4 ; STR x1 ; LDR.  Branch interleaved between two stores. */
+    /* STR x0 . CBZ x3,+4 . STR x1 . LDR.  Branch interleaved between two stores. */
     uint32_t code[] = { enc_str_reg(0,29), enc_cbz(3,+8), enc_str_reg(1,29), enc_ldr_reg(4,29) };
     uint64_t regs[REGS_COUNT]={0}; regs[0]=SV1; regs[1]=SV2; regs[3]=1;   /* arch falls through */
     ce_result_t r;
@@ -2779,7 +2779,7 @@ static void test_integration_cond_bpas_branch_in_middle(void) {
 
 /* ---- store THEN branch ---- */
 static void test_integration_cond_bpas_store_then_branch(void) {
-    /* STR x0 ; CBZ x3,+4 ; LDR.  Store immediately followed by a branch. */
+    /* STR x0 . CBZ x3,+4 . LDR.  Store immediately followed by a branch. */
     uint32_t code[] = { enc_str_reg(0,29), enc_cbz(3,+8), enc_ldr_reg(4,29) };
     uint64_t regs[REGS_COUNT]={0}; regs[0]=SV1; regs[3]=1;
     ce_result_t r;
@@ -2793,7 +2793,7 @@ static void test_integration_cond_bpas_store_then_branch(void) {
 
 /* ---- branch THEN store ---- */
 static void test_integration_cond_bpas_branch_then_store_flow(void) {
-    /* CBZ x3,+4 ; STR x0 ; LDR.  Branch immediately followed by a store. */
+    /* CBZ x3,+4 . STR x0 . LDR.  Branch immediately followed by a store. */
     uint32_t code[] = { enc_cbz(3,+8), enc_str_reg(0,29), enc_ldr_reg(4,29) };
     uint64_t regs[REGS_COUNT]={0}; regs[0]=SV1; regs[3]=1;   /* arch falls through to the store */
     ce_result_t r;
@@ -2835,7 +2835,7 @@ static void test_integration_cond_only_nesting_cap(void) {
 
 /* ---- depth cap with interleaved stores and branches ---- */
 static void test_integration_cond_bpas_interleaved_nesting_cap(void) {
-    /* STR ; CBZ ; STR ; CBZ ; LDR, caps must bound the combined fork depth. */
+    /* STR . CBZ . STR . CBZ . LDR, caps must bound the combined fork depth. */
     uint32_t code[] = { enc_str_reg(0,29), enc_cbz(3,+4), enc_str_reg(1,29), enc_cbz(4,+4),
                         enc_ldr_reg(5,29) };
     uint64_t regs[REGS_COUNT]={0}; regs[0]=SV1; regs[1]=SV2; regs[3]=1; regs[4]=1;
@@ -2868,7 +2868,7 @@ static void test_integration_forks_store_vs_branch_symmetry(void) {
 
 /* ---- a store-pair (STP) is ONE instruction => ONE fork covering both elements ---- */
 static void test_integration_bpas_store_pair_single_fork(void) {
-    /* STP x0,x1,[x29] ; LDR x2,[x29].  The pair bypasses as a unit, so the load forks to depth 1
+    /* STP x0,x1,[x29] . LDR x2,[x29].  The pair bypasses as a unit, so the load forks to depth 1
      * (not 2): it reads ORIG (pair bypassed) or SV1 (pair applied -> element 0 = x0). */
     uint32_t code[] = { enc_stp(0,1,29), enc_ldr_reg(2,29) };
     uint64_t regs[REGS_COUNT]={0}; regs[0]=SV1; regs[1]=SV2;
@@ -2884,7 +2884,7 @@ static void test_integration_bpas_store_pair_single_fork(void) {
 
 /* ---- registry order: a store-bypass window must ENCLOSE a following branch's window ---- */
 static void test_integration_cond_bpas_store_encloses_branch(void) {
-    /* STR x0 ; CBZ x3,+8 ; LDR x1.  On the CBZ (the instruction after the store) bpas is dispatched
+    /* STR x0 . CBZ x3,+8 . LDR x1.  On the CBZ (the instruction after the store) bpas is dispatched
      * BEFORE cond, so the store-bypass window opens first (nest 1) and the branch forks INSIDE it
      * (nest 2).  x3=0 => arch takes the branch and skips the load, so the load is reached only on
      * the branch's speculative path, at nesting 2, where it must read the STALE (bypassed) memory.
@@ -2909,7 +2909,7 @@ static void test_integration_cond_bpas_store_encloses_branch(void) {
 
 /* ---- BPU resolves its predictor from the input (not a hardcoded injection) ---- */
 static void test_integration_bpu_input_selected_predictor(void) {
-    /* build_ce_input selects Neoverse-N3 for a BPU contract; the run must succeed, proving the
+    /* build_ce_input selects Neoverse-N3 for a BPU contract. the run must succeed, proving the
      * predictor was resolved from the input. (BPU with no predictor would trap in the CE.) */
     uint32_t code[] = { enc_cbz(0, +8), enc_ldr_reg(1, 29), enc_ldr_unsigned(2, 29, 8) };
     uint8_t mem[MEM_SIZE];
@@ -2974,7 +2974,7 @@ static void test_integration_mte_subps_equal_tagged_pointers(void) {
     EXPECT_EQ(e->cpu.nzcv, UINT64_C(0x60000000));
 }
 
-/* SUBPS where op1 < op2 → negative result; N=1, C=0 (borrow). */
+/* SUBPS where op1 < op2 → negative result. N=1, C=0 (borrow). */
 static void test_integration_mte_subps_negative(void) {
     uint32_t code[] = {
         enc_subps(0, 1, 2),
@@ -3031,7 +3031,7 @@ static void test_integration_mte_subp_preserves_nzcv(void) {
     EXPECT_EQ(e->cpu.nzcv,   UINT64_C(0x40000000)); /* NZCV unchanged (no S)   */
 }
 
-/* ADDG  X<rd>, X<rn>, #uimm6, #uimm4  (uimm6 unit = 16 bytes; uimm4 = tag delta) */
+/* ADDG  X<rd>, X<rn>, #uimm6, #uimm4  (uimm6 unit = 16 bytes. uimm4 = tag delta) */
 static uint32_t enc_addg(int rd, int rn, int uimm6, int uimm4) {
     return 0x91800000u | ((uint32_t)(uimm6 & 0x3F) << 16) | ((uint32_t)(uimm4 & 0xF) << 10)
          | ((uint32_t)rn << 5) | (uint32_t)rd;
@@ -3063,7 +3063,7 @@ static void test_integration_mte_addg(void) {
     EXPECT_EQ(e->cpu.gpr[0], UINT64_C(0xF300000000001010));
 }
 
-/* SUBG mirrors ADDG with subtraction; tag wraps mod 16. */
+/* SUBG mirrors ADDG with subtraction. tag wraps mod 16. */
 static void test_integration_mte_subg(void) {
     uint32_t code[] = { enc_subg(0, 1, 1, 1), enc_ldr_reg(3, 29) };  /* SUBG X0,X1,#16,#1 */
     uint8_t mem[MEM_SIZE];
@@ -3092,7 +3092,7 @@ static uint32_t enc_ldg(int rt, int rn) {
 
 /* An emulated memory-tag op (LDG X0,[X0], Rt==Rn) must not leave a uaddr in its base register:
  * base_hook excludes the memory-tag family from the native kaddr<->uaddr translation. After LDG, X0
- * keeps its sandbox address (only the tag field [59:56] is rewritten; tag 0 with no tag memory). */
+ * keeps its sandbox address (only the tag field [59:56] is rewritten. tag 0 with no tag memory). */
 static void test_integration_ldg_base_not_translated(void) {
     uint32_t code[] = { enc_ldg(0, 0), enc_ldr_reg(9, 29) };   /* LDG X0,[X0] ; LDR X9,[X29] */
     uint8_t mem[MEM_SIZE];
@@ -3220,11 +3220,11 @@ static void test_integration_mte_inactive_no_correction(void) {
  * Base-register-aliasing stores. A store whose data register aliases the base
  * must persist the kaddr, not the uaddr the CE injects for native execution.
  * Each stores a base-derived pointer, reads it back, and checks the kaddr bits.
- * Regression for the pair second-element bug; covers regular / 64-bit / atomic.
+ * Regression for the pair second-element bug. covers regular / 64-bit / atomic.
  * ============================================================================ */
 #define AL_OFF 0x40u
 
-/* Run store `st` then load `ld`; return the load's trace entry (2nd mem access). If `mem_qword` is
+/* Run store `st` then load `ld`. return the load's trace entry (2nd mem access). If `mem_qword` is
  * non-NULL it preloads 8 bytes at [KBASE+AL_OFF] (for CAS's compare). */
 static instr_trace_entry_t* alias_store_load(uint32_t st, uint32_t ld, const uint64_t* regs,
                                              const uint64_t* mem_qword, ce_result_t* res) {
@@ -3291,7 +3291,7 @@ static void test_alias_atomic_ldadd(void) {             /* LDADD X1,X0,[X1], [X1
     if (!ld) AL_FAIL();
     EXPECT_EQ(ld->metadata.memory_access.before, KBASE + AL_OFF);
 }
-/* CAS: compare X0 against [X2]; on match store X1, else leave memory. The CE runs it natively and
+/* CAS: compare X0 against [X2]. on match store X1, else leave memory. The CE runs it natively and
  * models it as an atomic RMW. Readback (LDR X3,[X2] = 0xf9400043) reports the resulting cell value. */
 static void test_alias_atomic_cas_match(void) {           /* CAS X0,X1,[X2], X0==mem -> stores X1 */
     uint64_t regs[REGS_COUNT] = {0}; regs[2] = KBASE + AL_OFF; regs[0] = 0; regs[1] = 0xABCD;
@@ -3349,9 +3349,9 @@ static void test_atomic_casp_w_pair(void) {               /* CASP W0,W1,W2,W3,[X
 
 static void test_integration_sls_past_unconditional_b(void) {
     /*
-     * Code: B +8; LDR X1,[X29]; LDR X2,[X29,#8]
+     * Code: B +8. LDR X1,[X29]. LDR X2,[X29,#8]
      * B +8 architecturally jumps over LDR X1 to LDR X2. Under SLS the frontend keeps fetching pc+4,
-     * so the unreachable LDR X1 (and the following LDR X2) run speculatively; then execution resumes
+     * so the unreachable LDR X1 (and the following LDR X2) run speculatively. then execution resumes
      * at the branch target LDR X2 architecturally.
      *   [0] LDR X1  nesting=1   EA=kbase      (straight-line, architecturally unreachable)
      *   [1] LDR X2  nesting=1   EA=kbase+8    (still on the SLS path)
@@ -3398,7 +3398,7 @@ static void test_integration_sls_past_unconditional_b(void) {
 
 static void test_integration_sls_conditional_branch(void) {
     /*
-     * Code: CBZ X0,+8; LDR X1,[X29]; LDR X2,[X29,#8]   (X0=0 -> arch TAKEN, skip LDR X1)
+     * Code: CBZ X0,+8. LDR X1,[X29]. LDR X2,[X29,#8]   (X0=0 -> arch TAKEN, skip LDR X1)
      * SLS alone (no cond): at the taken branch the frontend still fetches pc+4, so it explores the
      * not-taken fall-through (LDR X1) speculatively, then resumes at the taken target LDR X2.
      *   [0] LDR X1  nesting=1   EA=kbase      (straight-line fall-through)
@@ -3534,8 +3534,8 @@ static void test_integration_sls_cond_dedup(void) {
 
 static void test_integration_sls_barrier_cut(void) {
     /*
-     * Code: B +12; LDR X1,[X29]; SB; LDR X2,[X29,#8]
-     * SLS explores the straight-line path from LDR X1; the SB is a control-fence barrier, so
+     * Code: B +12. LDR X1,[X29]. SB. LDR X2,[X29,#8]
+     * SLS explores the straight-line path from LDR X1. the SB is a control-fence barrier, so
      * SLS|BARRIER squashes the window there before it reaches LDR X2 speculatively.
      *   [0] LDR X1  nesting=1   (straight-line, before the fence)
      *   [1] LDR X2  nesting=0   (architectural, after the window is cut)
@@ -3642,7 +3642,7 @@ static void test_integration_sls_cond_adds_past_uncond(void) {
 
 static void test_integration_sls_exact_entry_count(void) {
     /* B +12 jumps to LDR X3 ([3]). Under sls the straight-line window runs the three loads
-     * speculatively; then the architectural path re-runs the B target, exactly four memory accesses:
+     * speculatively. then the architectural path re-runs the B target, exactly four memory accesses:
      *   [0] LDR X1 kbase     nesting=1
      *   [1] LDR X2 kbase+8   nesting=1
      *   [2] LDR X3 kbase+16  nesting=1
@@ -3790,9 +3790,9 @@ int main(void) {
     test_atomic_casp_pair();
     test_atomic_casp_w_pair();
 
-    // PAC (need /dev/executor; skip without it). sign_then_auth is a matched,
+    // PAC (need /dev/executor. skip without it). sign_then_auth is a matched,
     // non-faulting round-trip, but a failing auth resets FEAT-FPAC silicon, so
-    // it also exercises the flagged pac.c key-swap path; run on the VM first.
+    // it also exercises the flagged pac.c key-swap path. run on the VM first.
     test_integration_pac_pacga();
     test_integration_pac_sign_then_strip();
     test_integration_pac_sign_then_auth();

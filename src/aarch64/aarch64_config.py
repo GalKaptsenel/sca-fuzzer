@@ -26,7 +26,7 @@ _option_values = {
         'speculative-exception',
     ],
     # When the speculative-exception fuzzer is selected, which input regime to run (no default):
-    # 'strict' = inputs byte-identical except the GVT access-value vector registers; 'contract_driven' =
+    # 'strict' = inputs byte-identical except the GVT access-value vector registers. 'contract_driven' =
     # fuzz as regular, those registers tainted per the contract like any other input.
     'speculative_exception_mode': [
         'strict',
@@ -90,7 +90,7 @@ _option_values = {
         "user-execute-never",
         "randomized",
     ],
-    # UNUSED by AArch64 Revizor: stage-2 (EPT) properties; no guest/stage-2 support.
+    # UNUSED by AArch64 Revizor: stage-2 (EPT) properties. no guest/stage-2 support.
     "actor_data_ept_properties": [
         "present",
         "is_table",
@@ -208,7 +208,7 @@ supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "l
                                      # acquire / release ordered accesses
                                      "ldar", "ldarb", "ldarh", "ldapr", "ldaprb", "ldaprh", "ldlar", "ldlarb", "ldlarh",
                                      "stlr", "stlrb", "stlrh", "stllr", "stllrb", "stllrh",
-                                     # compare-and-swap (single + pair; CE models the RMW, generator patches CASP pairs)
+                                     # compare-and-swap (single + pair. CE models the RMW, generator patches CASP pairs)
                                      "cas", "casa", "casab", "casah", "casal", "casalb", "casalh",
                                      "casb", "cash", "casl", "caslb", "caslh",
                                      "casp", "caspa", "caspal", "caspl",
@@ -219,7 +219,7 @@ supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "l
 #   (authenticated) at all. < 1 leaves some accesses uninstrumented (a raw,
 #   sandbox-clamped pointer, no AUT*). Decided once per test case.
 # pac_strip_prob: probability that an instrumented slot renders as the arch-safe XPAC*
-#   strip instead of a real AUT*. A strip never poisons under speculation; an
+#   strip instead of a real AUT*. A strip never poisons under speculation. an
 #   AUT* against the decoy signature does.
 pac_prob: float = 1.0
 pac_strip_prob: float = 0.0
@@ -231,7 +231,7 @@ pac_keys_per_input: bool = True
 va_size: Optional[int] = None
 
 # PAC profile: the TCR_EL1 / ID_AA64ISAR1/2_EL1 state the ARM AddPAC/Strip/Auth pseudocode reads.
-# All None -> decoded from the device; if any is set, all (and va_size) must be, and the device is not
+# All None -> decoded from the device. if any is set, all (and va_size) must be, and the device is not
 # consulted (remote fuzzing).
 va_size0: Optional[int] = None                    # 64 - TCR_EL1.T0SZ
 pac_qarma_version: Optional[int] = None           # address auth: 5 (APA) or 3 (APA3)
@@ -264,7 +264,7 @@ signext_prob: float = 1.0
 
 # BranchTargetGvtAccess: on the speculative decoy, corrupt an indirect call's target register before the
 # BLR so it becomes non-canonical (high bits, like canonicality) and/or misaligned (low bits [1:0] ->
-# PC-alignment fault, an axis x86 lacks). Genuine keeps a valid target; no after-revert (the target reg
+# PC-alignment fault, an axis x86 lacks). Genuine keeps a valid target. no after-revert (the target reg
 # is a throwaway scratch). Needs indirect calls in the test cases (indirect_call_probability > 0).
 enable_branch_target: bool = False
 branch_target_prob: float = 1.0
@@ -289,13 +289,13 @@ pte_fuzz_fields_per_decoy: int = 1
     drawn as a random subset of pte_fuzz_leaf_fields. Default 1 (isolate one field per decoy). """
 
 # Cross-input priming (src/aarch64/cross_input.py): generalize standard priming. Standard priming keeps a
-# flagged violation only if the divergence follows the detecting pair's OWN input; cross-input priming
+# flagged violation only if the divergence follows the detecting pair's OWN input. cross-input priming
 # additionally localizes an EARLIER ct-equal input (the leaking pair) whose microarchitectural residue
 # (e.g. a BTB entry) surfaces as the detecting pair's cache divergence. It replaces standard priming in
 # regular fuzzing over the boosted lanes (src/aarch64/boosted_lanes.py), reusing the sample sizes
 # standard priming uses (the current stage size for localization, executor_sample_sizes[-1] to
 # re-verify). Requires a local HW executor with sysfs regime control (the search forces view_rotation=0
-# and unpinned execution); off by default (standard priming). Set False for remote executors.
+# and unpinned execution). off by default (standard priming). Set False for remote executors.
 enable_cross_input_priming: bool = False
 """ enable_cross_input_priming: in regular and speculative-exception fuzzing, replace the standard priming filter
     with the generalized-priming localization over boosted lanes. Wherever priming would run, the flagged

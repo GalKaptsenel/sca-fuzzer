@@ -124,7 +124,7 @@ class Builder:
             if base is None:
                 raise ValueError(f"template: {iname} memory operand has no base register to set")
             base.value = given.base.name.lower()
-            # honor an explicit offset (Mem(reg, offset=Imm(n))); else the displacement stays random
+            # honor an explicit offset (Mem(reg, offset=Imm(n))). else the displacement stays random
             if given.offset is not None:
                 off = next((c for c in slot.inner if getattr(c, "mem_role", None) is AArch64MemRole.OFFSET), None)
                 if off is None:
@@ -241,7 +241,7 @@ class Builder:
         if isinstance(ic.targets, list):
             return [self._as_function(t) for t in ic.targets]
         n = ic.targets if ic.targets is not None else self._random_target_count()
-        # declared callees ahead of the caller come first; create the rest
+        # declared callees ahead of the caller come first. create the rest
         pool = [f for f in self._declared if self._index(f) > self._index(self._function)][:n]
         return pool + [self._new_function(None, ic.populate) for _ in range(n - len(pool))]
 

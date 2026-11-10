@@ -48,7 +48,7 @@ static bool load_kallsyms_lookup_name(void) {
 }
 
 static bool __nocfi load_globals(void) {
-	// every other load resolves symbols via kallsyms_lookup_name; don't run them with a NULL resolver
+	// every other load resolves symbols via kallsyms_lookup_name. don't run them with a NULL resolver
 	if (!load_kallsyms_lookup_name()) {
 		return false;
 	}
@@ -152,7 +152,7 @@ static void __nocfi __exit executor_exit(void) {
 	if (0 != executor.tracing_error) {
 		module_err("Failed to unload the module due to corrupted state (tracing_error=%d)\n",
 			   executor.tracing_error);
-		/* __exit cannot abort unload; fall through and free or we leak the
+		/* __exit cannot abort unload. fall through and free or we leak the
 		 * cdev/class/sysfs/test_case and the RWX vmap view region. */
 	}
 

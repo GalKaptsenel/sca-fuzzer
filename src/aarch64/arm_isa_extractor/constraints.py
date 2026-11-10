@@ -1,7 +1,7 @@
 from __future__ import annotations
 import re
 
-# `if <cond> then [<lvalue> =] ConstrainUnpredictable(Unpredictable_<KIND>)`; cond/assignment hold no
+# `if <cond> then [<lvalue> =] ConstrainUnpredictable(Unpredictable_<KIND>)`. cond/assignment hold no
 # ';' so a preceding `if ... then EndOfDecode;` cannot be mis-captured.
 _CONSTRAIN = re.compile(
     r"\bif\s+(?P<cond>[^;]+?)\s+then\s+(?:[\w\s:]+=\s*)?"

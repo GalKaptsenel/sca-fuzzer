@@ -67,7 +67,7 @@ class Operand:
     signed: bool
     values: tuple = ()                 # enumerated symbols (COND/shift), else empty
     # IMM value set as (esize, lo, hi, stride) entries. esize 0 = applies for any element size
-    # (the usual case, one entry); for SVE tsz-encoded shifts the valid range depends on the
+    # (the usual case, one entry). for SVE tsz-encoded shifts the valid range depends on the
     # element size, so there is one entry per esize (8/16/32/64).
     imm_ranges: tuple = ()
     reg_file: "RegFile | None" = None  # for register operands
@@ -77,7 +77,7 @@ class Operand:
     # a narrow field (Pg is 3-bit => P0-P7) or fixed bits in the UInt() binding (Rm::'0' => even
     # regs) restrict the set. () only for non-register operands.
     reg_range: tuple = ()
-    # a register inside a memory `[...]` is the address base or index; the access itself is the
+    # a register inside a memory `[...]` is the address base or index. the access itself is the
     # instruction's mem_access. NONE for ordinary (non-addressing) registers.
     mem_role: MemRole = MemRole.NONE
 
@@ -112,9 +112,9 @@ class Instruction:
     # how the memory access must be aligned: "natural" (to its width), "granule" (MTE tag granule), or
     # None. The DB builder resolves it to the memory operand's alignment in bytes. See asl.AslSemantics.
     mem_alignment: "str | None" = None
-    # the memory AccessDescriptor kind (see asl.AslSemantics.mem_accdesc); the DB builder maps it to the
+    # the memory AccessDescriptor kind (see asl.AslSemantics.mem_accdesc). the DB builder maps it to the
     # memory-family tag (integer atomic vs FP atomic vs RCW vs copy).
     mem_accdesc: "str | None" = None
-    # earliest architecture version this instruction is available from, as (major, minor); None for a
+    # earliest architecture version this instruction is available from, as (major, minor). None for a
     # baseline Armv8.0 instruction. Generation excludes instructions above the target's version.
     min_arch: "tuple | None" = None

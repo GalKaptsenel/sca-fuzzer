@@ -91,7 +91,7 @@ static int parse_input_init(const uint8_t* input_init, size_t input_init_size, s
 	}
 	memcpy(sim_input->regs, input_init + gpr_sec->offset, gpr_sec->length);
 
-	/* optional MTE tags: two 4-bit tags per byte, low nibble first; one tag per 16B granule. */
+	/* optional MTE tags: two 4-bit tags per byte, low nibble first. one tag per 16B granule. */
 	sec = revisor_input_find_section(input_init, REVISOR_SEC_MTE_TAGS);
 	if (NULL != sec) {
 		size_t count = sim_input->mem_size / 16;

@@ -23,7 +23,7 @@ enum State {
 #define REGION_DEFAULT				(TEST_REGION)
 
 #define MAX_TEST_CASE_SIZE              (1 * PAGESIZE)
-/* Fits a full test case plus the largest harness; F+R's unrolled flush+reload is a ~14KB fixed cost. */
+/* Fits a full test case plus the largest harness. F+R's unrolled flush+reload is a ~14KB fixed cost. */
 #define MAX_MEASUREMENT_CODE_SIZE       (MAX_TEST_CASE_SIZE * 8)
 
 #define MAX_MEASUREMENT_VIEWS		(16)

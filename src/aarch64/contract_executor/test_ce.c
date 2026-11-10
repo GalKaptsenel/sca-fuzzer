@@ -117,7 +117,7 @@ uint64_t spec_max_nesting(void) { return 0; }
 #define ENC_STP_X0_X2_X1 0xA9000820u
 /* LDRSW X0, [X1], size=10, opc=10 (load, sign-extend to 64): a load whose opc[0]=0 */
 #define ENC_LDRSW_X0_X1  0xB9800020u
-/* STP X0, X2, [X1, #imm]!, pre-index (bit23=1) store; opc[23:22]=10 would mis-read as a load */
+/* STP X0, X2, [X1, #imm]!, pre-index (bit23=1) store. opc[23:22]=10 would mis-read as a load */
 #define ENC_STP_PREIDX   0xA9800820u
 /* PRFM (pfrop), [X1], size=11, opc=10: a hint, neither load nor store */
 #define ENC_PRFM_X1      0xF9800020u
@@ -335,7 +335,7 @@ static void test_barrier_kind(void) {
     EXPECT(!barrier_fences_control(0xD5033F5Fu));
     EXPECT(!barrier_fences_control(0xD503203Fu));         /* yield */
 
-    /* store-bypass is fenced by SSBB/PSSBB and the stronger DSB/ISB/SB; not by DMB/CSDB */
+    /* store-bypass is fenced by SSBB/PSSBB and the stronger DSB/ISB/SB. not by DMB/CSDB */
     EXPECT(barrier_fences_store_bypass(0xD503309Fu));   /* ssbb */
     EXPECT(barrier_fences_store_bypass(0xD503349Fu));   /* pssbb */
     EXPECT(barrier_fences_store_bypass(0xD5033B9Fu));   /* dsb ish */
@@ -751,7 +751,7 @@ static void test_input_load_fd_bad_header(void) {
     EXPECT(ret != 0);
 }
 
-/* Feed `hdr` + code + input_init over a pipe to simulation_input_load_fd; returns its result and
+/* Feed `hdr` + code + input_init over a pipe to simulation_input_load_fd. returns its result and
  * fills `si` (caller frees on success). */
 static int load_fd_via_pipe(const struct input_header* hdr, const uint8_t* code, size_t code_len,
                             const uint8_t* input_init, size_t init_len, struct simulation_input* si) {
@@ -787,7 +787,7 @@ static void test_input_load_fd_all_sections(void) {
     EXPECT(si.memory != NULL);
     EXPECT(si.regs   != NULL);
     EXPECT_EQ(si.hdr.code_size, (uint64_t)8);
-    /* memory is main || faulty (64 + 16); regs is the gpr section (32). */
+    /* memory is main || faulty (64 + 16). regs is the gpr section (32). */
     EXPECT_EQ(si.mem_size,  (size_t)80);
     EXPECT_EQ(si.regs_size, (size_t)32);
     EXPECT_EQ(si.memory[0],  0xABu);   /* main */
@@ -1009,7 +1009,7 @@ static void test_xreg_access_semantics(void) {
     /* XZR: reading must always return 0 regardless of surrounding state */
     struct cpu_state s;
     memset(&s, 0xFF, sizeof(s)); /* garbage fill */
-    /* Simulated: if (n==31) return 0; */
+    /* Simulated: if (n==31) return 0. */
     uint64_t xzr_read = 0;  /* invariant: always 0 */
     EXPECT_EQ(xzr_read, (uint64_t)0);
 
@@ -1263,7 +1263,7 @@ static void test_fixup_base_reg_rw(void) {
 static void test_fixup_simulate_roundtrip(void) {
     /*
      * Simulate the fixup flow with the real helpers:
-     *   base_hook_c: uaddr = kaddr2uaddr_calc(orig); write it into Rn
+     *   base_hook_c: uaddr = kaddr2uaddr_calc(orig). write it into Rn
      *   instruction runs (writeback forms add wb_delta to Rn)
      *   apply_fixups: Rn = orig + (Rn - uaddr)
      * The delta restore must reproduce orig + wb_delta EXACTLY, preserving the top byte for a
@@ -1293,7 +1293,7 @@ static void test_fixup_simulate_roundtrip(void) {
         cpu_state_write_base_reg(&s, cases[i].rn, uaddr);
         EXPECT_EQ(cpu_state_read_base_reg(&s, cases[i].rn), uaddr);
 
-        /* hardware executes; writeback forms update Rn */
+        /* hardware executes. writeback forms update Rn */
         cpu_state_write_base_reg(&s, cases[i].rn, (uintptr_t)((int64_t)uaddr + cases[i].wb_delta));
 
         /* apply_fixups (delta restore) */
@@ -1480,11 +1480,11 @@ static void test_fixup_all_registers_roundtrip(void) {
 static void test_hook_isolation(void) {
     /*
      * base_hook_c ordering guarantee:
-     *   apply_fixups(state);           → state has kaddr
-     *   sim_state.cpu_state = *state;  → snapshot has kaddr
+     *   apply_fixups(state).           → state has kaddr
+     *   sim_state.cpu_state = *state.  → snapshot has kaddr
      *   ... run hooks(&sim_state) ...  → hooks see kaddr
-     *   *state = sim_state.cpu_state;  → copy back
-     *   cpu_state_write_base_reg(state, rn, uaddr);  ← LAST write
+     *   *state = sim_state.cpu_state.  → copy back
+     *   cpu_state_write_base_reg(state, rn, uaddr).  ← LAST write
      *
      * After that last write, state->Rn == uaddr.
      * But sim_state.cpu_state.Rn is untouched, it was copied before translation.
@@ -1494,7 +1494,7 @@ static void test_hook_isolation(void) {
      *   1. Put kaddr in state
      *   2. Take snapshot (simulating sim_state.cpu_state = *state)
      *   3. Write uaddr to state (the LAST translation)
-     *   4. Assert snapshot still has kaddr; state has uaddr; they differ
+     *   4. Assert snapshot still has kaddr. state has uaddr. they differ
      */
     uintptr_t kbase   = 0xFFFF000080000000ULL;
     uint8_t   buf[4096];
@@ -1648,7 +1648,7 @@ static void test_bcond_integration(void) {
      *   condition_passed_ref(cond, nzcv_taken)     → true  → next_pc = target
      *   condition_passed_ref(cond, nzcv_not_taken) → false → next_pc = PC+4
      *
-     * AL (0xE) and NV (0xF) are always taken; no not-taken NZCV exists.
+     * AL (0xE) and NV (0xF) are always taken. no not-taken NZCV exists.
      */
     struct {
         uint8_t  cond;

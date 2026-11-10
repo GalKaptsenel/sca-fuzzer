@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* The architectural return-address stack. A BL/BLR pushes the address of the instruction after it; a
+/* The architectural return-address stack. A BL/BLR pushes the address of the instruction after it. a
  * RET pops the address to return to. This models what the hardware achieves with X30 plus the memory
  * spills a callee's prologue/epilogue perform, without the contract executor having to track X30
  * through its single-step machinery (which reuses the real LR). An empty stack means "no active call",
@@ -15,7 +15,7 @@
 
 void   call_stack_reset(void);
 void   call_stack_push(uintptr_t return_addr);
-/* Pop the top return address into *out; returns 1 on success, 0 when the stack is empty. */
+/* Pop the top return address into *out. returns 1 on success, 0 when the stack is empty. */
 int    call_stack_pop(uintptr_t *out);
 /* Read the top return address into *out without popping (the RSB's prediction for the next RET);
  * returns 1 on success, 0 when the stack is empty. */

@@ -37,7 +37,7 @@ def _operand_pattern(op) -> str:
     vals = list(op.values) if op.values else []
     if vals and len(vals) <= 64:
         # base.json enumerates register 31 as x31/w31, but the printer and our internal register
-        # model spell the zero register xzr/wzr; accept the alias so printed data-processing asm
+        # model spell the zero register xzr/wzr. accept the alias so printed data-processing asm
         # (e.g. `madd x4, x1, x5, xzr`) round-trips back to the same instruction.
         if "x31" in vals and "xzr" not in vals:
             vals.append("xzr")

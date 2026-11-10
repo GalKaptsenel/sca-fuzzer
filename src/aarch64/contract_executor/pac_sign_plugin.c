@@ -94,7 +94,7 @@ static auth_type_t classify_auth(uint32_t inst, uint32_t *rd_out, uint32_t *rn_o
     return AUTH_NONE;
 }
 
-/* gpr[0]=x29, gpr[1]=x28, ..., gpr[29]=x0; x30=lr, x31=XZR */
+/* gpr[0]=x29, gpr[1]=x28, ..., gpr[29]=x0. x30=lr, x31=XZR */
 static inline uint64_t read_xreg(const struct cpu_state *s, uint32_t n)
 {
     if (n == 31) { return 0; }
@@ -219,7 +219,7 @@ static uint64_t sw_pac_ga(uint64_t xn, uint64_t xm, uintptr_t pc)
                             g_pac_profile.generic_iterations) & 0xFFFFFFFF00000000ull;
 }
 
-/* The PAC sign op corresponding to an auth op (same key/key-letter; parallel enums). */
+/* The PAC sign op corresponding to an auth op (same key/key-letter. parallel enums). */
 static pac_type_t auth_to_pac(auth_type_t a)
 {
     switch (a) {
@@ -238,7 +238,7 @@ static pac_type_t auth_to_pac(auth_type_t a)
 /* Model an architectural AUT* without ever executing one: a successful AUT* yields the canonical
  * pointer (XPAC), and re-signing that with the same key+context reproduces the input iff it was
  * correctly signed. A real AUT* is never issued, so a wrong signature cannot FPAC-reset the box.
- * Genuine architectural auths are always correctly signed; a mismatch means a forged/mis-signed
+ * Genuine architectural auths are always correctly signed. a mismatch means a forged/mis-signed
  * AUT* reached the architectural path (a generator/GVT access bug). That must not be papered over with a
  * canonical result -- abort so the Python side surfaces it and stops the run. */
 static uint64_t model_auth(auth_type_t atype, uint64_t ptr, uint64_t ctx, uintptr_t pc)
@@ -328,7 +328,7 @@ void *auth_verify_hook(struct simulation_state *sim_state)
     return (void*)(sim_state->cpu_state.pc + 4);
 }
 
-/* op-emulator EMUL_OP_PAC_AUTH: the site is [UMOV x27,lane; (LSR; BFI)+ ; committed AUT*]. MATERIALIZE
+/* op-emulator EMUL_OP_PAC_AUTH: the site is [UMOV x27,lane. (LSR. BFI)+ . committed AUT*]. MATERIALIZE
  * signs the pointer the AUT* reads and writes the signed pointer into the GVT lane (row->gvt_offset);
  * base_hook reloads the vector file from the image before the UMOV re-runs, so the fixed BFI slots merge
  * the signed pointer's PAC field into rd and the AUT* then verifies and canonicalizes. The signing

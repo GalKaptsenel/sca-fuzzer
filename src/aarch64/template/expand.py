@@ -45,7 +45,7 @@ def _pick(gen, hole: Hole) -> Instruction:
 
 def _constrain_regs(gen, inst: Instruction, regs: List[Reg]) -> None:
     # Retarget top-level GPR operands to the whitelisted register numbers, in each operand's own width.
-    # A memory base is left as-is (it is the sandbox base); sp/zr/SIMD are not GPRs and stay.
+    # A memory base is left as-is (it is the sandbox base). sp/zr/SIMD are not GPRs and stay.
     allowed = {w: set(gen.target_desc.registers.get(w, ())) for w in (32, 64)}
     numbers = [r.number for r in regs if r.number is not None]
     candidates = {w: [n for n in (f"{'x' if w == 64 else 'w'}{k}" for k in numbers) if n in allowed[w]]

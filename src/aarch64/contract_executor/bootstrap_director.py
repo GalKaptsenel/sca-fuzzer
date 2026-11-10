@@ -36,18 +36,18 @@ except ImportError:
     from saturating_bp import Aarch64NeoverseN3BPU
 
 # Predictor geometry that is NOT reverse-engineered, placeholders that MUST be fully RE-ed before
-# the model is trusted; they are NOT confirmed N3 facts:
+# the model is trusted. they are NOT confirmed N3 facts:
 #   * PHR_FOLD_GROUP_WIDTH, the index/tag fold (its algorithm AND its group width) is a plausible
 #     model, not an RE result. (jit.c's 11-bit mask is a different quantity, branch-address
 #     placement, not evidence for this width.)
-#   * TAG_WIDTH, the tagged-table tag width has no RE basis at all; 8 is arbitrary. (A finite tag
+#   * TAG_WIDTH, the tagged-table tag width has no RE basis at all. 8 is arbitrary. (A finite tag
 #     does make distinct branches alias, as real TAGE does.)
 # Chosen explicitly here, with no default on the model class, so these guesses are visible in one
-# place and obviously pending reverse-engineering.
+# place, pending reverse-engineering.
 PHR_FOLD_GROUP_WIDTH = 11
 TAG_WIDTH = 8
 
-# Logical predictor name -> zero-arg factory. Add microarchitecture models here; the factory owns
+# Logical predictor name -> zero-arg factory. Add microarchitecture models here. the factory owns
 # the concrete class and its config, so the C side never needs to know them.
 _PREDICTORS = {
     "neoverse-n3": lambda: Aarch64NeoverseN3BPU(

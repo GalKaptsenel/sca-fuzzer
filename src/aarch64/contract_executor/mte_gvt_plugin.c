@@ -1,6 +1,6 @@
 /*
  * GVT-access-site op-emulator for MTE: supply the accessed cell's allocation tag to an instrumented access so the
- * genuine binary's tag check matches. The site is [UMOV x27,applied; BFI tag; access; UMOV x27,cell;
+ * genuine binary's tag check matches. The site is [UMOV x27,applied. BFI tag. access. UMOV x27,cell;
  * BFI tag]: the pre-BFI applies the tag the variant tests (genuine == the cell tag), the post-BFI
  * re-converges the pointer onto the cell tag. MATERIALIZE reads the cell tag at the access's effective
  * address and injects it into both lanes (row->gvt_offset = applied, row->gvt_offset2 = re-converge);
@@ -24,7 +24,7 @@ void mte_emulate_retag(struct simulation_state *sim_state, const struct emul_row
 	if (EMUL_PHASE_IDLE == phase) {
 		return;
 	}
-	/* An MTE_RETAG row only exists when MTE GVT access is active, so tag memory is seeded; a missing one
+	/* An MTE_RETAG row only exists when MTE GVT access is active, so tag memory is seeded. a missing one
 	 * is a bug, not a tolerable state, fail loud, as the op dispatch does. */
 	if (NULL == sim_state || !mte_tagmem_active()) {
 		fprintf(stderr, "[CE FATAL] mte_emulate_retag: sim_state=%p tagmem_active=%d -- aborting\n",
@@ -51,7 +51,7 @@ void mte_emulate_retag(struct simulation_state *sim_state, const struct emul_row
 	uint8_t base_tag = (uint8_t)((cpu_state_read_base_reg(cpu, get_rn(access)) >> 56) & 0xFu);
 	uint8_t ea_tag = (uint8_t)((ea >> 56) & 0xFu);
 	uint8_t applied = (uint8_t)((base_tag + cell - ea_tag) & 0xFu);
-	// Inject the applied tag into the applied lane (genuine) and the re-converge lane; each is one byte,
+	// Inject the applied tag into the applied lane (genuine) and the re-converge lane. each is one byte,
 	// read by the site's UMOV.b and inserted into the base register's tag [59:56] by BFI.
 	if (row->gvt_offset >= sizeof(simulation.sim_input.simd) ||
 	    row->gvt_offset2 >= sizeof(simulation.sim_input.simd)) {

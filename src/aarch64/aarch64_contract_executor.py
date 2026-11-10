@@ -72,7 +72,7 @@ SUPPORTED_EXECUTION_CLAUSES = frozenset({
     ExecutionClause.SLS | ExecutionClause.BPAS | ExecutionClause.BARRIER,
     ExecutionClause.SLS | ExecutionClause.COND | ExecutionClause.BPAS | ExecutionClause.BARRIER,
     # rsb (return-stack misprediction) composes with cond/bpas/barrier (its prediction rides the
-    # architectural call stack, already checkpointed across foreign windows); not with bpu/sls yet.
+    # architectural call stack, already checkpointed across foreign windows). not with bpu/sls yet.
     ExecutionClause.RSB,
     ExecutionClause.RSB | ExecutionClause.COND,
     ExecutionClause.RSB | ExecutionClause.BPAS,
@@ -111,7 +111,7 @@ RVZRCE_MAGIC    = 0x4543525A5652  # "RVZRCE" (matches RVZRCE_MAGIC in common_msg
 _MSG_REQUEST  = 1
 _MSG_RESPONSE = 2
 
-# GPRs per CE trace entry: x0..x30 (x30=lr at gpr[30]); pinned by the CE's simulation_state.h.
+# GPRs per CE trace entry: x0..x30 (x30=lr at gpr[30]). pinned by the CE's simulation_state.h.
 AARCH64_NUM_GPRS = 31
 
 class MteProfile(NamedTuple):

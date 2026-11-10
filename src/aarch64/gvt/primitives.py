@@ -34,7 +34,7 @@ class _SandboxInstrumentationBase:
     def _dest_regs(self, inst: Instruction) -> frozenset:
         result = {self._norm_reg(op.value) for op in inst.operands + inst.implicit_operands
                   if op.dest and op.type == OT.REG and op.value in self._norm}
-        # writeback (pre/post-index) updates the base register; the extractor marks that on the inner
+        # writeback (pre/post-index) updates the base register. the extractor marks that on the inner
         # base component (component.dest), so read it directly instead of guessing from operand names.
         for mem_op in inst.get_mem_operands():
             for c in mem_op.inner:
@@ -63,7 +63,7 @@ class _SandboxInstrumentationBase:
         offset = comp.get(AArch64MemRole.OFFSET)
         extend = comp.get(AArch64MemRole.EXTEND)
         if index is not None:
-            # EA = base + <shift/extend>(index); replicate the modifier in the SUB so it cancels exactly
+            # EA = base + <shift/extend>(index). replicate the modifier in the SUB so it cancels exactly
             if extend is not None:                          # extended register: e.g. `, sxtw #2`
                 modifier = f", {extend.value}" + (f" #{offset.value}" if offset is not None else "")
             elif offset is not None:                        # shifted register: `, lsl #amount`

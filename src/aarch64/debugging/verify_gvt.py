@@ -129,7 +129,7 @@ for case in range(NCASES):
                 which = "correct" if sig == e.value else ("wrong" if sig in e.alts else "other")
                 spec_tally[f"{which}+{second}"] += 1
 
-    # ---- MTE structure + speculative decoy diversity (model-level; no MTE HW on this box) ----
+    # ---- MTE structure + speculative decoy diversity (model-level. no MTE HW on this box) ----
     if KIND in ("mte", "both"):
         for s in ex._gvt_tc._mte:
             e = entries.get(id(s))
@@ -148,7 +148,7 @@ for case in range(NCASES):
                 cls = "correct" if d == correct else ("wrong" if d in alts else "other")
                 mte_tally[f"{cls}{'(nop)' if d == 0 else ''}"] += 1
 
-    # ---- run enacted genuine on the executor (PAC only; MTE needs MTE HW) ----
+    # ---- run enacted genuine on the executor (PAC only. MTE needs MTE HW) ----
     if KIND == "pac":
         try:
             ex.trace_test_case([ex.as_executor_input(inp)], 1)

@@ -15,7 +15,7 @@
 
 /* GMID_EL1.BS, log2 of the LDGM/STGM tag-block size, in granules. Fixed to 4 (a 16-granule,
  * 256-byte block), the known default for ARM Neoverse server, ARM Cortex High-Performance, and ARM
- * Cortex Efficiency cores. (GMID_EL1 is EL1-only, so the CE at EL0 cannot read it; other
+ * Cortex Efficiency cores. (GMID_EL1 is EL1-only, so the CE at EL0 cannot read it. other
  * implementations would have the kernel read GMID_EL1.BS at EL1 and pass it down.) */
 #define MTE_GMID_BS             4u
 #define MTE_TAG_BLOCK_GRANULES  (1u << MTE_GMID_BS)   /* tags per LDGM/STGM block */
@@ -47,7 +47,7 @@ bool mte_native(void) { return g_mte_native; }
  *     (CE sandbox has no real tag memory).
  *
  *   - Memory-tag stores (STG, STZG, ST2G, STZ2G, STGM, STZGM, STGP): NOP.
- *     CE does not model tag memory; data correctness for STGP/STZG* is a
+ *     CE does not model tag memory. data correctness for STGP/STZG* is a
  *     known limitation.
  *
  * All handlers return PC+4 so the native instruction is skipped.
@@ -60,7 +60,7 @@ bool mte_native(void) { return g_mte_native; }
  * GPR write helper for instructions whose Rd is a true GPR (reg 31 == XZR,
  * write ignored): GMI, SUBP/SUBPS, LDG/LDGM. SP-capable operands (IRG/ADDG/
  * SUBG Xd, and every Xn/Xm) use cpu_state_*_base_reg (reg 31 == SP) instead.
- * cpu_state.gpr[29-N] == XN;  X30 == lr.
+ * cpu_state.gpr[29-N] == XN.  X30 == lr.
  * ------------------------------------------------------------------------- */
 
 static inline void write_xreg(struct cpu_state *s, uint32_t n, uint64_t v)
@@ -244,7 +244,7 @@ int mte_tagmem_active(void) {
 }
 
 /* Allocation tag of the granule holding kernel-space address `addr` (the after-access tag correction
- * and the retag op-emulator's cell source); 0 outside the tagged span / when no tag memory exists. */
+ * and the retag op-emulator's cell source). 0 outside the tagged span / when no tag memory exists. */
 uint8_t mte_tagmem_tag_at(uintptr_t addr) {
 	return ce_tag_at(addr);
 }
@@ -265,7 +265,7 @@ static int64_t mte_mem_offset(uint32_t enc) {
  *     bits[63:60] are preserved unchanged.
  *   - SUBP/SUBPS: result is the 56-bit signed difference, sign-extended to
  *     64 bits from bit 55 (not bit 63).  Uses the shift trick to avoid UB.
- *   - IRG: tag bits[59:56] are set to 0 (deterministic, key-free); address
+ *   - IRG: tag bits[59:56] are set to 0 (deterministic, key-free). address
  *     bits[55:0] and attribute bits[63:60] are copied from Rn unchanged.
  *   - GMI, LDG, LDGM: destination written with 0.
  *
@@ -468,7 +468,7 @@ void* mte_emulator_hook(struct simulation_state* sim_state)
 		case MTE_STGP: {
 			/*
 			 * STGP Xt1, Xt2, [Xn{, #simm}]: store the register pair (16 bytes) AND set the addressed
-			 * granule's tag from Xn's logical tag. simm7 (bits[21:15]) sign-extended * 16; index mode
+			 * granule's tag from Xn's logical tag. simm7 (bits[21:15]) sign-extended * 16. index mode
 			 * bits[24:23]: 01 post-index, 10 signed offset, 11 pre-index (writeback).
 			 */
 			int64_t s7  = (int64_t)((int32_t)((enc >> 15) & 0x7Fu) << 25) >> 25;

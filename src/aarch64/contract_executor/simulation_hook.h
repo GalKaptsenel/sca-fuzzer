@@ -25,7 +25,7 @@ typedef void* (*simulation_hook_fn)(struct simulation_state* sim_state);
 void* handle_ret_hook(struct simulation_state* sim_state);
 
 /* Seed the architectural (test-case) stack pointer to the sandbox stack top, once per test case. The
- * real host SP is left for the trampoline; frame spills are emulated against this software SP. */
+ * real host SP is left for the trampoline. frame spills are emulated against this software SP. */
 void arch_sp_reset(uintptr_t stack_top);
 
 /* Debug: last CPU state seen by base_hook_c and the original instruction at that PC */

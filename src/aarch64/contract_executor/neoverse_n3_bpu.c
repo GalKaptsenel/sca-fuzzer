@@ -12,7 +12,7 @@ static int n3_initialized = 0;
 
 static void neoverse_n3_init(void) {
 	if (n3_initialized) return;
-	/* bootstrap_director.py sits next to the executable; resolve its dir from the binary's own
+	/* bootstrap_director.py sits next to the executable. resolve its dir from the binary's own
 	 * location so the CE works regardless of the current working directory. */
 	char exe[PATH_MAX];
 	ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);

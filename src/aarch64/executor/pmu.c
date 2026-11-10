@@ -43,7 +43,7 @@ int config_pfc(void) {
 	asm volatile("isb\n");
 
 	// select events:
-	// 1. reload() hit-test event (default 0x03 = L1D_CACHE_REFILL; configurable, e.g. 0x17 = L2D_CACHE_REFILL)
+	// 1. reload() hit-test event (default 0x03 = L1D_CACHE_REFILL. configurable, e.g. 0x17 = L2D_CACHE_REFILL)
 	asm volatile("msr pmevtyper0_el0, %0" :: "r" ((uint64_t)(filter_events | (executor.config.reload_pmu_event & 0xffff))));
 	asm volatile("isb\n");
 
@@ -72,7 +72,7 @@ int config_pfc(void) {
 	// enable PMU counters and reset the counters (using 3 bits)
 	val = 0;
 	asm volatile("mrs %0, pmcr_el0" : "=r" (val));
-	/* enable(E)/reset-events(P)/reset-cycles(C); clear D so PMCCNTR counts every cycle (no /64 divider) */
+	/* enable(E)/reset-events(P)/reset-cycles(C). clear D so PMCCNTR counts every cycle (no /64 divider) */
 	asm volatile("msr pmcr_el0, %0" :: "r" ((val | 0b111) & ~(1ULL << 3)));
 	asm volatile("isb\n");
 

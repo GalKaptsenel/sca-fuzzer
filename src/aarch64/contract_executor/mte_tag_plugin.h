@@ -9,12 +9,12 @@ void mte_tag_plugin_cleanup(void);
 void* mte_emulator_hook(struct simulation_state* sim_state);
 
 /* MTE profile (CONFIG_FLAG_MTE_PROFILE). mte_native(): the host runs MTE, so the retag ADDG and tagged
- * access execute natively; otherwise the CE strips the tag to form the host address and restores it. */
+ * access execute natively. otherwise the CE strips the tag to form the host address and restores it. */
 void mte_profile_init(uint64_t word, bool present);
 bool mte_native(void);
 
 /* Per-input MTE tag memory (one allocation tag per 16B granule), seeded from the input's MTE_TAGS
- * section. Present only in MTE-test mode (initial != NULL); otherwise there is no tag memory. The
+ * section. Present only in MTE-test mode (initial != NULL). otherwise there is no tag memory. The
  * speculation engine snapshots/restores it at each checkpoint for misspeculation rollback. */
 void   mte_tagmem_init(uintptr_t base, const uint8_t* initial, size_t count);
 void   mte_tagmem_free(void);

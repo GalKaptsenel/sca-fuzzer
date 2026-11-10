@@ -11,11 +11,11 @@ _ACC_OPEN = re.compile(_ACC + r"(?:\{[^}]*\}\(|\[)")     # an accessor up to its
 _REG_HELPER_READ = re.compile(r"(?:ShiftReg|ExtendReg)(?:\{[^}]*\})?\(\s*(\w+)")  # ShiftReg{}(m,...) -> read
 # e.g. `if n == 31 then ... SP{64}()` => reg-var n is SP when 31 (else XZR)
 _SP_REGVAR = re.compile(r"if\s+(\w+)\s*==\s*31\s+then(?:(?!\bend\b).)*?SP\{", re.S)
-# AccessDescriptor states the access: CreateAccDesc<kind>(MemOp_LOAD|STORE; "Ex"=exclusive
+# AccessDescriptor states the access: CreateAccDesc<kind>(MemOp_LOAD|STORE. "Ex"=exclusive
 _ACCDESC_MEMOP = re.compile(r"CreateAccDesc(\w*?)\(\s*MemOp_(\w+)", re.I)
 _ACCDESC_KIND = re.compile(r"CreateAccDesc(\w+)")
 # AccessDescriptor kinds whose access is single-copy-atomic and so requires NATURAL alignment (to its
-# own access width; an unaligned one takes an Alignment fault regardless of SCTLR.A): the LSE/FP/
+# own access width. an unaligned one takes an Alignment fault regardless of SCTLR.A): the LSE/FP/
 # read-check-write atomics, load/store-exclusive, and the acquire/release-ordered accesses (incl.
 # limited-ordering-region and the 64-byte atomic). Plain GPR/SIMD/SVE/SME/MOPS accesses tolerate an
 # unaligned address. LDGSTG tag STORES are handled apart: they align to the MTE tag granule, not a

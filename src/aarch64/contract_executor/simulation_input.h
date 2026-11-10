@@ -79,7 +79,7 @@ struct configuration {
 
 /* Envelope for one contract-executor message: exec-params (config) + code + a shared input initialization
  * (executor_input_format). All members are u64. The payload after this header is `code` followed by
- * the input initialization; memory/regs/mte-tags/pac-keys are sections inside that input_init. */
+ * the input initialization. memory/regs/mte-tags/pac-keys are sections inside that input_init. */
 struct input_header {
     uint64_t magic;       /* RVZRCE_MAGIC */
     uint64_t version;     /* RVZRCE_VERSION */
@@ -94,7 +94,7 @@ struct input_header {
     uint64_t input_init_size;   /* bytes of the input initialization following the code + data */
 
     uint64_t emul_table_size;   /* bytes of the emulation table following the input init: rows of
-                                 * (offset, size, op) the op-emulators materialize in place; 0 = none */
+                                 * (offset, size, op) the op-emulators materialize in place. 0 = none */
 
     uint64_t reserved;    /* must be 0 */
 };

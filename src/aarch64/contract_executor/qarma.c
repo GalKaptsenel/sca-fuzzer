@@ -17,7 +17,7 @@ static inline uint64_t dep64(uint64_t v, int s, int l, uint64_t f)
 }
 static inline uint64_t bmask(int s, int l) { return (((uint64_t)1 << l) - 1) << s; }
 
-/* S-box per QARMA variant: QARMA5 (iterations 4) uses sigma2 (SUB5/ISUB5); QARMA3 (iterations 2) uses
+/* S-box per QARMA variant: QARMA5 (iterations 4) uses sigma2 (SUB5/ISUB5). QARMA3 (iterations 2) uses
  * sigma1 (SUB3), which is involutory so its inverse is itself. Wrong box => signatures the CPU rejects. */
 static const uint8_t SUB5[16]  = {0xb,0x6,0x8,0xf,0xc,0x0,0x9,0xe,0x3,0x7,0x4,0x5,0xd,0x2,0x1,0xa};
 static const uint8_t ISUB5[16] = {0x5,0xe,0xd,0x8,0xa,0xb,0x1,0x9,0x2,0x6,0xf,0x0,0x4,0xc,0x7,0x3};
@@ -153,7 +153,7 @@ static int bit(uint64_t v, int b)
     return (int)((v >> b) & 1);
 }
 
-/* EffectiveTBI (EL1): the TBI/TBID of the half ptr<55> selects; TBID disables TBI for instr keys. */
+/* EffectiveTBI (EL1): the TBI/TBID of the half ptr<55> selects. TBID disables TBI for instr keys. */
 static int effective_tbi(uint64_t ptr, struct pac_profile p, int is_instr)
 {
     int high = bit(ptr, 55);

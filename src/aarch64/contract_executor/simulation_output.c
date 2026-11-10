@@ -24,8 +24,8 @@ static inline contract_trace_t* alloc_contract_trace(size_t num_entries) {
 
 /* Double the trace log when it fills, so the contract trace is never truncated and no exploration
  * depth is capped, the whole speculative fan-out is recorded. The buffer holds no live pointers across
- * log calls (trace_pop_last returns by value; loggers fill the returned entry immediately), so realloc
- * is safe. Growth is bounded in practice by the acyclic (forward-only) call/branch graph; only genuine
+ * log calls (trace_pop_last returns by value. loggers fill the returned entry immediately), so realloc
+ * is safe. Growth is bounded in practice by the acyclic (forward-only) call/branch graph. only genuine
  * memory exhaustion stops it, and that fails loudly at the call site. Returns 1 on success, 0 if the
  * reallocation fails. */
 static int grow_trace_log(void) {
@@ -98,7 +98,7 @@ void* kaddr2uaddr(void* kaddr) {
 		/* The sandbox clamps every architectural base, so an out-of-buffer address here is a real
 		 * defect (a va_size mismatch, or a sandbox escape) -- fail loudly, never silently redirect.
 		 * A SPECULATIVE access can legitimately leave the sandbox (e.g. an RSB-mispredicted return runs
-		 * a callee epilogue whose frame spill walks SP off the stack); such a squashed access has no
+		 * a callee epilogue whose frame spill walks SP off the stack). such a squashed access has no
 		 * modeled in-sandbox effect, so its callers skip it via kea_in_sandbox rather than reach here. */
 		uintptr_t lo = (uintptr_t)simulation.simulation_memory;
 		uintptr_t hi = lo + simulation.sim_input.mem_size + SANDBOX_OVERFLOW_SIZE;
@@ -208,7 +208,7 @@ mem_access_info_t parse_memory_access_instruction(uint32_t inst, const trace_cpu
 		}
 	} else if(is_literal_pc_relative(inst)) {
 		/* A PC-relative literal load reads a constant from the code region (not sandbox data) and has
-		 * no base register to translate -- not a modeled data access; the native load handles it. */
+		 * no base register to translate -- not a modeled data access. the native load handles it. */
 		mi.is_mem = 0;
 		return mi;
 	} else {
@@ -217,11 +217,11 @@ mem_access_info_t parse_memory_access_instruction(uint32_t inst, const trace_cpu
 		 * (LDAR/STLR/LDLAR/STLLR/LDAPR) and compare-and-swap (CAS/CASP). Fields in this group:
 		 *   o2 = bit23, L = bit22 (1 = load), o1 = bit21, sz-high = bit31, sz-low = bit30.
 		 * The sub-cases are distinguished as follows (all verified against the assembler):
-		 *   CAS       : o1=1, o2=1                 -- non-pair compare-and-swap; size = 1<<bits[31:30].
-		 *   CASP      : o1=1, o2=0, bit31=0        -- compare-and-swap PAIR; element size = bit30?8:4;
+		 *   CAS       : o1=1, o2=1                 -- non-pair compare-and-swap. size = 1<<bits[31:30].
+		 *   CASP      : o1=1, o2=0, bit31=0        -- compare-and-swap PAIR. element size = bit30?8:4;
 		 *                                             element 1's data register is Rt+1 (implicit), NOT
 		 *                                             the Rt2 field (which is 11111 for CAS/CASP).
-		 *   LDXP/STXP : o1=1, o2=0, bit31=1        -- exclusive pair; element 1 carries the Rt2 field.
+		 *   LDXP/STXP : o1=1, o2=0, bit31=1        -- exclusive pair. element 1 carries the Rt2 field.
 		 *   otherwise : exclusive single / ordered -- a pure load or store selected by L.
 		 * (There is no byte/halfword exclusive-pair, so bit31=0 with o1=1,o2=0 is unambiguously CASP.) */
 		int o2 = (inst >> 23) & 1;
@@ -512,7 +512,7 @@ void destroy_trace_log() {
 	// Retain the buffer across inputs (allocated once per process, per init_trace_log): the CE is a
 	// persistent service, so reusing the grown buffer avoids re-allocating and zeroing a large trace
 	// log (up to ~100 MB at high nesting) on every input, and lets a deep trace grow the buffer just
-	// once. Only the write cursor is reset; entries are always written before read, and only
+	// once. Only the write cursor is reset. entries are always written before read, and only
 	// current_log_index of them are transmitted, so stale bytes past the cursor are never observed.
 	// The OS reclaims the buffer at process exit.
 	current_log_index = 0;

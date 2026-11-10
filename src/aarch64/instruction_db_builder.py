@@ -43,7 +43,7 @@ _GENERAL_CLASSES = {
         "add adds sub subs adc adcs sbc sbcs madd msub maddpt msubpt addpt subpt smaddl smsubl umaddl"
         " umsubl smulh umulh sdiv udiv abs smax smin umax umin".split()),
     # PC-relative address into a register: a location-dependent label operand, so not randomly
-    # generatable (no config enables this tag yet); present in the DB so the asm path can parse it.
+    # generatable (no config enables this tag yet). present in the DB so the asm path can parse it.
     "BASE-PCRELADDR": frozenset("adr adrp".split()),
     "BASE-LOGICAL": frozenset("and ands orr orn eor eon bic bics".split()),
     "BASE-SHIFT": frozenset("lslv lsrv asrv rorv".split()),
@@ -182,7 +182,7 @@ def get_tags(inst: dict) -> list:
     if name in _MTE:        # MTE is fully classified by family; no structural BASE-* tags
         return sorted(tags)
 
-    # memory (load/store/rmw only; prefetch is separate)
+    # memory (load/store/rmw only. prefetch is separate)
     mem = inst["mem_access"]
     if mem in ("load", "store", "rmw", "ex-load", "ex-store"):
         tags.add(f"{isa}-MEM")
@@ -327,7 +327,7 @@ def _imm_values(op: dict, esize: int) -> list:
 
 
 # extractor IR operand kind -> Revizor operand type. An extend/shift modifier materialises as an
-# immediate; whether an operand addresses memory is carried separately, by its MemoryRole.
+# immediate. whether an operand addresses memory is carried separately, by its MemoryRole.
 _KIND_TO_OT = {OperandKind.REG: OT.REG, OperandKind.IMM: OT.IMM, OperandKind.EXTEND: OT.IMM,
                OperandKind.COND: OT.COND, OperandKind.LABEL: OT.LABEL}
 
@@ -337,7 +337,7 @@ _ACCESS_DIR = {MemAccess.LOAD: (True, False), MemAccess.EX_LOAD: (True, False),
                MemAccess.STORE: (False, True), MemAccess.EX_STORE: (False, True),
                MemAccess.RMW: (True, True), MemAccess.PREFETCH: (False, False)}
 
-# extractor address role -> arm MemoryRole subtype; NONE ("not an address component") -> Python None
+# extractor address role -> arm MemoryRole subtype. NONE ("not an address component") -> Python None
 _MEM_ROLE = {r: (None if r is MemRole.NONE else AArch64MemRole(r.value)) for r in MemRole}
 
 
@@ -593,7 +593,7 @@ def _expand_format(template: str, by_name: dict, esize: int, mem_access: MemAcce
             results = []
             for it, io in enum(payload[0], None):
                 # the extractor assigns an addressing role only to a real memory-bracket component, so a
-                # bracket is a memory access iff any operand in it carries a role; a lane/tile index
+                # bracket is a memory access iff any operand in it carries a role. a lane/tile index
                 # (e.g. `Vd.S[3]`, `ZA[Wv, offs]`) carries none -> keep it literal.
                 address = any(o.mem_role is not None for o in io)
                 for t, ops in enum(rest, None):
@@ -627,7 +627,7 @@ def _expand_instruction(inst: dict) -> list:
     """One spec per (element size x concrete asm format); duplicates are dropped."""
     by_name = {}
     for op in inst["operands"]:
-        # the template references operands by name; if one name maps to differing definitions (e.g. SME
+        # the template references operands by name. if one name maps to differing definitions (e.g. SME
         # `LDR ZA[<Wv>, <offs>], [<Xn|SP>, #<offs>]` reuses <offs> as both a tile index and a memory
         # offset), the name-keyed format-trick can't represent it -> loud-skip, never a wrong spec.
         if by_name.get(op["name"], op) != op:
@@ -638,7 +638,7 @@ def _expand_instruction(inst: dict) -> list:
     specs, seen = [], set()
     for esize in _esizes(inst):
         for template, operands in _expand_format(inst["asm_template"], by_name, esize, mem_access):
-            # restrict extends to the (now fixed) register widths; drop invalid pairings
+            # restrict extends to the (now fixed) register widths. drop invalid pairings
             if any(isinstance(o, MemorySpec) and not _resolve_register_offset(o) for o in operands):
                 continue
             if not _resolve_extend(operands, inst):

@@ -13,7 +13,7 @@
 #include "simulation_state.h"
 
 /* mte_tag_plugin.c declares `extern struct simulation simulation;` via its header but never uses it
- * on the tag path; provide the symbol so the test links standalone. */
+ * on the tag path. provide the symbol so the test links standalone. */
 struct simulation simulation;
 
 static int g_run = 0;
@@ -39,7 +39,7 @@ static void run(uint32_t enc) {
 }
 
 /* STG-family / LDG / *GM encoder (0xD9 group). top3=bits[23:21], mode=bits[11:10]
- * (offset=2, post-index=1, pre-index=3; the *GM and LDG forms use mode=0). */
+ * (offset=2, post-index=1, pre-index=3. the *GM and LDG forms use mode=0). */
 static uint32_t e(uint32_t top3, uint32_t mode, uint32_t xt, uint32_t xn, int32_t imm) {
 	uint32_t s9 = ((uint32_t)(imm / 16)) & 0x1FFu;
 	return (0xD9u << 24) | (top3 << 21) | (s9 << 12) | (mode << 10) | (xn << 5) | xt;
@@ -105,7 +105,7 @@ int main(void) {
 	CHECK(((get_reg(2) >> 56) & 0xF) == 5, "LDG tag: got %u want 5", (unsigned)((get_reg(2) >> 56) & 0xF));
 	CHECK((get_reg(2) & 0x00FFFFFFFFFFFFFFull) == 0x00ADBEEF00000000ull, "LDG must preserve non-tag bits");
 
-	/* ---- STG writes Xt's tag; LDG reads it back ---- */
+	/* ---- STG writes Xt's tag. LDG reads it back ---- */
 	reset_tagmem();
 	set_reg(1, BASE + 7 * 16);
 	set_reg(2, (uint64_t)0xA << 56);
@@ -129,7 +129,7 @@ int main(void) {
 	run(ST2G(2, 1, 0));
 	CHECK(tag_of(3) == 0xC && tag_of(4) == 0xC, "ST2G: granules 3,4");
 
-	/* ---- STZG sets the tag AND zeroes the granule data; STZ2G does two granules ---- */
+	/* ---- STZG sets the tag AND zeroes the granule data. STZ2G does two granules ---- */
 	reset_tagmem();
 	set_reg(1, BASE + 11 * 16);
 	set_reg(2, (uint64_t)0x6 << 56);
@@ -160,7 +160,7 @@ int main(void) {
 	CHECK(tag_of(6) == 0x5, "STG post-index: tag at base");
 	CHECK(get_reg(1) == BASE + 7 * 16, "STG post-index: Xn writeback");
 
-	/* ---- STGM writes a 16-granule (GMID_EL1.BS=4) block from Xt's nibbles; the next block is
+	/* ---- STGM writes a 16-granule (GMID_EL1.BS=4) block from Xt's nibbles. the next block is
 	 *      untouched -- which also verifies the block size is exactly 16 granules ---- */
 	reset_tagmem();
 	set_reg(1, BASE);                       /* block 0 = granules 0..15 */
@@ -200,7 +200,7 @@ int main(void) {
 	mte_tagmem_restore(snap);
 	CHECK(tag_of(20) == (20 & 0xF), "rollback: restore reverts the speculative STG");
 
-	/* ---- IRG picks the lowest tag not excluded by Xm; address bits preserved ---- */
+	/* ---- IRG picks the lowest tag not excluded by Xm. address bits preserved ---- */
 	memset(&SS, 0, sizeof(SS));
 	set_reg(1, ((uint64_t)0x5 << 56) | 0x2000ull);   /* Xn: tag 5, addr 0x2000 */
 	set_reg(3, 0x0);                                  /* Xm exclude = none */
@@ -224,7 +224,7 @@ int main(void) {
 
 	/* ---- ADDG / SUBG update address and tag independently (no carry between them). The TAG is
 	 *      ChooseNonExcludedTag(start_tag, uimm4, GCR_EL1.Exclude): ADDG and SUBG BOTH *add* uimm4
-	 *      to the tag (mod 16, Exclude=0); SUBG differs from ADDG only in subtracting the ADDRESS.
+	 *      to the tag (mod 16, Exclude=0). SUBG differs from ADDG only in subtracting the ADDRESS.
 	 *      REGRESSION: SUBG once subtracted uimm4 from the tag (wrong sign). That mis-resolved
 	 *      tag-dependent branches (e.g. TBZ on a tag bit), so the CE marked an architectural,
 	 *      tag-gated access as speculative and the builder decoyed a retiring load -> false NI
@@ -238,7 +238,7 @@ int main(void) {
 	run(e_subg(2, 1, 1, 3));   /* addr -= 16, tag += 3 (NOT -3) */
 	CHECK(get_reg(2) == (((uint64_t)0xB << 56) | 0x0FF0ull), "SUBG: tag 0xB (8+3), addr 0x0FF0, got %#lx",
 	      (unsigned long)get_reg(2));
-	/* ADDG and SUBG apply the SAME tag offset (both +uimm4); only the address direction differs. */
+	/* ADDG and SUBG apply the SAME tag offset (both +uimm4). only the address direction differs. */
 	set_reg(1, ((uint64_t)0x6 << 56) | 0x2000ull);
 	run(e_addg(2, 1, 0, 5));
 	uint64_t addg_tag = (get_reg(2) >> 56) & 0xF;
@@ -275,7 +275,7 @@ int main(void) {
 	mte_tagmem_free();
 
 	/* mte_is_mem_tag_access: every memory-tag form is recognised (base_hook skips its kaddr<->uaddr
-	 * translation for them); data-tag register ops and ordinary loads/stores are not. */
+	 * translation for them). data-tag register ops and ordinary loads/stores are not. */
 	CHECK(mte_is_mem_tag_access(LDG(1, 1, 0))   == 1, "is_mem_tag: LDG");
 	CHECK(mte_is_mem_tag_access(LDGM(1, 1))     == 1, "is_mem_tag: LDGM");
 	CHECK(mte_is_mem_tag_access(STG(0, 0, 0))   == 1, "is_mem_tag: STG");

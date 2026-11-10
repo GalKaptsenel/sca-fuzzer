@@ -309,7 +309,7 @@ static ssize_t reload_refills_show(struct kobject *kobj, struct kobj_attribute *
 }
 static struct kobj_attribute reload_refills_attribute = __ATTR(reload_refills, 0444, reload_refills_show, NULL);
 
-/* F+R reload hit test: <0 = L1D_CACHE_REFILL delta==0 (default); >=0 = PMCCNTR cycle delta < (1<<shift). */
+/* F+R reload hit test: <0 = L1D_CACHE_REFILL delta==0 (default). >=0 = PMCCNTR cycle delta < (1<<shift). */
 static ssize_t reload_timer_shift_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
 	return scnprintf(buf, PAGE_SIZE, "%d\n", executor.config.reload_timer_shift);
 }
@@ -324,7 +324,7 @@ static ssize_t reload_timer_shift_store(struct kobject *kobj, struct kobj_attrib
 }
 static struct kobj_attribute reload_timer_shift_attribute = __ATTR(reload_timer_shift, 0644, reload_timer_shift_show, reload_timer_shift_store);
 
-/* F+R reload set-visit order: 0 = fixed bit-reversed (default); 1 = fresh random permutation per run. */
+/* F+R reload set-visit order: 0 = fixed bit-reversed (default). 1 = fresh random permutation per run. */
 static ssize_t reload_random_order_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
 	return scnprintf(buf, PAGE_SIZE, "%d\n", executor.config.reload_random_order);
 }
@@ -353,7 +353,7 @@ static ssize_t reload_pmu_event_store(struct kobject *kobj, struct kobj_attribut
 }
 static struct kobj_attribute reload_pmu_event_attribute = __ATTR(reload_pmu_event, 0644, reload_pmu_event_show, reload_pmu_event_store);
 
-/* PMU event ids counted into pfc[0..2] (PMEVCNTR1..3; accept hex). Defaults 0x17/0x13/0x22; set to
+/* PMU event ids counted into pfc[0..2] (PMEVCNTR1..3. accept hex). Defaults 0x17/0x13/0x22. set to
  * 0x08 (INST_RETIRED) / 0x09 (EXC_TAKEN) for the architectural-vs-speculative PMU control. */
 #define PFC_EVENT_ATTR(N, FIELD)                                                                      \
 	static ssize_t pfc_event##N##_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {\
@@ -374,7 +374,7 @@ PFC_EVENT_ATTR(1, pfc_event1);
 PFC_EVENT_ATTR(2, pfc_event2);
 PFC_EVENT_ATTR(3, pfc_event3);
 
-/* 1 = MTE tag checks on (TCO=0, default); 0 = tag checks overridden off (TCO=1) -- the MTE enable/
+/* 1 = MTE tag checks on (TCO=0, default). 0 = tag checks overridden off (TCO=1) -- the MTE enable/
  * disable control: a genuine tag-check leak vanishes with checks off. */
 static ssize_t enable_mte_check_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
 	return scnprintf(buf, PAGE_SIZE, "%d\n", executor.config.enable_mte_check);
@@ -389,7 +389,7 @@ static ssize_t enable_mte_check_store(struct kobject *kobj, struct kobj_attribut
 }
 static struct kobj_attribute enable_mte_check_attribute = __ATTR(enable_mte_check, 0644, enable_mte_check_show, enable_mte_check_store);
 
-/* F+R reload: 0 = single 64-set sweep (default); 1 = per-set isolation (re-run test per set). */
+/* F+R reload: 0 = single 64-set sweep (default). 1 = per-set isolation (re-run test per set). */
 static ssize_t reload_isolate_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
 	return scnprintf(buf, PAGE_SIZE, "%d\n", executor.config.reload_isolate);
 }
@@ -404,7 +404,7 @@ static ssize_t reload_isolate_store(struct kobject *kobj, struct kobj_attribute 
 }
 static struct kobj_attribute reload_isolate_attribute = __ATTR(reload_isolate, 0644, reload_isolate_show, reload_isolate_store);
 
-/* SSBS bit read back during the last measurement: bit12=1 => bypass allowed (mitigation OFF); 0 => mitigated. */
+/* SSBS bit read back during the last measurement: bit12=1 => bypass allowed (mitigation OFF). 0 => mitigated. */
 static ssize_t ssbs_state_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
 	int bit = (executor.debug_ssbs >> 12) & 1;
 	return scnprintf(buf, PAGE_SIZE, "SSBS=%d (%s)  raw=0x%llx\n", bit,

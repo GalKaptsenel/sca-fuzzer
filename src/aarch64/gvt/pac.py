@@ -37,7 +37,7 @@ class PacSign:
         self._generator = generator
         self._auth_specs = auth_specs
         self._xpac_specs = xpac_specs
-        # one MOVK per 16-bit window the PAC field spans; a narrow-VA field reaches below bit 48.
+        # one MOVK per 16-bit window the PAC field spans. a narrow-VA field reaches below bit 48.
         self._movk_shifts = tuple(s for s in (0, 16, 32, 48) if pac_bits_mask & (0xFFFF << s))
 
     @property

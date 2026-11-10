@@ -17,7 +17,7 @@ def set_imm_field(word: int, shift: int, width: int, value: int) -> int:
     return (word & ~(mask << shift)) | (value << shift)
 
 
-# 64-bit MOVK: bits[31:23] == 0x1E5 (opc=11 separates it from MOVZ/MOVN); imm16 at [20:5].
+# 64-bit MOVK: bits[31:23] == 0x1E5 (opc=11 separates it from MOVZ/MOVN). imm16 at [20:5].
 _MOVK64_ID = 0x1E5
 
 
@@ -54,7 +54,7 @@ def is_xpac(word: int) -> bool:
     return (word & ~0x1F) in (0xDAC143E0, 0xDAC147E0)
 
 
-# ADDG: bits[31:22] == 0x246; uimm6 at [21:16], tag uimm4 at [13:10], Xn at [9:5], Xd at [4:0].
+# ADDG: bits[31:22] == 0x246. uimm6 at [21:16], tag uimm4 at [13:10], Xn at [9:5], Xd at [4:0].
 _ADDG_ID = 0x246
 
 
@@ -107,7 +107,7 @@ def eor_imm_word(rd: int, rn: int, value: int) -> int:
             | ((rn & 0x1F) << 5) | (rd & 0x1F))
 
 
-# AUT* base opcodes (Rd=Rn=0); the Z-variants bake Rn=31, so OR-ing rn=31 there is a no-op.
+# AUT* base opcodes (Rd=Rn=0). the Z-variants bake Rn=31, so OR-ing rn=31 there is a no-op.
 _AUT_OPCODES = {
     "autia": 0xDAC11000, "autib": 0xDAC11400, "autda": 0xDAC11800, "autdb": 0xDAC11C00,
     "autiza": 0xDAC133E0, "autizb": 0xDAC137E0, "autdza": 0xDAC13BE0, "autdzb": 0xDAC13FE0,

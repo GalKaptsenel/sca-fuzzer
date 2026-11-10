@@ -9,8 +9,8 @@ static int failed = 0;
 	if (!(cond)) { printf("FAIL line %d: %s\n", __LINE__, #cond); ++failed; } \
 } while (0)
 
-/* Build the register fields per the ARM ARM. CCSIDR_EL1: LineSize[2:0] = log2(bytes)-4; non-CCIDX
- * Assoc[12:3]/Sets[27:13]; CCIDX Assoc[23:3]/Sets[55:32]. CLIDR_EL1: CtypeN at bits [3N-1:3N-3]. */
+/* Build the register fields per the ARM ARM. CCSIDR_EL1: LineSize[2:0] = log2(bytes)-4. non-CCIDX
+ * Assoc[12:3]/Sets[27:13]. CCIDX Assoc[23:3]/Sets[55:32]. CLIDR_EL1: CtypeN at bits [3N-1:3N-3]. */
 #define LINELOG(b)      ((b)==16?0 : (b)==32?1 : (b)==64?2 : (b)==128?3 : 4)
 #define CCSIDR(sets, ways, b)   (((unsigned long long)((sets)-1) << 13) | ((unsigned long long)((ways)-1) << 3) | LINELOG(b))
 #define CCSIDR_X(sets, ways, b) (((unsigned long long)((sets)-1) << 32) | ((unsigned long long)((ways)-1) << 3) | LINELOG(b))
@@ -19,7 +19,7 @@ static int failed = 0;
 int main(void) {
 	struct cache_geometry g;
 
-	/* Cortex-X3 L1D: 64 KB, 4-way, 256 sets, 64 B line; separate I+D (ctype 3), non-CCIDX. */
+	/* Cortex-X3 L1D: 64 KB, 4-way, 256 sets, 64 B line. separate I+D (ctype 3), non-CCIDX. */
 	g = decode_cache_geometry(CLIDR(1, 3), CCSIDR(256, 4, 64), 0, 1, CACHE_TYPE_DATA);
 	CHECK(g.line == 64); CHECK(g.assoc == 4); CHECK(g.sets == 256);
 	CHECK(g.size == 64u * 1024u); CHECK(g.type == CACHE_TYPE_DATA); CHECK(g.valid);

@@ -23,7 +23,7 @@ static DEFINE_MUTEX(executor_lock);
  * state: an unkillable pile-up that can only be cleared by rebooting.
  *
  * We cannot safely force-release a mutex whose holder died in-kernel (its waiters
- * are on the mutex wait_list; the dead holder also pins a module reference, so
+ * are on the mutex wait_list. the dead holder also pins a module reference, so
  * rmmod won't work either), and the executor state it was mutating is left
  * half-updated. That fault class genuinely requires a reboot. What we CAN do is
  * stop it from becoming a silent, unkillable deadlock:
@@ -536,12 +536,12 @@ static ssize_t do_revisor_read(struct file* File, char __user* user_buffer,
 	return number_of_bytes_to_copy - not_copied;
 }
 
-/* Generous ceiling on a single input initialization; the legitimate input_init is < 10 KB. */
+/* Generous ceiling on a single input initialization. the legitimate input_init is < 10 KB. */
 #define REVISOR_INPUT_MAX_SIZE  (32 * 1024)
 
 /* Parse the optional page-table override table (REVISOR_SEC_PTE_SETTINGS): back-to-back packed entries,
  * no count header -- the entry count is the payload length / entry size. Structural checks only (length
- * is a whole number of entries, within the cap, and each value within its mask); page/level
+ * is a whole number of entries, within the cap, and each value within its mask). page/level
  * applicability is checked at apply time. Absent section -> pte_present stays false. */
 static int parse_pte_settings(const void* input_init, input_t* dst) {
 	dst->pte_present = false;
@@ -576,7 +576,7 @@ static int parse_pte_settings(const void* input_init, input_t* dst) {
 }
 
 /* Extract a validated input initialization into the device's input_t. main/faulty/gpr are
- * required and must be exactly sized; mte_tags / pac_keys are optional and set their
+ * required and must be exactly sized. mte_tags / pac_keys are optional and set their
  * *_present flag when supplied. Returns 0, or -EINVAL on a missing/mis-sized section. */
 static int parse_input_init(const void* input_init, input_t* dst) {
 	const struct revisor_input_section* sec;

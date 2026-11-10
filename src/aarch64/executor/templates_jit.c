@@ -273,7 +273,7 @@ static int flush(jit_t* jit, int base_reg, int tmp1, int tmp2, int tmp3) {
 	return 0;
 }
 
-/* Probe the eviction region; set bit `set` iff evicted by the test (timed load slow).
+/* Probe the eviction region. set bit `set` iff evicted by the test (timed load slow).
  * Loop walks sets in rbit (bitrev6) order -- no constant stride for the prefetcher. */
 static int probe(jit_t* jit, int base_reg, int tmp1, int tmp2, int tmp3, int index_reg, int destination_reg) {
 	const int zero_reg = 31;
@@ -325,9 +325,9 @@ static int probe(jit_t* jit, int base_reg, int tmp1, int tmp2, int tmp3, int ind
 	return 0;
 }
 
-/* Reload main + faulty (+ overflow line); set bit `set` iff resident (timed load hit).
+/* Reload main + faulty (+ overflow line). set bit `set` iff resident (timed load hit).
  * Loop walks sets in rbit (bitrev6) order -- no constant stride for the prefetcher. */
-/* Emit: idx = next set to visit; off = idx*64. Isolate: the single target set; else bit-reversed/random. */
+/* Emit: idx = next set to visit. off = idx*64. Isolate: the single target set. else bit-reversed/random. */
 static void emit_reload_set_index(jit_t* jit, int idx, int cnt, int off, int t_pre) {
 	if (executor.config.reload_isolate) {
 		uint64_t addr = (uint64_t)&executor.reload_target_set;
@@ -361,7 +361,7 @@ static int reload(jit_t* jit, int base_reg, int tmp1, int tmp2, int tmp3, int in
 	const int eff_shift = use_timer ? timer_shift : 0;
 	/* Sweep: walk all four pages lower_overflow -> main -> faulty -> upper_overflow (main/faulty each
 	 * mid-walk with neighbours), record only main/faulty. Isolate: probe only main and faulty, only the
-	 * single target set (no sweep -> no self-prefetch); C re-runs the test per set and ORs the htrace. */
+	 * single target set (no sweep -> no self-prefetch). C re-runs the test per set and ORs the htrace. */
 	const bool isolate = executor.config.reload_isolate;
 	const enum template_regions region_from_full[4] = { BASE_REGION, LOWER_OVERFLOW_REGION, MAIN_REGION, FAULTY_REGION };
 	const enum template_regions region_to_full[4]   = { LOWER_OVERFLOW_REGION, MAIN_REGION, FAULTY_REGION, UPPER_OVERFLOW_REGION };
@@ -435,7 +435,7 @@ static int reload(jit_t* jit, int base_reg, int tmp1, int tmp2, int tmp3, int in
 
 	jit_isb(jit);
 	jit_dsb_sy(jit);
-	/* totals: x6=L2D end, x7=MEM end; deltas -> debug_reload_total_{l2d,mem} */
+	/* totals: x6=L2D end, x7=MEM end. deltas -> debug_reload_total_{l2d,mem} */
 	jit_read64_pmu(jit, 1, 6);
 	jit_read64_pmu(jit, 2, 7);
 	jit_subr64(jit, 6, 6, 4);
@@ -622,7 +622,7 @@ static ssize_t build_measurement_code(jit_t* jit, enum Templates t, uint32_t* tc
 
 
 /* (Re)compute tc_insert_offset_bytes_by_template[] for every template.  Each
- * builder is run once into view[0] with an empty test case; the recorded offset
+ * builder is run once into view[0] with an empty test case. the recorded offset
  * is independent of the test-case bytes. */
 void __nocfi refresh_tc_insert_offsets(void) {
 	memset(tc_insert_offset_bytes_by_template, 0,
@@ -636,7 +636,7 @@ void __nocfi refresh_tc_insert_offsets(void) {
 		jit_free(jit);
 	}
 
-	/* The builders leave view[0] mapped RX (jit_perm_rx); restore RW so later
+	/* The builders leave view[0] mapped RX (jit_perm_rx). restore RW so later
 	 * writes to it (e.g. unload's memset, the next JIT build) don't fault. */
 	set_memory_rw_fn((unsigned long)executor.measurement_code_views[0],
 	                 MAX_MEASUREMENT_CODE_SIZE >> PAGE_SHIFT);
@@ -702,7 +702,7 @@ int __nocfi load_jit_template(size_t tc_size) {
 	}
 
 	/* All views alias the same physical pages, so the JIT writes (via view[0])
-	 * already populate every view; jit_perm_rx() flushed view[0]'s icache.  The
+	 * already populate every view. jit_perm_rx() flushed view[0]'s icache.  The
 	 * icache is VA-indexed, so invalidate the JIT'd range at each other view's
 	 * virtual address too, enabling view rotation (invalidate_bpu_entries). */
 	for (int v = 1; v < MAX_MEASUREMENT_VIEWS; ++v) {
@@ -732,7 +732,7 @@ int __nocfi load_jit_template(size_t tc_size) {
 }
 
 /* Byte offset of the test case within the harness for the active template.
- * Cheap lookup; valid without a loaded TC (offsets are computed at module init). */
+ * Cheap lookup. valid without a loaded TC (offsets are computed at module init). */
 size_t current_tc_insert_offset_bytes(void) {
 	return tc_insert_offset_bytes_by_template[executor.config.measurement_template];
 }

@@ -385,7 +385,7 @@ class Aarch64NeoverseN3BPU(BP):
         self._tag_width = tag_width
 
         # The footprint bit positions and the <<4 stride (4-bit record per taken branch) below are
-        # reverse-engineered N3 constants; see kb-bpu-re.
+        # reverse-engineered N3 constants. see kb-bpu-re.
         def phr_footprint(pc: int, target: int) -> int:
             def get_bit(x: int, k: int) -> int:
                 return (x >> k) & 1
@@ -453,8 +453,8 @@ class Aarch64NeoverseN3BPU(BP):
         self._update_counters(address, taken, touch_lru)
 
     # Speculative-history machinery: thin pass-throughs to the PHR. The predictor only exposes the
-    # mechanism; the *driver* (the execution clause) composes it into misprediction handling, the
-    # textbook way: forward -> advance(predicted) under a checkpoint(); recovery -> rollback() then
+    # mechanism. the *driver* (the execution clause) composes it into misprediction handling, the
+    # textbook way: forward -> advance(predicted) under a checkpoint(). recovery -> rollback() then
     # advance(arch_taken).
     def advance(self, address: int, taken: bool, target: int) -> None:
         self._phr.advance(address, taken, target)

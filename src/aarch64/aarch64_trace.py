@@ -115,7 +115,7 @@ class InstrMetadata:
         self.memory_access = MemAccess(buf, off)
         off += self.memory_access.size
 
-        # Second access (pair element 1); always present in the fixed-size entry, valid iff is_pair.
+        # Second access (pair element 1). always present in the fixed-size entry, valid iff is_pair.
         self.memory_access2 = MemAccess(buf, off)
         off += self.memory_access2.size
 
@@ -228,7 +228,7 @@ class _TaintTracker:
         """Move to the (depth, window_id) an instruction executed under, updating the live path."""
         # One instruction can open several windows at once (a bpas phase-B push plus a cond fork), so
         # nesting may rise by more than 1. The skipped intermediate levels ran no logged instruction and
-        # hence hold no writes; fill them with empty placeholder windows (unique negative ids) so the
+        # hence hold no writes. fill them with empty placeholder windows (unique negative ids) so the
         # live-path union and discard bookkeeping stay well-formed.
         while len(self._live) < depth:
             self._synth_id -= 1

@@ -4,7 +4,7 @@
 #include <linux/preempt.h>
 #include <linux/string.h>
 
-/* SCTLR_EL1 pointer-auth key-enable bits; android14-5.15 GKI headers don't expose them. */
+/* SCTLR_EL1 pointer-auth key-enable bits. android14-5.15 GKI headers don't expose them. */
 #ifndef SCTLR_EL1_EnIA
 #define SCTLR_EL1_EnIA (UL(1) << 31)
 #endif
@@ -289,7 +289,7 @@ static uint64_t pac_auth_strip(enum pac_op op, uint64_t ptr) {
 
 /* Model the AUT* with non-faulting ops: strip (XPAC) then re-sign the canonical pointer with the
  * same key+context. The signature is correct iff the re-signed value equals the original pointer.
- * Only then run the real AUT* (guaranteed to succeed); otherwise flag would_fault and return the
+ * Only then run the real AUT* (guaranteed to succeed). otherwise flag would_fault and return the
  * canonical pointer WITHOUT executing AUT*. Assumes the intended keys/SCTLR are already live. */
 static uint64_t pac_auth_verify_core(enum pac_op op, uint64_t ptr, uint64_t mod, bool *would_fault) {
 	uint64_t canonical = pac_auth_strip(op, ptr);

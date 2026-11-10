@@ -52,7 +52,7 @@ uint32_t encode_bl(uintptr_t from, uintptr_t to) {
 }
 
 /* Barrier/hint decode. The DSB/DMB/ISB/SB group is `1101 0101 0000 0011 0011 CRm op2 11111`
- * (Rt=11111); op2 selects the family and, for DSB, CRm #0/#4 are the SSBB/PSSBB aliases. CSDB lives
+ * (Rt=11111). op2 selects the family and, for DSB, CRm #0/#4 are the SSBB/PSSBB aliases. CSDB lives
  * in the neighbouring hint group (CRn:CRm = 0011:0010, op2=100). */
 barrier_kind_t barrier_kind(uint32_t instr) {
 	if ((instr & 0xFFFFF01F) == 0xD503301F) {              /* barrier group, Rt=11111 */
@@ -164,7 +164,7 @@ inline uint64_t literal_pc_relative_access_size(uint32_t inst) {
 	__builtin_unreachable();
 }
 /* Regular load/store-register selects the op by opc[23:22]: STR=00 (the only store), LDR=01,
- * LDRS-to-64=10, LDRS-to-32=11 are loads; opc=10 with size=11 is PRFM, a hint, not an access. Pair
+ * LDRS-to-64=10, LDRS-to-32=11 are loads. opc=10 with size=11 is PRFM, a hint, not an access. Pair
  * (LDP/STP) and other classes keep the L-bit (bit22): STP L=0, LDP L=1. */
 inline int is_load(uint32_t inst) {
 	if (is_regular_load_store(inst)) {

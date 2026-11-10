@@ -8,9 +8,9 @@
  * ARM shared pseudocode (aarch64/functions/pac). Bit-exact against real hardware. */
 
 /* The EL1 PAC state AddPAC/Strip/ComputePAC read. iterations / generic_iterations = 2 (QARMA3) or 4
- * (QARMA5) for address / generic (PACGA) auth, generic 0 = no modeled generic algorithm; level = the
- * APA/APA3 feature value (1 PAuth, 2 EPAC, 3 PAuth2, 4 FPAC, 5 FPACCOMBINE); t0sz/t1sz, tbi, tbid =
- * TCR_EL1 fields; constpacfield = FEAT_CONSTPACFIELD. */
+ * (QARMA5) for address / generic (PACGA) auth, generic 0 = no modeled generic algorithm. level = the
+ * APA/APA3 feature value (1 PAuth, 2 EPAC, 3 PAuth2, 4 FPAC, 5 FPACCOMBINE). t0sz/t1sz, tbi, tbid =
+ * TCR_EL1 fields. constpacfield = FEAT_CONSTPACFIELD. */
 struct pac_profile {
     int iterations;
     int generic_iterations;

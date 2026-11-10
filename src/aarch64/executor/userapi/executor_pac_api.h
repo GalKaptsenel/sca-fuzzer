@@ -19,7 +19,7 @@
 #include "executor_ioctl_nr.h"
 
 /*
- * PAC key set. Userspace mirror of the kernel's struct pac_keys (executor/pac.h); defined here only
+ * PAC key set. Userspace mirror of the kernel's struct pac_keys (executor/pac.h). defined here only
  * for userspace so it does not clash with the kernel definition. Keys are carried per-request in
  * struct pac_sign_req and per-input in the REIF PAC_KEYS section, the kernel stores none of its own.
  */
@@ -38,7 +38,7 @@ _Static_assert(sizeof(struct pac_keys) == 80, "pac_keys ABI: 5 keys * {lo,hi} = 
  * REVISOR_PAC_SIGN / REVISOR_PAC_AUTH
  *
  * Execute a PAC sign or auth instruction at EL1 under the request's `keys`, loaded for this one
- * instruction and restored afterwards. The keys travel with the request; the kernel keeps no
+ * instruction and restored afterwards. The keys travel with the request. the kernel keeps no
  * PAC-key state of its own, so nothing can leak across tests or campaigns. keys_present MUST be set
  * for sign/auth, a request without it is rejected (-EINVAL), never signed under a default. XPAC is
  * key-independent and ignores both fields.
@@ -49,7 +49,7 @@ _Static_assert(sizeof(struct pac_keys) == 80, "pac_keys ABI: 5 keys * {lo,hi} = 
  *                  sign: pacia pacib pacda pacdb paciza pacizb pacdza pacdzb
  *                  auth: autia autib autda autdb autiza autizb autdza autdzb
  * result       : filled in by the kernel on return.
- * keys_present : nonzero iff `keys` is valid; required for sign/auth.
+ * keys_present : nonzero iff `keys` is valid. required for sign/auth.
  * keys         : the key set to sign/auth under.
  *
  * AUTH note: on FEAT_FPAC hardware a failed AUTH at EL1 triggers a synchronous

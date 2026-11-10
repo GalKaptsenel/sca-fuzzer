@@ -627,7 +627,7 @@ void jit_eor64(jit_t* jit, int rd, int rn, int rm) {
 	emit(jit, insn);
 }
 
-// CBNZ <Xt=rt>, <target>   (target = absolute address; flag-independent branch)
+// CBNZ <Xt=rt>, <target>   (target = absolute address. flag-independent branch)
 void jit_cbnz64(jit_t* jit, int rt, uint8_t* target) {
 	uint32_t insn = 0xb5000000 | rt;
 	JIT_ASSERT(0 <= rt && rt <= 31);
@@ -638,7 +638,7 @@ void jit_cbnz64(jit_t* jit, int rt, uint8_t* target) {
 	emit(jit, insn);
 }
 
-// CBZ <Wt=rt>, <target>   (target = absolute address; flag-independent branch)
+// CBZ <Wt=rt>, <target>   (target = absolute address. flag-independent branch)
 void jit_cbz32(jit_t* jit, int rt, uint8_t* target) {
 	uint32_t insn = 0x34000000 | rt;
 	JIT_ASSERT(0 <= rt && rt <= 31);
@@ -743,7 +743,7 @@ void jit_ldr64(jit_t* jit, int rt, int rn) {
 	emit(jit, insn);
 }
 
-/* LDR Qt, [Xn, #imm] (128-bit SIMD&FP load, unsigned offset; imm is a multiple of 16). */
+/* LDR Qt, [Xn, #imm] (128-bit SIMD&FP load, unsigned offset. imm is a multiple of 16). */
 void jit_ldr128(jit_t* jit, int qt, int rn, int imm) {
 	uint32_t insn = 0x3dc00000;
 	JIT_ASSERT(0 <= qt && qt <= 31);
@@ -1076,7 +1076,7 @@ void jit_read64_pmu(jit_t* jit, uint8_t pmu, uint8_t Rt) {
 	jit_mrs(jit, 1, 3, 14, 8 | ((pmu >> 3) & 3), pmu & 7, Rt);
 }
 
-// MRS <Xt=Rt>, PMCCNTR_EL0   (read the cycle counter; S3_3_C9_C13_0)
+// MRS <Xt=Rt>, PMCCNTR_EL0   (read the cycle counter. S3_3_C9_C13_0)
 void jit_read64_cyclecounter(jit_t* jit, uint8_t Rt) {
 	jit_mrs(jit, 1, 3, 9, 13, 0, Rt);
 }

@@ -31,7 +31,7 @@ extern int mte_tag_verbose;
 uint8_t mte_read_tag(const void* ptr);
 
 // Deferred MTE log buffer. The per-input tag logging runs inside execute_on_pinned_cpu, i.e. in the
-// smp_call_function_single IPI callback with interrupts disabled on the pinned CPU; a printk storm
+// smp_call_function_single IPI callback with interrupts disabled on the pinned CPU. a printk storm
 // there hangs the CPU (EHLD watchdog -> panic). So collect lines with mte_dump_add (a bounded
 // snprintf, safe in atomic context) and emit them with mte_dump_flush AFTER the pinned call returns,
 // in normal process context. mte_dump_reset clears the buffer before a run.
@@ -42,16 +42,16 @@ void mte_save_control(struct mte_control_state* state);
 void mte_restore_control(const struct mte_control_state* state);
 void mte_set_sync(void);
 // GCR_EL1 management for the test run. The CE and the GVT access model ADDG/IRG tag arithmetic with no
-// exclusion; the kernel (KASAN_HW_TAGS) leaves tags reserved in GCR_EL1.Exclude, which makes an instrumented
+// exclusion. the kernel (KASAN_HW_TAGS) leaves tags reserved in GCR_EL1.Exclude, which makes an instrumented
 // ADDG retag land on a different tag on HW -> architectural tag fault. mte_gcr_read() captures the
-// pre-test-case value; mte_gcr_clear_exclude() zeroes Exclude right before a test executes;
+// pre-test-case value. mte_gcr_clear_exclude() zeroes Exclude right before a test executes;
 // mte_gcr_restore() puts the captured pre-test-case value back (between inputs and at the TC boundary).
 uint64_t mte_gcr_read(void);
 uint64_t mte_gcr_clear_exclude(void);
 void mte_gcr_restore(uint64_t saved_gcr);
 // Read + clear TFSR_EL1 (async tag-fault status): non-zero => a tag-check fault happened in the window.
 uint64_t mte_read_clear_tfsr(void);
-// Force TCF=SYNC for the run (returns prior SCTLR_EL1); mte_restore_sctlr puts it back.
+// Force TCF=SYNC for the run (returns prior SCTLR_EL1). mte_restore_sctlr puts it back.
 uint64_t mte_force_sync(void);
 void mte_restore_sctlr(uint64_t saved);
 uint8_t enable_TCMA1_bit(void);

@@ -135,7 +135,7 @@ void spec_request_window(uintptr_t entry_pc, uintptr_t return_addr, uint64_t own
 /* Open the windows the clauses requested and return the PC to continue from. All requested entries
  * share one checkpoint and are explored one after another (handle_window_end walks the cursor), then
  * execution resumes at their common architectural continuation. A two-way branch has a single
- * non-architectural direction, so cond/sls coalesce to one entry; >1 entry only arises when a clause
+ * non-architectural direction, so cond/sls coalesce to one entry. >1 entry only arises when a clause
  * requests several targets at once (e.g. an indirect-branch predictor). */
 static void* resolve_pending_windows(struct simulation_state* sim_state) {
 	if(0 == pending_window_count) return NULL;
@@ -289,7 +289,7 @@ void* execution_clause_hook(struct simulation_state* sim_state) {
 		if(ecd->clause_bit & clauses) ecd->on_instruction(sim_state);
 	}
 
-	/* Dive whatever window the clauses requested; an instruction with no request runs architecturally. */
+	/* Dive whatever window the clauses requested. an instruction with no request runs architecturally. */
 	void* redirect = resolve_pending_windows(sim_state);
 
 	/* Runs AFTER on_instruction so a store's window (opened by bpas phase B) is already on the stack

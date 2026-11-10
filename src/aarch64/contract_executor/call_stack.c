@@ -2,7 +2,7 @@
 #include <string.h>
 
 /* Depth cap. The architectural call graph is an acyclic forward DAG, so its depth is bounded by the
- * function count; speculative paths add only a bounded window's worth on top. This is generous; an
+ * function count. speculative paths add only a bounded window's worth on top. This is generous. an
  * overflow means a genuinely unexpected shape, so we fail loudly rather than silently wrap. */
 #define CALL_STACK_MAX 256
 

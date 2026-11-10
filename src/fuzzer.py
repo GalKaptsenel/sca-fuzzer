@@ -445,7 +445,7 @@ class FuzzerGeneric(Fuzzer):
                     STAT.fp_priming += 1
                     return None
 
-        # [TEMP] locate the culprit input for the confirmed violation (does not drop it)
+        # locate the culprit input for the confirmed violation (does not drop it)
         if CONF.enable_triage:
             self._triage(violations, args.inputs)
 
@@ -903,7 +903,7 @@ class FuzzerGeneric(Fuzzer):
         return False
 
     def _triage(self, violations: List[Violation], inputs: List[Input]) -> List[Violation]:
-        """[TEMP] For every violation, locate the exact input in the batch order that causes the
+        """For every violation, locate the exact input in the batch order that causes the
         divergence, and record it. Violations are NOT dropped - all are returned, annotated."""
         for v in violations:
             verdict = self._triage_one(v, inputs)

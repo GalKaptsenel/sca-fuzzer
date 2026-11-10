@@ -116,7 +116,7 @@ class PageTableDescriptor:
 # ==================================================================================================
 
 # Level-3 page descriptor (maps a 4 KB page). `oa` (output address) and `type` are never fuzzed so a
-# decoy keeps the same physical page and the same walk shape; all other attributes are fair game.
+# decoy keeps the same physical page and the same walk shape. all other attributes are fair game.
 LEAF_LAYOUT = DescriptorLayout("leaf", [
     # BitField(name, offset, width, fuzzable_by_default, doc)
     BitField("valid", 0, 1, True, "descriptor is valid (0 -> translation fault)"),
@@ -138,7 +138,7 @@ LEAF_LAYOUT = DescriptorLayout("leaf", [
 ])
 
 # Level 0-2 table descriptor (points at the next-level table). The next-table address and type are
-# fixed (they define the walk); only the table-global attribute overrides are fuzzable.
+# fixed (they define the walk). only the table-global attribute overrides are fuzzable.
 TABLE_LAYOUT = DescriptorLayout("table", [
     BitField("valid", 0, 1, True, "descriptor is valid (0 -> translation fault)"),
     BitField("type", 1, 1, False, "must be 1 for a table descriptor (0 = block)"),

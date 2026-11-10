@@ -8,7 +8,7 @@ HEADER_STRUCT = struct.Struct("<II")  # little-endian: length:uint32_t, type:uin
 
 # The CE emits nothing until an execution finishes (it computes the whole speculative trace, then
 # writes the response header + payload), so "no bytes yet" just means "still computing", not hung. A
-# deep call/speculation-heavy trace can legitimately take minutes, so this is generous; the CE's own
+# deep call/speculation-heavy trace can legitimately take minutes, so this is generous. the CE's own
 # per-iteration watchdog (CE_ITERATION_TIMEOUT_SEC = 3600s) is the real backstop for a genuine hang.
 CE_READ_TIMEOUT = 600.0  # seconds with no output before declaring the CE hung
 
@@ -45,7 +45,7 @@ class StreamIPC:
     def _safe_read(self, amount: int) -> bytes:
         buff: bytes = bytes()
         while amount > len(buff):
-            # read1() serves buffered bytes immediately; on the non-blocking fd it returns an empty
+            # read1() serves buffered bytes immediately. on the non-blocking fd it returns an empty
             # result when buffer and fd are both empty -- b'' or None, depending on the Python build.
             # An empty result is EOF only once the CE has exited: while it is alive its write end is
             # open, so an empty read just means "no data yet" -- wait on select() and retry.

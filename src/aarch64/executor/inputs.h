@@ -24,7 +24,7 @@ typedef struct registers {
 /*
  * Per-input execution-environment state, parsed from the wire format
  * (userapi/executor_input_format.h). main/faulty/regs are the classic initial
- * memory + registers; mte_tags / pac_keys are optional per-input initial state,
+ * memory + registers. mte_tags / pac_keys are optional per-input initial state,
  * each guarded by its *_present flag.
  */
 typedef struct Input {
@@ -36,12 +36,12 @@ typedef struct Input {
 	};
 	uint8_t mte_tags[INPUT_MTE_TAG_COUNT];   /* one 4-bit tag per 16B granule, unpacked */
 	bool mte_tags_present;
-	/* The GVT image (SEC_SIMD): loaded into v0..v31 before this input runs; zeroed when absent. */
+	/* The GVT image (SEC_SIMD): loaded into v0..v31 before this input runs. zeroed when absent. */
 	uint8_t simd[REVISOR_SIMD_SECTION_SIZE];
 	struct pac_keys pac_keys;                /* per-input PAC key override */
 	bool pac_keys_present;
 	/* Page-table overrides applied to the sandbox pages before this input runs and reverted after
-	 * (the environment axis of NI fuzzing); guarded by pte_present. */
+	 * (the environment axis of NI fuzzing). guarded by pte_present. */
 	struct revisor_pte_override_entry pte_overrides[REVISOR_INPUT_MAX_PTE_OVERRIDES];
 	uint32_t pte_override_count;
 	bool pte_present;

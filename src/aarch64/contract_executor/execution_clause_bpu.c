@@ -47,7 +47,7 @@ static void bpu_on_instruction(struct simulation_state* sim_state) {
 
 	/* Speculative global history. If this misprediction opens a window we dive down the predicted
 	 * (wrong) path, so checkpoint the pre-branch history and advance it with the PREDICTED
-	 * direction; bpu_on_rollback() then restores it and re-advances with the resolved direction.
+	 * direction. bpu_on_rollback() then restores it and re-advances with the resolved direction.
 	 * Otherwise we continue on the architectural path, so advance with the architectural direction.
 	 * The guard mirrors branch_speculate()'s push condition exactly, keeping the history checkpoint
 	 * 1:1 with the engine's speculation frames. */

@@ -257,7 +257,7 @@ class ADBConnection(Connection):
 
     def is_file_present(self, filename: str) -> bool:
         # shell() raises on a nonzero exit status, so `ls` of a missing file raises rather than
-        # returning; treat that as absent instead of letting it propagate.
+        # returning. treat that as absent instead of letting it propagate.
         try:
             self.shell(f'ls {filename}')
             return True

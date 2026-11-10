@@ -2,15 +2,6 @@
 #include "pmu.h"
 #include "pte_fuzz.h"
 #include <linux/random.h>
-#include <linux/moduleparam.h>
-
-// TEMP bug-hunt: when set, dump the pre-execution tag/pointer state (mte_tag_verbose) but SKIP the
-// test-case execution entirely. Isolates whether an "unexpected reset" comes from the divergent
-// access during execution or from the tag setup/dump itself. Revert once the divergence is found.
-int mte_skip_exec = 0;
-module_param(mte_skip_exec, int, 0644);
-MODULE_PARM_DESC(mte_skip_exec, "Dump pre-exec state then skip test-case execution (MTE divergence bug-hunt)");
-
 /* Fisher-Yates shuffle of executor.reload_order[0..63] -- a fresh random set-visit order for reload(). */
 static void fill_reload_order(void) {
 	int i = 0;
@@ -61,7 +52,7 @@ static void load_registers_from_input(input_t* input) {
 	*((registers_t*)executor.sandbox->lower_overflow) = input->regs;
 
 	// flags is already in ARM PSTATE format (N=bit31 Z=bit30 C=bit29 V=bit28)
-	// from _reconstruct_pstate() in Python; msr nzcv reads bits [31:28] directly.
+	// from _reconstruct_pstate() in Python. msr nzcv reads bits [31:28] directly.
 
 	// - RSP and RBP
 	((registers_t*)executor.sandbox->lower_overflow)->sp = get_stack_base_address();
@@ -91,7 +82,7 @@ static void load_input_to_sandbox(input_t* input) {
 	if (input->mte_tags_present) {
 		mte_apply_sandbox_tags(executor.sandbox->main_region, input->mte_tags,
 		                       INPUT_MTE_TAG_COUNT);
-		// A <=16B access from the sandbox's last byte spills into upper_overflow's first granule; give
+		// A <=16B access from the sandbox's last byte spills into upper_overflow's first granule. give
 		// that granule the last input tag so the boundary spill matches the in-bounds tag (else the
 		// overflow's default tag mismatches -> an architectural MTE tag fault on an accidental spill).
 		mte_apply_sandbox_tags(executor.sandbox->upper_overflow,
@@ -108,7 +99,7 @@ static void initialize_overflow_pages(void) {
 	// - overflows are initialized with zeroes
 	memset(executor.sandbox->lower_overflow, 0, sizeof(executor.sandbox->lower_overflow));
 	memset(executor.sandbox->upper_overflow, 0, sizeof(executor.sandbox->upper_overflow));
-//	for (int j = 0; j < (sizeof(executor.sandbox->upper_overflow) / sizeof(uint64_t)); ++j) {
+//	for (int j = 0. j < (sizeof(executor.sandbox->upper_overflow) / sizeof(uint64_t)). ++j) {
 //	    ((uint64_t *)executor.sandbox->upper_overflow)[j] = 0;
 //	}
 }
@@ -209,8 +200,8 @@ static int __nocfi run_experiments(void) {
 	// Zero-initialize the region of memory used by Prime+Probe
 	memset(executor.sandbox->eviction_region, 0, sizeof(executor.sandbox->eviction_region));
 
-	// S3_3_C4_C2_6 is the SSBS register (mrs/msr ssbs); SSBS is PSTATE bit 12. enable_ssbs=1 => SSBS=1
-	// (speculative store bypass ALLOWED, mitigation off); enable_ssbs=0 => SSBS=0 (bypass disabled,
+	// S3_3_C4_C2_6 is the SSBS register (mrs/msr ssbs). SSBS is PSTATE bit 12. enable_ssbs=1 => SSBS=1
+	// (speculative store bypass ALLOWED, mitigation off). enable_ssbs=0 => SSBS=0 (bypass disabled,
 	// SSB mitigation ON). Set explicitly both ways and read back into debug_ssbs for verification.
 	uint64_t saved_ssbs = 0;
 	bool ssbs_changed = false;
@@ -223,7 +214,7 @@ static int __nocfi run_experiments(void) {
 	}
 	asm volatile("mrs %0, s3_3_c4_c2_6" : "=r"(executor.debug_ssbs));
 
-	// The kernel's GCR_EL1 (KASAN reserves tags in Exclude) at test-case entry; each input clears
+	// The kernel's GCR_EL1 (KASAN reserves tags in Exclude) at test-case entry. each input clears
 	// Exclude for its own execution and restores this value, and it is restored again at the TC
 	// boundary so the kernel's GCR is intact between test cases.
 	uint64_t pre_tc_gcr = mte_gcr_read();
@@ -318,11 +309,7 @@ static int __nocfi run_experiments(void) {
 		// leaves reserved tags in Exclude, which would make an instrumented retag land on a different tag.
 		mte_gcr_clear_exclude();
 		mte_read_clear_tfsr();   // clear so a fault below is attributable to THIS input
-		if (mte_skip_exec) {
-			// BUGHUNT: state already dumped above; do NOT run the test case. If the phone still resets
-			// with execution skipped, the reset is in the tag setup/dump, not the divergent access.
-			executor.sandbox->latest_measurement.htrace[0] = 0;
-		} else if (executor.config.reload_isolate) {
+		if (executor.config.reload_isolate) {
 			/* Per-set isolation: re-run the (deterministic) test once per set, each probing only that
 			 * set, and OR the single-set htraces so no reload sweep can prefetch the page into itself. */
 			uint64_t acc = 0;

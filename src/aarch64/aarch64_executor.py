@@ -214,7 +214,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
         self._tc_counter: int = 0
         self._sandboxed_cache = None
         self.device: HWExecutor = make_hw_executor()
-        # Local module used only for PAC SIGN (never measurement); reuse the device when it is local.
+        # Local module used only for PAC SIGN (never measurement). reuse the device when it is local.
         self._sign_hw: Optional[LocalHWExecutor] = \
             self.device if isinstance(self.device, LocalHWExecutor) else None
 
@@ -324,7 +324,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
             mispredicts = [m.pfcs[2] for m in reps]
             log.w(f"  input={idx} mispredicts: avg={sum(mispredicts) / len(mispredicts):.2f}  "
                   f"reps={mispredicts}", ch="basic_hw")
-            # pfc[0]=INST_RETIRED, pfc[1]=INST_SPEC; diff = wrong-path speculation
+            # pfc[0]=INST_RETIRED, pfc[1]=INST_SPEC. diff = wrong-path speculation
             ret = sum(m.pfcs[0] for m in reps) / len(reps)
             spec = sum(m.pfcs[1] for m in reps) / len(reps)
             log.w(f"  input={idx} spec: retired={ret:.0f} inst_spec={spec:.0f} "
@@ -536,13 +536,13 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
             self._primitives.add("pac")
         if any(c.startswith("MTE") for c in cats):
             self._primitives.add("mte")
-        # canonicality is a category-independent GVT access of existing memory accesses; its own flag
+        # canonicality is a category-independent GVT access of existing memory accesses. its own flag
         if CONF.enable_canonicality:
             self._primitives.add("canon")
         # sign-extension GVT access composes with PAC (a top-byte / regime flip on an authed pointer)
         if CONF.enable_signext:
             self._primitives.add("signext")
-        # branch-target GVT access corrupts indirect-call targets; its own flag (needs indirect calls)
+        # branch-target GVT access corrupts indirect-call targets. its own flag (needs indirect calls)
         if CONF.enable_branch_target:
             self._primitives.add("branch_target")
         # In contract_driven mode the GVT access values are ordinary fuzzed input (the GVT lives in the input's
@@ -558,7 +558,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
                 "speculative-exception fuzzing needs a PAC or MTE instruction category, or "
                 "enable_canonicality / enable_branch_target / enable_pte_fuzzing, enabled")
 
-        # MTE GVT access retags pointers and relies on the CPU checking those tags; without FEAT_MTE2 the
+        # MTE GVT access retags pointers and relies on the CPU checking those tags. without FEAT_MTE2 the
         # tag is not enforced and (composed with PAC on a TBI-off instruction key) a baked signature over
         # a tagged pointer FPAC-faults the kernel. Capture the capability here (device-agnostic, no
         # failure) and refuse in the hardware-run path: device-free MTE modeling (resolution, CE traces)
@@ -583,18 +583,18 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
                                lambda ptr, mn: qarma.pac_field_mask(ptr, profile, qarma.is_instr_key(mn)),
                                lambda ptr, mn: qarma.strip(ptr, profile, qarma.is_instr_key(mn)))
 
-        # The builder owns all GVT access + resolution; it assembles object code via _assemble_tc and runs
+        # The builder owns all GVT access + resolution. it assembles object code via _assemble_tc and runs
         # the single per-input resolution trace via _ce_trace.
         self._builder = make_gvt_access_builder(generator, lambda tc: self._assemble_tc(tc)[0],
                                    self._primitives, signer, trace_bytes_fn=self._ce_trace)
 
-        # Per-test-case instrumented placeholder, populated by load_test_case(); the CE-trace context the
+        # Per-test-case instrumented placeholder, populated by load_test_case(). the CE-trace context the
         # builder's resolve uses (captured per with_taints call).
         self._gvt_tc: Optional[GvtTestCase] = None
         self._sandbox_base: Optional[int] = None
 
         # PTE (page-table) ENVIRONMENT fuzzing: a standalone axis (no code GVT access). When enabled, each
-        # decoy variant additionally fuzzes the page-table state of the spec-only page(s); the
+        # decoy variant additionally fuzzes the page-table state of the spec-only page(s). the
         # genuine/decoy difference is then purely the environment (see GVT access/environment.py).
         self._page_map: Optional[SandboxPageMap] = None
         self._pte_policy: Optional[PteFuzzPolicy] = None
@@ -672,7 +672,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
             log.ensure_flushed()
 
             resolved = self._resolve(inp)
-            # The resolution trace is the genuine contract trace (one run per input); it canonicalizes
+            # The resolution trace is the genuine contract trace (one run per input). it canonicalizes
             # rather than verifies, so genuine signatures are not re-checked in software (see ce_equivalence).
             cer = resolved.cer
             ce_traces.append(cer)
@@ -814,7 +814,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
 
     def _log_variant_binaries(self, log, inp_idx, cer,
                               resolved: ResolvedGvtTestCase) -> None:
-        # Variants share one object_code now; the per-variant difference is the GVT image, not the code.
+        # Variants share one object_code now. the per-variant difference is the GVT image, not the code.
         columns = [(name, resolved.object_code) for name in self._variants_for(resolved)]
         log.header(f"VARIANT TC BINARIES  inp={inp_idx}")
         for name, code in columns:

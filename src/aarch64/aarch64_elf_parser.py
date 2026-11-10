@@ -195,7 +195,7 @@ class Aarch64ElfParser:
         returns: a dictionary mapping section names to lists of its instruction addresses
         """
         instruction_addresses: Dict[str, List[int]] = {}
-        # objdump auto-detects the architecture from the ELF header; the awk only scrapes
+        # objdump auto-detects the architecture from the ELF header. the awk only scrapes
         # instruction addresses and section headers, which are disassembly-flavor independent.
         dump = run(
             f"objdump --no-show-raw-insn -D {obj_file} "

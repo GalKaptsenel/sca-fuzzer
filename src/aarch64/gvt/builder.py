@@ -55,7 +55,7 @@ def pack_emul_table(rows: List[Tuple[int, int, int, int, int, int, int]]) -> byt
 
 
 # ==================================================================================================
-# GvtAccess, one location; pure GVT access(value); exposes the facts the resolver reads
+# GvtAccess, one location. pure GVT access(value). exposes the facts the resolver reads
 # ==================================================================================================
 class GvtAccess(abc.ABC):
     """One GVT access site. Its slot is FIXED code that loads the per-input value from the GVT and applies
@@ -140,7 +140,7 @@ class PacGvtAccess(GvtAccess):
             super().store_into(image, applied, genuine)
 
     def frozen_ranges(self, speculative: bool) -> List[range]:
-        # A strip site has no signature lane; a speculative AUT*'s forged bits are re-clamped before the
+        # A strip site has no signature lane. a speculative AUT*'s forged bits are re-clamped before the
         # next access, so its lane is safe to leave free.
         return [] if self.strip else super().frozen_ranges(speculative)
 
@@ -183,7 +183,7 @@ class MteGvtAccess(GvtAccess):
             image.store(self._cell_location, self.value.encode(0 if genuine is None else genuine))
 
     def frozen_ranges(self, speculative: bool) -> List[range]:
-        # The applied-tag lane is frozen only when architectural; the re-converge lane always carries the
+        # The applied-tag lane is frozen only when architectural. the re-converge lane always carries the
         # genuine cell tag and must stay frozen, or a speculative decoy's tag would cascade into a later
         # architectural access and fault.
         ranges = super().frozen_ranges(speculative)
@@ -366,7 +366,7 @@ def _signext_mask_pool() -> List[int]:
 
 
 # ==================================================================================================
-# ResolvedGvtTestCase, one input's resolution; mints genuine / decoy hardware test cases
+# ResolvedGvtTestCase, one input's resolution. mints genuine / decoy hardware test cases
 # ==================================================================================================
 class _Resolved:
     """A GVT access paired with its resolved runtime value for one input: `value` is the correct value
@@ -553,7 +553,7 @@ def _resolve_mte(s: MteGvtAccess, cer, layout) -> Tuple[Optional[int], List[int]
     if chosen is None:                                         # unreached in the trace
         return None, [], spec
     applied, index_contrib = chosen
-    # A decoy applies base tag t; the resulting EA tag is t + index_contrib. Offer the tags that differ
+    # A decoy applies base tag t. the resulting EA tag is t + index_contrib. Offer the tags that differ
     # from the genuine one AND whose EA tag is a genuinely-checked value (not TCMA-Unchecked 0/15).
     alts = [t for t in range(16) if t != applied and (t + index_contrib) & 0xF not in (0, 15)]
     return applied, alts, spec
@@ -595,7 +595,7 @@ def _resolve_branch_target(s: "BranchTargetGvtAccess", cer, layout) -> Tuple[Opt
 
 
 # ==================================================================================================
-# GvtTestCase, holds the unresolved GVT accesses; resolve(input) orchestrates value computation
+# GvtTestCase, holds the unresolved GVT accesses. resolve(input) orchestrates value computation
 # ==================================================================================================
 class GvtTestCase:
     """Owns the GVT accesses for one test case end-to-end. During construction it PLACES each value
@@ -696,7 +696,7 @@ class PacGvtTestCase(GvtTestCase):
         # with probability CONF.pac_prob, and an instrumented site strips (XPAC only) with probability
         # pac_strip_prob, both build-time coins, since the code is fixed across inputs. A skipped access
         # still gets its offset cancellation (sandbox safety, not GVT access machinery), just no AUT*. The slot
-        # (load the signature, BFI it in, AUT*) sits entirely before the access; there is no re-converge.
+        # (load the signature, BFI it in, AUT*) sits entirely before the access. there is no re-converge.
         # Instrument the generator-emitted AUT*s FIRST, while they are the only AUT*s present, the memory-site
         # slots below insert their own AUT*s, which _gvt_auths would otherwise re-instrument.
         _gvt_auths(self._tc, self._enc, self._signer, self._gst, self._auth_specs, self._pac)
@@ -807,10 +807,10 @@ class BranchTargetGvtTestCase(GvtTestCase):
         super().__init__(instrumented_tc, assemble, sandbox_accesses, data_sites, trace_bytes_fn)
 
     def _insert_slots(self, data_sites) -> None:
-        # data accesses keep their offset cancellation (sandbox safety); they are not value-instrumented here.
+        # data accesses keep their offset cancellation (sandbox safety). they are not value-instrumented here.
         for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
             _insert(bb, inst, offset_subs)
-        # each indirect-call BLR is instrumented with probability branch_target_prob; the flip lands
+        # each indirect-call BLR is instrumented with probability branch_target_prob. the flip lands
         # right before the BLR (after its target-materializing ADR).
         pool = _branch_target_mask_pool(self._salt)
         rng = random.Random(self._salt)
@@ -1054,13 +1054,13 @@ class SandboxWalk:
         # tag-checked against every granule its bytes touch. A pointer carries a single tag, so an
         # unaligned/multi-byte data access straddling two differently-tagged granules faults on the one
         # the pointer does not match. Clamping the base 16-byte-aligned (as tag stores already are)
-        # keeps each access within one granule, so its single tag covers it; the cache-set index
+        # keeps each access within one granule, so its single tag covers it. the cache-set index
         # (bits [11:6]) is unaffected. Only when a tag store can make granules non-uniform: with no
         # tag-memory instruction in the pool the sandbox stays uniformly tagged and unaligned is safe.
         granule_align = any("MTE-TAGMEM-STORE" in s.tags
                             for s in generator.instruction_set.instructions)
         # Floor every access at one MTE granule when a tag store can make granules non-uniform (so a
-        # multi-byte access can't straddle two differently-tagged granules); otherwise no floor. Each
+        # multi-byte access can't straddle two differently-tagged granules). otherwise no floor. Each
         # access is additionally aligned to its own requirement (mem_op.alignment) in _addr_mask, so a
         # single-copy-atomic access (acquire/release, exclusive, LSE atomic) is naturally aligned no
         # matter which config generates it.

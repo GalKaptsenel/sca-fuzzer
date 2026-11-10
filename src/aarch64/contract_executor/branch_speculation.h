@@ -6,7 +6,7 @@
 #include "simulation_state.h"
 
 /* Conditional-branch resolution + the shared misprediction fork, used by every
- * branch-misprediction execution clause (cond, bpu). Pure branch semantics here; the
+ * branch-misprediction execution clause (cond, bpu). Pure branch semantics here. the
  * per-clause decision of WHETHER to mispredict lives in the clause. */
 
 /* True for the conditional branches we model (B.cond / CBZ / CBNZ / TBZ / TBNZ). */
@@ -20,7 +20,7 @@ uintptr_t cond_branch_architectural_next(const struct cpu_state* state);
 bool cond_branch_is_taken(const struct cpu_state* state);
 
 /* Open a misprediction window for the conditional branch at `sim_state->pc` (depth permitting):
- * explore the mispredicted target, resuming at the architectural successor; owned by `owner`. */
+ * explore the mispredicted target, resuming at the architectural successor. owned by `owner`. */
 void branch_speculate(struct simulation_state* sim_state, uint64_t owner);
 
 #endif // BRANCH_SPECULATION_H

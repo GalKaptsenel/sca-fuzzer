@@ -245,7 +245,7 @@ int main() {
 		mte_tagmem_init((uintptr_t)kernel_sandbox_base, simulation.sim_input.mte_tags,
 		                simulation.sim_input.mte_tag_count);
 
-		/* The keys the plugin signs/auths under travel with the input; the kernel keeps none. */
+		/* The keys the plugin signs/auths under travel with the input. the kernel keeps none. */
 		pac_keys_init(simulation.sim_input.pac_keys, simulation.sim_input.pac_keys_present);
 
 		pac_profile_init(simulation.sim_input.hdr.config.pac_profile,

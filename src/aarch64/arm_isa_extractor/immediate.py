@@ -195,7 +195,7 @@ def _prose_range(prose: str):
     return (int(r.group(1)), int(r.group(2)), int(m.group(1)) if m is not None else 1)
 
 
-# SVE tsz-encoded shifts: prose "N to number of bits per element [minus 1]"; the upper bound is the
+# SVE tsz-encoded shifts: prose "N to number of bits per element [minus 1]". the upper bound is the
 # element size, selected at run time by the tsz bits of the same field (esize = 8 << HighestSetBitNZ).
 _BPE = re.compile(r"(\d+)\s+to\s+(?:the\s+)?number of bits per element(\s+minus\s+1)?", re.I)
 _TSIZE_BITS = re.compile(r"\btsize\s*:\s*bits\((\d+)\)")

@@ -13,17 +13,17 @@
  *
  * We model that against the architectural call stack (call_stack), which is unbounded and therefore
  * always holds the true return. A finite shadow RSB (depth RSB_DEPTH, a plain circular buffer) mirrors
- * the same pushes/pops; indexing it by the call depth modulo RSB_DEPTH makes it agree with call_stack
+ * the same pushes/pops. indexing it by the call depth modulo RSB_DEPTH makes it agree with call_stack
  * while the chain is shallow and diverge (a stale slot from RSB_DEPTH calls ago) once it overflows. On a
  * RET whose shadow prediction differs from the true return, open a window exploring the prediction and
  * resuming at the true return.
  *
  * Only the architectural instruction stream trains the shadow, a wrong-path call/return never retires,
- * so it must not update the RSB; and because the shadow changes only on the (linear) architectural path,
+ * so it must not update the RSB. and because the shadow changes only on the (linear) architectural path,
  * it needs no per-window checkpoint. */
 
 /* Approximate Neoverse N3 RSB depth. The exact value is not yet reverse-engineered (see the BPU RE
- * notes); until it is, this is a plausible placeholder, a smaller value catches shallower ret2spec
+ * notes). until it is, this is a plausible placeholder, a smaller value catches shallower ret2spec
  * chains, a larger one is more conservative. */
 #define RSB_DEPTH 16
 
