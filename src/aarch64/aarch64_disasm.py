@@ -22,7 +22,7 @@ _CAPSTONE.detail = True
 # and applies it verbatim, so an RMW register (e.g. CAS's Rs, read AND written), a pure destination
 # (an LSE LD<op>'s Rt), or a plain source are each categorised from the spec, never guessed. Capstone
 # supplies only the register NAMES/order, the memory base/index, and the condition code; its op.access
-# is used solely for instructions absent from the map (e.g. sealer-injected AND/ADD/XPAC helpers,
+# is used solely for instructions absent from the map (e.g. builder-injected AND/ADD/XPAC helpers,
 # which it reports correctly), falling back to an over-approximate read when even that is empty (a
 # taint-safe direction: a missed read is unsafe, an extra read is not).
 
@@ -88,7 +88,7 @@ def decode_reg_accesses(encoding: int, pc: int,
     """Register/flag reads (src) and writes (dest) of one encoded instruction.
 
     Register-operand roles come from `reg_roles` (build_register_role_map) -- the authoritative ISA
-    roles -- when the instruction is present there. For instructions absent from the map (sealer-
+    roles -- when the instruction is present there. For instructions absent from the map (builder-
     injected helpers, or when no map is supplied), Capstone's op.access is used, and an operand Capstone
     leaves access-empty is over-approximated as a read (taint-safe). Flag (NZCV) reads/writes are always
     derived here, since their per-bit set depends on the condition code / mask immediate that no static

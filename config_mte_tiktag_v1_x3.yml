@@ -1,6 +1,6 @@
 # MTE tag-check speculative-exception on the Pixel 8, targeting templates/mte_oracle.py with cross-input
 # priming reporting BOTH self-dependent and cross-input leaks. Contract = cond + bpas, SSBS=1. The NI
-# seal-lane regime keeps the microarchitectural leftover alive across inputs: SSBS on, no pre-run
+# GVT access-lane regime keeps the microarchitectural leftover alive across inputs: SSBS on, no pre-run
 # flush, no PHR flush, no view rotation, unpinned.
 instruction_set: aarch64
 instruction_categories:
@@ -32,7 +32,7 @@ superbatch_size: 100
 enable_pre_run_flush: false
 inputs_per_class: 2
 
-# Generalized (cross-input) priming over the seal lanes; report self- and cross-input leaks both.
+# Generalized (cross-input) priming over the GVT access lanes; report self- and cross-input leaks both.
 enable_cross_input_priming: true
 cross_input_leaks_only: false
 

@@ -2,7 +2,7 @@
 shared pseudocode (aarch64/functions/pac).
 
 Bit-exact with real hardware for the architected algorithm (the same model as the CE's qarma.c). Used
-by the sealer to bake signatures the device will authenticate: the host reproduces the runner's PAC
+by the builder to bake signatures the device will authenticate: the host reproduces the runner's PAC
 offline instead of signing on local hardware (which may use a different algorithm).
 """
 from typing import NamedTuple, Sequence

@@ -99,8 +99,8 @@ class SandboxAlignmentTest(unittest.TestCase):
         self.assertEqual(f(_mem_aligned(32), 16), 32)  # a wider access exceeds the floor
 
 
-class SealRealignReusedBaseTest(unittest.TestCase):
-    """The sealer re-aligns an already-in-region base to a stricter-aligned access's requirement without
+class GvtRealignReusedBaseTest(unittest.TestCase):
+    """The builder re-aligns an already-in-region base to a stricter-aligned access's requirement without
     re-clamping (which would re-add the sandbox base). Masking only the low bits keeps it in-region."""
 
     def _atomic(self, access_align):
@@ -112,7 +112,7 @@ class SealRealignReusedBaseTest(unittest.TestCase):
         return inst
 
     def test_masks_low_bits_to_access_alignment(self):
-        from src.aarch64.seal.sealer import SandboxWalk
+        from src.aarch64.gvt.builder import SandboxWalk
         realign = SandboxWalk._realign_reused_base   # uses only `inst` (no self state)
         self.assertEqual([i.template for i in realign(None, self._atomic(8), "x1")],
                          ["AND x1, x1, #0xfffffffffffffff8"])
@@ -120,12 +120,12 @@ class SealRealignReusedBaseTest(unittest.TestCase):
                          ["AND x1, x1, #0xfffffffffffffffe"])
 
     def test_no_realign_for_unaligned_access(self):
-        from src.aarch64.seal.sealer import SandboxWalk
+        from src.aarch64.gvt.builder import SandboxWalk
         self.assertEqual(SandboxWalk._realign_reused_base(None, self._atomic(0), "x1"), [])  # plain access
 
 
-class SealAtomicAlignmentIsMteIndependentTest(unittest.TestCase):
-    """The SIGBUS fix does NOT depend on MTE granule luck: the sealer aligns a single-copy-atomic
+class GvtAtomicAlignmentIsMteIndependentTest(unittest.TestCase):
+    """The SIGBUS fix does NOT depend on MTE granule luck: the builder aligns a single-copy-atomic
     access from the access's OWN natural-alignment requirement (mem_op.alignment), so an atomic is
     correctly aligned even with no MTE tag store in the pool (granule floor 1). The MTE granule floor
     only ever RAISES the alignment; it never lowers it below what the atomic needs."""
@@ -139,20 +139,20 @@ class SealAtomicAlignmentIsMteIndependentTest(unittest.TestCase):
         return inst
 
     def test_atomic_aligned_without_mte(self):
-        from src.aarch64.seal.sealer import SandboxWalk
+        from src.aarch64.gvt.builder import SandboxWalk
         stub = SimpleNamespace(_granule_floor=1)                       # no MTE tag store in the pool
         self.assertEqual(SandboxWalk._addr_mask(stub, self._atomic(8)), "#0x1ff8")   # 8B aligned
         self.assertEqual(SandboxWalk._addr_mask(stub, self._atomic(16)), "#0x1ff0")  # 16B aligned
         self.assertEqual(SandboxWalk._addr_mask(stub, self._atomic(4)), "#0x1ffc")   # 4B aligned
 
     def test_mte_floor_only_raises_alignment(self):
-        from src.aarch64.seal.sealer import SandboxWalk
+        from src.aarch64.gvt.builder import SandboxWalk
         stub = SimpleNamespace(_granule_floor=16)                      # MTE tag store present
         self.assertEqual(SandboxWalk._addr_mask(stub, self._atomic(2)), "#0x1ff0")   # floored up to 16
         self.assertEqual(SandboxWalk._addr_mask(stub, self._atomic(8)), "#0x1ff0")   # max(16, 8) = 16
 
     def test_plain_access_needs_no_alignment_without_mte(self):
-        from src.aarch64.seal.sealer import SandboxWalk
+        from src.aarch64.gvt.builder import SandboxWalk
         stub = SimpleNamespace(_granule_floor=1)
         self.assertEqual(SandboxWalk._addr_mask(stub, self._atomic(0)), "#0x1fff")   # unconstrained
 

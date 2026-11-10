@@ -8,8 +8,8 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from src.config import CONF, ConfigException                                       # noqa: E402
-from src.aarch64.seal.pagetable_model import LEAF_LAYOUT                            # noqa: E402
-from src.aarch64.seal.environment import PteFuzzPolicy                              # noqa: E402
+from src.aarch64.gvt.pagetable_model import LEAF_LAYOUT                            # noqa: E402
+from src.aarch64.gvt.environment import PteFuzzPolicy                              # noqa: E402
 
 
 class PteConfigTest(unittest.TestCase):

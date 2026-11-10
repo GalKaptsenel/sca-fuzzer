@@ -1,6 +1,6 @@
 """A-priori equivalence property: the single resolution trace IS the genuine contract trace — the
 genuine binary (correctly pre-signed) traces without an FPAC and produces identical ctrace and taint —
-for each sealing primitive. Device-free: drives the CE binary directly. The one-run design reuses this
+for each GVT access primitive. Device-free: drives the CE binary directly. The one-run design reuses this
 resolution trace instead of running a separate genuine trace.
 """
 import copy
@@ -46,10 +46,10 @@ class _EquivalenceBase:
         isa = InstructionSet(os.path.join(_ROOT, "base.json"), CONF.instruction_categories)
         cls.gen = Aarch64RandomGenerator(isa, cls.PROGRAM_SEED)
         cls.sess = eq.CESession(cls.PRIMITIVES)
-        cls.sealer = cls.sess.sealer(cls.gen)
+        cls.builder = cls.sess.builder(cls.gen)
         cls.tmp = tempfile.mkdtemp()
         try:
-            cls._seal_a_test_case()
+            cls._build_a_test_case()
         except NotImplementedError as e:   # a not-yet-migrated primitive: skip cleanly, never error
             cls.sess.stop()
             eq.PROFILE = cls._saved_profile
@@ -65,39 +65,39 @@ class _EquivalenceBase:
         CONF._borg_shared_state.update(cls._saved_conf)
 
     @classmethod
-    def _has_seals(cls, sealed, resolved):
-        from src.aarch64.seal.sealer import SandboxSealing
-        return any(not isinstance(s, SandboxSealing) for s in sealed._sealings())
+    def _has_accesses(cls, instrumented, resolved):
+        from src.aarch64.gvt.builder import SandboxGvtAccess
+        return any(not isinstance(s, SandboxGvtAccess) for s in instrumented._accesses())
 
     @classmethod
     def _respawn(cls):
         cls.sess.stop()
         cls.sess = eq.CESession(cls.PRIMITIVES)
-        cls.sealer = cls.sess.sealer(cls.gen)
+        cls.builder = cls.sess.builder(cls.gen)
 
     @classmethod
-    def _seal_a_test_case(cls):
+    def _build_a_test_case(cls):
         from src import factory
         probe = factory.get_input_generator(cls.INPUT_SEED).generate(1)[0]
         for _ in range(_MAX_TEST_CASES):
             tc = cls.gen.create_test_case(os.path.join(cls.tmp, "t.asm"), disable_assembler=True)
             cls.sess.set_data_size(eq._dispatch_data_size(tc))
-            sealed = cls.sealer.seal(tc)
+            instrumented = cls.builder.build(tc)
             # A few randomly-generated indirect-call test cases make an ARCHITECTURAL out-of-sandbox
             # data access, which the CE rejects by design (a pre-existing sandbox-completeness limit for
-            # indirect calls, orthogonal to sealing). resolve() traces the genuine render (PAC/MTE inject
+            # indirect calls, orthogonal to GVT access). resolve() traces the genuine render (PAC/MTE inject
             # their genuine value via the emulation table, canon/branch use the all-zero image), so a CE
             # that cannot trace the test case raises here and the test case is skipped. A systematic
-            # sealing bug makes every test case raise, so the assertion below still surfaces it.
+            # GVT access bug makes every test case raise, so the assertion below still surfaces it.
             try:
-                resolved = sealed.resolve(probe)
+                resolved = instrumented.resolve(probe)
             except RuntimeError:
                 cls._respawn()
                 continue
-            if cls._has_seals(sealed, resolved):
-                cls.sealed = sealed
+            if cls._has_accesses(instrumented, resolved):
+                cls.instrumented = instrumented
                 return
-        raise AssertionError(f"no CE-traceable sealed test case in {_MAX_TEST_CASES} "
+        raise AssertionError(f"no CE-traceable instrumented test case in {_MAX_TEST_CASES} "
                              f"(seed {cls.PROGRAM_SEED})")
 
     def test_resolution_trace_matches_genuine(self):
@@ -105,7 +105,7 @@ class _EquivalenceBase:
         inputs = factory.get_input_generator(self.INPUT_SEED).generate(8)
         checked = 0
         for inp in inputs:
-            resolved = self.sealed.resolve(inp)
+            resolved = self.instrumented.resolve(inp)
             cer_res = resolved.cer                              # the single resolution trace
             # The genuine variant is the shared object_code with the genuine GVT image (for canon /
             # branch-target that image is all-zero, i.e. the same image the resolution trace ships).
@@ -178,8 +178,8 @@ class TraceEquivalencePacMteTest(_EquivalenceBase, unittest.TestCase):
 
 # Canonicality and branch-target carry no dynamic value: their genuine baseline is the canonical /
 # valid-target NOP placeholder (the flip is the decoy relocation), so the resolution trace already is
-# the genuine trace. PTE seals no code (SandboxSealedTestCase); the genuine/decoy difference is the
-# page-table environment, not the trace. These confirm the no-value-seal path yields genuine ==
+# the genuine trace. PTE GVT accesses no code (SandboxGvtTestCase); the genuine/decoy difference is the
+# page-table environment, not the trace. These confirm the no-value-GVT access path yields genuine ==
 # resolution trace.
 class TraceEquivalenceCanonTest(_EquivalenceBase, unittest.TestCase):
     CONFIG = "config_canon.yml"
@@ -204,8 +204,8 @@ class TraceEquivalencePteTest(_EquivalenceBase, unittest.TestCase):
     PRIMITIVES = set()
 
     @classmethod
-    def _has_seals(cls, sealed, resolved):
-        return bool(sealed._sandbox)
+    def _has_accesses(cls, instrumented, resolved):
+        return bool(instrumented._sandbox)
 
 
 if __name__ == "__main__":

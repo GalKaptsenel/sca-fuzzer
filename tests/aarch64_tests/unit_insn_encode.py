@@ -41,7 +41,7 @@ class MovkBitSurgeryTest(unittest.TestCase):
 
 
 class WordClassifyTest(unittest.TestCase):
-    """Word-level slot decoders — the seal/speculative-exception tests classify variant bytes with these instead of
+    """Word-level slot decoders — the GVT access/speculative-exception tests classify variant bytes with these instead of
     disassembling to strings, so they must round-trip against the encode-side word builders."""
 
     def test_is_xpac_recognizes_both_keys_any_rd(self):

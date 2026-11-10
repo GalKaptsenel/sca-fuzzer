@@ -1,8 +1,8 @@
-"""contract_driven mode: the GVT lives in the input's SIMD subregion, and the sealer-derived taint
-freezes exactly the architecturally-consumed seal lanes at their genuine values while leaving
+"""contract_driven mode: the GVT lives in the input's SIMD subregion, and the builder-derived taint
+freezes exactly the architecturally-consumed GVT access lanes at their genuine values while leaving
 speculative-only lanes free. The invariants (needs /dev/executor + the CE):
-  * every architectural value seal's lane is tainted AND equals the genuine image in the input;
-  * every speculative-only seal's lane is untainted (boosting may vary it);
+  * every architectural value GVT access's lane is tainted AND equals the genuine image in the input;
+  * every speculative-only GVT access's lane is untainted (boosting may vary it);
   * boosting (extend_equivalence_classes) reproduces the architectural lanes byte-for-byte across the
     class and re-randomises at least one speculative lane — so the architectural path is identical and
     only non-tainted lanes differ.
@@ -50,11 +50,11 @@ class ContractDrivenTaintTest(unittest.TestCase):
             tc = cls.gen.create_test_case(os.path.join(cls.tmp, "t.asm"), disable_assembler=True)
             cls.ex.load_test_case(tc)
             cls.ex._sandbox_base, _ = cls.ex.read_base_addresses()
-            value_seals = getattr(cls.ex._sealed, "_pac", []) + getattr(cls.ex._sealed, "_mte", [])
-            if value_seals and any(cls.ex.has_decoy(i) for i in igen.generate(8)):
+            value_accesses = getattr(cls.ex._gvt_tc, "_pac", []) + getattr(cls.ex._gvt_tc, "_mte", [])
+            if value_accesses and any(cls.ex.has_decoy(i) for i in igen.generate(8)):
                 cls.tc = tc
                 return
-        raise AssertionError("no sealable, decoy-eligible test case found")
+        raise AssertionError("no instrumentable, decoy-eligible test case found")
 
     @classmethod
     def tearDownClass(cls):
@@ -75,22 +75,22 @@ class ContractDrivenTaintTest(unittest.TestCase):
         checked_arch = checked_spec = 0
         for e in resolved._entries:
             frozen = set()
-            for rng in e.sealing.frozen_ranges(e.speculative):
+            for rng in e.access.frozen_ranges(e.speculative):
                 frozen.update(rng)
                 # a frozen lane is tainted and holds the genuine value in the input
                 self.assertTrue(all(simd_taint[b] for b in rng), "frozen lane not tainted")
                 self.assertEqual(bytes(simd[rng.start:rng.stop]), bytes(genuine[rng.start:rng.stop]),
                                  "frozen lane not set to the genuine value")
-            loc = getattr(e.sealing, "location", None)
+            loc = getattr(e.access, "location", None)
             if loc is None:
                 continue
             lane = set(loc.byte_range())
-            if e.speculative and not (lane & frozen):   # a speculative single-lane seal: lane is free
+            if e.speculative and not (lane & frozen):   # a speculative single-lane GVT access: lane is free
                 self.assertFalse(any(simd_taint[b] for b in lane), "speculative lane is tainted")
                 checked_spec += 1
             elif not e.speculative:
                 checked_arch += 1
-        self.assertGreater(checked_arch + checked_spec, 0, "no value seals exercised")
+        self.assertGreater(checked_arch + checked_spec, 0, "no value GVT accesses exercised")
 
     def test_boosting_keeps_arch_lanes_and_varies_speculative(self):
         inp = self._input()

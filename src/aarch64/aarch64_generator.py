@@ -26,7 +26,7 @@ from .aarch64_printer import Aarch64Printer
 from .aarch64_mte import MTE_GRANULE
 
 
-from .seal.primitives import _SANDBOX_MASK, _SandboxInstrumentationBase
+from .gvt.primitives import _SANDBOX_MASK, _SandboxInstrumentationBase
 
 
 class Aarch64Generator(ConfigurableGenerator, abc.ABC):
@@ -95,7 +95,7 @@ class Aarch64Generator(ConfigurableGenerator, abc.ABC):
         """Assemble AArch64 assembly to raw machine code via the asm_to_bytes helper.
 
         Assembly is a pure function of the (normalized) source text, so the result
-        is memoized: the sealed/speculative-exception fuzzing path re-assembles the same placeholder
+        is memoized: the instrumented/speculative-exception fuzzing path re-assembles the same placeholder
         test case once per input (measured: ~72% of calls are byte-identical), and
         each call spawns three processes (asm_to_bytes -> as + objcopy). The cache
         turns those redundant spawns into dict hits."""
@@ -168,10 +168,10 @@ _STP_WRITEBACK = frozenset({"stp"})
 _STR_WRITEBACK = frozenset({"str", "strb", "strh"})
 
 # AUT* with an explicit context register (Xd = pointer/dest, Xn = context). Xn == Xd is unsatisfiable
-# once sealed: the seal rewrites AUT* to [MOVK sig, AUT*], and the MOVK writes the signature into
+# once instrumented: the GVT access rewrites AUT* to [MOVK sig, AUT*], and the MOVK writes the signature into
 # Xd[63:48] before the AUT* reads Xd as its context, so the auth context (sig|addr) never matches the
 # clean addr the sig was computed over → the genuine AUT* FPAC-faults. Force ctx ≠ ptr. (PAC* sign
-# instructions are fine: they only sign, never fault, and the seal does not rewrite them.)
+# instructions are fine: they only sign, never fault, and the GVT access does not rewrite them.)
 _AUTH_CTX = frozenset({"autia", "autib", "autda", "autdb"})
 
 
@@ -568,7 +568,7 @@ class Aarch64IndirectCallPass(Pass):
 
     Only Xd (the dedicated target register) ever holds a code address; Xi ends holding an offset, never
     an address, so no code address leaks into the sandbox-masked data flow. Every inserted instruction is
-    template-only instrumentation (no memory operand), so the sandbox pass skips it and the sealer, which
+    template-only instrumentation (no memory operand), so the sandbox pass skips it and the builder, which
     keys on the BLR, is unaffected."""
 
     # Input GPRs used as the hashed dispatch index; clobbered by the sequence, never reserved.

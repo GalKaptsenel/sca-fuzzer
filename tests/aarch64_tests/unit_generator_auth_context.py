@@ -1,6 +1,6 @@
 """Regression: the generator never emits a context AUT* (autia/autib/autda/autdb) whose context
 register equals its pointer register. A self-context AUT* is an unsatisfiable PAC sequence that
-FPAC-faults at the seal's genuine auth; the generator's patch pass (_patch_auth_context_collision)
+FPAC-faults at the GVT access's genuine auth; the generator's patch pass (_patch_auth_context_collision)
 must keep ctx != ptr in the program body."""
 import os
 import sys

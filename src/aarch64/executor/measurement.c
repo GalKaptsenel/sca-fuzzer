@@ -367,9 +367,9 @@ static int __nocfi run_experiments(void) {
 			saved_sctlr = pac_enable_all_keys();
 		}
 
-		// execute. Clear GCR_EL1.Exclude first so ADDG/IRG in the test case (and the seal's ADDG
+		// execute. Clear GCR_EL1.Exclude first so ADDG/IRG in the test case (and the GVT access's ADDG
 		// retags) use plain modular tag arithmetic, matching the tag-blind contract model — the kernel
-		// leaves reserved tags in Exclude, which would make a sealed retag land on a different tag.
+		// leaves reserved tags in Exclude, which would make an instrumented retag land on a different tag.
 		mte_gcr_clear_exclude();
 		mte_read_clear_tfsr();   // clear so a fault below is attributable to THIS input
 		if (mte_skip_exec) {

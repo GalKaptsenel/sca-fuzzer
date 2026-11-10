@@ -90,8 +90,8 @@ class Conf:
         the exact input in the batch order that causes the divergence. Violations are NOT dropped -
         every one is kept and annotated with its culprit. Per violation:
         (1) REPRODUCIBLE  - re-trace the batch (warmed); the violating slots must still diverge;
-        (2) GENUINE TEST  - rebuild the batch with every input as its genuine (baseline) seal variant;
-                            if the divergence collapses, a seal/input drives it (localisable), if not
+        (2) GENUINE TEST  - rebuild the batch with every input as its genuine (baseline) GVT access variant;
+                            if the divergence collapses, a GVT access/input drives it (localisable), if not
                             it is a pure position effect with no single input culprit;
         (3) CULPRIT SEARCH- binary-search the decoy slots: genuine-ise a subset and see if the
                             divergence collapses, narrowing to the single input slot that causes it
@@ -279,7 +279,7 @@ class Conf:
     # Remote executor: measure on a separate device machine
     executor_remote: bool = False
     """ executor_remote: when True, run hardware measurements on a remote device over a
-    Connection instead of this machine's /dev/executor (generate/model/seal stay local). """
+    Connection instead of this machine's /dev/executor (generate/model/GVT access stay local). """
     executor_remote_transport: str = 'ssh'
     """ executor_remote_transport: how to reach the device machine: 'ssh', 'adb', or 'local'
     (subprocess on this machine, no SSH). """

@@ -60,7 +60,7 @@ class CrossInputPrimingConfigTest(unittest.TestCase):
 
 
 class CrossInputPrimingWiringTest(unittest.TestCase):
-    """The fuzzer seam: the localizer name->strategy map, the shared mixin, and the speculative-exception seal regime."""
+    """The fuzzer seam: the localizer name->strategy map, the shared mixin, and the speculative-exception GVT access regime."""
 
     def test_localizer_name_to_strategy_map(self):
         from src.aarch64 import aarch64_fuzzer as F
@@ -79,7 +79,7 @@ class CrossInputPrimingWiringTest(unittest.TestCase):
             # the mixin's priming override must win over the generic FuzzerGeneric._priming
             self.assertIs(cls._priming, CrossInputPrimingMixin._priming)
 
-    def test_ni_uses_the_seal_regime_basic_does_not(self):
+    def test_ni_uses_the_gvt_regime_basic_does_not(self):
         from src.aarch64.aarch64_fuzzer import Aarch64Fuzzer, Aarch64SpeculativeExceptionFuzzer
         ni = dict(Aarch64SpeculativeExceptionFuzzer._CROSS_INPUT_PRIMING_REGIME)
         basic = dict(Aarch64Fuzzer._CROSS_INPUT_PRIMING_REGIME)

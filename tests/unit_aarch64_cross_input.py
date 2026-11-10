@@ -78,9 +78,9 @@ class HistoryFoldOracle:
         return out
 
 
-class SelfSealOracle:
-    """Each slot's readout depends only on its OWN seal (genuine vs decoy), never on a predecessor.
-    This is the own-target confound: toggling the detecting pair's own seal flips its own readout, but
+class SelfGvtOracle:
+    """Each slot's readout depends only on its OWN GVT access (genuine vs decoy), never on a predecessor.
+    This is the own-target confound: toggling the detecting pair's own GVT access flips its own readout, but
     there is no cross-input leak. The detector must report nothing -- a residue is by definition
     caused by a DIFFERENT, earlier input."""
 
@@ -104,7 +104,7 @@ class ChainOracle:
 
 
 class MixedSelfAndCrossOracle:
-    """The detecting pair's readout carries BOTH its own seal (self-dependent) and the residue of an
+    """The detecting pair's readout carries BOTH its own GVT access (self-dependent) and the residue of an
     earlier trainer slot (cross-input). Galloping from the all-base end meets the self-dependent boundary
     (t == detecting) first, so excluding self-dependence must narrow the interval -- a post-hoc filter
     would drop the genuine cross-input boundary at the trainer."""
@@ -158,10 +158,10 @@ class DetectorTest(unittest.TestCase):
         self.assertEqual(detector(MostRecentWinsBTB({}).measure).detect(*lanes(5)), [])
 
     def test_self_dependence_reported_by_default_and_optionally_excluded(self):
-        # Own-target confound: each slot reacts only to its own seal, so every detecting pair bisects to
+        # Own-target confound: each slot reacts only to its own GVT access, so every detecting pair bisects to
         # lo == detecting (the pair itself). By default these self-pairs are valid findings; passing
         # exclude_self_dependence drops them, leaving only strictly cross-input leaks (none here).
-        det = detector(SelfSealOracle().measure)
+        det = detector(SelfGvtOracle().measure)
         default = det.detect(*lanes(6))
         self.assertEqual([(f.leaking_pair, f.detecting_pair) for f in default],
                          [(1, 1), (2, 2), (3, 3), (4, 4), (5, 5)])
@@ -223,7 +223,7 @@ class DetectorTest(unittest.TestCase):
 
         def measure(batch, reps):
             calls.append(1)
-            return SelfSealOracle().measure(batch, reps)
+            return SelfGvtOracle().measure(batch, reps)
         g, b = lanes(6)
         self.assertIsNone(detector(measure).find_leaking_pair(g, b, 5, exclude_self_dependence=True))
         self.assertEqual(len(calls), 2)

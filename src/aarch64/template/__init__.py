@@ -17,7 +17,7 @@ Calls: `DirectCall` is a `BL`, `IndirectCall(targets=, dispatch=)` a `BLR` (a si
 jump-table dispatch), `Call()` the generator's choice. Targets are declared callees (`b.function`) or
 created on demand -- created callees get a random body unless `populate` says otherwise.
 
-The template is only a generator: it produces the program. Run-time transforms (branch-target sealing,
+The template is only a generator: it produces the program. Run-time transforms (branch-target GVT access,
 etc.) are applied afterward by the executor. The engine that turns a template into a runnable test case
 (hole expansion, passes, printer, assembler) is private and driven by the fuzzer.
 """

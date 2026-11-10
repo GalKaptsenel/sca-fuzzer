@@ -1,5 +1,5 @@
 instruction_set: aarch64
-# Canonicality NI needs no PAC/MTE category — it seals the ordinary loads/stores below.
+# Canonicality NI needs no PAC/MTE category — it GVT accesses the ordinary loads/stores below.
 instruction_categories:
   - BASE-ARITH
   - BASE-LOGICAL
@@ -17,7 +17,7 @@ fuzzer: speculative-exception
 speculative_exception_mode: strict
 input_generator: aarch64-nzcv
 enable_canonicality: true
-canonicality_seal_prob: 1.0   # P(seal an eligible memory access as canonical/non-canonical pair)
+canonicality_access_prob: 1.0   # P(GVT access an eligible memory access as canonical/non-canonical pair)
 # va_size defaults from the device; canonicality_mask: 0x800000000000 probes a single boundary
 enable_speculative_store_bypass: true   # v4/SSB: SSBS=1 => store bypass ALLOWED (mitigation OFF)
 contract_execution_clause:      # contract models v1 (cond) + v4 (bpas) speculation

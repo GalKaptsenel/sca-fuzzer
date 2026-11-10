@@ -239,7 +239,7 @@ static pac_type_t auth_to_pac(auth_type_t a)
  * pointer (XPAC), and re-signing that with the same key+context reproduces the input iff it was
  * correctly signed. A real AUT* is never issued, so a wrong signature cannot FPAC-reset the box.
  * Genuine architectural auths are always correctly signed; a mismatch means a forged/mis-signed
- * AUT* reached the architectural path (a generator/seal bug). That must not be papered over with a
+ * AUT* reached the architectural path (a generator/GVT access bug). That must not be papered over with a
  * canonical result -- abort so the Python side surfaces it and stops the run. */
 static uint64_t model_auth(auth_type_t atype, uint64_t ptr, uint64_t ctx, uintptr_t pc)
 {
@@ -332,7 +332,7 @@ void *auth_verify_hook(struct simulation_state *sim_state)
  * signs the pointer the AUT* reads and writes the signed pointer into the GVT lane (row->gvt_offset);
  * base_hook reloads the vector file from the image before the UMOV re-runs, so the fixed BFI slots merge
  * the signed pointer's PAC field into rd and the AUT* then verifies and canonicalizes. The signing
- * (profile/keys) matches the sealer's resolver exactly. IDLE: nothing (the site's code is fixed). */
+ * (profile/keys) matches the builder's resolver exactly. IDLE: nothing (the site's code is fixed). */
 void pac_emulate_auth(struct simulation_state *sim_state, const struct emul_row *row, emul_phase_t phase)
 {
     if (EMUL_PHASE_IDLE == phase) {

@@ -48,7 +48,7 @@ class CePacProfileTest(unittest.TestCase):
         from src.aarch64.aarch64_contract_executor import (ContractExecution, ContractExecutorService,
                                                            ExecutionClause, SimArch)
         from src.aarch64.aarch64_executor import _ce_memory_regs
-        from src.aarch64.seal.pac import _read_reg
+        from src.aarch64.gvt.pac import _read_reg
         mem, regs = _ce_memory_regs(self.inp)
         ex = ContractExecution(self.Gen.in_memory_assemble(_asm(value, inst)), mem, regs,
                                SimArch.RVZR_ARCH_AARCH64, 0, self.CONF.model_max_spec_window,

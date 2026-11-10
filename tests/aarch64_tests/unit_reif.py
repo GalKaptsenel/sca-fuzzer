@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from src.aarch64.reif import (                                                # noqa: E402
     REIF, REIFBuilder, REIFSectionType, MainMemorySection, FaultyMemorySection, GprSection,
     SimdSection, PacKeysSection, MteTagsSection, PteSettingsSection)
-from src.aarch64.seal.environment import EnvironmentPlan, PteOverride         # noqa: E402
+from src.aarch64.gvt.environment import EnvironmentPlan, PteOverride         # noqa: E402
 from src.aarch64 import aarch64_executor_input_encoder as enc                 # noqa: E402
 from src.interfaces import MAIN_AREA_SIZE, FAULTY_AREA_SIZE, GPR_SUBREGION_SIZE  # noqa: E402
 

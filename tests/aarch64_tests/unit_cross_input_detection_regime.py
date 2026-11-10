@@ -49,7 +49,7 @@ class _RecordingBase:
 
 
 class _Harness(F.CrossInputPrimingMixin, _RecordingBase):
-    # the speculative-exception seal-lane regime (what the detection pass must also run under)
+    # the speculative-exception GVT access-lane regime (what the detection pass must also run under)
     _CROSS_INPUT_PRIMING_REGIME = F.Aarch64SpeculativeExceptionFuzzer._CROSS_INPUT_PRIMING_REGIME
 
 
@@ -63,7 +63,7 @@ class CrossInputDetectionRegimeTest(unittest.TestCase):
     def test_detection_runs_under_regime(self):
         CONF.enable_cross_input_priming = True
         seen, dev = self._run()
-        # The inner (detection) round saw exactly the seal-lane regime values.
+        # The inner (detection) round saw exactly the GVT access-lane regime values.
         self.assertEqual(seen["enable_ssbs"], "1", "SSB window must be open during detection")
         self.assertEqual(seen["enable_pre_run_flush"], "0")
         self.assertEqual(seen["enable_phr_flush"], "0")

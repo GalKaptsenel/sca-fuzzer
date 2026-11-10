@@ -33,7 +33,7 @@
  *                              loaded verbatim; the writer is responsible for any
  *                              encoding conversion before packing this section.
  *   REVISOR_SEC_SIMD           REVISOR_SIMD_SECTION_SIZE bytes -> the GVT image loaded into
- *                              v0..v31 before the run (lane j*16 -> v{j}); 0 where no seal uses it
+ *                              v0..v31 before the run (lane j*16 -> v{j}); 0 where no GVT access uses it
  *   REVISOR_SEC_PAC_KEYS       sizeof(struct pac_keys) -> per-input PAC keys
  *   REVISOR_SEC_MTE_TAGS       one 4-bit allocation tag per MTE_GRANULE_SIZE (16-byte)
  *                              granule of the main|faulty span, packed two tags per
@@ -45,7 +45,7 @@
  *                              splices the 32-bit word `value` at byte `offset` of the
  *                              test-case body; the kernel applies the table before an
  *                              input's execute and reverts the body to original afterward,
- *                              so one test case serves many differently-sealed inputs.
+ *                              so one test case serves many differently-instrumented inputs.
  *   REVISOR_SEC_PTE_SETTINGS   an array of packed struct revisor_pte_override_entry (no count
  *                              header; count = length / entry size). Each overrides one sandbox
  *                              page's descriptor before this input runs (reverted afterwards).

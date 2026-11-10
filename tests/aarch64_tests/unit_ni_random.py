@@ -6,9 +6,9 @@ inputs, mints many decoys per input, classifies every slot, and checks:
     Sandbox clamp is always [AND, ADD].
   * COVERAGE: across the run, every corner case actually occurs — arch correct-auth and strip; spec
     forged-auth, spec strip, MTE genuine/wrong-tag; and all four PAC*MTE decoy combinations.
-The deterministic per-case behaviour is pinned in unit_pac_seal / unit_mte_tagstate; this guards that
+The deterministic per-case behaviour is pinned in unit_gvt_determinism / unit_mte_tagstate; this guards that
 the random generator+pipeline actually exercises them together. Driven through the new
-Sealer/SealedTestCase pipeline (src/aarch64/seal/sealer.py).
+GvtAccessBuilder/GvtTestCase pipeline (src/aarch64/GVT access/builder.py).
 """
 import os
 import shutil
@@ -24,20 +24,20 @@ _ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 from src.config import CONF
 from src.isa_loader import InstructionSet
 from src.aarch64.aarch64_generator import Aarch64RandomGenerator
-from src.aarch64.seal.pac import _AUTH_TO_PAC, _read_reg
+from src.aarch64.gvt.pac import _AUTH_TO_PAC, _read_reg
 from src import factory
 from src.util import FuzzLogger
 from tests.conf_isolation import setUpModule, tearDownModule  # noqa: F401  (restores CONF + cwd)
 
 
 def _lane(image, location):
-    """The little-endian value a seal's GVT lane holds in `image` (a genuine()/decoy() SIMD image)."""
+    """The little-endian value a GVT access's GVT lane holds in `image` (a genuine()/decoy() SIMD image)."""
     rng = location.byte_range()
     return int.from_bytes(image[rng.start:rng.stop], "little")
 
 
 def _genuine_lane(s, value):
-    """What this seal's lane holds for the genuine `value`: its SealValue's encoding truncated to the
+    """What this GVT access's lane holds for the genuine `value`: its GvtValue's encoding truncated to the
     lane width (what the image stores)."""
     width = len(s.location.byte_range())
     return s.value.encode(value) & ((1 << (8 * width)) - 1)
@@ -83,14 +83,14 @@ class NiRandomCoverageTest(unittest.TestCase):
         CONF._borg_shared_state.clear()
         CONF._borg_shared_state.update(cls._saved_conf)
 
-    def _assert_oracle_matches_genuine(self, genuine_image, inp, pac, mte, by_sealing):
+    def _assert_oracle_matches_genuine(self, genuine_image, inp, pac, mte, by_access):
         """Independent oracle: trace the genuine render (the fixed code with the genuine GVT image),
         classify each slot's arch-ness against the resolver flag, and verify every genuine PAC signature
         re-signs over the canonical pointer the slot's UMOV reads (so the committed AUT* authenticates)."""
         ex = self.ex
-        layout = ex._sealed._layout
-        signer = ex._sealed._signer
-        trace = ex._ce_trace(ex._sealed.object_code, inp, simd=genuine_image)
+        layout = ex._gvt_tc._layout
+        signer = ex._gvt_tc._signer
+        trace = ex._ce_trace(ex._gvt_tc.object_code, inp, simd=genuine_image)
         base = trace[0].cpu.pc
 
         def min_nesting_at(off):
@@ -101,15 +101,15 @@ class NiRandomCoverageTest(unittest.TestCase):
             if s.strip:   # a strip site carries no signature and no sign landmark
                 continue
             read_off = layout.instruction_address[s.slot_insts[0]]   # the UMOV, where the pointer is canonical
-            self.assertEqual(min_nesting_at(read_off) != 0, by_sealing[id(s)].speculative,
+            self.assertEqual(min_nesting_at(read_off) != 0, by_access[id(s)].speculative,
                              f"PAC slot reg={s.value_reg}: genuine arch-ness != resolver flag")
         for s in mte:
             self.assertEqual(min_nesting_at(layout.instruction_address[s.access_inst]) != 0,
-                             by_sealing[id(s)].speculative,
+                             by_access[id(s)].speculative,
                              f"MTE slot reg={s.value_reg}: genuine arch-ness != resolver flag")
 
         for s in pac:
-            r = by_sealing[id(s)]
+            r = by_access[id(s)]
             if s.strip or r.value is None:
                 continue
             read_off = layout.instruction_address[s.slot_insts[0]]
@@ -135,33 +135,33 @@ class NiRandomCoverageTest(unittest.TestCase):
                 break
             tc = gen.create_test_case(os.path.join(self.tmp, "t.asm"), disable_assembler=True)
             ex.load_test_case(tc)
-            pac = getattr(ex._sealed, "_pac", [])
-            mte = getattr(ex._sealed, "_mte", [])
+            pac = getattr(ex._gvt_tc, "_pac", [])
+            mte = getattr(ex._gvt_tc, "_mte", [])
             if not (pac or mte):
                 continue
             tcs += 1
             ex._sandbox_base, _ = ex.read_base_addresses()
             ex._nesting = 5
             for inp in self.igen.generate(4):
-                resolved = ex._sealed.resolve(inp)
-                by_sealing = {id(r.sealing): r for r in resolved._entries}
+                resolved = ex._gvt_tc.resolve(inp)
+                by_access = {id(r.access): r for r in resolved._entries}
                 # Every variant runs the identical object_code; the per-variant difference is the GVT
                 # image (genuine() / decoy()), so classification reads the image lanes, not code words.
                 baseline = resolved.genuine()
                 decoys = [resolved.decoy(random.Random(i)) for i in range(6)]
 
-                self._assert_oracle_matches_genuine(baseline, inp, pac, mte, by_sealing)
+                self._assert_oracle_matches_genuine(baseline, inp, pac, mte, by_access)
 
                 for image in [baseline] + decoys:
                     for s in pac:
-                        r = by_sealing[id(s)]
+                        r = by_access[id(s)]
                         arch = not r.speculative
                         k = _pac_kind(image, s, r.value)
                         cov[f"pac_{'arch' if arch else 'spec'}_{k}"] += 1
                         if arch and k == "auth_forged":
                             arch_violations.append(f"PAC forge on arch slot reg={s.value_reg}")
                     for s in mte:
-                        r = by_sealing[id(s)]
+                        r = by_access[id(s)]
                         arch = not r.speculative
                         wrong = _mte_applied(image, s) != _genuine_lane(s, r.value or 0)
                         cov[f"mte_{'arch' if arch else 'spec'}_{'wrong' if wrong else 'genuine'}"] += 1
@@ -170,11 +170,11 @@ class NiRandomCoverageTest(unittest.TestCase):
 
                 # per-decoy orthogonal combination of speculative PAC forge and MTE wrong-tag
                 for d in decoys:
-                    pac_forged = any(by_sealing[id(s)].speculative
-                                     and _pac_kind(d, s, by_sealing[id(s)].value) == "auth_forged"
+                    pac_forged = any(by_access[id(s)].speculative
+                                     and _pac_kind(d, s, by_access[id(s)].value) == "auth_forged"
                                      for s in pac)
-                    mte_wrong = any(by_sealing[id(s)].speculative
-                                    and _mte_applied(d, s) != _genuine_lane(s, by_sealing[id(s)].value or 0)
+                    mte_wrong = any(by_access[id(s)].speculative
+                                    and _mte_applied(d, s) != _genuine_lane(s, by_access[id(s)].value or 0)
                                     for s in mte)
                     cov[f"combo_{'P' if pac_forged else '-'}{'M' if mte_wrong else '-'}"] += 1
 
@@ -199,11 +199,11 @@ class NiVariantWiringTest(unittest.TestCase):
             def genuine(self): return ()
             def decoy(self, rng): return ()
 
-        class _FakeSealed:
+        class _FakeGvt:
             salt = 0
 
         ex = Aarch64SpeculativeExceptionExecutor.__new__(Aarch64SpeculativeExceptionExecutor)
-        ex._sealed = _FakeSealed()
+        ex._gvt_tc = _FakeGvt()
         saved = CONF.inputs_per_class
         try:
             CONF.inputs_per_class = 5

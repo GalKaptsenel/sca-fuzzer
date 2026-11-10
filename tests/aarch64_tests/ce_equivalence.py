@@ -1,7 +1,7 @@
 """Device-free harness to compare two contract-executor traces field by field.
 
 Drives the contract_executor binary directly (no /dev/executor) with a fixed sandbox base and a
-fixed PAC profile, so a sealed test case's single resolution trace can be compared against a trace of
+fixed PAC profile, so an instrumented test case's single resolution trace can be compared against a trace of
 its relocated genuine binary. The one-run property — the resolution trace IS the genuine contract
 trace — is asserted as equal ctraces and taints (and the genuine binary tracing without an FPAC).
 
@@ -23,13 +23,13 @@ from src.aarch64.aarch64_mte import MTE_INITIAL_DEFAULT_TAG
 from src.aarch64.aarch64_printer import Aarch64Printer, Aarch64ASMLayout
 from src.aarch64.aarch64_target_desc import Aarch64TargetDesc
 from src.aarch64.aarch64_generator import Aarch64Generator
-from src.aarch64.seal.pac import PacSigner
-from src.aarch64.seal.sealer import make_sealer
+from src.aarch64.gvt.pac import PacSigner
+from src.aarch64.gvt.builder import make_gvt_access_builder
 
 CE_BIN = Path(__file__).resolve().parents[2] / "src/aarch64/contract_executor/contract_executor"
 SANDBOX_BASE = 0xffff4000cc861000
 
-# A fixed, valid PAC profile shared by the signer, the sealer and the CE, so the CE lowering and the
+# A fixed, valid PAC profile shared by the signer, the builder and the CE, so the CE lowering and the
 # relocated genuine trace are produced under identical signing (a consistent choice, not a machine).
 PROFILE = qarma.profile(qarma_version=3, generic_qarma_version=0, auth_level=5,
                         va_size0=48, va_size1=48, tbi0=True, tbi1=True,
@@ -56,12 +56,12 @@ def _assemble(tc) -> bytes:
 
 
 class CESession:
-    """A single long-lived CE process plus the trace functions the sealer and tests call."""
+    """A single long-lived CE process plus the trace functions the builder and tests call."""
 
     def __init__(self, primitives) -> None:
         self._primitives = frozenset(primitives)
         self._svc = ContractExecutorService(CE_BIN)
-        self._data_size = 0   # set per sealed test case via set_data_size
+        self._data_size = 0   # set per instrumented test case via set_data_size
 
     def stop(self) -> None:
         self._svc.stop()
@@ -101,8 +101,8 @@ class CESession:
             emul_table=emul_table, simd=simd)
         return self._svc.run(execution)
 
-    def sealer(self, generator):
-        return make_sealer(generator, _assemble, self._primitives,
+    def builder(self, generator):
+        return make_gvt_access_builder(generator, _assemble, self._primitives,
                            make_signer() if "pac" in self._primitives else None,
                            trace_bytes_fn=self.trace_bytes)
 

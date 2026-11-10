@@ -12,12 +12,12 @@ class SandboxedCeCrashTest(unittest.TestCase):
     def _executor(self):
         ex = Aarch64SpeculativeExceptionExecutor.__new__(Aarch64SpeculativeExceptionExecutor)
         ex.test_case = mock.Mock()
-        ex._sealed = mock.Mock()
+        ex._gvt_tc = mock.Mock()
         ex._resolve_cache = {}
         ex._nesting = 0
         # resolve() runs the CE resolution trace internally; a crash there must propagate, not be
         # swallowed.
-        ex._sealed.resolve.side_effect = RuntimeError("CE crashed")
+        ex._gvt_tc.resolve.side_effect = RuntimeError("CE crashed")
         ex.read_base_addresses = mock.Mock(return_value=(0x1000, 0x2000))
         return ex
 

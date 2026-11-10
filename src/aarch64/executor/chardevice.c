@@ -660,7 +660,7 @@ static int parse_input_init(const void* input_init, input_t* dst) {
 	}
 
 	/* The GVT image (SEC_SIMD): loaded into v0..v31 before the input runs. Zeroed when absent, so an
-	 * input with no seals (or lanes no seal uses) reads 0 from the vector file. */
+	 * input with no GVT accesses (or lanes no GVT access uses) reads 0 from the vector file. */
 	memset(dst->simd, 0, sizeof(dst->simd));
 	sec = revisor_input_find_section(input_init, REVISOR_SEC_SIMD);
 	if (NULL != sec) {

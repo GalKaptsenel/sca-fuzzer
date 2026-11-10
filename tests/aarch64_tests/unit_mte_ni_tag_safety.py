@@ -1,14 +1,14 @@
-"""Regression tests for the MTE speculative-exception seal's architectural tag safety, over the real CE.
+"""Regression tests for the MTE speculative-exception GVT access's architectural tag safety, over the real CE.
 
 The genuine (baseline) variant must be ARCHITECTURALLY tag-clean: every committed (nesting==0) memory
 access must either match its granule's allocation tag or use a TCMA-Unchecked pointer tag (0b0000 /
 0b1111). A *checked* architectural mismatch is a synchronous MTE tag-check fault on hardware that aborts
-the measurement -- the KASAN crash chased down in this campaign. Its cause: the seal used to retag each
+the measurement -- the KASAN crash chased down in this campaign. Its cause: the GVT access used to retag each
 access's pointer to match its cell and then retag BACK to the sandbox base's Unchecked tag; a later
-(unsealed) tag store committed that Unchecked tag into a granule the baseline then accessed with a
+(uninstrumented) tag store committed that Unchecked tag into a granule the baseline then accessed with a
 matched, checked pointer -> arch fault. Dropping the retag-back lets the matched (checked) tag propagate,
 so the baseline is tag-clean and every decoy still re-converges with it architecturally (only the
-speculative path -- the TikTag channel -- differs). See sealer.MteSealing.
+speculative path -- the TikTag channel -- differs). See builder.MteGvtAccess.
 
 Self-contained: it drives the local contract_executor over a fixed sandbox base, so it needs the CE
 binary but no /dev/executor and no hardware. Seeded to reproduce the exact test cases that faulted.

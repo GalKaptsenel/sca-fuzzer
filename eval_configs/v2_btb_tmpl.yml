@@ -3,7 +3,7 @@
 # the victim loads from the returned offset AFTER the call, so which target the BTB predicts selects the
 # L1D set. A leaker input trains BTB[blr]->its target; a later ct-equal prober mispredicts to it and its
 # distinct set reveals the leaker's choice. Detected by generalized (cross-input) priming, dropped by
-# standard priming. NO branch-target sealing (that would make it the canonicality leak), NO PAC.
+# standard priming. NO branch-target GVT access (that would make it the canonicality leak), NO PAC.
 # Basic fuzzer => boosted RANDOM-DATA lanes (inputs_per_class members per contract class); SSB/v4 window.
 instruction_set: aarch64
 instruction_categories:

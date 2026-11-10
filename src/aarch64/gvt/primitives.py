@@ -1,8 +1,8 @@
-"""Shared AArch64 sealing primitives: slot helpers + the sandbox-clamp instrumentation base.
+"""Shared AArch64 GVT access primitives: slot helpers + the sandbox-clamp instrumentation base.
 
 Knows the AArch64 NOP / sandbox-clamp encodings, slot addressing (a slot is a fixed-width run of
 instructions filled by position), and the offset-cancelling SUBs that pin an effective address to
-its already-clamped base. The concrete sealings + per-input resolution live in sealer.py.
+its already-clamped base. The concrete GVT accesses + per-input resolution live in builder.py.
 """
 import math
 from typing import Dict, List, Optional, Set, Tuple

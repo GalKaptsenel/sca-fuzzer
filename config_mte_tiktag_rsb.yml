@@ -1,5 +1,5 @@
 # TikTag via templates/mte_tiktag_rsb.py: a return-stack-buffer (Spectre-RSB) window supplies a
-# control-flow speculation window without branch-direction training. NI sealer decoys the speculative
+# control-flow speculation window without branch-direction training. NI builder decoys the speculative
 # return-site loads; genuine (match) vs decoy (mismatch) tag gates a dependent probe. Pinned X3.
 instruction_set: aarch64
 instruction_categories:

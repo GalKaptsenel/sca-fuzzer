@@ -18,7 +18,7 @@ import numpy as np
 from ..interfaces import (Input, InputFragment, MAIN_AREA_SIZE, FAULTY_AREA_SIZE, GPR_SUBREGION_SIZE,
                           SIMD_SUBREGION_SIZE)
 from .aarch64_input_layout import NZCVScheme
-from .seal.environment import EnvironmentPlan, serialize_pte_overrides, deserialize_pte_overrides
+from .gvt.environment import EnvironmentPlan, serialize_pte_overrides, deserialize_pte_overrides
 
 # --- mirror of executor_input_format.h --------------------------------------------------------
 INPUT_MAGIC = 0x49525A5652      # "RVZRI" magic (matches REVISOR_INPUT_MAGIC)
@@ -30,7 +30,7 @@ SEC_GPR = 0x03
 SEC_SIMD = 0x04
 SEC_PAC_KEYS = 0x05
 SEC_MTE_TAGS = 0x06
-SEC_PTE_SETTINGS = 0x09         # per-variant page-table environment (see seal/environment.py)
+SEC_PTE_SETTINGS = 0x09         # per-variant page-table environment (see GVT access/environment.py)
 
 _PREAMBLE_LEN = 6 * 8           # magic, version, header_len, n_sections, flags, total_len
 _SECTION_DESC_LEN = 4 * 8       # type, flags, offset, length
@@ -126,7 +126,7 @@ def build_input_init(main: bytes, faulty: bytes, gpr: bytes, simd: Optional[byte
         sections.append((SEC_MTE_TAGS, _pack_mte_tags(mte_tags)))
     if pac_keys is not None:
         sections.append((SEC_PAC_KEYS, _pack_pac_keys(pac_keys)))
-    # The per-variant run environment (see seal/environment.py). The encoder owns the section id;
+    # The per-variant run environment (see GVT access/environment.py). The encoder owns the section id;
     # each environment aspect owns its byte codec. A new aspect adds a section here, nothing else.
     if env_plan is not None and not env_plan.is_empty:
         sections.append((SEC_PTE_SETTINGS, serialize_pte_overrides(env_plan.pte_overrides)))
@@ -142,7 +142,7 @@ class ExecutorInput:
     mte_tags: Optional[Sequence[int]] = None
     pac_keys: Optional[Sequence[int]] = None
     env_plan: EnvironmentPlan = field(default_factory=EnvironmentPlan)
-    gvt: Optional[bytes] = None   # GVT image (SIMD section) for a sealed variant; else the input's own
+    gvt: Optional[bytes] = None   # GVT image (SIMD section) for an instrumented variant; else the input's own
 
     def serialize(self) -> bytes:
         frag = _first_fragment(self.input_)

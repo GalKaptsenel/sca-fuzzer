@@ -1,8 +1,8 @@
 """Device-free precondition fuzzing for the PAC+SIGNEXT speculative-exception primitive: over many randomly-generated
-test cases, drive the real sealer + contract executor (no /dev/executor) under config_pac_signext.yml
+test cases, drive the real builder + contract executor (no /dev/executor) under config_pac_signext.yml
 and assert the preconditions the primitive needs actually arise, and the genuine/decoy machinery is
 coherent:
-  * every TC seals as a PacSignExtSealedTestCase (every data access PAC-authenticated, each access
+  * every TC GVT accesses as a PacSignExtGvtTestCase (every data access PAC-authenticated, each access
     optionally a sign-ext flip site);
   * some sign-ext flip sites are speculative-only, so decoys exist (the TC is speculative-exception-testable);
   * genuine() leaves every flip slot canonical (NOP); forced_noncanon() flips exactly bit 55
@@ -18,7 +18,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 from src.config import CONF
-from src.aarch64.seal.sealer import PacSignExtSealedTestCase, SignExtSealing, _SIGNEXT_BIT
+from src.aarch64.gvt.builder import PacSignExtGvtTestCase, SignExtGvtAccess, _SIGNEXT_BIT
 import tests.aarch64_tests.ce_equivalence as eq
 
 
@@ -34,7 +34,7 @@ _INPUT_SEED = 0xF00D
 
 
 @unittest.skipUnless(eq.ce_available(), "needs the contract-executor binary")
-class PacSignExtPreconditionTest(unittest.TestCase):
+class PacSignExtConditionTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from src.isa_loader import InstructionSet
@@ -60,18 +60,18 @@ class PacSignExtPreconditionTest(unittest.TestCase):
     def test_preconditions_arise_and_decoys_are_coherent(self):
         dead = (RuntimeError, BrokenPipeError, OSError, ValueError)
         sess = eq.CESession({"pac", "signext"})
-        sealer = sess.sealer(self.gen)
-        sealed = sx_spec = ni_testable = flip_checks = 0
+        builder = sess.builder(self.gen)
+        instrumented = sx_spec = ni_testable = flip_checks = 0
         try:
             for _ in range(_N_TCS):
                 tc = self.gen.create_test_case(os.path.join(self.tmp, "t.asm"), disable_assembler=True)
                 sess.set_data_size(eq._dispatch_data_size(tc))
                 try:
-                    s = sealer.seal(tc)
+                    s = builder.build(tc)
                 except NotImplementedError as e:   # PAC/SIGNEXT not yet on the GVT path: skip until migrated
                     self.skipTest(str(e))
-                self.assertIsInstance(s, PacSignExtSealedTestCase)
-                sealed += 1
+                self.assertIsInstance(s, PacSignExtGvtTestCase)
+                instrumented += 1
                 try:
                     s.resolve(self.inputs[0])   # traces the genuine render; a CE-rejected TC -> fresh session
                     for inp in self.inputs:
@@ -81,37 +81,37 @@ class PacSignExtPreconditionTest(unittest.TestCase):
                 except dead:
                     sess.stop()
                     sess = eq.CESession({"pac", "signext"})
-                    sealer = sess.sealer(self.gen)
+                    builder = sess.builder(self.gen)
         finally:
             sess.stop()
-        self.assertGreater(sealed, 0, "no PAC+SIGNEXT test case sealed")
+        self.assertGreater(instrumented, 0, "no PAC+SIGNEXT test case instrumented")
         self.assertGreater(sx_spec, 0, "no speculative sign-ext site ever arose (no precondition)")
         self.assertGreater(ni_testable, 0, "no speculative-exception-testable resolution (no decoy)")
         self.assertGreater(flip_checks, 0, "no sign-ext flip render was exercised")
 
-    def _check_resolution(self, resolved, sealed) -> int:
+    def _check_resolution(self, resolved, instrumented) -> int:
         """Assert the genuine/decoy GVT images at this resolution are coherent; return the speculative
         sign-ext site count it contributed. Every sign-ext lane is 0 in the genuine image (no flip); a
         decoy flips a speculative lane to the bit-55 mask and never an architectural one."""
-        sx = [e for e in resolved._entries if isinstance(e.sealing, SignExtSealing)]
+        sx = [e for e in resolved._entries if isinstance(e.access, SignExtGvtAccess)]
         spec = [e for e in sx if e.speculative]
         self._flip_checks = 0
         if not resolved.has_decoy():
             return len(spec)
         genuine = resolved.genuine()
         for e in sx:
-            self.assertEqual(_lane(genuine, e.sealing.location), 0,
+            self.assertEqual(_lane(genuine, e.access.location), 0,
                              "genuine sign-ext lane carries a flip (should be canonical)")
-        arch_ids = {id(e.sealing) for e in sx if not e.speculative}
+        arch_ids = {id(e.access) for e in sx if not e.speculative}
         seen_flip = False
         for i in range(32):
             image = resolved.decoy(random.Random(i))
             for e in sx:
-                lane = _lane(image, e.sealing.location)
-                if id(e.sealing) in arch_ids:
+                lane = _lane(image, e.access.location)
+                if id(e.access) in arch_ids:
                     self.assertEqual(lane, 0, "a decoy flipped an architectural sign-ext slot")
                 elif lane != 0:
-                    self.assertEqual(lane, e.sealing.value.encode(_SIGNEXT_BIT),
+                    self.assertEqual(lane, e.access.value.encode(_SIGNEXT_BIT),
                                      "sign-ext decoy lane is not the bit-55 flip")
                     seen_flip = True
         if spec:

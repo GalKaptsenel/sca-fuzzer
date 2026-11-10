@@ -189,7 +189,7 @@ def get_tags(inst: dict) -> list:
     # BASE-MEM-LOAD/STORE are the PLAIN accesses only. Ordered (acquire/release) and exclusive
     # loads/stores are single-copy-atomic (they require natural alignment) and carry their own family
     # tag (EXCLUSIVE here, ACQREL below) -- so enabling BASE-MEM-LOAD in a config does not pull them
-    # into a path that may not align them. The sealer aligns them robustly regardless (belt and braces).
+    # into a path that may not align them. The builder aligns them robustly regardless (belt and braces).
     is_acqrel = name in _ACQREL
     if mem in ("ex-load", "ex-store"):
         tags.add(f"{isa}-MEM-EXCLUSIVE")

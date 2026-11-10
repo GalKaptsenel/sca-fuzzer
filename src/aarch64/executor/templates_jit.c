@@ -799,7 +799,7 @@ int __nocfi load_jit_template(size_t tc_size) {
 	 * still matches, so tc_size is guaranteed equal to what we built. Verify the
 	 * first TC word is still present at the insert offset before trusting the
 	 * cache: running a stale harness would, on the PAC path, execute an AUT*
-	 * sealed for the wrong pointer and FPAC-fault. If it ever mismatches, scream
+	 * instrumented for the wrong pointer and FPAC-fault. If it ever mismatches, scream
 	 * and fall through to a full rebuild rather than run a wrong harness. */
 	if (jit_memoize_enabled && jit_cache_valid && tc_size >= sizeof(uint32_t)) {
 		size_t off = current_tc_insert_offset_bytes();

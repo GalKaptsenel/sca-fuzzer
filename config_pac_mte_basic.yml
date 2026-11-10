@@ -1,7 +1,7 @@
-# Regular (non-NI) fuzzing with PAC + MTE. The aarch64 executor seals each test case per input
-# (always genuine on architectural slots; speculative slots are genuine or decoyed by a per-sealing-
-# class coin flip) and runs one sealed TC per sealing class, so a stale AUT*/tag-fault never resets
-# the box. Print the per-instruction sealed/baseline/decoy table with REVIZOR_NI_TABLE=1.
+# Regular (non-NI) fuzzing with PAC + MTE. The aarch64 executor GVT accesses each test case per input
+# (always genuine on architectural slots; speculative slots are genuine or decoyed by a per-GVT access-
+# class coin flip) and runs one instrumented TC per GVT access class, so a stale AUT*/tag-fault never resets
+# the box. Print the per-instruction instrumented/baseline/decoy table with REVIZOR_NI_TABLE=1.
 #
 # With no PAC/MTE categories this would be plain regular fuzzing; with only PAC or only MTE the
 # corresponding logic is added; with both, both (decoys are orthogonal per slot).
@@ -24,5 +24,5 @@ max_successors_per_bb: 2
 min_successors_per_bb: 1
 fuzzer: basic
 input_generator: aarch64-nzcv
-pac_seal_prob: 1.0    # P(seal an eligible memory access); <1 leaves some unsealed
-pac_strip_prob: 0.0   # P(a sealed slot renders as XPAC strip vs a real AUT*)
+pac_access_prob: 1.0    # P(GVT access an eligible memory access); <1 leaves some unsealed
+pac_strip_prob: 0.0   # P(a instrumented slot renders as XPAC strip vs a real AUT*)

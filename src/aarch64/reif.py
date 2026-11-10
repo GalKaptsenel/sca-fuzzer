@@ -10,7 +10,7 @@ from enum import IntEnum
 from typing import List, Optional, Sequence, Tuple, Union
 
 from .aarch64_input_layout import NZCVScheme
-from .seal.environment import (EnvironmentPlan, PteOverride, serialize_pte_overrides,
+from .gvt.environment import (EnvironmentPlan, PteOverride, serialize_pte_overrides,
                                deserialize_pte_overrides)
 
 INPUT_MAGIC = 0x49525A5652      # "RVZRI" (REVISOR_INPUT_MAGIC)
@@ -191,7 +191,7 @@ class MteTagsSection(REIFSection):
 
 
 class PteSettingsSection(REIFSection):
-    """A variant's page-table overrides (see seal/environment.py)."""
+    """A variant's page-table overrides (see GVT access/environment.py)."""
 
     def __init__(self, overrides: Sequence[PteOverride]) -> None:
         self._overrides = tuple(overrides)

@@ -1,5 +1,5 @@
-#ifndef MTE_SEAL_PLUGIN_H
-#define MTE_SEAL_PLUGIN_H
+#ifndef MTE_GVT_PLUGIN_H
+#define MTE_GVT_PLUGIN_H
 
 #include "simulation_state.h"
 #include "instruction_emulator.h"
@@ -11,4 +11,4 @@
 void mte_emulate_retag(struct simulation_state *sim_state, const struct emul_row *row,
 		       emul_phase_t phase);
 
-#endif // MTE_SEAL_PLUGIN_H
+#endif // MTE_GVT_PLUGIN_H

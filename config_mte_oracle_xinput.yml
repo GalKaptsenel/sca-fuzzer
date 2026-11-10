@@ -34,7 +34,7 @@ superbatch_size: 100
 enable_pre_run_flush: false
 executor_sample_sizes: [100, 500]
 
-# Generalized (cross-input) priming over the seal lanes; keep only strictly cross-input leaks.
+# Generalized (cross-input) priming over the GVT access lanes; keep only strictly cross-input leaks.
 enable_cross_input_priming: true
 cross_input_leaks_only: true
 cross_input_priming_localizer: any

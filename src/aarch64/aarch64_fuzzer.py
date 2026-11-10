@@ -85,7 +85,7 @@ class CrossInputPrimingMixin(_MixinBase):
     """Cross-input priming (generalized priming): replace standard priming with a localization over the
     boosted lanes that finds the *leaking pair* -- an earlier ct-equal input whose microarchitectural
     residue surfaces as the *detecting pair*'s cache divergence. Shared by the regular fuzzer (boosted
-    random-data lanes) and the speculative-exception fuzzer (boosted seal-variant lanes -> canonicality/BTB).
+    random-data lanes) and the speculative-exception fuzzer (boosted GVT access-variant lanes -> canonicality/BTB).
     The search itself is `src/aarch64/cross_input.py`; this mixin is the thin seam (reps and localizer
     selection, lane construction, the executor regime, and reporting). Subclasses set
     `_CROSS_INPUT_PRIMING_REGIME`. Off by default -> the subclass's standard priming (via super())."""
@@ -95,7 +95,7 @@ class CrossInputPrimingMixin(_MixinBase):
     # Default regime: reset the BPU/PHR ONCE per trace (post-fix phr_flush; see measurement.c) and keep
     # cross-input training within a trace (view_rotation off, so all inputs share one code view).
     # Captured and restored around the search so the surrounding fuzzing keeps its usual regime. The speculative-exception
-    # fuzzer overrides this with the seal-lane regime.
+    # fuzzer overrides this with the GVT access-lane regime.
     _CROSS_INPUT_PRIMING_REGIME: Tuple[Tuple[str, str], ...] = (
         ("enable_pre_run_flush", "0"), ("enable_view_rotation", "0"), ("enable_phr_flush", "1"))
 
@@ -337,12 +337,12 @@ class Aarch64Fuzzer(CrossInputPrimingMixin, FuzzerGeneric):
 
 
 class Aarch64SpeculativeExceptionFuzzer(CrossInputPrimingMixin, SpeculativeExceptionFuzzer):
-    """AArch64 speculative-exception fuzzer. speculative-exception boosting fills each input class with its seal variants (the
+    """AArch64 speculative-exception fuzzer. speculative-exception boosting fills each input class with its GVT access variants (the
     genuine baseline plus decoys), so when enable_cross_input_priming is set, cross-input priming
-    localizes canonicality/BTB residues over the seal lanes: the input whose genuine/decoy seal trains a
-    predictor entry that surfaces as a later input's cache divergence. Uses the seal-lane regime."""
+    localizes canonicality/BTB residues over the GVT access lanes: the input whose genuine/decoy GVT access trains a
+    predictor entry that surfaces as a later input's cache divergence. Uses the GVT access-lane regime."""
 
-    # Seal-lane regime: SSBS on for the store-bypass window, no per-input flushing/rotation (would wipe
+    # GVT-access lane regime: SSBS on for the store-bypass window, no per-input flushing/rotation (would wipe
     # the trained BTB entry), and unpinned execution (pinning measurably raises the non-canonical
     # residual). Captured and restored around the search.
     _CROSS_INPUT_PRIMING_REGIME = (("enable_ssbs", "1"), ("enable_pre_run_flush", "0"),
@@ -350,10 +350,10 @@ class Aarch64SpeculativeExceptionFuzzer(CrossInputPrimingMixin, SpeculativeExcep
                                    ("pin_to_core", "-1"))
 
     def _boost_inputs(self, inputs, nesting):
-        # contract_driven: the seal values are ordinary fuzzed input (the GVT lives in the input's SIMD
+        # contract_driven: the GVT access values are ordinary fuzzed input (the GVT lives in the input's SIMD
         # subregion), so boost by re-randomising the untainted (speculative) lanes exactly as the regular
         # fuzzer does — the executor's taint freezes the architectural lanes — then convert to kernel
-        # input files. strict keeps the seal-variant boosting (genuine baseline vs sealer decoys).
+        # input files. strict keeps the GVT access-variant boosting (genuine baseline vs builder decoys).
         if self.executor._contract_driven:
             boosted, ctraces = FuzzerGeneric._boost_inputs(self, inputs, nesting)
             return list(map(self.executor.as_executor_input, boosted)), ctraces

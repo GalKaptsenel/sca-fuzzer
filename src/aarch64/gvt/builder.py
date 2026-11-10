@@ -1,13 +1,13 @@
-"""Sealing as composable per-location sealings (AArch64).
+"""GvtAccess as composable per-location GVT accesses (AArch64).
 
-Each seal's per-input value lives in the GlobalValueTable (a reserved vector register, loaded from the
-input); the seal's slot is fixed code that loads it and applies it. A variant is a GVT image, not a
+Each GVT access's per-input value lives in the GlobalValueTable (a reserved vector register, loaded from the
+input); the GVT access's slot is fixed code that loads it and applies it. A variant is a GVT image, not a
 code change.
 
-  * `Sealing` — one site; its fixed slot loads its value from the GVT and applies it.
-  * `Sealer.seal(tc) -> SealedTestCase` — walks the TC, creates sealings, inserts their slots.
-  * `SealedTestCase.resolve(input) -> ResolvedSealingTestCase` — runs the CE trace, computes values.
-  * `ResolvedSealingTestCase` — `object_code` plus `genuine()` / `decoy()` GVT images for it.
+  * `GvtAccess` — one site; its fixed slot loads its value from the GVT and applies it.
+  * `GvtAccessBuilder.build(tc) -> GvtTestCase` — walks the TC, creates GVT accesses, inserts their slots.
+  * `GvtTestCase.resolve(input) -> ResolvedGvtTestCase` — runs the CE trace, computes values.
+  * `ResolvedGvtTestCase` — `object_code` plus `genuine()` / `decoy()` GVT images for it.
 """
 import abc
 import copy
@@ -25,20 +25,20 @@ from ...interfaces import (Instruction, TestCase, BasicBlock, GeneratorException
 from .primitives import _SANDBOX_MASK, _SandboxInstrumentationBase
 from .pac import PacSign, PacSigner, build_pac_specs, _AUTH_TO_PAC, _AUTH_TO_XPAC, _read_reg
 from .global_value_table import GlobalValueTable, VectorGlobalValueTable, GVTImage, Location
-from .seal_values import SealValue, MaskFlip, PacSignature, MteTag
-from ..aarch64_target_desc import SANDBOX_BASE_REGISTER, SEAL_SCRATCH_REGISTER
+from .values import GvtValue, MaskFlip, PacSignature, MteTag
+from ..aarch64_target_desc import SANDBOX_BASE_REGISTER, GVT_SCRATCH_REGISTER
 from ..aarch64_printer import Aarch64ASMLayout
 
 
 M = (1 << 64) - 1
 
 # Bits reserved for the GVT: the full SIMD input section (all CE-loaded high vector registers). The
-# generated body emits no vector registers, so the whole section is free for seal values.
+# generated body emits no vector registers, so the whole section is free for GVT access values.
 _GST_CAPACITY_BITS = SIMD_SUBREGION_SIZE * 8
 
 _MIGRATION_PENDING = ("MTE register-indirection (GVT) is not yet migrated: it needs the CE "
                       "op-emulator inject-value change plus validation; only canonicality, "
-                      "branch-target and PAC seals are on the GVT path")
+                      "branch-target and PAC GVT accesses are on the GVT path")
 
 # CE emulation-table op ids (mirror enum emul_op in instruction_emulator.h).
 EMUL_OP_PAC_AUTH = 1
@@ -55,30 +55,30 @@ def pack_emul_table(rows: List[Tuple[int, int, int, int, int, int, int]]) -> byt
 
 
 # ==================================================================================================
-# Sealing — one location; pure seal(value); exposes the facts the resolver reads
+# GvtAccess — one location; pure GVT access(value); exposes the facts the resolver reads
 # ==================================================================================================
-class Sealing(abc.ABC):
-    """One sealing site. Its slot is FIXED code that loads the per-input value from the GVT and applies
+class GvtAccess(abc.ABC):
+    """One GVT access site. Its slot is FIXED code that loads the per-input value from the GVT and applies
     it, so the genuine/decoy difference is the stored value, not the code. `value`/`location` are the
     GVT binding (both unset for the sandbox clamp, which carries no value)."""
     value_reg: str
-    value: SealValue        # a value seal sets both at construction; the sandbox clamp sets neither
+    value: GvtValue        # a value GVT access sets both at construction; the sandbox clamp sets neither
     location: Location
 
     def __init__(self) -> None:
         self.slot_insts: List[Instruction] = []
 
     def store_into(self, image: GVTImage, applied: Optional[int], genuine: Optional[int]) -> None:
-        """Write this seal's lane(s) into the per-input GVT image. `applied` is the value this variant
-        applies (the genuine value, or a decoy alt); `genuine` is the always-correct value, for a seal
-        with an after-access re-converge lane. A single-lane seal stores only `applied` and ignores
+        """Write this GVT access's lane(s) into the per-input GVT image. `applied` is the value this variant
+        applies (the genuine value, or a decoy alt); `genuine` is the always-correct value, for a GVT access
+        with an after-access re-converge lane. A single-lane GVT access stores only `applied` and ignores
         `genuine`; None means "no perturbation" (encoded as 0)."""
         image.store(self.location, self.value.encode(0 if applied is None else applied))
 
     def frozen_ranges(self, speculative: bool) -> List[range]:
-        """contract_driven taint: the GVT byte ranges this seal keeps at the genuine value regardless of
+        """contract_driven taint: the GVT byte ranges this GVT access keeps at the genuine value regardless of
         boosting. An architecturally-consumed lane is frozen so the arch path is identical; a
-        speculative lane is left free (boosting varies it). A single-lane seal re-converges through its
+        speculative lane is left free (boosting varies it). A single-lane GVT access re-converges through its
         own lane (EOR twice is identity), so its speculative lane is safe to leave free."""
         return [] if speculative else [self.location.byte_range()]
 
@@ -95,7 +95,7 @@ def _mask_window(masks: List[int]) -> Tuple[int, int]:
     return lo, bits.bit_length() - lo
 
 
-class SandboxSealing(Sealing):
+class SandboxGvtAccess(GvtAccess):
     """Clamp a base register into the input region: [AND reg, #mask; ADD reg, base]. Carries no value."""
 
     def __init__(self, value_reg: str, mask: str, base_reg: str) -> None:
@@ -107,7 +107,7 @@ class SandboxSealing(Sealing):
         ]
 
 
-class PacSealing(Sealing):
+class PacGvtAccess(GvtAccess):
     """Authenticate a pointer for one access. An AUTH site loads the signature from its GVT lane, BFIs
     its PAC field into the pointer, then runs the committed AUT*; a STRIP site (probability
     pac_strip_prob) emits only the arch-safe XPAC and carries no signature, so it is never decoyed.
@@ -131,7 +131,7 @@ class PacSealing(Sealing):
         self.value = PacSignature(*_mask_window([span]))
         self.location = gvt.allocate(self.value.width)
         self.auth_slot_inst = enc.make_auth_inst(auth_mn, value_reg, ctx_reg)
-        self.slot_insts = self.value.apply(self.location, value_reg, SEAL_SCRATCH_REGISTER) \
+        self.slot_insts = self.value.apply(self.location, value_reg, GVT_SCRATCH_REGISTER) \
             + [self.auth_slot_inst]
         self.n_before = len(self.slot_insts)
 
@@ -155,7 +155,7 @@ class PacSealing(Sealing):
         return (first, anchor - first, EMUL_OP_PAC_AUTH, rng.start, 0, self.value.lsb, len(rng))
 
 
-class MteSealing(Sealing):
+class MteGvtAccess(GvtAccess):
     """Retag a pointer onto its cell's allocation tag for one access, then re-converge. The fixed slot
     BFIs the applied tag from the GVT into the pointer's tag field [59:56] before the access (genuine =
     the cell tag, so it matches; a decoy = a mismatching tag), and, when the access preserves its base,
@@ -170,10 +170,10 @@ class MteSealing(Sealing):
         self.access_inst = access_inst
         self.value = MteTag()
         self.location = gvt.allocate(self.value.width)                 # the applied-tag lane
-        pre = self.value.apply(self.location, value_reg, SEAL_SCRATCH_REGISTER)
+        pre = self.value.apply(self.location, value_reg, GVT_SCRATCH_REGISTER)
         self.n_before = len(pre)
         self._cell_location = gvt.allocate(self.value.width) if base_preserved else None
-        post = (self.value.apply(self._cell_location, value_reg, SEAL_SCRATCH_REGISTER)
+        post = (self.value.apply(self._cell_location, value_reg, GVT_SCRATCH_REGISTER)
                 if base_preserved else [])
         self.slot_insts = pre + post
 
@@ -243,7 +243,7 @@ def _canon_mask_pool(salt: int) -> List[int]:
         in-sandbox address and its cache-set index [11:6] are untouched (only canonicality changes);
       * a single contiguous run is one AArch64 logical (bitmask) immediate, i.e. one EOR;
       * randomising WHICH sub-run flips spreads the probe across the faulting field instead of always
-        flipping the same bits, and is seeded by the salt so a sealing class forges identically.
+        flipping the same bits, and is seeded by the salt so a GVT access class forges identically.
 
     If canonicality_mask is set, the pool is that one fixed mask (must be a single [54:VA] run)."""
     va = _canon_va()
@@ -270,7 +270,7 @@ def _canon_mask_pool(salt: int) -> List[int]:
     return pool
 
 
-class CanonSealing(Sealing):
+class CanonGvtAccess(GvtAccess):
     """Make a pointer register non-canonical for ONE speculative access via a GVT mask, then restore it.
     The fixed slot loads the mask from the GVT and EORs it into the base before the access; when the
     access preserves its base (`revert`), the same EOR after re-converges with the baseline so the
@@ -285,18 +285,18 @@ class CanonSealing(Sealing):
         self.pool = pool
         self.value = MaskFlip(*_mask_window(pool))
         self.location = gvt.allocate(self.value.width)
-        pre = self.value.apply(self.location, value_reg, SEAL_SCRATCH_REGISTER)
+        pre = self.value.apply(self.location, value_reg, GVT_SCRATCH_REGISTER)
         self.n_before = len(pre)
-        post = self.value.apply(self.location, value_reg, SEAL_SCRATCH_REGISTER) if revert else []
+        post = self.value.apply(self.location, value_reg, GVT_SCRATCH_REGISTER) if revert else []
         self.slot_insts = pre + post
 
 
 def _branch_target_mask_pool(salt: int) -> List[int]:
     """Masks the decoy XORs into an indirect call's target register before the BLR. Two fault axes:
       * non-canonical: a contiguous run in [54:VA] (as in canonicality) -> translation fault;
-      * misaligned (when branch_target_seal_misalign): a low-bit value {1,2,3} -> the target is no
+      * misaligned (when branch_target_misalign): a low-bit value {1,2,3} -> the target is no
         longer 4-byte aligned -> PC-alignment fault (an axis x86 lacks).
-    Unlike CanonSealing the target is a dead scratch (never a data base), so any bits may flip.
+    Unlike CanonGvtAccess the target is a dead scratch (never a data base), so any bits may flip.
     branch_target_canon_mask fixes the non-canonical run; otherwise a salt-seeded pool is used."""
     va = _canon_va()
     fault = (((1 << (55 - va)) - 1) << va)   # bits [54:va]
@@ -317,14 +317,14 @@ def _branch_target_mask_pool(salt: int) -> List[int]:
                 pool.append(m)
                 if len(pool) >= _CANON_POOL_SIZE:
                     break
-    if CONF.branch_target_seal_misalign:
+    if CONF.branch_target_misalign:
         pool += [1, 2, 3]   # low-bit misalignments -> PC-alignment fault
     if not pool:
-        raise GeneratorException(f"no branch-target seal mask for VA_SIZE {va}")
+        raise GeneratorException(f"no branch-target GVT access mask for VA_SIZE {va}")
     return pool
 
 
-class BranchTargetSealing(Sealing):
+class BranchTargetGvtAccess(GvtAccess):
     """Corrupt an indirect call's target register for ONE speculative BLR via a GVT mask: the fixed slot
     loads the mask and EORs it into the target before the branch (non-canonical high bits or [1:0]
     misalignment), then the same EOR after to re-converge — x28 is the shared indirect-call target reg,
@@ -339,22 +339,22 @@ class BranchTargetSealing(Sealing):
         self.pool = pool
         self.value = MaskFlip(*_mask_window(pool))
         self.location = gvt.allocate(self.value.width)
-        pre = self.value.apply(self.location, value_reg, SEAL_SCRATCH_REGISTER)
+        pre = self.value.apply(self.location, value_reg, GVT_SCRATCH_REGISTER)
         self.n_before = len(pre)
-        self.slot_insts = pre + self.value.apply(self.location, value_reg, SEAL_SCRATCH_REGISTER)
+        self.slot_insts = pre + self.value.apply(self.location, value_reg, GVT_SCRATCH_REGISTER)
 
 
 _SIGNEXT_BIT = 1 << 55   # the regime-selector / sign bit: the one bit non-canonical under TBI on or off
 
 
-class SignExtSealing(CanonSealing):
-    """Break a pointer's sign-extension for ONE speculative access, then restore it — like CanonSealing
+class SignExtGvtAccess(CanonGvtAccess):
+    """Break a pointer's sign-extension for ONE speculative access, then restore it — like CanonGvtAccess
     but flipping bit 55 (the TTBR0/TTBR1 regime selector that canonicality leaves untouched) rather than
-    [54:VA]. `seal(mask)` EORs bit 55 in right before the access, so the regime selector disagrees with
+    [54:VA]. `GVT access(mask)` EORs bit 55 in right before the access, so the regime selector disagrees with
     the never-flipped sign-extension bits [54:VA] — a translation fault under TBI on or off — and EORs it
     back after (when the base survives). The top byte [63:56] is NOT flipped: bit 55 alone already
     faults under TBI on or off, whereas a top-byte flip faults only with TBI off (it is ignored when TBI
-    is on), so the pool keeps the one TBI-robust bit. `seal(None/0)` is the canonical placeholder (NOPs)."""
+    is on), so the pool keeps the one TBI-robust bit. `GVT access(None/0)` is the canonical placeholder (NOPs)."""
 
 
 def _signext_mask_pool() -> List[int]:
@@ -366,21 +366,21 @@ def _signext_mask_pool() -> List[int]:
 
 
 # ==================================================================================================
-# ResolvedSealingTestCase — one input's resolution; mints genuine / decoy hardware test cases
+# ResolvedGvtTestCase — one input's resolution; mints genuine / decoy hardware test cases
 # ==================================================================================================
 class _Resolved:
-    """A sealing paired with its resolved runtime value for one input: `value` is the correct value
-    (None where the sealing needs none / was unreached); `alts` are alternative values that fail; the
+    """A GVT access paired with its resolved runtime value for one input: `value` is the correct value
+    (None where the GVT access needs none / was unreached); `alts` are alternative values that fail; the
     slot is speculative (decoy-eligible) when it never ran architecturally."""
-    def __init__(self, sealing: Sealing, value: Optional[int], alts: List[int],
+    def __init__(self, access: GvtAccess, value: Optional[int], alts: List[int],
                  spec_nesting: Optional[int]) -> None:
-        self.sealing = sealing
+        self.access = access
         self.value = value
         self.alts = alts
         self.speculative = spec_nesting != 0   # None (unreached) or >0 -> speculative; 0 -> arch
 
 
-class ResolvedSealingTestCase:
+class ResolvedGvtTestCase:
     """One input's resolution. `object_code` is the input-independent assembled test case (every variant
     shares it); `genuine()`/`decoy()` return the GVT image bytes (the SIMD section payload) that select a
     variant. `genuine()` stores every slot's correct value; `decoy()` perturbs a subset of the
@@ -416,7 +416,7 @@ class ResolvedSealingTestCase:
         return self._genuine
 
     def decoy(self, rng: random.Random) -> bytes:
-        """The decoy GVT image for one variant. `rng` (seeded by the caller from the sealing class, salt,
+        """The decoy GVT image for one variant. `rng` (seeded by the caller from the GVT access class, salt,
         and variant index) drives every choice, so the variant is a pure function of that seed: it
         reproduces across trace passes, and same-class inputs run the identical program."""
         return self._build_image(rng, decoy=True)
@@ -431,27 +431,27 @@ class ResolvedSealingTestCase:
         return bool(self._eligible())
 
     def _build_image(self, rng: random.Random, decoy: bool) -> bytes:
-        """The SIMD section bytes for one variant: each value seal writes its lane(s) — the genuine
+        """The SIMD section bytes for one variant: each value GVT access writes its lane(s) — the genuine
         value, or a random alt for a perturbed speculative slot. The genuine value of a canonicality /
-        branch-target seal is "no perturbation" (resolver value None), which is mask 0."""
+        branch-target GVT access is "no perturbation" (resolver value None), which is mask 0."""
         perturb = self._decoy_subset(self._eligible(), rng) if decoy else set()
         image = self._gst.blank_image()
         for r in self._entries:
             applied = rng.choice(r.alts) if r in perturb else r.value
-            r.sealing.store_into(image, applied, r.value)
+            r.access.store_into(image, applied, r.value)
         return image.to_section().content
 
     @property
     def collapse_key(self) -> Tuple:
-        """The sealing class of the resolved input: per-entry (value, speculative). Two inputs share
-        a sealed TC iff every slot resolves to the same value with the same speculative status (so the
+        """The GVT access class of the resolved input: per-entry (value, speculative). Two inputs share
+        an instrumented TC iff every slot resolves to the same value with the same speculative status (so the
         same genuine fill is arch-safe for both, and decoy perturbs the same slots). Sandbox entries
         carry the same value (None) for every input, so they never split classes."""
         return tuple((r.value, r.speculative) for r in self._entries)
 
 
 # ==================================================================================================
-# Resolvers — concern-specific value computation from a CE trace (used by the SealedTestCase)
+# Resolvers — concern-specific value computation from a CE trace (used by the GvtTestCase)
 # ==================================================================================================
 # Signature forgery pool: how many wrong signatures to offer per PAC slot, and the sampling budget.
 _FORGERY_POOL_SIZE = 6
@@ -459,15 +459,15 @@ _FORGERY_TRIES = 64
 
 
 def _input_pac_keys(inp) -> Tuple[int, ...]:
-    """The PAC keys the input runs under; a PAC sealing cannot be resolved without them."""
+    """The PAC keys the input runs under; a PAC GVT access cannot be resolved without them."""
     if inp.pac_keys is None:
         raise GeneratorException(f"PAC input {inp.seed} carries no PAC keys")
     return inp.pac_keys
 
 
-def _resolve_pac(s: PacSealing, cer, layout, signer: PacSigner, keys: Tuple[int, ...], salt: int
+def _resolve_pac(s: PacGvtAccess, cer, layout, signer: PacSigner, keys: Tuple[int, ...], salt: int
                  ) -> Tuple[Optional[int], List[int], Optional[int]]:
-    """An AUTH PacSealing's value from a trace: sign the canonical pointer the slot's UMOV reads (before
+    """An AUTH PacGvtAccess's value from a trace: sign the canonical pointer the slot's UMOV reads (before
     its BFI inserts the field), plus a pool of wrong signatures that fail AUTH. The genuine value is the
     full signed pointer the lane carries; a decoy is the same with its PAC field perturbed. When the slot
     is never reached, it is still decoy-eligible (HW may speculate deeper than the model): forge the pool
@@ -503,7 +503,7 @@ def _resolve_pac(s: PacSealing, cer, layout, signer: PacSigner, keys: Tuple[int,
 def _wrong_sigs(correct_sig: int, mask: int, salt: int) -> List[int]:
     """A deterministic pool of wrong signatures: the correct signature with only its PAC field bits
     perturbed (so each is a genuine AUTH failure). Seeded by (correct_sig, mask, salt), so every member
-    of a sealing class forges identically."""
+    of a GVT access class forges identically."""
     rng = stable_rng(correct_sig, mask, salt)
     pool: List[int] = []
     for _ in range(_FORGERY_TRIES):
@@ -517,8 +517,8 @@ def _wrong_sigs(correct_sig: int, mask: int, salt: int) -> List[int]:
     return pool
 
 
-def _resolve_mte(s: MteSealing, cer, layout) -> Tuple[Optional[int], List[int], Optional[int]]:
-    """An MteSealing's applied base tag from a trace: the tag the slot's BFI puts on the base register so
+def _resolve_mte(s: MteGvtAccess, cer, layout) -> Tuple[Optional[int], List[int], Optional[int]]:
+    """An MteGvtAccess's applied base tag from a trace: the tag the slot's BFI puts on the base register so
     the ACCESS's effective-address tag equals the accessed cell's allocation tag — which, for a
     register-offset access, differs from the cell tag by the index's tag contribution. The genuine value
     is the base-register tag observed at the access (the CE's inject already set it); a decoy applies a
@@ -548,7 +548,7 @@ def _resolve_mte(s: MteSealing, cer, layout) -> Tuple[Optional[int], List[int], 
     if len(arch) > 1:
         raise GeneratorException(
             f"MTE site at offset {access_off} reached architecturally with disagreeing tags "
-            f"({sorted(arch)}); cannot seal one applied tag")
+            f"({sorted(arch)}); cannot GVT access one applied tag")
     chosen = next(iter(arch), first)
     if chosen is None:                                         # unreached in the trace
         return None, [], spec
@@ -559,9 +559,9 @@ def _resolve_mte(s: MteSealing, cer, layout) -> Tuple[Optional[int], List[int], 
     return applied, alts, spec
 
 
-def _resolve_canon(s: "CanonSealing", cer, layout) -> Tuple[Optional[int], List[int], Optional[int]]:
-    """A CanonSealing's value from a trace: the genuine value is canonical (None -> the NOP
-    placeholders); the alternatives are the sealing's pool of random non-canonical flip masks (the
+def _resolve_canon(s: "CanonGvtAccess", cer, layout) -> Tuple[Optional[int], List[int], Optional[int]]:
+    """A CanonGvtAccess's value from a trace: the genuine value is canonical (None -> the NOP
+    placeholders); the alternatives are the GVT access's pool of random non-canonical flip masks (the
     decoy picks one). spec_nesting is the minimum depth the guarded access is reached at, so an access
     ever reached architecturally (min == 0) is non-speculative and never non-canonicalized.
     (value, alts, spec_nesting)."""
@@ -577,8 +577,8 @@ def _resolve_canon(s: "CanonSealing", cer, layout) -> Tuple[Optional[int], List[
     return None, list(s.pool), spec
 
 
-def _resolve_branch_target(s: "BranchTargetSealing", cer, layout) -> Tuple[Optional[int], List[int], Optional[int]]:
-    """A BranchTargetSealing's value from a trace: the genuine value is a valid target (None -> the NOP
+def _resolve_branch_target(s: "BranchTargetGvtAccess", cer, layout) -> Tuple[Optional[int], List[int], Optional[int]]:
+    """A BranchTargetGvtAccess's value from a trace: the genuine value is a valid target (None -> the NOP
     placeholder); the alternatives are the pool of non-canonical / misaligned masks (the decoy picks
     one). spec_nesting is the minimum depth the BLR is reached at, so a call ever reached
     architecturally (min == 0) keeps a valid target and is never corrupted. (value, alts, spec_nesting)."""
@@ -595,29 +595,29 @@ def _resolve_branch_target(s: "BranchTargetSealing", cer, layout) -> Tuple[Optio
 
 
 # ==================================================================================================
-# SealedTestCase — holds the unresolved sealings; resolve(input) orchestrates value computation
+# GvtTestCase — holds the unresolved GVT accesses; resolve(input) orchestrates value computation
 # ==================================================================================================
-class SealedTestCase:
-    """Owns the sealings for one test case end-to-end. During construction it PLACES each value
-    sealing's slot in the order this concern requires (the sandbox walk supplies clamps + per-access
-    sites but never decides value-seal order), then `resolve(input)` computes their values. The
+class GvtTestCase:
+    """Owns the GVT accesses for one test case end-to-end. During construction it PLACES each value
+    GVT access's slot in the order this concern requires (the sandbox walk supplies clamps + per-access
+    sites but never decides value-GVT access order), then `resolve(input)` computes their values. The
     per-concern subclass owns both the placement order and the resolution."""
 
-    def __init__(self, sealed_tc: TestCase, assemble, sandbox_sealings: List[SandboxSealing],
+    def __init__(self, instrumented_tc: TestCase, assemble, sandbox_accesses: List[SandboxGvtAccess],
                  data_sites: List, trace_bytes_fn) -> None:
-        self._tc = sealed_tc
+        self._tc = instrumented_tc
         self._trace_bytes_fn = trace_bytes_fn              # (machine code, input, emul_table) -> cer
         self._assemble = assemble                          # tc -> machine code, for the skeleton
-        self._sandbox = sandbox_sealings
-        # Salt from the test-case code (not the global RNG stream), so fuzz and reproduce seal identically.
-        self._salt = stable_hash_bytes(assemble(sealed_tc))
-        self._resolved: Dict = {}                          # input identity -> its ResolvedSealingTestCase
-        self._gst: GlobalValueTable = VectorGlobalValueTable(_GST_CAPACITY_BITS)   # value seals allocate here
+        self._sandbox = sandbox_accesses
+        # Salt from the test-case code (not the global RNG stream), so fuzz and reproduce GVT access identically.
+        self._salt = stable_hash_bytes(assemble(instrumented_tc))
+        self._resolved: Dict = {}                          # input identity -> its ResolvedGvtTestCase
+        self._gst: GlobalValueTable = VectorGlobalValueTable(_GST_CAPACITY_BITS)   # value GVT accesses allocate here
         # Seed the global RNG from the salt around slot insertion (which consumes it), then restore it.
         _rng_state = random.getstate()
         random.seed(self._salt)
         try:
-            self._insert_slots(data_sites)                 # subclass inserts its value sealings, in order
+            self._insert_slots(data_sites)                 # subclass inserts its value GVT accesses, in order
         finally:
             random.setstate(_rng_state)
         self._layout = Aarch64ASMLayout(self._tc)
@@ -632,24 +632,24 @@ class SealedTestCase:
         return self._assemble(self._tc)
 
     def _insert_slots(self, data_sites: List) -> None:
-        """Insert this concern's value sealings around each data-access site."""
+        """Insert this concern's value GVT accesses around each data-access site."""
         raise NotImplementedError
 
-    def _sealings(self) -> List[Sealing]:
-        """Every sealing whose slot positions must be recorded: the sandbox clamps plus this concern's
-        value seals."""
-        return self._sandbox + self._value_sealings()
+    def _accesses(self) -> List[GvtAccess]:
+        """Every GVT access whose slot positions must be recorded: the sandbox clamps plus this concern's
+        value GVT accesses."""
+        return self._sandbox + self._value_accesses()
 
-    def _value_sealings(self) -> List[Sealing]:
-        """The non-sandbox value seals this concern resolves (their slots carry the decoy-able values).
+    def _value_accesses(self) -> List[GvtAccess]:
+        """The non-sandbox value GVT accesses this concern resolves (their slots carry the decoy-able values).
         Empty for sandbox-only (PTE)."""
         return []
 
     def _resolve_entries(self, inp, cer) -> List[_Resolved]:
-        """Resolve this concern's value seals from the single resolution trace `cer`. Default: none."""
+        """Resolve this concern's value GVT accesses from the single resolution trace `cer`. Default: none."""
         return []
 
-    def resolve(self, inp) -> ResolvedSealingTestCase:
+    def resolve(self, inp) -> ResolvedGvtTestCase:
         """One CE trace per input (memoized by input identity), reused as the genuine contract trace.
         The object code is input-independent; variants differ only in the GVT image."""
         key = inp.identity()
@@ -657,8 +657,8 @@ class SealedTestCase:
         if cached is not None:
             return cached
         object_code, cer = self._resolve_trace(inp)
-        entries = self._resolve_entries(inp, cer)   # value seals only; the sandbox clamp carries no value
-        resolved = ResolvedSealingTestCase(entries, object_code, self._gst, self._salt, cer)
+        entries = self._resolve_entries(inp, cer)   # value GVT accesses only; the sandbox clamp carries no value
+        resolved = ResolvedGvtTestCase(entries, object_code, self._gst, self._salt, cer)
         self._resolved[key] = resolved
         return resolved
 
@@ -680,38 +680,38 @@ class SealedTestCase:
         return object_code, cer
 
 
-class PacSealedTestCase(SealedTestCase):
+class PacGvtTestCase(GvtTestCase):
     """Sandbox clamp + a PAC auth per data access, plus a PAC auth per standalone AUT*."""
 
-    def __init__(self, sealed_tc, assemble, sandbox_sealings, data_sites, signer, enc, auth_specs,
+    def __init__(self, instrumented_tc, assemble, sandbox_accesses, data_sites, signer, enc, auth_specs,
                  trace_bytes_fn) -> None:
         self._signer = signer
         self._enc = enc
         self._auth_specs = auth_specs
-        self._pac: List[PacSealing] = []
-        super().__init__(sealed_tc, assemble, sandbox_sealings, data_sites, trace_bytes_fn)
+        self._pac: List[PacGvtAccess] = []
+        super().__init__(instrumented_tc, assemble, sandbox_accesses, data_sites, trace_bytes_fn)
 
     def _insert_slots(self, data_sites) -> None:
-        # Per test case (seeded by the salt so every input shares one skeleton), each access is sealed
-        # with probability CONF.pac_seal_prob, and a sealed site strips (XPAC only) with probability
+        # Per test case (seeded by the salt so every input shares one skeleton), each access is instrumented
+        # with probability CONF.pac_access_prob, and an instrumented site strips (XPAC only) with probability
         # pac_strip_prob — both build-time coins, since the code is fixed across inputs. A skipped access
-        # still gets its offset cancellation (sandbox safety, not seal machinery), just no AUT*. The slot
+        # still gets its offset cancellation (sandbox safety, not GVT access machinery), just no AUT*. The slot
         # (load the signature, BFI it in, AUT*) sits entirely before the access; there is no re-converge.
-        # Seal the generator-emitted AUT*s FIRST, while they are the only AUT*s present — the memory-site
-        # slots below insert their own AUT*s, which _seal_auths would otherwise re-seal.
-        _seal_auths(self._tc, self._enc, self._signer, self._gst, self._auth_specs, self._pac)
+        # Instrument the generator-emitted AUT*s FIRST, while they are the only AUT*s present — the memory-site
+        # slots below insert their own AUT*s, which _gvt_auths would otherwise re-instrument.
+        _gvt_auths(self._tc, self._enc, self._signer, self._gst, self._auth_specs, self._pac)
         rng = random.Random(self._salt)
         for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
-            if rng.random() >= CONF.pac_seal_prob:
+            if rng.random() >= CONF.pac_access_prob:
                 _insert(bb, inst, offset_subs)
                 continue
             strip = rng.random() < CONF.pac_strip_prob
-            s = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc, self._signer,
+            s = PacGvtAccess(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc, self._signer,
                            self._gst, strip)
             self._pac.append(s)
             _insert(bb, inst, s.slot_insts, offset_subs)   # auth (or strip) the base, then cancel offset
 
-    def _value_sealings(self) -> List[Sealing]:
+    def _value_accesses(self) -> List[GvtAccess]:
         return self._pac
 
     def _emul_rows(self) -> List[Tuple[int, int, int, int, int, int, int]]:
@@ -723,21 +723,21 @@ class PacSealedTestCase(SealedTestCase):
                 for s in self._pac]
 
 
-class MteSealedTestCase(SealedTestCase):
+class MteGvtTestCase(GvtTestCase):
     """Sandbox clamp + an MTE retag per data access — the retag is the last op before the access."""
 
-    def __init__(self, sealed_tc, assemble, sandbox_sealings, data_sites, trace_bytes_fn) -> None:
-        self._mte: List[MteSealing] = []
-        super().__init__(sealed_tc, assemble, sandbox_sealings, data_sites, trace_bytes_fn)
+    def __init__(self, instrumented_tc, assemble, sandbox_accesses, data_sites, trace_bytes_fn) -> None:
+        self._mte: List[MteGvtAccess] = []
+        super().__init__(instrumented_tc, assemble, sandbox_accesses, data_sites, trace_bytes_fn)
 
     def _insert_slots(self, data_sites) -> None:
         for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
-            s = MteSealing(mem_reg, inst, base_preserved, self._gst)
+            s = MteGvtAccess(mem_reg, inst, base_preserved, self._gst)
             self._mte.append(s)
             _insert(bb, inst, offset_subs, s.slot_insts[:s.n_before])   # cancel offset, then apply the tag
             _place_after(bb, inst, s.slot_insts[s.n_before:])           # BFI the cell tag back (re-converge)
 
-    def _value_sealings(self) -> List[Sealing]:
+    def _value_accesses(self) -> List[GvtAccess]:
         return self._mte
 
     def _emul_rows(self) -> List[Tuple[int, int, int, int, int, int, int]]:
@@ -747,19 +747,19 @@ class MteSealedTestCase(SealedTestCase):
         return [_Resolved(s, *_resolve_mte(s, cer, self._layout)) for s in self._mte]
 
 
-class SandboxSealedTestCase(SealedTestCase):
-    """Only the sandbox clamp -- no value seal, so genuine code == decoy code (no code decoy).
+class SandboxGvtTestCase(GvtTestCase):
+    """Only the sandbox clamp -- no value GVT access, so genuine code == decoy code (no code decoy).
     Used when the genuine/decoy difference lives entirely in the run environment (PTE fuzzing): the
-    test case still needs its accesses clamped and its object code assembled, but nothing is sealed
+    test case still needs its accesses clamped and its object code assembled, but nothing is instrumented
     with a per-input value. resolve() has no values to compute, but still traces the placeholder once
     so the genuine contract trace is available (the environment axis fuzzes the run, not the code)."""
 
     def _insert_slots(self, data_sites) -> None:
         for inst, bb, _mem_reg, offset_subs, _base_preserved in data_sites:
-            _insert(bb, inst, offset_subs)   # pin each access to its clamped base; no value seal
+            _insert(bb, inst, offset_subs)   # pin each access to its clamped base; no value GVT access
 
 
-class CanonSealedTestCase(SealedTestCase):
+class CanonGvtTestCase(GvtTestCase):
     """Sandbox clamp + a canonicality flip per data access. The flip EOR is the last op before the
     access (after the offset-cancel SUBs), so nothing re-canonicalizes the pointer before it is used;
     a matching EOR right AFTER the access restores the base (when the access preserves it), so the
@@ -768,93 +768,93 @@ class CanonSealedTestCase(SealedTestCase):
     (NOP slots) and only supplies speculation depth; the decoy is ordinary EOR words spliced through
     the existing code-relocation path."""
 
-    def __init__(self, sealed_tc, assemble, sandbox_sealings, data_sites, trace_bytes_fn) -> None:
-        self._canon: List[CanonSealing] = []
-        super().__init__(sealed_tc, assemble, sandbox_sealings, data_sites, trace_bytes_fn)
+    def __init__(self, instrumented_tc, assemble, sandbox_accesses, data_sites, trace_bytes_fn) -> None:
+        self._canon: List[CanonGvtAccess] = []
+        super().__init__(instrumented_tc, assemble, sandbox_accesses, data_sites, trace_bytes_fn)
 
     def _insert_slots(self, data_sites) -> None:
-        # Per test case (seeded by the salt so every input shares one skeleton), each access is sealed
-        # with probability CONF.canonicality_seal_prob. A skipped access still gets its offset
+        # Per test case (seeded by the salt so every input shares one skeleton), each access is instrumented
+        # with probability CONF.canonicality_access_prob. A skipped access still gets its offset
         # cancellation (sandbox safety), just no canonicality slot. base_preserved says whether the
         # access leaves its base register intact (so the after-EOR can restore it).
         pool = _canon_mask_pool(self._salt)   # validated once; shared by every slot in this test case
         rng = random.Random(self._salt)
         for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
-            if rng.random() >= CONF.canonicality_seal_prob:
+            if rng.random() >= CONF.canonicality_access_prob:
                 _insert(bb, inst, offset_subs)
                 continue
-            s = CanonSealing(mem_reg, inst, pool, base_preserved, self._gst)
+            s = CanonGvtAccess(mem_reg, inst, pool, base_preserved, self._gst)
             self._canon.append(s)
             _insert(bb, inst, offset_subs, s.slot_insts[:s.n_before])   # cancel offset, then flip (before)
             _place_after(bb, inst, s.slot_insts[s.n_before:])           # restore the base (re-converge)
 
-    def _value_sealings(self) -> List[Sealing]:
+    def _value_accesses(self) -> List[GvtAccess]:
         return self._canon
 
     def _resolve_entries(self, inp, cer) -> List[_Resolved]:
         return [_Resolved(s, *_resolve_canon(s, cer, self._layout)) for s in self._canon]
 
 
-class BranchTargetSealedTestCase(SealedTestCase):
-    """Sandbox clamp per data access (no value seal) + a canonicality/alignment flip on each
+class BranchTargetGvtTestCase(GvtTestCase):
+    """Sandbox clamp per data access (no value GVT access) + a canonicality/alignment flip on each
     SPECULATIVE indirect-call target. The flip EOR lands right before the BLR (after the ADR that
     materialized the target); no after-revert -- the target register is a dead scratch. The CE traces
     the valid placeholder (NOP slots) and supplies speculation depth; the decoy is EOR words spliced in
     through the code-relocation path (no CE plugin, no per-input REIF section)."""
 
-    def __init__(self, sealed_tc, assemble, sandbox_sealings, data_sites, trace_bytes_fn) -> None:
-        self._bt: List[BranchTargetSealing] = []
-        super().__init__(sealed_tc, assemble, sandbox_sealings, data_sites, trace_bytes_fn)
+    def __init__(self, instrumented_tc, assemble, sandbox_accesses, data_sites, trace_bytes_fn) -> None:
+        self._bt: List[BranchTargetGvtAccess] = []
+        super().__init__(instrumented_tc, assemble, sandbox_accesses, data_sites, trace_bytes_fn)
 
     def _insert_slots(self, data_sites) -> None:
-        # data accesses keep their offset cancellation (sandbox safety); they are not value-sealed here.
+        # data accesses keep their offset cancellation (sandbox safety); they are not value-instrumented here.
         for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
             _insert(bb, inst, offset_subs)
-        # each indirect-call BLR is sealed with probability branch_target_seal_prob; the flip lands
+        # each indirect-call BLR is instrumented with probability branch_target_access_prob; the flip lands
         # right before the BLR (after its target-materializing ADR).
         pool = _branch_target_mask_pool(self._salt)
         rng = random.Random(self._salt)
         for func in self._tc.functions:
             for bb in func:
                 for inst in list(bb):
-                    if inst.name != "blr" or rng.random() >= CONF.branch_target_seal_prob:
+                    if inst.name != "blr" or rng.random() >= CONF.branch_target_access_prob:
                         continue
                     reg = next(o.value for o in inst.operands if isinstance(o, RegisterOperand))
-                    s = BranchTargetSealing(reg, inst, pool, self._gst)
+                    s = BranchTargetGvtAccess(reg, inst, pool, self._gst)
                     self._bt.append(s)
                     _insert(bb, inst, s.slot_insts[:s.n_before])   # flip right before the BLR
                     _place_after(bb, inst, s.slot_insts[s.n_before:])   # re-converge x28 after
 
-    def _value_sealings(self) -> List[Sealing]:
+    def _value_accesses(self) -> List[GvtAccess]:
         return self._bt
 
     def _resolve_entries(self, inp, cer) -> List[_Resolved]:
         return [_Resolved(s, *_resolve_branch_target(s, cer, self._layout)) for s in self._bt]
 
 
-class MtePacSealedTestCase(SealedTestCase):
+class MtePacGvtTestCase(GvtTestCase):
     """Sandbox clamp + PAC auth + MTE retag per data access, plus a PAC auth per standalone AUT*.
     The CE injects both per-input values into the GVT image — each PAC site's signature and each MTE
     site's accessed-cell tag — during the single resolution trace, which is also the genuine contract
     trace; the PAC signatures and MTE tags both resolve off it."""
 
-    def __init__(self, sealed_tc, assemble, sandbox_sealings, data_sites, signer, enc,
+    def __init__(self, instrumented_tc, assemble, sandbox_accesses, data_sites, signer, enc,
                  auth_specs, trace_bytes_fn) -> None:
         self._signer = signer
         self._enc = enc
         self._auth_specs = auth_specs
-        self._pac: List[PacSealing] = []
-        self._mte: List[MteSealing] = []
-        super().__init__(sealed_tc, assemble, sandbox_sealings, data_sites, trace_bytes_fn)
+        self._pac: List[PacGvtAccess] = []
+        self._mte: List[MteGvtAccess] = []
+        super().__init__(instrumented_tc, assemble, sandbox_accesses, data_sites, trace_bytes_fn)
 
     def _insert_slots(self, data_sites) -> None:
-        _seal_auths(self._tc, self._enc, self._signer, self._gst, self._auth_specs, self._pac)
+        _gvt_auths(self._tc, self._enc, self._signer, self._gst, self._auth_specs, self._pac)
         rng = random.Random(self._salt)
         for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
             strip = rng.random() < CONF.pac_strip_prob   # a build-time coin (the code is fixed per input)
-            p = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc, self._signer,
+            p = PacGvtAccess(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc, self._signer,
                            self._gst, strip)
-            m = MteSealing(mem_reg, inst, base_preserved, self._gst)
+            m = MteGvtAccess(mem_reg, inst, base_preserved, self._gst)
             self._pac.append(p)
             self._mte.append(m)
             # before: auth (or strip) the base, cancel the offset, apply the cell tag (closest to the access)
@@ -862,7 +862,7 @@ class MtePacSealedTestCase(SealedTestCase):
             # after: MTE re-converges the pointer tag to the cell tag (the decoy re-converges too)
             _place_after(bb, inst, m.slot_insts[m.n_before:])
 
-    def _value_sealings(self) -> List[Sealing]:
+    def _value_accesses(self) -> List[GvtAccess]:
         return self._pac + self._mte
 
     def _emul_rows(self) -> List[Tuple[int, int, int, int, int, int, int]]:
@@ -881,45 +881,45 @@ class MtePacSealedTestCase(SealedTestCase):
         return pac + mte
 
 
-class PacSignExtSealedTestCase(SealedTestCase):
+class PacSignExtGvtTestCase(GvtTestCase):
     """Sandbox clamp + PAC auth + a sign-extension flip per data access, plus a PAC auth per standalone
     AUT*. Every access is PAC-authenticated (the baked signature keeps it arch-safe, as in
-    MtePacSealedTestCase); the flip (SignExtSealing) is a MaskFlip seal — its genuine value is "no flip"
-    in the all-zero image — added with probability `signext_seal_prob`, so only the PAC auth is injected
+    MtePacGvtTestCase); the flip (SignExtGvtAccess) is a MaskFlip GVT access — its genuine value is "no flip"
+    in the all-zero image — added with probability `signext_access_prob`, so only the PAC auth is injected
     by the emulation table. The single resolution trace yields the PAC signatures and the genuine
-    contract trace; the decoy carries the flip mask in the sign-ext seal's lane."""
+    contract trace; the decoy carries the flip mask in the sign-ext GVT access's lane."""
 
-    def __init__(self, sealed_tc, assemble, sandbox_sealings, data_sites, signer, enc,
+    def __init__(self, instrumented_tc, assemble, sandbox_accesses, data_sites, signer, enc,
                  auth_specs, trace_bytes_fn) -> None:
         self._signer = signer
         self._enc = enc
         self._auth_specs = auth_specs
-        self._pac: List[PacSealing] = []
-        self._signext: List[SignExtSealing] = []
-        super().__init__(sealed_tc, assemble, sandbox_sealings, data_sites, trace_bytes_fn)
+        self._pac: List[PacGvtAccess] = []
+        self._signext: List[SignExtGvtAccess] = []
+        super().__init__(instrumented_tc, assemble, sandbox_accesses, data_sites, trace_bytes_fn)
 
     def _insert_slots(self, data_sites) -> None:
-        # Every access must be PAC-authenticated for arch-safety, so pac_seal_prob (the fraction of
-        # accesses to seal) is incompatible with this composed primitive — fail loud rather than ignore it.
-        if CONF.pac_seal_prob != 1.0:
-            raise GeneratorException("pac+signext seals every access; set pac_seal_prob = 1.0")
+        # Every access must be PAC-authenticated for arch-safety, so pac_access_prob (the fraction of
+        # accesses to GVT access) is incompatible with this composed primitive — fail loud rather than ignore it.
+        if CONF.pac_access_prob != 1.0:
+            raise GeneratorException("pac+signext GVT accesses every access; set pac_access_prob = 1.0")
         pool = _signext_mask_pool()   # shared by every slot in this test case
-        _seal_auths(self._tc, self._enc, self._signer, self._gst, self._auth_specs, self._pac)
+        _gvt_auths(self._tc, self._enc, self._signer, self._gst, self._auth_specs, self._pac)
         rng = random.Random(self._salt)
         for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
-            p = PacSealing(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc, self._signer,
+            p = PacGvtAccess(mem_reg, self._enc._pick_mem_auth(mem_reg), self._enc, self._signer,
                            self._gst, strip=False)
             self._pac.append(p)
-            if rng.random() >= CONF.signext_seal_prob:
+            if rng.random() >= CONF.signext_access_prob:
                 _insert(bb, inst, p.slot_insts, offset_subs)   # auth the base, cancel the offset
                 continue
-            s = SignExtSealing(mem_reg, inst, pool, revert=base_preserved, gvt=self._gst)
+            s = SignExtGvtAccess(mem_reg, inst, pool, revert=base_preserved, gvt=self._gst)
             self._signext.append(s)
             # before: auth the base, cancel the offset, break sign-extension (flip closest to the access)
             _insert(bb, inst, p.slot_insts, offset_subs, s.slot_insts[:s.n_before])
             _place_after(bb, inst, s.slot_insts[s.n_before:])   # restore the base (re-converge the decoy)
 
-    def _value_sealings(self) -> List[Sealing]:
+    def _value_accesses(self) -> List[GvtAccess]:
         return self._pac + self._signext
 
     def _emul_rows(self) -> List[Tuple[int, int, int, int, int, int, int]]:
@@ -934,10 +934,10 @@ class PacSignExtSealedTestCase(SealedTestCase):
 
 
 # ==================================================================================================
-# Sealer — walk the TC, create the sealings, insert their placeholders
+# GvtAccessBuilder — walk the TC, create the GVT accesses, insert their placeholders
 # ==================================================================================================
 class _Addressing(_SandboxInstrumentationBase):
-    """Composable wrapper over the shared AArch64 address/CFG helpers (a sealer *has-a* one)."""
+    """Composable wrapper over the shared AArch64 address/CFG helpers (a builder *has-a* one)."""
     def __init__(self, norm: Dict[str, str], mask: str, base_reg: str) -> None:
         self._norm = norm
         self._sandbox_mask = mask
@@ -964,17 +964,17 @@ def _pac_encoder(generator, field_span):
     return PacSign(generator, auth_specs, xpac_specs, field_span), auth_specs
 
 
-def _seal_auths(tc: TestCase, enc: PacSign, signer: PacSigner, gvt: GlobalValueTable,
+def _gvt_auths(tc: TestCase, enc: PacSign, signer: PacSigner, gvt: GlobalValueTable,
                 auth_specs, pac: List) -> None:
-    """Replace every generator-emitted AUT* with a PacSealing committing to it (a non-memory site the
+    """Replace every generator-emitted AUT* with a PacGvtAccess committing to it (a non-memory site the
     sandbox walk doesn't reach). These are always authenticated (never stripped): the generator chose
-    the AUT*, so the slot must honor it. Appends the new sealings to `pac`."""
+    the AUT*, so the slot must honor it. Appends the new GVT accesses to `pac`."""
     for func in tc.functions:
         replacements = []
         for bb in func:
             for inst in bb:
                 if inst.name.lower() in auth_specs:
-                    s = PacSealing(inst.operands[0].value, copy.deepcopy(inst), enc, signer, gvt,
+                    s = PacGvtAccess(inst.operands[0].value, copy.deepcopy(inst), enc, signer, gvt,
                                    strip=False)
                     pac.append(s)
                     replacements.append((inst, bb, s.slot_insts))
@@ -984,9 +984,9 @@ def _seal_auths(tc: TestCase, enc: PacSign, signer: PacSigner, gvt: GlobalValueT
             bb.delete(old)
 
 
-class Sealer:
+class GvtAccessBuilder:
     """Factory: runs the sandbox walk (mechanics only) and constructs the per-primitive
-    SealedTestCase, which owns its value-seal placement order + resolution. The Sealer holds no
+    GvtTestCase, which owns its value-GVT access placement order + resolution. The GvtAccessBuilder holds no
     knowledge of slot order itself."""
 
     def __init__(self, generator, assemble, primitives: Set[str], signer, trace_bytes_fn) -> None:
@@ -1000,43 +1000,43 @@ class Sealer:
         else:
             self._enc, self._auth_specs = None, None
 
-    def seal(self, test_case: TestCase) -> SealedTestCase:
+    def build(self, test_case: TestCase) -> GvtTestCase:
         tc = copy.deepcopy(test_case)
         sandbox, data_sites = self._walk.sandbox(tc)
         tr = self._trace_bytes_fn
         if not self._primitives:
-            # No code seal: only the sandbox clamp. The genuine/decoy difference (if any) comes
+            # No code GVT access: only the sandbox clamp. The genuine/decoy difference (if any) comes
             # the environment axis (PTE fuzzing), not by code.
-            return SandboxSealedTestCase(tc, self._assemble, sandbox, data_sites, tr)
+            return SandboxGvtTestCase(tc, self._assemble, sandbox, data_sites, tr)
         if self._primitives == frozenset({"canon"}):
-            return CanonSealedTestCase(tc, self._assemble, sandbox, data_sites, tr)
+            return CanonGvtTestCase(tc, self._assemble, sandbox, data_sites, tr)
         if self._primitives == frozenset({"branch_target"}):
-            return BranchTargetSealedTestCase(tc, self._assemble, sandbox, data_sites, tr)
+            return BranchTargetGvtTestCase(tc, self._assemble, sandbox, data_sites, tr)
         if self._primitives == frozenset({"mte"}):
-            return MteSealedTestCase(tc, self._assemble, sandbox, data_sites, tr)
+            return MteGvtTestCase(tc, self._assemble, sandbox, data_sites, tr)
         if self._primitives == frozenset({"pac"}):
-            return PacSealedTestCase(tc, self._assemble, sandbox, data_sites,
+            return PacGvtTestCase(tc, self._assemble, sandbox, data_sites,
                                      self._signer, self._enc, self._auth_specs, tr)
         if self._primitives == frozenset({"pac", "mte"}):
-            return MtePacSealedTestCase(tc, self._assemble, sandbox, data_sites,
+            return MtePacGvtTestCase(tc, self._assemble, sandbox, data_sites,
                                         self._signer, self._enc, self._auth_specs, tr)
         if self._primitives == frozenset({"pac", "signext"}):
-            return PacSignExtSealedTestCase(tc, self._assemble, sandbox, data_sites,
+            return PacSignExtGvtTestCase(tc, self._assemble, sandbox, data_sites,
                                             self._signer, self._enc, self._auth_specs, tr)
-        raise GeneratorException(f"no sealed test case for primitives {set(self._primitives)}")
+        raise GeneratorException(f"no instrumented test case for primitives {set(self._primitives)}")
 
 
 def _insert(bb, anchor, *groups) -> None:
     """Insert each group of instructions before `anchor`, in order — so they land in group order
-    immediately before it (clamp, then value sealings, then the index/displacement cancellation)."""
+    immediately before it (clamp, then value GVT accesses, then the index/displacement cancellation)."""
     for group in groups:
         for inst in group:
             bb.insert_before(anchor, inst)
 
 
 def _place_after(bb, anchor, insts) -> None:
-    """Insert `insts` immediately after `anchor`, preserving their order — the seal's after-revert
-    (restore the base register once the sealed access has run). insert_after puts each element right
+    """Insert `insts` immediately after `anchor`, preserving their order — the GVT access's after-revert
+    (restore the base register once the instrumented access has run). insert_after puts each element right
     after the anchor, so iterate in reverse to keep list order. Composed reverts (MtePac) call this
     once per primitive; calling the outer primitive first lands the inner one closest to the access."""
     for inst in reversed(list(insts)):
@@ -1045,9 +1045,9 @@ def _place_after(bb, anchor, insts) -> None:
 
 class SandboxWalk:
     """Mechanics only: the sandbox-taint walk. Decides which memory bases need clamping (the clamp is
-    not idempotent, so a base already in-region is not re-clamped) and makes a SandboxSealing for each.
-    Knows nothing about value sealings, PAC, MTE, slot placement, or position recording — `sandbox`
-    returns the clamps plus a per-access site list the SealedTestCase uses to place its value sealings."""
+    not idempotent, so a base already in-region is not re-clamped) and makes a SandboxGvtAccess for each.
+    Knows nothing about value GVT accesses, PAC, MTE, slot placement, or position recording — `sandbox`
+    returns the clamps plus a per-access site list the GvtTestCase uses to place its value GVT accesses."""
 
     def __init__(self, generator) -> None:
         # Under MTE the sandbox is tagged one allocation tag per 16-byte granule, and an access is
@@ -1065,7 +1065,7 @@ class SandboxWalk:
         # single-copy-atomic access (acquire/release, exclusive, LSE atomic) is naturally aligned no
         # matter which config generates it.
         self._granule_floor = 16 if granule_align else 1
-        # value-seal clamp (a sealed pointer written into a register): granule-aligned under MTE.
+        # value-GVT access clamp (an instrumented pointer written into a register): granule-aligned under MTE.
         value_mask = f"#0x{_SANDBOX_MASK & ~0xF:x}" if granule_align else f"#0x{_SANDBOX_MASK:x}"
         self._addr = _Addressing(generator.target_desc.reg_normalized,
                                  value_mask, SANDBOX_BASE_REGISTER)
@@ -1088,18 +1088,18 @@ class SandboxWalk:
         mask = f"#0x{(-align) & ((1 << 64) - 1):x}"        # ~(align - 1), a 64-bit bitmask immediate
         return [Instruction("and", True, "", False, template=f"AND {reg}, {reg}, {mask}")]
 
-    def sandbox(self, tc: TestCase) -> Tuple[List[SandboxSealing], List]:
+    def sandbox(self, tc: TestCase) -> Tuple[List[SandboxGvtAccess], List]:
         """The sandbox-taint dataflow + clamping. Decides which memory bases need an in-region clamp
         (the clamp is not idempotent, so a base already in-region is not re-clamped) and inserts a
-        SandboxSealing for each (16B-aligned for STG). STG/LDG are handled fully here (clamp + the
-        index/displacement cancellation, since they take no value sealing). A data access only gets
+        SandboxGvtAccess for each (16B-aligned for STG). STG/LDG are handled fully here (clamp + the
+        index/displacement cancellation, since they take no value GVT access). A data access only gets
         its clamp inserted here and yields a site — (access, bb, mem_reg, offset_subs) — so the host
-        sealer can place its value sealings between the clamp and the cancellation. Returns
-        (sandbox_sealings, data_sites)."""
+        builder can place its value GVT accesses between the clamp and the cancellation. Returns
+        (sandbox_accesses, data_sites)."""
         addr, base, sandbox, data_sites = self._addr, SANDBOX_BASE_REGISTER, [], []
 
         def clamp(reg, mask):
-            s = SandboxSealing(reg, mask, base)   # seals its own placeholder on construction
+            s = SandboxGvtAccess(reg, mask, base)   # GVT accesses its own placeholder on construction
             sandbox.append(s)
             return s.slot_insts
 
@@ -1118,7 +1118,7 @@ class SandboxWalk:
                     if inst.has_memory_access:
                         if len(inst.get_mem_operands()) > 1:
                             raise GeneratorException(
-                                f"the memory seal models one access per instruction; {inst.name!r} has several")
+                                f"the memory GVT access models one access per instruction; {inst.name!r} has several")
                         mem_reg = addr._get_mem_base_reg(inst)
                         if mem_reg is not None:
                             norm_mem = addr._norm_reg(mem_reg)
@@ -1173,8 +1173,8 @@ class SandboxWalk:
         return sandbox, data_sites
 
 
-def make_sealer(generator, assemble, primitives, signer, trace_bytes_fn) -> Sealer:
-    """The Sealer for the active primitives. `assemble(tc) -> bytes` assembles the object code;
+def make_gvt_access_builder(generator, assemble, primitives, signer, trace_bytes_fn) -> GvtAccessBuilder:
+    """The GvtAccessBuilder for the active primitives. `assemble(tc) -> bytes` assembles the object code;
     `trace_bytes_fn(code, input, emul_table) -> cer` runs the single per-input resolution trace of
     already-assembled machine code; `signer` is the PAC signer used by resolve when 'pac' is active
     (None otherwise)."""
@@ -1182,5 +1182,5 @@ def make_sealer(generator, assemble, primitives, signer, trace_bytes_fn) -> Seal
     if prims not in (frozenset(), frozenset({"canon"}), frozenset({"branch_target"}),
                      frozenset({"mte"}), frozenset({"pac"}), frozenset({"pac", "mte"}),
                      frozenset({"pac", "signext"})):
-        raise ValueError(f"unsupported seal primitives: {primitives!r}")
-    return Sealer(generator, assemble, prims, signer, trace_bytes_fn)
+        raise ValueError(f"unsupported GVT access primitives: {primitives!r}")
+    return GvtAccessBuilder(generator, assemble, prims, signer, trace_bytes_fn)

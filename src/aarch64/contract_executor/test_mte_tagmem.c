@@ -227,7 +227,7 @@ int main(void) {
 	 *      to the tag (mod 16, Exclude=0); SUBG differs from ADDG only in subtracting the ADDRESS.
 	 *      REGRESSION: SUBG once subtracted uimm4 from the tag (wrong sign). That mis-resolved
 	 *      tag-dependent branches (e.g. TBZ on a tag bit), so the CE marked an architectural,
-	 *      tag-gated access as speculative and the sealer decoyed a retiring load -> false NI
+	 *      tag-gated access as speculative and the builder decoyed a retiring load -> false NI
 	 *      positive. ---- */
 	memset(&SS, 0, sizeof(SS));
 	set_reg(1, ((uint64_t)0x1 << 56) | 0x1000ull);

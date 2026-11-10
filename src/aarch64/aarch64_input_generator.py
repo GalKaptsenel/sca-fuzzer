@@ -7,7 +7,7 @@ from ..input_generator import NumpyRandomInputGenerator
 from ..interfaces import Input
 from ..config import CONF
 from .aarch64_input_layout import NZCVScheme
-from .seal.pac import pac_enabled
+from .gvt.pac import pac_enabled
 from . import aarch64_executor_input_encoder as wire
 
 

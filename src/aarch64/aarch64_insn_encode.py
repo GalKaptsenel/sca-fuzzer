@@ -45,7 +45,7 @@ def get_movk_shift(word: int) -> int:
 
 
 def xpac_word(data_key: bool, rd: int) -> int:
-    """XPACD Xd (data key) or XPACI Xd (instruction key) — the seal's arch-safe strip op."""
+    """XPACD Xd (data key) or XPACI Xd (instruction key) — the GVT access's arch-safe strip op."""
     return (0xDAC147E0 if data_key else 0xDAC143E0) | (rd & 0x1F)
 
 
@@ -59,7 +59,7 @@ _ADDG_ID = 0x246
 
 
 def addg_word(rd: int, tag_delta: int) -> int:
-    """ADDG Xd, Xd, #0, #tag_delta — the seal's MTE retag (uimm6=0, Xn=Xd=rd)."""
+    """ADDG Xd, Xd, #0, #tag_delta — the GVT access's MTE retag (uimm6=0, Xn=Xd=rd)."""
     return 0x91800000 | ((tag_delta & 0xF) << 10) | ((rd & 0x1F) << 5) | (rd & 0x1F)
 
 

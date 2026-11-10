@@ -1168,7 +1168,7 @@ static void test_integration_register_offset(void) {
 
 static void test_integration_regoff_noncanonical_base_preserved(void) {
     /*
-     * The seal's SUB Rn,Rn,Rm leaves X3 a non-canonical small value (3) while EA = X3+X4 stays in
+     * The GVT access's SUB Rn,Rn,Rm leaves X3 a non-canonical small value (3) while EA = X3+X4 stays in
      * the sandbox. apply_fixups' delta restore must leave X3 == 3; the old kbase-forcing round-trip
      * gave 0xFF00000000000003, which later corrupted an AUT* context.
      */

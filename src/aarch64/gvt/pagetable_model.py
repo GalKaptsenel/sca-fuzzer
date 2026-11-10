@@ -1,11 +1,11 @@
 """AArch64 VMSAv8-64 page-table descriptor model (4 KB granule, stage 1).
 
-The single source of truth for descriptor bit layout. Everything else (the PTE sealing primitive,
+The single source of truth for descriptor bit layout. Everything else (the PTE GVT access primitive,
 input encoder, the kernel-facing environment plan) reasons about page-table state by FIELD NAME --
 `valid`, `attr_indx`, `ap`, `uxn`, ... -- and never by raw bit offset or magic mask. Add or change a
 descriptor bit here once and the rest of the stack follows.
 
-Pure and dependency-free (stdlib only) so the low-level config, the CE, and the sealer can all
+Pure and dependency-free (stdlib only) so the low-level config, the CE, and the builder can all
 import it without a cycle. Two layouts are provided:
 
   * `LEAF_LAYOUT`  -- a level-3 page descriptor (the leaf that maps a 4 KB page).

@@ -1,6 +1,6 @@
-"""GlobalValueTable (GVT): an in-register table of per-input seal values.
+"""GlobalValueTable (GVT): an in-register table of per-input GVT access values.
 
-Like a GOT but in a register: a seal reads its value from the table (loaded from the input).
+Like a GOT but in a register: a GVT access reads its value from the table (loaded from the input).
 """
 from abc import ABC, abstractmethod
 from typing import List
@@ -46,7 +46,7 @@ class GVTImage(ABC):
 
 
 class GlobalValueTable(ABC):
-    """Register storage for seal values; the backing registers (vector/GPR) and count are hidden.
+    """Register storage for GVT access values; the backing registers (vector/GPR) and count are hidden.
     Built with a bit capacity; raises GlobalValueTableCapacityExceeded when allocation exceeds it."""
 
     @abstractmethod
@@ -97,7 +97,7 @@ class _VectorGVTImage(GVTImage):
 
 
 class VectorGlobalValueTable(GlobalValueTable):
-    """Seal-value storage backed by the vector registers (v31 down to v0). `capacity_bits` is rounded
+    """GVT value storage backed by the vector registers (v31 down to v0). `capacity_bits` is rounded
     up to whole registers; values are byte-aligned, top register first, never straddling one."""
 
     def __init__(self, capacity_bits: int) -> None:

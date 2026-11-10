@@ -1,10 +1,10 @@
 """Regular fuzzer with PAC/MTE (needs /dev/executor + the contract executor).
 
-Verifies the routing (no PAC/MTE -> plain executor; PAC / MTE / both -> sealed executor with the
-right primitives) and the per-input sealing of Aarch64RegularSealedExecutor, now driven through the
-new Sealer/SealedTestCase pipeline (src/aarch64/seal/sealer.py): every architectural slot is
+Verifies the routing (no PAC/MTE -> plain executor; PAC / MTE / both -> instrumented executor with the
+right primitives) and the per-input GVT access of Aarch64RegularGvtExecutor, now driven through the
+new GvtAccessBuilder/GvtTestCase pipeline (src/aarch64/GVT access/builder.py): every architectural slot is
 genuine (correct signature/tag — arch-safe); speculative slots are genuine or decoyed by a
-per-sealing-class coin flip (consistent within a class, shared by every class member).
+per-GVT access-class coin flip (consistent within a class, shared by every class member).
 """
 import os
 import shutil
@@ -20,7 +20,7 @@ _ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 from src.config import CONF
 from src.isa_loader import InstructionSet
 from src.aarch64.aarch64_generator import Aarch64RandomGenerator
-from src.aarch64.seal.sealer import PacSealing, MteSealing
+from src.aarch64.gvt.builder import PacGvtAccess, MteGvtAccess
 from src import factory
 
 _BASE = ["BASE-ARITH", "BASE-LOGICAL", "BASE-SHIFT", "BASE-BRANCH", "BASE-MEM-LOAD", "BASE-MEM-STORE"]
@@ -31,20 +31,20 @@ def _has_dev():
 
 
 def _value_entries(ex, resolved):
-    """The resolved PAC/MTE entries (the value sealings, excluding the sandbox clamps)."""
-    value_ids = {id(s) for s in getattr(ex._sealed, "_pac", [])} \
-        | {id(s) for s in getattr(ex._sealed, "_mte", [])}
-    return [r for r in resolved._entries if id(r.sealing) in value_ids]
+    """The resolved PAC/MTE entries (the value GVT accesses, excluding the sandbox clamps)."""
+    value_ids = {id(s) for s in getattr(ex._gvt_tc, "_pac", [])} \
+        | {id(s) for s in getattr(ex._gvt_tc, "_mte", [])}
+    return [r for r in resolved._entries if id(r.access) in value_ids]
 
 
 def _lane(image, location):
-    """The little-endian value a seal's GVT lane holds in `image` (a genuine()/decoy() SIMD image)."""
+    """The little-endian value a GVT access's GVT lane holds in `image` (a genuine()/decoy() SIMD image)."""
     rng = location.byte_range()
     return int.from_bytes(image[rng.start:rng.stop], "little")
 
 
 def _genuine_lane(s, value):
-    """What this seal's lane holds for the genuine `value`: its SealValue's encoding, truncated to the
+    """What this GVT access's lane holds for the genuine `value`: its GvtValue's encoding, truncated to the
     lane width (exactly what the image stores)."""
     width = len(s.location.byte_range())
     return s.value.encode(value) & ((1 << (8 * width)) - 1)
@@ -87,15 +87,15 @@ class _ConfIsolated(unittest.TestCase):
         return d
 
 
-class RegularSealedRoutingTest(_ConfIsolated):
+class RegularGvtRoutingTest(_ConfIsolated):
     """factory.get_executor selects the right executor for each category combination."""
 
     @classmethod
     def setUpClass(cls):
         if not _has_dev():
             raise unittest.SkipTest("kernel module not loaded — /dev/executor missing")
-        from src.aarch64.aarch64_executor import (Aarch64LocalExecutor, Aarch64RegularSealedExecutor)
-        cls.Local, cls.Sealed = Aarch64LocalExecutor, Aarch64RegularSealedExecutor
+        from src.aarch64.aarch64_executor import (Aarch64LocalExecutor, Aarch64RegularGvtExecutor)
+        cls.Local, cls.Gvt = Aarch64LocalExecutor, Aarch64RegularGvtExecutor
         cls._load_conf("config_pac_mte_basic.yml")   # fuzzer: basic
 
     def _executor_for(self, categories):
@@ -110,17 +110,17 @@ class RegularSealedRoutingTest(_ConfIsolated):
 
     def test_pac_only(self):
         ex = self._executor_for(["PAC"] + _BASE)
-        self.assertIsInstance(ex, self.Sealed)
+        self.assertIsInstance(ex, self.Gvt)
         self.assertEqual(ex._primitives, {"pac"})
 
     def test_mte_only(self):
         ex = self._executor_for(["MTE", "MTE-TAGMEM"] + _BASE)
-        self.assertIsInstance(ex, self.Sealed)
+        self.assertIsInstance(ex, self.Gvt)
         self.assertEqual(ex._primitives, {"mte"})
 
     def test_pac_and_mte(self):
         ex = self._executor_for(["PAC", "MTE", "MTE-TAGMEM"] + _BASE)
-        self.assertIsInstance(ex, self.Sealed)
+        self.assertIsInstance(ex, self.Gvt)
         self.assertEqual(ex._primitives, {"pac", "mte"})
 
     def test_mte_tags_fed_only_when_mte_active(self):
@@ -137,8 +137,8 @@ class RegularSealedRoutingTest(_ConfIsolated):
                          [MTE_INITIAL_DEFAULT_TAG] * MTE_TAG_COUNT)
 
 
-class RegularSealedSealingTest(_ConfIsolated):
-    """Per-input sealing correctness, driving the real seal/resolve pipeline (no hardware step)."""
+class RegularGvtAccessTest(_ConfIsolated):
+    """Per-input GVT access correctness, driving the real GVT access/resolve pipeline (no hardware step)."""
 
     @classmethod
     def setUpClass(cls):
@@ -156,31 +156,31 @@ class RegularSealedSealingTest(_ConfIsolated):
         return ex, gen
 
     def _has_value_slots(self, ex) -> bool:
-        return bool(getattr(ex._sealed, "_pac", []) or getattr(ex._sealed, "_mte", []))
+        return bool(getattr(ex._gvt_tc, "_pac", []) or getattr(ex._gvt_tc, "_mte", []))
 
     def _assert_arch_genuine(self, ex, resolved, image, violations):
         """Every architectural value slot's GVT lane in `image` must carry the genuine value."""
         for r in _value_entries(ex, resolved):
             if r.speculative:
                 continue
-            s = r.sealing
-            if isinstance(s, PacSealing):
+            s = r.access
+            if isinstance(s, PacGvtAccess):
                 if not s.strip and _pac_forged(image, s, r.value):   # a strip site carries no signature
                     violations.append(f"forged PAC on arch slot reg={s.value_reg}")
-            elif isinstance(s, MteSealing):
+            elif isinstance(s, MteGvtAccess):
                 if _mte_wrong(image, s, r.value):
                     violations.append(f"wrong MTE tag on arch slot reg={s.value_reg}")
 
     def _accumulate_coverage(self, ex, resolved, image, cov):
         for r in _value_entries(ex, resolved):
-            s = r.sealing
+            s = r.access
             if not r.speculative:
                 cov["arch_genuine"] += 1
-            elif isinstance(s, PacSealing) and s.strip:
+            elif isinstance(s, PacGvtAccess) and s.strip:
                 cov["spec_strip"] += 1
-            elif isinstance(s, PacSealing) and _pac_forged(image, s, r.value):
+            elif isinstance(s, PacGvtAccess) and _pac_forged(image, s, r.value):
                 cov["spec_decoy"] += 1
-            elif isinstance(s, MteSealing) and _mte_wrong(image, s, r.value):
+            elif isinstance(s, MteGvtAccess) and _mte_wrong(image, s, r.value):
                 cov["spec_decoy"] += 1
 
     def test_arch_genuine_spec_decoy_with_corner_cases(self):
@@ -199,17 +199,17 @@ class RegularSealedSealingTest(_ConfIsolated):
             tcs += 1
             ex._sandbox_base, _ = ex.read_base_addresses()
             for inp in ig.generate(3):
-                resolved = ex._sealed.resolve(inp)               # fresh per-input resolve
+                resolved = ex._gvt_tc.resolve(inp)               # fresh per-input resolve
                 for i in range(8):                               # many minted decoys (distinct seeds)
                     image = resolved.decoy(random.Random(i))     # the per-variant GVT image
                     self._assert_arch_genuine(ex, resolved, image, violations)
                     self._accumulate_coverage(ex, resolved, image, cov)
         self.assertEqual(violations, [], f"arch slots not genuine: {violations[:5]}")
-        self.assertGreater(tcs, 0, "no sealable test cases generated")
+        self.assertGreater(tcs, 0, "no instrumentable test cases generated")
         self.assertGreater(cov["arch_genuine"], 0, f"no arch slots seen ({cov})")
         self.assertGreater(cov["spec_decoy"], 0, f"no speculative decoy seen ({cov})")
 
-    def _seal_a_tc(self, ex, gen, n_inputs=4):
+    def _build_a_tc(self, ex, gen, n_inputs=4):
         ig = factory.get_input_generator(_INPUT_SEED); tmp = self._tmpdir()
         for _ in range(8 * 6):
             tc = gen.create_test_case(os.path.join(tmp, "t.asm"), disable_assembler=True)
@@ -219,49 +219,49 @@ class RegularSealedSealingTest(_ConfIsolated):
             inputs = ig.generate(n_inputs)
             ctraces, _t, _tr = ex.trace_test_case_with_taints(inputs, CONF.model_max_nesting)
             return inputs, ctraces
-        self.skipTest("no sealable test case generated")
+        self.skipTest("no instrumentable test case generated")
 
     def test_one_tc_per_input_and_merged_by_class(self):
         """caveat-4 merge: same-class inputs (equal collapse_key) get byte-identical kernel input
-        files with no shared state — the determinism of _seal_input, not a cache, guarantees it."""
+        files with no shared state — the determinism of _build_gvt_input, not a cache, guarantees it."""
         ex, gen = self._executor()
-        inputs, ctraces = self._seal_a_tc(ex, gen)
+        inputs, ctraces = self._build_a_tc(ex, gen)
         self.assertEqual(len(ctraces), len(inputs))
         by_class = defaultdict(list)
         for inp in inputs:
-            by_class[ex._sealed.resolve(inp).collapse_key].append(ex._seal_input(inp).gvt)
+            by_class[ex._gvt_tc.resolve(inp).collapse_key].append(ex._build_gvt_input(inp).gvt)
         for plans in by_class.values():
             self.assertTrue(all(p == plans[0] for p in plans),
                             "same-class inputs must run the identical program")
 
     def test_forced_genuine_or_decoy(self):
         """The per-class coin is _DECOY_PROB: 0 forces genuine, 1 forces the class decoy; both a pure
-        function of the sealing class + salt, so _seal_input is stable across calls."""
+        function of the GVT access class + salt, so _build_gvt_input is stable across calls."""
         for prob in (0.0, 1.0):
             ex, gen = self._executor()
             ex._DECOY_PROB = prob                                     # override the per-class coin
-            inputs, _ = self._seal_a_tc(ex, gen)
+            inputs, _ = self._build_a_tc(ex, gen)
             for inp in inputs:
-                resolved = ex._sealed.resolve(inp)
-                plan = ex._seal_input(inp).gvt
-                self.assertEqual(plan, ex._seal_input(inp).gvt, "must be deterministic")
+                resolved = ex._gvt_tc.resolve(inp)
+                plan = ex._build_gvt_input(inp).gvt
+                self.assertEqual(plan, ex._build_gvt_input(inp).gvt, "must be deterministic")
                 if prob == 0.0:
                     self.assertEqual(plan, resolved.genuine(), "prob 0 must be genuine everywhere")
 
-    def test_pac_seal_prob_matches_seal_rate_and_stays_sandbox_safe(self):
-        """pac_seal_prob is the probability that an eligible memory access is PAC-sealed (standalone
-        AUT* seals are arch-safety, not gated). Two properties:
-          * the observed seal rate over many data-access sites tracks pac_seal_prob;
-          * a skipped access keeps its offset cancellation, so an unsealed (clamp-only) TC still
+    def test_pac_access_prob_matches_access_rate_and_stays_sandbox_safe(self):
+        """pac_access_prob is the probability that an eligible memory access is PAC-instrumented (standalone
+        AUT* GVT accesses are arch-safety, not gated). Two properties:
+          * the observed GVT access rate over many data-access sites tracks pac_access_prob;
+          * a skipped access keeps its offset cancellation, so an uninstrumented (clamp-only) TC still
             traces on the CE without escaping the sandbox.
-        For a TC, sites and standalone seals are salt-independent: p=1.0 seals every access
-        (n_all = sites + standalone) and p=0.0 seals none (n_none = standalone), so sites = n_all -
-        n_none and the sealed-data count at p is len(_pac) - n_none."""
+        For a TC, sites and standalone GVT accesses are salt-independent: p=1.0 GVT accesses every access
+        (n_all = sites + standalone) and p=0.0 GVT accesses none (n_none = standalone), so sites = n_all -
+        n_none and the instrumented-data count at p is len(_pac) - n_none."""
         P = 0.5
-        saved = CONF.pac_seal_prob
+        saved = CONF.pac_access_prob
         saved_cats = CONF.instruction_categories
         try:
-            CONF.instruction_categories = ["PAC"] + _BASE   # pure-PAC -> PacSealedTestCase
+            CONF.instruction_categories = ["PAC"] + _BASE   # pure-PAC -> PacGvtTestCase
             isa = InstructionSet(os.path.join(_ROOT, "base.json"), CONF.instruction_categories)
             gen = Aarch64RandomGenerator(isa, _PROGRAM_SEED)
             ex = factory.get_executor(generator=gen)
@@ -269,36 +269,36 @@ class RegularSealedSealingTest(_ConfIsolated):
             self.assertEqual(ex._primitives, {"pac"})
             ig = factory.get_input_generator(_INPUT_SEED); tmp = self._tmpdir()
 
-            total_sites = sealed = 0
-            traced_unsealed = False
+            total_sites = instrumented = 0
+            traced_uninstrumented = False
             for _ in range(8 * 12):
                 if total_sites >= 120:
                     break
                 tc = gen.create_test_case(os.path.join(tmp, "t.asm"), disable_assembler=True)
-                CONF.pac_seal_prob = 1.0; ex.load_test_case(tc); n_all = len(ex._sealed._pac)
-                CONF.pac_seal_prob = 0.0; ex.load_test_case(tc); n_none = len(ex._sealed._pac)
+                CONF.pac_access_prob = 1.0; ex.load_test_case(tc); n_all = len(ex._gvt_tc._pac)
+                CONF.pac_access_prob = 0.0; ex.load_test_case(tc); n_none = len(ex._gvt_tc._pac)
                 sites = n_all - n_none
                 if sites == 0:
                     continue
-                if not traced_unsealed:   # CONF is 0.0 -> fully unsealed; must still stay in-sandbox
+                if not traced_uninstrumented:   # CONF is 0.0 -> fully uninstrumented; must still stay in-sandbox
                     ex.trace_test_case_with_taints(ig.generate(2), CONF.model_max_nesting)
-                    traced_unsealed = True
-                CONF.pac_seal_prob = P; ex.load_test_case(tc)
-                sealed += len(ex._sealed._pac) - n_none
+                    traced_uninstrumented = True
+                CONF.pac_access_prob = P; ex.load_test_case(tc)
+                instrumented += len(ex._gvt_tc._pac) - n_none
                 total_sites += sites
 
             if total_sites < 80:
                 self.skipTest(f"too few data-access sites ({total_sites}) for a rate check")
-            rate = sealed / total_sites
+            rate = instrumented / total_sites
             self.assertAlmostEqual(rate, P, delta=0.15,
-                                   msg=f"seal rate {rate:.3f} over {total_sites} sites != {P}")
-            self.assertTrue(traced_unsealed)
+                                   msg=f"GVT access rate {rate:.3f} over {total_sites} sites != {P}")
+            self.assertTrue(traced_uninstrumented)
         finally:
-            CONF.pac_seal_prob = saved
+            CONF.pac_access_prob = saved
             CONF.instruction_categories = saved_cats
 
     def test_collapse_key_groups_identical_resolutions(self):
-        """The same input resolved twice yields the same collapse_key (the sealing class); a class is
+        """The same input resolved twice yields the same collapse_key (the GVT access class); a class is
         minted once and shared. Sanity: a single input maps to exactly one class TC."""
         ex, gen = self._executor()
         ig = factory.get_input_generator(_INPUT_SEED); tmp = self._tmpdir()
@@ -309,10 +309,10 @@ class RegularSealedSealingTest(_ConfIsolated):
                 continue
             ex._sandbox_base, _ = ex.read_base_addresses()
             inp = ig.generate(1)[0]
-            self.assertEqual(ex._sealed.resolve(inp).collapse_key,
-                             ex._sealed.resolve(inp).collapse_key)
+            self.assertEqual(ex._gvt_tc.resolve(inp).collapse_key,
+                             ex._gvt_tc.resolve(inp).collapse_key)
             return
-        self.skipTest("no sealable test case generated")
+        self.skipTest("no instrumentable test case generated")
 
 
 if __name__ == "__main__":

@@ -1,10 +1,10 @@
-"""Sealing resolution is a pure function of (sealing class, per-test-case salt): no live randomness,
+"""GvtAccess resolution is a pure function of (GVT access class, per-test-case salt): no live randomness,
 no cross-input state. This lets the executor drop the plan cache — same-class inputs forge identically
 and every variant reproduces across trace passes. Verifies:
   - _wrong_sigs: deterministic from (correct_sig, mask, salt); perturbs only the field bits; every
     entry is a genuine AUTH failure; corner cases (tiny mask, zero mask).
-  - PacSealing.seal strip choice is seeded (same rng -> same render).
-  - ResolvedSealingTestCase.genuine()/decoy(rng): reproducible per seed; genuine fixed per salt.
+  - PacGvtAccess.GVT access strip choice is seeded (same rng -> same render).
+  - ResolvedGvtTestCase.genuine()/decoy(rng): reproducible per seed; genuine fixed per salt.
 No kernel module needed.
 """
 import os
@@ -21,8 +21,8 @@ from src.config import CONF
 from src.interfaces import GeneratorException, Instruction, RegisterOperand
 from src.isa_loader import InstructionSet
 from src.aarch64.aarch64_generator import Aarch64RandomGenerator
-from src.aarch64.seal.pac import PacSign, build_pac_specs
-from src.aarch64.seal.sealer import (_wrong_sigs, _resolve_pac, PacSealing, ResolvedSealingTestCase,
+from src.aarch64.gvt.pac import PacSign, build_pac_specs
+from src.aarch64.gvt.builder import (_wrong_sigs, _resolve_pac, PacGvtAccess, ResolvedGvtTestCase,
                                       _Resolved)
 from tests.conf_isolation import setUpModule, tearDownModule  # noqa: F401  (restores CONF + cwd)
 
@@ -67,8 +67,8 @@ class WrongSigsTest(unittest.TestCase):
             _wrong_sigs(_CORRECT, 0x0, salt=4)
 
 
-@unittest.skip("PAC/MTE seals pending GlobalValueTable migration")
-class SealResolutionDeterminismTest(unittest.TestCase):
+@unittest.skip("PAC/MTE GVT accesses pending GlobalValueTable migration")
+class GvtResolutionDeterminismTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         CONF.load(os.path.join(_ROOT, "config_pac_mte_basic.yml"))
@@ -77,26 +77,26 @@ class SealResolutionDeterminismTest(unittest.TestCase):
         _, auth_specs, xpac_specs = build_pac_specs(gen)
         cls.enc = PacSign(gen, auth_specs, xpac_specs, 0xFFFF << 48)
 
-    def _pac_sealing(self) -> PacSealing:
+    def _pac_access(self) -> PacGvtAccess:
         inst = Instruction("autia", True, "", False)
         inst.operands = [RegisterOperand("x0", 64, True, True),
                          RegisterOperand("x1", 64, True, False)]
-        return PacSealing("x0", inst, self.enc)
+        return PacGvtAccess("x0", inst, self.enc)
 
-    def _resolved(self, salt: int) -> ResolvedSealingTestCase:
+    def _resolved(self, salt: int) -> ResolvedGvtTestCase:
         """A synthetic one-slot resolution: a speculative (decoy-eligible) PAC entry with a forgery
         pool, so decoy() can perturb it. No CE / kernel needed."""
-        ps = self._pac_sealing()
+        ps = self._pac_access()
         # wrong signatures differ in the PAC field window (bits [63:48]), like a real forgery pool
         alts = [0x1111 << 48, 0x2222 << 48, 0x3333 << 48, 0x4444 << 48]
         entry = _Resolved(ps, _CORRECT, alts, spec_nesting=5)
-        offsets = {id(ps): (0, 4)}                 # seal() emits two words (MOVK + AUTH/XPAC)
-        return ResolvedSealingTestCase([entry], bytes(16), offsets, salt, cer=None)
+        offsets = {id(ps): (0, 4)}                 # GVT access() emits two words (MOVK + AUTH/XPAC)
+        return ResolvedGvtTestCase([entry], bytes(16), offsets, salt, cer=None)
 
-    def test_pac_seal_strip_is_seed_deterministic(self):
-        ps = self._pac_sealing()
-        run1 = [i.name.lower() for i in ps.seal(0x1234, random.Random(9))]
-        run2 = [i.name.lower() for i in ps.seal(0x1234, random.Random(9))]
+    def test_pac_access_strip_is_seed_deterministic(self):
+        ps = self._pac_access()
+        run1 = [i.name.lower() for i in ps.emit(0x1234, random.Random(9))]
+        run2 = [i.name.lower() for i in ps.emit(0x1234, random.Random(9))]
         self.assertEqual(run1, run2)                       # same seed -> identical render
 
     def test_decoy_reproducible_per_seed(self):
@@ -116,21 +116,21 @@ class SealResolutionDeterminismTest(unittest.TestCase):
         self.assertGreater(len(decoys), 1, "decoy never varied across 16 seeds")
 
     def test_genuine_never_forges(self):
-        # genuine seals the correct value on every slot: the loaded signature is _CORRECT's field
+        # genuine GVT accesses the correct value on every slot: the loaded signature is _CORRECT's field
         r = self._resolved(salt=0x55)
         self.assertTrue(r.genuine(), "expected at least one genuine relocation")
 
 
-@unittest.skip("PAC/MTE seals pending GlobalValueTable migration")
-class NullDecoyEligibilityTest(SealResolutionDeterminismTest):
+@unittest.skip("PAC/MTE GVT accesses pending GlobalValueTable migration")
+class NullDecoyEligibilityTest(GvtResolutionDeterminismTest):
     """A slot is decoy-eligible iff it is speculative-or-unreached (never architectural) and carries
     alternatives. When no slot is eligible, decoy() reproduces genuine() (a null decoy) and has_decoy()
     is False, so the input can be dropped before it is ever compared against itself as noise."""
 
-    def _one_slot(self, spec_nesting, alts) -> ResolvedSealingTestCase:
-        ps = self._pac_sealing()
+    def _one_slot(self, spec_nesting, alts) -> ResolvedGvtTestCase:
+        ps = self._pac_access()
         entry = _Resolved(ps, _CORRECT, alts, spec_nesting=spec_nesting)
-        return ResolvedSealingTestCase([entry], bytes(16), {id(ps): (0, 4)}, salt=0x55, cer=None)
+        return ResolvedGvtTestCase([entry], bytes(16), {id(ps): (0, 4)}, salt=0x55, cer=None)
 
     _ALTS = [0x1111 << 48, 0x2222 << 48, 0x3333 << 48]
 
@@ -160,8 +160,8 @@ class NullDecoyEligibilityTest(SealResolutionDeterminismTest):
         self.assertFalse(r.has_decoy())
 
 
-@unittest.skip("PAC/MTE seals pending GlobalValueTable migration")
-class UnreachedPacForgeTest(SealResolutionDeterminismTest):
+@unittest.skip("PAC/MTE GVT accesses pending GlobalValueTable migration")
+class UnreachedPacForgeTest(GvtResolutionDeterminismTest):
     """An unreached PAC slot (its XPAC never in the trace) is still decoy-eligible: the pool is forged
     over the sandbox base, so every wrong signature keeps the pointer's non-field bits (the after-XPAC
     then re-converges the decoy with the baseline) — no traced pointer and no scratch register needed."""
@@ -195,7 +195,7 @@ class UnreachedPacForgeTest(SealResolutionDeterminismTest):
         return [self._Ite(self._Cpu(pc=0, base=self._SANDBOX_BASE))]
 
     def test_unreached_pac_is_eligible_and_reconverges(self):
-        s = self._pac_sealing()
+        s = self._pac_access()
         value, alts, spec = _resolve_pac(s, self._unreached_cer(), self._Layout(),
                                          self._Signer(self._MASK), keys=tuple(range(10)), salt=0x99)
         self.assertIsNone(value, "unreached: no genuine signature (baseline strips)")
@@ -208,7 +208,7 @@ class UnreachedPacForgeTest(SealResolutionDeterminismTest):
                                 "each forged sig must differ from the base signature in the PAC field")
 
 
-@unittest.skip("PAC/MTE seals pending GlobalValueTable migration")
+@unittest.skip("PAC/MTE GVT accesses pending GlobalValueTable migration")
 class PacFieldWindowTest(unittest.TestCase):
     """PacSign deduces its MOVK windows from the PAC field mask, and the emitter produces one MOVK per
     window — so a field reaching below bit 48 (a narrow-VA core) emits more than one."""
@@ -220,11 +220,11 @@ class PacFieldWindowTest(unittest.TestCase):
         cls.gen = Aarch64RandomGenerator(isa, 0x1234)
         _, cls.auth_specs, cls.xpac_specs = build_pac_specs(cls.gen)
 
-    def _sealing(self, pac_bits_mask):
+    def _access(self, pac_bits_mask):
         enc = PacSign(self.gen, self.auth_specs, self.xpac_specs, pac_bits_mask)
         inst = Instruction("autia", True, "", False)
         inst.operands = [RegisterOperand("x0", 64, True, True), RegisterOperand("x1", 64, True, False)]
-        return PacSealing("x0", inst, enc)
+        return PacGvtAccess("x0", inst, enc)
 
     def test_window_count_from_mask(self):
         for mask, n in ((0x7F << 48, 1), ((0x7F << 48) | (0xFF << 40), 2),
@@ -233,18 +233,18 @@ class PacFieldWindowTest(unittest.TestCase):
             self.assertEqual(enc.n_sig_movks, n)
 
     def test_one_window_slot_and_fill(self):
-        ps = self._sealing(0x7F << 48)                                    # 48-bit VA: PAC in top window
-        self.assertEqual([i.name.lower() for i in ps.seal(None, None)], ["nop", "nop"])
+        ps = self._access(0x7F << 48)                                    # 48-bit VA: PAC in top window
+        self.assertEqual([i.name.lower() for i in ps.emit(None, None)], ["nop", "nop"])
         signed = 0x0022000012345678
-        movks = [i for i in ps.seal(signed, random.Random(0)) if i.name.lower() == "movk"]
+        movks = [i for i in ps.emit(signed, random.Random(0)) if i.name.lower() == "movk"]
         self.assertEqual([(int(m.operands[2].value), int(m.operands[1].value)) for m in movks],
                          [(48, (signed >> 48) & 0xFFFF)])
 
     def test_two_window_slot_and_fill(self):
-        ps = self._sealing((0x7F << 48) | (0xFF << 40))                   # narrow VA: field reaches below 48
-        self.assertEqual([i.name.lower() for i in ps.seal(None, None)], ["nop", "nop", "nop"])
+        ps = self._access((0x7F << 48) | (0xFF << 40))                   # narrow VA: field reaches below 48
+        self.assertEqual([i.name.lower() for i in ps.emit(None, None)], ["nop", "nop", "nop"])
         signed = 0x0022c20012345678
-        movks = [i for i in ps.seal(signed, random.Random(0)) if i.name.lower() == "movk"]
+        movks = [i for i in ps.emit(signed, random.Random(0)) if i.name.lower() == "movk"]
         self.assertEqual({int(m.operands[2].value): int(m.operands[1].value) for m in movks},
                          {32: (signed >> 32) & 0xFFFF, 48: (signed >> 48) & 0xFFFF})
 

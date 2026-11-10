@@ -1,5 +1,5 @@
 /*
- * Seal-site op-emulator for MTE: supply the accessed cell's allocation tag to a sealed access so the
+ * GVT-access-site op-emulator for MTE: supply the accessed cell's allocation tag to an instrumented access so the
  * genuine binary's tag check matches. The site is [UMOV x27,applied; BFI tag; access; UMOV x27,cell;
  * BFI tag]: the pre-BFI applies the tag the variant tests (genuine == the cell tag), the post-BFI
  * re-converges the pointer onto the cell tag. MATERIALIZE reads the cell tag at the access's effective
@@ -9,7 +9,7 @@
  * Kept separate from mte_tag_plugin.c (the self-contained tag-memory emulator) because it pulls in the
  * emulation-table framework and the instruction decoder.
  */
-#include "mte_seal_plugin.h"
+#include "mte_gvt_plugin.h"
 #include "mte_tag_plugin.h"
 #include "simulation.h"
 #include "simulation_state.h"
@@ -24,7 +24,7 @@ void mte_emulate_retag(struct simulation_state *sim_state, const struct emul_row
 	if (EMUL_PHASE_IDLE == phase) {
 		return;
 	}
-	/* An MTE_RETAG row only exists when MTE sealing is active, so tag memory is seeded; a missing one
+	/* An MTE_RETAG row only exists when MTE GVT access is active, so tag memory is seeded; a missing one
 	 * is a bug, not a tolerable state — fail loud, as the op dispatch does. */
 	if (NULL == sim_state || !mte_tagmem_active()) {
 		fprintf(stderr, "[CE FATAL] mte_emulate_retag: sim_state=%p tagmem_active=%d -- aborting\n",

@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from src.interfaces import (TestCase, Function, BasicBlock, Instruction, MemoryOperand,  # noqa: E402
                             RegisterOperand, Actor, ActorMode, ActorPL, OT)
 from src.aarch64.aarch64_target_desc import AArch64MemRole, Aarch64TargetDesc  # noqa: E402
-from src.aarch64.seal.sealer import SandboxWalk, SandboxSealing  # noqa: E402
+from src.aarch64.gvt.builder import SandboxWalk, SandboxGvtAccess  # noqa: E402
 
 
 def _str_to_base(base_reg: str, data_reg: str) -> Instruction:

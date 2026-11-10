@@ -1,6 +1,6 @@
 # Spectre-v2 (indirect branch) / real BTB — FULLY RANDOM (no template), CT-SEQ, RICHER control flow.
 # CT-SEQ makes the speculative dispatch/target beyond-contract so the target-selecting bits are UNTAINTED;
-# boosting then varies them -> a which-target cross-input leak. No sealing.
+# boosting then varies them -> a which-target cross-input leak. No GVT access.
 # rand4 fix: rand1-3 used linear control flow (max_successors_per_bb=1) so a dispatch could never sit
 # behind an architecturally-not-taken (speculatively-taken) branch -- the template's gadget shape. Richer
 # CF (>=2 BBs, up to 2 successors) lets random programs place a dispatch in a speculative-only block.

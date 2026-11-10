@@ -1042,7 +1042,7 @@ class Measurement(NamedTuple):
     htrace: HTrace
     test_case: TestCase
     # TEMP(enacted-reloc): relocations that turn test_case's object code into the exact enacted
-    # variant; () when the test ran unrelocated. Persisting them reconstructs a randomly-sealed
+    # variant; () when the test ran unrelocated. Persisting them reconstructs a randomly-instrumented
     # variant that base+id can't. Temporary until the enacted test is modeled as a first-class object.
     relocs: tuple
 

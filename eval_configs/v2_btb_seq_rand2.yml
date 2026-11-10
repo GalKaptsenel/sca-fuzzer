@@ -1,7 +1,7 @@
 # Spectre-v2 (indirect branch) / real BTB — FULLY RANDOM (no template), CT-SEQ.
 # CT-SEQ makes the speculative dispatch/target beyond-contract so the target-selecting bits are UNTAINTED;
 # boosting then varies them, giving each contract class members that train the BTB to different targets ->
-# which-target cross-input leak. No sealing. Low avg_mem_accesses cuts self-inflicted v2 in random targets.
+# which-target cross-input leak. No GVT access. Low avg_mem_accesses cuts self-inflicted v2 in random targets.
 # A canonical leaker input trains a BTB entry; a later ct-equal prober input speculatively jumps to the
 # mistrained target. Standard priming discards this cross-input leftover; cross_input_priming localizes it.
 # cross_input_leaks_only:true forces STRICTLY cross-input (non-self) leaks -> no "self-inflicted" same-input

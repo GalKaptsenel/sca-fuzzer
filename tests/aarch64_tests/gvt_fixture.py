@@ -1,5 +1,5 @@
-"""Shared bootstrap for the sealed/speculative-exception executor tests: a real Aarch64SpeculativeExceptionExecutor over a
-generated PAC/MTE-sealable test case, exercised against the REAL contract executor (resolve is a
+"""Shared bootstrap for the instrumented/speculative-exception executor tests: a real Aarch64SpeculativeExceptionExecutor over a
+generated PAC/MTE-instrumentable test case, exercised against the REAL contract executor (resolve is a
 software CE trace; no HW measurement needed). A mixin, so unittest never collects it as a test.
 Needs /dev/executor + the CE. Deterministic (fixed seeds), and each test draws its inputs from a fresh
 input generator, so a test's inputs never depend on which tests ran before it."""
@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from src.config import CONF
 from src.isa_loader import InstructionSet
 from src.aarch64.aarch64_generator import Aarch64RandomGenerator
-from src.aarch64.seal.sealer import MtePacSealedTestCase
+from src.aarch64.gvt.builder import MtePacGvtTestCase
 from src import factory
 
 _ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
@@ -24,7 +24,7 @@ _MAX_TEST_CASES = 64
 _MAX_INPUTS = 16
 
 
-class SealedExecutorFixture:
+class GvtExecutorFixture:
     @classmethod
     def setUpClass(cls):
         if not os.path.exists("/dev/executor"):
@@ -37,7 +37,7 @@ class SealedExecutorFixture:
         cls.gen = Aarch64RandomGenerator(isa, _PROGRAM_SEED)
         cls.ex = Aarch64SpeculativeExceptionExecutor(cls.gen)
         cls.tmp = tempfile.mkdtemp()
-        cls._load_sealable_tc()
+        cls._load_instrumentable_tc()
 
     @classmethod
     def tearDownClass(cls):
@@ -46,23 +46,23 @@ class SealedExecutorFixture:
         CONF._borg_shared_state.update(cls._saved_conf)
 
     @classmethod
-    def _load_sealable_tc(cls):
-        """The first generated test case with a PAC/MTE sealing and a decoy-eligible input."""
+    def _load_instrumentable_tc(cls):
+        """The first generated test case with a PAC/MTE GVT access and a decoy-eligible input."""
         for _ in range(_MAX_TEST_CASES):
             tc = cls.gen.create_test_case(os.path.join(cls.tmp, "t.asm"), disable_assembler=True)
             cls.ex.load_test_case(tc)
-            assert isinstance(cls.ex._sealed, MtePacSealedTestCase), type(cls.ex._sealed)
-            if not (cls.ex._sealed._pac or cls.ex._sealed._mte):
+            assert isinstance(cls.ex._gvt_tc, MtePacGvtTestCase), type(cls.ex._gvt_tc)
+            if not (cls.ex._gvt_tc._pac or cls.ex._gvt_tc._mte):
                 continue
             igen = factory.get_input_generator(_INPUT_SEED)
             if any(cls.ex.has_decoy(i) for i in igen.generate(_MAX_INPUTS)):
-                cls.ex._sealed._resolved.clear()
+                cls.ex._gvt_tc._resolved.clear()
                 cls.tc = tc
                 return
-        raise AssertionError(f"no sealable test case with a decoy in {_MAX_TEST_CASES} (seed {_PROGRAM_SEED})")
+        raise AssertionError(f"no instrumentable test case with a decoy in {_MAX_TEST_CASES} (seed {_PROGRAM_SEED})")
 
     def setUp(self):
-        self.ex._sealed._resolved.clear()   # each test starts from a cold per-input resolve memo
+        self.ex._gvt_tc._resolved.clear()   # each test starts from a cold per-input resolve memo
         self.igen = factory.get_input_generator(_INPUT_SEED)
 
     def _input(self):

@@ -3,7 +3,7 @@ File: AArch64-specific Configuration Options
 """
 from typing import List, Optional
 
-from .seal.pagetable_model import LEAF_LAYOUT
+from .gvt.pagetable_model import LEAF_LAYOUT
 
 
 def try_get_cpu_vendor():
@@ -26,7 +26,7 @@ _option_values = {
         'speculative-exception',
     ],
     # When the speculative-exception fuzzer is selected, which input regime to run (no default):
-    # 'strict' = inputs byte-identical except the seal-value vector registers; 'contract_driven' =
+    # 'strict' = inputs byte-identical except the GVT access-value vector registers; 'contract_driven' =
     # fuzz as regular, those registers tainted per the contract like any other input.
     'speculative_exception_mode': [
         'strict',
@@ -214,14 +214,14 @@ supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "l
                                      "casp", "caspa", "caspal", "caspl",
                                      ]
 
-# AArch64-only: PAC seal probabilities (live seal path, PAC-only mode).
-# pac_seal_prob: probability that an eligible memory access is PAC-sealed
-#   (authenticated) at all. < 1 leaves some accesses unsealed (a raw,
+# AArch64-only: PAC GVT access probabilities (live GVT access path, PAC-only mode).
+# pac_access_prob: probability that an eligible memory access is PAC-instrumented
+#   (authenticated) at all. < 1 leaves some accesses uninstrumented (a raw,
 #   sandbox-clamped pointer, no AUT*). Decided once per test case.
-# pac_strip_prob: probability that a sealed slot renders as the arch-safe XPAC*
+# pac_strip_prob: probability that an instrumented slot renders as the arch-safe XPAC*
 #   strip instead of a real AUT*. A strip never poisons under speculation; an
 #   AUT* against the decoy signature does.
-pac_seal_prob: float = 1.0
+pac_access_prob: float = 1.0
 pac_strip_prob: float = 0.0
 # PAC keys are part of each input: True -> every input draws its own key set (seeded by the input);
 # False -> all inputs of the campaign share one key set (seeded by input_gen_seed).
@@ -250,26 +250,26 @@ pac_mtx1: Optional[bool] = None
 mte_native: bool = False
 
 enable_canonicality: bool = False
-canonicality_seal_prob: float = 1.0
+canonicality_access_prob: float = 1.0
 canonicality_mask: Optional[int] = None
 
-# SignExtSealing (composed with PAC): on the speculative decoy, break a pointer's sign-extension by
+# SignExtGvtAccess (composed with PAC): on the speculative decoy, break a pointer's sign-extension by
 # flipping bit 55 (the TTBR0/TTBR1 regime selector) right before a PAC-authenticated access, then flip
 # it back. The regime selector then disagrees with the never-flipped sign-extension bits [54:VA], so the
 # address is non-canonical in either regime and under TBI on or off — a translation fault. The top byte
 # [63:56] is never flipped: bit 55 already faults either way, while a top-byte flip faults only with TBI
 # off. Needs the PAC category active (the sign-ext flip composes with the per-access PAC auth).
 enable_signext: bool = False
-signext_seal_prob: float = 1.0
+signext_access_prob: float = 1.0
 
-# BranchTargetSealing: on the speculative decoy, corrupt an indirect call's target register before the
+# BranchTargetGvtAccess: on the speculative decoy, corrupt an indirect call's target register before the
 # BLR so it becomes non-canonical (high bits, like canonicality) and/or misaligned (low bits [1:0] ->
 # PC-alignment fault, an axis x86 lacks). Genuine keeps a valid target; no after-revert (the target reg
 # is a throwaway scratch). Needs indirect calls in the test cases (indirect_call_probability > 0).
-enable_branch_target_sealing: bool = False
-branch_target_seal_prob: float = 1.0
+enable_branch_target_access: bool = False
+branch_target_access_prob: float = 1.0
 branch_target_canon_mask: Optional[int] = None   # fixed non-canonical high-bit run, or None = pool
-branch_target_seal_misalign: bool = True          # include the low-bit misalignment axis in the pool
+branch_target_misalign: bool = True          # include the low-bit misalignment axis in the pool
 
 # The input regime for the speculative-exception fuzzer: 'strict' or 'contract_driven'. REQUIRED
 # (no default) when that fuzzer is selected.

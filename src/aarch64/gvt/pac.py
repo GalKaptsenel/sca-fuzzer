@@ -1,7 +1,7 @@
 """PAC pointer-authentication slot encoders + signing (AArch64).
 
 PacSign builds the MOVK-signature + AUT*/XPAC* slot instructions (the single source of PAC slot
-encodings, used by the sealer's PacSealing); PacSigner is the kernel SIGN capability (never AUTH);
+encodings, used by the builder's PacGvtAccess); PacSigner is the kernel SIGN capability (never AUTH);
 build_pac_specs derives the usable PAC/AUT*/XPAC instruction specs (AUT* via AuthInstructionSpec,
 which guarantees value_reg != ctx_reg).
 """
@@ -31,7 +31,7 @@ _AUTH_TO_PAC:  Dict[str, str] = {auth: pac  for pac, (auth, _) in _PAC_INFO.item
 
 class PacSign:
     """Builds PAC slot encodings — the MOVK-signature + AUT*/XPAC* instructions. The single source of
-    PAC slot instruction encoders, used by the sealer's PacSealing."""
+    PAC slot instruction encoders, used by the builder's PacGvtAccess."""
 
     def __init__(self, generator, auth_specs: Dict, xpac_specs: Dict, pac_bits_mask: int):
         self._generator = generator

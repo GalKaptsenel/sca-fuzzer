@@ -5,7 +5,7 @@
 #include <stddef.h>
 #include "simulation_state.h"
 
-/* The emulation table supplies a sealing site's genuine per-input value during the trace, by injecting
+/* The emulation table supplies a GVT access site's genuine per-input value during the trace, by injecting
  * it into the GVT image (sim_input.simd); base_hook then reloads the vector file from that image, so the
  * site's fixed UMOV reads the injected value. The site's code is fixed (UMOV + apply + anchor) and is
  * never patched. Each row names the site's first slot (the MATERIALIZE trigger), the byte span to its
@@ -13,7 +13,7 @@
  * pointer/context register), and the GVT lane byte offset(s) the op writes. There is no stored per-row
  * state: MATERIALIZE is a pure function of PC, so re-reaches and speculation rollback need no
  * bookkeeping (the op is idempotent per reach, the lane persists, the resolve image is discarded after).
- * The CE knows nothing about sealing — only how to route to these ops. The table is OPTIONAL and
+ * The CE knows nothing about GVT access — only how to route to these ops. The table is OPTIONAL and
  * orthogonal to the speculation contract; the caller chooses both. */
 
 enum emul_op {

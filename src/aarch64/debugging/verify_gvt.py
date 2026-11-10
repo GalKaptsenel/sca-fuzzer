@@ -1,13 +1,13 @@
-"""Low-level correctness check of generated sealed test cases: PAC, MTE, and PAC+MTE.
+"""Low-level correctness check of generated instrumented test cases: PAC, MTE, and PAC+MTE.
 
-  PAC:  per AUT* slot, the seal's sig == ground-truth HW pac_sign top16 AND sign->auth round-trips;
+  PAC:  per AUT* slot, the GVT access's sig == ground-truth HW pac_sign top16 AND sign->auth round-trips;
         the enacted code runs FPAC-free.
   SPEC options: across many decoy variants, each SPECULATIVE PAC slot is rendered as
         correct-sig+auth / wrong-sig+auth / strip(xpac) — the speculative-exception decoy diversity.
   MTE:  model-level (this box has no MTE HW): each slot renders as ADDG(delta)/NOP, deltas are
         deterministic, and speculative slots take diverse deltas across variants.
 
-Usage: verify_seal.py <config.yml> <pac|mte|both> <n_cases>
+Usage: verify_gvt.py <config.yml> <pac|mte|both> <n_cases>
 """
 import os, sys, random, re, collections
 _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
@@ -25,25 +25,25 @@ from src.aarch64.aarch64_generator import Aarch64RandomGenerator
 from src.aarch64.aarch64_executor import Aarch64SpeculativeExceptionExecutor
 from src.aarch64.aarch64_kernel import PacKeys
 from src.aarch64.aarch64_disasm import disassemble_instruction
-from src.aarch64.seal.pac import _AUTH_TO_PAC, _AUTH_TO_XPAC, _read_reg
+from src.aarch64.gvt.pac import _AUTH_TO_PAC, _AUTH_TO_XPAC, _read_reg
 from src import factory
 
 isa = InstructionSet("base.json", CONF.instruction_categories)
 gen = Aarch64RandomGenerator(isa, random.randrange(1 << 32))
 ex = Aarch64SpeculativeExceptionExecutor(gen)
 igen = factory.get_input_generator(random.randrange(1 << 32))
-os.makedirs("/tmp/_verify_seal", exist_ok=True)
+os.makedirs("/tmp/_verify_gvt", exist_ok=True)
 
 
-def find_sealable():
+def find_sites():
     for _ in range(300):
         try:
-            tc = gen.create_test_case("/tmp/_verify_seal/t.asm", disable_assembler=True)
+            tc = gen.create_test_case("/tmp/_verify_gvt/t.asm", disable_assembler=True)
         except Exception:
             continue
         ex.load_test_case(tc)
-        pac = getattr(ex._sealed, "_pac", [])
-        mte = getattr(ex._sealed, "_mte", [])
+        pac = getattr(ex._gvt_tc, "_pac", [])
+        mte = getattr(ex._gvt_tc, "_mte", [])
         if (KIND in ("pac", "both") and pac) and (KIND != "both" or mte):
             return tc
         if KIND == "mte" and mte:
@@ -82,20 +82,20 @@ mte_slots = mte_spec_seen = 0
 ran_ok = ran_fail = 0
 
 for case in range(NCASES):
-    tc = find_sealable()
+    tc = find_sites()
     if tc is None:
-        print(f"[{KIND}] no sealable test case for this config"); break
+        print(f"[{KIND}] no instrumentable test case for this config"); break
     inp = igen.generate(1)[0]
-    pac_keys = PacKeys(*inp.pac_keys)   # the input's own keys — the seal signs under these
+    pac_keys = PacKeys(*inp.pac_keys)   # the input's own keys — the GVT access signs under these
     resolved = ex._resolve(inp)
-    entries = {id(e.sealing): e for e in resolved._entries}
+    entries = {id(e.access): e for e in resolved._entries}
 
     # ---- PAC per-slot HW correctness ----
     if KIND in ("pac", "both"):
         cer = list(resolved.cer)   # the resolution trace (the genuine contract trace)
-        for s in ex._sealed._pac:
+        for s in ex._gvt_tc._pac:
             e = entries.get(id(s))
-            rc = read_ptr_ctx(s, cer, ex._sealed._layout)
+            rc = read_ptr_ctx(s, cer, ex._gvt_tc._layout)
             if e is None or e.value is None or rc is None:
                 continue
             ptr, ctx, _ = rc
@@ -106,7 +106,7 @@ for case in range(NCASES):
                 (LE.pac_auth(signed, ctx, auth_mn, pac_keys) == ptr)
 
         # ---- speculative speculative-exception-options distribution over many decoy variants ----
-        for s in ex._sealed._pac:
+        for s in ex._gvt_tc._pac:
             e = entries.get(id(s))
             if e is None or not e.speculative or not e.alts:
                 continue
@@ -130,7 +130,7 @@ for case in range(NCASES):
 
     # ---- MTE structure + speculative decoy diversity (model-level; no MTE HW on this box) ----
     if KIND in ("mte", "both"):
-        for s in ex._sealed._mte:
+        for s in ex._gvt_tc._mte:
             e = entries.get(id(s))
             offs = resolved._offsets.get(id(s))
             if offs is None:

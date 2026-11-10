@@ -1,5 +1,5 @@
-"""ct-bpas sealing invariant (strict mode). Under a contract with the bpas (speculative store
-bypass) clause, a seal slot that is reached only speculatively — e.g. bpas speculation crossing a
+"""ct-bpas GVT access invariant (strict mode). Under a contract with the bpas (speculative store
+bypass) clause, a GVT access slot that is reached only speculatively — e.g. bpas speculation crossing a
 conditional branch into a block the architecture never takes — is decoy-eligible, while an
 architecturally-reached slot is not. The detector is only sound if, across one equivalence class
 (inputs that resolve to the same per-slot values and speculative statuses):
@@ -10,7 +10,7 @@ architecturally-reached slot is not. The detector is only sound if, across one e
     value (genuine, or a shared decoy) for all of them. A decoy may differ from genuine, but it is
     the same decoy for the whole class.
 This mirrors boosting: architecturally-equivalent inputs are made indistinguishable except through
-the microarchitectural channel. Needs /dev/executor (building the executor resolves seals).
+the microarchitectural channel. Needs /dev/executor (building the executor resolves GVT accesses).
 """
 import copy
 import os
@@ -39,7 +39,7 @@ class BpasClassIdentityTest(unittest.TestCase):
             raise unittest.SkipTest("kernel module not loaded — /dev/executor missing")
         from src.aarch64.aarch64_executor import Aarch64SpeculativeExceptionExecutor
         cls._saved_conf = copy.deepcopy(CONF._borg_shared_state)
-        CONF.load(os.path.join(_ROOT, "config_canon.yml"))   # canonicality seals, clause cond + bpas
+        CONF.load(os.path.join(_ROOT, "config_canon.yml"))   # canonicality GVT accesses, clause cond + bpas
         assert "bpas" in CONF.contract_execution_clause, "config must exercise the bpas clause"
         CONF.inputs_per_class = 3   # baseline + 2 decoys, so the across-class comparison is non-trivial
         isa = InstructionSet(os.path.join(_ROOT, "base.json"), CONF.instruction_categories)
@@ -80,7 +80,7 @@ class BpasClassIdentityTest(unittest.TestCase):
         lanes = []
         for e in resolved._entries:
             if not e.speculative:
-                for rng in e.sealing.frozen_ranges(e.speculative):
+                for rng in e.access.frozen_ranges(e.speculative):
                     lanes.append(rng)
         return lanes
 
@@ -105,8 +105,8 @@ class BpasClassIdentityTest(unittest.TestCase):
     def test_speculative_values_identical_across_class(self):
         self.ex.load_test_case(self.tc)
         self.ex._sandbox_base, _ = self.ex.read_base_addresses()
-        self.assertEqual(self.ex.sealing_class_of(self.inp_a), self.ex.sealing_class_of(self.inp_b),
-                         "test inputs are not in the same sealing class")
+        self.assertEqual(self.ex.gvt_access_class_of(self.inp_a), self.ex.gvt_access_class_of(self.inp_b),
+                         "test inputs are not in the same GVT access class")
         va = self.ex.variants_for_input(self.inp_a)
         vb = self.ex.variants_for_input(self.inp_b)
         self.assertEqual(set(va), set(vb), "variant sets differ across the class")

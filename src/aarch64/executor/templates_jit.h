@@ -16,7 +16,7 @@ size_t current_tc_insert_offset_bytes(void);
 /* JIT-harness memoization. load_jit_template() is a pure function of
  * (test_case bytes, tc_size, measurement_template); trace() calls it on every
  * repetition, and each build performs MAX_MEASUREMENT_VIEWS+1 icache flushes,
- * each an SMP-wide IPI broadcast (kick_all_cpus_sync). The sealed/NI fuzzing
+ * each an SMP-wide IPI broadcast (kick_all_cpus_sync). The instrumented/NI fuzzing
  * path re-traces byte-identical harnesses n_reps times, so the rebuild+flush is
  * pure overhead on reps 2..n. invalidate_jit_cache() must be called at every
  * point that changes the harness inputs (TC load/unload, template change). */

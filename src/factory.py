@@ -164,13 +164,13 @@ def get_executor(enable_mismatch_check_mode: bool = False,
         return cls(enable_mismatch_check_mode)
     if CONF.executor == "aarch64":
         from .aarch64 import aarch64_executor
-        # Regular fuzzing with PAC/MTE: each input runs its own genuine sealed TC (correct
+        # Regular fuzzing with PAC/MTE: each input runs its own genuine instrumented TC (correct
         # signatures/tags for that input), so the box-resetting raw AUT*/tag-fault never happens.
-        # Needs the generator (for the seal passes); falls back to the plain local executor otherwise.
+        # Needs the generator (for the GVT access passes); falls back to the plain local executor otherwise.
         cats = CONF.instruction_categories or []
         if generator is not None and CONF.fuzzer != "speculative-exception" \
                 and any(c.startswith(("PAC", "MTE")) for c in cats):
-            return aarch64_executor.Aarch64RegularSealedExecutor(generator, enable_mismatch_check_mode)
+            return aarch64_executor.Aarch64RegularGvtExecutor(generator, enable_mismatch_check_mode)
         return aarch64_executor.Aarch64LocalExecutor(enable_mismatch_check_mode)
     raise ConfigException(
         f"ERROR: unknown value `{CONF.executor}` of `executor` configuration option")
@@ -194,7 +194,7 @@ def get_speculative_exception_executor(generator: interfaces.Generator,
             f"got '{CONF.instruction_set}'")
     from .aarch64 import aarch64_executor
     # One speculative-exception executor; it auto-detects the active primitives (PAC and/or MTE from the
-    # enabled instruction categories, canonicality from CONF.enable_canonicality) and seals/compares
+    # enabled instruction categories, canonicality from CONF.enable_canonicality) and GVT accesses/compares
     # whatever is present.
     return aarch64_executor.Aarch64SpeculativeExceptionExecutor(generator, enable_mismatch_check_mode)
 

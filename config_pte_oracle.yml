@@ -22,7 +22,7 @@ instruction_categories:
   - BASE-MEM-STORE
   - BASE-BRANCH-COND
 
-# PTE environment fuzzing (standalone; no code sealing primitive needed).
+# PTE environment fuzzing (standalone; no code GVT access primitive needed).
 enable_pte_fuzzing: true
 pte_fuzz_leaf_fields: [valid]   # decoys flip the faulty page's present bit -> speculative fault, no line
 inputs_per_class: 4             # 1 genuine + 3 decoys per input

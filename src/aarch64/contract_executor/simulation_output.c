@@ -264,7 +264,7 @@ static void fill_mem_access(mem_access_t* acc, uintptr_t kea, uint64_t elem_sz,
 	acc->is_write = is_write;
 	acc->is_atomic = is_atomic;
 	// The real allocation tag the CE holds for this granule (seeded from the input's MTE tags and
-	// updated by STGs), so the seal reads the tag directly instead of re-deriving it in Python.
+	// updated by STGs), so the GVT access reads the tag directly instead of re-deriving it in Python.
 	acc->allocation_tag = mte_tagmem_active() ? mte_tagmem_tag_at(kea) : 0xFFu;
 	if ((uintptr_t)-1 == kea) { __builtin_trap(); }
 

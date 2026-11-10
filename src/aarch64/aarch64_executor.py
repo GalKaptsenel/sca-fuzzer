@@ -23,10 +23,10 @@ from .aarch64_target_desc import Aarch64TargetDesc
 from .aarch64_kernel import (LocalHWExecutor, HWExecutor, PacKeys, TraceUnit, HWMeasurement,
                              make_hw_executor)
 from .aarch64_generator import Pass, Aarch64SandboxPass
-from .seal.pac import PacSigner
+from .gvt.pac import PacSigner
 from . import aarch64_qarma as qarma
-from .seal.sealer import make_sealer, SealedTestCase, ResolvedSealingTestCase
-from .seal.environment import (default_sandbox_page_map, PteFuzzPolicy, EnvironmentPlan,
+from .gvt.builder import make_gvt_access_builder, GvtTestCase, ResolvedGvtTestCase
+from .gvt.environment import (default_sandbox_page_map, PteFuzzPolicy, EnvironmentPlan,
                                SandboxPageMap)
 from .aarch64_contract_executor import (ContractExecution, ContractExecutorService,
                                         ExecutionClause, SUPPORTED_EXECUTION_CLAUSES,
@@ -434,17 +434,17 @@ class Aarch64LocalExecutor(Aarch64Executor):
 class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
     """The speculative-exception executor for whatever primitives are active: PAC and/or MTE (enabled by
     an instruction category) and/or canonicality (enabled by CONF.enable_canonicality, since it adds
-    no instructions — it seals existing memory accesses). It seals the test case with the active
-    value-seals — the memory pass composes [Sandbox(, PacSign)(, MteTag) | Canon], and PAC also seals
+    no instructions — it GVT accesses existing memory accesses). It GVT accesses the test case with the active
+    value-GVT accesses — the memory pass composes [Sandbox(, PacSign)(, MteTag) | Canon], and PAC also GVT accesses
     AUT* sites — then per input runs the contract executor once, fills each fix point's data (PAC:
     sign; MTE: classify tags; canonicality: the non-canonical mask), and compares the baseline vs
-    decoy TC variants on hardware. Adding a primitive means adding its seal + its fill
+    decoy TC variants on hardware. Adding a primitive means adding its GVT access + its fill
     step here; the orchestration is primitive-agnostic. (Below: generic CE/BB-map/comparison helpers,
     then the lifecycle.)"""
 
     def _run_ce_on_tc(self, tc_bytes: bytes, inp: Input, sandbox_base: int) -> Optional[List]:
         """Run CE on the machine code *tc_bytes* for *inp*; return trace entries or None on failure."""
-        assert sandbox_base == self._sandbox_base, "pre-HW CE must use the sealed sandbox base"
+        assert sandbox_base == self._sandbox_base, "pre-HW CE must use the instrumented sandbox base"
         try:
             return list(self._ce_trace(tc_bytes, inp))
         except RuntimeError as exc:
@@ -502,7 +502,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
             entry_x7 = int.from_bytes(inp.tobytes()[7 * 8: 8 * 8], "little")
             log.header(f"PRE-HW ANALYSIS  variant={idx}")
 
-            tc = self._sealed.object_code   # input-independent; the variant differs only in its GVT image
+            tc = self._gvt_tc.object_code   # input-independent; the variant differs only in its GVT image
             cer = self._run_ce_on_tc(tc, inp, sandbox_base)
             if cer is not None:
                 log_ce_trace(log, f"v{idx}", idx, cer)
@@ -526,7 +526,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         log.wp("[HW PHASE] All pre-HW logging complete — starting hardware execution")
 
     # ==============================================================================================
-    # Lifecycle: detect active primitives, seal, fill per input, compare variants on hardware
+    # Lifecycle: detect active primitives, GVT access, fill per input, compare variants on hardware
     def __init__(self, generator: Aarch64Generator, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._generator: Aarch64Generator = generator
@@ -536,29 +536,29 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
             self._primitives.add("pac")
         if any(c.startswith("MTE") for c in cats):
             self._primitives.add("mte")
-        # canonicality is a category-independent seal of existing memory accesses; its own flag
+        # canonicality is a category-independent GVT access of existing memory accesses; its own flag
         if CONF.enable_canonicality:
             self._primitives.add("canon")
-        # sign-extension sealing composes with PAC (a top-byte / regime flip on an authed pointer)
+        # sign-extension GVT access composes with PAC (a top-byte / regime flip on an authed pointer)
         if CONF.enable_signext:
             self._primitives.add("signext")
-        # branch-target sealing corrupts indirect-call targets; its own flag (needs indirect calls)
-        if CONF.enable_branch_target_sealing:
+        # branch-target GVT access corrupts indirect-call targets; its own flag (needs indirect calls)
+        if CONF.enable_branch_target_access:
             self._primitives.add("branch_target")
-        # In contract_driven mode the seal values are ordinary fuzzed input (the GVT lives in the input's
+        # In contract_driven mode the GVT access values are ordinary fuzzed input (the GVT lives in the input's
         # SIMD subregion): boosting re-randomizes the speculative lanes while the architecturally-consumed
-        # lanes are frozen at their genuine values by the sealer-derived taint, so the architectural path
-        # behaves identically and only non-tainted (speculative) lanes vary. strict keeps the seal-variant
-        # model (genuine baseline vs sealer decoys).
+        # lanes are frozen at their genuine values by the builder-derived taint, so the architectural path
+        # behaves identically and only non-tainted (speculative) lanes vary. strict keeps the GVT access-variant
+        # model (genuine baseline vs builder decoys).
         self._contract_driven = CONF.speculative_exception_mode == "contract_driven"
         if "signext" in self._primitives and "pac" not in self._primitives:
             raise GeneratorException("enable_signext needs the PAC instruction category active")
         if not self._primitives and not CONF.enable_pte_fuzzing:
             raise GeneratorException(
                 "speculative-exception fuzzing needs a PAC or MTE instruction category, or "
-                "enable_canonicality / enable_branch_target_sealing / enable_pte_fuzzing, enabled")
+                "enable_canonicality / enable_branch_target_access / enable_pte_fuzzing, enabled")
 
-        # MTE sealing retags pointers and relies on the CPU checking those tags; without FEAT_MTE2 the
+        # MTE GVT access retags pointers and relies on the CPU checking those tags; without FEAT_MTE2 the
         # tag is not enforced and (composed with PAC on a TBI-off instruction key) a baked signature over
         # a tagged pointer FPAC-faults the kernel. Capture the capability here (device-agnostic, no
         # failure) and refuse in the hardware-run path: device-free MTE modeling (resolution, CE traces)
@@ -583,19 +583,19 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
                                lambda ptr, mn: qarma.pac_field_mask(ptr, profile, qarma.is_instr_key(mn)),
                                lambda ptr, mn: qarma.strip(ptr, profile, qarma.is_instr_key(mn)))
 
-        # The sealer owns all sealing + resolution; it assembles object code via _assemble_tc and runs
+        # The builder owns all GVT access + resolution; it assembles object code via _assemble_tc and runs
         # the single per-input resolution trace via _ce_trace.
-        self._sealer = make_sealer(generator, lambda tc: self._assemble_tc(tc)[0],
+        self._builder = make_gvt_access_builder(generator, lambda tc: self._assemble_tc(tc)[0],
                                    self._primitives, signer, trace_bytes_fn=self._ce_trace)
 
-        # Per-test-case sealed placeholder, populated by load_test_case(); the CE-trace context the
-        # sealer's resolve uses (captured per with_taints call).
-        self._sealed: Optional[SealedTestCase] = None
+        # Per-test-case instrumented placeholder, populated by load_test_case(); the CE-trace context the
+        # builder's resolve uses (captured per with_taints call).
+        self._gvt_tc: Optional[GvtTestCase] = None
         self._sandbox_base: Optional[int] = None
 
-        # PTE (page-table) ENVIRONMENT fuzzing: a standalone axis (no code seal). When enabled, each
+        # PTE (page-table) ENVIRONMENT fuzzing: a standalone axis (no code GVT access). When enabled, each
         # decoy variant additionally fuzzes the page-table state of the spec-only page(s); the
-        # genuine/decoy difference is then purely the environment (see seal/environment.py).
+        # genuine/decoy difference is then purely the environment (see GVT access/environment.py).
         self._page_map: Optional[SandboxPageMap] = None
         self._pte_policy: Optional[PteFuzzPolicy] = None
         if CONF.enable_pte_fuzzing:
@@ -604,8 +604,8 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
                                              CONF.pte_fuzz_fields_per_decoy)
         self._spec_reach_cache: Dict[Tuple, bool] = {}
 
-    def _resolve(self, inp: Input) -> ResolvedSealingTestCase:
-        return self._sealed.resolve(inp)   # the sealed TC memoizes per input identity
+    def _resolve(self, inp: Input) -> ResolvedGvtTestCase:
+        return self._gvt_tc.resolve(inp)   # the instrumented TC memoizes per input identity
 
     def _mte_tags_for(self, inp: Input) -> Optional[List[int]]:
         """Uniform initial tags the sandbox is loaded with when MTE is active (else None — leave tag
@@ -617,7 +617,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
 
     def _pac_keys_words(self, inp: Input) -> Optional[List[int]]:
         """The input's PAC keys as the 10-word PAC_KEYS section (None when PAC is inactive): the kernel,
-        the CE and the sealer all run an input under its own keys."""
+        the CE and the builder all run an input under its own keys."""
         if "pac" not in self._primitives:
             return None
         if inp.pac_keys is None:
@@ -631,8 +631,8 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
     def _ce_trace(self, tc_bytes: bytes, inp: Input,
                   emul_table: bytes = b"", simd: Optional[bytes] = None) -> ContractExecutionResult:
         """One CE trace of the machine code `tc_bytes` for `inp`. With `emul_table` the CE materializes
-        each sealing site's genuine instructions in place as it reaches the offset (op-emulators sign /
-        retag from the run's state), so the single trace is the genuine render. Sealing always traces at
+        each GVT access site's genuine instructions in place as it reaches the offset (op-emulators sign /
+        retag from the run's state), so the single trace is the genuine render. GvtAccess always traces at
         max speculation depth: a shallower pass would classify deep-speculative slots as unreached and
         under-decoy them, missing leaks."""
         if self._sandbox_base is None:
@@ -651,7 +651,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         log.register("pac_hw",      "ni/hw.log",       min_verbosity=1)
         result = super().load_test_case(test_case)
         log_start_test_case(log, self._tc_counter)
-        self._sealed = self._sealer.seal(self.test_case)   # fresh per-TC, memoizes its own resolves
+        self._gvt_tc = self._builder.build(self.test_case)   # fresh per-TC, memoizes its own resolves
         log.ensure_flushed()
         return result
 
@@ -663,7 +663,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         """CE pass: ctraces + taints from each input's genuine baseline."""
         if not inputs or self.test_case is None:
             return [], [], []
-        assert self._sealed is not None, "sealed TC not built — load_test_case() not called"
+        assert self._gvt_tc is not None, "instrumented TC not built — load_test_case() not called"
 
         log = FuzzLogger.get()
         ce_traces: List[ContractExecutionResult] = []
@@ -692,14 +692,14 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
 
     def _freeze_arch_gst_lanes(self, inp: Input, resolved, taint: InputTaint) -> None:
         """contract_driven: carry the GVT in the input's SIMD subregion. Freeze each architecturally
-        consumed seal's lane at its genuine value (so the arch path is identical across boosted inputs)
+        consumed GVT access's lane at its genuine value (so the arch path is identical across boosted inputs)
         and taint it so boosting preserves it; leave speculative-only lanes untainted so boosting
         re-randomizes them — the speculative difference is the leak signal."""
         genuine = np.frombuffer(resolved.genuine(), dtype=np.uint8)
         simd = inp[0]['simd'].view(np.uint8)
         simd_taint = taint[0]['simd'].view(np.uint8)
         for e in resolved._entries:
-            for rng in e.sealing.frozen_ranges(e.speculative):
+            for rng in e.access.frozen_ranges(e.speculative):
                 simd[rng.start:rng.stop] = genuine[rng.start:rng.stop]
                 simd_taint[rng.start:rng.stop] = 0xFF
 
@@ -760,7 +760,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
                 "would fault and panic. Keep spec-only pages off the retiring path (reach only "
                 "speculatively).")
 
-    def _env_plans_for(self, resolved: ResolvedSealingTestCase,
+    def _env_plans_for(self, resolved: ResolvedGvtTestCase,
                        inp: Input) -> Dict[str, EnvironmentPlan]:
         """The per-variant page-table environment: genuine (pristine) for the baseline, a fuzzed
         decoy per decoy lane. Empty when PTE fuzzing is off. Deterministic per variant."""
@@ -770,7 +770,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         self._require_spec_only_safe(inp)
         out = {SpecExcVariant.BASELINE: self._pte_policy.genuine_plan()}
         for i in range(CONF.inputs_per_class - 1):
-            rng = stable_rng(resolved.collapse_key, self._sealed.salt, "pte-env", i)
+            rng = stable_rng(resolved.collapse_key, self._gvt_tc.salt, "pte-env", i)
             out[SpecExcVariant.decoy_n(i)] = self._pte_policy.decoy_plan(self._page_map, rng)
         return out
 
@@ -786,13 +786,13 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
                                     env_plan=env_plans[name])
                 for name, image in plans.items()}
 
-    def sealing_class_of(self, inp: Input) -> tuple:
-        """The input's sealing class (its resolved per-slot signatures/tags). Variants collide only
+    def gvt_access_class_of(self, inp: Input) -> tuple:
+        """The input's GVT access class (its resolved per-slot signatures/tags). Variants collide only
         when this agrees, not just the ctrace."""
         return self._resolve(inp).collapse_key
 
     def genuine_variant(self, inp: Input) -> ExecutorInput:
-        """The input's genuine (canonical baseline) sealed variant -- the "good" lane of the
+        """The input's genuine (canonical baseline) instrumented variant -- the "good" lane of the
         speculative-exception cross-input priming search (cross_input.py)."""
         return self.variants_for_input(inp)[SpecExcVariant.BASELINE]
 
@@ -803,17 +803,17 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         and the input must not be boosted/measured."""
         return self._resolve(inp).has_decoy() or self._environment_fuzzing
 
-    def _variants_for(self, resolved: ResolvedSealingTestCase) -> Dict[str, bytes]:
+    def _variants_for(self, resolved: ResolvedGvtTestCase) -> Dict[str, bytes]:
         """One boosting class: the genuine baseline plus `CONF.inputs_per_class - 1` decoys. Each value
         is a GVT image (the SIMD section bytes); all variants share one object_code."""
         plans = {SpecExcVariant.BASELINE: resolved.genuine()}
         for i in range(CONF.inputs_per_class - 1):
-            rng = stable_rng(resolved.collapse_key, self._sealed.salt, i)
+            rng = stable_rng(resolved.collapse_key, self._gvt_tc.salt, i)
             plans[SpecExcVariant.decoy_n(i)] = resolved.decoy(rng)
         return plans
 
     def _log_variant_binaries(self, log, inp_idx, cer,
-                              resolved: ResolvedSealingTestCase) -> None:
+                              resolved: ResolvedGvtTestCase) -> None:
         # Variants share one object_code now; the per-variant difference is the GVT image, not the code.
         columns = [(name, resolved.object_code) for name in self._variants_for(resolved)]
         log.header(f"VARIANT TC BINARIES  inp={inp_idx}")
@@ -822,40 +822,40 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         log_ni_table(log, inp_idx, columns, list(cer), "", {}, ch="ni_table")
 
 
-    # ------------------------------------------------------------------ hardware: sealed execution
+    # ------------------------------------------------------------------ hardware: instrumented execution
     def trace_test_case(self, exec_inputs: List[ExecutorInput],
                         n_reps: int) -> Tuple[List[HTrace], List[TestCase]]:
         """Trace each kernel input file on the shared skeleton (its code-relocation table spliced in by
         the kernel); returns one htrace per element plus the loaded TestCase per element (as the base
         executor does, so the artifact store can print each measurement's asm). The exact machine code a
-        boosted variant ran differs per seal, but that is recorded separately via
+        boosted variant ran differs per GVT access, but that is recorded separately via
         reconstruct_enacted_code(); Measurement.test_case must stay a TestCase, not bytes."""
         if not self._mte_hw_runnable:
             raise GeneratorException(
                 "MTE speculative-exception needs FEAT_MTE2 (tag checking); this CPU reports "
-                "ID_AA64PFR1_EL1.MTE < 2, so an MTE sealed test case cannot run on hardware here")
+                "ID_AA64PFR1_EL1.MTE < 2, so an MTE instrumented test case cannot run on hardware here")
         if not exec_inputs or self.test_case is None:
             return [], []
         return self._trace_exec_inputs(exec_inputs, n_reps), [self.test_case] * len(exec_inputs)
 
     def as_executor_input(self, inp: Input) -> ExecutorInput:
-        """Convert one arch input into its sealed kernel input file — the regular fuzzer's boost seam.
+        """Convert one arch input into its instrumented kernel input file — the regular fuzzer's boost seam.
         In contract_driven mode the GVT is carried in the input's own SIMD subregion (gvt=None ships it),
         so boosting's re-randomised speculative lanes reach the hardware; strict ships the genuine image."""
         if self._contract_driven:
             return ExecutorInput(inp, gvt=None, mte_tags=self._mte_tags_for(inp),
                                  pac_keys=self._pac_keys_words(inp))
-        return self._seal_input(inp)
+        return self._build_gvt_input(inp)
 
-    def _seal_input(self, inp: Input) -> ExecutorInput:
+    def _build_gvt_input(self, inp: Input) -> ExecutorInput:
         """Extend an arch input to its baseline kernel input file. The genuine GVT image here; the
-        regular subclass overrides to the input's sealing-class image."""
+        regular subclass overrides to the input's GVT access-class image."""
         return ExecutorInput(inp, gvt=self._resolve(inp).genuine(),
                              mte_tags=self._mte_tags_for(inp), pac_keys=self._pac_keys_words(inp))
 
     def _current_tc_bytes(self) -> bytes:
-        assert self._sealed is not None, "sealed TC not built — load_test_case() not called"
-        return self._sealed.object_code
+        assert self._gvt_tc is not None, "instrumented TC not built — load_test_case() not called"
+        return self._gvt_tc.object_code
 
     def _trace_exec_inputs(self, exec_inputs: List[ExecutorInput], n_reps: int) -> List[HTrace]:
         """Trace each kernel input file on the shared skeleton — the skeleton is the unit's test case,
@@ -863,7 +863,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         afterwards."""
         if not exec_inputs:
             return []
-        assert self._sealed is not None, "sealed TC not built — load_test_case() not called"
+        assert self._gvt_tc is not None, "instrumented TC not built — load_test_case() not called"
         STAT.executor_reruns += n_reps * len(exec_inputs)
         if FuzzLogger.on():
             sandbox_base, _ = self.read_base_addresses()
@@ -872,12 +872,12 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
 
 
 
-class Aarch64RegularSealedExecutor(Aarch64SpeculativeExceptionExecutor):
+class Aarch64RegularGvtExecutor(Aarch64SpeculativeExceptionExecutor):
     """Regular fuzzing with PAC/MTE support.
 
-    Reuses the speculative-exception seal/resolve pipeline. Inputs are grouped into *sealing classes* — identical
+    Reuses the speculative-exception GVT access/resolve pipeline. Inputs are grouped into *GVT access classes* — identical
     resolved (correct_sig, correct_tag, spec_nesting) across all fix points — and each class runs ONE
-    sealed form, chosen deterministically from the class + per-test-case salt (so every member renders
+    instrumented form, chosen deterministically from the class + per-test-case salt (so every member renders
     it identically). The form is a per-class coin flip:
       - decoy: genuine on every architectural slot, decoyed (wrong signature / retag) on the
         speculative slots — exposes the speculative PAC/MTE leak.
@@ -886,21 +886,21 @@ class Aarch64RegularSealedExecutor(Aarch64SpeculativeExceptionExecutor):
     EL1, no tag fault), and the representative's arch AUT*/tag match every member's pointer.
 
     One form per class gives, for free, a consistent decoy decision at each slot across all the class's
-    inputs (they run the identical program); an input never runs another class's form. The seal slots
-    are register-only, so sealing differences between classes never enter the cache htrace, leaving the
+    inputs (they run the identical program); an input never runs another class's form. The GVT access slots
+    are register-only, so GVT access differences between classes never enter the cache htrace, leaving the
     standard regular by-contract-trace leak comparison valid. (A contract trace fixes the accessed
     addresses, hence the pointers, hence the signatures/tags — so a contract-trace class is contained
-    in a sealing class and likewise shares one form.)"""
+    in a GVT access class and likewise shares one form.)"""
 
-    _DECOY_PROB = 0.5   # per sealing class: probability of the speculative-decoy form vs all-genuine
+    _DECOY_PROB = 0.5   # per GVT access class: probability of the speculative-decoy form vs all-genuine
 
-    def _seal_input(self, inp: Input) -> ExecutorInput:
-        """Extend an arch input to its sealing class's kernel input file. The decoy-vs-genuine coin and
-        the decoy itself are a pure function of the sealing class + per-test-case salt, so every member
+    def _build_gvt_input(self, inp: Input) -> ExecutorInput:
+        """Extend an arch input to its GVT access class's kernel input file. The decoy-vs-genuine coin and
+        the decoy itself are a pure function of the GVT access class + per-test-case salt, so every member
         of a class runs the identical program (caveat-4 merges fall out); genuine()'s arch slots are
         always correct (never a forged AUTH)."""
         resolved = self._resolve(inp)
-        rng = stable_rng(resolved.collapse_key, self._sealed.salt)
+        rng = stable_rng(resolved.collapse_key, self._gvt_tc.salt)
         image = resolved.decoy(rng) if rng.random() < self._DECOY_PROB else resolved.genuine()
         return ExecutorInput(inp, gvt=image, mte_tags=self._mte_tags_for(inp),
                              pac_keys=self._pac_keys_words(inp))

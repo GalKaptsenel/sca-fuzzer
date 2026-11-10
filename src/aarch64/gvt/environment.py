@@ -1,6 +1,6 @@
-"""The per-variant page-table ENVIRONMENT for PTE sealing.
+"""The per-variant page-table ENVIRONMENT for PTE GVT access.
 
-PTE sealing is the first speculative-exception primitive whose genuine/decoy difference is the page-table environment,
+PTE GVT access is the first speculative-exception primitive whose genuine/decoy difference is the page-table environment,
 not an instruction word. This module is that environment, kept separate from code / relocations:
 
   * `SandboxPage` / `SandboxPageMap` -- the general partition of the sandbox data pages into those
@@ -13,7 +13,7 @@ not an instruction word. This module is that environment, kept separate from cod
     a decoy ships overrides on spec-only pages only.
   * `PteFuzzPolicy` -- turns "these fields are fuzzable" (by name, via `pagetable_model`) into
     genuine / decoy plans. Descriptor-bit knowledge stays in `pagetable_model`; page knowledge
-    stays in `SandboxPageMap`; the sealer above sees only clean plans.
+    stays in `SandboxPageMap`; the builder above sees only clean plans.
 """
 import struct
 from dataclasses import dataclass
@@ -112,7 +112,7 @@ class SandboxPageMap:
     def require_spec_only(self) -> None:
         if not self.spec_only_pages:
             raise ValueError(
-                "PTE sealing needs at least one spec-only page in the sandbox page map")
+                "PTE GVT access needs at least one spec-only page in the sandbox page map")
 
 
 def default_sandbox_page_map() -> SandboxPageMap:

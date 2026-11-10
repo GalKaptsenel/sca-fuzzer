@@ -1,5 +1,5 @@
 # TikTag via templates/mte_tiktag_v4.py: a pure store-bypass (Spectre-v4) window with no branch, so
-# no branch training is needed. The NI sealer decoys only the speculative post-bypass loads, giving a
+# no branch training is needed. The NI builder decoys only the speculative post-bypass loads, giving a
 # genuine (match) vs decoy (mismatch) tag on the checked load that gates a dependent probe. Pinned X3.
 instruction_set: aarch64
 instruction_categories:

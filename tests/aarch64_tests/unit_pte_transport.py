@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from src.interfaces import Input                                                    # noqa: E402
 from src.aarch64.aarch64_executor_input_encoder import (                           # noqa: E402
     ExecutorInput, deserialize, SEC_PTE_SETTINGS)
-from src.aarch64.seal.environment import EnvironmentPlan, PteOverride, LEVEL_LEAF   # noqa: E402
+from src.aarch64.gvt.environment import EnvironmentPlan, PteOverride, LEVEL_LEAF   # noqa: E402
 
 
 def _sections_present(blob: bytes):

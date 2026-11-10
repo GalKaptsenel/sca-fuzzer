@@ -1,5 +1,5 @@
 """
-Unit tests for global_value_table.py (GVT) and seal_values.py. No hardware/CE: top-down allocation,
+Unit tests for global_value_table.py (GVT) and values.py. No hardware/CE: top-down allocation,
 capacity-in-bits (overflow raises), the SIMD byte mapping, little-endian image writes, the backend
 read (UMOV), and each value's apply op (BFI/EOR). Run from root:
     python -m unittest tests.aarch64_tests.unit_global_value_table
@@ -9,10 +9,10 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from src.aarch64.seal.global_value_table import (                                     # noqa: E402
+from src.aarch64.gvt.global_value_table import (                                     # noqa: E402
     VectorGlobalValueTable, GlobalValueTableCapacityExceeded,
     VECTOR_REG_BYTES, SIMD_BASE_REG, TOP_REG)
-from src.aarch64.seal.seal_values import PacSignature, MteTag, MaskFlip       # noqa: E402
+from src.aarch64.gvt.values import PacSignature, MteTag, MaskFlip       # noqa: E402
 from src.interfaces import SIMD_SUBREGION_SIZE                                # noqa: E402
 
 
@@ -67,7 +67,7 @@ class LoadTest(unittest.TestCase):
         self.assertEqual(dw_loc.load("x9")[0].template, "UMOV x9, v31.d[0]")
 
 
-class SealValueApplyTest(unittest.TestCase):
+class GvtValueApplyTest(unittest.TestCase):
     def setUp(self):
         self.f = VectorGlobalValueTable(capacity_bits=VECTOR_REG_BYTES * 8)
 

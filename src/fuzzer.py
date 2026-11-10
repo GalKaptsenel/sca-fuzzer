@@ -113,7 +113,7 @@ class FuzzerGeneric(Fuzzer):
         self.generator = factory.get_program_generator(isa, CONF.program_generator_seed)
         self.input_gen = factory.get_input_generator(CONF.input_gen_seed)
         # pass the generator so aarch64 can select the PAC/MTE-aware regular executor (per-input
-        # genuine sealed TCs); ignored by every other executor.
+        # genuine instrumented TCs); ignored by every other executor.
         self.executor = factory.get_executor(generator=self.generator)
         self.analyser = factory.get_analyser()
         self.asm_parser = factory.get_asm_parser(self.generator)
@@ -693,7 +693,7 @@ class FuzzerGeneric(Fuzzer):
                     inp._arch_trace_stale = False
 
         for i, input_ in enumerate(violation.input_sequence):
-            # a sealed (REIF) input carries its own wire extension; a plain arch input uses the default
+            # an instrumented (REIF) input carries its own wire extension; a plain arch input uses the default
             ext = getattr(input_, "wire_extension", self.input_file_extension)
             input_.save(f"{violation_dir}/input_{i:04}.{ext}")
             arch_trace = getattr(input_, "_arch_trace", None)
@@ -722,7 +722,7 @@ class FuzzerGeneric(Fuzzer):
         with open(f"{violation_dir}/reproduce.yaml", "a") as f:
             f.write("\n# Overwrite some of the configuration options to reproduce the violation\n")
             f.write(f"input_gen_seed: {violation.input_sequence[0].seed}\n")
-            # Non-interference boosts each input into genuine+decoy seal variants; forcing
+            # Non-interference boosts each input into genuine+decoy GVT access variants; forcing
             # inputs_per_class=1 would regenerate ONLY genuine baselines (no decoy), making the
             # violation impossible to reproduce. Keep the run's value so the decoys come back. Other
             # fuzzers replay the saved inputs without re-boosting, so 1 is fine there.
@@ -867,7 +867,7 @@ class FuzzerGeneric(Fuzzer):
         """Swap each pair of violating inputs at their sequence slots and re-trace. If some swap fails
         to reproduce the slot's htrace, the divergence follows the input (a genuine violation); if
         every swap reproduces it, it follows the slot (a false positive). Returns True if it survives.
-        (speculative-exception is the same test with seal-variants as the inputs.)"""
+        (speculative-exception is the same test with GVT access-variants as the inputs.)"""
         violation = copy.copy(org_violation)
         reps = [hg[0] for hg in violation.htrace_groups]
         n_reps = len(violation.measurements[0].htrace.raw)
@@ -967,12 +967,12 @@ class FuzzerGeneric(Fuzzer):
             return "not-reproducible-under-warmup (noise)"
 
         # (2) GENUINE@BOTH: force N and M genuine (identical input), decoys still present. If the
-        #     divergence collapses, it was the seal on the violating input -> per-input.
+        #     divergence collapses, it was the GVT access on the violating input -> per-input.
         dgb = diverges(gboth())
         if dgb is None:
             return "tracing-error"
         if not dgb:
-            return "per-input (violating input's seal; genuine@both converges)"
+            return "per-input (violating input's GVT access; genuine@both converges)"
 
         # (3) ALL-GENUINE: N, M and every other decoy genuine. If it STILL diverges, no input drives
         #     it -> pure position. (Invariant for the search below: all-genuine converges.)
@@ -1069,8 +1069,8 @@ class SpeculativeExceptionFuzzer(FuzzerGeneric):
         return True    # variants share the baseline ctrace; they are never re-resolved as arch inputs
 
     def _boost_inputs(self, inputs: List[Input], nesting) -> Tuple[List[Input], List[CTrace]]:
-        """speculative-exception boosting: vary the seal, not the input data. Each input's class is filled with its seal
-        variants, keyed by a composite (ctrace, sealing class) ctrace so only same-signature variants
+        """speculative-exception boosting: vary the GVT access, not the input data. Each input's class is filled with its GVT access
+        variants, keyed by a composite (ctrace, GVT access class) ctrace so only same-signature variants
         collide."""
         ctraces, taints, traces = self.executor.trace_test_case_with_taints(inputs, nesting)
         # Drop inputs with no decoy-eligible slot: their decoy would equal the genuine baseline (a null
@@ -1085,10 +1085,10 @@ class SpeculativeExceptionFuzzer(FuzzerGeneric):
             return [], []
         variants = [self.executor.variants_for_input(inp) for inp in inputs]
         # Non-interference compares only the variants of ONE input (its genuine baseline vs its own
-        # decoys) — the seal is the only thing that may differ. Keying the class by the input's own
+        # decoys) — the GVT access is the only thing that may differ. Keying the class by the input's own
         # identity keeps two different arch inputs out of the same class even when they share a ctrace
-        # and sealing class, so a data-dependent (Spectre-v1) htrace split can't masquerade as a tag leak.
-        class_ctraces = [CTrace(ctr.raw + [hash(self.executor.sealing_class_of(inp)) & 0xFFFFFFFF,
+        # and GVT access class, so a data-dependent (Spectre-v1) htrace split can't masquerade as a tag leak.
+        class_ctraces = [CTrace(ctr.raw + [hash(self.executor.gvt_access_class_of(inp)) & 0xFFFFFFFF,
                                            hash(inp.identity()) & 0xFFFFFFFF])
                          for inp, ctr in zip(inputs, ctraces)]
         # round-major (all baselines, then all decoy0s, ...) so the base fast-boost replication of the

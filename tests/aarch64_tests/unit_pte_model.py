@@ -1,4 +1,4 @@
-"""Unit tests for the PTE sealing model layers (no hardware, no capstone):
+"""Unit tests for the PTE GVT access model layers (no hardware, no capstone):
     * pagetable_model -- descriptor bit-field layouts (the single source of bit truth)
     * environment     -- page roles/partition, per-variant plan, fuzz policy
 
@@ -11,10 +11,10 @@ import unittest
 from random import Random
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from src.aarch64.seal.pagetable_model import (BitField, DescriptorLayout,          # noqa: E402
+from src.aarch64.gvt.pagetable_model import (BitField, DescriptorLayout,          # noqa: E402
                                               PageTableDescriptor, LEAF_LAYOUT, TABLE_LAYOUT)
 from src.interfaces import PAGE_SIZE, MAIN_AREA_SIZE                                # noqa: E402
-from src.aarch64.seal.environment import (                                         # noqa: E402
+from src.aarch64.gvt.environment import (                                         # noqa: E402
     SandboxPage, SandboxPageMap, PteOverride, EnvironmentPlan, PteFuzzPolicy,
     serialize_pte_overrides, deserialize_pte_overrides, default_sandbox_page_map, LEVEL_LEAF)
 

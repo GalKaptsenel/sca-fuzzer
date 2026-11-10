@@ -2,7 +2,7 @@
 #include "simulation.h"
 #include "pac_sign_plugin.h"
 #include "mte_tag_plugin.h"
-#include "mte_seal_plugin.h"
+#include "mte_gvt_plugin.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

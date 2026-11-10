@@ -1,9 +1,9 @@
-"""Canonicality speculative-exception sealing (AArch64), self-contained (no /dev/executor, no CE):
+"""Canonicality speculative-exception instrumentation (AArch64), self-contained (no /dev/executor, no CE):
   * the EOR / bitmask-immediate encoder is byte-exact against the repo assembler;
   * _canon_mask_pool draws RANDOM contiguous flip runs within the guaranteed-fault range [54:VA]
     (a random subset per decoy, like PAC's forgery pool), deterministic per salt; config mask must be
     one such run;
-  * CanonSealing flips the base before the access and, when the base is preserved, flips it back
+  * CanonGvtAccess flips the base before the access and, when the base is preserved, flips it back
     after (EOR self-inverse) so the decoy re-converges with the baseline — no downstream cascade;
   * _resolve_canon offers the pool and classifies architectural vs speculative-only;
   * end-to-end, genuine keeps every slot canonical (NOPs) and decoy flips+reverts only the
@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from src.config import CONF
 from src.aarch64.aarch64_insn_encode import (encode_bitmask_imm64, eor_imm_word, NOP_WORD)
 from src.aarch64.aarch64_generator import Aarch64Generator
-from src.aarch64.seal import sealer as S
+from src.aarch64.gvt import builder as S
 from tests.conf_isolation import setUpModule, tearDownModule  # noqa: F401  (restores CONF + cwd)
 
 _FAULT_39 = (((1 << (55 - 39)) - 1) << 39)   # bits [54:39]
@@ -111,55 +111,55 @@ class CanonPoolTest(unittest.TestCase):
             S._canon_mask_pool(1)
 
 
-@unittest.skip("obsolete: sealer uses GlobalValueTable now; see unit_canon_gst.py")
-class CanonSealingRenderTest(unittest.TestCase):
+@unittest.skip("obsolete: builder uses GlobalValueTable now; see unit_canon_gst.py")
+class CanonGvtRenderTest(unittest.TestCase):
     def setUp(self):
         self.pool = [1 << 47]
 
     def test_base_preserved_flips_then_reverts(self):
-        s = S.CanonSealing("x3", None, self.pool, revert=True)
-        self.assertEqual([i.name for i in s.seal(None, None)], ["nop", "nop"], "genuine = 2 NOPs")
-        decoy = s.seal(1 << 47, None)
+        s = S.CanonGvtAccess("x3", None, self.pool, revert=True)
+        self.assertEqual([i.name for i in s.emit(None, None)], ["nop", "nop"], "genuine = 2 NOPs")
+        decoy = s.emit(1 << 47, None)
         self.assertEqual([i.name for i in decoy], ["eor", "eor"], "decoy = flip + revert")
         w0, w1 = S._encode(decoy[0]), S._encode(decoy[1])
         self.assertEqual(w0, eor_imm_word(3, 3, 1 << 47))
         self.assertEqual(w0, w1, "same mask before and after -> EOR self-inverse -> base restored")
 
     def test_base_not_preserved_flips_only(self):
-        s = S.CanonSealing("x3", None, self.pool, revert=False)
-        self.assertEqual([i.name for i in s.seal(None, None)], ["nop"], "genuine = 1 NOP")
-        self.assertEqual([i.name for i in s.seal(1 << 47, None)], ["eor"], "decoy = flip only")
+        s = S.CanonGvtAccess("x3", None, self.pool, revert=False)
+        self.assertEqual([i.name for i in s.emit(None, None)], ["nop"], "genuine = 1 NOP")
+        self.assertEqual([i.name for i in s.emit(1 << 47, None)], ["eor"], "decoy = flip only")
 
     def test_placeholder_encodes_to_nop(self):
-        s = S.CanonSealing("x5", None, self.pool, revert=True)
+        s = S.CanonGvtAccess("x5", None, self.pool, revert=True)
         self.assertTrue(all(S._encode(i) == NOP_WORD for i in s.slot_insts))
 
 
-@unittest.skip("obsolete: sealer uses GlobalValueTable now; see unit_canon_gst.py")
+@unittest.skip("obsolete: builder uses GlobalValueTable now; see unit_canon_gst.py")
 class ResolveCanonTest(unittest.TestCase):
     def setUp(self):
         self.pool = [1 << 47, 1 << 48]
         self.access = object()
-        self.sealing = S.CanonSealing("x1", self.access, self.pool, revert=True)
+        self.access = S.CanonGvtAccess("x1", self.access, self.pool, revert=True)
         self.layout = types.SimpleNamespace(instruction_address={self.access: 0x20})
 
     def _resolve(self, cer):
-        return S._resolve_canon(self.sealing, cer, self.layout)
+        return S._resolve_canon(self.access, cer, self.layout)
 
     def test_value_and_pool(self):
         value, alts, _ = self._resolve([_Ite(0x0, 0, False)])
         self.assertIsNone(value, "genuine is canonical")
-        self.assertEqual(alts, self.pool, "alternatives are the sealing's mask pool")
+        self.assertEqual(alts, self.pool, "alternatives are the GVT access's mask pool")
 
     def test_architectural_not_speculative(self):
         _, _, spec = self._resolve([_Ite(0x100, 0, False), _Ite(0x120, 0, True)])
         self.assertEqual(spec, 0)
-        self.assertFalse(S._Resolved(self.sealing, None, self.pool, spec).speculative)
+        self.assertFalse(S._Resolved(self.access, None, self.pool, spec).speculative)
 
     def test_speculative_only(self):
         _, _, spec = self._resolve([_Ite(0x100, 0, False), _Ite(0x120, 3, True)])
         self.assertEqual(spec, 3)
-        self.assertTrue(S._Resolved(self.sealing, None, self.pool, spec).speculative)
+        self.assertTrue(S._Resolved(self.access, None, self.pool, spec).speculative)
 
     def test_min_nesting_wins(self):
         _, _, spec = self._resolve([_Ite(0x100, 0, False), _Ite(0x120, 3, True), _Ite(0x120, 0, True)])
@@ -168,7 +168,7 @@ class ResolveCanonTest(unittest.TestCase):
     def test_unreached_is_speculative(self):
         _, _, spec = self._resolve([_Ite(0x100, 0, False)])
         self.assertIsNone(spec)
-        self.assertTrue(S._Resolved(self.sealing, None, self.pool, spec).speculative)
+        self.assertTrue(S._Resolved(self.access, None, self.pool, spec).speculative)
 
 
 if __name__ == "__main__":
