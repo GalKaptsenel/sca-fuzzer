@@ -57,9 +57,13 @@ def _arch_tag_mismatches(cer):
 
 
 def _arch_stream(cer):
-    """The committed (nesting==0) instruction+access stream -- identical across a genuine baseline and
-    any of its decoys (decoys differ only speculatively)."""
-    return [(ite.cpu.pc, ite.cpu.encoding, tuple(ite.cpu.gpr),
+    """The committed (nesting==0) control flow and memory-effect stream -- identical across a genuine
+    baseline and any of its decoys (decoys differ only speculatively). Register-file values are not
+    compared: a GVT access feeds the fuzzed operand register from the image, so that register holds
+    the genuine value in the baseline and the decoy value in a decoy by design. What must reconverge
+    is the committed memory behaviour, and a decoy value reaching a committed address would still show
+    up here as a diverging effective_address."""
+    return [(ite.cpu.pc, ite.cpu.encoding,
              tuple((ma.effective_address, ma.allocation_tag, ma.is_write)
                    for ma in ite.metadata.accesses()))
             for ite in cer if ite.metadata.speculation_nesting == 0]

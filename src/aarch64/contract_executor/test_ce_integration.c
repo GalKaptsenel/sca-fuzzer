@@ -249,12 +249,22 @@ static size_t build_ce_input(
     hdr.version  = RVZRCE_VERSION;
     hdr.arch     = RVZR_ARCH_AARCH64;
     hdr.flags    = RVZR_FLAG_HAS_CODE | RVZR_FLAG_HAS_INPUT;
-    hdr.config.flags                    = CONFIG_FLAG_REQ_MEM_BASE_VIRT;
+    hdr.config.flags                    = CONFIG_FLAG_REQ_MEM_BASE_VIRT | CONFIG_FLAG_PAC_PROFILE;
     hdr.config.max_misspred_branch_nesting = max_nesting;
     hdr.config.max_misspred_instructions   = max_instr;
     hdr.config.requested_mem_base_virt  = kbase_addr;
     hdr.config.execution_clauses            = contract;
     hdr.config.branch_predictor             = branch_predictor;
+    /* QARMA3 profile matching the Neoverse-N3 kernel: iterations 2, generic 2, auth level 3,
+       t0sz 25 / t1sz 16, tbi0/tbi1/tbid1 set. Packed per pac_sign_plugin.c pac_profile_init. */
+    hdr.config.pac_profile = (UINT64_C(2))
+                           | (UINT64_C(16) << 8)
+                           | (UINT64_C(1)  << 16)
+                           | (UINT64_C(1)  << 17)
+                           | (UINT64_C(1)  << 19)
+                           | (UINT64_C(3)  << 20)
+                           | (UINT64_C(25) << 32)
+                           | (UINT64_C(2)  << 40);
     hdr.code_size       = (uint64_t)code_sz;
     hdr.input_init_size = (uint64_t)init_len;
     memcpy(p, &hdr, sizeof(hdr)); p += sizeof(hdr);

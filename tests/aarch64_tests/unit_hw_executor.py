@@ -284,7 +284,8 @@ class BackendTransparencyTest(unittest.TestCase):
         self.assertTrue(issubclass(k.LocalHWExecutor, k.HWExecutor))
         self.assertTrue(issubclass(k.RemoteHWExecutor, k.HWExecutor))
         self.assertEqual(k.HWExecutor.__abstractmethods__,
-                         frozenset({"target_info", "run_batch", "cpu_midr"}))
+                         frozenset({"target_info", "run_batch", "cpu_midr",
+                                    "_read_sysfs", "_write_sysfs"}))
 
     def test_measurement_path_uses_interface_only(self):
         # autospec of the ABC exposes ONLY target_info/run_batch; if the executor reached for a

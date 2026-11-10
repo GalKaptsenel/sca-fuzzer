@@ -18,9 +18,11 @@ class RetryPolicyTest(unittest.TestCase):
         return ex
 
     def test_transport_error_is_retried(self):
+        # A persistent transport IOError is retried _RETRIES times, then surfaced as a
+        # HardwareTracingError so the caller skips the test case instead of crashing.
         ex = self._executor(side_effect=IOError("connection down"))
         with mock.patch.object(kmod.time, "sleep"):
-            with self.assertRaises(IOError):
+            with self.assertRaises(HardwareTracingError):
                 ex.run_batch([], 1)
         self.assertEqual(ex._conn.run.call_count, RemoteHWExecutor._RETRIES)
 

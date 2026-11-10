@@ -20,6 +20,7 @@ class _FakeDevice(LocalHWExecutor):
     def __init__(self):
         self._sysfs = {"enable_ssbs": "9", "enable_pre_run_flush": "9", "enable_phr_flush": "9",
                        "enable_view_rotation": "9", "pin_to_core": "9"}
+        self._sysfs_written: dict = {}
 
     def _read_sysfs(self, name):
         return self._sysfs[name]
