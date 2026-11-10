@@ -139,7 +139,7 @@ Cross-process (BTB), rootless:   accuracy ____%   rate ____ bit/s   (--samples 8
 Cross-VM (BTB):                  accuracy ____%   rate ____ bit/s
 Cross-privilege (L1 dTLB):       accuracy ____%   rate ____ bit/s
 Blind canary:                    v1 __/20   v4 __/20   rsb __/20
-OpenSSL RSA-2048:                ____/2048 bits   wall-clock ____ h   (--samples 1500)
+OpenSSL RSA-2048:                2035/2048 bits (99.37%)   wall-clock 5.58 h   (--samples 1500)
 SMC/BTB (appendix):              SMC effect ____   CFP-RCTX control ____
 ```
 
@@ -147,36 +147,43 @@ SMC/BTB (appendix):              SMC effect ____   CFP-RCTX control ____
 ## FILLED RESULTS (updated as phases complete)
 
 ### Table 7.2 — N3 TTD + N3 reproduction (COMPLETE; R=20, T_max=3600s, pinned core 90, host quiet)
-| Violation / Channel              | TTD N3 mean±sd (R=20) | tc-to-violation mean[min-max] | N3    | A715 | X3  | AlderLake |
-|----------------------------------|-----------------------|-------------------------------|-------|------|-----|-----------|
-| Spectre-v1 (cond) / L1D          | 53.9 ± 22.1 s         | 86.7 [6-221]                  | check | TBD  | TBD | (Mach B)  |
-| Spectre-v2 (indirect target) / L1D | 79.9 ± 77.6 s       | 4.4 [1-11]                    | check | TBD  | TBD | (Mach B)  |
-| Spectre-v4 (store bypass) / L1D  | 32.3 ± 9.8 s          | 30.2 [2-132]                  | check | TBD  | TBD | (Mach B)  |
-| Canonicality / L1D               | 42.9 ± 23.1 s         | 77.8 [5-295]                  | check | TBD  | TBD | (Mach B)  |
-| AUT* sign bit / L1D              | 54.5 ± 39.9 s         | 66.8 [1-234]                  | check | TBD  | TBD | n/a       |
-| Spectre-v2 (indirect) / BTB      | (BTB phase)           | (BTB phase)                   | TBD   | TBD  | TBD | (Mach B)  |
-| Canonicality / BTB               | (BTB phase)           | (BTB phase)                   | TBD   | TBD  | X3=cross? | (Mach B) |
+| Violation / Channel              | TTD N3 mean±sd (R=20) | tc-to-viol mean[min-max] | inp-to-viol (≈tc×50 gen) | N3    | A715 | X3  | AlderLake |
+|----------------------------------|-----------------------|--------------------------|--------------------------|-------|------|-----|-----------|
+| Spectre-v1 (cond) / L1D          | 53.9 ± 22.1 s         | 86.7 [6-221]             | ≈4,335                   | check | check| check| (Mach B) |
+| Spectre-v2 (indirect target) / L1D | 79.9 ± 77.6 s       | 4.4 [1-11]               | ≈220                     | check | check| check| (Mach B) |
+| Spectre-v4 (store bypass) / L1D  | 32.3 ± 9.8 s          | 30.2 [2-132]             | ≈1,510                   | check | check| check| (Mach B) |
+| Canonicality / L1D               | 42.9 ± 23.1 s         | 77.8 [5-295]             | ≈3,890                   | check | check| check| (Mach B) |
+| AUT* sign bit / L1D              | 54.5 ± 39.9 s         | 66.8 [1-234]             | ≈3,340                   | check | check| check| n/a      |
+| Spectre-v2 (indirect) / BTB      | 71.3 ± 43.6 s (tmpl)  | 1 [1-1] (tmpl, -i100)    | ≈100 (within 1 tc)       | check | n/a  | n/a | (Mach B) |
+| Canonicality / BTB               | 84.0 s (fully-random) | random (12/20 @ -i50 cap)| ≈(tc×50)                 | check | n/a  | X3=cross? | (Mach B) |
 
-Notes: all 5 L1D/PAC rows detect 20/20 on N3 (genuine, survive priming; v2 independently CE-triaged genuine).
-v2 TTD sd large: violation found in ~4 tc but full-nesting(30) CE model is heavy per tc. v1 fastest-growing
-in tc (86 tc) since N3 cond-branch mispredict needs the un-primed branch (enable_pre_run_flush:false).
+inp-to-viol = tc-to-viol × 50 GENERATED inputs/tc (the -i used in every TTD run; ×4 boosting → 200 executed);
+derived from tc, not independently logged, and an upper estimate (the violating tc stops partway). Executed
+inputs ≈ 4× these. The 5 L1D/PAC rows detect 20/20 on N3 (genuine, survive priming; v2 independently
+CE-triaged genuine). Remote: X3 5/5, A715 5/5, A510 5/5 (L1D/PAC rows). BTB rows are local-only (cross-input
+priming asserts off for remote), so A715/X3 = n/a. Spectre-v2/BTB row = the strict cross-input TEMPLATE
+(v2_btb_seq.yml, TTD 20/20, 1 tc each); fully-random does NOT surface it, and existing-knob tuning cannot
+force it (~0/240) — a plain self-dependent v2 IS found by random fuzzing once cross_input_leaks_only=false.
 
-### Table 7.3 — localization cost (COMPLETE; device-independent, real exp_search/linear_scan localizers)
-                         k=12   k=64   k=256
-Binary search (analytic)   4      7      9        (ceil(log2(k+1)), pure bisection)
-Measured binary (gallop):
-  recent-trainer (near hi)  4      4      4        <- realistic case: O(log distance), ~const in k (galloping win)
-  uniform-over-positions  7.50   12.14  16.04      (mean; worst ~2*log2(k) for a distant boundary)
-Measured linear scan     9.42   35.48  131.50      (~O(k), matches analytic k)
-R = all boundary positions; probes = distinct memoized HW batch measurements. Full HW cost = probes x reps x 2 dirs + 2 reverify.
-Note: exp_search = galloping + bisection ("optimal"/"any" localizer). For a RECENT cross-input trainer it beats a
-plain bisection (const ~4 vs log2(k+1)); for a distant boundary it costs up to ~2*log2(k) (gallop + bisect).
+### Table 7.3 — localization cost (COMPLETE; device-independent, real binary_search/linear_scan localizers)
+  k     analytic   measured binary (mean+-sd) [min-max]   (contrast) gallop   linear
+  12       4          5.75 +- 0.43  [5-6]                      7.50            9.42
+  64       7          8.02 +- 0.12  [8-9]                     12.14           35.48
+  256      9         10.00 +- 0.06  [10-11]                   16.04          131.50
+  512     10         11.00 +- 0.04  [11-12]                   18.02          259.50
+  1024    11         12.00 +- 0.03  [12-13]                   20.01          515.50
+  2048    12         13.00 +- 0.02  [13-14]                   22.01         1027.50
+analytic = ceil(log2(k+1)). Measured binary = real binary_search (pure bisection over the full range),
+averaged over all boundary positions; it is analytic+1 (the +1 = the 2 bracketing endpoint probes) and
+FLAT in the boundary position (sd 0.43 -> 0.02 as k grows). Galloping (exp_search) ~= 2*analytic for a
+uniform boundary (cheaper ONLY for a recent/near trainer, ~const 4); linear ~= k/2. probes = distinct
+memoized HW batch measurements. Full HW cost = probes x reps x 2 swap-dirs + 2 reverify. eval_scripts/a6.
 
 ### Table 7.2 — Canon/BTB + v2/BTB rows (cross-input, N3)
 | Violation / Channel        | N3 result | detail |
 |----------------------------|-----------|--------|
 | Canonicality / BTB         | check (template/seed), rare (fully-random) | template canon_oracle_ssb: CONFIRMED cross-input leak ~6s, reproducible (leaker->detector, strictly cross-input); gadget seed 799067: 9s deterministic. Fully-random auto-detect: seed-dependent/rare (gadget uncommon), NOT a contract/regime bug ([seq] & [cond,bpas] both rare; regime live-verified). |
-| Spectre-v2 / BTB           | check (same carrier), rare (fully-random) | same BTB cross-input carrier; leaked bit = predicted target (no canonicality seal). Template-reliable; fully-random rare. |
+| Spectre-v2 / BTB           | check (template); random v2 abundant once filter off | same BTB cross-input carrier; leaked bit = predicted target (no seal). CORRECTION: fully-random "0/rare" was an artifact of cross_input_leaks_only:true discarding self-dependent leaks — same 30 seeds give 0 viol with the filter, 11 confirmed/13tc without (7×v1/2×v4/1×v2 38v88). STRICTLY cross-input pure-BTB (leaker≠prober) remains rarer. |
 Fixes that restored it: aarch64_fuzzer.py (regime wraps detection, not just localization) + sealer.py (re-clamp base after BL/BLR). Committed 2c3b18e3.
 
 ### Canon/BTB fully-random reproducibility (eval_configs/canon_btb_3t.yml: >=3 targets, -i 50, 180s cap)
@@ -199,7 +206,9 @@ Contract-vs-throughput note: traces/s is the clean monotonic contract-cost indic
 cond 3,407 > cond+bpas 2,190 -> richer contract = more CE model time per measurement). tc/h is noisier
 (seq 9,151; cond 12,171; cond+bpas 7,838) because boosting/effective-classes differ by contract. Simple
 contracts ~8-12k tc/h; the heavy-NI contract (deep nesting + dispatch) is the ~40x drop to ~200 tc/h.
-v2_btb_3t (pure Spectre-v2 / BTB, no sealing) fully-random: 0/3 (rare; needs the template demo).
+v2_btb_3t (pure Spectre-v2 / BTB, no sealing) fully-random: the earlier "0/3 rare" was an artifact of
+cross_input_leaks_only:true (filters self-dependent leaks); with it off, random fuzzing finds v2 readily
+(1 of 11 random self-dependent violations CE-ladder-attributes to v2).
 
 ### Table 7.2 — remote A4 (Cortex-A715=core4) + A5 (Cortex-X3=core8) reproduction (L1D/PAC rows)
 | Violation / Channel | N3 | A715 | X3 | detail |
@@ -225,11 +234,12 @@ Remote-loopback-N3 not feasible via adb (N3=Debian, no adbd); overhead quantifie
 ### §7.5/7.6 — end-to-end exploits (N3, isolated core 90)
 | exploit | accuracy | rate | note |
 |---------|----------|------|------|
-| Cross-process EL0->EL0 (BTB), PMU       | 100% (56/56 bits) | 63 bit/s   | 8/8 rounds, 7-bit secret (target ~100%/~65) |
-| Cross-process EL0->EL0 (BTB), rootless  | 100% (56/56)      | 6 bit/s    | --samples 800 (target ~90-100%/~7) |
-| Cross-VM guest->host (BTB)              | 100% (70/70)      | 126 bit/s  | --victim-branches 16 (target ~100%/~130) |
-| Cross-privilege EL2->EL0 (L1 dTLB)      | 100% (160/160)    | 1242 bit/s | 16-bit secret (target ~100%/~1230) |
+| Cross-process EL0->EL0 (BTB), PMU       | 100% (56/56 bits) | 51 bit/s   | 8/8 rounds, 7-bit secret (artifact xproc_pmu.save; audit-corrected 63->51) |
+| Cross-process EL0->EL0 (BTB), rootless  | 96.43% (54/56)    | 5 bit/s    | 6/8 rounds, --samples 800 (artifact xproc_rootless.save; audit-corrected 100%->96.43%) |
+| Cross-VM guest->host (BTB)              | 100% (70/70)      | 125 bit/s  | 10/10 rounds, --victim-branches 16 (artifact xvm.save; audit-corrected 126->125) |
+| Cross-privilege EL2->EL0 (L1 dTLB)      | 100% (160/160)    | 1240 bit/s | 10/10 rounds, 16-bit secret (artifact xel.save; audit-corrected 1242->1240) |
 | Blind stack canary [55:0]               | v1 18/19, v4 19/19, rsb 18/19 FULL | — | fresh random canary/launch (target v1 20/20, rsb 19/20, v4 18/20) |
-| OpenSSL RSA-2048 ROP                    | (running, ~5.5h)  | —          | --samples 1500 (target ~2044/2048=99.8%, ~5.5h) |
-| SMC/BTB (appendix)                      | SMC effect 0.000  | —          | NOP 1.000 - SMC 1.000; CFP RCTX control flushes (survived 0.000) |
-All cross-boundary + SMC match targets. OpenSSL pending. All PoCs from ~/arm-disclosure/pocs (built on N3).
+| OpenSSL RSA-2048 ROP                    | 2035/2048 = 99.37% (21/32 limbs exact) | 0.102 bit/s | --samples 1500, wall 20101 s = 5.58 h (target ~2044/2048=99.8%, ~5.5h) |
+| SMC/BTB (appendix)                      | SMC effect 0.000  | —          | baseline/NOP/SMC survived=1.000; self-flood control 0.028; CFP RCTX flushes (survived 0.000); MMU M-toggle no flush (artifact smc.save) |
+All cross-boundary + SMC match targets. OpenSSL COMPLETE (99.37% bit accuracy, 5.58 h — matches target). All PoCs from ~/arm-disclosure/pocs (built on N3).
+Note: exploit rates above are the artifact-backed, multi-model-audited numbers (VERIFICATION.md); they supersede earlier log assertions.

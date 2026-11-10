@@ -1,5 +1,0 @@
-# bulky raw fuzzer output stays on disk (persistent on the VM), not in git
-probe_*/
-ttd/*/run*/
-smoke_*/
-tp_*/
