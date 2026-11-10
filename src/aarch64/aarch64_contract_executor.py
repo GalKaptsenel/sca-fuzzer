@@ -194,12 +194,12 @@ class ContractExecution:
             mte_profile_word = int(bool(self.mte_profile.native))
             config_flags |= ConfigFlags.CONFIG_FLAG_MTE_PROFILE
 
-        # memory = main‖faulty; the gpr register slots are the GPR section (CE reads only those).
+        # memory = main|faulty. The gpr register slots are the GPR section (CE reads only those).
         input_init = build_input_init(self.memory[:MAIN_AREA_SIZE], self.memory[MAIN_AREA_SIZE:],
                                 self.registers[:GPR_SUBREGION_SIZE], self.simd,
                                 mte_tags=self.mte_tags,
                                 pac_keys=self.pac_keys.words() if self.pac_keys is not None else None)
-        # machine_code = instructions ‖ read-only tables; the header splits it so the CE hooks only the
+        # machine_code = instructions | read-only tables. The header splits it so the CE hooks only the
         # instruction region and leaves the trailing tables intact for the dispatch loads.
         assert 0 <= self.data_size <= len(self.machine_code)
         code_size: int = len(self.machine_code) - self.data_size

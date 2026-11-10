@@ -65,12 +65,17 @@ class CPUState:
         ))
         off += U64.size * num_gprs
 
-        self.sp, = U64.unpack_from(buf, off); off += U64.size
-        self.pc, = U64.unpack_from(buf, off); off += U64.size
-        self.nzcv, = U64.unpack_from(buf, off); off += U64.size
-        self.encoding, = U64.unpack_from(buf, off); off += U64.size
+        self.sp, = U64.unpack_from(buf, off)
+        off += U64.size
+        self.pc, = U64.unpack_from(buf, off)
+        off += U64.size
+        self.nzcv, = U64.unpack_from(buf, off)
+        off += U64.size
+        self.encoding, = U64.unpack_from(buf, off)
+        off += U64.size
 
-        self.extra_data_size, = SIZE_T.unpack_from(buf, off); off += SIZE_T.size
+        self.extra_data_size, = SIZE_T.unpack_from(buf, off)
+        off += SIZE_T.size
         assert self.extra_data_size == 0, \
             f"CE emitted extra_data_size={self.extra_data_size}; the parser assumes a fixed entry stride"
 

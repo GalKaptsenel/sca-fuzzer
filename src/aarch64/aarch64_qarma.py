@@ -131,7 +131,8 @@ def _sub(i, S):  return sum(S[(i >> b) & 0xf] << b for b in range(0, 64, 4))
 def _isub(i, S): return sum(S[(i >> b) & 0xf] << b for b in range(0, 64, 4))
 
 def _rot(cell, n):
-    cell &= 0xf; cell |= cell << 4
+    cell &= 0xf
+    cell |= cell << 4
     return (cell >> (4 - n)) & 0xf
 
 def _shuf(i):
@@ -178,9 +179,14 @@ def computepac(data: int, modifier: int, key_lo: int, key_hi: int, iterations: i
         w = _sub(w, S)
         rmod = _tshuf(rmod)
     w ^= modk0 ^ rmod
-    w = _mult(_shuf(w)); w = _sub(w, S); w = _mult(_shuf(w))
+    w = _mult(_shuf(w))
+    w = _sub(w, S)
+    w = _mult(_shuf(w))
     w ^= key1
-    w = _ishuf(w); w = _isub(w, IS); w = _mult(w); w = _ishuf(w)
+    w = _ishuf(w)
+    w = _isub(w, IS)
+    w = _mult(w)
+    w = _ishuf(w)
     w ^= key0 ^ rmod
     for i in range(iterations + 1):
         w = _isub(w, IS)

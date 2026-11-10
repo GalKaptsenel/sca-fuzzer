@@ -11,7 +11,8 @@ Usage: verify_gvt.py <config.yml> <pac|mte|both> <n_cases>
 """
 import os, sys, random, re, collections
 _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-os.chdir(_ROOT); sys.path.insert(0, _ROOT)
+os.chdir(_ROOT)
+sys.path.insert(0, _ROOT)
 
 CFG = sys.argv[1] if len(sys.argv) > 1 else "config_pac.yml"
 KIND = sys.argv[2] if len(sys.argv) > 2 else "pac"
