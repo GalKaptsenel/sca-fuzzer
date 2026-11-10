@@ -84,9 +84,9 @@ pieces, each over its own mechanism.
 The fuzzer never talks to the CPU directly: the **CE** gives the *expected* (contract) trace, the
 **kernel module** gives the *actual* (hardware) trace, and the fuzzer compares them. The CE is
 launched once and kept alive to serve many requests. `asm_to_bytes` is a one-shot helper forked per
-call, so it is fork-heavy on the sealed/speculative exception path (one variant per input); two optimizations avoid
+call, so it is fork-heavy on the instrumented/speculative exception path (one variant per input); two optimizations avoid
 those forks: `Aarch64Generator.in_memory_assemble` **memoizes** by source text (identical assembly is
-served from a cache, not re-forked), and sealed variants are assembled by **relocation** rather than
+served from a cache, not re-forked), and instrumented variants are assembled by **relocation** rather than
 re-running the assembler (see §6.2).
 
 ## 3. A fuzzing round
@@ -480,11 +480,11 @@ A second scheme targets Arm's **pointer authentication (PAC)** and **memory tagg
 primitives a single ctrace cannot capture. Instead of many inputs against one program, it runs
 **one input against many sibling programs** and compares their htraces (*speculative exception*).
 
-The sibling programs are produced by **sealing**: each speculative-leak primitive in the test case
+The sibling programs are produced by **GVT access**: each speculative-leak primitive in the test case
 is replaced by a fixed-width instruction slot the fuzzer fills per variant. Three independent,
-composable seals:
+composable GVT accesses:
 
-- **Sandbox** — clamps a memory access into the sandbox (the only seal that touches memory);
+- **Sandbox** — clamps a memory access into the sandbox (the only GVT access that touches memory);
 - **PacSign** — signs / authenticates a pointer register (PAC);
 - **MteTag** — retags a register (MTE).
 
@@ -494,16 +494,16 @@ leaving everything else — including the Sandbox clamp — genuine. If the prim
 baseline and decoys are architecturally identical and produce the same htrace; a **difference**
 between baseline and a decoy is a leak of that primitive.
 
-Sealing *every* primitive (not just the target) is what keeps a run safe and single-pass: an MTE run
+Instrumenting *every* primitive (not just the target) is what keeps a run safe and single-pass: an MTE run
 whose test case also contains PAC `AUT*` instructions must still authenticate those pointers
-genuinely. One CE pass over the sealed program fills every slot (signs the PAC slots, classifies the
+genuinely. One CE pass over the instrumented program fills every slot (signs the PAC slots, classifies the
 MTE slots); the decoy policy then perturbs only the target's speculative slots.
 
-Two further primitives seal *addresses*: **canonicality** (`enable_canonicality`) flips a load/store
-base non-canonical on the speculative decoy, and **branch-target sealing**
-(`enable_branch_target_sealing`) flips an indirect call's target register (`x28`) non-canonical (high
+Two further primitives GVT access *addresses*: **canonicality** (`enable_canonicality`) flips a load/store
+base non-canonical on the speculative decoy, and **branch-target GVT access**
+(`enable_branch_target_access`) flips an indirect call's target register (`x28`) non-canonical (high
 bits) or misaligned (low bits → PC-alignment fault) right before a speculative `BLR` — with no
-after-revert, since the target is a dead scratch. Both seal only speculative-only slots, so genuine and
+after-revert, since the target is a dead scratch. Both GVT access only speculative-only slots, so genuine and
 decoy stay architecturally identical.
 
 ```
@@ -579,10 +579,10 @@ sysfs regime control and fails loud otherwise.
 
 ### 6.2 Variant assembly by relocation (throughput)
 
-The sibling variants for one input differ from a shared skeleton only at the sealing slots — the
+The sibling variants for one input differ from a shared skeleton only at the GVT access slots — the
 `MOVK` carrying the per-input PAC signature, the `AUT*`/`XPAC` that follows it, and the MTE `ADDG`
 retag. Re-assembling and re-loading a full test case per variant would be the bulk of the non-HW
-time on the sealed path. Instead the skeleton is loaded **once** and each input carries a small
+time on the instrumented path. Instead the skeleton is loaded **once** and each input carries a small
 **code-relocation table** that patches only those slots.
 
 A **relocation** is `(offset, value)` of type `WORD32`: overwrite the 4-byte little-endian word at
@@ -595,8 +595,8 @@ The resolver emits a `RelocationPlan`; the encoder packs it into the REIF `CODE_
 The patch is applied **in the kernel**, not in Python. Immediately before an input executes, the
 kernel splices that input's relocations into the shared body on the pinned CPU (with local i-cache
 maintenance), runs it, then **reverts** the body to the pristine test case — so one loaded test case
-serves many differently-sealed inputs, and there is no per-variant assemble *or* per-variant device
-load. Unlike PAC/`XPAC` slots, the MTE tag-delta seal is now just another `WORD32` (the `ADDG`
+serves many differently-instrumented inputs, and there is no per-variant assemble *or* per-variant device
+load. Unlike PAC/`XPAC` slots, the MTE tag-delta GVT access is now just another `WORD32` (the `ADDG`
 word), so MTE and PAC variants relocate through the same path. Relocation offsets are bounds-checked
 against the loaded test case at trace time; a bad splice would run a wrong-signed `AUT*` and
 FPAC-fault the box, so correctness is covered by the encoder/round-trip tests rather than a hot-path
@@ -929,7 +929,7 @@ before executing" step.
 `MEMORY_MAIN`/`MEMORY_FAULTY`/`GPR` are required; the rest are optional (absent ⇒ kernel default).
 The `GPR` section carries the flags **already** in PSTATE form — the writer reconstructs the per-flag
 NZCV encoding (§8.2) before packing. `PAC_KEYS`/`MTE_TAGS`/`CODE_RELOC` are the per-input state the
-speculative exception seal (§6.1, §6.2) uses.
+speculative exception GVT access (§6.1, §6.2) uses.
 
 ### 9.5 Contract-executor request format
 

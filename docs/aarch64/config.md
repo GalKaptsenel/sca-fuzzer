@@ -74,11 +74,11 @@ Default: 0.2
 Relative weight of XPAC-strip insertions in the PAC speculative exception stage-1 instrumentation.
 
 ```yaml
-Name: pac_seal_prob
+Name: pac_access_prob
 Default: 1.0
 ```
 
-Probability that an eligible memory access is PAC-sealed (authenticated) at all. Values `< 1` leave
+Probability that an eligible memory access is PAC-instrumented (authenticated) at all. Values `< 1` leave
 some accesses as a raw, sandbox-clamped pointer with no AUT*. Decided once per test case.
 
 ```yaml
@@ -86,19 +86,19 @@ Name: pac_strip_prob
 Default: 0.0
 ```
 
-Probability that a sealed slot renders as the arch-safe XPAC* strip instead of a real AUT*. A strip
+Probability that an instrumented slot renders as the arch-safe XPAC* strip instead of a real AUT*. A strip
 never poisons under speculation, whereas an AUT* against the decoy signature does.
 
 ## Canonicality (speculative exception)
 
 Canonicality is a third speculative exception primitive, alongside PAC and MTE, for the
-`fuzzer: speculative-exception` fuzzer. Unlike PAC/MTE it introduces **no new instructions**: it seals
+`fuzzer: speculative-exception` fuzzer. Unlike PAC/MTE it introduces **no new instructions**: it GVT accesses
 the memory accesses the generator already emits, so it is independent of `instruction_categories`
 and is switched on by its own flag. The genuine run uses the canonical (sandbox-clamped) pointer;
 the decoy **flips** a non-canonical mask into the base register right before a speculative-only
 access — so the architectural path stays canonical (a non-canonical address would fault) — and flips
 it back right after (when the access preserves its base), so the decoy **re-converges** with the
-baseline: only the sealed access differs, and the flipped bits cannot cascade downstream (e.g. a
+baseline: only the instrumented access differs, and the flipped bits cannot cascade downstream (e.g. a
 later shift moving them into the cache-set index). Any hardware htrace divergence between genuine and
 decoy is therefore a canonicality leak: the microarchitecture distinguished two
 architecturally-identical programs.
@@ -118,16 +118,16 @@ Name: enable_canonicality
 Default: False
 ```
 
-Master switch. Detected as the `canon` seal primitive. Requires the speculative exception fuzzer and a
+Master switch. Detected as the `canon` GVT access primitive. Requires the speculative exception fuzzer and a
 category that emits memory accesses (`BASE-MEM-LOAD` / `BASE-MEM-STORE`) for there to be anything to
-seal. Currently exclusive with PAC/MTE (combined primitives are not yet wired).
+GVT access. Currently exclusive with PAC/MTE (combined primitives are not yet wired).
 
 ```yaml
-Name: canonicality_seal_prob
+Name: canonicality_access_prob
 Default: 1.0
 ```
 
-Probability that an eligible memory access is canonicality-sealed. Values `< 1` leave some accesses
+Probability that an eligible memory access is canonicality-instrumented. Values `< 1` leave some accesses
 canonical in both variants. Decided once per test case.
 
 ```yaml
@@ -175,22 +175,22 @@ Name: pac_keys_per_input
 Default: True
 ```
 
-PAC keys are part of each input and the kernel, the contract executor and the sealer all run an input
+PAC keys are part of each input and the kernel, the contract executor and the builder all run an input
 under its own keys. `True`: every input draws its own key set from its seed. `False`: all inputs of
 the campaign share one key set, drawn from `input_gen_seed`.
 
 ## PTE (page-table entry) fuzzing
 
-An **environment-fuzzing** axis of the speculative exception fuzzer, not a code sealing. The genuine and
+An **environment-fuzzing** axis of the speculative exception fuzzer, not a code GVT access. The genuine and
 decoy variants run byte-identical code and touch identical virtual addresses; the only difference is
 the page-table state of pages reached **only speculatively** (the sandbox's spec-only page set — see
-`src/aarch64/seal/environment.py`), so any hardware-trace divergence is a genuine leak of page-table
+`src/aarch64/GVT access/environment.py`), so any hardware-trace divergence is a genuine leak of page-table
 state through the speculative walk/access. Because the executor has no EL1 fault handler (a retiring
 fault panics), the fuzzed pages must never be reached architecturally (strict spec-only); a decoy may
 therefore flip even present/permission bits safely, since the faulting access is always squashed.
 
 The fuzzable bits are named by descriptor **field** (`LEAF_LAYOUT` / `TABLE_LAYOUT` in
-`src/aarch64/seal/pagetable_model.py`); the output address is never fuzzable, so genuine and decoy
+`src/aarch64/GVT access/pagetable_model.py`); the output address is never fuzzable, so genuine and decoy
 always map the same physical page.
 
 ```yaml
@@ -234,7 +234,7 @@ the *detecting pair*'s own input; **cross-input priming** additionally localizes
 input — the *leaking pair* — whose microarchitectural residue (e.g. a BTB entry it trains) surfaces as
 the detecting pair's cache divergence. See §6.1a of the architecture reference for the localization. It
 replaces standard priming over the boosted input lanes (regular fuzzing: each boosting round of an input
-class is a lane of ct-equal inputs; speculative exception: each seal variant is a lane), reusing the sample sizes standard priming already uses — the
+class is a lane of ct-equal inputs; speculative exception: each GVT access variant is a lane), reusing the sample sizes standard priming already uses — the
 current stage size for localization, `executor_sample_sizes[-1]` to re-verify — so it adds no rep knobs.
 Requires a local HW executor with sysfs regime control and `inputs_per_class` ≥ 2.
 
@@ -313,7 +313,7 @@ TTBR0/TTBR1 regime selector) right before a PAC-authenticated access and flips i
 is non-canonical in either regime. Requires the PAC category active.
 
 ```yaml
-Name: signext_seal_prob
+Name: signext_access_prob
 Default: 1.0
 ```
 
@@ -321,7 +321,7 @@ When the sign-extension axis is active, the per-access probability that an eligi
 receives the sign-extension flip on the decoy.
 
 ```yaml
-Name: enable_branch_target_sealing
+Name: enable_branch_target_access
 Default: False
 ```
 
@@ -330,7 +330,7 @@ before the `BLR` so it becomes non-canonical or misaligned, an alignment axis x8
 indirect calls in the test cases (indirect_call_probability greater than 0).
 
 ```yaml
-Name: branch_target_seal_prob
+Name: branch_target_access_prob
 Default: 1.0
 ```
 
@@ -346,7 +346,7 @@ A fixed non-canonical high-bit run to apply to the corrupted branch target, or N
 pool.
 
 ```yaml
-Name: branch_target_seal_misalign
+Name: branch_target_misalign
 Default: True
 ```
 
