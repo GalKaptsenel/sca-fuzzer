@@ -37,16 +37,6 @@ Assemble each test case in memory, so a fuzzing run writes no per-test-case asm/
 are produced only when a violation artifact is saved). x86 leaves this `False` and loads the object
 file from disk.
 
-```yaml
-Name: enable_branch_mistraining
-Default: False
-```
-
-Before measuring an input, saturate each architectural conditional branch in the opposite
-direction so the first hardware run mispredicts and opens a speculative window. **Keep off (WIP)**:
-the current implementation trains toward the *architectural* direction and *suppresses* the
-misprediction Spectre-v1 needs.
-
 ## Non-interference
 
 ```yaml
@@ -282,3 +272,82 @@ Keep only *strictly cross-input* (non-self) leaks. A boundary at the detecting p
 this set, such findings are dropped, so a violation is confirmed only when an **earlier** input's
 microarchitectural residue changes a **later** input's readout. `False` by default (a self- or
 cross-input finding both confirm). Requires `enable_cross_input_priming`.
+
+## Generation target
+
+```yaml
+Name: target_arch
+Default: [9, 0]
+```
+
+The ARM architecture version `[major, minor]` the generator targets, as `[9, 0]` for Armv9.0-A.
+Instructions requiring a newer version are excluded (they would not assemble). This must match the
+assembler `-march` the generator uses.
+
+## Speculative-exception fuzzing
+
+```yaml
+Name: speculative_exception_mode
+Default: None
+```
+
+The input regime for the speculative-exception fuzzer, either `strict` or `contract_driven`. Required
+(no default) when that fuzzer is selected.
+
+```yaml
+Name: mte_native
+Default: False
+```
+
+When true the contract-executor host implements FEAT_MTE, so the retag `ADDG` and the tagged access run
+natively. When false the contract executor strips the tag to form the host address and restores it
+after the access.
+
+```yaml
+Name: enable_signext
+Default: False
+```
+
+Enable the sign-extension axis, composed with PAC. On the speculative decoy it flips bit 55 (the
+TTBR0/TTBR1 regime selector) right before a PAC-authenticated access and flips it back, so the address
+is non-canonical in either regime. Requires the PAC category active.
+
+```yaml
+Name: signext_seal_prob
+Default: 1.0
+```
+
+When the sign-extension axis is active, the per-access probability that an eligible PAC access also
+receives the sign-extension flip on the decoy.
+
+```yaml
+Name: enable_branch_target_sealing
+Default: False
+```
+
+Enable the branch-target axis. On the speculative decoy it corrupts an indirect call's target register
+before the `BLR` so it becomes non-canonical or misaligned, an alignment axis x86 lacks. Requires
+indirect calls in the test cases (indirect_call_probability greater than 0).
+
+```yaml
+Name: branch_target_seal_prob
+Default: 1.0
+```
+
+When the branch-target axis is active, the per-call probability that an eligible indirect call receives
+the target corruption on the decoy.
+
+```yaml
+Name: branch_target_canon_mask
+Default: None
+```
+
+A fixed non-canonical high-bit run to apply to the corrupted branch target, or None to draw one from the
+pool.
+
+```yaml
+Name: branch_target_seal_misalign
+Default: True
+```
+
+Include the low-bit misalignment axis (a PC-alignment fault) in the branch-target corruption pool.
