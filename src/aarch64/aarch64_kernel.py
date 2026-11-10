@@ -203,11 +203,9 @@ class InputRegion(ExecutorRegion):
         self.iid = iid
 
 # Mirror of userapi/executor_user_api.h — keep in sync with that header (the single source).
-# htrace channels: [0]=L1D, [1]=L2 (reserved), [2]=BTB (branch-target P+P).
-HTRACE_WIDTH = 3
+# htrace channel: [0]=L1D (the single cache measurement channel).
+HTRACE_WIDTH = 1
 HTRACE_L1D = 0
-HTRACE_L2 = 1
-HTRACE_BTB = 2
 NUM_PFC = 3
 
 

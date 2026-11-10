@@ -15,14 +15,12 @@
 #define UAPI_FAULTY_REGION_SIZE		        UAPI_PAGESIZE
 #define UAPI_OVERFLOW_REGION_SIZE	        UAPI_PAGESIZE
 
-/* htrace channels: [0]=L1D, [1]=L2 (reserved, not yet populated), [2]=BTB (branch-target P+P) */
-#define HTRACE_WIDTH	(3)
+/* htrace channel: [0]=L1D (the single cache measurement channel) */
+#define HTRACE_WIDTH	(1)
 #define HTRACE_L1D	(0)
-#define HTRACE_L2	(1)
-#define HTRACE_BTB	(2)
 #define NUM_PFC		    (3)
 
-#define REVISOR_EXECUTOR_ABI_VERSION	(2)
+#define REVISOR_EXECUTOR_ABI_VERSION	(3)
 
 typedef struct user_measurement {
 	uint64_t htrace[HTRACE_WIDTH];
