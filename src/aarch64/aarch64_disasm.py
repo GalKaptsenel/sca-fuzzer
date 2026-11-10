@@ -26,7 +26,7 @@ _CAPSTONE.detail = True
 # which it reports correctly), falling back to an over-approximate read when even that is empty (a
 # taint-safe direction: a missed read is unsafe, an extra read is not).
 
-# Capstone 5.0.x does not mark SUBPS as writing NZCV (it is an MTE pointer-subtract that sets flags);
+# Capstone 5.0.x does not mark SUBPS as writing NZCV (it is an MTE pointer-subtract that sets flags).
 # no static register role covers this, so its full-NZCV write is added explicitly.
 _FULL_NZCV_WRITERS = frozenset({"subps"})
 
@@ -37,8 +37,8 @@ _FULL_NZCV_WRITERS = frozenset({"subps"})
 # added as sources separately. RMIF's write set depends on its mask immediate (see below). it is not
 # in this table.
 _FLAG_OP_NZCV = {
-    "setf8":  (set(),                {"N", "Z", "V"}),        # N,Z,V from Xn; C preserved
-    "setf16": (set(),                {"N", "Z", "V"}),        # N,Z,V from Xn; C preserved
+    "setf8":  (set(),                {"N", "Z", "V"}),        # N,Z,V from Xn. C preserved
+    "setf16": (set(),                {"N", "Z", "V"}),        # N,Z,V from Xn. C preserved
     "cfinv":  ({"C"},                {"C"}),                  # C := NOT C
     "axflag": ({"Z", "C", "V"},      {"N", "Z", "C", "V"}),   # ARM -> alternate FP flag format
     "xaflag": ({"C", "Z"},           {"N", "Z", "C", "V"}),   # alternate -> ARM FP flag format
@@ -171,7 +171,7 @@ def decode_reg_accesses(encoding: int, pc: int,
                 src.add(insn.reg_name(op.mem.index))
 
     # Flags (NZCV): register roles never carry per-bit flag precision, so derive it here. The
-    # FEAT_FlagM/FlagM2 ops are under-reported by Capstone (neither NZCV reads nor writes exposed);
+    # FEAT_FlagM/FlagM2 ops are under-reported by Capstone (neither NZCV reads nor writes exposed).
     # RMIF's write set depends on its mask immediate. SUBPS's full-NZCV write is not flagged at all.
     # Over-claiming a flag write drops live taint (false violation). a missed flag read under-taints.
     if mnemonic in _FLAG_OP_NZCV:
@@ -188,8 +188,8 @@ def decode_reg_accesses(encoding: int, pc: int,
 
 def decode_tag_store(encoding: int, pc: int):
     """For an STG-family tag store, return (mnemonic, xt_reg, base_reg, disp) from capstone's
-    structured operands; else None. STG writes the granule's allocation tag (not data memory), so the
-    target granule address is base_reg + disp; xt_reg supplies the tag. base+disp is correct for the
+    structured operands. else None. STG writes the granule's allocation tag (not data memory), so the
+    target granule address is base_reg + disp. xt_reg supplies the tag. base+disp is correct for the
     offset, pre-index (disp set) and post-index (disp 0, EA == base) forms."""
     insns = list(_CAPSTONE.disasm(encoding.to_bytes(4, byteorder="little"), pc))
     if not insns or insns[0].mnemonic.lower() not in ("stg", "stzg", "st2g", "stz2g"):

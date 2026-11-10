@@ -89,7 +89,7 @@ class _SandboxInstrumentationBase:
         return result
 
     def _make_sandbox_insts(self, reg: str, align_bytes: int = 1) -> List[Instruction]:
-        """[AND reg, reg, #mask; ADD reg, reg, x29] sandboxing reg into the input region. align_bytes>1
+        """[AND reg, reg, #mask. ADD reg, reg, x29] sandboxing reg into the input region. align_bytes>1
         (a power of two) also clears the low log2(align_bytes) bits, so the base is align_bytes-aligned:
         naturally-aligned single-copy-atomic accesses need their access width, STG-family tag stores and
         MTE granules need 16."""
@@ -100,7 +100,7 @@ class _SandboxInstrumentationBase:
 
     @staticmethod
     def _is_tag_store(inst: Instruction) -> bool:
-        """STG-family memory-tag stores (write a tag, not data; address must be 16-byte aligned)."""
+        """STG-family memory-tag stores (write a tag, not data. address must be 16-byte aligned)."""
         return inst.name.lower() in MTE_TAG_STORE_NAMES
 
     @staticmethod

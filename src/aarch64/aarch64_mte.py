@@ -1,9 +1,9 @@
 """MTE allocation-tag modelling used while parsing the contract-executor trace.
 
 MteTagState tracks the allocation tag of each memory granule across speculation. It is a stack of
-layers indexed by speculation depth: layer 0 is architectural; entering deeper speculation copies
+layers indexed by speculation depth: layer 0 is architectural. entering deeper speculation copies
 the current top, and unwinding pops it, that pop is the revert of the speculative tag stores. It
-starts uniform (the region's initial tag); per-cell initial tags can be pre-seeded for dynamic
+starts uniform (the region's initial tag). per-cell initial tags can be pre-seeded for dynamic
 tagging.
 """
 from typing import Dict, List, Optional, Tuple
@@ -54,8 +54,8 @@ def _reg_value(cpu, name: str) -> int:
 
 
 def mte_tag_store_effect(ite) -> Optional[Tuple[int, int, int]]:
-    """If ite is an STG-family tag store, return (addr, tag, n_granules); else None. STG writes the
-    allocation TAG of the granule its address covers (not data memory); the tag is the logical tag of
+    """If ite is an STG-family tag store, return (addr, tag, n_granules). else None. STG writes the
+    allocation TAG of the granule its address covers (not data memory). the tag is the logical tag of
     Xt. The CE logs post-hook state, so a writeback form's base register is ALREADY incremented in the
     trace (mte_emulator_hook writes it back before the entry is logged). Recover the access address
     from the addressing mode (imm9<<4, sign-extended) so pre/post-index land on the right granule:

@@ -25,7 +25,7 @@ def _tokens(asm: str):
     Only a STANDALONE `[...]` is a memory address: it is separated (a space or comma) from what
     precedes it, a comma for a later operand, the mnemonic gap for a first operand (MOPS `SET [<Xd>]!`).
     A `[...]` ATTACHED to the register it indexes (no separator) is a lane/element/tile index, not an
-    address (e.g. `<Vt>.D[<index>]`, `ZA.D[<Wv>, <offs>]`); its tokens get bracket 0, like any operand."""
+    address (e.g. `<Vt>.D[<index>]`, `ZA.D[<Wv>, <offs>]`). its tokens get bracket 0, like any operand."""
     out, depth, bracket, current, i = [], 0, 0, 0, 0
     while i < len(asm):
         c = asm[i]
@@ -36,12 +36,15 @@ def _tokens(asm: str):
                     current = bracket
                 else:                               # abuts a register -> element/lane index
                     current = 0
-            depth += 1; i += 1
+            depth += 1
+            i += 1
         elif c == "]":
-            depth -= 1; i += 1
+            depth -= 1
+            i += 1
         elif c == "<":
             j = asm.index(">", i)
-            out.append((asm[i:j + 1], current if depth > 0 else 0)); i = j + 1
+            out.append((asm[i:j + 1], current if depth > 0 else 0))
+            i = j + 1
         else:
             i += 1
     return out
@@ -115,7 +118,7 @@ def _reserves_all_ones(fields, decode) -> bool:
 
 def _register_range(var, field, ctx, enc) -> tuple:
     """Encodable register numbers (lo, hi, stride) for reg-number var <var>. The field width gives
-    the full range; fixed bits in the Decode `let var = UInt(<concat>)` binding restrict it
+    the full range. fixed bits in the Decode `let var = UInt(<concat>)` binding restrict it
     (e.g. `Rm::'0'` => even regs, `'011'::Rm` => a fixed high block), and a reserved all-ones field
     drops the top number. Loud-fails on bindings that are not a clean prefix/field/suffix concat."""
     m = re.search(r"\blet\s+%s\b\s*:\s*integer\b[^=]*=\s*UInt\(\s*([^)]*)\)" % re.escape(var), ctx.decode)
@@ -123,7 +126,7 @@ def _register_range(var, field, ctx, enc) -> tuple:
         names = [f for f in re.split(r"\s*::\s*", field.strip("()")) if f]
         hi = (1 << sum(ctx.boxes[f] for f in names)) - 1
         return (0, hi - (len(names) == 1 and _reserves_all_ones(names, ctx.decode)), 1)
-    parts = []                                   # (bits, value-or-None, name) MSB->LSB; None = varying field
+    parts = []                                   # (bits, value-or-None, name) MSB->LSB. None = varying field
     for tok in (t.strip() for t in re.split(r"\s*::\s*", m.group(1)) if t.strip()):
         lit = _BIT_LITERAL.fullmatch(tok)
         if lit is not None:
@@ -158,7 +161,7 @@ def _reg_operand(symbol, var, field, ctx, file, width, sem, encoding_name) -> Op
     # read (and written under writeback), an index is read. The memory access itself is the
     # instruction's mem_access, not the register's read/write.
     read, write = var in sem.read_regvars, var in sem.written_regvars
-    if not read and not write:   # a real register operand is always read and/or written;
+    if not read and not write:   # a real register operand is always read and/or written.
         raise ExtractionError(    # neither means the ASL did not reveal its role (no silent-wrong)
             f"{encoding_name}: register {symbol!r} (var {var!r}) role undetermined from ASL")
     return Operand(name=symbol.strip("<>"), kind=OperandKind.REG, read=read, write=write, width=width,
@@ -204,7 +207,7 @@ def _composite_pair(asm: str):
 
 def _writeback_targets(asm: str) -> set:
     """Operand tokens whose register the asm updates (writeback). The base register is written by
-    pre-index `[<Xn>, #<imm>]!`, post-index `[<Xn>], #<imm>`, or `[<Xd>]!`; a standalone `<Xn>!` is
+    pre-index `[<Xn>, #<imm>]!`, post-index `[<Xn>], #<imm>`, or `[<Xd>]!`. a standalone `<Xn>!` is
     too. Other addressing forms (offset/unsigned `[<Xn>{, #<imm>}]`) do not write the base."""
     standalone = {m.group(1) for m in re.finditer(r"<([^>]+)>!", asm)}
     pre_index = {m.group(1) for m in re.finditer(r"\[\s*<([^>]+)>[^\]]*\]!", asm)}
@@ -214,7 +217,7 @@ def _writeback_targets(asm: str) -> set:
 
 def _reg_file_width(symbol, var, encodedin, is_composite, ctx, enc):
     """(file, width) if the token is a register, else None. The `<R><t>` second half is always a
-    register (its file is read from the ASL); a plain token's file comes from its asm letter."""
+    register (its file is read from the ASL). a plain token's file comes from its asm letter."""
     if is_composite:
         if var is None:
             raise ExtractionError(f"{enc}: composite register {symbol!r} (field {encodedin!r}) reg-var not resolvable")

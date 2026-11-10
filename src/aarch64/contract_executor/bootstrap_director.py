@@ -2,7 +2,7 @@
 
 The CE binary embeds CPython (see tage_py.c). At startup the C side adds the directory
 containing this file to ``sys.path`` and imports this module *by name*
-(``bootstrap_director``); it then constructs a predictor and drives
+(``bootstrap_director``). it then constructs a predictor and drives
 ``predict()`` / ``update()`` / ``reset()`` (and the speculation hooks) on it.
 
 This module is the single, stable seam between the C embedding layer and the Python
@@ -62,7 +62,7 @@ def create_predictor(name: str = DEFAULT_PREDICTOR):
 
     Stable entry point for the CE: construction (predictor selection AND its config, e.g. the PHR
     fold/tag widths) lives here, so the C side stays model-agnostic. The CE currently calls this with
-    the default; `name` is the seam for selecting among future Python models (not yet plumbed from
+    the default. `name` is the seam for selecting among future Python models (not yet plumbed from
     the C-side config). Raises ValueError on an unknown name so a misconfiguration fails loudly.
     """
     try:

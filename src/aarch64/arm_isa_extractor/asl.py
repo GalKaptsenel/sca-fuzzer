@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from .models import MemAccess, MemWidth
 
 # ASL register access `<File>{<w>}(<v>)` / `<File>[<v>]`, e.g. `X{64}(t)`, `V{}(n)`, `P{}(g)`.
-# File is one of X/W (GP), V/Q/D/S/H/B (SIMD&FP), Z/P (SVE), or the Vpart/ZA* SIMD/SME accessors;
+# File is one of X/W (GP), V/Q/D/S/H/B (SIMD&FP), Z/P (SVE), or the Vpart/ZA* SIMD/SME accessors.
 # <v> (t, n, d, ...) is the reg-number variable Decode fills from the encoding, not a literal number.
 _ACC = r"(?:Vpart|ZAtile|ZAslice|X|W|V|Z|P|Q|D|S|H|B)"   # longer names first
 _ACC_OPEN = re.compile(_ACC + r"(?:\{[^}]*\}\(|\[)")     # an accessor up to its opening `(` / `[`
@@ -54,7 +54,7 @@ class AslSemantics:
 # `datasize`/`elsize` (one data-register width, e.g. `Mem{datasize}`), or `2*datasize`/`2*elsize` (a
 # register pair, e.g. ldp -> `Mem{2*datasize}`). A few atomics leave the brace empty (`MemAtomic{}`) and
 # carry the width on the value they read instead: `let data : bits(<w>) = MemAtomic{}`.
-_MEM_ACCESSOR = re.compile(r"Mem\w*\{([^}]*)\}")            # the accessor; group 1 = width expr (maybe "")
+_MEM_ACCESSOR = re.compile(r"Mem\w*\{([^}]*)\}")            # the accessor. group 1 = width expr (maybe "")
 _MEM_EMPTY_WIDTH = re.compile(r"bits\(([^)]+)\)\s*=\s*Mem")  # empty-brace accessor: width on the value
 _MEM_WIDTH_PAIR = re.compile(r"^\s*2\s*\*\s*(?:datasize|elsize)\s*$")
 _MEM_WIDTH_REG = re.compile(r"^\s*(?:datasize|elsize)\s*$")
@@ -145,7 +145,7 @@ def extract_asl_semantics(asl: str) -> AslSemantics:
     flags_w |= {f.upper() for f in _FLAG_ONE_W.findall(asl)}
     flags_r = {f.upper() for f in _FLAG_READ.findall(asl)}
     if "ConditionHolds" in asl:
-        flags_r |= _NZCV  # condition operand selects which; read footprint is all NZCV
+        flags_r |= _NZCV  # condition operand selects which. read footprint is all NZCV
     mem_access = _mem_access(asl)
     accdescs = _ACCDESC_KIND.findall(asl)
     mem_accdesc = accdescs[0] if accdescs else None

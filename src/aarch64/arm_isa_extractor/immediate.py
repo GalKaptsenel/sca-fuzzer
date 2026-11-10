@@ -186,7 +186,7 @@ def _field_width(field: str, ctx, enc: str) -> int:
 def _prose_range(prose: str):
     """The assembly value set as the operand's prose states it: (lo, hi, stride), or None if absent.
     Prose is authoritative for assembly values because the Decode ASL transform can diverge from what
-    the assembler accepts (EXTQ computes imm<<3 internally yet the syntax takes the raw imm; LD1D scales
+    the assembler accepts (EXTQ computes imm<<3 internally yet the syntax takes the raw imm. LD1D scales
     by 8 in the addressing, invisible in Decode). The bit width then cross-checks the value count."""
     r = _RANGE.search(prose)
     if r is None:

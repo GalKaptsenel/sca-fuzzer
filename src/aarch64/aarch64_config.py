@@ -153,7 +153,7 @@ during a fuzzing run (see the base config option of the same name). """
 avoid_extended_memory_operands: bool = True
 """ avoid_extended_memory_operands: skip extended-register-index (UXTW/SXTW/...) memory forms.
 TEMPORARY/WIP: defaulted True because emitting them was seen to reduce violations found, for a
-reason not yet understood; remove this option once investigated. """
+reason not yet understood. remove this option once investigated. """
 
 instruction_categories: List[str] = ["BASE-ARITH", "BASE-LOGICAL", "BASE-BRANCH-COND"]
 """ instruction_categories: a default list of tested instruction categories """
@@ -161,7 +161,7 @@ instruction_categories: List[str] = ["BASE-ARITH", "BASE-LOGICAL", "BASE-BRANCH-
 target_arch: List[int] = [9, 0]
 """ target_arch: the ARM architecture version [major, minor] generation targets, as [9, 0] for
 Armv9.0-A. Instructions requiring a newer version are excluded (they would not assemble). MUST match
-the assembler -march the generator uses (armv9-a); bump both together to reach newer FEATs. """
+the assembler -march the generator uses (armv9-a). bump both together to reach newer FEATs. """
 
 contract_observation_clause: str = 'l1d'
 """ contract_observation_clause: """
@@ -223,7 +223,7 @@ supported_instructions: List[str] = ["adds", "subs", "b.", "cbz", "b", "str", "l
 #   AUT* against the decoy signature does.
 pac_prob: float = 1.0
 pac_strip_prob: float = 0.0
-# PAC keys are part of each input: True -> every input draws its own key set (seeded by the input);
+# PAC keys are part of each input: True -> every input draws its own key set (seeded by the input).
 # False -> all inputs of the campaign share one key set (seeded by input_gen_seed).
 pac_keys_per_input: bool = True
 
@@ -283,7 +283,7 @@ pte_fuzz_leaf_fields: List[str] = list(LEAF_LAYOUT.default_fuzzable_field_names)
     (e.g. 'valid', 'attr_indx', 'ap', 'sh', 'af', 'uxn'). """
 pte_fuzz_table_fields: List[str] = []
 """ pte_fuzz_table_fields: level 0-2 table-descriptor fields a decoy may vary (e.g. 'ap_table',
-    'xn_table'); empty by default (leaf-only fuzzing). """
+    'xn_table'). empty by default (leaf-only fuzzing). """
 pte_fuzz_fields_per_decoy: int = 1
 """ pte_fuzz_fields_per_decoy: how many leaf fields (a count of fields, not bits) each decoy fuzzes,
     drawn as a random subset of pte_fuzz_leaf_fields. Default 1 (isolate one field per decoy). """
@@ -300,7 +300,7 @@ enable_cross_input_priming: bool = False
 """ enable_cross_input_priming: in regular and speculative-exception fuzzing, replace the standard priming filter
     with the generalized-priming localization over boosted lanes. Wherever priming would run, the flagged
     violation's own detecting pair is localized by toggling earlier positions across the two diverging
-    lanes; a found leaking pair (self- or cross-input) confirms the violation and reports the
+    lanes. a found leaking pair (self- or cross-input) confirms the violation and reports the
     [leaker..detector] chain, none means a false positive -- exactly as priming. Off by default. """
 cross_input_priming_localizer: str = "any"
 """ cross_input_priming_localizer: which boundary the localization returns. 'any' (default) = galloping +
@@ -312,7 +312,7 @@ cross_input_priming_localizer: str = "any"
 cross_input_leaks_only: bool = False
 """ cross_input_leaks_only: keep only STRICTLY cross-input (non-self) leaks. A boundary at the detecting
     pair itself (leaking pair == detecting pair) is that pair's own ct-equal variant leaking about itself
-    (a self-dependence); with this set, such findings are dropped and a violation is confirmed only when
+    (a self-dependence). with this set, such findings are dropped and a violation is confirmed only when
     an EARLIER input's microarchitectural residue changes a later input's readout. Off by default
     (self- or cross-input both confirm). Requires enable_cross_input_priming. """
 

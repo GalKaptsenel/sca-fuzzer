@@ -70,7 +70,7 @@ static void load_registers_from_input(input_t* input) {
 //			*((uint64_t*)executor.sandbox->lower_overflow+4),
 //			*((uint64_t*)executor.sandbox->lower_overflow+5),
 //			*((uint64_t*)executor.sandbox->lower_overflow+6),
-//			*((uint64_t*)executor.sandbox->lower_overflow+7));
+//			*((uint64_t*)executor.sandbox->lower_overflow+7)).
 }
 
 static void load_input_to_sandbox(input_t* input) {
@@ -100,7 +100,7 @@ static void initialize_overflow_pages(void) {
 	memset(executor.sandbox->lower_overflow, 0, sizeof(executor.sandbox->lower_overflow));
 	memset(executor.sandbox->upper_overflow, 0, sizeof(executor.sandbox->upper_overflow));
 //	for (int j = 0. j < (sizeof(executor.sandbox->upper_overflow) / sizeof(uint64_t)). ++j) {
-//	    ((uint64_t *)executor.sandbox->upper_overflow)[j] = 0;
+//	    ((uint64_t *)executor.sandbox->upper_overflow)[j] = 0.
 //	}
 }
 
@@ -192,7 +192,7 @@ static int __nocfi run_experiments(void) {
 		return -EINVAL;
 	}
 
-	mte_dump_reset();   // buffer this run's tag log; flushed by the caller after the pinned call
+	mte_dump_reset();   // buffer this run's tag log. flushed by the caller after the pinned call
 
 	current_input_node = rb_first(&executor.inputs_root);
 	BUG_ON(NULL == current_input_node);
@@ -219,7 +219,7 @@ static int __nocfi run_experiments(void) {
 	// boundary so the kernel's GCR is intact between test cases.
 	uint64_t pre_tc_gcr = mte_gcr_read();
 
-	int rc = 0;   // set by a per-input setup failure (e.g. inapplicable PTE overrides); breaks the loop
+	int rc = 0;   // set by a per-input setup failure (e.g. inapplicable PTE overrides). breaks the loop
 	for (int64_t i = -executor.config.uarch_reset_rounds; i < rounds; ++i) {
 		struct input_node* current_input = NULL;
 
@@ -234,7 +234,7 @@ static int __nocfi run_experiments(void) {
 		load_input_to_sandbox(&current_input->input);
 
 		// Apply this input's page-table environment overrides (NI environment axis) AFTER the sandbox
-		// memory/tags are loaded (so the setup's own writes hit pristine pages) and BEFORE the run;
+		// memory/tags are loaded (so the setup's own writes hit pristine pages) and BEFORE the run.
 		// reverted after measure(). A failure here (pages not 4K-mapped, etc.) is a hard error: fail
 		// the whole measurement loudly rather than run a variant with the wrong environment.
 		rc = pte_env_apply(&current_input->input);
@@ -323,7 +323,7 @@ static int __nocfi run_experiments(void) {
 		}
 		mte_gcr_restore(pre_tc_gcr);
 
-		// Post-execution tagmem (reflects the test case's STG* effects) for CE<->HW persistency checking;
+		// Post-execution tagmem (reflects the test case's STG* effects) for CE<->HW persistency checking.
 		// the NEXT input's pretrace dump must then show a clean reset back to that input's tags.
 		if (mte_tag_verbose) {
 			mte_dump_tags("posttrace", this_dump_seq, current_input->id, &current_input->input, 0);

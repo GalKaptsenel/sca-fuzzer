@@ -164,7 +164,7 @@ void mte_tagmem_init(uintptr_t base, const uint8_t* initial, size_t count) {
 	}
 	/* Model main+faulty (count granules) PLUS the first upper_overflow granule. The kernel tags that
 	 * boundary granule with the LAST input tag (mte_apply_sandbox_tags(upper_overflow, &tags[COUNT-1],
-	 * 1)) so a <=16B access spilling past the sandbox's last byte matches instead of tag-faulting;
+	 * 1)) so a <=16B access spilling past the sandbox's last byte matches instead of tag-faulting.
 	 * model the same extra granule so the CE agrees with HW on a boundary-spill access. */
 	g_tagmem = malloc(count + 1);
 	if (NULL == g_tagmem) {
@@ -220,7 +220,7 @@ static void ce_tag_set(uintptr_t addr, uint8_t tag) {
 }
 
 /* Zero the 16-byte data of the granule at kernel-space address `addr` (the STZG/STZ2G/STZGM data
- * effect). sim_state->memory[0] maps to the sandbox base, so the host offset is granule_index * 16;
+ * effect). sim_state->memory[0] maps to the sandbox base, so the host offset is granule_index * 16.
  * a no-op outside the modeled sandbox span. */
 static void ce_data_zero_granule(struct simulation_state* s, uintptr_t addr) {
 	long g = ce_granule(addr);
@@ -421,7 +421,7 @@ void* mte_emulator_hook(struct simulation_state* sim_state)
 		case MTE_ST2G:
 		case MTE_STZ2G: {
 			/*
-			 * Store Allocation Tag: write Xt's logical tag (Xt[59:56]) to the addressed granule;
+			 * Store Allocation Tag: write Xt's logical tag (Xt[59:56]) to the addressed granule.
 			 * the 2G forms tag two consecutive granules. The STZ* forms also zero the granule data.
 			 * Pre/post-index writes Xn back. Speculative tag and data updates roll back via the
 			 * speculation engine's checkpoint (tag memory + sandbox data).

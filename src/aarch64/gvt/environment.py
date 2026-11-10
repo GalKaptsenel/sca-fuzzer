@@ -4,7 +4,7 @@ PTE GVT access is the first speculative-exception primitive whose genuine/decoy 
 not an instruction word. This module is that environment, kept separate from the GVT image:
 
   * `SandboxPage` / `SandboxPageMap` -- the general partition of the sandbox data pages into those
-    reachable on the retiring path (arch + spec; identical PTEs in every variant) and those reached
+    reachable on the retiring path (arch + spec. identical PTEs in every variant) and those reached
     only speculatively (`spec_only`, the fuzzed axis). No page count is baked in.
   * `PteOverride` / `EnvironmentPlan` -- what a variant asks the kernel to change. An override is a
     position-INDEPENDENT `(mask, value)` on a page's descriptor: the kernel applies
@@ -12,8 +12,8 @@ not an instruction word. This module is that environment, kept separate from the
     absolute address crosses the boundary. The genuine variant ships an EMPTY plan (pristine PTEs);
     a decoy ships overrides on spec-only pages only.
   * `PteFuzzPolicy` -- turns "these fields are fuzzable" (by name, via `pagetable_model`) into
-    genuine / decoy plans. Descriptor-bit knowledge stays in `pagetable_model`; page knowledge
-    stays in `SandboxPageMap`; the builder above sees only clean plans.
+    genuine / decoy plans. Descriptor-bit knowledge stays in `pagetable_model`. page knowledge
+    stays in `SandboxPageMap`. the builder above sees only clean plans.
 """
 import struct
 from dataclasses import dataclass
@@ -32,10 +32,10 @@ LEVEL_LAYOUTS: Dict[int, DescriptorLayout] = {LEVEL_LEAF: LEAF_LAYOUT, 0: TABLE_
 @dataclass(frozen=True)
 class SandboxPage:
     """One page of the sandbox data region. `index` is the shared contract with the kernel's
-    page-role table; `offset` is the page's byte offset from the sandbox base (= the `main` region,
+    page-role table. `offset` is the page's byte offset from the sandbox base (= the `main` region,
     matching get_sandbox_addr and the kernel's sysfs base) -- the unit the arch-safety guard and the
     kernel use to locate the page. `spec_only` marks a page reached only speculatively (the fuzzed
-    axis); the rest are reachable on the retiring path with identical PTEs across variants."""
+    axis). the rest are reachable on the retiring path with identical PTEs across variants."""
     index: int
     name: str
     offset: int
@@ -51,7 +51,7 @@ class SandboxPageMap:
     """The ordered sandbox data pages. Encapsulates the layout knowledge the rest of the stack would
     otherwise hard-code: which pages are spec-only, and -- since an architectural access may spill
     into the next page -- which retiring-reachable pages sit just before a spec-only page and thus
-    need an access-size-bounded clamp (a spill into another arch-reachable page is fine; into a
+    need an access-size-bounded clamp (a spill into another arch-reachable page is fine. into a
     spec-only page is not)."""
 
     def __init__(self, pages: Sequence[SandboxPage]) -> None:
@@ -103,7 +103,7 @@ class SandboxPageMap:
     def arch_access_needs_size_clamp(self, page: SandboxPage) -> bool:
         """True when a full-width arch access based in `page` could spill into a page that is NOT
         arch-reachable (a spec-only successor, or off the end of the region). A spill into another
-        arch-reachable page is allowed (returns False); a spec-only page is never an arch base."""
+        arch-reachable page is allowed (returns False). a spec-only page is never an arch base."""
         if page.spec_only:
             return False
         nxt = self.successor(page)
@@ -117,7 +117,7 @@ class SandboxPageMap:
 
 def default_sandbox_page_map() -> SandboxPageMap:
     """The current fuzzable sandbox data pages, addressed by byte offset from the sandbox base (the
-    `main` region; see get_sandbox_addr): `main` (arch-reachable) and `faulty` (spec-only, the one
+    `main` region. see get_sandbox_addr): `main` (arch-reachable) and `faulty` (spec-only, the one
     page a test case may reach only speculatively). The partition is general -- widening the
     spec-only set later (e.g. extra vmap'd pages) changes this one factory and the kernel page-role
     table, not the policy, the executor, or the transport."""
@@ -181,7 +181,7 @@ class EnvironmentPlan:
 
 class PteFuzzPolicy:
     """Turns "these descriptor fields are fuzzable" into genuine / decoy `EnvironmentPlan`s over a
-    `SandboxPageMap`. The genuine plan is empty (pristine PTEs); a decoy perturbs each spec-only
+    `SandboxPageMap`. The genuine plan is empty (pristine PTEs). a decoy perturbs each spec-only
     page's descriptor within the allowed fields."""
 
     def __init__(self, leaf_fields: Sequence[str], table_fields: Sequence[str] = (),

@@ -252,7 +252,7 @@ class Aarch64PatchUndefinedLoadsStoresPass(Pass):
 
     def _patch_address_register_collision(self, inst: Instruction) -> None:
         """For every memory access, force the index register to differ from the base. The sandbox masks
-        the base then subtracts the index (`SUB base, base, index`); if they are the same register the
+        the base then subtracts the index (`SUB base, base, index`). if they are the same register the
         base becomes zero and the effective address escapes the sandbox."""
         for mem_op in inst.get_mem_operands():
             base = next((c for c in mem_op.inner if c.mem_role is AArch64MemRole.BASE), None)
@@ -262,7 +262,7 @@ class Aarch64PatchUndefinedLoadsStoresPass(Pass):
                 self._replace_reg(index, forbidden={self._norm(base.value)})
 
     def _patch_auth_context_collision(self, inst: Instruction) -> None:
-        """Force an AUT*'s context register (Xn) to differ from its pointer register (Xd); see _AUTH_CTX."""
+        """Force an AUT*'s context register (Xn) to differ from its pointer register (Xd). see _AUTH_CTX."""
         ptr, ctx = inst.operands[0], inst.operands[1]
         assert isinstance(ptr, RegisterOperand) and isinstance(ctx, RegisterOperand)
         if self._norm(ptr.value) == self._norm(ctx.value):
@@ -401,7 +401,7 @@ class Aarch64PatchUndefinedLoadsStoresPass(Pass):
 
     def _patch_casp(self, inst: Instruction) -> None:
         """CASP <Rs>, <R(s+1)>, <Rt>, <R(t+1)>, [<Xn>]: rewrite each data pair to consecutive even/odd
-        registers (Rs even, R(s+1)=Rs+1; Rt even, R(t+1)=Rt+1), keep the two pairs disjoint, and keep
+        registers (Rs even, R(s+1)=Rs+1. Rt even, R(t+1)=Rt+1), keep the two pairs disjoint, and keep
         neither pair aliasing the base. Registers are drawn from the blocklist-filtered pool, so a gap
         in the pool just removes that even pair as a candidate."""
         ops = inst.operands
@@ -527,7 +527,7 @@ class Aarch64CallFramePass(Pass):
     functions never clobber X30, and the inline entry function never returns, so neither needs a frame.
 
     The spills use SP, which the harness points into upper_overflow, outside the sandbox data region,    so they are pure instrumentation: template-only (no memory operand), hence skipped by the sandbox
-    pass, and invisible to the contract (the kernel keeps them out of the probed sets; the contract
+    pass, and invisible to the contract (the kernel keeps them out of the probed sets. the contract
     executor exempts SP-based accesses). X29 is the sandbox base and is never used as a frame pointer."""
 
     def run_on_test_case(self, test_case: TestCase) -> None:
@@ -565,7 +565,7 @@ class Aarch64IndirectCallPass(Pass):
         LDRSW Xi, [Xd, Xi, LSL #2]      entry = (callee - table): a base-independent signed offset
         ADD   Xd, Xd, Xi                Xd = selected callee
 
-    Only Xd (the dedicated target register) ever holds a code address; Xi ends holding an offset, never
+    Only Xd (the dedicated target register) ever holds a code address. Xi ends holding an offset, never
     an address, so no code address leaks into the sandbox-masked data flow. Every inserted instruction is
     template-only instrumentation (no memory operand), so the sandbox pass skips it and the builder, which
     keys on the BLR, is unaffected."""

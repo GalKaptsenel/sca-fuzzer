@@ -69,7 +69,7 @@ def _build_instruction(section_id, category, explanations, asl, postdecode, sem,
         mem_access=sem.mem_access, flags=flags, operands=operands, mem_width=sem.mem_width,
         mem_alignment=sem.mem_alignment, mem_accdesc=sem.mem_accdesc, min_arch=min_arch,
         constraints=unpredictable_constraints(decode + "\n" + postdecode, reg_vars))
-    validate_instruction(inst)   # type/domain check; a malformed field loud-fails this encoding
+    validate_instruction(inst)   # type/domain check. a malformed field loud-fails this encoding
     return inst
 
 
@@ -88,7 +88,7 @@ def iter_instructions(path, arch_constants: dict, failures: dict):
             if not any(t.get("section") == "Execute" for t in section.iter("pstext")):
                 raise ExtractionError(f"{section_id}: no Execute ASL")
             asl = _section_asl(section, "Execute")  # Execute is section-level (shared semantics)
-            postdecode = _section_asl(section, "Postdecode")  # shared; holds LDP/LDR overlap guards
+            postdecode = _section_asl(section, "Postdecode")  # shared. holds LDP/LDR overlap guards
             sem = extract_asl_semantics(asl)
             control_flow = ("BranchTo" in asl) or ("BranchNotTaken" in asl)
             flags = FlagEffects(written=sem.flags_written, read=sem.flags_read)

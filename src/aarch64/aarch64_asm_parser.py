@@ -33,7 +33,7 @@ def _flatten_specs(spec):
 def _operand_pattern(op) -> str:
     """Regex fragment for one operand. If the operand has a small enumerable value set we match
     those exactly (this also distinguishes 32-bit w-regs from 64-bit x-regs straight from the
-    data); otherwise fall back to a type-based pattern."""
+    data). otherwise fall back to a type-based pattern."""
     vals = list(op.values) if op.values else []
     if vals and len(vals) <= 64:
         # base.json enumerates register 31 as x31/w31, but the printer and our internal register

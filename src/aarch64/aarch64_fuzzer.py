@@ -76,7 +76,7 @@ def executor_regime(executor: Aarch64LocalExecutor,
 # Fuzzer classes
 # ==================================================================================================
 if TYPE_CHECKING:                  # the mixin is only ever combined with a FuzzerGeneric subclass, so
-    _MixinBase = FuzzerGeneric     # tell the type checker (self.executor / LOG / super() resolve there);
+    _MixinBase = FuzzerGeneric     # tell the type checker (self.executor / LOG / super() resolve there).
 else:                              # at runtime it stays a pure mixin whose bases come from the subclass.
     _MixinBase = object
 
@@ -86,7 +86,7 @@ class CrossInputPrimingMixin(_MixinBase):
     boosted lanes that finds the *leaking pair* -- an earlier ct-equal input whose microarchitectural
     residue surfaces as the *detecting pair*'s cache divergence. Shared by the regular fuzzer (boosted
     random-data lanes) and the speculative-exception fuzzer (boosted GVT access-variant lanes -> canonicality/BTB).
-    The search itself is `src/aarch64/cross_input.py`; this mixin is the thin seam (reps and localizer
+    The search itself is `src/aarch64/cross_input.py`. this mixin is the thin seam (reps and localizer
     selection, lane construction, the executor regime, and reporting). Subclasses set
     `_CROSS_INPUT_PRIMING_REGIME`. Off by default -> the subclass's standard priming (via super())."""
 
@@ -104,7 +104,7 @@ class CrossInputPrimingMixin(_MixinBase):
         """Cross-input priming must measure the CANDIDATE-DETECTION pass under the SAME executor regime it
         uses for localization (_CROSS_INPUT_PRIMING_REGIME), not just the localization pass. The regime
         keeps the microarchitectural leftover alive across inputs (no per-input BPU flush/view rotation,
-        the SSB window open, unpinned); without it the detection measurement runs under the default regime
+        the SSB window open, unpinned). without it the detection measurement runs under the default regime
         (e.g. ssbs off, so a v4/SSB-window BTB leftover never forms), the leftover is absent, no candidate
         is ever flagged, and localization never runs. Wrapping the whole round makes detection and
         localization see the same leftover. Off by default -> the plain round (standard priming)."""
@@ -119,10 +119,10 @@ class CrossInputPrimingMixin(_MixinBase):
     def _priming(self, violations: List[Violation], inputs: List[Input]) -> List[Violation]:
         """When enable_cross_input_priming is set, REPLACE standard priming with the generalized-priming
         localization over boosted lanes. Priming asks "does the divergence follow the detecting pair's own
-        input?"; this asks the strictly more general "which (earlier or own) ct-equal input causes it?" --
+        input?". this asks the strictly more general "which (earlier or own) ct-equal input causes it?" --
         localizing the flagged violation's own detecting pair across its two diverging lanes. A found
         leaking pair (self- or cross-input) confirms the violation and reports the [leaker..detector]
-        chain; none means a false positive, exactly as priming. Off by default -> standard priming."""
+        chain. none means a false positive, exactly as priming. Off by default -> standard priming."""
         if not CONF.enable_cross_input_priming:
             return super()._priming(violations, inputs)
         if not violations:
@@ -170,7 +170,7 @@ class CrossInputPrimingMixin(_MixinBase):
             self, reps: int, verify_reps: int,
             localizer: Localizer) -> GeneralizedPrimingDetector:
         """The generalized-priming detector wired to this executor, with the production key/confirm seams
-        (denoised-consensus key for the bisection; robust chi-squared for the re-verify), the selected
+        (denoised-consensus key for the bisection. robust chi-squared for the re-verify), the selected
         localizer strategy, and the contract-equality check on a located boundary's two members."""
         outlier = CONF.analyser_outliers_threshold
         robust = ChiSquaredAnalyser()
@@ -273,7 +273,7 @@ class Aarch64Fuzzer(CrossInputPrimingMixin, FuzzerGeneric):
 
         :param test_case: the target test case
         :param inputs: list of inputs to be tested
-        :return: True if the test case should be filtered out; False otherwise
+        :return: True if the test case should be filtered out. False otherwise
         """
         # Exit if no filtering is enabled
         if not CONF.enable_speculation_filter and not CONF.enable_observation_filter:

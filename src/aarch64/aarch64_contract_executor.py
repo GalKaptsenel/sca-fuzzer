@@ -116,7 +116,7 @@ AARCH64_NUM_GPRS = 31
 
 class MteProfile(NamedTuple):
     """The MTE state the CE models. native = the CE host implements FEAT_MTE, so the retag ADDG and the
-    tagged access run natively; otherwise the CE strips the tag to form the host address and restores it
+    tagged access run natively. otherwise the CE strips the tag to form the host address and restores it
     after the access."""
     native: bool
 

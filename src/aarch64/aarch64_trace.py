@@ -210,7 +210,7 @@ class _TaintTracker:
 
     Writes are scoped by speculation *window*, not by raw nesting depth. The live path from
     the architectural flow (window 0) to the current instruction is `_live`, one window id per
-    depth. A read is masked only by writes made in windows on that live path; a write lands in
+    depth. A read is masked only by writes made in windows on that live path. a write lands in
     the innermost live window. When the trace re-forks, including a same-depth re-fork after an
     unwind, which shares a depth but gets a fresh window id, the unwound sibling drops off the
     live path and its writes stop masking, so squashed speculation cannot hide an input read.
@@ -220,7 +220,7 @@ class _TaintTracker:
 
     def __init__(self) -> None:
         self._written: Dict[int, Set[int]] = {0: set()}  # window id -> offsets written in it
-        self._live: List[int] = [0]                      # _live[d] = window id at depth d; 0 = architectural
+        self._live: List[int] = [0]                      # _live[d] = window id at depth d. 0 = architectural
         self._synth_id: int = 0                          # decreasing ids for skipped windows (never real)
         self.must_preserve: Set[int] = set()
 
@@ -235,7 +235,7 @@ class _TaintTracker:
             self._live.append(self._synth_id)
             self._written[self._synth_id] = set()
         if depth < len(self._live) and self._live[depth] == window_id:
-            self._discard(depth + 1)            # same window continues; drop only its unwound children
+            self._discard(depth + 1)            # same window continues. drop only its unwound children
         else:
             self._discard(depth)                # a new window at this depth: fork or post-unwind sibling
             self._live.append(window_id)
@@ -243,7 +243,7 @@ class _TaintTracker:
 
     def _discard(self, from_depth: int) -> None:
         for wid in self._live[from_depth:]:
-            del self._written[wid]              # every live window has an entry; a miss is a real bug
+            del self._written[wid]              # every live window has an entry. a miss is a real bug
         del self._live[from_depth:]
 
     def on_read(self, offsets: Iterable[int]) -> None:
@@ -262,7 +262,7 @@ def compute_taint(cer: ContractExecutionResult, reg_roles=None) -> InputTaint:
     reads it before writing to it.
 
     `reg_roles` (build_register_role_map) supplies the authoritative per-operand register roles used
-    by decode_reg_accesses; pass the map built from the traced test case so RMW/write/read operands
+    by decode_reg_accesses. pass the map built from the traced test case so RMW/write/read operands
     are categorised from the ISA rather than guessed. None falls back to Capstone (taint-safe).
     """
     input_taint = InputTaint()
@@ -312,7 +312,7 @@ def _sandbox_base(ite) -> int:
 
 
 def _code_start(cer: ContractExecutionResult) -> int:
-    """The PC of the first traced instruction; PCs are normalized against it for reproducibility."""
+    """The PC of the first traced instruction. PCs are normalized against it for reproducibility."""
     for ite in cer:
         return ite.cpu.pc
     return 0

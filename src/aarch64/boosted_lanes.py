@@ -29,7 +29,7 @@ def lanes_of(boosted: Sequence, n_orig: int) -> List[list]:
 
 def reference_lane_pairs(num_lanes: int) -> List[Tuple[int, int]]:
     """The lane pairs to compare: lane 0 (the originals) against each boosted lane -- (0, 1), (0, 2),
-    ... -- so the toggle at every position swaps an original for one of its boostings. O(R) pairs; the
+    ... -- so the toggle at every position swaps an original for one of its boostings. O(R) pairs. the
     detector already searches each pair from both bases, so the reverse (r, 0) is redundant."""
     return [(0, r) for r in range(1, num_lanes)]
 
@@ -39,7 +39,7 @@ def detecting_position_and_lanes(htrace_groups: Sequence[Sequence],
     """Map a boosted-mode violation to what the focused search needs: (j, base_lane, toggle_lane).
 
     `htrace_groups` is the violation's members (one input class -- one ctrace -- across lanes) partitioned
-    by htrace; two different groups are two lanes whose position-j readout diverged. Each member has an
+    by htrace. two different groups are two lanes whose position-j readout diverged. Each member has an
     `.input_id` into the flat boosted list, so j = input_id % n_orig and lane = input_id // n_orig. Returns
     the class position j and two lanes drawn from two DIFFERENT groups (base from the first, toggle from a
     differing one at the same j), or None if fewer than two groups make it localizable."""

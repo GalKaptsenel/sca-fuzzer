@@ -59,7 +59,7 @@ def _ce_memory_regs(inp) -> Tuple[bytes, bytes]:
 
 
 class SpecExcVariant:
-    """Per-input variant names compared on hardware. `DECOY` is a template; `decoy_n(i)` names the nth
+    """Per-input variant names compared on hardware. `DECOY` is a template. `decoy_n(i)` names the nth
     decoy."""
     BASELINE = "baseline"
     DECOY = "decoy{i}"
@@ -260,7 +260,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
         self.test_case = test_case
 
     def _sandboxed_tc(self) -> Tuple[bytes, TestCase]:
-        """Assemble the sandboxed test case once (cached); returns (machine code, patched TestCase).
+        """Assemble the sandboxed test case once (cached). returns (machine code, patched TestCase).
         No device I/O, the bytes travel to the device as the measurement unit's test case."""
         if self._sandboxed_cache is None:
             patched = copy.deepcopy(self.test_case)
@@ -272,7 +272,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
         return self._sandboxed_cache
 
     def _assemble_tc(self, tc: TestCase) -> Tuple[bytes, Aarch64ASMLayout]:
-        """Assemble a TestCase to binary; return (bytes, layout)."""
+        """Assemble a TestCase to binary. return (bytes, layout)."""
         layout = Aarch64ASMLayout(tc)
         assembly = Aarch64Printer(self.target_desc).print_layout(layout)
         return Aarch64Generator.in_memory_assemble(assembly), layout
@@ -366,7 +366,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
 
     def trace_batch(self, units: List[TraceUnit], n_reps: int) -> List[List[HTrace]]:
         """Measure many units (from make_trace_unit) in ONE device super-batch, the throughput path
-        for a campaign window. LocalHWExecutor loops the units in-process; RemoteHWExecutor ships them
+        for a campaign window. LocalHWExecutor loops the units in-process. RemoteHWExecutor ships them
         as a single streamed transfer. One htrace list per unit, order preserved."""
         assert not self.ignore_list, "trace_batch runs in the bulk tier, before any ignore list is set"
         if not units:
@@ -381,7 +381,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
         """Authoritative register-operand read/write roles for the loaded test case's instructions,
         taken from the ISA objects the generator produced (each Operand carries src/dest). Passed to
         compute_taint so RMW/write/read register operands are categorised from the spec, not guessed.
-        Rebuilt per test case; empty when none is loaded."""
+        Rebuilt per test case. empty when none is loaded."""
         if self.test_case is None:
             return {}
         return build_register_role_map(
@@ -437,13 +437,13 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
     no instructions, it GVT accesses existing memory accesses). It GVT accesses the test case with the active
     value-GVT accesses, the memory pass composes [Sandbox(, PacSign)(, MteTag) | Canon], and PAC also GVT accesses
     AUT* sites, then per input runs the contract executor once, fills each fix point's data (PAC:
-    sign; MTE: classify tags; canonicality: the non-canonical mask), and compares the baseline vs
+    sign. MTE: classify tags. canonicality: the non-canonical mask), and compares the baseline vs
     decoy TC variants on hardware. Adding a primitive means adding its GVT access + its fill
-    step here; the orchestration is primitive-agnostic. (Below: generic CE/BB-map/comparison helpers,
+    step here. the orchestration is primitive-agnostic. (Below: generic CE/BB-map/comparison helpers,
     then the lifecycle.)"""
 
     def _run_ce_on_tc(self, tc_bytes: bytes, inp: Input, sandbox_base: int) -> Optional[List]:
-        """Run CE on the machine code *tc_bytes* for *inp*; return trace entries or None on failure."""
+        """Run CE on the machine code *tc_bytes* for *inp*. return trace entries or None on failure."""
         assert sandbox_base == self._sandbox_base, "pre-HW CE must use the instrumented sandbox base"
         try:
             return list(self._ce_trace(tc_bytes, inp))
@@ -502,7 +502,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
             entry_x7 = int.from_bytes(inp.tobytes()[7 * 8: 8 * 8], "little")
             log.header(f"PRE-HW ANALYSIS  variant={idx}")
 
-            tc = self._gvt_tc.object_code   # input-independent; the variant differs only in its GVT image
+            tc = self._gvt_tc.object_code   # input-independent. the variant differs only in its GVT image
             cer = self._run_ce_on_tc(tc, inp, sandbox_base)
             if cer is not None:
                 log_ce_trace(log, f"v{idx}", idx, cer)
@@ -693,7 +693,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
     def _freeze_arch_gst_lanes(self, inp: Input, resolved, taint: InputTaint) -> None:
         """contract_driven: carry the GVT in the input's SIMD subregion. Freeze each architecturally
         consumed GVT access's lane at its genuine value (so the arch path is identical across boosted inputs)
-        and taint it so boosting preserves it; leave speculative-only lanes untainted so boosting
+        and taint it so boosting preserves it. leave speculative-only lanes untainted so boosting
         re-randomizes them, the speculative difference is the leak signal."""
         genuine = np.frombuffer(resolved.genuine(), dtype=np.uint8)
         simd = inp[0]['simd'].view(np.uint8)
@@ -805,7 +805,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
 
     def _variants_for(self, resolved: ResolvedGvtTestCase) -> Dict[str, bytes]:
         """One boosting class: the genuine baseline plus `CONF.inputs_per_class - 1` decoys. Each value
-        is a GVT image (the SIMD section bytes); all variants share one object_code."""
+        is a GVT image (the SIMD section bytes). all variants share one object_code."""
         plans = {SpecExcVariant.BASELINE: resolved.genuine()}
         for i in range(CONF.inputs_per_class - 1):
             rng = stable_rng(resolved.collapse_key, self._gvt_tc.salt, i)
@@ -840,14 +840,14 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
     def as_executor_input(self, inp: Input) -> ExecutorInput:
         """Convert one arch input into its instrumented kernel input file, the regular fuzzer's boost seam.
         In contract_driven mode the GVT is carried in the input's own SIMD subregion (gvt=None ships it),
-        so boosting's re-randomised speculative lanes reach the hardware; strict ships the genuine image."""
+        so boosting's re-randomised speculative lanes reach the hardware. strict ships the genuine image."""
         if self._contract_driven:
             return ExecutorInput(inp, gvt=None, mte_tags=self._mte_tags_for(inp),
                                  pac_keys=self._pac_keys_words(inp))
         return self._build_gvt_input(inp)
 
     def _build_gvt_input(self, inp: Input) -> ExecutorInput:
-        """Extend an arch input to its baseline kernel input file. The genuine GVT image here; the
+        """Extend an arch input to its baseline kernel input file. The genuine GVT image here. the
         regular subclass overrides to the input's GVT access-class image."""
         return ExecutorInput(inp, gvt=self._resolve(inp).genuine(),
                              mte_tags=self._mte_tags_for(inp), pac_keys=self._pac_keys_words(inp))
@@ -885,7 +885,7 @@ class Aarch64RegularGvtExecutor(Aarch64SpeculativeExceptionExecutor):
     EL1, no tag fault), and the representative's arch AUT*/tag match every member's pointer.
 
     One form per class gives, for free, a consistent decoy decision at each slot across all the class's
-    inputs (they run the identical program); an input never runs another class's form. The GVT access slots
+    inputs (they run the identical program). an input never runs another class's form. The GVT access slots
     are register-only, so GVT access differences between classes never enter the cache htrace, leaving the
     standard regular by-contract-trace leak comparison valid. (A contract trace fixes the accessed
     addresses, hence the pointers, hence the signatures/tags, so a contract-trace class is contained
@@ -896,7 +896,7 @@ class Aarch64RegularGvtExecutor(Aarch64SpeculativeExceptionExecutor):
     def _build_gvt_input(self, inp: Input) -> ExecutorInput:
         """Extend an arch input to its GVT access class's kernel input file. The decoy-vs-genuine coin and
         the decoy itself are a pure function of the GVT access class + per-test-case salt, so every member
-        of a class runs the identical program (caveat-4 merges fall out); genuine()'s arch slots are
+        of a class runs the identical program (caveat-4 merges fall out). genuine()'s arch slots are
         always correct (never a forged AUTH)."""
         resolved = self._resolve(inp)
         rng = stable_rng(resolved.collapse_key, self._gvt_tc.salt)

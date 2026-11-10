@@ -11,7 +11,7 @@ import it without a cycle. Two layouts are provided:
   * `LEAF_LAYOUT`  -- a level-3 page descriptor (the leaf that maps a 4 KB page).
   * `TABLE_LAYOUT` -- a level 0-2 table descriptor (points at the next-level table).
 
-`fuzzable_by_default` marks the attribute fields whose value a decoy may vary out of the box; the
+`fuzzable_by_default` marks the attribute fields whose value a decoy may vary out of the box. the
 output address / next-table address and the descriptor type are never in that set, so a decoy keeps
 mapping the same physical page through the same walk shape -- only attributes change.
 """

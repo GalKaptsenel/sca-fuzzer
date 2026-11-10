@@ -12,9 +12,9 @@ M = (1 << 64) - 1
 
 class PacProfile(NamedTuple):
     """The EL1 PAC state AddPAC/Strip/ComputePAC read. iterations / generic_iterations = 2 (QARMA3) or 4
-    (QARMA5) for address / generic (PACGA) auth, generic 0 = no modeled generic algorithm; level =
-    the APA/APA3 feature value (1 PAuth, 2 EPAC, 3 PAuth2, 4 FPAC, 5 FPACCOMBINE); t0sz/t1sz, tbi*,
-    tbid* = TCR_EL1 fields; constpacfield = FEAT_CONSTPACFIELD."""
+    (QARMA5) for address / generic (PACGA) auth, generic 0 = no modeled generic algorithm. level =
+    the APA/APA3 feature value (1 PAuth, 2 EPAC, 3 PAuth2, 4 FPAC, 5 FPACCOMBINE). t0sz/t1sz, tbi*,
+    tbid* = TCR_EL1 fields. constpacfield = FEAT_CONSTPACFIELD."""
     iterations: int
     generic_iterations: int
     level: int
@@ -44,7 +44,7 @@ _TXSZ_MIN, _TXSZ_MAX = 16, 39
 def profile(qarma_version: int, generic_qarma_version: int, auth_level: int, va_size0: int,
             va_size1: int, tbi0: bool, tbi1: bool, tbid0: bool, tbid1: bool, constpacfield: bool,
             mtx0: bool, mtx1: bool) -> PacProfile:
-    """Validate and build a profile; generic_qarma_version 0 = no modeled generic (PACGA) algorithm."""
+    """Validate and build a profile. generic_qarma_version 0 = no modeled generic (PACGA) algorithm."""
     if qarma_version not in _VERSION_ITERATIONS:
         raise ValueError(f"unsupported address-auth QARMA version {qarma_version} (expected 3 or 5)")
     if generic_qarma_version not in (0, *_VERSION_ITERATIONS):
@@ -79,7 +79,7 @@ class PacRegisters(NamedTuple):
 
 def decode_registers(tcr: int, isar1: int, isar2: int) -> PacRegisters:
     """Decode the raw registers. Address auth must be exactly one architected algorithm (APA = QARMA5 or
-    APA3 = QARMA3; API = IMPDEF is not modeled); generic auth at most one (GPA, GPA3; GPI not modeled)."""
+    APA3 = QARMA3. API = IMPDEF is not modeled). generic auth at most one (GPA, GPA3. GPI not modeled)."""
     f = lambda v, lo: (v >> lo) & 0xf    # noqa: E731  (4-bit ID field)
     apa, api, gpa, gpi = f(isar1, 4), f(isar1, 8), f(isar1, 24), f(isar1, 28)
     gpa3, apa3, pac_frac = f(isar2, 8), f(isar2, 12), f(isar2, 24)
@@ -204,7 +204,7 @@ def _bit(v: int, b: int) -> int:
 
 
 def effective_tbi(ptr: int, p: PacProfile, is_instr: bool) -> int:
-    """EffectiveTBI (EL1): the TBI/TBID of the half ptr<55> selects; TBID disables TBI for instr keys."""
+    """EffectiveTBI (EL1): the TBI/TBID of the half ptr<55> selects. TBID disables TBI for instr keys."""
     high = _bit(ptr, 55)
     tbi = p.tbi1 if high else p.tbi0
     tbid = p.tbid1 if high else p.tbid0

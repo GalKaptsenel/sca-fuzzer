@@ -102,7 +102,7 @@ static void ce_crash_handler(int sig, siginfo_t *info, void *uctx) {
 /* ----------------------------------------------------------------------- */
 
 /* ---- watchdog ---------------------------------------------------------- */
-#define CE_ITERATION_TIMEOUT_SEC 3600  /* 1h: safety net for genuine CE hangs; long
+#define CE_ITERATION_TIMEOUT_SEC 3600  /* 1h: safety net for genuine CE hangs. long
                                           enough not to abort legitimate slow-path
                                           confirmations / idle waits for the next input */
 
@@ -341,7 +341,7 @@ int main() {
 
 		g_iter_phase = 3; /* write-output */
 
-		reset_execution_clause_state(); /* free this TC's checkpoint memory; the predictor resets
+		reset_execution_clause_state(); /* free this TC's checkpoint memory. the predictor resets
 		                                   lazily at the next BPU test case (ensure_initialized ->
 		                                   on_reset -> reset()) */
 		destroy_trace_log();

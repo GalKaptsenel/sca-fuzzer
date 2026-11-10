@@ -47,8 +47,8 @@ struct execution_mgmt {
 	uint64_t current_checkpoint_id;
 	struct execution_checkpoint* checkpoints_array;
 	uint64_t instr_count;    /* instructions simulated so far (monotonic) */
-	uint64_t max_instr;      /* per-window instruction cap (max_misspred_instructions; 0 = no cap) */
-	uint64_t next_window_id; /* monotonic window-id source; ++ on every push */
+	uint64_t max_instr;      /* per-window instruction cap (max_misspred_instructions. 0 = no cap) */
+	uint64_t next_window_id; /* monotonic window-id source. ++ on every push */
 };
 
 void* execution_clause_hook(struct simulation_state* sim_state);
@@ -62,7 +62,7 @@ int is_in_speculation(void);
 uint64_t spec_nesting(void);      /* current speculation depth                    */
 uint64_t spec_max_nesting(void);  /* configured depth cap                         */
 uint64_t spec_memory_size(void);  /* size of the simulated memory image (bytes)   */
-uint64_t spec_current_window_id(void); /* innermost live window id; 0 = architectural */
+uint64_t spec_current_window_id(void); /* innermost live window id. 0 = architectural */
 
 /* Sentinel "no revert requested" returned by an on_barrier callback. */
 #define SPEC_NO_REVERT UINT64_MAX

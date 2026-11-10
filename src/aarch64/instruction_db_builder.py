@@ -1,13 +1,13 @@
 """Download the ARM ISA and generate Revizor's base.json (AArch64).
 
 The extractor (arm_isa_extractor) downloads ARM's machine-readable XML and extracts a general, ISA-only
-IR; this module turns that IR into base.json: it computes each instruction's selection tags and writes
+IR. this module turns that IR into base.json: it computes each instruction's selection tags and writes
 the operands in the shape isa_loader reads. Run via `Downloader(extensions, out_file).run()`.
 
-Tags are the unit of instruction selection (a run requests a set; an instruction matches if it has ANY).
+Tags are the unit of instruction selection (a run requests a set. an instruction matches if it has ANY).
 They are ISA-prefixed (BASE-/SVE-/SVE2-/SME-), coarse and fine across orthogonal axes:
   functional  : BASE-{ARITH,LOGICAL,SHIFT,BITFIELD,BITCOUNT,BITBYTE,CONDSEL,FLAGOP,CRC,PAC,MTE,MOVE,
-                NOP,HINT,SYSTEM,BARRIER,EXCEPTION,FPSIMD} ; SVE-/SVE2-* ; SME
+                NOP,HINT,SYSTEM,BARRIER,EXCEPTION,FPSIMD} . SVE-/SVE2-* . SME
   memory      : coarse <ISA>-MEM + <ISA>-MEM-{LOAD,STORE} + kind <ISA>-MEM-{ATOMIC,EXCLUSIVE,ACQREL,COPY,SET}
   prefetch    : <ISA>-PREFETCH                          (a hint, kept outside the MEM family)
   control flow: BASE-BRANCH + one of BASE-BRANCH-{COND,CALL,RET,UNCOND} + BASE-BRANCH-INDIRECT if reg-target
@@ -16,8 +16,8 @@ Functional class is decided by name first (PAC prefix, flag-op/exception/barrier
 ARM `category` (whose "system" value is a grab-bag of PAC/hints/barriers/flag-ops/nop). Memory, prefetch,
 branch and flag axes come from IR facts. Every instruction must classify, so tagging asserts a non-empty set.
 
-base.json operand "values": REG -> register names; MEM -> base/index register names; IMM -> "bitmask" /
-"[lo-hi:stride]" / explicit list; COND -> condition codes; FLAGS -> 9-slot NZCV r/w scheme.
+base.json operand "values": REG -> register names. MEM -> base/index register names. IMM -> "bitmask" /
+"[lo-hi:stride]" / explicit list. COND -> condition codes. FLAGS -> 9-slot NZCV r/w scheme.
 """
 from __future__ import annotations
 import json
@@ -48,8 +48,8 @@ _GENERAL_CLASSES = {
     "BASE-LOGICAL": frozenset("and ands orr orn eor eon bic bics".split()),
     "BASE-SHIFT": frozenset("lslv lsrv asrv rorv".split()),
     "BASE-BITFIELD": frozenset("bfm ubfm sbfm extr".split()),
-    "BASE-BITCOUNT": frozenset("clz cls cnt ctz".split()),              # counters only; rev/rbit are BITBYTE
-    "BASE-BITBYTE": frozenset("rbit rev rev16 rev32".split()),          # GP reversal; the NEON rev is FPSIMD
+    "BASE-BITCOUNT": frozenset("clz cls cnt ctz".split()),              # counters only. rev/rbit are BITBYTE
+    "BASE-BITBYTE": frozenset("rbit rev rev16 rev32".split()),          # GP reversal. the NEON rev is FPSIMD
     "BASE-CONDSEL": frozenset("csel csinc csinv csneg ccmp ccmn".split()),
     "BASE-CRC": frozenset("crc32b crc32h crc32w crc32x crc32cb crc32ch crc32cw crc32cx".split()),
     "BASE-MOVE": frozenset("movz movk movn".split()),
@@ -179,7 +179,7 @@ def get_tags(inst: dict) -> list:
     name, cat = inst["name"], inst["category"]
     isa = "SVE" if cat in _SVE_CATS else "SME" if cat in _SME_CATS else "BASE"
     tags = _functional(name, cat)
-    if name in _MTE:        # MTE is fully classified by family; no structural BASE-* tags
+    if name in _MTE:        # MTE is fully classified by family. no structural BASE-* tags
         return sorted(tags)
 
     # memory (load/store/rmw only. prefetch is separate)
@@ -262,7 +262,7 @@ def _reg_names(op: dict) -> list:
 
 def _esizes(inst: dict) -> list:
     """Element sizes to fan this instruction's specs out over. Some immediates have a valid range that
-    depends on the element width (SVE tsz-encoded shifts are valid in [0, esize-1]); the extractor tags
+    depends on the element width (SVE tsz-encoded shifts are valid in [0, esize-1]). the extractor tags
     each `imm_ranges` entry with its esize as `(esize, lo, hi, stride)`, where esize 0 means "applies to
     any element size" (the ordinary, single-range case). This returns the distinct non-zero esizes that
     any range-encoded immediate/extend operand varies over, or [0] when there are none. `_expand_instruction`
@@ -277,7 +277,7 @@ def _esizes(inst: dict) -> list:
 # register files keyed by width-selector letter: GP (W/X, x0-x30) and scalar SIMD&FP (B/H/S/D/Q, b0-b31)
 _REG_FILE = {"W": (32, "w", 31), "X": (64, "x", 31),
              "B": (8, "b", 32), "H": (16, "h", 32), "S": (32, "s", 32), "D": (64, "d", 32), "Q": (128, "q", 32)}
-_SELECTORS = frozenset("R W X V".split())   # width selectors (R -> W/X ; V -> scalar SIMD B/H/S/D)
+_SELECTORS = frozenset("R W X V".split())   # width selectors (R -> W/X . V -> scalar SIMD B/H/S/D)
 
 
 def _close(s: str, i: int) -> int:
@@ -355,7 +355,7 @@ def _operand_values(op: dict, kind: OperandKind, esize: int) -> list:
 
 def _operand(op: dict, esize: int) -> OperandSpec:
     """One OperandSpec with its real type (OT) and its own read/write (writeback already folded into
-    write). An address component additionally carries its MemoryRole; ordinary operands carry none."""
+    write). An address component additionally carries its MemoryRole. ordinary operands carry none."""
     kind = OperandKind(op["kind"])
     return OperandSpec(_KIND_TO_OT[kind], op["width"], op["signed"], op["read"], op["write"],
                        _operand_values(op, kind, esize), op["name"], _MEM_ROLE[MemRole(op["mem_role"])])
@@ -363,9 +363,9 @@ def _operand(op: dict, esize: int) -> OperandSpec:
 
 def _memory_operand(components: list, mem_access: MemAccess) -> MemorySpec:
     """One memory access (the operands of a single `[...]`) as a MemorySpec wrapping its address
-    components. The MemorySpec's src/dest is the access direction; the components keep their own
+    components. The MemorySpec's src/dest is the access direction. the components keep their own
     read/write, so pre/post-index writeback on the base survives. Its `width` is set later, per
-    concrete form, to the memory ACCESS width in bits (see _apply_mem_access_width); it starts at 0."""
+    concrete form, to the memory ACCESS width in bits (see _apply_mem_access_width). it starts at 0."""
     src, dest = _ACCESS_DIR[mem_access]
     return MemorySpec(0, False, src, dest, components, components[0].name)
 
@@ -375,10 +375,10 @@ def _apply_mem_attributes(operands: list, mem_width: dict | None, mem_alignment:
     `alignment` (required address alignment in bytes, 0 = none).
     `mem_width` (extractor IR, see models.MemWidth): {"const_bits": bits} for a fixed sub-word access;
     {"reg_mult": mult} for a `datasize`/`elsize` access = mult * one data-register width (1 single, 2 a
-    register pair); None for an access with no register transfer (prefetch hint, block copy/set) -> 0.
-    `mem_alignment` (extractor IR): "natural" -> align to the access width; "granule" -> the MTE tag
-    granule; None -> no alignment. A "natural" access whose width is unknown (0) stays alignment 0 (only
-    happens for out-of-scope, never-generated forms; in-scope atomics always resolve a width)."""
+    register pair). None for an access with no register transfer (prefetch hint, block copy/set) -> 0.
+    `mem_alignment` (extractor IR): "natural" -> align to the access width. "granule" -> the MTE tag
+    granule. None -> no alignment. A "natural" access whose width is unknown (0) stays alignment 0 (only
+    happens for out-of-scope, never-generated forms. in-scope atomics always resolve a width)."""
     mems = [o for o in operands if isinstance(o, MemorySpec)]
     if not mems:
         return
@@ -465,7 +465,7 @@ def _resolve_extend(operands: list, inst: dict) -> bool:
         width, dest_width = source.width, regs[0].width
         has_amount = any(op.type is OT.IMM for op in operands[index + 1:])
 
-        def matches(v):                               # LSL keeps the operation width; the rest name it
+        def matches(v):                               # LSL keeps the operation width. the rest name it
             if v in _EXTEND_NEEDS_AMOUNT and not has_amount:
                 return False                          # LSL/UXTX have no zero-shift asm form
             return width == dest_width if v == "lsl" else _EXTEND_SRC_WIDTH[v] == width
@@ -508,7 +508,7 @@ def _parse_template(s: str) -> list:
     """Parse an ARM asm template into a flat node list. Node kinds:
        ('lit', text) | ('op', var) | ('wsel', 'R'|'W'|'X') | ('opt', nodes)
        | ('alt', [nodes, ...]) | ('list', nodes)  (a literal {…} register list)
-       | ('mem', nodes)  (a `[...]` memory access; its operands form one MemorySpec)."""
+       | ('mem', nodes)  (a `[...]` memory access. its operands form one MemorySpec)."""
     nodes, lit, i = [], "", 0
 
     def flush():
@@ -543,7 +543,7 @@ def _parse_template(s: str) -> list:
             nodes.append(("alt", [_parse_template(a) for a in alts]) if len(alts) > 1
                          else ("lit", s[i:j + 1]))
             i = j + 1
-        elif c == "[":                                 # [ ... ] group; memory-vs-index decided from roles
+        elif c == "[":                                 # [ ... ] group. memory-vs-index decided from roles
             flush()
             j = s.index("]", i)
             nodes.append(("mem", _parse_template(s[i + 1:j])))
@@ -558,7 +558,7 @@ def _parse_template(s: str) -> list:
 def _expand_format(template: str, by_name: dict, esize: int, mem_access: MemAccess) -> list:
     """Enumerate every concrete asm form of *template* as (revizor_template, [OperandSpec]) pairs, by
     walking the parsed AST: optionals branch present/absent, alternatives branch per choice, a GP width
-    selector (R->W and X; W/X fixed) prefixes the next register variable into a synthesised GP operand,
+    selector (R->W and X. W/X fixed) prefixes the next register variable into a synthesised GP operand,
     and a `[...]` group folds its operands into one MemorySpec."""
 
     def reg_operand(var, prefix):
@@ -624,7 +624,7 @@ def _instruction(inst: dict, template: str, operands: list) -> InstructionSpec:
 
 
 def _expand_instruction(inst: dict) -> list:
-    """One spec per (element size x concrete asm format); duplicates are dropped."""
+    """One spec per (element size x concrete asm format). duplicates are dropped."""
     by_name = {}
     for op in inst["operands"]:
         # the template references operands by name. if one name maps to differing definitions (e.g. SME
@@ -718,9 +718,9 @@ def _synthetic_barrier_specs() -> list:
 def generate(ir_path: str, out_path: str, source: str = None) -> dict:
     """Turn the extractor IR JSON at *ir_path* into Revizor's base.json at *out_path*. Returns
     {encoding_name: error} for encodings not yet representable (a template placeholder with no operand,
-    e.g. SME ZA tiles; or an operand name reused with conflicting roles), reported per encoding (so a
+    e.g. SME ZA tiles. or an operand name reused with conflicting roles), reported per encoding (so a
     skipped encoding doesn't implicate other encodings of the same mnemonic), never a broken spec.
-    *source* is the provenance stamped on every extracted spec; defaults to the pinned ARM release."""
+    *source* is the provenance stamped on every extracted spec. defaults to the pinned ARM release."""
     if source is None:
         source = f"ARM ISA {resolve_release('latest')}"
     ir = json.load(open(ir_path))

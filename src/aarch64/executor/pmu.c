@@ -55,7 +55,7 @@ int config_pfc(void) {
 	asm volatile("msr pmevtyper2_el0, %0" :: "r" ((uint64_t)(filter_events | (executor.config.pfc_event2 & 0xffff))));
 	asm volatile("isb\n");
 
-	// 4. pfc[2] (default 0x22 BR_MIS_PRED_RETIRED) -- branch architecturally executed, mispredicted;
+	// 4. pfc[2] (default 0x22 BR_MIS_PRED_RETIRED) -- branch architecturally executed, mispredicted.
 	//    the selectors for counters 1..3 are sysfs-configurable (e.g. 0x08 INST_RETIRED / 0x09 EXC_TAKEN
 	//    for the architectural-vs-speculative PMU control)
 	asm volatile("msr pmevtyper3_el0, %0" :: "r" ((uint64_t)(filter_events | (executor.config.pfc_event3 & 0xffff))));

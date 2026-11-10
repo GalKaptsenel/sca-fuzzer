@@ -65,7 +65,7 @@ def _mte_feature(id_aa64pfr1_el1: int) -> int:
 @dataclass(frozen=True)
 class TargetInfo:
     """Static target state the generation side needs: the sandbox/code bases and the raw feature system
-    registers (PAC regs decoded by aarch64_qarma; id_aa64pfr1_el1 carries the MTE feature field)."""
+    registers (PAC regs decoded by aarch64_qarma. id_aa64pfr1_el1 carries the MTE feature field)."""
     sandbox_base: int
     code_base: int
     tcr_el1: int
@@ -109,7 +109,7 @@ class HWExecutor(ABC):
 
     @abstractmethod
     def run_batch(self, units: List[TraceUnit], n_reps: int) -> List[List[List[HWMeasurement]]]:
-        """Measure each unit's inputs `n_reps` times; returns unit -> input -> repetition."""
+        """Measure each unit's inputs `n_reps` times. returns unit -> input -> repetition."""
         raise NotImplementedError()
 
     @abstractmethod
@@ -119,7 +119,7 @@ class HWExecutor(ABC):
 
     def mte_tag_checking_supported(self) -> bool:
         """Whether the measuring core enforces MTE tag checks (FEAT_MTE2+). FEAT_MTE (1) has the tag
-        instructions but no checking, and 0 has no MTE; neither can run MTE speculative-exception, and a
+        instructions but no checking, and 0 has no MTE. neither can run MTE speculative-exception, and a
         signature over a tagged pointer the hardware ignores FPAC-faults the kernel. Device-agnostic: it
         reads the same TargetInfo both backends report, so the remote path works too."""
         return _mte_feature(self.target_info().id_aa64pfr1_el1) >= _MTE_FEAT_MTE2
@@ -183,7 +183,7 @@ assert ctypes.sizeof(PacKeys) == 80
 
 
 class PacSignReq(ctypes.Structure):
-    """Sign/auth carry their keys with the request; the kernel keeps no key state of its own."""
+    """Sign/auth carry their keys with the request. the kernel keeps no key state of its own."""
     _fields_ = [
         ("ptr",          ctypes.c_uint64),
         ("ctx",          ctypes.c_uint64),
@@ -271,7 +271,7 @@ REVISOR_PAC_XPAC = _IOWR(REVISOR_IOC_MAGIC, REVISOR_PAC_XPAC_CONSTANT,  PacSignR
 def _raise_access_error(path: str, fix_target: str, err: OSError) -> "NoReturn":
     """Re-raise an EACCES on an executor path with the exact chmod that fixes it.
 
-    The kernel module creates /dev/executor and /sys/executor root-only; an
+    The kernel module creates /dev/executor and /sys/executor root-only. an
     unprivileged fuzzer run needs them opened up (or must run as root). The grant
     resets whenever the module is reloaded, so it is not a one-time setup step.
     """
@@ -285,7 +285,7 @@ def _raise_access_error(path: str, fix_target: str, err: OSError) -> "NoReturn":
 class LocalHWExecutor(HWExecutor):
 
     def __init__(self, device_path: str, sys_executor_path: str):
-        import fcntl  # Linux-only; imported lazily so the module stays importable off-Linux
+        import fcntl  # Linux-only. imported lazily so the module stays importable off-Linux
         self._fcntl = fcntl
         self.executor_device_path: str = device_path
         self.executor_sysfs: str = sys_executor_path
@@ -603,7 +603,7 @@ def _make_remote_connection() -> "Connection":
 
 def make_hw_executor() -> HWExecutor:
     """The AArch64 hardware-measurement backend selected by CONF: the local /dev/executor, or a remote
-    device driven over a Connection. Returned to the AArch64 executor as `self.device`; x86 is
+    device driven over a Connection. Returned to the AArch64 executor as `self.device`. x86 is
     unrelated (it drives its own module directly)."""
     if not CONF.executor_remote:
         return LocalHWExecutor("/dev/executor", "/sys/executor")

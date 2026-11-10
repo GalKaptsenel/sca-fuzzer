@@ -115,7 +115,7 @@ void spec_push_frame(struct simulation_state* sim_state, uintptr_t return_addr, 
 	mgmt.stack[mgmt.stack_top].owner         = owner;
 	mgmt.stack[mgmt.stack_top].instr_consumed = 0;   /* charged per instruction on this window's path */
 	mgmt.stack[mgmt.stack_top].window_id     = ++mgmt.next_window_id;
-	mgmt.stack[mgmt.stack_top].sibling_count  = 0;   /* a plain frame pops on end; resolve_pending_windows sets siblings */
+	mgmt.stack[mgmt.stack_top].sibling_count  = 0;   /* a plain frame pops on end. resolve_pending_windows sets siblings */
 	mgmt.stack[mgmt.stack_top].sibling_cursor = 0;
 	++mgmt.stack_top;
 	++mgmt.current_nesting;
@@ -177,7 +177,7 @@ static void ensure_initialized(void) {
 		__builtin_trap();
 	}
 	mgmt.current_checkpoint_id = 0;
-	mgmt.next_window_id = 0;   /* ids start at 1; 0 is the architectural flow */
+	mgmt.next_window_id = 0;   /* ids start at 1. 0 is the architectural flow */
 	mgmt.memory_size = simulation.sim_input.mem_size + SANDBOX_OVERFLOW_SIZE;
 	size_t checkpoints_array_size = mgmt.max_checkpoints * sizeof(struct execution_checkpoint);
 	mgmt.checkpoints_array = malloc(checkpoints_array_size);

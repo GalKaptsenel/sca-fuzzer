@@ -43,7 +43,7 @@ class Aarch64ASMLayout:
     def _create_dispatch_tables(self, test_case: TestCase):
         """Emit each function's multi-target jump table (Aarch64IndirectCallPass) as constant
         PC-relative offsets, after all code, never reached by fall-through, and past every tracked
-        instruction so offsets are unaffected. Each entry is (callee - table); the dispatch sequence
+        instruction so offsets are unaffected. Each entry is (callee - table). the dispatch sequence
         reloads it and adds it back to the table base to recover the callee address."""
         tables = [func.dispatch_table for func in test_case.functions if func.dispatch_table]
         if not tables:

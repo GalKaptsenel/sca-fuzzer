@@ -67,8 +67,8 @@ struct configuration {
 	uint64_t requested_code_base_virt;
 	uint64_t requested_mem_base_phys; // NOT SUPPORTED
 	uint64_t requested_mem_base_virt;
-	uint64_t execution_clauses;        /* bitmask of EXEC_CLAUSE_*; 0 = seq (no speculation) */
-	uint64_t branch_predictor;         /* enum branch_predictor_id; used iff EXEC_CLAUSE_BPU */
+	uint64_t execution_clauses;        /* bitmask of EXEC_CLAUSE_*. 0 = seq (no speculation) */
+	uint64_t branch_predictor;         /* enum branch_predictor_id. used iff EXEC_CLAUSE_BPU */
 	uint64_t pac_profile;              /* packed PAC profile, applied iff CONFIG_FLAG_PAC_PROFILE (see
 	                                    * pac_profile_init): iterations | t1sz<<8 | tbi0<<16 | tbi1<<17 |
 	                                    * tbid0<<18 | tbid1<<19 | level<<20 | constpacfield<<26 |
@@ -113,9 +113,9 @@ struct simulation_input {
     uint8_t *code;     /* machine code */
     uint8_t *memory;   /* initial memory image (main || faulty from the input initialization) */
     size_t   mem_size;
-    uint8_t *regs;     /* register data (gpr section); slot 6 (x6/NZCV) is already in PSTATE format */
+    uint8_t *regs;     /* register data (gpr section). slot 6 (x6/NZCV) is already in PSTATE format */
     size_t   regs_size;
-    uint8_t  simd[REVISOR_SIMD_SECTION_SIZE]; /* SEC_SIMD GVT image -> v0..v31 before the run; 0 if absent */
+    uint8_t  simd[REVISOR_SIMD_SECTION_SIZE]; /* SEC_SIMD GVT image -> v0..v31 before the run. 0 if absent */
     uint8_t *mte_tags; /* one tag per granule (unpacked), or NULL */
     size_t   mte_tag_count;
     uint64_t pac_keys[10];

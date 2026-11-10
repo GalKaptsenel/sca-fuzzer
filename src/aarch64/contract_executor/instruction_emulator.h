@@ -25,10 +25,10 @@ enum emul_op {
 
 struct emul_row {
 	uint32_t offset;      /* byte offset of the first slot (the MATERIALIZE trigger) */
-	uint32_t size;        /* bytes from the first slot to the anchor; the anchor sits at offset+size */
+	uint32_t size;        /* bytes from the first slot to the anchor. the anchor sits at offset+size */
 	uint32_t op;          /* enum emul_op */
 	uint32_t gvt_offset;  /* byte offset into the GVT image of the lane the op writes */
-	uint32_t gvt_offset2; /* MTE: the after-access re-converge lane; unused (0) for PAC */
+	uint32_t gvt_offset2; /* MTE: the after-access re-converge lane. unused (0) for PAC */
 	uint32_t gst_lsb;     /* the lane holds (value >> gst_lsb) right-aligned (the field's low bit) */
 	uint32_t gst_width;   /* bytes the op writes at each lane (the UMOV element size: 1/2/4/8) */
 };

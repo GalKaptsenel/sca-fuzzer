@@ -15,7 +15,7 @@ class BP(ABC):
     @abstractmethod
     def update(self, address: int, taken: bool, target: Optional[int] = None) -> None:
         """Update the prediction tables with the resolved outcome (no history advance). `target` is
-        accepted for predictors that train on it (e.g. indirect-branch targets); a direction model
+        accepted for predictors that train on it (e.g. indirect-branch targets). a direction model
         ignores it."""
         ...
 
@@ -263,7 +263,7 @@ class PHR:
 
     def commit(self) -> None:
         """Drop the latest checkpoint, keeping the live value. Unused by the current
-        always-rollback engine; kept so the primitive set is complete for OoO resolution."""
+        always-rollback engine. kept so the primitive set is complete for OoO resolution."""
         self._stack.pop()
 
     def reset(self) -> None:
@@ -281,7 +281,7 @@ class BimodalBP(BP):
     """Bimodal base predictor (TAGE T0): PC-indexed saturating counters, untagged, always predicts.
 
     A cold index returns the weakly-not-taken default. predict() is a PURE read, no allocation and
-    no eviction, so a lookup (including a wrong-path speculative one) never mutates state; counters
+    no eviction, so a lookup (including a wrong-path speculative one) never mutates state. counters
     are created and trained only by update() at retire. Untagged like a real bimodal, so there are
     no read-time fills and no tag thrashing (unlike a tagged LRU cache used as the base)."""
     def __init__(self, counter_bit_width: int, num_sets: int):
@@ -289,7 +289,7 @@ class BimodalBP(BP):
         self._num_sets = num_sets
         pc_shift = 2
         self._index_fn = lambda pc: (pc >> pc_shift) & (num_sets - 1)
-        self._counters = {}   # index -> NBitCounterEntry (sparse; an absent index is the cold default)
+        self._counters = {}   # index -> NBitCounterEntry (sparse. an absent index is the cold default)
 
     def predict(self, address: int, touch_lru: bool = False) -> bool:
         entry = self._counters.get(self._index_fn(address))
@@ -349,12 +349,12 @@ class Aarch64NeoverseN3BPU(BP):
 
     Structure: a base table plus tagged tables, indexed and tagged by the branch PC folded with
     progressively longer slices of a path-history register (PHR). A prediction is the counter of the
-    LONGEST table whose tag matches; the base is the always-available fallback. On a provider
+    LONGEST table whose tag matches. the base is the always-available fallback. On a provider
     misprediction the provider is trained and one weakly-correct entry is allocated in the first
     longer table that has a tag miss.
 
     Speculation, textbook TAGE + speculative global history (Seznec & Michaud 2006):
-      * predict() only reads; it never mutates predictor state.
+      * predict() only reads. it never mutates predictor state.
       * The PHR (global history) is advanced SPECULATIVELY at fetch with the predicted direction
         (advance()), snapshotted when a misprediction opens a window (checkpoint()), and restored on
         recovery (rollback()). The PHR is the ONLY speculative state, so checkpointing it is a
@@ -363,14 +363,14 @@ class Aarch64NeoverseN3BPU(BP):
         which the driver gates to spec_nesting()==0). Wrong-path branches never retire, so they
         never train the tables and the tables need no speculative rollback.
 
-    NOT modelled (deliberate, only known / reverse-engineered behaviour is simulated; see kb-bpu-re):
+    NOT modelled (deliberate, only known / reverse-engineered behaviour is simulated. see kb-bpu-re):
       * the useful ("u") bit and everything it drives: u-gated victim choice and periodic u aging on
         allocation. Replacement here is plain LRU within a set. (The N3 u-bit mechanics are a known
         not-yet-RE'd gap.)
       * altpred / USE_ALT_ON_NA, the fall-back to the next-shorter table for a freshly allocated,
         low-confidence provider.
       * canonical geometric history lengths, the RE'd N3 lengths (172, 300) are used instead.
-      * outcome history, canonical TAGE shifts one direction bit per branch; this folds (pc, target)
+      * outcome history, canonical TAGE shifts one direction bit per branch. this folds (pc, target)
         on TAKEN branches only, i.e. it is *path* history (matching the RE'd N3 PHR), not per-branch
         outcome history.
     """
@@ -447,7 +447,7 @@ class Aarch64NeoverseN3BPU(BP):
     def update(self, address: int, taken: bool, target: Optional[int] = None,
                touch_lru: bool = True) -> None:
         """Update the prediction tables with the resolved outcome (counters only). The speculative
-        history is advanced separately by advance(); a full non-speculative step is update() then
+        history is advanced separately by advance(). a full non-speculative step is update() then
         advance(). `target` is accepted for forward compatibility (e.g. indirect-branch target
         training) but ignored by this direction predictor. The driver gates this to retire."""
         self._update_counters(address, taken, touch_lru)

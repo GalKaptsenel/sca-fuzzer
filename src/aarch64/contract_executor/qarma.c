@@ -168,7 +168,7 @@ static int bottom_pac_bit(int half, struct pac_profile p)
     return 64 - (half ? p.t1sz : p.t0sz);
 }
 
-/* AddPAC's selbit (EL1, two VA ranges): ptr<55> if any half has TBI for this key kind, else ptr<63>;
+/* AddPAC's selbit (EL1, two VA ranges): ptr<55> if any half has TBI for this key kind, else ptr<63>.
  * always ptr<55> with FEAT_PAuth2 + FEAT_CONSTPACFIELD. */
 static int selbit_of(uint64_t ptr, struct pac_profile p, int is_instr)
 {

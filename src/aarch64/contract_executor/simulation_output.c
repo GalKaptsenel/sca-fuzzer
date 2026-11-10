@@ -218,7 +218,7 @@ mem_access_info_t parse_memory_access_instruction(uint32_t inst, const trace_cpu
 		 *   o2 = bit23, L = bit22 (1 = load), o1 = bit21, sz-high = bit31, sz-low = bit30.
 		 * The sub-cases are distinguished as follows (all verified against the assembler):
 		 *   CAS       : o1=1, o2=1                 -- non-pair compare-and-swap. size = 1<<bits[31:30].
-		 *   CASP      : o1=1, o2=0, bit31=0        -- compare-and-swap PAIR. element size = bit30?8:4;
+		 *   CASP      : o1=1, o2=0, bit31=0        -- compare-and-swap PAIR. element size = bit30?8:4.
 		 *                                             element 1's data register is Rt+1 (implicit), NOT
 		 *                                             the Rt2 field (which is 11111 for CAS/CASP).
 		 *   LDXP/STXP : o1=1, o2=0, bit31=1        -- exclusive pair. element 1 carries the Rt2 field.

@@ -39,7 +39,7 @@ uint64_t pac_auth_with_keys(enum pac_op op, uint64_t ptr, uint64_t mod,
 
 void pac_save_keys(struct pac_keys *out);
 void pac_load_keys(const struct pac_keys *keys);
-uint64_t pac_enable_all_keys(void);    /* enables EnIA|EnIB|EnDA|EnDB in SCTLR_EL1; returns old SCTLR value */
+uint64_t pac_enable_all_keys(void);    /* enables EnIA|EnIB|EnDA|EnDB in SCTLR_EL1. returns old SCTLR value */
 void     pac_restore_sctlr(uint64_t saved_sctlr);
 
 uint64_t pacia(uint64_t ptr, uint64_t mod);

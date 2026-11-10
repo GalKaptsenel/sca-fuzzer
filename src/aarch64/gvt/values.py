@@ -35,7 +35,7 @@ class GvtValue(ABC):
 class PacSignature(GvtValue):
     """A PAC signature: the pointer's PAC-field bits occupy the window [lsb, lsb+nbits). The window is
     the bounding box of the field's runs, any gap bit it covers (e.g. bit 55) holds the pointer's own
-    canonical value, so re-inserting it is idempotent. The lane holds the window right-aligned; one BFI
+    canonical value, so re-inserting it is idempotent. The lane holds the window right-aligned. one BFI
     puts it back at [lsb, lsb+nbits)."""
 
     def __init__(self, lsb: int, nbits: int) -> None:
@@ -59,7 +59,7 @@ class PacSignature(GvtValue):
 
 class MteTag(GvtValue):
     """A 4-bit allocation tag inserted into the pointer's tag field [56, 60). The tag is already
-    right-aligned, so the lane is one byte; one BFI puts it at [56, 60)."""
+    right-aligned, so the lane is one byte. one BFI puts it at [56, 60)."""
 
     width = 1
 
@@ -72,7 +72,7 @@ class MteTag(GvtValue):
 
 class MaskFlip(GvtValue):
     """A bitmask XORed into a register (canonicality / branch-target / sign-extension flips). The mask's
-    set bits lie in the window [lo, lo+nbits); the lane holds it right-aligned, and one shifted EOR
+    set bits lie in the window [lo, lo+nbits). the lane holds it right-aligned, and one shifted EOR
     (`EOR target, target, tmp, LSL #lo`) puts it back at its window and flips those bits."""
 
     def __init__(self, lo: int, nbits: int) -> None:

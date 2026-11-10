@@ -212,14 +212,14 @@ class Aarch64TargetDesc(TargetDesc):
     @staticmethod
     def _read_cpu_desc() -> CPUDesc:
         """Build the CPU descriptor from the MIDR fields Linux exposes per-core in /proc/cpuinfo.
-        Only `vendor` is consulted by the aarch64 paths; model/family/stepping are descriptive.
+        Only `vendor` is consulted by the aarch64 paths. model/family/stepping are descriptive.
         Loud-fail (no fallback) if the fields are absent, this is not an aarch64 host."""
         fields = {}
         with open("/proc/cpuinfo") as f:
             for line in f:
                 key, sep, value = line.partition(":")
                 if sep:
-                    fields.setdefault(key.strip(), value.strip())  # first core; all cores are homogeneous
+                    fields.setdefault(key.strip(), value.strip())  # first core. all cores are homogeneous
         try:
             return CPUDesc("aarch64", fields["CPU part"], fields["CPU variant"], fields["CPU revision"])
         except KeyError as missing:

@@ -1,9 +1,9 @@
 /*
  * GVT-access-site op-emulator for MTE: supply the accessed cell's allocation tag to an instrumented access so the
- * genuine binary's tag check matches. The site is [UMOV x27,applied. BFI tag. access. UMOV x27,cell;
+ * genuine binary's tag check matches. The site is [UMOV x27,applied. BFI tag. access. UMOV x27,cell.
  * BFI tag]: the pre-BFI applies the tag the variant tests (genuine == the cell tag), the post-BFI
  * re-converges the pointer onto the cell tag. MATERIALIZE reads the cell tag at the access's effective
- * address and injects it into both lanes (row->gvt_offset = applied, row->gvt_offset2 = re-converge);
+ * address and injects it into both lanes (row->gvt_offset = applied, row->gvt_offset2 = re-converge).
  * base_hook reloads the vector file from the image before the UMOV re-runs. On a FEAT_MTE host the
  * fixed BFIs and the tagged access execute natively instead. IDLE: nothing (the site's code is fixed).
  * Kept separate from mte_tag_plugin.c (the self-contained tag-memory emulator) because it pulls in the

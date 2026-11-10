@@ -27,7 +27,7 @@ static DEFINE_MUTEX(executor_lock);
  * rmmod won't work either), and the executor state it was mutating is left
  * half-updated. That fault class genuinely requires a reboot. What we CAN do is
  * stop it from becoming a silent, unkillable deadlock:
- *   (a) wait killably, so a blocked caller can always be killed (never D-state);
+ *   (a) wait killably, so a blocked caller can always be killed (never D-state).
  *   (b) if a new caller finds the lock held far longer than any legitimate
  *       operation, conclude the holder faulted/wedged under it, latch a "wedged"
  *       flag, log loudly, and fail fast with -EIO instead of blocking. The user
@@ -217,7 +217,7 @@ static void unload_test_and_update_state(void) {
     	dsb(ish); // make sure all views are synced
 	isb();
 	executor.test_case_length = 0;
-	invalidate_jit_cache(); // harness bytes zeroed; force a rebuild on next trace()
+	invalidate_jit_cache(); // harness bytes zeroed. force a rebuild on next trace()
 
 	switch(executor.state) {
 		case TRACED_STATE:
@@ -267,7 +267,7 @@ static ssize_t load_test_and_update_state(const char __user* test, size_t length
 	}
 
 	executor.test_case_length = length;
-	invalidate_jit_cache(); // new test-case bytes; force a rebuild on next trace()
+	invalidate_jit_cache(); // new test-case bytes. force a rebuild on next trace()
 
 	update_state_after_writing_test();
 

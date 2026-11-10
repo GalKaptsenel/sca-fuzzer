@@ -162,11 +162,11 @@ def log_ni_table(log: FuzzLogger, inp_idx: int, columns: List[Tuple[str, bytes]]
     if not FuzzLogger.on():
         return
     """DEBUG: per-instruction table across the speculative-exception variants, shared by PAC and MTE. Each row is one
-    instruction offset; the columns hold its disassembly in the instrumented TC / baseline / decoys;
+    instruction offset. the columns hold its disassembly in the instrumented TC / baseline / decoys;
     `Flow` shows whether the CE executed that offset architecturally and/or speculatively (with
     nesting), taken from the instrumented trace `cer` (all variants share the layout and, by the no-leak
     invariant, the same control flow). The `info_label` column carries the slot's committed GVT access
-    data taken from the fix point, not the trace (PAC: correct signature; MTE: correct tag). Rows
+    data taken from the fix point, not the trace (PAC: correct signature. MTE: correct tag). Rows
     whose columns differ are the GVT access slots and are flagged."""
     nest_by_off: Dict[int, set] = {}
     if cer:

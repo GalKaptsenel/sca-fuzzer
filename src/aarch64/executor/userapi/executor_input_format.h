@@ -80,7 +80,7 @@ enum revisor_input_section_type {
 struct revisor_input_header {
     uint64_t magic;       /* REVISOR_INPUT_MAGIC */
     uint64_t version;     /* REVISOR_INPUT_VERSION */
-    uint64_t header_len;  /* 48 + 32*n_sections; offset of the first payload */
+    uint64_t header_len;  /* 48 + 32*n_sections. offset of the first payload */
     uint64_t n_sections;
     uint64_t flags;       /* reserved */
     uint64_t total_len;    /* total bytes of this REIF file */

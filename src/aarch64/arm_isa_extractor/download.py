@@ -24,7 +24,7 @@ def resolve_release(release: str = "latest") -> str:
 
 
 def download_xml(release: str = "latest", cache_dir=None, force: bool = False) -> Path:
-    """Stage 1: fetch + cache the ARM A64 ISA XML; return the directory of extracted XML files."""
+    """Stage 1: fetch + cache the ARM A64 ISA XML. return the directory of extracted XML files."""
     release = resolve_release(release)
     url, stem = _RELEASES[release]
     cache = Path(cache_dir or Path.home() / ".cache" / "arm_isa_xml")
@@ -48,7 +48,7 @@ def download_xml(release: str = "latest", cache_dir=None, force: bool = False) -
     with tarfile.open(tarball, "r:gz") as tf:
         for member in tf.getmembers():
             p = Path(member.name)
-            if member.isfile() and p.suffix == ".xml":   # flatten the tree; regular files only
+            if member.isfile() and p.suffix == ".xml":   # flatten the tree. regular files only
                 member.name = p.name
                 tf.extract(member, xml_dir)
     return xml_dir

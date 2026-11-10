@@ -28,7 +28,7 @@
 #define RSB_DEPTH 16
 
 static uintptr_t rsb[RSB_DEPTH];
-static uint64_t  rsb_sp;        /* logical call depth (pushes - pops); slot = rsb_sp % RSB_DEPTH */
+static uint64_t  rsb_sp;        /* logical call depth (pushes - pops). slot = rsb_sp % RSB_DEPTH */
 static uint64_t  rsb_index;
 
 static void rsb_on_init(uint64_t index) { rsb_index = index; }
@@ -52,7 +52,7 @@ static void rsb_on_instruction(struct simulation_state* sim_state) {
 		return;
 	}
 
-	if (0xd65f03c0 == insn) {               /* RET (X30); matches the CE's architectural RET emulation */
+	if (0xd65f03c0 == insn) {               /* RET (X30). matches the CE's architectural RET emulation */
 		if (0 == rsb_sp) return;            /* no outstanding call */
 		uintptr_t predicted = rsb[--rsb_sp % RSB_DEPTH];
 

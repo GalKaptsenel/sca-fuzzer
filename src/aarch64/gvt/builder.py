@@ -1,10 +1,10 @@
 """GvtAccess as composable per-location GVT accesses (AArch64).
 
 Each GVT access's per-input value lives in the GlobalValueTable (a reserved vector register, loaded from the
-input); the GVT access's slot is fixed code that loads it and applies it. A variant is a GVT image, not a
+input). the GVT access's slot is fixed code that loads it and applies it. A variant is a GVT image, not a
 code change.
 
-  * `GvtAccess`, one site; its fixed slot loads its value from the GVT and applies it.
+  * `GvtAccess`, one site. its fixed slot loads its value from the GVT and applies it.
   * `GvtAccessBuilder.build(tc) -> GvtTestCase`, walks the TC, creates GVT accesses, inserts their slots.
   * `GvtTestCase.resolve(input) -> ResolvedGvtTestCase`, runs the CE trace, computes values.
   * `ResolvedGvtTestCase`, `object_code` plus `genuine()` / `decoy()` GVT images for it.
@@ -62,7 +62,7 @@ class GvtAccess(abc.ABC):
     it, so the genuine/decoy difference is the stored value, not the code. `value`/`location` are the
     GVT binding (both unset for the sandbox clamp, which carries no value)."""
     value_reg: str
-    value: GvtValue        # a value GVT access sets both at construction; the sandbox clamp sets neither
+    value: GvtValue        # a value GVT access sets both at construction. the sandbox clamp sets neither
     location: Location
 
     def __init__(self) -> None:
@@ -70,14 +70,14 @@ class GvtAccess(abc.ABC):
 
     def store_into(self, image: GVTImage, applied: Optional[int], genuine: Optional[int]) -> None:
         """Write this GVT access's lane(s) into the per-input GVT image. `applied` is the value this variant
-        applies (the genuine value, or a decoy alt); `genuine` is the always-correct value, for a GVT access
+        applies (the genuine value, or a decoy alt). `genuine` is the always-correct value, for a GVT access
         with an after-access re-converge lane. A single-lane GVT access stores only `applied` and ignores
-        `genuine`; None means "no perturbation" (encoded as 0)."""
+        `genuine`. None means "no perturbation" (encoded as 0)."""
         image.store(self.location, self.value.encode(0 if applied is None else applied))
 
     def frozen_ranges(self, speculative: bool) -> List[range]:
         """contract_driven taint: the GVT byte ranges this GVT access keeps at the genuine value regardless of
-        boosting. An architecturally-consumed lane is frozen so the arch path is identical; a
+        boosting. An architecturally-consumed lane is frozen so the arch path is identical. a
         speculative lane is left free (boosting varies it). A single-lane GVT access re-converges through its
         own lane (EOR twice is identity), so its speculative lane is safe to leave free."""
         return [] if speculative else [self.location.byte_range()]
@@ -96,7 +96,7 @@ def _mask_window(masks: List[int]) -> Tuple[int, int]:
 
 
 class SandboxGvtAccess(GvtAccess):
-    """Clamp a base register into the input region: [AND reg, #mask; ADD reg, base]. Carries no value."""
+    """Clamp a base register into the input region: [AND reg, #mask. ADD reg, base]. Carries no value."""
 
     def __init__(self, value_reg: str, mask: str, base_reg: str) -> None:
         super().__init__()
@@ -109,7 +109,7 @@ class SandboxGvtAccess(GvtAccess):
 
 class PacGvtAccess(GvtAccess):
     """Authenticate a pointer for one access. An AUTH site loads the signature from its GVT lane, BFIs
-    its PAC field into the pointer, then runs the committed AUT*; a STRIP site (probability
+    its PAC field into the pointer, then runs the committed AUT*. a STRIP site (probability
     pac_strip_prob) emits only the arch-safe XPAC and carries no signature, so it is never decoyed.
     There is no re-converge after the access: the AUT* canonicalizes the genuine pointer and the next
     access re-clamps a fresh base, so a decoy's FPAC bits cannot cascade into a later access."""
@@ -158,9 +158,9 @@ class PacGvtAccess(GvtAccess):
 class MteGvtAccess(GvtAccess):
     """Retag a pointer onto its cell's allocation tag for one access, then re-converge. The fixed slot
     BFIs the applied tag from the GVT into the pointer's tag field [59:56] before the access (genuine =
-    the cell tag, so it matches; a decoy = a mismatching tag), and, when the access preserves its base,
+    the cell tag, so it matches. a decoy = a mismatching tag), and, when the access preserves its base,
     BFIs the cell tag back after, so every variant ends at the real cell tag and the leak is confined to
-    the access. The CE op injects both lanes (the cell tag read from its tag memory); on a FEAT_MTE host
+    the access. The CE op injects both lanes (the cell tag read from its tag memory). on a FEAT_MTE host
     the BFIs and the tagged access run natively."""
 
     def __init__(self, value_reg: str, access_inst: Instruction, base_preserved: bool,
@@ -272,7 +272,7 @@ def _canon_mask_pool(salt: int) -> List[int]:
 
 class CanonGvtAccess(GvtAccess):
     """Make a pointer register non-canonical for ONE speculative access via a GVT mask, then restore it.
-    The fixed slot loads the mask from the GVT and EORs it into the base before the access; when the
+    The fixed slot loads the mask from the GVT and EORs it into the base before the access. when the
     access preserves its base (`revert`), the same EOR after re-converges with the baseline so the
     flipped high bits cannot cascade into a later access's cache set. Genuine value is 0 (no flip);
     `pool` is the candidate non-canonical masks the decoy picks. `access_inst`/`pool` feed the resolver."""
@@ -297,7 +297,7 @@ def _branch_target_mask_pool(salt: int) -> List[int]:
       * misaligned (when branch_target_misalign): a low-bit value {1,2,3} -> the target is no
         longer 4-byte aligned -> PC-alignment fault (an axis x86 lacks).
     Unlike CanonGvtAccess the target is a dead scratch (never a data base), so any bits may flip.
-    branch_target_canon_mask fixes the non-canonical run; otherwise a salt-seeded pool is used."""
+    branch_target_canon_mask fixes the non-canonical run. otherwise a salt-seeded pool is used."""
     va = _canon_va()
     fault = (((1 << (55 - va)) - 1) << va)   # bits [54:va]
     pool: List[int] = []
@@ -329,7 +329,7 @@ class BranchTargetGvtAccess(GvtAccess):
     loads the mask and EORs it into the target before the branch (non-canonical high bits or [1:0]
     misalignment), then the same EOR after to re-converge, x28 is the shared indirect-call target reg,
     so a leftover flip would cascade into a later call's target. Genuine value is 0 (valid target);
-    `pool` is the candidate masks the decoy picks; `branch_inst` feeds the resolver."""
+    `pool` is the candidate masks the decoy picks. `branch_inst` feeds the resolver."""
 
     def __init__(self, value_reg: str, branch_inst: Instruction, pool: List[int],
                  gvt: GlobalValueTable) -> None:
@@ -370,20 +370,20 @@ def _signext_mask_pool() -> List[int]:
 # ==================================================================================================
 class _Resolved:
     """A GVT access paired with its resolved runtime value for one input: `value` is the correct value
-    (None where the GVT access needs none / was unreached); `alts` are alternative values that fail; the
+    (None where the GVT access needs none / was unreached). `alts` are alternative values that fail. the
     slot is speculative (decoy-eligible) when it never ran architecturally."""
     def __init__(self, access: GvtAccess, value: Optional[int], alts: List[int],
                  spec_nesting: Optional[int]) -> None:
         self.access = access
         self.value = value
         self.alts = alts
-        self.speculative = spec_nesting != 0   # None (unreached) or >0 -> speculative; 0 -> arch
+        self.speculative = spec_nesting != 0   # None (unreached) or >0 -> speculative. 0 -> arch
 
 
 class ResolvedGvtTestCase:
     """One input's resolution. `object_code` is the input-independent assembled test case (every variant
-    shares it); `genuine()`/`decoy()` return the GVT image bytes (the SIMD section payload) that select a
-    variant. `genuine()` stores every slot's correct value; `decoy()` perturbs a subset of the
+    shares it). `genuine()`/`decoy()` return the GVT image bytes (the SIMD section payload) that select a
+    variant. `genuine()` stores every slot's correct value. `decoy()` perturbs a subset of the
     speculative slots. `cer` is the single resolution trace, reused as the genuine contract trace."""
 
     def __init__(self, entries: List[_Resolved], object_code: bytes, gvt: GlobalValueTable, salt: int,
@@ -459,7 +459,7 @@ _FORGERY_TRIES = 64
 
 
 def _input_pac_keys(inp) -> Tuple[int, ...]:
-    """The PAC keys the input runs under; a PAC GVT access cannot be resolved without them."""
+    """The PAC keys the input runs under. a PAC GVT access cannot be resolved without them."""
     if inp.pac_keys is None:
         raise GeneratorException(f"PAC input {inp.seed} carries no PAC keys")
     return inp.pac_keys
@@ -469,7 +469,7 @@ def _resolve_pac(s: PacGvtAccess, cer, layout, signer: PacSigner, keys: Tuple[in
                  ) -> Tuple[Optional[int], List[int], Optional[int]]:
     """An AUTH PacGvtAccess's value from a trace: sign the canonical pointer the slot's UMOV reads (before
     its BFI inserts the field), plus a pool of wrong signatures that fail AUTH. The genuine value is the
-    full signed pointer the lane carries; a decoy is the same with its PAC field perturbed. When the slot
+    full signed pointer the lane carries. a decoy is the same with its PAC field perturbed. When the slot
     is never reached, it is still decoy-eligible (HW may speculate deeper than the model): forge the pool
     over the sandbox base, whose PAC-field-window bits every clamped pointer shares. A strip site carries
     no signature and is never decoyed. (value, alts, spec_nesting)."""
@@ -521,8 +521,8 @@ def _resolve_mte(s: MteGvtAccess, cer, layout) -> Tuple[Optional[int], List[int]
     """An MteGvtAccess's applied base tag from a trace: the tag the slot's BFI puts on the base register so
     the ACCESS's effective-address tag equals the accessed cell's allocation tag, which, for a
     register-offset access, differs from the cell tag by the index's tag contribution. The genuine value
-    is the base-register tag observed at the access (the CE's inject already set it); a decoy applies a
-    different base tag. Prefer an architectural (nest==0) reach; fail loud on disagreeing arch tags.
+    is the base-register tag observed at the access (the CE's inject already set it). a decoy applies a
+    different base tag. Prefer an architectural (nest==0) reach. fail loud on disagreeing arch tags.
     A decoy whose resulting EA tag lands on 0 or 15 is excluded: TCR_EL1.TCMA1 makes such an access
     Tag-UNCHECKED, so the mismatch never happens and the decoy would behave like the genuine access.
     (value, alts, spec_nesting)."""
@@ -561,7 +561,7 @@ def _resolve_mte(s: MteGvtAccess, cer, layout) -> Tuple[Optional[int], List[int]
 
 def _resolve_canon(s: "CanonGvtAccess", cer, layout) -> Tuple[Optional[int], List[int], Optional[int]]:
     """A CanonGvtAccess's value from a trace: the genuine value is canonical (None -> the NOP
-    placeholders); the alternatives are the GVT access's pool of random non-canonical flip masks (the
+    placeholders). the alternatives are the GVT access's pool of random non-canonical flip masks (the
     decoy picks one). spec_nesting is the minimum depth the guarded access is reached at, so an access
     ever reached architecturally (min == 0) is non-speculative and never non-canonicalized.
     (value, alts, spec_nesting)."""
@@ -579,7 +579,7 @@ def _resolve_canon(s: "CanonGvtAccess", cer, layout) -> Tuple[Optional[int], Lis
 
 def _resolve_branch_target(s: "BranchTargetGvtAccess", cer, layout) -> Tuple[Optional[int], List[int], Optional[int]]:
     """A BranchTargetGvtAccess's value from a trace: the genuine value is a valid target (None -> the NOP
-    placeholder); the alternatives are the pool of non-canonical / misaligned masks (the decoy picks
+    placeholder). the alternatives are the pool of non-canonical / misaligned masks (the decoy picks
     one). spec_nesting is the minimum depth the BLR is reached at, so a call ever reached
     architecturally (min == 0) keeps a valid target and is never corrupted. (value, alts, spec_nesting)."""
     spec = None
@@ -628,7 +628,7 @@ class GvtTestCase:
 
     @property
     def object_code(self) -> bytes:
-        """The assembled test case (fixed GVT-load slots, no per-input values); input-independent."""
+        """The assembled test case (fixed GVT-load slots, no per-input values). input-independent."""
         return self._assemble(self._tc)
 
     def _insert_slots(self, data_sites: List) -> None:
@@ -651,26 +651,26 @@ class GvtTestCase:
 
     def resolve(self, inp) -> ResolvedGvtTestCase:
         """One CE trace per input (memoized by input identity), reused as the genuine contract trace.
-        The object code is input-independent; variants differ only in the GVT image."""
+        The object code is input-independent. variants differ only in the GVT image."""
         key = inp.identity()
         cached = self._resolved.get(key)
         if cached is not None:
             return cached
         object_code, cer = self._resolve_trace(inp)
-        entries = self._resolve_entries(inp, cer)   # value GVT accesses only; the sandbox clamp carries no value
+        entries = self._resolve_entries(inp, cer)   # value GVT accesses only. the sandbox clamp carries no value
         resolved = ResolvedGvtTestCase(entries, object_code, self._gst, self._salt, cer)
         self._resolved[key] = resolved
         return resolved
 
     def _emul_rows(self) -> List[Tuple[int, int, int, int, int, int, int]]:
         """Emulation-table rows for the sites whose genuine per-input value the CE injects during the
-        trace (PAC signatures, MTE tags). Default none; canon/branch carry their genuine value (0) in
+        trace (PAC signatures, MTE tags). Default none. canon/branch carry their genuine value (0) in
         the blank image, so they need no injection."""
         return []
 
     def _resolve_trace(self, inp) -> Tuple[bytes, "ContractExecutionResult"]:
         """One trace over the fixed code, shipping a blank GVT image and this concern's emulation table.
-        The CE injects each PAC/MTE site's genuine value into the image as it reaches the site; canon /
+        The CE injects each PAC/MTE site's genuine value into the image as it reaches the site. canon /
         branch keep the all-zero image (no flip). The result is the canonical execution, reused as the
         genuine contract trace."""
         object_code = self._assemble(self._tc)
@@ -756,7 +756,7 @@ class SandboxGvtTestCase(GvtTestCase):
 
     def _insert_slots(self, data_sites) -> None:
         for inst, bb, _mem_reg, offset_subs, _base_preserved in data_sites:
-            _insert(bb, inst, offset_subs)   # pin each access to its clamped base; no value GVT access
+            _insert(bb, inst, offset_subs)   # pin each access to its clamped base. no value GVT access
 
 
 class CanonGvtTestCase(GvtTestCase):
@@ -765,7 +765,7 @@ class CanonGvtTestCase(GvtTestCase):
     a matching EOR right AFTER the access restores the base (when the access preserves it), so the
     decoy re-converges with the baseline and the flipped bits cannot cascade downstream. No new
     instructions, no CE plugin, no per-input REIF section: the CE traces the canonical placeholder
-    (NOP slots) and only supplies speculation depth; the decoy is ordinary EOR words spliced through
+    (NOP slots) and only supplies speculation depth. the decoy is ordinary EOR words spliced through
     the existing code-relocation path."""
 
     def __init__(self, instrumented_tc, assemble, sandbox_accesses, data_sites, trace_bytes_fn) -> None:
@@ -777,7 +777,7 @@ class CanonGvtTestCase(GvtTestCase):
         # with probability CONF.canonicality_prob. A skipped access still gets its offset
         # cancellation (sandbox safety), just no canonicality slot. base_preserved says whether the
         # access leaves its base register intact (so the after-EOR can restore it).
-        pool = _canon_mask_pool(self._salt)   # validated once; shared by every slot in this test case
+        pool = _canon_mask_pool(self._salt)   # validated once. shared by every slot in this test case
         rng = random.Random(self._salt)
         for inst, bb, mem_reg, offset_subs, base_preserved in data_sites:
             if rng.random() >= CONF.canonicality_prob:
@@ -798,8 +798,8 @@ class CanonGvtTestCase(GvtTestCase):
 class BranchTargetGvtTestCase(GvtTestCase):
     """Sandbox clamp per data access (no value GVT access) + a canonicality/alignment flip on each
     SPECULATIVE indirect-call target. The flip EOR lands right before the BLR (after the ADR that
-    materialized the target); no after-revert -- the target register is a dead scratch. The CE traces
-    the valid placeholder (NOP slots) and supplies speculation depth; the decoy is EOR words spliced in
+    materialized the target). no after-revert -- the target register is a dead scratch. The CE traces
+    the valid placeholder (NOP slots) and supplies speculation depth. the decoy is EOR words spliced in
     through the code-relocation path (no CE plugin, no per-input REIF section)."""
 
     def __init__(self, instrumented_tc, assemble, sandbox_accesses, data_sites, trace_bytes_fn) -> None:
@@ -836,7 +836,7 @@ class MtePacGvtTestCase(GvtTestCase):
     """Sandbox clamp + PAC auth + MTE retag per data access, plus a PAC auth per standalone AUT*.
     The CE injects both per-input values into the GVT image, each PAC site's signature and each MTE
     site's accessed-cell tag, during the single resolution trace, which is also the genuine contract
-    trace; the PAC signatures and MTE tags both resolve off it."""
+    trace. the PAC signatures and MTE tags both resolve off it."""
 
     def __init__(self, instrumented_tc, assemble, sandbox_accesses, data_sites, signer, enc,
                  auth_specs, trace_bytes_fn) -> None:
@@ -884,10 +884,10 @@ class MtePacGvtTestCase(GvtTestCase):
 class PacSignExtGvtTestCase(GvtTestCase):
     """Sandbox clamp + PAC auth + a sign-extension flip per data access, plus a PAC auth per standalone
     AUT*. Every access is PAC-authenticated (the baked signature keeps it arch-safe, as in
-    MtePacGvtTestCase); the flip (SignExtGvtAccess) is a MaskFlip GVT access, its genuine value is "no flip"
+    MtePacGvtTestCase). the flip (SignExtGvtAccess) is a MaskFlip GVT access, its genuine value is "no flip"
     in the all-zero image, added with probability `signext_prob`, so only the PAC auth is injected
     by the emulation table. The single resolution trace yields the PAC signatures and the genuine
-    contract trace; the decoy carries the flip mask in the sign-ext GVT access's lane."""
+    contract trace. the decoy carries the flip mask in the sign-ext GVT access's lane."""
 
     def __init__(self, instrumented_tc, assemble, sandbox_accesses, data_sites, signer, enc,
                  auth_specs, trace_bytes_fn) -> None:
@@ -1038,7 +1038,7 @@ def _place_after(bb, anchor, insts) -> None:
     """Insert `insts` immediately after `anchor`, preserving their order, the GVT access's after-revert
     (restore the base register once the instrumented access has run). insert_after puts each element right
     after the anchor, so iterate in reverse to keep list order. Composed reverts (MtePac) call this
-    once per primitive; calling the outer primitive first lands the inner one closest to the access."""
+    once per primitive. calling the outer primitive first lands the inner one closest to the access."""
     for inst in reversed(list(insts)):
         bb.insert_after(anchor, inst)
 
@@ -1072,7 +1072,7 @@ class SandboxWalk:
 
     def _addr_mask(self, inst) -> str:
         """The sandbox clamp mask for one memory access, aligned to the wider of the MTE granule floor
-        and the access's own natural-alignment requirement (mem_op.alignment bytes; 0 = none)."""
+        and the access's own natural-alignment requirement (mem_op.alignment bytes. 0 = none)."""
         align = max(self._granule_floor, inst.get_mem_operands()[0].alignment)
         return f"#0x{_SANDBOX_MASK & ~(align - 1):x}"
 
@@ -1081,7 +1081,7 @@ class SandboxWalk:
         requirement, for the case where the base was clamped by a prior, weaker-aligned access and the
         clamp is not re-emitted (re-clamping would re-add the sandbox base). Masking only the low bits
         keeps the base in-region (x29 is page-aligned). Empty when the access needs no alignment (a plain
-        load/store); atomics take no offset, so aligning the base aligns the effective address."""
+        load/store). atomics take no offset, so aligning the base aligns the effective address."""
         align = inst.get_mem_operands()[0].alignment
         if align <= 1:
             return []
@@ -1176,7 +1176,7 @@ class SandboxWalk:
 def make_gvt_access_builder(generator, assemble, primitives, signer, trace_bytes_fn) -> GvtAccessBuilder:
     """The GvtAccessBuilder for the active primitives. `assemble(tc) -> bytes` assembles the object code;
     `trace_bytes_fn(code, input, emul_table) -> cer` runs the single per-input resolution trace of
-    already-assembled machine code; `signer` is the PAC signer used by resolve when 'pac' is active
+    already-assembled machine code. `signer` is the PAC signer used by resolve when 'pac' is active
     (None otherwise)."""
     prims = frozenset(primitives)
     if prims not in (frozenset(), frozenset({"canon"}), frozenset({"branch_target"}),

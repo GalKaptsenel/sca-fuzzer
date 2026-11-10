@@ -18,7 +18,7 @@ class Kind(Enum):
 
 @dataclass(frozen=True)
 class Reg:
-    """A GPR operand. `number` is the register index (X0 and W0 share n=0); None for sp/zr."""
+    """A GPR operand. `number` is the register index (X0 and W0 share n=0). None for sp/zr."""
     name: str
     width: int
     number: Optional[int] = None
@@ -39,7 +39,7 @@ WZR = Reg("wzr", 32)
 
 @dataclass(frozen=True)
 class Imm:
-    """An immediate operand. `value` is required; `width` is optional."""
+    """An immediate operand. `value` is required. `width` is optional."""
     value: int
     _: KW_ONLY
     width: int = 64
@@ -51,7 +51,7 @@ class Imm:
 
 @dataclass(frozen=True)
 class Mem:
-    """A memory operand. `base` register is required; `offset`/`width` are optional."""
+    """A memory operand. `base` register is required. `offset`/`width` are optional."""
     base: Reg
     _: KW_ONLY
     offset: Optional[Imm] = None
@@ -88,7 +88,7 @@ def _validate_count(n: Count) -> None:
 @dataclass
 class Hole:
     """A random-fill region. `n` is how many instructions and `n_bb` how many basic blocks (each a Count:
-    an exact int, a (min, max) range, or None for random; default one each). Over several blocks the
+    an exact int, a (min, max) range, or None for random. default one each). Over several blocks the
     generator wires conditional branches between them, so each block still runs start to finish. `kind`
     narrows the instruction class and `regs` the registers -- unset, each is randomized."""
     n: Count = 1
@@ -118,7 +118,7 @@ def _validate_populate(p: Populate) -> None:
 
 @dataclass
 class DirectCall:
-    """A direct call (`BL`). `target` is a declared callee (from `Builder.function`); unset, one is
+    """A direct call (`BL`). `target` is a declared callee (from `Builder.function`). unset, one is
     created and given a body per `populate` (see Populate)."""
     _: KW_ONLY
     target: Optional[object] = None    # a Callee handle
@@ -170,11 +170,22 @@ class Cond:
 class _Flags:
     """The AArch64 condition codes, for pinning a conditional branch: `b.if_(flags.EQ)`. The branch is
     then taken per NZCV, which the input controls via its `flags` register value."""
-    EQ = Cond("eq"); NE = Cond("ne")
-    CS = Cond("cs"); HS = Cond("cs"); CC = Cond("cc"); LO = Cond("cc")
-    MI = Cond("mi"); PL = Cond("pl"); VS = Cond("vs"); VC = Cond("vc")
-    HI = Cond("hi"); LS = Cond("ls"); GE = Cond("ge"); LT = Cond("lt")
-    GT = Cond("gt"); LE = Cond("le")
+    EQ = Cond("eq")
+    NE = Cond("ne")
+    CS = Cond("cs")
+    HS = Cond("cs")
+    CC = Cond("cc")
+    LO = Cond("cc")
+    MI = Cond("mi")
+    PL = Cond("pl")
+    VS = Cond("vs")
+    VC = Cond("vc")
+    HI = Cond("hi")
+    LS = Cond("ls")
+    GE = Cond("ge")
+    LT = Cond("lt")
+    GT = Cond("gt")
+    LE = Cond("le")
 
 
 flags = _Flags()

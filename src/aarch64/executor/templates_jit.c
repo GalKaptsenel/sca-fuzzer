@@ -404,7 +404,7 @@ static int reload(jit_t* jit, int base_reg, int tmp1, int tmp2, int tmp3, int in
 		jit_subr64(jit, t_post, t_post, t_pre);           /* raw delta (refills, or cycles if use_timer) */
 		jit_subr64(jit, 3, 3, 2);                         /* x3 = counter1 (L2D) delta */
 		if (record) {
-			jit_lsr64(jit, t_pre, t_post, eff_shift);          /* test = delta >> shift; hit iff 0 */
+			jit_lsr64(jit, t_pre, t_post, eff_shift);          /* test = delta >> shift. hit iff 0 */
 			jit_cbnz64(jit, t_pre, jit_get_cur(jit) + 4 * 4);  /* not resident -> skip the bit set */
 			jit_mov64(jit, t_pre, 1);
 			jit_lslr64(jit, t_pre, t_pre, idx);

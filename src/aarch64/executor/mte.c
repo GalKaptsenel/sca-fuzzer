@@ -2,7 +2,7 @@
 #include <linux/moduleparam.h>
 #include <linux/stdarg.h>
 
-int mte_tag_verbose = 0;   // default off; enable at runtime for CE<->HW persistency checks
+int mte_tag_verbose = 0;   // default off. enable at runtime for CE<->HW persistency checks
 module_param(mte_tag_verbose, int, 0644);
 MODULE_PARM_DESC(mte_tag_verbose, "Log MTE tag (re)init and per-run actual tags/pointers for CE-vs-HW consistency checking");
 

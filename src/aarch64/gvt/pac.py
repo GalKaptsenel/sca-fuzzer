@@ -1,7 +1,7 @@
 """PAC pointer-authentication slot encoders + signing (AArch64).
 
 PacSign builds the MOVK-signature + AUT*/XPAC* slot instructions (the single source of PAC slot
-encodings, used by the builder's PacGvtAccess); PacSigner is the kernel SIGN capability (never AUTH);
+encodings, used by the builder's PacGvtAccess). PacSigner is the kernel SIGN capability (never AUTH);
 build_pac_specs derives the usable PAC/AUT*/XPAC instruction specs (AUT* via AuthInstructionSpec,
 which guarantees value_reg != ctx_reg).
 """

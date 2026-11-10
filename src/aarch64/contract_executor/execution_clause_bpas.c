@@ -8,7 +8,7 @@
 #include <string.h>
 
 /* Two-phase store bypass:
- *   phase A (at a store): snapshot memory, then let the HW execute the store (writeback included);
+ *   phase A (at a store): snapshot memory, then let the HW execute the store (writeback included).
  *   phase B (next instruction): undo the store's memory write so the speculative window reads the
  *     stale value, checkpointing the POST-store state as the architectural return, so the store
  *     is never re-executed and rollback stays uniform.
@@ -16,7 +16,7 @@
 static uint8_t* bpas_preimage     = NULL;   /* snapshot of memory just before a pending store */
 static size_t   bpas_preimage_cap = 0;
 static int      bpas_pending      = 0;
-static uint64_t bpas_pending_window_id;     /* window the pending store was seen in (unique; nesting repeats) */
+static uint64_t bpas_pending_window_id;     /* window the pending store was seen in (unique. nesting repeats) */
 static uintptr_t bpas_pending_store_pc;     /* pc of that store (fail-loud check at phase B) */
 static uint64_t bpas_index;
 

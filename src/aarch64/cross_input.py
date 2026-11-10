@@ -11,20 +11,20 @@ one pair's two ct-equal variants, see if the signal follows).
 The search is self-contained -- it knows nothing about the fuzzer or executor -- and is driven by:
   measure(batch, reps) -> per-slot hardware traces of a batch whose slot s holds the base or the toggle
                           variant of input s;
-  key(trace)           -> a hashable canonical form; two traces are equal iff their keys are equal, so
+  key(trace)           -> a hashable canonical form. two traces are equal iff their keys are equal, so
                           equality is transitive, which the bisection invariant relies on;
-  confirm(a, b)        -> whether two traces genuinely differ, by a robust (noise-tolerant) test; used
+  confirm(a, b)        -> whether two traces genuinely differ, by a robust (noise-tolerant) test. used
                           only to re-verify a found boundary, where transitivity is not needed but
                           tolerance to microarchitectural jitter is.
 
 Objects mirror the write-up "Generalized priming":
   * lane          L^(l): one input variant per class, indexed by class 0..k (`base` and `toggle` below).
   * splice        sigma_{base->toggle}(t): classes [0, t) from `base`, [t, detecting] from `toggle`.
-  * r(t)          the class-`detecting` hardware trace of splice(..., t); a localizer sees the chain only
+  * r(t)          the class-`detecting` hardware trace of splice(..., t). a localizer sees the chain only
                   through its key, r_key(t) = key(r(t)).
   * boundary      a t with r_key(t) != r_key(t+1): toggling class t flips the detecting pair's readout,
                   so (base[t], toggle[t]) is a leaking pair.
-  * t_max         the largest boundary. `linear_scan` returns it; `exponential_search` returns some
+  * t_max         the largest boundary. `linear_scan` returns it. `exponential_search` returns some
                   boundary (galloping biases it toward the detecting pair, the most-recent trainer).
 
 Two localizers, injected as `localizer` (both share the splice/r/re-verify core):
@@ -32,7 +32,7 @@ Two localizers, injected as `localizer` (both share the splice/r/re-verify core)
                       (no boundary lies above it). Finding the largest boundary is inherently linear.
   * exponential_search (default) galloping + bisection. Probe t = hi-1, hi-2, hi-4, ... until r leaves
                       the all-base value, bracketing a boundary in the last doubling window, then bisect
-                      that window. Galloping only *finds the bracket*; the bisection inside is the proven
+                      that window. Galloping only *finds the bracket*. the bisection inside is the proven
                       binary search, so the returned boundary is genuine. Cost O(log d) in the distance
                       d to that boundary, never worse than a plain bisection.
 
@@ -43,13 +43,13 @@ boundary that only appeared under measurement jitter.
 
 A boundary at the detecting pair itself (leaking pair == detecting pair) is the pair's OWN variant
 flipping its OWN readout -- the own-target confound. It is a valid finding by default (an input that
-leaks about itself); pass exclude_self_dependence to keep only strictly cross-input leaks (the search
+leaks about itself). pass exclude_self_dependence to keep only strictly cross-input leaks (the search
 then covers [0, detecting) only). `is_valid_toggle` rejects a boundary whose members are not contract-equal.
 
 A found leaking pair is a valid ct-seq counterexample for ANY predictor -- the search never models how the
 prediction forms, so its *validity* is predictor-agnostic. Guaranteeing that the endpoint promise
 (all-base vs all-toggle) *finds* an existing leak is a narrower property of a single-entry, most-recent-
-wins predictor (the audited N3 BTB); a history-folded predictor could hide an interior witness between
+wins predictor (the audited N3 BTB). a history-folded predictor could hide an interior witness between
 coinciding endpoints, and guaranteeing detection there is inherently linear. The reported counterexample
 is the whole chain [leaking pair .. detecting pair] (the base lane before the leaking pair, the toggle
 lane from it onward), de-duplicated by (leaking pair, detecting pair) across the two bases.
@@ -70,7 +70,7 @@ Localizer = Callable[[RKey, int, int], int]
 
 def splice(base: Lane, toggle: Lane, detecting: int, t: int) -> List[Variant]:
     """sigma_{base->toggle}(t) truncated to [0, detecting]: classes [0, t) from `base`, [t, detecting] from
-    `toggle`; classes after `detecting` stay `base` (they do not affect the class-`detecting` readout). At
+    `toggle`. classes after `detecting` stay `base` (they do not affect the class-`detecting` readout). At
     t = detecting + 1 the toggled range is empty -- the all-base end."""
     batch = list(base)
     for c in range(t, detecting + 1):
@@ -79,7 +79,7 @@ def splice(base: Lane, toggle: Lane, detecting: int, t: int) -> List[Variant]:
 
 
 def linear_scan(r_key: RKey, lo: int, hi: int) -> int:
-    """Return t_max, the LARGEST boundary in [lo, hi). Read r downward from the all-base end `hi`; the
+    """Return t_max, the LARGEST boundary in [lo, hi). Read r downward from the all-base end `hi`. the
     first t whose value differs from the class above it is t_max, since r is constant above t_max (no
     boundary lies there). Assumes r_key(lo) != r_key(hi)."""
     upper = r_key(hi)
@@ -93,7 +93,7 @@ def linear_scan(r_key: RKey, lo: int, hi: int) -> int:
 
 def exponential_search(r_key: RKey, lo: int, hi: int) -> int:
     """Gallop from the all-base end `hi`, then bisect the bracket. Probe t = hi-1, hi-2, hi-4, ... until r
-    leaves the all-base value `ref`; the last window [t, prev] then brackets a boundary (r differs at t,
+    leaves the all-base value `ref`. the last window [t, prev] then brackets a boundary (r differs at t,
     equals ref at prev). Bisecting that window is the proven binary search. Assumes r_key(lo) != r_key(hi),
     so the gallop always finds a differing t (at worst t = lo)."""
     ref = r_key(hi)                                  # the all-base end value
@@ -138,7 +138,7 @@ class CrossInputFinding:
     """Toggling input `leaking_pair`'s two ct-equal variants flips the readout of input `detecting_pair`,
     the rest of the sequence fixed. `chain` = [leaking_pair .. detecting_pair] is the self-contained
     counterexample. `prefix_from_first` records which lane supplied the prefix: True = the first
-    lane before the leaking pair and the second from it on; False = the mirror."""
+    lane before the leaking pair and the second from it on. False = the mirror."""
     leaking_pair: int
     detecting_pair: int
     chain: range
@@ -163,10 +163,10 @@ class GeneralizedPrimingDetector:
                exclude_self_dependence: bool = False) -> List[CrossInputFinding]:
         """Scan every input as a detecting pair. For each, sweep the prefix from BOTH lanes as the base
         (a->b and b->a) -- priming's symmetric swap: the divergence may be caused by either lane's
-        prefix. Neither lane is assumed to be a genuine baseline; they are simply the two lanes the
+        prefix. Neither lane is assumed to be a genuine baseline. they are simply the two lanes the
         detected inputs belong to. De-duplicate by (leaking pair, detecting pair). A self-dependent
         finding (leaking pair == detecting pair -- the pair leaks about itself) is a valid result by
-        default; pass exclude_self_dependence to drop it and keep only strictly cross-input leaks."""
+        default. pass exclude_self_dependence to drop it and keep only strictly cross-input leaks."""
         assert len(lane_a) == len(lane_b), "the two lanes must have equal length"
         findings: dict = {}
         for detecting in range(1, len(lane_a)):
@@ -184,12 +184,12 @@ class GeneralizedPrimingDetector:
         """Locate the leaking pair for `detecting`, sweeping the prefix from `base` toward `toggle` with the
         injected localizer. Each split is measured at most once (memoized), so r_key is a stable value the
         localizer may query freely. A tip at the detecting pair itself (leaking pair == detecting pair) is
-        self-dependence -- the pair's own variant flips its own readout; returned by default, excluded by
+        self-dependence -- the pair's own variant flips its own readout. returned by default, excluded by
         searching only [0, detecting) when exclude_self_dependence."""
         lo, hi = 0, (detecting if exclude_self_dependence else detecting + 1)
         cache: dict = {}
 
-        def r_key(t: int) -> Key:                    # r(t)'s key; each split measured once, so it is stable
+        def r_key(t: int) -> Key:                    # r(t)'s key. each split measured once, so it is stable
             if t not in cache:
                 cache[t] = self._probe_key(base, toggle, detecting, t)
             return cache[t]

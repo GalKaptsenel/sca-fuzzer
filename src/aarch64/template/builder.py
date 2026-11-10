@@ -28,7 +28,7 @@ def resolve_count(n: Count) -> int:
 
 
 class HoleInstruction(Instruction):
-    """Placeholder for a random-fill region; the expander replaces it in place and it never reaches
+    """Placeholder for a random-fill region. the expander replaces it in place and it never reaches
     the printer."""
 
     def __init__(self, hole: Hole):
@@ -76,7 +76,7 @@ class Builder:
         """The template is accepted as written -- any instruction is allowed. But if a correctness pass
         would rewrite an operand the template *pinned* (to fix an UNPREDICTABLE register collision), warn
         which operand changes and why. Reuses the real pass to detect the change and to describe the
-        constraint (no rule duplication); RNG state is saved/restored so the probe never perturbs seed
+        constraint (no rule duplication). RNG state is saved/restored so the probe never perturbs seed
         reproducibility. The instruction is left exactly as the template wrote it."""
         patch = next((p for p in self._gen.passes
                       if isinstance(p, Aarch64PatchUndefinedLoadsStoresPass)), None)
@@ -136,7 +136,7 @@ class Builder:
             raise TypeError(f"template: unsupported operand {given!r}")
 
     def hole(self, hole: Hole) -> None:
-        """Insert a random-fill region. A single-block hole (default) fills the current block; a
+        """Insert a random-fill region. A single-block hole (default) fills the current block. a
         multi-block hole (`n_bb`) lays out that many blocks, wired into a forward DAG (with the same
         conditional/unconditional branches and unreachable flows the random generator emits), and
         continues after them."""
@@ -171,8 +171,8 @@ class Builder:
     @contextlib.contextmanager
     def if_(self, cond: Optional[Cond] = None):
         """A conditional branch: the block so far ends in one, and the `with` body becomes the taken
-        block; control rejoins after it. By default the condition is a random conditional branch (as in
-        random test cases); pass a `flags` constant (e.g. `flags.EQ`) to pin it to `b.<cond>`, so the
+        block. control rejoins after it. By default the condition is a random conditional branch (as in
+        random test cases). pass a `flags` constant (e.g. `flags.EQ`) to pin it to `b.<cond>`, so the
         input steers taken/not-taken through its NZCV `flags` value."""
         if cond is not None and not isinstance(cond, Cond):
             raise TypeError(f"template: if_(cond=) expects a `flags` constant (e.g. flags.EQ), "
@@ -196,7 +196,7 @@ class Builder:
 
     def function(self, build: Optional[Callable[["Builder"], None]] = None, *,
                  populate: Populate = True) -> Callee:
-        """Declare a callee. `build(f)` fills its body via a nested builder; without it the body is a
+        """Declare a callee. `build(f)` fills its body via a nested builder. without it the body is a
         random fill per `populate` (True, False, or a Hole). Returns a handle to pass as a call target."""
         func = self._new_function(build, populate)
         self._declared.append(func)
@@ -205,7 +205,7 @@ class Builder:
     def call(self, spec: Union[Call, DirectCall, IndirectCall]) -> Instruction:
         """Emit a call to callee(s): `DirectCall` -> `BL`, `IndirectCall` -> `BLR` (materialized here,
         not by the random-path pass), `Call` -> the generator's choice. Targets are declared callees or
-        ones created on demand; every target must lie ahead of the caller (forward-only, no loops)."""
+        ones created on demand. every target must lie ahead of the caller (forward-only, no loops)."""
         if self._calls >= CONF.max_calls_per_function:
             raise ValueError(f"template: {self._function.name} would exceed max_calls_per_function "
                              f"({CONF.max_calls_per_function})")

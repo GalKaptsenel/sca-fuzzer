@@ -2,7 +2,7 @@
 
 This is the Python writer for the format the kernel module defines and documents in
 src/aarch64/executor/userapi/executor_input_format.h (see also docs/reif_input_format.md).
-The kernel structure is the source of truth; this module's only job is to convert "the input
+The kernel structure is the source of truth. this module's only job is to convert "the input
 as the fuzzer sees it" (an `Input` ndarray) into exactly that layout. The constants below
 mirror the header and MUST be kept in sync with it.
 
@@ -112,7 +112,7 @@ def build_input_init(main: bytes, faulty: bytes, gpr: bytes, simd: Optional[byte
                      pac_keys: Optional[Sequence[int]] = None,
                      env_plan: Optional[EnvironmentPlan] = None) -> bytes:
     """Assemble a REIF file from the raw section payloads. `gpr` is the final 64-byte GPR section (flags
-    already in PSTATE form); `simd` is the optional SIMD_SUBREGION_SIZE-byte vector section (the GVT image,
+    already in PSTATE form). `simd` is the optional SIMD_SUBREGION_SIZE-byte vector section (the GVT image,
     v0..v31). Shared by both consumers: the device write (ExecutorInput.serialize) and the
     contract-executor message (ContractExecution.encode)."""
     sections: List[Tuple[int, bytes]] = [
@@ -126,7 +126,7 @@ def build_input_init(main: bytes, faulty: bytes, gpr: bytes, simd: Optional[byte
         sections.append((SEC_MTE_TAGS, _pack_mte_tags(mte_tags)))
     if pac_keys is not None:
         sections.append((SEC_PAC_KEYS, _pack_pac_keys(pac_keys)))
-    # The per-variant run environment (see GVT access/environment.py). The encoder owns the section id;
+    # The per-variant run environment (see GVT access/environment.py). The encoder owns the section id.
     # each environment aspect owns its byte codec. A new aspect adds a section here, nothing else.
     if env_plan is not None and not env_plan.is_empty:
         sections.append((SEC_PTE_SETTINGS, serialize_pte_overrides(env_plan.pte_overrides)))
@@ -136,13 +136,13 @@ def build_input_init(main: bytes, faulty: bytes, gpr: bytes, simd: Optional[byte
 @dataclass(frozen=True)
 class ExecutorInput:
     """One REIF input: an architectural `Input` plus the executor-only sections (MTE tags, PAC keys)."""
-    wire_extension = "reif"     # serialize() writes the REIF wire format; save it under this extension
+    wire_extension = "reif"     # serialize() writes the REIF wire format. save it under this extension
 
     input_: Input
     mte_tags: Optional[Sequence[int]] = None
     pac_keys: Optional[Sequence[int]] = None
     env_plan: EnvironmentPlan = field(default_factory=EnvironmentPlan)
-    gvt: Optional[bytes] = None   # GVT image (SIMD section) for an instrumented variant; else the input's own
+    gvt: Optional[bytes] = None   # GVT image (SIMD section) for an instrumented variant. else the input's own
 
     def serialize(self) -> bytes:
         frag = _first_fragment(self.input_)

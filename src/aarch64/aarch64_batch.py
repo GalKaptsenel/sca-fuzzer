@@ -1,5 +1,5 @@
 """Measurement super-batch wire format, mirrored by the `executor_userland batch` C reader in
-executor/userapi/executor_batch_format.h. One request packs many (test case, inputs) units; one
+executor/userapi/executor_batch_format.h. One request packs many (test case, inputs) units. one
 response returns per-input per-repetition htraces + PFCs. Fixed fields are u64, payloads are
 byte-length-prefixed (so the prefix is whole u64s and no padding is needed)."""
 import struct

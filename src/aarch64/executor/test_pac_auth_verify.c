@@ -74,7 +74,7 @@ int main(void)
 	/* Corner-case pointers (all < 2^48 so bits[54:48] are the PAC field) and contexts. */
 	const uint64_t addrs[] = { 0x0ULL, 0x4ULL, 0x0000c2191000ULL, 0x0000fffffffffff0ULL };
 	const uint64_t ctxs[]  = { 0x0ULL, 0xdeadbeefULL, 0xffffffffffffffffULL };
-	const uint64_t PAC_FIELD_FLIP = 0x7FULL << 48;   /* bits the PAC occupies; XPAC strips them */
+	const uint64_t PAC_FIELD_FLIP = 0x7FULL << 48;   /* bits the PAC occupies. XPAC strips them */
 
 	for (size_t v = 0; v < sizeof(VARIANTS) / sizeof(VARIANTS[0]); v++) {
 		const struct variant *V = &VARIANTS[v];

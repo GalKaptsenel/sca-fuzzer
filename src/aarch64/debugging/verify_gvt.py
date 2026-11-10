@@ -85,7 +85,8 @@ ran_ok = ran_fail = 0
 for case in range(NCASES):
     tc = find_sites()
     if tc is None:
-        print(f"[{KIND}] no instrumentable test case for this config"); break
+        print(f"[{KIND}] no instrumentable test case for this config")
+        break
     inp = igen.generate(1)[0]
     pac_keys = PacKeys(*inp.pac_keys)   # the input's own keys, the GVT access signs under these
     resolved = ex._resolve(inp)

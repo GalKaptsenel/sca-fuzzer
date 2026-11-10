@@ -1,6 +1,6 @@
 """Refer to an instruction by name and resolve it against the loaded InstructionSet at build time.
 
-A template names an instruction as `specs.LDR` (a `SpecRef`); resolution, and the not-found error,
+A template names an instruction as `specs.LDR` (a `SpecRef`). resolution, and the not-found error,
 happen when the builder emits it -- so no spec objects need to exist at import time.
 """
 from __future__ import annotations

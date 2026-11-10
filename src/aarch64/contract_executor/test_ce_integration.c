@@ -194,7 +194,7 @@ static uint32_t enc_tbnz(int rt, int bit, int offset) {
  * Build the message written to CE's stdin:
  *   [struct header (8 B)] [struct input_header (128 B)] [code] [input initialization]
  * The input initialization (executor_input_format) carries memory as MAIN(=mem) + an empty FAULTY,
- * and the GPR section (regs). regs_override: 8-element array for X0..X5, NZCV(slot6), SP(slot7);
+ * and the GPR section (regs). regs_override: 8-element array for X0..X5, NZCV(slot6), SP(slot7).
  * NULL = all zero.
  */
 static size_t build_ce_input(
@@ -632,7 +632,7 @@ static void test_integration_call_returns_and_continues(void) {
      * and returns architecturally (so a fuzzing violation on a call program is speculative, not a
      * mis-modelled architectural flow). */
     uint32_t code[] = {
-        enc_bl(12),                    /* 0: BL -> callee at +12 (index 3); X30 = index 1 (byte 4) */
+        enc_bl(12),                    /* 0: BL -> callee at +12 (index 3). X30 = index 1 (byte 4) */
         enc_ldr_reg(1, 29),            /* 1: caller resumes here after RET: LDR X1,[X29] = KBASE    */
         enc_b(12),                     /* 2: B -> +12 (byte 20), past the callee, to the tail       */
         enc_ldr_unsigned(0, 29, 64),   /* 3: callee body: LDR X0,[X29,#64] = KBASE+64               */
@@ -1173,7 +1173,7 @@ static void test_integration_regoff_noncanonical_base_preserved(void) {
      * gave 0xFF00000000000003, which later corrupted an AUT* context.
      */
     uint32_t code[] = {
-        enc_ldr_regoff(0, 3, 4),   /* LDR X0,[X3,X4]; X3=3, EA = KBASE+16 */
+        enc_ldr_regoff(0, 3, 4),   /* LDR X0,[X3,X4]. X3=3, EA = KBASE+16 */
         enc_ldr_reg(1, 29),        /* second entry so X3's restore is observable */
     };
 
@@ -1290,9 +1290,9 @@ static void test_integration_window_id_unique_per_excursion(void) {
      * tracker tell a dead sibling flow from the live one. Architectural entries carry window_id 0.
      */
     uint32_t code[] = {
-        enc_cbz(0, +8),               /* CBZ X0,+8  taken -> skip LDR X1; window A explores fall-through */
+        enc_cbz(0, +8),               /* CBZ X0,+8  taken -> skip LDR X1. window A explores fall-through */
         enc_ldr_reg(1, 29),           /* LDR X1,[X29]        (speculative only) */
-        enc_cbz(0, +8),               /* CBZ X0,+8  taken -> skip LDR X2; window B explores fall-through */
+        enc_cbz(0, +8),               /* CBZ X0,+8  taken -> skip LDR X2. window B explores fall-through */
         enc_ldr_unsigned(2, 29, 8),   /* LDR X2,[X29,#8]     (speculative only) */
         enc_ldr_unsigned(3, 29, 16),  /* LDR X3,[X29,#16]    (architectural) */
     };
@@ -2012,7 +2012,7 @@ static void test_integration_bpas_store_bypass(void) {
 
 /* ---- bpas: a store with no following instruction must not corrupt ----- */
 static void test_integration_bpas_trailing_store(void) {
-    /* The store sets a pending bypass that is never applied (the sim ends). Must not crash;
+    /* The store sets a pending bypass that is never applied (the sim ends). Must not crash.
      * the trace is just the store. Guards the "pending dangles past the window" case. */
     uint32_t code[] = { enc_str_reg(0, 29) };
     uint8_t mem[MEM_SIZE];
@@ -2197,7 +2197,7 @@ static void test_integration_bpas_consecutive_stores(void) {
  * and BEFORE the post-window load (which still sees the committed store). Pre-fix the store was
  * logged at execution, before the bypassing load, and wrongly masked it. */
 static void test_integration_bpas_store_logged_after_bypassing_load(void) {
-    uint32_t code[] = { enc_str_reg(0, 29), enc_ldr_reg(1, 29) };   /* STR X0,[X29]; LDR X1,[X29] */
+    uint32_t code[] = { enc_str_reg(0, 29), enc_ldr_reg(1, 29) };   /* STR X0,[X29]. LDR X1,[X29] */
     uint8_t mem[MEM_SIZE];
     memset(mem, 0, sizeof(mem));
     uint64_t stale = UINT64_C(0xDEADDEADDEADDEAD);
@@ -2383,7 +2383,7 @@ static bool run_gadget_capped(uint32_t *code, int nw, uint64_t nest, uint64_t ma
 static void test_integration_cond_bpas_outer_window_survives_excursion(void) {
     uint32_t code[] = {
         enc_str_reg(0, 29),   /* STR x0 -> SV1 (bypassed) */
-        enc_cbz(3, +12),      /* CBZ x3: x3=1 arch falls through; cond mispredicts TAKEN -> idx4 (NOPs) */
+        enc_cbz(3, +12),      /* CBZ x3: x3=1 arch falls through. cond mispredicts TAKEN -> idx4 (NOPs) */
         enc_str_reg(1, 29),   /* STR x1 -> SV2 (bypassed on the backbone iff the window survives) */
         enc_ldr_reg(4, 29),   /* LDR x4: backbone load, reads doubly-stale ORIG at nest>=2 */
         enc_nop(), enc_nop(), enc_nop(), enc_nop(), enc_nop(),   /* long mispredicted excursion */
@@ -2645,7 +2645,7 @@ static void test_integration_barrier_control_fence_variants(void) {
     uint8_t mem[MEM_SIZE]; memset(mem, 0, sizeof(mem));
     uint64_t v0 = UINT64_C(0x1111111111111111);
     memcpy(mem, &v0, 8);
-    uint64_t regs[REGS_COUNT] = { 0 };   /* X0=0 -> CBZ arch-taken; ALWAYS_MISPREDICT falls through */
+    uint64_t regs[REGS_COUNT] = { 0 };   /* X0=0 -> CBZ arch-taken. ALWAYS_MISPREDICT falls through */
 
     struct { uint32_t barrier; int cuts; } cases[] = {
         { enc_isb(),     1 },
@@ -2692,7 +2692,7 @@ static void test_integration_barrier_control_fence_granularity(void) {
 static void test_integration_bpas_three_stores_value_set(void) {
     /* STR x0;STR x1;STR x2;LDR x3 (all [x29]).  The end load can read the value of the most
      * recent NON-bypassed store, or ORIG if a suffix of stores is bypassed:
-     *   read SV3=none bypassed (nest0). SV2=bypass S3 (nest1). SV1=bypass S3,S2 (nest2);
+     *   read SV3=none bypassed (nest0). SV2=bypass S3 (nest1). SV1=bypass S3,S2 (nest2).
      *   ORIG=bypass S3,S2,S1 (nest3).  The cap limits how deep the suffix-bypass can go. */
     uint32_t code[] = { enc_str_reg(0,29), enc_str_reg(1,29), enc_str_reg(2,29), enc_ldr_reg(3,29) };
     uint64_t regs[REGS_COUNT]={0}; regs[0]=SV1; regs[1]=SV2; regs[2]=SV3;
@@ -3042,7 +3042,7 @@ static uint32_t enc_subg(int rd, int rn, int uimm6, int uimm4) {
          | ((uint32_t)rn << 5) | (uint32_t)rd;
 }
 
-/* ADDG adds (uimm6*16) to address[55:0] and uimm4 to tag[59:56] independently;
+/* ADDG adds (uimm6*16) to address[55:0] and uimm4 to tag[59:56] independently.
  * attribute[63:60] preserved, no carry between the fields. */
 static void test_integration_mte_addg(void) {
     uint32_t code[] = { enc_addg(0, 1, 1, 1), enc_ldr_reg(3, 29) };  /* ADDG X0,X1,#16,#1 */
@@ -3094,7 +3094,7 @@ static uint32_t enc_ldg(int rt, int rn) {
  * base_hook excludes the memory-tag family from the native kaddr<->uaddr translation. After LDG, X0
  * keeps its sandbox address (only the tag field [59:56] is rewritten. tag 0 with no tag memory). */
 static void test_integration_ldg_base_not_translated(void) {
-    uint32_t code[] = { enc_ldg(0, 0), enc_ldr_reg(9, 29) };   /* LDG X0,[X0] ; LDR X9,[X29] */
+    uint32_t code[] = { enc_ldg(0, 0), enc_ldr_reg(9, 29) };   /* LDG X0,[X0] . LDR X9,[X29] */
     uint8_t mem[MEM_SIZE];
     memset(mem, 0, sizeof(mem));
     uint64_t regs[REGS_COUNT] = { 0 };
@@ -3613,7 +3613,7 @@ static void test_integration_sls_cond_adds_past_uncond(void) {
      *   [2] B +8        (-> [4])
      *   [3] LDR ,[X29,#8]    kbase+8  : reached only by straight-line speculation past the B
      *   [4] LDR ,[X29]       kbase    : the B target
-     * cond never forks an unconditional branch, so kbase+8 appears under [sls|cond] but not [cond];
+     * cond never forks an unconditional branch, so kbase+8 appears under [sls|cond] but not [cond].
      * kbase+24 (the conditional's speculative load) appears under both, confirming cond is active.
      */
     uint32_t code[] = {
@@ -3804,10 +3804,10 @@ int main(void) {
     // Still disabled: these sign with one context and auth with another (or on a
     // mismatched key), so the AUT* is expected to fault, fatal on FEAT-FPAC.
     // Only enable behind an FPAC guard.
-    // test_integration_pac_arch_roundtrip();
-    // test_integration_pac_spec_xpac();
-    // test_integration_paciza_autiza_roundtrip();
-    // test_integration_pacda_autda_roundtrip();
+    // test_integration_pac_arch_roundtrip().
+    // test_integration_pac_spec_xpac().
+    // test_integration_paciza_autiza_roundtrip().
+    // test_integration_pacda_autda_roundtrip().
 
     printf("\n%d tests, %d failed\n", g_tests_run, g_tests_failed);
     return g_tests_failed ? 1 : 0;

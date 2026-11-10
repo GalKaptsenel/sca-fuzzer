@@ -1,8 +1,8 @@
 """REIF (Revizor Extensible Input File): the typed input format the kernel and CE read.
 
 Wire layout (must match executor/userapi/executor_input_format.h): a 6*u64 preamble, a 4*u64
-descriptor per section, then 8-byte-aligned payloads; sections are located by type. Build with
-REIFBuilder().add_section(...).build(); parse with REIF(file_or_bytes). Immutable once built.
+descriptor per section, then 8-byte-aligned payloads. sections are located by type. Build with
+REIFBuilder().add_section(...).build(). parse with REIF(file_or_bytes). Immutable once built.
 """
 import struct
 from abc import ABC, abstractmethod
@@ -96,7 +96,7 @@ class FaultyMemorySection(REIFSection):
 
 
 class SimdSection(REIFSection):
-    """Initial vector-register image; 16 bytes/register, lane layout up to the caller."""
+    """Initial vector-register image. 16 bytes/register, lane layout up to the caller."""
 
     def __init__(self, content: bytes) -> None:
         self._content = bytes(content)
@@ -226,7 +226,7 @@ def _convert_nzcv_slot(gpr: bytes, convert) -> bytes:
 
 
 class REIFBuilder:
-    """Assembles sections into a REIF. One section per type; `build()` freezes it."""
+    """Assembles sections into a REIF. One section per type. `build()` freezes it."""
 
     def __init__(self, version: int = INPUT_VERSION, flags: int = 0) -> None:
         self._version = version

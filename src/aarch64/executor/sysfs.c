@@ -152,7 +152,7 @@ static ssize_t measurement_mode_store(struct kobject *kobj, struct kobj_attribut
 		return -EINVAL;
 	}
 
-	invalidate_jit_cache(); // template drives the built harness; force a rebuild
+	invalidate_jit_cache(); // template drives the built harness. force a rebuild
 	return count;
 }
 

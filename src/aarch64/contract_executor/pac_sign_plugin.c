@@ -329,7 +329,7 @@ void *auth_verify_hook(struct simulation_state *sim_state)
 }
 
 /* op-emulator EMUL_OP_PAC_AUTH: the site is [UMOV x27,lane. (LSR. BFI)+ . committed AUT*]. MATERIALIZE
- * signs the pointer the AUT* reads and writes the signed pointer into the GVT lane (row->gvt_offset);
+ * signs the pointer the AUT* reads and writes the signed pointer into the GVT lane (row->gvt_offset).
  * base_hook reloads the vector file from the image before the UMOV re-runs, so the fixed BFI slots merge
  * the signed pointer's PAC field into rd and the AUT* then verifies and canonicalizes. The signing
  * (profile/keys) matches the builder's resolver exactly. IDLE: nothing (the site's code is fixed). */
@@ -347,7 +347,7 @@ void pac_emulate_auth(struct simulation_state *sim_state, const struct emul_row 
 
     uint32_t rd, rn;
     auth_type_t atype = classify_auth(shadow[anchor], &rd, &rn);
-    if (AUTH_NONE == atype) {                                  // anchor must be the committed AUT*; if it
+    if (AUTH_NONE == atype) {                                  // anchor must be the committed AUT*. if it
         fprintf(stderr, "[CE FATAL] pac_emulate_auth: anchor 0x%08x at offset %u not an AUT* "
                 "-- aborting\n", shadow[anchor], row->offset);            // is not, the row is malformed
         abort();

@@ -1,7 +1,7 @@
 """
 File: Parser of ELF files for the AArch64 architecture.
 Populates instruction addresses/sizes and section data on the TestCase (consumed by the
-minimizer); the core fuzzing path re-prints from the IR and does not read these.
+minimizer). the core fuzzing path re-prints from the IR and does not read these.
 """
 from typing import Dict, List, Tuple, NoReturn
 

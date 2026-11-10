@@ -200,7 +200,7 @@ class ADBConnection(Connection):
     def run(self, command: str, stdin: bytes, privileged = False) -> bytes:
         """Stream `stdin` to `command` over adb's shell-protocol v2 (raw, no PTY) and return its raw
         stdout. v2 frames stdout, stderr and the exit code on separate streams, so the binary batch
-        response on stdout is never polluted by a diagnostic the command writes to stderr; a nonzero
+        response on stdout is never polluted by a diagnostic the command writes to stderr. a nonzero
         exit raises IOError carrying that stderr (matching the SSH/local transports)."""
         cmd = f"su -c '{command}'" if privileged else command
         s = socket.create_connection((self.host, self.port), timeout=600)

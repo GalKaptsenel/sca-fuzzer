@@ -44,7 +44,7 @@ void mte_set_sync(void);
 // GCR_EL1 management for the test run. The CE and the GVT access model ADDG/IRG tag arithmetic with no
 // exclusion. the kernel (KASAN_HW_TAGS) leaves tags reserved in GCR_EL1.Exclude, which makes an instrumented
 // ADDG retag land on a different tag on HW -> architectural tag fault. mte_gcr_read() captures the
-// pre-test-case value. mte_gcr_clear_exclude() zeroes Exclude right before a test executes;
+// pre-test-case value. mte_gcr_clear_exclude() zeroes Exclude right before a test executes.
 // mte_gcr_restore() puts the captured pre-test-case value back (between inputs and at the TC boundary).
 uint64_t mte_gcr_read(void);
 uint64_t mte_gcr_clear_exclude(void);

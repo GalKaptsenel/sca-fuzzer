@@ -22,7 +22,7 @@ def _lane(width: int) -> int:
 
 
 class Location(ABC):
-    """Where one value is stored; the holder never sees a register name or offset."""
+    """Where one value is stored. the holder never sees a register name or offset."""
 
     @abstractmethod
     def load(self, tmp_reg: str) -> List[Instruction]:
@@ -34,7 +34,7 @@ class Location(ABC):
 
 
 class GVTImage(ABC):
-    """A fresh per-input fill of the table; filled, then handed to the REIF builder as a section."""
+    """A fresh per-input fill of the table. filled, then handed to the REIF builder as a section."""
 
     @abstractmethod
     def store(self, location: Location, value: int) -> None:
@@ -46,12 +46,12 @@ class GVTImage(ABC):
 
 
 class GlobalValueTable(ABC):
-    """Register storage for GVT access values; the backing registers (vector/GPR) and count are hidden.
-    Built with a bit capacity; raises GlobalValueTableCapacityExceeded when allocation exceeds it."""
+    """Register storage for GVT access values. the backing registers (vector/GPR) and count are hidden.
+    Built with a bit capacity. raises GlobalValueTableCapacityExceeded when allocation exceeds it."""
 
     @abstractmethod
     def allocate(self, width: int) -> Location:
-        """Reserve `width` bytes; raise on overflow."""
+        """Reserve `width` bytes. raise on overflow."""
 
     @abstractmethod
     def blank_image(self) -> GVTImage:
@@ -98,7 +98,7 @@ class _VectorGVTImage(GVTImage):
 
 class VectorGlobalValueTable(GlobalValueTable):
     """GVT value storage backed by the vector registers (v31 down to v0). `capacity_bits` is rounded
-    up to whole registers; values are byte-aligned, top register first, never straddling one."""
+    up to whole registers. values are byte-aligned, top register first, never straddling one."""
 
     def __init__(self, capacity_bits: int) -> None:
         if capacity_bits <= 0:
