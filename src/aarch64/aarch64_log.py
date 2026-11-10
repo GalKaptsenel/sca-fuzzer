@@ -11,11 +11,11 @@ from .aarch64_disasm import (_CAPSTONE, disassemble_instruction,
 
 # ANSI color codes for terminal-viewable logs (files get codes too; use `less -R` or `cat`)
 _C_RESET  = "\033[0m"
-_C_ARCH   = "\033[32m"    # green  — arch execution (nesting 0)
-_C_SPEC1  = "\033[33m"    # yellow — speculative (nesting 1)
-_C_SPEC2  = "\033[31m"    # red    — deeply speculative (nesting > 1)
-_C_TAKEN  = "\033[36m"    # cyan   — branch taken
-_C_NTAKEN = "\033[35m"    # magenta — branch not taken
+_C_ARCH   = "\033[32m"    # green , arch execution (nesting 0)
+_C_SPEC1  = "\033[33m"    # yellow, speculative (nesting 1)
+_C_SPEC2  = "\033[31m"    # red   , deeply speculative (nesting > 1)
+_C_TAKEN  = "\033[36m"    # cyan  , branch taken
+_C_NTAKEN = "\033[35m"    # magenta, branch not taken
 
 
 def _fmt_ce_entry(ite, code_base: int) -> str:
@@ -111,7 +111,7 @@ def log_bb_map(log: FuzzLogger, variant_label: str, inp_idx: int,
         return
     log.header(f"BB MAP: {variant_label}  inp={inp_idx}", ch=ch)
     log.w(f"  x7 before run = 0x{entry_x7:016x}  "
-          f"(if panic shows this value, crash is in BB 1 — the entry block)", ch=ch)
+          f"(if panic shows this value, crash is in BB 1, the entry block)", ch=ch)
     log.w(f"  {'ID':>3}  {'Offset':>7}  {'Status':<6}  Instruction", ch=ch)
     log.w(f"  {'':-<3}  {'':-<7}  {'':-<6}  -----------", ch=ch)
     for pc in sorted_pcs:
@@ -119,7 +119,7 @@ def log_bb_map(log: FuzzLogger, variant_label: str, inp_idx: int,
         bb_id  = pc_to_id[pc]
         a, s   = info["arch"], info["spec"]
         status = "both" if a and s else ("arch" if a else "spec")
-        note   = "  [entry — not patched]" if pc == code_base else ""
+        note   = "  [entry, not patched]" if pc == code_base else ""
         log.w(f"  {bb_id:>3}  +{info['offset']:04x}    {status:<6}  {info['disas']}{note}", ch=ch)
     log.w("", ch=ch)
 
@@ -164,8 +164,8 @@ def log_ni_table(log: FuzzLogger, inp_idx: int, columns: List[Tuple[str, bytes]]
     """DEBUG: per-instruction table across the speculative-exception variants, shared by PAC and MTE. Each row is one
     instruction offset; the columns hold its disassembly in the instrumented TC / baseline / decoys;
     `Flow` shows whether the CE executed that offset architecturally and/or speculatively (with
-    nesting), taken from the instrumented trace `cer` (all variants share the layout and — by the no-leak
-    invariant — the same control flow). The `info_label` column carries the slot's committed GVT access
+    nesting), taken from the instrumented trace `cer` (all variants share the layout and, by the no-leak
+    invariant, the same control flow). The `info_label` column carries the slot's committed GVT access
     data taken from the fix point, not the trace (PAC: correct signature; MTE: correct tag). Rows
     whose columns differ are the GVT access slots and are flagged."""
     nest_by_off: Dict[int, set] = {}

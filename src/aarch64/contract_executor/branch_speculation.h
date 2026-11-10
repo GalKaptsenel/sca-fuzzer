@@ -16,7 +16,7 @@ int is_conditional_branch(uint32_t insn);
 uintptr_t cond_branch_architectural_next(const struct cpu_state* state);
 
 /* Resolved direction (true iff architecturally taken) of the conditional branch at `state->pc`,
- * read directly from the condition/register test — correct even when the taken-target is pc+4. */
+ * read directly from the condition/register test, correct even when the taken-target is pc+4. */
 bool cond_branch_is_taken(const struct cpu_state* state);
 
 /* Open a misprediction window for the conditional branch at `sim_state->pc` (depth permitting):

@@ -2,7 +2,7 @@
 
 MteTagState tracks the allocation tag of each memory granule across speculation. It is a stack of
 layers indexed by speculation depth: layer 0 is architectural; entering deeper speculation copies
-the current top, and unwinding pops it — that pop is the revert of the speculative tag stores. It
+the current top, and unwinding pops it, that pop is the revert of the speculative tag stores. It
 starts uniform (the region's initial tag); per-cell initial tags can be pre-seeded for dynamic
 tagging.
 """

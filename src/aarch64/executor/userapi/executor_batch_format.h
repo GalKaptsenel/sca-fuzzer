@@ -2,7 +2,7 @@
 #define EXECUTOR_BATCH_FORMAT_H
 
 /*
- * Measurement super-batch wire format — the request/response blobs exchanged between the remote
+ * Measurement super-batch wire format, the request/response blobs exchanged between the remote
  * executor (Python, src/aarch64/aarch64_batch.py) and the `executor_userland batch` runner. One
  * request packs M units, each a test-case binary plus the REIF inputs to measure on it; one response
  * returns every input's per-repetition htrace and performance counters. Batching the whole window

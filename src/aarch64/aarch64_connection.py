@@ -34,7 +34,7 @@ class Connection:
 
 
 class LocalConnection(Connection):
-    """Drives the executor utilities on this machine via subprocess — no SSH. push/pull are copies."""
+    """Drives the executor utilities on this machine via subprocess, no SSH. push/pull are copies."""
 
     def __init__(self):
         super().__init__()
@@ -175,7 +175,7 @@ class ADBConnection(Connection):
             self.device = self.client.devices()[0]
         self.serial = self.device.serial
         # The batch runs without su (su's PTY corrupts binary), so the shell domain must open the
-        # device directly — which needs SELinux permissive. Relax it only when it is actually
+        # device directly, which needs SELinux permissive. Relax it only when it is actually
         # enforcing, and verify it took rather than failing silently.
         if self.shell("getenforce", privileged=True).strip() == "Enforcing":
             self.shell("setenforce 0", privileged=True)

@@ -1,4 +1,4 @@
-# Revizor — AArch64 (ARM64) port
+# Revizor, AArch64 (ARM64) port
 
 Microarchitectural side-channel (Spectre-style) contract fuzzer for AArch64.
 Runs on the ARM64 host under test: a Python fuzzer drives a kernel module
@@ -6,8 +6,7 @@ Runs on the ARM64 host under test: a Python fuzzer drives a kernel module
 contract executor models the architectural/speculative contract to compare
 against.
 
-> ⚠️ **Under active development.** The AArch64 port is a work in progress —
-> interfaces, configs, and behavior may change, and some features are
+> ⚠️ **Under active development.** The AArch64 port is a work in progress,> interfaces, configs, and behavior may change, and some features are
 > incomplete or experimental. Expect rough edges.
 
 ## 1. Install
@@ -22,8 +21,8 @@ cd src/aarch64
 
 Optional flags (combinable):
 
-- `--dev-environment` — also set up git for development.
-- `--test <group>` — run tests then exit; `<group>` is one of `aarch64-ce`,
+- `--dev-environment`, also set up git for development.
+- `--test <group>`, run tests then exit; `<group>` is one of `aarch64-ce`,
   `aarch64-ko`, `aarch64-python`, `aarch64-all`.
 
 After building, load the kernel module and open the device:
@@ -63,5 +62,5 @@ The source for the manual lives in [`docs/aarch64/index.md`](../../docs/aarch64/
 
 This port is **still under development**. It is usable for the documented
 workflows (e.g. the Spectre-v1 detection configs in `configs/`), but is not yet
-feature-complete or hardened — see the "What we do not do (yet)" section of the
+feature-complete or hardened, see the "What we do not do (yet)" section of the
 documentation for known limitations.

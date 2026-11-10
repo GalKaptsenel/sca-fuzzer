@@ -10,7 +10,7 @@ predictor model. The C side knows only this module name and the ``create_predict
 factory, so the Python side is free to reorganise or add concrete predictor classes
 behind it without touching C.
 
-Import design — this file is loaded *both* ways:
+Import design, this file is loaded *both* ways:
   * as a top-level module ``bootstrap_director`` (the CE runtime: its own directory is
     placed on ``sys.path``), and
   * as the package submodule ``aarch64.contract_executor.bootstrap_director`` (tests/tools).
@@ -35,12 +35,12 @@ except ImportError:
     # Top-level context: this directory is on sys.path, no parent package (CE runtime).
     from saturating_bp import Aarch64NeoverseN3BPU
 
-# Predictor geometry that is NOT reverse-engineered — placeholders that MUST be fully RE-ed before
+# Predictor geometry that is NOT reverse-engineered, placeholders that MUST be fully RE-ed before
 # the model is trusted; they are NOT confirmed N3 facts:
-#   * PHR_FOLD_GROUP_WIDTH — the index/tag fold (its algorithm AND its group width) is a plausible
-#     model, not an RE result. (jit.c's 11-bit mask is a different quantity — branch-address
-#     placement — not evidence for this width.)
-#   * TAG_WIDTH — the tagged-table tag width has no RE basis at all; 8 is arbitrary. (A finite tag
+#   * PHR_FOLD_GROUP_WIDTH, the index/tag fold (its algorithm AND its group width) is a plausible
+#     model, not an RE result. (jit.c's 11-bit mask is a different quantity, branch-address
+#     placement, not evidence for this width.)
+#   * TAG_WIDTH, the tagged-table tag width has no RE basis at all; 8 is arbitrary. (A finite tag
 #     does make distinct branches alias, as real TAGE does.)
 # Chosen explicitly here, with no default on the model class, so these guesses are visible in one
 # place and obviously pending reverse-engineering.

@@ -77,7 +77,7 @@ def _first_fragment(inp) -> bytes:
 
 def _gpr_section(frag: bytes) -> bytes:
     """The 64-byte GPR section, with the flags slot converted from per-flag NZCV to ARM PSTATE
-    (the kernel loads `flags` verbatim into PSTATE — the conversion is the writer's job)."""
+    (the kernel loads `flags` verbatim into PSTATE, the conversion is the writer's job)."""
     gpr_off = InputFragment.fields["gpr"][1]
     gpr = bytearray(frag[gpr_off:gpr_off + GPR_SUBREGION_SIZE])
     slot = NZCVScheme.SLOT_IDX

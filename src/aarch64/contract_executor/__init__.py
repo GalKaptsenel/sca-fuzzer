@@ -8,4 +8,4 @@
 #     location-independent so the files can be copied into a remote-fuzzing bundle anywhere.
 #
 # To support both, the Python modules here use absolute/self-contained imports (no relative
-# imports) — a relative import would break the top-level load path.
+# imports), a relative import would break the top-level load path.

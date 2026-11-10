@@ -352,7 +352,7 @@ class Aarch64SpeculativeExceptionFuzzer(CrossInputPrimingMixin, SpeculativeExcep
     def _boost_inputs(self, inputs, nesting):
         # contract_driven: the GVT access values are ordinary fuzzed input (the GVT lives in the input's SIMD
         # subregion), so boost by re-randomising the untainted (speculative) lanes exactly as the regular
-        # fuzzer does — the executor's taint freezes the architectural lanes — then convert to kernel
+        # fuzzer does, the executor's taint freezes the architectural lanes, then convert to kernel
         # input files. strict keeps the GVT access-variant boosting (genuine baseline vs builder decoys).
         if self.executor._contract_driven:
             boosted, ctraces = FuzzerGeneric._boost_inputs(self, inputs, nesting)

@@ -30,7 +30,7 @@ _AUTH_TO_PAC:  Dict[str, str] = {auth: pac  for pac, (auth, _) in _PAC_INFO.item
 
 
 class PacSign:
-    """Builds PAC slot encodings — the MOVK-signature + AUT*/XPAC* instructions. The single source of
+    """Builds PAC slot encodings, the MOVK-signature + AUT*/XPAC* instructions. The single source of
     PAC slot instruction encoders, used by the builder's PacGvtAccess."""
 
     def __init__(self, generator, auth_specs: Dict, xpac_specs: Dict, pac_bits_mask: int):
@@ -70,7 +70,7 @@ class PacSign:
         return inst
 
     def _pick_mem_auth(self, value_reg: str) -> Instruction:
-        """A random AUT* over value_reg with ctx_reg != value_reg — the authentication chosen for a
+        """A random AUT* over value_reg with ctx_reg != value_reg, the authentication chosen for a
         memory pointer that has no generator-emitted AUT* of its own."""
         norm = self._generator.target_desc.reg_normalized
         norm_base = norm.get(value_reg, value_reg)
@@ -125,7 +125,7 @@ class AuthInstructionSpec(InstructionSpec):
         for _ in range(20):
             inst = super().generate(generator)
             if len(inst.operands) < 2:
-                return inst  # zero-context variant — always valid
+                return inst  # zero-context variant, always valid
             if norm.get(inst.operands[0].value) != norm.get(inst.operands[1].value):
                 return inst
         raise RuntimeError(f"Cannot generate {self.name} with value_reg ≠ ctx_reg")

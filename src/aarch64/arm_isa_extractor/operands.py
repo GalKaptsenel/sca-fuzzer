@@ -23,7 +23,7 @@ def _tokens(asm: str):
     `[...]` the token sits in, so two regions (`[<Xd>], [<Xs>]`) are told apart, else 0.
 
     Only a STANDALONE `[...]` is a memory address: it is separated (a space or comma) from what
-    precedes it — a comma for a later operand, the mnemonic gap for a first operand (MOPS `SET [<Xd>]!`).
+    precedes it, a comma for a later operand, the mnemonic gap for a first operand (MOPS `SET [<Xd>]!`).
     A `[...]` ATTACHED to the register it indexes (no separator) is a lane/element/tile index, not an
     address (e.g. `<Vt>.D[<index>]`, `ZA.D[<Wv>, <offs>]`); its tokens get bracket 0, like any operand."""
     out, depth, bracket, current, i = [], 0, 0, 0, 0

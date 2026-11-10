@@ -8,7 +8,7 @@
 
 struct simulation_code {
     void*	code;  /* RWX: [instructions: code_size][read-only tables: data_size][RET][trampoline] */
-    size_t	code_size;  /* instruction bytes — the only region that is hooked/executed */
+    size_t	code_size;  /* instruction bytes, the only region that is hooked/executed */
     size_t	data_size;  /* read-only dispatch-table bytes right after the instructions (never hooked) */
 };
 

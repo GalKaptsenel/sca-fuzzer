@@ -98,7 +98,7 @@ def map_register_to_offsets(register: str) -> List[int]:
         return []
     # xN and wN are the same architectural register (wN = low 32 bits of xN); both map to
     # input slot N. A read through wN still reads xN's input bytes, so the taint must
-    # preserve the whole slot — otherwise boosting mutates it and the trace diverges.
+    # preserve the whole slot, otherwise boosting mutates it and the trace diverges.
     if reg[:1] in ("x", "w") and reg[1:].isdigit():
         n = int(reg[1:])
         if n < 0 or n > 5:

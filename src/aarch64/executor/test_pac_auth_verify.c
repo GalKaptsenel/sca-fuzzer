@@ -3,7 +3,7 @@
  * pac_sign_plugin's debug_auth_no_fault: for every AUT* variant, a correctly-signed
  * pointer must verify as WOULD-SUCCEED and a forged one as WOULD-FPAC. The check is
  * "re-sign the XPAC'd canonical pointer and compare to the actual pointer", using only
- * REVISOR_PAC_SIGN + REVISOR_PAC_XPAC (never REVISOR_PAC_AUTH) — so it can never FPAC
+ * REVISOR_PAC_SIGN + REVISOR_PAC_XPAC (never REVISOR_PAC_AUTH), so it can never FPAC
  * the machine. Requires /dev/executor (the kernel signs with its EL1 keys).
  *
  * Build:  make test_pac_auth_verify   Run: ./test_pac_auth_verify

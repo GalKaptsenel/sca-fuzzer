@@ -56,7 +56,7 @@ int tagebp_init(const char *module_dir, const char *module_name) {
 	}
 
 	// Construct the predictor via the module factory, which owns predictor selection and config
-	// (e.g. the PHR fold width) — keeping this C layer model-agnostic.
+	// (e.g. the PHR fold width), keeping this C layer model-agnostic.
 	tage_instance = PyObject_CallMethod(module, "create_predictor", NULL);
 	Py_DECREF(module);
 

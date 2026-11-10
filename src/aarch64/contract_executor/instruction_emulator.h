@@ -13,7 +13,7 @@
  * pointer/context register), and the GVT lane byte offset(s) the op writes. There is no stored per-row
  * state: MATERIALIZE is a pure function of PC, so re-reaches and speculation rollback need no
  * bookkeeping (the op is idempotent per reach, the lane persists, the resolve image is discarded after).
- * The CE knows nothing about GVT access — only how to route to these ops. The table is OPTIONAL and
+ * The CE knows nothing about GVT access, only how to route to these ops. The table is OPTIONAL and
  * orthogonal to the speculation contract; the caller chooses both. */
 
 enum emul_op {

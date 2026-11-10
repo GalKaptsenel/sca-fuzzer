@@ -50,7 +50,7 @@ static void load_memory_from_input(input_t* input) {
 // RSP must be aligned to 16 bytes boundary, according to documentation of AARCH64
 static size_t get_stack_base_address(void) {
 	// Stack at the top of upper_overflow (grows down): outside the sandbox data regions, so
-	// function-frame spills never collide with — or pollute the trace of — the probed sets.
+	// function-frame spills never collide with, or pollute the trace of, the probed sets.
 	size_t address = ((size_t)executor.sandbox->upper_overflow + sizeof(executor.sandbox->upper_overflow));
 	return PTR_ALIGN(address, 16); // Technically, kernel stack should be aligned to THREAD_SIZE, for example it allows access the thread_indo structure. But it is fine to just align to 16 bytes, due to hardware only checks this constraint.
 }
@@ -368,7 +368,7 @@ static int __nocfi run_experiments(void) {
 		}
 
 		// execute. Clear GCR_EL1.Exclude first so ADDG/IRG in the test case (and the GVT access's ADDG
-		// retags) use plain modular tag arithmetic, matching the tag-blind contract model — the kernel
+		// retags) use plain modular tag arithmetic, matching the tag-blind contract model, the kernel
 		// leaves reserved tags in Exclude, which would make an instrumented retag land on a different tag.
 		mte_gcr_clear_exclude();
 		mte_read_clear_tfsr();   // clear so a fault below is attributable to THIS input

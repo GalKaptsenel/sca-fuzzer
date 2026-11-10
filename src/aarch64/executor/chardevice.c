@@ -16,15 +16,15 @@ static DEFINE_MUTEX(executor_lock);
 /*
  * Device-lock safety against faults under the lock.
  *
- * A fault (Oops) inside an ioctl/read/write while holding executor_lock — e.g. a
+ * A fault (Oops) inside an ioctl/read/write while holding executor_lock, e.g. a
  * failed PAC AUTH at EL1 on FEAT_FPAC hardware, or a faulting memset over an RX
- * page — kills the faulting task WITHOUT releasing the lock. With a plain
+ * page, kills the faulting task WITHOUT releasing the lock. With a plain
  * mutex_lock() every later caller then blocks forever in uninterruptible (D)
  * state: an unkillable pile-up that can only be cleared by rebooting.
  *
  * We cannot safely force-release a mutex whose holder died in-kernel (its waiters
  * are on the mutex wait_list; the dead holder also pins a module reference, so
- * rmmod won't work either) — and the executor state it was mutating is left
+ * rmmod won't work either), and the executor state it was mutating is left
  * half-updated. That fault class genuinely requires a reboot. What we CAN do is
  * stop it from becoming a silent, unkillable deadlock:
  *   (a) wait killably, so a blocked caller can always be killed (never D-state);
@@ -42,7 +42,7 @@ static bool          executor_wedged;
 
 static int executor_lock_acquire(const char* who) {
 	if (READ_ONCE(executor_wedged)) {
-		module_err("%s rejected: device is wedged — a previous operation faulted while "
+		module_err("%s rejected: device is wedged, a previous operation faulted while "
 			   "holding the lock. Reload the module or reboot to recover.\n", who);
 		return -EIO;
 	}
@@ -52,7 +52,7 @@ static int executor_lock_acquire(const char* who) {
 		    msecs_to_jiffies(EXECUTOR_LOCK_DEADLOCK_MS))) {
 			WRITE_ONCE(executor_wedged, true);
 			executor.tracing_error = -EIO;   // corrupted state: warned again at module unload
-			module_err("CRITICAL: device lock held by pid %d for >%u ms — the holder is "
+			module_err("CRITICAL: device lock held by pid %d for >%u ms, the holder is "
 				   "wedged, almost certainly because it faulted while holding the lock "
 				   "(check dmesg for an Oops/Internal error). Failing fast so callers do "
 				   "not deadlock; without this the device would hang until reboot. Reload "

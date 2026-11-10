@@ -2,7 +2,7 @@
 #define EXECUTOR_IOCTL_NR_H
 
 /*
- * Canonical ioctl serial numbers for /dev/executor — the single source of truth.
+ * Canonical ioctl serial numbers for /dev/executor, the single source of truth.
  * Included by the kernel module (chardevice.h), the contract executor
  * (executor_pac_api.h) and the executor_userland tool. The Python mirror in
  * src/aarch64/aarch64_kernel.py must be kept in sync with these.

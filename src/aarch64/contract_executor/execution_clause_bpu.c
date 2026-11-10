@@ -8,7 +8,7 @@
 #include <stdio.h>
 
 /* Mispredict branches per the predictor selected by the input (config.branch_predictor).
- * No default — an unknown/none selection on a BPU run traps. */
+ * No default, an unknown/none selection on a BPU run traps. */
 static const struct branch_predictor* g_predictor = NULL;
 static uint64_t bpu_index;
 
@@ -62,8 +62,8 @@ static void bpu_on_instruction(struct simulation_state* sim_state) {
 }
 
 /* Recover the speculative history when a misprediction window unwinds. on_rollback replaces the
- * engine's default checkpoint reload, so reload the architectural checkpoint here, then — with the
- * CPU state restored to the branch (pc + registers) — recompute the resolved direction and
+ * engine's default checkpoint reload, so reload the architectural checkpoint here, then, with the
+ * CPU state restored to the branch (pc + registers), recompute the resolved direction and
  * restore + re-advance the history: rollback() undoes the wrong-path advance and advance(arch_taken)
  * reapplies the correct one, leaving exactly the history a correct prediction would have produced. */
 static void bpu_on_rollback(struct simulation_state* sim_state,

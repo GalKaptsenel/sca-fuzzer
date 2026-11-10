@@ -238,7 +238,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
 
     def _local_executor(self) -> LocalHWExecutor:
         """The local /dev/executor handle used for PAC signing (never measurement). Reuses the
-        measurement device when it is already local, else opens a local one lazily — signing needs
+        measurement device when it is already local, else opens a local one lazily, signing needs
         no PMU, so it works even when measurements run on a remote device."""
         if self._sign_hw is None:
             self._sign_hw = LocalHWExecutor("/dev/executor", "/sys/executor")
@@ -261,7 +261,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
 
     def _sandboxed_tc(self) -> Tuple[bytes, TestCase]:
         """Assemble the sandboxed test case once (cached); returns (machine code, patched TestCase).
-        No device I/O — the bytes travel to the device as the measurement unit's test case."""
+        No device I/O, the bytes travel to the device as the measurement unit's test case."""
         if self._sandboxed_cache is None:
             patched = copy.deepcopy(self.test_case)
             pass_on_test_case(patched, [Aarch64SandboxPass()])
@@ -336,7 +336,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
 
     def trace_test_case(self, exec_inputs: List[ExecutorInput],
                         n_reps: int) -> Tuple[List[HTrace], List[TestCase]]:
-        """Collect hardware traces for the loaded test case over `exec_inputs` — one upload, many
+        """Collect hardware traces for the loaded test case over `exec_inputs`, one upload, many
         inputs."""
         if not exec_inputs or self.test_case is None:
             return [], []
@@ -365,7 +365,7 @@ class Aarch64LocalExecutor(Aarch64Executor):
                          inputs=tuple(ei.serialize() for ei in exec_inputs))
 
     def trace_batch(self, units: List[TraceUnit], n_reps: int) -> List[List[HTrace]]:
-        """Measure many units (from make_trace_unit) in ONE device super-batch — the throughput path
+        """Measure many units (from make_trace_unit) in ONE device super-batch, the throughput path
         for a campaign window. LocalHWExecutor loops the units in-process; RemoteHWExecutor ships them
         as a single streamed transfer. One htrace list per unit, order preserved."""
         assert not self.ignore_list, "trace_batch runs in the bulk tier, before any ignore list is set"
@@ -434,9 +434,9 @@ class Aarch64LocalExecutor(Aarch64Executor):
 class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
     """The speculative-exception executor for whatever primitives are active: PAC and/or MTE (enabled by
     an instruction category) and/or canonicality (enabled by CONF.enable_canonicality, since it adds
-    no instructions — it GVT accesses existing memory accesses). It GVT accesses the test case with the active
-    value-GVT accesses — the memory pass composes [Sandbox(, PacSign)(, MteTag) | Canon], and PAC also GVT accesses
-    AUT* sites — then per input runs the contract executor once, fills each fix point's data (PAC:
+    no instructions, it GVT accesses existing memory accesses). It GVT accesses the test case with the active
+    value-GVT accesses, the memory pass composes [Sandbox(, PacSign)(, MteTag) | Canon], and PAC also GVT accesses
+    AUT* sites, then per input runs the contract executor once, fills each fix point's data (PAC:
     sign; MTE: classify tags; canonicality: the non-canonical mask), and compares the baseline vs
     decoy TC variants on hardware. Adding a primitive means adding its GVT access + its fill
     step here; the orchestration is primitive-agnostic. (Below: generic CE/BB-map/comparison helpers,
@@ -523,7 +523,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
                         log.wp(f"  {tag}  {disas}  pc=0x{ite.cpu.pc:016x}")
 
         log.ensure_flushed()
-        log.wp("[HW PHASE] All pre-HW logging complete — starting hardware execution")
+        log.wp("[HW PHASE] All pre-HW logging complete, starting hardware execution")
 
     # ==============================================================================================
     # Lifecycle: detect active primitives, GVT access, fill per input, compare variants on hardware
@@ -608,7 +608,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         return self._gvt_tc.resolve(inp)   # the instrumented TC memoizes per input identity
 
     def _mte_tags_for(self, inp: Input) -> Optional[List[int]]:
-        """Uniform initial tags the sandbox is loaded with when MTE is active (else None — leave tag
+        """Uniform initial tags the sandbox is loaded with when MTE is active (else None, leave tag
         memory untouched). The kernel HW, the CE tag memory, and the model's MteTagState all seed
         from this same uniform tag."""
         if "mte" not in self._primitives:
@@ -663,7 +663,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         """CE pass: ctraces + taints from each input's genuine baseline."""
         if not inputs or self.test_case is None:
             return [], [], []
-        assert self._gvt_tc is not None, "instrumented TC not built — load_test_case() not called"
+        assert self._gvt_tc is not None, "instrumented TC not built, load_test_case() not called"
 
         log = FuzzLogger.get()
         ce_traces: List[ContractExecutionResult] = []
@@ -694,7 +694,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         """contract_driven: carry the GVT in the input's SIMD subregion. Freeze each architecturally
         consumed GVT access's lane at its genuine value (so the arch path is identical across boosted inputs)
         and taint it so boosting preserves it; leave speculative-only lanes untainted so boosting
-        re-randomizes them — the speculative difference is the leak signal."""
+        re-randomizes them, the speculative difference is the leak signal."""
         genuine = np.frombuffer(resolved.genuine(), dtype=np.uint8)
         simd = inp[0]['simd'].view(np.uint8)
         simd_taint = taint[0]['simd'].view(np.uint8)
@@ -706,7 +706,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
     def _arch_tag_mismatches(self, cer: ContractExecutionResult) -> List[tuple]:
         """Architectural (speculation_nesting == 0) memory accesses whose pointer tag differs from the
         granule's allocation tag, excluding TCMA-unchecked tags 0/15 (which never tag-fault). Every
-        such access raises an MTE tag-check fault on hardware — the class of bug that crashes the phone
+        such access raises an MTE tag-check fault on hardware, the class of bug that crashes the phone
         (SYNC → panic, ASYNC → the bad access completes and the run hangs). A speculative-only mismatch
         is the intended TikTag channel and is NOT reported here."""
         out: List[tuple] = []
@@ -839,7 +839,7 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
         return self._trace_exec_inputs(exec_inputs, n_reps), [self.test_case] * len(exec_inputs)
 
     def as_executor_input(self, inp: Input) -> ExecutorInput:
-        """Convert one arch input into its instrumented kernel input file — the regular fuzzer's boost seam.
+        """Convert one arch input into its instrumented kernel input file, the regular fuzzer's boost seam.
         In contract_driven mode the GVT is carried in the input's own SIMD subregion (gvt=None ships it),
         so boosting's re-randomised speculative lanes reach the hardware; strict ships the genuine image."""
         if self._contract_driven:
@@ -854,16 +854,16 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
                              mte_tags=self._mte_tags_for(inp), pac_keys=self._pac_keys_words(inp))
 
     def _current_tc_bytes(self) -> bytes:
-        assert self._gvt_tc is not None, "instrumented TC not built — load_test_case() not called"
+        assert self._gvt_tc is not None, "instrumented TC not built, load_test_case() not called"
         return self._gvt_tc.object_code
 
     def _trace_exec_inputs(self, exec_inputs: List[ExecutorInput], n_reps: int) -> List[HTrace]:
-        """Trace each kernel input file on the shared skeleton — the skeleton is the unit's test case,
+        """Trace each kernel input file on the shared skeleton, the skeleton is the unit's test case,
         and the kernel splices that input's code-relocation table into it before it runs, reverting
         afterwards."""
         if not exec_inputs:
             return []
-        assert self._gvt_tc is not None, "instrumented TC not built — load_test_case() not called"
+        assert self._gvt_tc is not None, "instrumented TC not built, load_test_case() not called"
         STAT.executor_reruns += n_reps * len(exec_inputs)
         if FuzzLogger.on():
             sandbox_base, _ = self.read_base_addresses()
@@ -875,12 +875,12 @@ class Aarch64SpeculativeExceptionExecutor(Aarch64LocalExecutor):
 class Aarch64RegularGvtExecutor(Aarch64SpeculativeExceptionExecutor):
     """Regular fuzzing with PAC/MTE support.
 
-    Reuses the speculative-exception GVT access/resolve pipeline. Inputs are grouped into *GVT access classes* — identical
-    resolved (correct_sig, correct_tag, spec_nesting) across all fix points — and each class runs ONE
+    Reuses the speculative-exception GVT access/resolve pipeline. Inputs are grouped into *GVT access classes*, identical
+    resolved (correct_sig, correct_tag, spec_nesting) across all fix points, and each class runs ONE
     instrumented form, chosen deterministically from the class + per-test-case salt (so every member renders
     it identically). The form is a per-class coin flip:
       - decoy: genuine on every architectural slot, decoyed (wrong signature / retag) on the
-        speculative slots — exposes the speculative PAC/MTE leak.
+        speculative slots, exposes the speculative PAC/MTE leak.
       - genuine: genuine everywhere.
     Either way the architectural slots are always correct, so the TC is arch-safe (no failed AUTH at
     EL1, no tag fault), and the representative's arch AUT*/tag match every member's pointer.
@@ -889,7 +889,7 @@ class Aarch64RegularGvtExecutor(Aarch64SpeculativeExceptionExecutor):
     inputs (they run the identical program); an input never runs another class's form. The GVT access slots
     are register-only, so GVT access differences between classes never enter the cache htrace, leaving the
     standard regular by-contract-trace leak comparison valid. (A contract trace fixes the accessed
-    addresses, hence the pointers, hence the signatures/tags — so a contract-trace class is contained
+    addresses, hence the pointers, hence the signatures/tags, so a contract-trace class is contained
     in a GVT access class and likewise shares one form.)"""
 
     _DECOY_PROB = 0.5   # per GVT access class: probability of the speculative-decoy form vs all-genuine

@@ -211,8 +211,8 @@ class _TaintTracker:
     Writes are scoped by speculation *window*, not by raw nesting depth. The live path from
     the architectural flow (window 0) to the current instruction is `_live`, one window id per
     depth. A read is masked only by writes made in windows on that live path; a write lands in
-    the innermost live window. When the trace re-forks — including a same-depth re-fork after an
-    unwind, which shares a depth but gets a fresh window id — the unwound sibling drops off the
+    the innermost live window. When the trace re-forks, including a same-depth re-fork after an
+    unwind, which shares a depth but gets a fresh window id, the unwound sibling drops off the
     live path and its writes stop masking, so squashed speculation cannot hide an input read.
 
     Instantiate one _TaintTracker per input region (GPR, memory, SIMD, …).

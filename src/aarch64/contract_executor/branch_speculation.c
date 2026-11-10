@@ -32,8 +32,8 @@ static bool condition_passed(uint32_t cond, uint32_t nzcv) {
 }
 
 /* Resolved direction (true iff architecturally taken) of the conditional branch at state->pc,
- * read straight from the condition/register test. Deriving it directly — rather than inferring it
- * from a next-PC comparison — keeps it correct even when the branch's taken-target is pc+4. */
+ * read straight from the condition/register test. Deriving it directly, rather than inferring it
+ * from a next-PC comparison, keeps it correct even when the branch's taken-target is pc+4. */
 bool cond_branch_is_taken(const struct cpu_state* state) {
 	uint32_t insn = *(uint32_t*)state->pc;
 	branch_type_t btype = classify_branch(insn);

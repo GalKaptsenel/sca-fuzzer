@@ -10,7 +10,7 @@
 /* Two-phase store bypass:
  *   phase A (at a store): snapshot memory, then let the HW execute the store (writeback included);
  *   phase B (next instruction): undo the store's memory write so the speculative window reads the
- *     stale value, checkpointing the POST-store state as the architectural return — so the store
+ *     stale value, checkpointing the POST-store state as the architectural return, so the store
  *     is never re-executed and rollback stays uniform.
  * Whole-memory snapshot/restore => STR / STP / writeback / atomics are all handled by the HW. */
 static uint8_t* bpas_preimage     = NULL;   /* snapshot of memory just before a pending store */
@@ -49,15 +49,15 @@ static void bpas_on_reset(void) {
 }
 
 static void bpas_on_instruction(struct simulation_state* sim_state) {
-	/* Phase B: apply the pending bypass — but only if we are still in the same speculation window as
+	/* Phase B: apply the pending bypass, but only if we are still in the same speculation window as
 	 * phase A (a different window id means a rollback since discarded our snapshot's context). */
 	if (bpas_pending) {
 		if (spec_current_window_id() == bpas_pending_window_id) {
 			spec_push_frame(sim_state, sim_state->cpu_state.pc, bpas_index); /* post-store = arch return */
 			memcpy(sim_state->memory, bpas_preimage, spec_memory_size());    /* undo store -> stale */
 			/* Relocate the bypassed store's trace entry to this window's unwind (bpas_on_rollback), so
-			 * in trace order it lands after the loads that read the stale value — which must taint the
-			 * input — and before the architectural continuation, which still sees the committed store.
+			 * in trace order it lands after the loads that read the stale value, which must taint the
+			 * input, and before the architectural continuation, which still sees the committed store.
 			 * The guard above passing means no rollback since phase A, so the store is the last entry. */
 			if (bpas_deferred_top >= bpas_deferred_cap) __builtin_trap();
 			instr_trace_entry_t store = trace_pop_last();
@@ -78,8 +78,8 @@ static void bpas_on_instruction(struct simulation_state* sim_state) {
 	}
 }
 
-/* Window unwind: emit the bypassed store now — after the stale loads (already logged), before the
- * architectural continuation — then restore the checkpoint exactly like the engine's default path. */
+/* Window unwind: emit the bypassed store now, after the stale loads (already logged), before the
+ * architectural continuation, then restore the checkpoint exactly like the engine's default path. */
 static void bpas_on_rollback(struct simulation_state* sim_state,
                              const struct execution_checkpoint_desc* frame) {
 	if (0 == bpas_deferred_top) __builtin_trap();   /* one deferred store per open bpas window */
@@ -108,11 +108,11 @@ static void bpas_commit_store(const instr_trace_entry_t* store) {
  *    untouched. The windows stay open and still roll back to the architectural state at their natural end.
  *
  *  - DSB / ISB / SB are stronger (complete prior accesses / flush the pipeline / general speculation
- *    barrier): they end the mispredicted path, so keep the squash — revert through the oldest open
+ *    barrier): they end the mispredicted path, so keep the squash, revert through the oldest open
  *    bypass window and everything nested in it.
  *
- * (A load in program order BEFORE the barrier never reads a later store — the CE runs in program order
- * and never forwards from a future store — so that half of the barrier needs no modeling.) */
+ * (A load in program order BEFORE the barrier never reads a later store, the CE runs in program order
+ * and never forwards from a future store, so that half of the barrier needs no modeling.) */
 static uint64_t bpas_on_barrier(struct simulation_state* sim_state) {
 	uint32_t insn = *(uint32_t*)sim_state->cpu_state.pc;
 	barrier_kind_t kind = barrier_kind(insn);

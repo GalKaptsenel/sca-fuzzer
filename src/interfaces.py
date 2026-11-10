@@ -42,7 +42,7 @@ class MemoryRole(Enum):
 
     This is an empty common base: each architecture subtypes it with its own role set
     (``AArch64MemRole``, ``X86MemRole``). The role is typed as this base class, so a concrete value
-    is always one architecture's subtype — the enum is enforced through subtyping. ``None`` means the
+    is always one architecture's subtype, the enum is enforced through subtyping. ``None`` means the
     operand is not part of an address (it is not a memory component)."""
 
 
@@ -847,7 +847,7 @@ class DispatchTable:
     """A function's jump table for multi-target indirect calls: the forward (higher-indexed) callees it
     may dispatch to, cycled to a power-of-two length so a masked index always selects a valid entry.
 
-    Pure layout data — the AArch64 backend emits `entries` as PC-relative offsets under `label` and
+    Pure layout data, the AArch64 backend emits `entries` as PC-relative offsets under `label` and
     materializes the load/branch sequence (see Aarch64IndirectCallPass); nothing here is arch-specific."""
 
     def __init__(self, owner: "Function", callees: List["Function"]) -> None:
@@ -867,7 +867,7 @@ class DispatchTable:
 
     @property
     def size(self) -> int:
-        """Number of entries — a power of two, so the dispatch index is one AND mask (`size - 1`)."""
+        """Number of entries, a power of two, so the dispatch index is one AND mask (`size - 1`)."""
         return len(self.entries)
 
 

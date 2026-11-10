@@ -3,7 +3,7 @@
   PAC:  per AUT* slot, the GVT access's sig == ground-truth HW pac_sign top16 AND sign->auth round-trips;
         the enacted code runs FPAC-free.
   SPEC options: across many decoy variants, each SPECULATIVE PAC slot is rendered as
-        correct-sig+auth / wrong-sig+auth / strip(xpac) — the speculative-exception decoy diversity.
+        correct-sig+auth / wrong-sig+auth / strip(xpac), the speculative-exception decoy diversity.
   MTE:  model-level (this box has no MTE HW): each slot renders as ADDG(delta)/NOP, deltas are
         deterministic, and speculative slots take diverse deltas across variants.
 
@@ -87,7 +87,7 @@ for case in range(NCASES):
     if tc is None:
         print(f"[{KIND}] no instrumentable test case for this config"); break
     inp = igen.generate(1)[0]
-    pac_keys = PacKeys(*inp.pac_keys)   # the input's own keys — the GVT access signs under these
+    pac_keys = PacKeys(*inp.pac_keys)   # the input's own keys, the GVT access signs under these
     resolved = ex._resolve(inp)
     entries = {id(e.access): e for e in resolved._entries}
 
@@ -169,7 +169,7 @@ if KIND in ("pac", "both"):
 if KIND == "pac":
     print(f"enacted ran FPAC-free: {ran_ok}/{ran_ok + ran_fail}")
 if KIND in ("mte", "both"):
-    print(f"MTE retag slots: {mte_slots}  (tag-check enforcement NOT verifiable — no MTE HW)")
+    print(f"MTE retag slots: {mte_slots}  (tag-check enforcement NOT verifiable, no MTE HW)")
     print(f"speculative MTE slots sampled: {mte_spec_seen}  ({NVARIANTS} variants each)")
     for key in sorted(mte_tally):
         print(f"    {key:16s}: {mte_tally[key]}")

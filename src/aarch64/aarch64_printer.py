@@ -1,5 +1,5 @@
 """
-File: AArch64 assembly layout + printing — render a TestCase's IR to assembly text.
+File: AArch64 assembly layout + printing, render a TestCase's IR to assembly text.
 """
 from typing import List, Dict
 
@@ -42,7 +42,7 @@ class Aarch64ASMLayout:
 
     def _create_dispatch_tables(self, test_case: TestCase):
         """Emit each function's multi-target jump table (Aarch64IndirectCallPass) as constant
-        PC-relative offsets, after all code — never reached by fall-through, and past every tracked
+        PC-relative offsets, after all code, never reached by fall-through, and past every tracked
         instruction so offsets are unaffected. Each entry is (callee - table); the dispatch sequence
         reloads it and adds it back to the table base to recover the callee address."""
         tables = [func.dispatch_table for func in test_case.functions if func.dispatch_table]

@@ -4,10 +4,10 @@ Each GVT access's per-input value lives in the GlobalValueTable (a reserved vect
 input); the GVT access's slot is fixed code that loads it and applies it. A variant is a GVT image, not a
 code change.
 
-  * `GvtAccess` — one site; its fixed slot loads its value from the GVT and applies it.
-  * `GvtAccessBuilder.build(tc) -> GvtTestCase` — walks the TC, creates GVT accesses, inserts their slots.
-  * `GvtTestCase.resolve(input) -> ResolvedGvtTestCase` — runs the CE trace, computes values.
-  * `ResolvedGvtTestCase` — `object_code` plus `genuine()` / `decoy()` GVT images for it.
+  * `GvtAccess`, one site; its fixed slot loads its value from the GVT and applies it.
+  * `GvtAccessBuilder.build(tc) -> GvtTestCase`, walks the TC, creates GVT accesses, inserts their slots.
+  * `GvtTestCase.resolve(input) -> ResolvedGvtTestCase`, runs the CE trace, computes values.
+  * `ResolvedGvtTestCase`, `object_code` plus `genuine()` / `decoy()` GVT images for it.
 """
 import abc
 import copy
@@ -55,7 +55,7 @@ def pack_emul_table(rows: List[Tuple[int, int, int, int, int, int, int]]) -> byt
 
 
 # ==================================================================================================
-# GvtAccess — one location; pure GVT access(value); exposes the facts the resolver reads
+# GvtAccess, one location; pure GVT access(value); exposes the facts the resolver reads
 # ==================================================================================================
 class GvtAccess(abc.ABC):
     """One GVT access site. Its slot is FIXED code that loads the per-input value from the GVT and applies
@@ -203,7 +203,7 @@ class MteGvtAccess(GvtAccess):
 
 def _mask_runs(mask: int) -> List[int]:
     """Split `mask` into its maximal contiguous runs of set bits, low to high. A single run of ones
-    is an encodable AArch64 logical (bitmask) immediate, so one EOR renders each run — a mask with a
+    is an encodable AArch64 logical (bitmask) immediate, so one EOR renders each run, a mask with a
     gap (e.g. bit 55 punched out) needs one EOR per run."""
     runs, i = [], 0
     while i < 64:
@@ -233,12 +233,12 @@ def _canon_va() -> int:
 
 
 def _canon_mask_pool(salt: int) -> List[int]:
-    """A deterministic pool of non-canonical flip masks for the decoy to choose from — the analogue of
+    """A deterministic pool of non-canonical flip masks for the decoy to choose from, the analogue of
     PAC's wrong-signature pool / MTE's wrong-tag set. Each mask is a RANDOM contiguous run of bits
     within the guaranteed-fault range [54:VA_SIZE]:
 
       * flipping any bit in [54:VA] makes it disagree with the (never-flipped) regime-selector bit 55,
-        so the address is non-canonical in EITHER regime (TTBR0/TTBR1) and under TBI on or off — a
+        so the address is non-canonical in EITHER regime (TTBR0/TTBR1) and under TBI on or off, a
         guaranteed translation fault. Bit 55 and the VA bits (<VA_SIZE) are never touched, so the
         in-sandbox address and its cache-set index [11:6] are untouched (only canonicality changes);
       * a single contiguous run is one AArch64 logical (bitmask) immediate, i.e. one EOR;
@@ -327,7 +327,7 @@ def _branch_target_mask_pool(salt: int) -> List[int]:
 class BranchTargetGvtAccess(GvtAccess):
     """Corrupt an indirect call's target register for ONE speculative BLR via a GVT mask: the fixed slot
     loads the mask and EORs it into the target before the branch (non-canonical high bits or [1:0]
-    misalignment), then the same EOR after to re-converge — x28 is the shared indirect-call target reg,
+    misalignment), then the same EOR after to re-converge, x28 is the shared indirect-call target reg,
     so a leftover flip would cascade into a later call's target. Genuine value is 0 (valid target);
     `pool` is the candidate masks the decoy picks; `branch_inst` feeds the resolver."""
 
@@ -348,10 +348,10 @@ _SIGNEXT_BIT = 1 << 55   # the regime-selector / sign bit: the one bit non-canon
 
 
 class SignExtGvtAccess(CanonGvtAccess):
-    """Break a pointer's sign-extension for ONE speculative access, then restore it — like CanonGvtAccess
+    """Break a pointer's sign-extension for ONE speculative access, then restore it, like CanonGvtAccess
     but flipping bit 55 (the TTBR0/TTBR1 regime selector that canonicality leaves untouched) rather than
     [54:VA]. `GVT access(mask)` EORs bit 55 in right before the access, so the regime selector disagrees with
-    the never-flipped sign-extension bits [54:VA] — a translation fault under TBI on or off — and EORs it
+    the never-flipped sign-extension bits [54:VA], a translation fault under TBI on or off, and EORs it
     back after (when the base survives). The top byte [63:56] is NOT flipped: bit 55 alone already
     faults under TBI on or off, whereas a top-byte flip faults only with TBI off (it is ignored when TBI
     is on), so the pool keeps the one TBI-robust bit. `GVT access(None/0)` is the canonical placeholder (NOPs)."""
@@ -359,14 +359,14 @@ class SignExtGvtAccess(CanonGvtAccess):
 
 def _signext_mask_pool() -> List[int]:
     """The sign-extension flip mask: bit 55 alone. Flipping the regime selector makes it disagree with
-    the sign-extension bits [54:VA], which are never flipped — a guaranteed translation fault under TBI
+    the sign-extension bits [54:VA], which are never flipped, a guaranteed translation fault under TBI
     on or off. The top byte [63:56] is excluded: bit 55 alone already faults either way, whereas a
     top-byte flip faults only with TBI off (it is ignored when TBI is on)."""
     return [_SIGNEXT_BIT]
 
 
 # ==================================================================================================
-# ResolvedGvtTestCase — one input's resolution; mints genuine / decoy hardware test cases
+# ResolvedGvtTestCase, one input's resolution; mints genuine / decoy hardware test cases
 # ==================================================================================================
 class _Resolved:
     """A GVT access paired with its resolved runtime value for one input: `value` is the correct value
@@ -431,7 +431,7 @@ class ResolvedGvtTestCase:
         return bool(self._eligible())
 
     def _build_image(self, rng: random.Random, decoy: bool) -> bytes:
-        """The SIMD section bytes for one variant: each value GVT access writes its lane(s) — the genuine
+        """The SIMD section bytes for one variant: each value GVT access writes its lane(s), the genuine
         value, or a random alt for a perturbed speculative slot. The genuine value of a canonicality /
         branch-target GVT access is "no perturbation" (resolver value None), which is mask 0."""
         perturb = self._decoy_subset(self._eligible(), rng) if decoy else set()
@@ -451,7 +451,7 @@ class ResolvedGvtTestCase:
 
 
 # ==================================================================================================
-# Resolvers — concern-specific value computation from a CE trace (used by the GvtTestCase)
+# Resolvers, concern-specific value computation from a CE trace (used by the GvtTestCase)
 # ==================================================================================================
 # Signature forgery pool: how many wrong signatures to offer per PAC slot, and the sampling budget.
 _FORGERY_POOL_SIZE = 6
@@ -519,7 +519,7 @@ def _wrong_sigs(correct_sig: int, mask: int, salt: int) -> List[int]:
 
 def _resolve_mte(s: MteGvtAccess, cer, layout) -> Tuple[Optional[int], List[int], Optional[int]]:
     """An MteGvtAccess's applied base tag from a trace: the tag the slot's BFI puts on the base register so
-    the ACCESS's effective-address tag equals the accessed cell's allocation tag — which, for a
+    the ACCESS's effective-address tag equals the accessed cell's allocation tag, which, for a
     register-offset access, differs from the cell tag by the index's tag contribution. The genuine value
     is the base-register tag observed at the access (the CE's inject already set it); a decoy applies a
     different base tag. Prefer an architectural (nest==0) reach; fail loud on disagreeing arch tags.
@@ -595,7 +595,7 @@ def _resolve_branch_target(s: "BranchTargetGvtAccess", cer, layout) -> Tuple[Opt
 
 
 # ==================================================================================================
-# GvtTestCase — holds the unresolved GVT accesses; resolve(input) orchestrates value computation
+# GvtTestCase, holds the unresolved GVT accesses; resolve(input) orchestrates value computation
 # ==================================================================================================
 class GvtTestCase:
     """Owns the GVT accesses for one test case end-to-end. During construction it PLACES each value
@@ -694,10 +694,10 @@ class PacGvtTestCase(GvtTestCase):
     def _insert_slots(self, data_sites) -> None:
         # Per test case (seeded by the salt so every input shares one skeleton), each access is instrumented
         # with probability CONF.pac_access_prob, and an instrumented site strips (XPAC only) with probability
-        # pac_strip_prob — both build-time coins, since the code is fixed across inputs. A skipped access
+        # pac_strip_prob, both build-time coins, since the code is fixed across inputs. A skipped access
         # still gets its offset cancellation (sandbox safety, not GVT access machinery), just no AUT*. The slot
         # (load the signature, BFI it in, AUT*) sits entirely before the access; there is no re-converge.
-        # Instrument the generator-emitted AUT*s FIRST, while they are the only AUT*s present — the memory-site
+        # Instrument the generator-emitted AUT*s FIRST, while they are the only AUT*s present, the memory-site
         # slots below insert their own AUT*s, which _gvt_auths would otherwise re-instrument.
         _gvt_auths(self._tc, self._enc, self._signer, self._gst, self._auth_specs, self._pac)
         rng = random.Random(self._salt)
@@ -724,7 +724,7 @@ class PacGvtTestCase(GvtTestCase):
 
 
 class MteGvtTestCase(GvtTestCase):
-    """Sandbox clamp + an MTE retag per data access — the retag is the last op before the access."""
+    """Sandbox clamp + an MTE retag per data access, the retag is the last op before the access."""
 
     def __init__(self, instrumented_tc, assemble, sandbox_accesses, data_sites, trace_bytes_fn) -> None:
         self._mte: List[MteGvtAccess] = []
@@ -834,8 +834,8 @@ class BranchTargetGvtTestCase(GvtTestCase):
 
 class MtePacGvtTestCase(GvtTestCase):
     """Sandbox clamp + PAC auth + MTE retag per data access, plus a PAC auth per standalone AUT*.
-    The CE injects both per-input values into the GVT image — each PAC site's signature and each MTE
-    site's accessed-cell tag — during the single resolution trace, which is also the genuine contract
+    The CE injects both per-input values into the GVT image, each PAC site's signature and each MTE
+    site's accessed-cell tag, during the single resolution trace, which is also the genuine contract
     trace; the PAC signatures and MTE tags both resolve off it."""
 
     def __init__(self, instrumented_tc, assemble, sandbox_accesses, data_sites, signer, enc,
@@ -884,8 +884,8 @@ class MtePacGvtTestCase(GvtTestCase):
 class PacSignExtGvtTestCase(GvtTestCase):
     """Sandbox clamp + PAC auth + a sign-extension flip per data access, plus a PAC auth per standalone
     AUT*. Every access is PAC-authenticated (the baked signature keeps it arch-safe, as in
-    MtePacGvtTestCase); the flip (SignExtGvtAccess) is a MaskFlip GVT access — its genuine value is "no flip"
-    in the all-zero image — added with probability `signext_access_prob`, so only the PAC auth is injected
+    MtePacGvtTestCase); the flip (SignExtGvtAccess) is a MaskFlip GVT access, its genuine value is "no flip"
+    in the all-zero image, added with probability `signext_access_prob`, so only the PAC auth is injected
     by the emulation table. The single resolution trace yields the PAC signatures and the genuine
     contract trace; the decoy carries the flip mask in the sign-ext GVT access's lane."""
 
@@ -900,7 +900,7 @@ class PacSignExtGvtTestCase(GvtTestCase):
 
     def _insert_slots(self, data_sites) -> None:
         # Every access must be PAC-authenticated for arch-safety, so pac_access_prob (the fraction of
-        # accesses to GVT access) is incompatible with this composed primitive — fail loud rather than ignore it.
+        # accesses to GVT access) is incompatible with this composed primitive, fail loud rather than ignore it.
         if CONF.pac_access_prob != 1.0:
             raise GeneratorException("pac+signext GVT accesses every access; set pac_access_prob = 1.0")
         pool = _signext_mask_pool()   # shared by every slot in this test case
@@ -934,7 +934,7 @@ class PacSignExtGvtTestCase(GvtTestCase):
 
 
 # ==================================================================================================
-# GvtAccessBuilder — walk the TC, create the GVT accesses, insert their placeholders
+# GvtAccessBuilder, walk the TC, create the GVT accesses, insert their placeholders
 # ==================================================================================================
 class _Addressing(_SandboxInstrumentationBase):
     """Composable wrapper over the shared AArch64 address/CFG helpers (a builder *has-a* one)."""
@@ -1027,7 +1027,7 @@ class GvtAccessBuilder:
 
 
 def _insert(bb, anchor, *groups) -> None:
-    """Insert each group of instructions before `anchor`, in order — so they land in group order
+    """Insert each group of instructions before `anchor`, in order, so they land in group order
     immediately before it (clamp, then value GVT accesses, then the index/displacement cancellation)."""
     for group in groups:
         for inst in group:
@@ -1035,7 +1035,7 @@ def _insert(bb, anchor, *groups) -> None:
 
 
 def _place_after(bb, anchor, insts) -> None:
-    """Insert `insts` immediately after `anchor`, preserving their order — the GVT access's after-revert
+    """Insert `insts` immediately after `anchor`, preserving their order, the GVT access's after-revert
     (restore the base register once the instrumented access has run). insert_after puts each element right
     after the anchor, so iterate in reverse to keep list order. Composed reverts (MtePac) call this
     once per primitive; calling the outer primitive first lands the inner one closest to the access."""
@@ -1046,7 +1046,7 @@ def _place_after(bb, anchor, insts) -> None:
 class SandboxWalk:
     """Mechanics only: the sandbox-taint walk. Decides which memory bases need clamping (the clamp is
     not idempotent, so a base already in-region is not re-clamped) and makes a SandboxGvtAccess for each.
-    Knows nothing about value GVT accesses, PAC, MTE, slot placement, or position recording — `sandbox`
+    Knows nothing about value GVT accesses, PAC, MTE, slot placement, or position recording, `sandbox`
     returns the clamps plus a per-access site list the GvtTestCase uses to place its value GVT accesses."""
 
     def __init__(self, generator) -> None:
@@ -1093,7 +1093,7 @@ class SandboxWalk:
         (the clamp is not idempotent, so a base already in-region is not re-clamped) and inserts a
         SandboxGvtAccess for each (16B-aligned for STG). STG/LDG are handled fully here (clamp + the
         index/displacement cancellation, since they take no value GVT access). A data access only gets
-        its clamp inserted here and yields a site — (access, bb, mem_reg, offset_subs) — so the host
+        its clamp inserted here and yields a site, (access, bb, mem_reg, offset_subs), so the host
         builder can place its value GVT accesses between the clamp and the cancellation. Returns
         (sandbox_accesses, data_sites)."""
         addr, base, sandbox, data_sites = self._addr, SANDBOX_BASE_REGISTER, [], []

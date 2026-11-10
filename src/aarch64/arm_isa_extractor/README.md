@@ -1,19 +1,19 @@
-# `arm_isa_extractor` — A64 ISA extractor
+# `arm_isa_extractor`, A64 ISA extractor
 
 A self-contained, Revizor-independent extractor of the AArch64 (A64) instruction set from ARM's
 machine-readable XML. It turns ARM's official ISA specification into a structured, queryable Python
-model of every instruction encoding — operands, register access (read/write), immediate domains,
-memory roles, and inter-operand UNPREDICTABLE constraints — which `isa_downloader` then serialises
+model of every instruction encoding, operands, register access (read/write), immediate domains,
+memory roles, and inter-operand UNPREDICTABLE constraints, which `isa_downloader` then serialises
 into the `base.json` that Revizor's `isa_loader` consumes.
 
 ## Design philosophy: correct, complete, or loud
 
 The single rule: **never be silently wrong.** Every encoding is either extracted correctly and
-validated, or it **loud-fails** — it is skipped and recorded with a reason, never emitted with a
+validated, or it **loud-fails**, it is skipped and recorded with a reason, never emitted with a
 guessed/partial result. Concretely:
 
 - No silent coercion or dropping of values (`validate.py` rejects out-of-domain/inconsistent fields).
-- No unjustified single-form assumptions — each concrete asm form is enumerated and resolved.
+- No unjustified single-form assumptions, each concrete asm form is enumerated and resolved.
 - Register access and memory semantics come from the instruction's **ASL** (the architectural
   source of truth), not from name heuristics.
 - `build_json` returns `{filename: reason}` for every encoding it could not yet handle; those are the
@@ -29,9 +29,9 @@ ARM CDN ──▶ ISA_A64 XML (cached) ──▶ parse+extract+validate+serializ
    stage 1                                  stages 2+3                              (Revizor shape)
 ```
 
-1. **Stage 1 — download** (`download.py`): fetch + cache ARM's `ISA_A64` XML tarball (pinned release
+1. **Stage 1, download** (`download.py`): fetch + cache ARM's `ISA_A64` XML tarball (pinned release
    `A64-2025-09`), extract to a local XML dir. Re-downloads only when forced or the cache is absent.
-2. **Stages 2+3 — `pipeline.build_json(out_json, xml_dir)`**: for every instruction XML, parse it,
+2. **Stages 2+3, `pipeline.build_json(out_json, xml_dir)`**: for every instruction XML, parse it,
    build the operand/semantics model, validate, and serialise to JSON. Returns the loud-fail map.
 
 `isa_downloader.Downloader` (wired in `factory` as the aarch64 downloader, invoked by
@@ -50,7 +50,7 @@ ARM CDN ──▶ ISA_A64 XML (cached) ──▶ parse+extract+validate+serializ
 | `constraints.py` | Inter-operand **UNPREDICTABLE** constraints: `if <regvar==regvar> then ConstrainUnpredictable(...)` → operand pairs that must differ (with FALSE-guard handling). |
 | `operands.py` | Map asm tokens to the operand model: register-file/width prefixes (`W`/`X`/`V`/`Z`/`P`/…), extend/shift, immediates, memory components. |
 | `models.py` | Data classes + enums: `Instruction`, `Operand`, `OperandKind` (REG/IMM/COND/EXTEND/…), `RegFile`, `MemRole`, `MemAccess`, `ExtractionError`. |
-| `validate.py` | Per-encoding loud-fail validation: element sizes, register widths per file, field consistency — a wrong/out-of-domain field is a parsing bug, recorded, never emitted. |
+| `validate.py` | Per-encoding loud-fail validation: element sizes, register widths per file, field consistency, a wrong/out-of-domain field is a parsing bug, recorded, never emitted. |
 | `serialize.py` | Serialise a validated `Instruction`/`Operand` to the JSON dict (the on-disk schema). |
 
 ## Regenerating `base.json`

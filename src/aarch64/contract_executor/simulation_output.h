@@ -40,7 +40,7 @@ typedef struct {
 	uint64_t instr_index;		// instruction index in trace
 	uint64_t has_sandbox_memory_access;		// boolean: a sandbox (data-cache) access; MTE tag-memory ops excluded
 	uint64_t speculation_nesting;	// Speculation nesting (0 for no speculation)
-	uint64_t is_pair;		// boolean: LDP/STP — memory_access2 (element 1) is also valid
+	uint64_t is_pair;		// boolean: LDP/STP, memory_access2 (element 1) is also valid
 	uint64_t window_id;		// unique id of the innermost live window (0 = architectural), never reused
 	mem_access_t memory_access;	// first (or only) access
 	mem_access_t memory_access2;	// second access (pair element 1); valid iff is_pair

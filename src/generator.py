@@ -125,7 +125,7 @@ class ConfigurableGenerator(Generator, abc.ABC):
 
         # create the functions: index 0 is the entry (runs inline and exits the test case); the rest
         # are callees, reachable only through calls. A function may only call a higher-indexed one, so
-        # the call graph is acyclic (no recursion, no loops) — the function-level analogue of the
+        # the call graph is acyclic (no recursion, no loops), the function-level analogue of the
         # forward BB DAG. Functions are laid out in index order, so a higher index is a higher address.
         default_actor = self.test_case.actors["main"]
         if CONF.min_functions_per_test_case == CONF.max_functions_per_test_case:
@@ -483,7 +483,7 @@ class RandomGenerator(ConfigurableGenerator, abc.ABC):
     def _with_unreachable_flows(self, func_name: str, nodes: List[BasicBlock],
                                 min_successors: int, max_successors: int) -> List[BasicBlock]:
         # Each non-last BB ends in an unconditional branch, so a flow spliced right after it is reached
-        # only by straight-line speculation past that branch — architecturally unreachable.
+        # only by straight-line speculation past that branch, architecturally unreachable.
         ordered: List[BasicBlock] = []
         for i, bb in enumerate(nodes):
             ordered.append(bb)

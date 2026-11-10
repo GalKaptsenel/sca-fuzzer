@@ -21,7 +21,7 @@
 #define REVISOR_CLEAR_ALL_INPUTS	    _IO(REVISOR_IOC_MAGIC, REVISOR_CLEAR_ALL_INPUTS_CONSTANT)
 #define REVISOR_GET_TEST_LENGTH		    _IOR(REVISOR_IOC_MAGIC, REVISOR_GET_TEST_LENGTH_CONSTANT, uint64_t)
 /* REVISOR_PAC_SIGN (11), REVISOR_PAC_AUTH (12), REVISOR_PAC_XPAC (13)
- * — defined in userapi/executor_pac_api.h */
+ *, defined in userapi/executor_pac_api.h */
 
 #define REVISOR_DEVICE_NAME		        kernel_module_name
 #define REVISOR_DEVICE_CLASS_NAME	    "revisor_device_class"

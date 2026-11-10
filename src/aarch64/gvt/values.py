@@ -34,7 +34,7 @@ class GvtValue(ABC):
 
 class PacSignature(GvtValue):
     """A PAC signature: the pointer's PAC-field bits occupy the window [lsb, lsb+nbits). The window is
-    the bounding box of the field's runs — any gap bit it covers (e.g. bit 55) holds the pointer's own
+    the bounding box of the field's runs, any gap bit it covers (e.g. bit 55) holds the pointer's own
     canonical value, so re-inserting it is idempotent. The lane holds the window right-aligned; one BFI
     puts it back at [lsb, lsb+nbits)."""
 

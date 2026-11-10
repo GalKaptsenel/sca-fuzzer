@@ -90,7 +90,7 @@ static void ce_crash_handler(int sig, siginfo_t *info, void *uctx) {
 		dbg_write("\n");
 	}
 
-	/* Last simulated state — uses ce_debug_print_last_sim_state which calls fprintf.
+	/* Last simulated state, uses ce_debug_print_last_sim_state which calls fprintf.
 	 * Safe here because we run on an alternate stack and the saved sim state lives
 	 * in a global (not on the JIT stack that may be corrupted). */
 	ce_debug_print_last_sim_state(stderr);
@@ -114,7 +114,7 @@ static void ce_alarm_handler(int sig) {
 	const char* phase_names[] = {"idle", "read-input", "simulation", "write-output"};
 	const char* phase = (g_iter_phase < 4) ? phase_names[g_iter_phase] : "unknown";
 	fprintf(stderr,
-		"[CE WATCHDOG] iteration %zu hung in phase '%s' after %d seconds — aborting\n",
+		"[CE WATCHDOG] iteration %zu hung in phase '%s' after %d seconds, aborting\n",
 		g_iter_num, phase, CE_ITERATION_TIMEOUT_SEC);
 	fflush(stderr);
 	abort();
@@ -350,7 +350,7 @@ int main() {
 		simulation_code_free(&simulation.sim_code, 4 + base_hook_size);
 		simulation_input_free(&simulation.sim_input);
 
-		alarm(0); /* cancel watchdog — iteration completed */
+		alarm(0); /* cancel watchdog, iteration completed */
 	}
 
 

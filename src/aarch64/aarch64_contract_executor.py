@@ -1,5 +1,5 @@
 """
-File: AArch64 contract-executor (CE) service — request encoding and CE process management.
+File: AArch64 contract-executor (CE) service, request encoding and CE process management.
 """
 import select
 import subprocess
@@ -249,7 +249,7 @@ class ContractExecutorService:
                 bufsize=MB,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
-                stderr=None,   # inherit parent stderr — avoids pipe-full blocking on CE debug prints
+                stderr=None,   # inherit parent stderr, avoids pipe-full blocking on CE debug prints
                 pipesize=MB,
         )
         self._stream_ipc = StreamIPC(proc.stdin, proc.stdout, proc)
@@ -285,7 +285,7 @@ class ContractExecutorService:
         """
         Run a single execution and return raw result.
         A CE crash or hang is a fatal bug, not a recoverable condition: drain stderr for diagnostics
-        and raise. It must never be skipped or masked — do not add a respawn/retry fallback here.
+        and raise. It must never be skipped or masked, do not add a respawn/retry fallback here.
         """
         data = execution.encode()
         self._stream_ipc.send_req(_MSG_REQUEST, data)
@@ -303,7 +303,7 @@ class ContractExecutorService:
                 f"stderr:\n{stderr or '(empty)'}"
             ) from None
         except RuntimeError as e:
-            # CE hung (alive but no response within timeout) — kill it, drain stderr, and fail
+            # CE hung (alive but no response within timeout), kill it, drain stderr, and fail
             stderr = self._drain_stderr()
             self._proc.kill()
             try:

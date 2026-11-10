@@ -183,7 +183,7 @@ def get_speculative_exception_executor(generator: interfaces.Generator,
     instruction categories, and canonicality from CONF.enable_canonicality) with the
     generator injected at construction.
 
-    This is the only supported way to create a speculative-exception executor — the generator
+    This is the only supported way to create a speculative-exception executor, the generator
     is a required constructor argument and cannot be set after the fact.
 
     Called by SpeculativeExceptionFuzzer.initialize_modules() instead of get_executor().

@@ -165,8 +165,7 @@ static void* inner_hook_aarch64_instructions(struct simulation_code* sc) {
 	}
 
 	// Hook the terminal slot just past code + tables (when data_size==0 this is the original "+1" slot):
-	// B .test_case_exit lands here, so the trampoline fires, out_of_simulation trips and the trace ends —
-	// otherwise execution would fall through into a stale native RET and loop.
+	// B .test_case_exit lands here, so the trampoline fires, out_of_simulation trips and the trace ends,	// otherwise execution would fall through into a stale native RET and loop.
 	uint32_t end_bl = encode_bl((uintptr_t)(sim_code + end_slot), (uintptr_t)hook);
 	if (0 == end_bl) {
 		return NULL;
@@ -195,8 +194,8 @@ int hook_aarch64_instructions(
 }
 
 /* True when addr falls inside the executable image (instructions + read-only dispatch tables). A load
- * of such an address is the ADR+LDRSW dispatch sequence reading its own jump table — a code/rodata read,
- * not a sandbox access — so it is neither rebased into the sandbox nor recorded in the contract. */
+ * of such an address is the ADR+LDRSW dispatch sequence reading its own jump table, a code/rodata read,
+ * not a sandbox access, so it is neither rebased into the sandbox nor recorded in the contract. */
 static inline int addr_in_sim_code(uintptr_t addr) {
 	uintptr_t lo = (uintptr_t)simulation.sim_code.code;
 	uintptr_t hi = lo + simulation.sim_code.code_size + simulation.sim_code.data_size;
@@ -275,12 +274,12 @@ void base_hook_c(struct cpu_state* state) {
 
 	__builtin___clear_cache((char*)state->pc, (char*)state->pc + 4); /* must precede the translation below */
 
-	/* LAST write to *state — nothing must follow this block. MTE memory-tag ops (LDG/STG/STGP) are
+	/* LAST write to *state, nothing must follow this block. MTE memory-tag ops (LDG/STG/STGP) are
 	 * software-emulated and skipped from native execution, so they must NOT have their base register
 	 * translated kaddr->uaddr here (the emulator already produced the architectural result from the
 	 * kaddr; translating would leave a uaddr in the base register). */
 	/* SP-based accesses are only ever function-frame spills (the generator never emits sp as a data
-	 * base): leave them native on the host stack instead of rebasing into the sandbox buffer — they
+	 * base): leave them native on the host stack instead of rebasing into the sandbox buffer, they
 	 * are harness instrumentation, kept out of the contract just like the kernel keeps them in
 	 * upper_overflow, outside the probed sets. */
 	if(is_memory_access(*(uint32_t*)state->pc) && !mte_is_mem_tag_access(*(uint32_t*)state->pc)
@@ -311,7 +310,7 @@ void base_hook_c(struct cpu_state* state) {
 		/* Rebase so the hardware-computed EA lands exactly on the translated (clean) EA; the native
 		 * access then never relies on EL0 TBI to drop a stray top byte. A load from the executable image
 		 * (the ADR+LDRSW dispatch reading its own jump table) already points into sim_code, so it needs no
-		 * rebase — leave the base as-is, exactly like the SP frame-spill exemption. */
+		 * rebase, leave the base as-is, exactly like the SP frame-spill exemption. */
 		if (!addr_in_sim_code(ea)) {
 			uintptr_t new_base = (uintptr_t)kaddr2uaddr((void*)ea) - ea + base_orig;
 			cpu_state_write_base_reg(state, rn, new_base);
@@ -347,14 +346,14 @@ void* handle_ret_hook(struct simulation_state* sim_state) {
 	branch_type_t bt = classify_branch(insn);
 
 	// A call pushes its architectural return address (the instruction right after it) onto the call
-	// stack, then branches to the callee natively — so return NULL and let the native BL/BLR run.
+	// stack, then branches to the callee natively, so return NULL and let the native BL/BLR run.
 	if(BRANCH_BL == bt || BRANCH_BLR == bt) {
 		call_stack_push(sim_state->cpu_state.pc + 4);
 		return NULL;
 	}
 
 	// A return pops the matching call's address and continues there. With no active call (empty stack)
-	// it falls back to the simulation's top-level return address — the harness continuation — which
+	// it falls back to the simulation's top-level return address, the harness continuation, which
 	// mirrors the kernel seeding LR to the test-case exit.
 	if(0xd65f03c0 == insn) { // RET
 		uintptr_t target;
@@ -380,7 +379,7 @@ void* handle_ret_hook(struct simulation_state* sim_state) {
 		uintptr_t ea = (uintptr_t)mi.effective_address;
 		/* A frame spill is architecturally always on the sandbox stack; a SPECULATIVE one can walk SP
 		 * off it (an RSB-mispredicted return runs a callee epilogue with the caller's SP). That squashed
-		 * access has no modeled in-sandbox effect, so skip the emulated load/store — but still apply the
+		 * access has no modeled in-sandbox effect, so skip the emulated load/store, but still apply the
 		 * SP writeback below so the frame bookkeeping stays coherent. An architectural out-of-sandbox
 		 * spill is a real defect and still traps via kaddr2uaddr. */
 		if (0 == spec_nesting() || kea_in_sandbox(ea)) {

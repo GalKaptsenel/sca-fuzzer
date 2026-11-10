@@ -4,7 +4,7 @@ set -e
 # ============================================================
 # Revizor AArch64 environment installer
 # ============================================================
-# Installs and builds Revizor directly on an AArch64 (ARM64) host — the machine
+# Installs and builds Revizor directly on an AArch64 (ARM64) host, the machine
 # that runs the fuzzer and loads the kernel module. By default installs ONLY
 # what is needed to run the fuzzer and sets up the Python venv; building the
 # binaries and developer tooling are opt-in.
@@ -55,14 +55,14 @@ while [[ $# -gt 0 ]]; do
 done
 
 # -------------------------
-# Paths (operate in place — repo root is two levels up from src/aarch64/)
+# Paths (operate in place, repo root is two levels up from src/aarch64/)
 # -------------------------
 DEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BASE_DIR=~/revizor
 VENV_DIR=$BASE_DIR/revizor-venv
 mkdir -p "$BASE_DIR"
 
-# Package sets — kept as small as possible. (python3 pulls libncursesw6 for the
+# Package sets, kept as small as possible. (python3 pulls libncursesw6 for the
 # curses dashboard; the venv's ensurepip provides pip, so no python3-pip.)
 APT_RUNTIME=(python3 python3-venv)
 APT_BUILD=(gcc make libc6-dev libelf-dev python3-dev)
@@ -190,7 +190,7 @@ tests.aarch64_tests.unit_kernel_module"
 
 activate_venv() {
     if [ ! -d "$VENV_DIR" ]; then
-        echo "[!] venv not found at $VENV_DIR — run the installer first."
+        echo "[!] venv not found at $VENV_DIR, run the installer first."
         exit 1
     fi
     source "$VENV_DIR/bin/activate"
@@ -241,12 +241,12 @@ run_with_dmesg_guard() {
     local since
     since=$(sudo dmesg 2>/dev/null | awk -v m="$mark" 'index($0,m){seen=1; next} seen')
     if printf '%s\n' "$since" | grep -qiE "$DMESG_PATTERNS"; then
-        echo "[!] KERNEL EXCEPTION detected during '$*' — the module faulted:"
+        echo "[!] KERNEL EXCEPTION detected during '$*', the module faulted:"
         printf '%s\n' "$since" | grep -iE "$DMESG_PATTERNS" | head -20
         echo "[!] The device is likely wedged; reload the module or reboot to recover. (test exit=$rc)"
         return 1
     fi
-    echo "[*] dmesg clean — no kernel exceptions during '$*'."
+    echo "[*] dmesg clean, no kernel exceptions during '$*'."
     return $rc
 }
 
@@ -269,7 +269,7 @@ build_docs_html() {
     activate_venv
     local docs_dir="$DEST_DIR/docs/aarch64"
     ( cd "$docs_dir" && python3 build_docs.py )
-    echo "[*] Docs built — open in a browser: $docs_dir/index.html"
+    echo "[*] Docs built, open in a browser: $docs_dir/index.html"
 }
 
 # -------------------------
@@ -347,7 +347,7 @@ pip install --upgrade pip setuptools wheel
 if [ -f "$DEST_DIR/requirements.txt" ]; then
     pip install -r "$DEST_DIR/requirements.txt"
 else
-    echo "[!] requirements.txt not found — skipping Python dependencies."
+    echo "[!] requirements.txt not found, skipping Python dependencies."
 fi
 
 # -------------------------

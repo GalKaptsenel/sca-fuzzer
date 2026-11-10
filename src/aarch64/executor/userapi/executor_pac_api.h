@@ -21,7 +21,7 @@
 /*
  * PAC key set. Userspace mirror of the kernel's struct pac_keys (executor/pac.h); defined here only
  * for userspace so it does not clash with the kernel definition. Keys are carried per-request in
- * struct pac_sign_req and per-input in the REIF PAC_KEYS section — the kernel stores none of its own.
+ * struct pac_sign_req and per-input in the REIF PAC_KEYS section, the kernel stores none of its own.
  */
 #ifndef __KERNEL__
 struct pac_keys {
@@ -40,12 +40,12 @@ _Static_assert(sizeof(struct pac_keys) == 80, "pac_keys ABI: 5 keys * {lo,hi} = 
  * Execute a PAC sign or auth instruction at EL1 under the request's `keys`, loaded for this one
  * instruction and restored afterwards. The keys travel with the request; the kernel keeps no
  * PAC-key state of its own, so nothing can leak across tests or campaigns. keys_present MUST be set
- * for sign/auth — a request without it is rejected (-EINVAL), never signed under a default. XPAC is
+ * for sign/auth, a request without it is rejected (-EINVAL), never signed under a default. XPAC is
  * key-independent and ignores both fields.
  *
  * ptr          : raw pointer to sign, or signed pointer to authenticate.
  * ctx          : context/modifier (ignored for zero-context *IZ* / *DZ* variants).
- * mnemonic     : NUL-terminated — one of:
+ * mnemonic     : NUL-terminated, one of:
  *                  sign: pacia pacib pacda pacdb paciza pacizb pacdza pacdzb
  *                  auth: autia autib autda autdb autiza autizb autdza autdzb
  * result       : filled in by the kernel on return.

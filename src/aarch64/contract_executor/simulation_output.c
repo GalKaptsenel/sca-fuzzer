@@ -23,7 +23,7 @@ static inline contract_trace_t* alloc_contract_trace(size_t num_entries) {
 }
 
 /* Double the trace log when it fills, so the contract trace is never truncated and no exploration
- * depth is capped — the whole speculative fan-out is recorded. The buffer holds no live pointers across
+ * depth is capped, the whole speculative fan-out is recorded. The buffer holds no live pointers across
  * log calls (trace_pop_last returns by value; loggers fill the returned entry immediately), so realloc
  * is safe. Growth is bounded in practice by the acyclic (forward-only) call/branch graph; only genuine
  * memory exhaustion stops it, and that fails loudly at the call site. Returns 1 on success, 0 if the
@@ -270,7 +270,7 @@ static void fill_mem_access(mem_access_t* acc, uintptr_t kea, uint64_t elem_sz,
 
 	/* The sandbox allocation includes a full page of padding after mem_size (see main.c) so a
 	 * boundary overflow of up to one element is safe. A read of the executable image (a dispatch
-	 * jump-table entry) is already a valid CE address — read it directly, without sandbox translation. */
+	 * jump-table entry) is already a valid CE address, read it directly, without sandbox translation. */
 	uint64_t value_64bit = 0;
 	uintptr_t code_lo = (uintptr_t)simulation.sim_code.code;
 	uintptr_t code_hi = code_lo + simulation.sim_code.code_size + simulation.sim_code.data_size;
@@ -372,7 +372,7 @@ static instr_trace_entry_t* log_sim_state(struct simulation_state* sim_state) {
 	 * LR save/restore appears in the contract footprint exactly as it does in the HTrace on hardware. */
 	/* Every access is recorded, including a load from the executable image (the dispatch jump table read
 	 * by ADR+LDRSW): it is an ordinary memory access whose cache set is fixed by the table's page offset
-	 * (base-independent, so it matches the kernel) and varies with the input-hashed index — a real
+	 * (base-independent, so it matches the kernel) and varies with the input-hashed index, a real
 	 * observation, not to be hidden. */
 	/* MTE tag-memory ops (LDG/STG family) touch separate tag storage, not the data cache, so they
 	 * are not sandbox (data) accesses and do not belong in the contract footprint. */
@@ -408,7 +408,7 @@ void* log_instr_with_speculation_nesting(struct simulation_state* sim_state, uin
  * loads that read the stale value (which must therefore taint the input) but BEFORE the
  * architectural continuation (which still sees the committed store). */
 
-/* Pop the last trace entry and return it BY VALUE — the caller keeps a copy, never a pointer into
+/* Pop the last trace entry and return it BY VALUE, the caller keeps a copy, never a pointer into
  * the trace buffer that later logging would overwrite. Caller invariant: the trace is non-empty. */
 instr_trace_entry_t trace_pop_last(void) {
 	if(NULL == trace_log || 0 == current_log_index) __builtin_trap();

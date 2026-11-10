@@ -544,7 +544,7 @@ class Conf:
             if c.startswith("__"):
                 continue
             values = getattr(config, c)
-            # carry None through (Optional options default to None — "unset")
+            # carry None through (Optional options default to None, "unset")
             if values is not None and type(values) not in [bool, int, float, str, dict, list]:
                 continue
             config_defaults[c] = values

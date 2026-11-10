@@ -1,5 +1,5 @@
 #include "execution_clause_rsb.h"
-#include "call_stack.h"                        /* call_stack_peek/pop — the architectural (true) return */
+#include "call_stack.h"                        /* call_stack_peek/pop, the architectural (true) return */
 #include "instruction_encodings.h"             /* classify_branch, barrier_fences_control */
 #include "simulation_input.h"                  /* EXEC_CLAUSE_RSB */
 #include "simulation_execution_clause_hook.h"  /* spec_request_window, spec_nesting, ... */
@@ -9,7 +9,7 @@
  * The hardware RSB is a small FIXED-DEPTH stack of return addresses: a BL/BLR pushes the address after
  * it, a RET pops. Because it is finite, a call chain deeper than the RSB overwrites its oldest entries,
  * so the matching (deep) RETs pop STALE addresses and the frontend speculatively runs there until the
- * real return — recovered from the architectural stack/X30 — squashes it.
+ * real return, recovered from the architectural stack/X30, squashes it.
  *
  * We model that against the architectural call stack (call_stack), which is unbounded and therefore
  * always holds the true return. A finite shadow RSB (depth RSB_DEPTH, a plain circular buffer) mirrors
@@ -18,12 +18,12 @@
  * RET whose shadow prediction differs from the true return, open a window exploring the prediction and
  * resuming at the true return.
  *
- * Only the architectural instruction stream trains the shadow — a wrong-path call/return never retires,
+ * Only the architectural instruction stream trains the shadow, a wrong-path call/return never retires,
  * so it must not update the RSB; and because the shadow changes only on the (linear) architectural path,
  * it needs no per-window checkpoint. */
 
 /* Approximate Neoverse N3 RSB depth. The exact value is not yet reverse-engineered (see the BPU RE
- * notes); until it is, this is a plausible placeholder — a smaller value catches shallower ret2spec
+ * notes); until it is, this is a plausible placeholder, a smaller value catches shallower ret2spec
  * chains, a larger one is more conservative. */
 #define RSB_DEPTH 16
 

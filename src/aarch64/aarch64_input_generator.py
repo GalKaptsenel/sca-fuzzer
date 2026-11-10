@@ -1,5 +1,5 @@
 """
-File: AArch64 input generator — per-flag NZCV randomisation of the flags slot.
+File: AArch64 input generator, per-flag NZCV randomisation of the flags slot.
 """
 import numpy as np
 from typing import List, Optional, Tuple

@@ -1,5 +1,5 @@
 /*
- * CE unit tests — instruction encoding/decoding, branch classification,
+ * CE unit tests, instruction encoding/decoding, branch classification,
  * condition evaluation, address computation, input loading, register
  * layout, hooking-phase invariants, and fixup mechanism.
  *
@@ -96,30 +96,30 @@ uint64_t spec_max_nesting(void) { return 0; }
 #define ENC_BLR_X0       0xD63F0000u
 /* NOP */
 #define ENC_NOP          0xD503201Fu
-/* LDR  X0, [X1] — unsigned offset, offset=0 */
+/* LDR  X0, [X1], unsigned offset, offset=0 */
 #define ENC_LDR_X0_X1    0xF9400020u
 /* STR  X0, [X1] */
 #define ENC_STR_X0_X1    0xF9000020u
-/* LDR  X0, [X1, #8] — unsigned offset */
+/* LDR  X0, [X1, #8], unsigned offset */
 #define ENC_LDR_X0_X1_8  0xF9400060u
-/* LDR  X0, [X1, #8]! — pre-index */
+/* LDR  X0, [X1, #8]!, pre-index */
 #define ENC_LDR_PREIDX   0xF8408C20u
-/* LDR  X0, [X1], #8 — post-index */
+/* LDR  X0, [X1], #8, post-index */
 #define ENC_LDR_POSTIDX  0xF8408420u
 /*
- * LDP X0, X2, [X1] — signed offset, 64-bit.
+ * LDP X0, X2, [X1], signed offset, 64-bit.
  * Encoding: opc=10, bits[29:27]=101, V=0, bits[24:23]=10 (signed offset),
  * L=1, imm7=0, Rt2=2 (bits[14:10]=00010→bit11=1), Rn=1, Rt=0.
  * byte3=0xA9 byte2=0x40 byte1=0x08 byte0=0x20 → 0xA9400820
  */
 #define ENC_LDP_X0_X2_X1 0xA9400820u
-/* STP X0, X2, [X1] — same layout, L=0 (bit22=0) → 0xA9000820 */
+/* STP X0, X2, [X1], same layout, L=0 (bit22=0) → 0xA9000820 */
 #define ENC_STP_X0_X2_X1 0xA9000820u
-/* LDRSW X0, [X1] — size=10, opc=10 (load, sign-extend to 64): a load whose opc[0]=0 */
+/* LDRSW X0, [X1], size=10, opc=10 (load, sign-extend to 64): a load whose opc[0]=0 */
 #define ENC_LDRSW_X0_X1  0xB9800020u
-/* STP X0, X2, [X1, #imm]! — pre-index (bit23=1) store; opc[23:22]=10 would mis-read as a load */
+/* STP X0, X2, [X1, #imm]!, pre-index (bit23=1) store; opc[23:22]=10 would mis-read as a load */
 #define ENC_STP_PREIDX   0xA9800820u
-/* PRFM (pfrop), [X1] — size=11, opc=10: a hint, neither load nor store */
+/* PRFM (pfrop), [X1], size=11, opc=10: a hint, neither load nor store */
 #define ENC_PRFM_X1      0xF9800020u
 /* LDR  X0, #0 (literal, offset=0) */
 #define ENC_LDR_LIT_X0   0x58000000u
@@ -167,7 +167,7 @@ static void test_evaluate_cond_target(void) {
     /* TBZ X0, #0, +8 */
     EXPECT_EQ(evaluate_cond_target(pc, ENC_TBZ_X0_B0_PLUS8), (uintptr_t)(pc + 8));
 
-    /* TBZ X0, #32, +8 — same target computation regardless of bit number */
+    /* TBZ X0, #32, +8, same target computation regardless of bit number */
     EXPECT_EQ(evaluate_cond_target(pc, ENC_TBZ_X0_B32_PLUS8), (uintptr_t)(pc + 8));
 
     /* Negative offset: B.EQ -4 (imm19=-1=0x7FFFF) */
@@ -341,15 +341,15 @@ static void test_barrier_kind(void) {
     EXPECT(barrier_fences_store_bypass(0xD5033B9Fu));   /* dsb ish */
     EXPECT(barrier_fences_store_bypass(0xD5033FDFu));   /* isb */
     EXPECT(barrier_fences_store_bypass(0xD50330FFu));   /* sb */
-    EXPECT(!barrier_fences_store_bypass(0xD5033FBFu));  /* dmb — ordering only */
+    EXPECT(!barrier_fences_store_bypass(0xD5033FBFu));  /* dmb, ordering only */
     EXPECT(!barrier_fences_store_bypass(0xD503229Fu));  /* csdb */
 
     /* control speculation is fenced only by SB, ISB, and full-system DSB SY */
     EXPECT(barrier_fences_control(0xD50330FFu));        /* sb */
     EXPECT(barrier_fences_control(0xD5033FDFu));        /* isb */
     EXPECT(barrier_fences_control(0xD5033F9Fu));        /* dsb sy */
-    EXPECT(!barrier_fences_control(0xD5033B9Fu));       /* dsb ish — narrower, unsound to cut */
-    EXPECT(!barrier_fences_control(0xD503309Fu));       /* ssbb — store bypass only */
+    EXPECT(!barrier_fences_control(0xD5033B9Fu));       /* dsb ish, narrower, unsound to cut */
+    EXPECT(!barrier_fences_control(0xD503309Fu));       /* ssbb, store bypass only */
     EXPECT(!barrier_fences_control(0xD5033FBFu));       /* dmb */
     EXPECT(!barrier_fences_control(0xD503229Fu));       /* csdb */
 }
@@ -522,9 +522,9 @@ static void test_input_header_validation(void) {
 /* ======================================================================== */
 
 static void test_pair_access_size(void) {
-    uint32_t ldp_w = 0x29400420u;     /* LDP W0, W2, [X1] — 32-bit */
-    uint32_t ldpsw = 0x69400820u;     /* LDPSW X0, X2, [X1] — opc=01, two 4-byte words */
-    uint32_t stnp  = 0xA8000820u;     /* STNP X0, X2, [X1] — no-allocate pair (bits[25:23]=000) */
+    uint32_t ldp_w = 0x29400420u;     /* LDP W0, W2, [X1], 32-bit */
+    uint32_t ldpsw = 0x69400820u;     /* LDPSW X0, X2, [X1], opc=01, two 4-byte words */
+    uint32_t stnp  = 0xA8000820u;     /* STNP X0, X2, [X1], no-allocate pair (bits[25:23]=000) */
     EXPECT_EQ(pair_element_access_size(ldp_w), 4u);
     EXPECT_EQ(pair_element_access_size(ldpsw), 4u);   /* LDPSW: 4-byte elements (once trapped as SIGILL) */
     EXPECT_EQ(pair_element_access_size(ENC_LDP_X0_X2_X1), 8u);
@@ -537,7 +537,7 @@ static void test_pair_access_size(void) {
 /* ======================================================================== */
 
 static void test_literal_access_size(void) {
-    uint32_t ldr_lit_w = 0x18000000u;  /* LDR W0, #0 — 32-bit */
+    uint32_t ldr_lit_w = 0x18000000u;  /* LDR W0, #0, 32-bit */
     EXPECT_EQ(literal_pc_relative_access_size(ldr_lit_w), 4u);
     EXPECT_EQ(literal_pc_relative_access_size(ENC_LDR_LIT_X0), 8u);
 }
@@ -909,7 +909,7 @@ static void test_input_init_pac_keys_wrong_size_rejected(void) {
 }
 
 /* ======================================================================== */
-/* ---- GROUP 22: GPR layout — gpr[29-N] == xN --------------------------- */
+/* ---- GROUP 22: GPR layout, gpr[29-N] == xN --------------------------- */
 /* ======================================================================== */
 
 static void test_gpr_layout(void) {
@@ -1013,7 +1013,7 @@ static void test_xreg_access_semantics(void) {
     uint64_t xzr_read = 0;  /* invariant: always 0 */
     EXPECT_EQ(xzr_read, (uint64_t)0);
 
-    /* XZR write: no-op — nothing in cpu_state changes */
+    /* XZR write: no-op, nothing in cpu_state changes */
     memset(&s, 0, sizeof(s));
     s.sp = 0xAAAA;
     uint64_t sp_before = s.sp;
@@ -1053,7 +1053,7 @@ static void test_nzcv_bit_positions(void) {
     EXPECT((all_set >> 29) & 1);
     EXPECT((all_set >> 28) & 1);
 
-    /* Only N set — other flags must be clear */
+    /* Only N set, other flags must be clear */
     uint32_t n_only = 1u << 31;
     EXPECT( ((n_only >> 31) & 1)); /* N=1 */
     EXPECT(!((n_only >> 30) & 1)); /* Z=0 */
@@ -1198,7 +1198,7 @@ static void test_addr_translation_logic(void) {
 }
 
 /* ======================================================================== */
-/* ---- GROUP 31: cpu_state_read/write_base_reg — dispatch correctness ---- */
+/* ---- GROUP 31: cpu_state_read/write_base_reg, dispatch correctness ---- */
 /* ======================================================================== */
 
 static void test_fixup_base_reg_rw(void) {
@@ -1257,7 +1257,7 @@ static void test_fixup_base_reg_rw(void) {
 }
 
 /* ======================================================================== */
-/* ---- GROUP 32: fixup simulate — translate, execute, translate back ----- */
+/* ---- GROUP 32: fixup simulate, translate, execute, translate back ----- */
 /* ======================================================================== */
 
 static void test_fixup_simulate_roundtrip(void) {
@@ -1474,7 +1474,7 @@ static void test_fixup_all_registers_roundtrip(void) {
 }
 
 /* ======================================================================== */
-/* ---- GROUP 38: Hook isolation — sim_state copy is immune to *state writes */
+/* ---- GROUP 38: Hook isolation, sim_state copy is immune to *state writes */
 /* ======================================================================== */
 
 static void test_hook_isolation(void) {
@@ -1487,7 +1487,7 @@ static void test_hook_isolation(void) {
      *   cpu_state_write_base_reg(state, rn, uaddr);  ← LAST write
      *
      * After that last write, state->Rn == uaddr.
-     * But sim_state.cpu_state.Rn is untouched — it was copied before translation.
+     * But sim_state.cpu_state.Rn is untouched, it was copied before translation.
      * A hook would see sim_state, which still holds kaddr.
      *
      * We prove this for every Rn 0..31 by:
@@ -1519,7 +1519,7 @@ static void test_hook_isolation(void) {
         /* state (the real machine state) now holds uaddr */
         EXPECT_EQ(cpu_state_read_base_reg(&state, rn), uaddr);
 
-        /* they are genuinely different — hook never saw uaddr */
+        /* they are genuinely different, hook never saw uaddr */
         EXPECT(cpu_state_read_base_reg(&hook_view, rn) !=
                cpu_state_read_base_reg(&state, rn));
     }
@@ -1598,7 +1598,7 @@ static void test_compare_branch_taken(void) {
         EXPECT_EQ(((reg >> bit_n) & 1) == 0 ? tgt : pc + 4, pc + 4);
     }
 
-    /* --- TBZ X0, #32, PC+8 — tests the b5 extraction fix --- */
+    /* --- TBZ X0, #32, PC+8, tests the b5 extraction fix --- */
     {
         uint32_t insn = ENC_TBZ_X0_B32_PLUS8;
         EXPECT_EQ(classify_branch(insn), BRANCH_TBZ);
@@ -1636,7 +1636,7 @@ static void test_compare_branch_taken(void) {
 }
 
 /* ======================================================================== */
-/* ---- GROUP 40: B.cond full dispatch — all 16 conditions × two NZCV vals  */
+/* ---- GROUP 40: B.cond full dispatch, all 16 conditions × two NZCV vals  */
 /* ======================================================================== */
 
 static void test_bcond_integration(void) {
@@ -1747,7 +1747,7 @@ static void test_fixup_chain_with_arithmetic(void) {
         }
         EXPECT_EQ(cpu_state_read_base_reg(&s, 1), kaddr);
 
-        /* ADD X1, X1, #16 — no fixup involvement */
+        /* ADD X1, X1, #16, no fixup involvement */
         cpu_state_write_base_reg(&s, 1, cpu_state_read_base_reg(&s, 1) + 16);
         EXPECT_EQ(cpu_state_read_base_reg(&s, 1), kaddr + 16);
 
@@ -1846,11 +1846,11 @@ static void test_fixup_chain_with_arithmetic(void) {
 /* ---- main -------------------------------------------------------------- */
 /* ======================================================================== */
 
-/* ---- GROUP 42: cond_branch_is_taken — resolved direction (real resolver) ----------------- */
+/* ---- GROUP 42: cond_branch_is_taken, resolved direction (real resolver) ----------------- */
 
 /* Regression: a conditional branch whose taken-target is pc+4 (e.g. B.cond .+4). The resolved
  * direction must come from the condition itself, NOT be inferred from (target == architectural
- * next) — that comparison is true for BOTH directions when target == pc+4, so the old derivation
+ * next), that comparison is true for BOTH directions when target == pc+4, so the old derivation
  * misread a not-taken branch as taken (corrupting table training and the PHR fold). */
 static void test_cond_branch_is_taken_target_is_next_insn(void) {
     uint32_t insn = 0x54000020u;        /* B.EQ .+4  (imm19=1, cond=EQ) */
@@ -1864,7 +1864,7 @@ static void test_cond_branch_is_taken_target_is_next_insn(void) {
     /* Not taken (Z=0 -> EQ fails): the real resolver must say NOT taken ... */
     s.nzcv = 0;
     EXPECT(!cond_branch_is_taken(&s));
-    /* ... even though (target == architectural_next) reads as TAKEN here — the old bug. */
+    /* ... even though (target == architectural_next) reads as TAKEN here, the old bug. */
     EXPECT_EQ(evaluate_cond_target(s.pc, insn), cond_branch_architectural_next(&s));
 
     /* Taken (Z=1 -> EQ holds): architectural next is the target (which is pc+4). */

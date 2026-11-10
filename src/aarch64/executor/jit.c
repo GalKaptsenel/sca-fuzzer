@@ -216,7 +216,7 @@ int __nocfi jit_perm_rx(jit_t* jit) {
 	return 0;
 }
 
-// CFP RCTX, <Xt=rt>  — prediction-restriction by context
+// CFP RCTX, <Xt=rt> , prediction-restriction by context
 void jit_cfp_rctx(jit_t* jit, int rt) {
 	uint32_t insn = 0xd50b7380;
 	JIT_ASSERT(0 <= rt && rt <= 31);

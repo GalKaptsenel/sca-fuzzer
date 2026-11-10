@@ -277,7 +277,7 @@ class Aarch64PatchUndefinedLoadsStoresPass(Pass):
         # Single-register load/store with writeback: the transferred register (ops[0]) must differ
         # from the base; t == n is CONSTRAINED UNPREDICTABLE.
         if not self._writes_back(inst):
-            return  # unsigned-offset or register-offset form — no writeback
+            return  # unsigned-offset or register-offset form, no writeback
 
         ops = inst.operands
         if len(ops) < 2:
@@ -345,7 +345,7 @@ class Aarch64PatchUndefinedLoadsStoresPass(Pass):
 
     def _patch_stp_writeback(self, inst: Instruction) -> None:
         if not self._writes_back(inst):
-            return  # unsigned-offset form — no writeback constraint
+            return  # unsigned-offset form, no writeback constraint
 
         ops = inst.operands
         if len(ops) < 3:
@@ -526,8 +526,7 @@ class Aarch64CallFramePass(Pass):
     prologue that spills X30 on entry and an epilogue that restores it before the return. Leaf
     functions never clobber X30, and the inline entry function never returns, so neither needs a frame.
 
-    The spills use SP, which the harness points into upper_overflow — outside the sandbox data region —
-    so they are pure instrumentation: template-only (no memory operand), hence skipped by the sandbox
+    The spills use SP, which the harness points into upper_overflow, outside the sandbox data region,    so they are pure instrumentation: template-only (no memory operand), hence skipped by the sandbox
     pass, and invisible to the contract (the kernel keeps them out of the probed sets; the contract
     executor exempts SP-based accesses). X29 is the sandbox base and is never used as a frame pointer."""
 
@@ -554,11 +553,11 @@ class Aarch64CallFramePass(Pass):
 class Aarch64IndirectCallPass(Pass):
     """Materialize each indirect call's target register (Xd) before its `BLR Xd`.
 
-    Default — single target: `ADR Xd, <fn>`, the PC-relative address of the forward callee, which
+    Default, single target: `ADR Xd, <fn>`, the PC-relative address of the forward callee, which
     resolves identically in the contract executor and the kernel (unlike ADRP/#:lo12:, whose relocations
     the non-linking assembler leaves unresolved).
 
-    At dispatch_call_probability, where the caller has >= 2 forward callees — multi-target dispatch
+    At dispatch_call_probability, where the caller has >= 2 forward callees, multi-target dispatch
     through the caller's own jump table (emitted by the printer as trailing PC-relative offsets):
 
         AND   Xi, Xi, #(N-1)            hash an input register to an in-table index (N = table size, pow2)

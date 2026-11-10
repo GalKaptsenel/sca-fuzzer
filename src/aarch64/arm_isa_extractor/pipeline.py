@@ -10,7 +10,7 @@ from .models import ExtractionError
 
 def build_json(out_json, xml_dir) -> dict:
     """Stages 2+3: parse every instruction XML in *xml_dir* and write *out_json*.
-    Returns {filename: loud-fail message} for encodings not yet handled — they are skipped
+    Returns {filename: loud-fail message} for encodings not yet handled, they are skipped
     and reported, never silently wrong."""
     arch_constants = architectural_constants(os.path.join(str(xml_dir), "shared_pseudocode.xml"))
     instructions, failures = [], {}

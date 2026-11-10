@@ -10,7 +10,7 @@ class BP(ABC):
 
     Inlined here (rather than imported from directed_fuzzing) so this module is fully
     self-contained: the contract executor loads it directly, and the relocatable
-    remote-fuzzing bundle needs only this single file — not the wider package tree.
+    remote-fuzzing bundle needs only this single file, not the wider package tree.
     """
     @abstractmethod
     def update(self, address: int, taken: bool, target: Optional[int] = None) -> None:
@@ -280,8 +280,8 @@ class PHR:
 class BimodalBP(BP):
     """Bimodal base predictor (TAGE T0): PC-indexed saturating counters, untagged, always predicts.
 
-    A cold index returns the weakly-not-taken default. predict() is a PURE read — no allocation and
-    no eviction — so a lookup (including a wrong-path speculative one) never mutates state; counters
+    A cold index returns the weakly-not-taken default. predict() is a PURE read, no allocation and
+    no eviction, so a lookup (including a wrong-path speculative one) never mutates state; counters
     are created and trained only by update() at retire. Untagged like a real bimodal, so there are
     no read-time fills and no tag thrashing (unlike a tagged LRU cache used as the base)."""
     def __init__(self, counter_bit_width: int, num_sets: int):
@@ -353,7 +353,7 @@ class Aarch64NeoverseN3BPU(BP):
     misprediction the provider is trained and one weakly-correct entry is allocated in the first
     longer table that has a tag miss.
 
-    Speculation — textbook TAGE + speculative global history (Seznec & Michaud 2006):
+    Speculation, textbook TAGE + speculative global history (Seznec & Michaud 2006):
       * predict() only reads; it never mutates predictor state.
       * The PHR (global history) is advanced SPECULATIVELY at fetch with the predicted direction
         (advance()), snapshotted when a misprediction opens a window (checkpoint()), and restored on
@@ -363,19 +363,19 @@ class Aarch64NeoverseN3BPU(BP):
         which the driver gates to spec_nesting()==0). Wrong-path branches never retire, so they
         never train the tables and the tables need no speculative rollback.
 
-    NOT modelled (deliberate — only known / reverse-engineered behaviour is simulated; see kb-bpu-re):
+    NOT modelled (deliberate, only known / reverse-engineered behaviour is simulated; see kb-bpu-re):
       * the useful ("u") bit and everything it drives: u-gated victim choice and periodic u aging on
         allocation. Replacement here is plain LRU within a set. (The N3 u-bit mechanics are a known
         not-yet-RE'd gap.)
-      * altpred / USE_ALT_ON_NA — the fall-back to the next-shorter table for a freshly allocated,
+      * altpred / USE_ALT_ON_NA, the fall-back to the next-shorter table for a freshly allocated,
         low-confidence provider.
-      * canonical geometric history lengths — the RE'd N3 lengths (172, 300) are used instead.
-      * outcome history — canonical TAGE shifts one direction bit per branch; this folds (pc, target)
+      * canonical geometric history lengths, the RE'd N3 lengths (172, 300) are used instead.
+      * outcome history, canonical TAGE shifts one direction bit per branch; this folds (pc, target)
         on TAKEN branches only, i.e. it is *path* history (matching the RE'd N3 PHR), not per-branch
         outcome history.
     """
     def __init__(self, fold_group_width: int, tag_width: int):
-        # NOT-yet-RE'd geometry — these are placeholders that MUST be fully reverse-engineered, not
+        # NOT-yet-RE'd geometry, these are placeholders that MUST be fully reverse-engineered, not
         # confirmed N3 facts: the PHR fold-group width for the index/tag (the fold algorithm AND its
         # width are a model, not an RE result) and the tagged-table tag width (no RE basis at all).
         # Both are required with no default, so the unverified choice is made explicitly at the
@@ -407,7 +407,7 @@ class Aarch64NeoverseN3BPU(BP):
         # `fold_group_width`-bit groups, so the whole history (not just its low bits) selects the
         # entry, and the tag is masked to `tag_width` bits. The two tagged tables fold different
         # history lengths (172 vs 300) -> distinct index/tag, which is what separates them.
-        # WARNING: this fold (algorithm + width) and the tag width are NOT reverse-engineered — they
+        # WARNING: this fold (algorithm + width) and the tag width are NOT reverse-engineered, they
         # are a plausible model and must be RE-ed before the predictor is trusted (see kb-bpu-re).
         def generate_index_fn(phr_len: int) -> Callable[[int], int]:
             def index_fn(address: int):

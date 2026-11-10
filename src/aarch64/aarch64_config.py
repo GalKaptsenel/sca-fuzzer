@@ -49,7 +49,7 @@ _option_values = {
     ],
     # Valid actor keys. UNUSED by AArch64 Revizor: 'observer' (multi-actor
     # speculative-exception), 'data_ept_properties' (stage-2), and 'fault_blocklist'
-    # (no fault support) — AArch64 runs a single host/kernel actor.
+    # (no fault support), AArch64 runs a single host/kernel actor.
     'actor': [
         'name',
         'mode',
@@ -256,7 +256,7 @@ canonicality_mask: Optional[int] = None
 # SignExtGvtAccess (composed with PAC): on the speculative decoy, break a pointer's sign-extension by
 # flipping bit 55 (the TTBR0/TTBR1 regime selector) right before a PAC-authenticated access, then flip
 # it back. The regime selector then disagrees with the never-flipped sign-extension bits [54:VA], so the
-# address is non-canonical in either regime and under TBI on or off — a translation fault. The top byte
+# address is non-canonical in either regime and under TBI on or off, a translation fault. The top byte
 # [63:56] is never flipped: bit 55 already faults either way, while a top-byte flip faults only with TBI
 # off. Needs the PAC category active (the sign-ext flip composes with the per-access PAC auth).
 enable_signext: bool = False
@@ -490,7 +490,7 @@ instruction_blocklist.extend(_buggy_instructions)
 register_allowlist: List[str] = []
 
 # Usable by the generator: x0-x5 (plus NZCV/SP via their input slots).
-# Reserved (blocked): x6-x30 and sp — used internally by the executor sandbox/instrumentation.
+# Reserved (blocked): x6-x30 and sp, used internally by the executor sandbox/instrumentation.
 register_blocklist: List[str] = [
     *[f'x{number}' for number in range(6, 31)], 'sp',
     *[f'w{number}' for number in range(6, 31)], 'wsp',

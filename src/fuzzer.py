@@ -163,7 +163,7 @@ class FuzzerGeneric(Fuzzer):
                                               num_inputs, timeout)
 
         self.LOG.fuzzer_start(num_test_cases, start_time, timeout, self.work_dir, rerun_cmd)
-        self.LOG.inform("fuzzer", f"seeds — program:{prog_seed} input:{input_seed}")
+        self.LOG.inform("fuzzer", f"seeds, program:{prog_seed} input:{input_seed}")
 
         # Bulk tier: pack a window of test cases' fast paths into one device super-batch. Needs
         # fast-path boosting and an executor that supports it; otherwise window=1 keeps the classic
@@ -884,7 +884,7 @@ class FuzzerGeneric(Fuzzer):
                 except HardwareTracingError as e:
                     # A malformed device response during priming is an inconclusive measurement, not a
                     # confirmed violation. Treat it like the null-htrace tracing error below (skip the
-                    # test case) rather than letting it crash the campaign — this is the third
+                    # test case) rather than letting it crash the campaign, this is the third
                     # measurement site that must be as resilient as the classic and bulk paths.
                     STAT.hw_tracing_errors += 1
                     self.LOG.warning("fuzzer", f"Tracing error during priming ({e}). "
@@ -1085,7 +1085,7 @@ class SpeculativeExceptionFuzzer(FuzzerGeneric):
             return [], []
         variants = [self.executor.variants_for_input(inp) for inp in inputs]
         # Non-interference compares only the variants of ONE input (its genuine baseline vs its own
-        # decoys) — the GVT access is the only thing that may differ. Keying the class by the input's own
+        # decoys), the GVT access is the only thing that may differ. Keying the class by the input's own
         # identity keeps two different arch inputs out of the same class even when they share a ctrace
         # and GVT access class, so a data-dependent (Spectre-v1) htrace split can't masquerade as a tag leak.
         class_ctraces = [CTrace(ctr.raw + [hash(self.executor.gvt_access_class_of(inp)) & 0xFFFFFFFF,

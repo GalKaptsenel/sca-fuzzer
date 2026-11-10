@@ -51,7 +51,7 @@ int execution_clauses_supported(uint64_t clauses) {
 		case EXEC_CLAUSE_SLS | EXEC_CLAUSE_BPAS | EXEC_CLAUSE_BARRIER:
 		case EXEC_CLAUSE_SLS | EXEC_CLAUSE_COND | EXEC_CLAUSE_BPAS | EXEC_CLAUSE_BARRIER:
 		/* rsb composes with cond/bpas/barrier (its prediction rides the call stack, which is already
-		 * checkpointed across foreign windows). Not with bpu/sls yet — those interactions are untested. */
+		 * checkpointed across foreign windows). Not with bpu/sls yet, those interactions are untested. */
 		case EXEC_CLAUSE_RSB:
 		case EXEC_CLAUSE_RSB | EXEC_CLAUSE_COND:
 		case EXEC_CLAUSE_RSB | EXEC_CLAUSE_BPAS:

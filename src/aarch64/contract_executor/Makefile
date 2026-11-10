@@ -8,7 +8,7 @@ LDFLAGS =
 PYTHON_CFLAGS = $(shell python3-config --embed --cflags)
 PYTHON_LDFLAGS = $(shell python3-config --embed --ldflags)
 
-# All headers — sources are compiled in a single shot (no .o/.d files to track),
+# All headers, sources are compiled in a single shot (no .o/.d files to track),
 # so any header change must force a full rebuild of every target.
 HDRS = $(wildcard *.h)
 

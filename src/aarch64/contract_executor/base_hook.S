@@ -6,7 +6,7 @@
  * v0-v31 from the GVT image (sim_input.simd) after the call. The test case reads the GVT image via
  * UMOV but never writes the vector registers, so reloading them from the authoritative image each
  * step both (a) undoes the C callees' (fprintf/malloc/Python) clobbering of caller-saved vectors and
- * (b) lets an op-emulator inject a value by writing the image buffer during the hook — the UMOV then
+ * (b) lets an op-emulator inject a value by writing the image buffer during the hook, the UMOV then
  * reads it. gvt_image_target is patched at runtime to &sim_input.simd. */
 base_hook:
 	/* Save context */

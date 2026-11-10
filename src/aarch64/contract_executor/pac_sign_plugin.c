@@ -263,12 +263,12 @@ static uint64_t model_auth(auth_type_t atype, uint64_t ptr, uint64_t ctx, uintpt
  * PC+4 to skip the original instruction.
  *
  * auth_verify_hook splits on speculation depth (is_in_speculation()):
- *   - Architectural path (nesting==0): call kernel AUT — correct architectural
+ *   - Architectural path (nesting==0): call kernel AUT, correct architectural
  *     behavior, matches what the hardware TC executes.
  *   - Speculative path (nesting>0): run XPAC instead of AUT.  AUT in
  *     speculation would allow the speculative trace to observe whether a
  *     pointer is correctly signed (success vs. corrupted address), leaking PAC
- *     key information.  XPAC strips the tag unconditionally — NI-correct.
+ *     key information.  XPAC strips the tag unconditionally, NI-correct.
  * --------------------------------------------------------------------------- */
 
 void *pac_sign_hook(struct simulation_state *sim_state)

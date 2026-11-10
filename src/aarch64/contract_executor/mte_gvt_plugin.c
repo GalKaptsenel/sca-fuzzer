@@ -25,7 +25,7 @@ void mte_emulate_retag(struct simulation_state *sim_state, const struct emul_row
 		return;
 	}
 	/* An MTE_RETAG row only exists when MTE GVT access is active, so tag memory is seeded; a missing one
-	 * is a bug, not a tolerable state — fail loud, as the op dispatch does. */
+	 * is a bug, not a tolerable state, fail loud, as the op dispatch does. */
 	if (NULL == sim_state || !mte_tagmem_active()) {
 		fprintf(stderr, "[CE FATAL] mte_emulate_retag: sim_state=%p tagmem_active=%d -- aborting\n",
 			(void *)sim_state, mte_tagmem_active());

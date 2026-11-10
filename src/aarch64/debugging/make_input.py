@@ -4,8 +4,8 @@
 Layout produced (matches the kernel input_t in aarch64/executor/inputs.h):
   main_region[4K] + faulty_region[4K] + register region[4K]
 The register region's first 8 u64 slots are x0-x5, flags, sp (little-endian);
-unspecified bytes/registers are randomised. Register values — including flags
-and sp — are written verbatim (no NZCV re-encoding); the kernel may still
+unspecified bytes/registers are randomised. Register values, including flags
+and sp, are written verbatim (no NZCV re-encoding); the kernel may still
 override sp at run time. Intended as a manual debugging aid, not for fuzzing.
 """
 import json

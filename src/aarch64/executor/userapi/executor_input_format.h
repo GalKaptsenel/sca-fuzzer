@@ -2,7 +2,7 @@
 #define EXECUTOR_INPUT_FORMAT_H
 
 /*
- * REIF (Revizor Extensible Input File) — the authoritative, self-describing
+ * REIF (Revizor Extensible Input File), the authoritative, self-describing
  * structure of one input written to /dev/executor (and, when saved, a ".reif" file). Any writer
  * MUST produce exactly this; the kernel parses and validates strictly against it and rejects
  * anything that does not conform.

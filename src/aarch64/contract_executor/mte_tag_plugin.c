@@ -13,7 +13,7 @@
 #define HWCAP2_MTE (1UL << 18)
 #endif
 
-/* GMID_EL1.BS — log2 of the LDGM/STGM tag-block size, in granules. Fixed to 4 (a 16-granule,
+/* GMID_EL1.BS, log2 of the LDGM/STGM tag-block size, in granules. Fixed to 4 (a 16-granule,
  * 256-byte block), the known default for ARM Neoverse server, ARM Cortex High-Performance, and ARM
  * Cortex Efficiency cores. (GMID_EL1 is EL1-only, so the CE at EL0 cannot read it; other
  * implementations would have the kernel read GMID_EL1.BS at EL1 and pass it down.) */
@@ -52,7 +52,7 @@ bool mte_native(void) { return g_mte_native; }
  *
  * All handlers return PC+4 so the native instruction is skipped.
  *
- * All MTE instructions use 64-bit X registers exclusively — no W-register
+ * All MTE instructions use 64-bit X registers exclusively, no W-register
  * variants exist in the MTE extension.
  */
 
@@ -85,7 +85,7 @@ static inline void write_xreg(struct cpu_state *s, uint32_t n, uint64_t v)
  *   SUBG  bits[31:22]=1101000110  bits[15:14]=00      → mask 0xFFC0C000, val 0xD1800000
  *         fields: same as ADDG
  *
- * Memory-tag instructions — bits[31:24]=0xD9 (STGP uses 0x69):
+ * Memory-tag instructions, bits[31:24]=0xD9 (STGP uses 0x69):
  *   Within the 0xD9 family, bits[23:21] select sub-group and bits[11:10]
  *   distinguish multiple-granule forms (mode=00) from offset/pre/post-index:
  *     bits[23:21]=001: STZGM (mode=00) or STG  (mode≠00)
@@ -256,12 +256,12 @@ static int64_t mte_mem_offset(uint32_t enc) {
 }
 
 /* -------------------------------------------------------------------------
- * mte_emulator_hook — intercept all MTE instructions and software-emulate them.
+ * mte_emulator_hook, intercept all MTE instructions and software-emulate them.
  *
  * Size and extension rules (verified against ARM ISA DDI0487):
  *   - All MTE instructions use 64-bit X registers exclusively.
  *   - ADDG/SUBG: address part (bits[55:0]) and tag part (bits[59:56]) are
- *     updated independently — no carry propagates from address into tag.
+ *     updated independently, no carry propagates from address into tag.
  *     bits[63:60] are preserved unchanged.
  *   - SUBP/SUBPS: result is the 56-bit signed difference, sign-extended to
  *     64 bits from bit 55 (not bit 63).  Uses the shift trick to avoid UB.

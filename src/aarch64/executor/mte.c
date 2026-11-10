@@ -18,7 +18,7 @@ static int mte_kasan_selftest_set(const char *val, const struct kernel_param *kp
 	/* Flip the low bit of the pointer's allocation tag so the access tag mismatches the memory tag. */
 	volatile char *mis = (volatile char *)((((uint64_t)p) & ~(0xFULL << 56))
 	                                        | (((((((uint64_t)p) >> 56) & 0xF) ^ 0x1)) << 56));
-	module_err("mte_kasan_selftest: deliberate tag-mismatched read (orig=%px mis=%px) — expect a KASAN report\n",
+	module_err("mte_kasan_selftest: deliberate tag-mismatched read (orig=%px mis=%px), expect a KASAN report\n",
 	           p, (void *)mis);
 	READ_ONCE(*mis);   /* KASAN_HW_TAGS: tag-check fault -> report */
 	module_err("mte_kasan_selftest: returned from the mismatched read (KASAN reported & continued)\n");

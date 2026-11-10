@@ -56,7 +56,7 @@ _GENERAL_CLASSES = {
 }
 
 # name-priority functional classes that span categories or have unique names (checked before category)
-# MTE families (each instruction also carries the general "MTE" tag) — kept off the BASE-* tags so
+# MTE families (each instruction also carries the general "MTE" tag), kept off the BASE-* tags so
 # MTE generates only when an MTE category is enabled.
 _MTE_ARITH   = frozenset("addg subg subp subps".split())                # tagged-pointer arithmetic
 _MTE_TAGMEM_STORE = frozenset("stg st2g stz2g stzg stgm stgp stzgm".split())  # WRITE granule tags
@@ -230,7 +230,7 @@ def get_tags(inst: dict) -> list:
             tags.add("BASE-BRANCH-COND")
         elif name.startswith("ret"):                       # return
             tags.add("BASE-BRANCH-RET")
-        elif name.startswith("bl"):                        # bl/blr* — branch with link (call)
+        elif name.startswith("bl"):                        # bl/blr*, branch with link (call)
             tags.add("BASE-BRANCH-CALL")
         else:                                              # plain unconditional: b, br*
             tags.add("BASE-BRANCH-UNCOND")
@@ -238,7 +238,7 @@ def get_tags(inst: dict) -> list:
             tags.add("BASE-BRANCH-INDIRECT")
 
     if not tags:
-        raise ValueError(f"instruction {name!r} (category {cat!r}) got no tags — classification gap")
+        raise ValueError(f"instruction {name!r} (category {cat!r}) got no tags, classification gap")
     return sorted(tags)
 
 
@@ -266,7 +266,7 @@ def _esizes(inst: dict) -> list:
     each `imm_ranges` entry with its esize as `(esize, lo, hi, stride)`, where esize 0 means "applies to
     any element size" (the ordinary, single-range case). This returns the distinct non-zero esizes that
     any range-encoded immediate/extend operand varies over, or [0] when there are none. `_expand_instruction`
-    emits one spec per returned esize, and `_imm_values(op, esize)` then selects the matching range — so a
+    emits one spec per returned esize, and `_imm_values(op, esize)` then selects the matching range, so a
     plain `ADD #imm` yields one spec while an SVE shift yields one per 8/16/32/64-bit element."""
     sizes = {r[0] for op in inst["operands"]
              if OperandKind(op["kind"]) in (OperandKind.IMM, OperandKind.EXTEND) and not op["values"]
@@ -432,7 +432,7 @@ def _resolve_register_offset(mem_op: MemorySpec) -> bool:
 
 
 # Data-processing extended-register forms (ADD/SUB/...): the extend modifier names the source register
-# width — UXT{B,H,W}/SXT{B,H,W} extend a 32-bit Wm, UXTX/SXTX a 64-bit Xm, and LSL keeps the operation
+# width, UXT{B,H,W}/SXT{B,H,W} extend a 32-bit Wm, UXTX/SXTX a 64-bit Xm, and LSL keeps the operation
 # (destination) width. The asm offers the source width via `<R><m>` and the full extend set, so the
 # valid pairing is resolved per expanded form. (Memory address extends are handled above.)
 _TRUE_EXTENDS = frozenset({"uxtb", "uxth", "uxtw", "uxtx", "sxtb", "sxth", "sxtw", "sxtx"})
@@ -481,7 +481,7 @@ def _resolve_extend(operands: list, inst: dict) -> bool:
 
 
 def _resolve_bit_test(operands: list, control_flow: bool) -> bool:
-    """A bit-test branch (TBZ/TBNZ — the only control-flow form carrying both a register and an
+    """A bit-test branch (TBZ/TBNZ, the only control-flow form carrying both a register and an
     immediate) tests bit #imm of a register, so the bit position must be below the register width
     (0-31 for a 32-bit Wt, 0-63 for Xt). Clamp the immediate to the tested register's width."""
     if not control_flow:
@@ -718,7 +718,7 @@ def _synthetic_barrier_specs() -> list:
 def generate(ir_path: str, out_path: str, source: str = None) -> dict:
     """Turn the extractor IR JSON at *ir_path* into Revizor's base.json at *out_path*. Returns
     {encoding_name: error} for encodings not yet representable (a template placeholder with no operand,
-    e.g. SME ZA tiles; or an operand name reused with conflicting roles) — reported per encoding (so a
+    e.g. SME ZA tiles; or an operand name reused with conflicting roles), reported per encoding (so a
     skipped encoding doesn't implicate other encodings of the same mnemonic), never a broken spec.
     *source* is the provenance stamped on every extracted spec; defaults to the pinned ARM release."""
     if source is None:
@@ -745,7 +745,7 @@ def generate(ir_path: str, out_path: str, source: str = None) -> dict:
 # ---------------------------------------------------------------------------
 
 class Downloader:
-    """`Downloader(extensions, out_file).run()` — download ARM's XML, extract the IR, write base.json."""
+    """`Downloader(extensions, out_file).run()`, download ARM's XML, extract the IR, write base.json."""
 
     def __init__(self, extensions: list, out_file: str) -> None:
         self.extensions = extensions          # instr-class categories (kept for interface compatibility)

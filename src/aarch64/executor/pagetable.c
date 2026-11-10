@@ -246,7 +246,7 @@ bool pte_region_attr_is(void* start, size_t size, unsigned int attrindx) {
 	return true;
 }
 
-/* Raw leaf descriptor for `va` (0 if unmapped) — read-only attribute inspection. */
+/* Raw leaf descriptor for `va` (0 if unmapped), read-only attribute inspection. */
 uint64_t leaf_pte_val(void *va) {
 	pte_t *pte;
 	if (!ensure_init_mm()) { return 0; }
@@ -254,7 +254,7 @@ uint64_t leaf_pte_val(void *va) {
 	return NULL == pte ? 0 : (uint64_t)pte_val(*pte);
 }
 
-/* True only when `va` is mapped at 4K PTE granularity (never a block) — a guard so a PTE write can
+/* True only when `va` is mapped at 4K PTE granularity (never a block), a guard so a PTE write can
  * never accidentally touch a 2MB/1GB block covering unrelated memory. */
 static bool is_4k_pte_leaf(void *va) {
 	size_t v = (size_t)va;

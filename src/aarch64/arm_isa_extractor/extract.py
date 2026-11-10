@@ -75,8 +75,7 @@ def _build_instruction(section_id, category, explanations, asl, postdecode, sem,
 
 def iter_instructions(path, arch_constants: dict, failures: dict):
     """Yield one Instruction per encoding. Every encoding (or section) we cannot handle records
-    `failures[name] = reason` and is skipped, so one unhandled encoding never hides its siblings —
-    a miss is always reported, never silently dropped."""
+    `failures[name] = reason` and is skipped, so one unhandled encoding never hides its siblings,    a miss is always reported, never silently dropped."""
     tree = ET.parse(path)
     for section in tree.iter("instructionsection"):
         if section.get("type") != "instruction":

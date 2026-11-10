@@ -115,7 +115,7 @@ def decode_reg_accesses(encoding: int, pc: int,
             ARM64_CC_AL: set(),
             ARM64_CC_NV: set(),
         }
-        # Unknown condition code: conservatively assume all flags are read — a safe
+        # Unknown condition code: conservatively assume all flags are read, a safe
         # over-approximation for taint (never under-reports a branch's flag inputs).
         return cond_map.get(cc, {"N", "Z", "C", "V"})
 

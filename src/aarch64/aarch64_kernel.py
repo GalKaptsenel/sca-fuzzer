@@ -114,7 +114,7 @@ class HWExecutor(ABC):
 
     @abstractmethod
     def cpu_midr(self) -> int:
-        """MIDR_EL1 of the measuring core — its implementation identity (hence its PAC/QARMA)."""
+        """MIDR_EL1 of the measuring core, its implementation identity (hence its PAC/QARMA)."""
         raise NotImplementedError()
 
     def mte_tag_checking_supported(self) -> bool:
@@ -134,7 +134,7 @@ class InputRegion(ExecutorRegion):
         super().__init__()
         self.iid = iid
 
-# Mirror of userapi/executor_user_api.h — keep in sync with that header (the single source).
+# Mirror of userapi/executor_user_api.h, keep in sync with that header (the single source).
 # htrace channel: [0]=L1D (the single cache measurement channel).
 HTRACE_WIDTH = 1
 HTRACE_L1D = 0
@@ -147,7 +147,7 @@ class UserMeasurement(ctypes.Structure):
         ("pfc", ctypes.c_uint64 * NUM_PFC),
     ]
 
-# Mirror of src/aarch64/executor/userapi/executor_ioctl_nr.h — keep the numbers
+# Mirror of src/aarch64/executor/userapi/executor_ioctl_nr.h, keep the numbers
 # in sync with that header (the canonical, consecutive source of truth).
 REVISOR_IOC_MAGIC = ord('r')
 
@@ -166,7 +166,7 @@ REVISOR_PAC_AUTH_CONSTANT           = 12
 REVISOR_PAC_XPAC_CONSTANT           = 13
 
 class PacKeys(ctypes.Structure):
-    """The five PAC keys (instruction A/B, data A/B, generic), each {lo,hi} — 80 bytes / 10 words."""
+    """The five PAC keys (instruction A/B, data A/B, generic), each {lo,hi}, 80 bytes / 10 words."""
     _fields_ = [
         ("apia_lo", ctypes.c_uint64), ("apia_hi", ctypes.c_uint64),
         ("apib_lo", ctypes.c_uint64), ("apib_hi", ctypes.c_uint64),

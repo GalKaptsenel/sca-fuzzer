@@ -6,12 +6,12 @@ from typing import List, Optional
 from ..interfaces import Instruction, TargetDesc, MacroSpec, CPUDesc, MemoryRole, CondOperand
 from ..config import CONF
 
-# Parked in this shared constants module — a dedicated sandbox-ABI home would fit better.
+# Parked in this shared constants module, a dedicated sandbox-ABI home would fit better.
 SANDBOX_BASE_REGISTER = "x29"
 
 # Dedicated register for an indirect call's target address (ADR + BLR): callee-saved (both the kernel
 # harness and the CE trampoline save/restore it), not reserved (X15 hw-trace, X20-X22 PMU, X29 base) and
-# not a data register — a code address in x0-x7 would be reused as a sandbox-masked base and diverge
+# not a data register, a code address in x0-x7 would be reused as a sandbox-masked base and diverge
 # between the CE and kernel code bases.
 INDIRECT_CALL_TARGET_REGISTER = "x28"
 
@@ -153,8 +153,8 @@ class Aarch64TargetDesc(TargetDesc):
     }  # yapf: disable
 
     sve_scalable_vector_registers = [f"z{i}" for i in range(32)]
-    # Only p0–p7: many predicate operands accept just the lower half, and SVE is not currently
-    # generated, so the lower 8 suffice (the architecture defines p0–p15).
+    # Only p0-p7: many predicate operands accept just the lower half, and SVE is not currently
+    # generated, so the lower 8 suffice (the architecture defines p0-p15).
     sve_predicate_registers = [f"p{i}" for i in range(8)]
 
     pte_bits = {
@@ -213,7 +213,7 @@ class Aarch64TargetDesc(TargetDesc):
     def _read_cpu_desc() -> CPUDesc:
         """Build the CPU descriptor from the MIDR fields Linux exposes per-core in /proc/cpuinfo.
         Only `vendor` is consulted by the aarch64 paths; model/family/stepping are descriptive.
-        Loud-fail (no fallback) if the fields are absent — this is not an aarch64 host."""
+        Loud-fail (no fallback) if the fields are absent, this is not an aarch64 host."""
         fields = {}
         with open("/proc/cpuinfo") as f:
             for line in f:
@@ -223,7 +223,7 @@ class Aarch64TargetDesc(TargetDesc):
         try:
             return CPUDesc("aarch64", fields["CPU part"], fields["CPU variant"], fields["CPU revision"])
         except KeyError as missing:
-            raise RuntimeError(f"/proc/cpuinfo missing MIDR field {missing} — not an aarch64 host?")
+            raise RuntimeError(f"/proc/cpuinfo missing MIDR field {missing}, not an aarch64 host?")
 
     @staticmethod
     def is_unconditional_branch(inst: Instruction) -> bool:
